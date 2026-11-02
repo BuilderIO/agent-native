@@ -8,7 +8,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  saveWithMerge,
+  type SavedRecord,
+} from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
@@ -86,6 +91,7 @@ import {
   buildTimelinePieces,
   formatMs,
   getExcludedRanges,
+  identifyTrims,
   parseEdits,
   removeCut,
   removeSplit,
@@ -839,6 +845,24 @@ export function EditorLayout({
   ]);
 
   const setTrims = useActionMutation("set-recording-trims");
+  const savedTrimsRef = useRef<SavedRecord<TrimRange[]>>({
+    value: [],
+    revision: null,
+  });
+  useEffect(() => {
+    if (!recording || editSaveLedgerRef.current.pending > 0) return;
+    savedTrimsRef.current = {
+      value: edits.trims,
+      revision: recording.trimsRevision ?? null,
+    };
+  }, [edits.trims, recording]);
+  const commitEditsRef = useRef<
+    (next: EditsJson, options?: { record?: boolean }) => Promise<boolean>
+  >(async () => false);
+  const trimConflict = useSaveConflictPrompt<TrimRange[]>({
+    record: "clip_trims",
+    onRestore: (trims) => void commitEditsRef.current({ ...edits, trims }),
+  });
   const beginEditSave = useCallback((kind: EditSaveKind) => {
     const generation = beginEditorSave(editSaveLedgerRef.current, kind);
     setSaveStatus("saving");
@@ -887,7 +911,19 @@ export function EditorLayout({
       let succeeded = false;
       try {
         await enqueueRecordingEditorSave(recordingId, "trims", async () => {
-          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          savedTrimsRef.current = await saveWithMerge<TrimRange[]>({
+            base: savedTrimsRef.current,
+            mine: identifyTrims(next.trims),
+            resolveOverlap: trimConflict.resolveOverlap,
+            save: async ({ value, revision }) => {
+              const saved = await setTrims.mutateAsync({
+                recordingId,
+                trims: value,
+                expectedRevision: revision ?? undefined,
+              });
+              return { value: saved.editsJson.trims, revision: saved.revision };
+            },
+          });
           await playerDataQuery.refetch();
         });
         succeeded = true;
@@ -916,8 +952,10 @@ export function EditorLayout({
       savedEdits,
       setTrims,
       t,
+      trimConflict.resolveOverlap,
     ],
   );
+  commitEditsRef.current = commitEdits;
 
   const setOverlays = useActionMutation("set-recording-overlays");
   const burnRedactions = useActionMutation("burn-recording-redactions");
@@ -1951,6 +1989,7 @@ export function EditorLayout({
         ) : null}
       </div>
 
+      {trimConflict.prompt}
       <ThumbnailPicker
         open={thumbOpen}
         onOpenChange={setThumbOpen}

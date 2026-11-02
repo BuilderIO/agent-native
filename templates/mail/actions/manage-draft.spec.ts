@@ -38,6 +38,7 @@ vi.mock("@agent-native/core/action", async (importOriginal) => {
       const error = Object.assign(new Error(message), options);
       throw error;
     },
+    ActionContractError: actual.ActionContractError,
     NoWriteError: actual.NoWriteError,
     isNoWriteError: actual.isNoWriteError,
   };
@@ -82,6 +83,7 @@ vi.mock("../shared/signature.js", () => ({
 }));
 
 import { isNoWriteError } from "@agent-native/core/action";
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
 
 import {
   GmailQuotaCooldownError,
@@ -118,6 +120,11 @@ beforeEach(() => {
     },
   );
 });
+
+/** The revision an agent would have read for the stored draft. */
+function revisionOf(id: string): string {
+  return saveRevisionOf(appState.get(`compose-${id}`));
+}
 
 function manageDraftSource(): string {
   return readFileSync(new URL("./manage-draft.ts", import.meta.url), "utf8");
@@ -305,6 +312,7 @@ describe("manage-draft local fallback", () => {
     const updated = await action.run({
       action: "update",
       id: "ui-draft",
+      expectedRevision: revisionOf("ui-draft"),
       body: "Updated draft",
     });
 
@@ -315,8 +323,9 @@ describe("manage-draft local fallback", () => {
     expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
       expect.objectContaining({ attachments }),
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "compose-ui-draft",
+      expect.anything(),
       expect.objectContaining({
         body: "Updated draft",
         attachments,
@@ -339,6 +348,7 @@ describe("manage-draft local fallback", () => {
       action.run({
         action: "update",
         id: "ui-draft",
+        expectedRevision: revisionOf("ui-draft"),
         body: "Updated draft",
       }),
     ).rejects.toThrow('Draft "ui-draft" has invalid attachments');
@@ -360,6 +370,7 @@ describe("manage-draft local fallback", () => {
     const updated = await action.run({
       action: "update",
       id: "local-draft",
+      expectedRevision: revisionOf("local-draft"),
       body: "Updated draft",
     });
 
@@ -390,6 +401,7 @@ describe("manage-draft local fallback", () => {
       action.run({
         action: "update",
         id: "gmail-draft",
+        expectedRevision: revisionOf("gmail-draft"),
         accountEmail: "new@example.com",
       }),
     ).rejects.toMatchObject({ errorCode: "draft_account_change" });
@@ -410,6 +422,7 @@ describe("manage-draft local fallback", () => {
     const result = await action.run({
       action: "update",
       id: "local-draft",
+      expectedRevision: revisionOf("local-draft"),
       body: "Updated body",
     });
 
@@ -443,6 +456,7 @@ describe("manage-draft local fallback", () => {
     const result = await action.run({
       action: "update",
       id: "legacy-local",
+      expectedRevision: revisionOf("legacy-local"),
       body: "Updated body",
     });
 
@@ -476,6 +490,7 @@ describe("manage-draft local fallback", () => {
     await action.run({
       action: "update",
       id: "legacy-gmail",
+      expectedRevision: revisionOf("legacy-gmail"),
       body: "Updated body",
     });
 
@@ -499,7 +514,12 @@ describe("manage-draft local fallback", () => {
     });
 
     await expect(
-      action.run({ action: "update", id: "unknown", body: "Changed" }),
+      action.run({
+        action: "update",
+        id: "unknown",
+        expectedRevision: revisionOf("unknown"),
+        body: "Changed",
+      }),
     ).rejects.toThrow("Could not verify the backend");
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
     expect(mocks.updateLocalSavedDraft).not.toHaveBeenCalled();
@@ -546,7 +566,12 @@ describe("manage-draft Gmail budget refusals", () => {
     mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
 
     const error = await action
-      .run({ action: "update", id: "gmail-draft", body: "Changed" })
+      .run({
+        action: "update",
+        id: "gmail-draft",
+        expectedRevision: revisionOf("gmail-draft"),
+        body: "Changed",
+      })
       .catch((thrown: unknown) => thrown);
 
     expect(isNoWriteError(error)).toBe(true);
@@ -597,6 +622,7 @@ describe("manage-draft deep link", () => {
     const updated = await action.run({
       action: "update",
       id: "card-draft",
+      expectedRevision: revisionOf("card-draft"),
       body: "Revised body",
     });
 
@@ -677,6 +703,7 @@ describe("manage-draft create-then-reply flow", () => {
     const updated = await action.run({
       action: "update",
       id: created.id,
+      expectedRevision: created.revision,
       body: "Hi,\n\nQuick follow-up: could you confirm your check-in date?",
     });
 
@@ -690,6 +717,111 @@ describe("manage-draft create-then-reply flow", () => {
       url: "/mail",
     });
     expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
+  });
+});
+
+describe("manage-draft saves against the revision it read", () => {
+  const stored = {
+    id: "shared-draft",
+    to: "recipient@example.com",
+    subject: "Hello",
+    body: "Original",
+    mode: "compose",
+  };
+
+  beforeEach(() => {
+    appState.set("compose-shared-draft", stored);
+  });
+
+  it("returns the current draft when the person changed it after the read", async () => {
+    const readRevision = revisionOf("shared-draft");
+    const typed = { ...stored, body: "Typed in the compose window" };
+    appState.set("compose-shared-draft", typed);
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: readRevision,
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "save_conflict",
+      details: { current: typed, currentRevision: saveRevisionOf(typed) },
+    });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(appState.get("compose-shared-draft")).toBe(typed);
+  });
+
+  it("sends the same conflict when no revision was read at all", async () => {
+    await expect(
+      action.run({ action: "update", id: "shared-draft", body: "Blind" }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { current: stored, currentRevision: revisionOf("shared-draft") },
+    });
+    expect(appState.get("compose-shared-draft")).toBe(stored);
+  });
+
+  it("lets the agent redo its edit with the revision from the conflict", async () => {
+    const conflict = await action
+      .run({ action: "update", id: "shared-draft", body: "Agent body" })
+      .catch((error: { details: { currentRevision: string } }) => error);
+
+    const redone = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: (conflict as { details: { currentRevision: string } })
+        .details.currentRevision,
+      body: "Agent body",
+    });
+
+    expect(redone.draft.body).toBe("Agent body");
+    expect(redone.revision).toBe(revisionOf("shared-draft"));
+  });
+
+  it("applies a repeated update once", async () => {
+    const readRevision = revisionOf("shared-draft");
+    const first = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: readRevision,
+      body: "Agent body",
+    });
+    mocks.saveGmailDraft.mockClear();
+
+    const repeat = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: readRevision,
+      body: "Agent body",
+    });
+
+    expect(repeat.draft.body).toBe("Agent body");
+    expect(repeat.revision).toBe(first.revision);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("catches a save that lands between the check and the write", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return null;
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { current: typed },
+    });
+    expect(appState.get("compose-shared-draft")).toBe(typed);
   });
 });
 

@@ -23,6 +23,7 @@ export {
   getStateMany,
   MAX_APP_STATE_BATCH_KEYS,
   putState,
+  saveComposeDraft,
   deleteState,
   listComposeDrafts,
   getComposeDraft,

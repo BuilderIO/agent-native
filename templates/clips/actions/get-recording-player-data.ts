@@ -2,6 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getAgentClipReadiness } from "@shared/agent-context";
 import { transcriptContextAt } from "@shared/comment-transcript-context";
 import {
@@ -437,6 +438,9 @@ export default defineAction({
           : canEditRecording
             ? editorScreenshotEditsJson(rec.editsJson)
             : viewerScreenshotEditsJson(rec.editsJson),
+        ...(canEditRecording
+          ? { trimsRevision: trimsRevisionOf(rec.editsJson) }
+          : {}),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,

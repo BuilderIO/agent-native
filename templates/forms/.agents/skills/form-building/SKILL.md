@@ -111,12 +111,22 @@ Use `update-form` to modify any form property:
 # Change title
 pnpm action update-form --id <id> --title "New Title"
 
-# Update fields
-pnpm action update-form --id <id> --fields '[...]'
+# Update fields, sending the revision you read
+pnpm action update-form --id <id> --expectedRevision <revision> --fields '[...]'
 
 # Change status
 pnpm action update-form --id <id> --status published
 ```
+
+`view-screen`, `get-form`, `create-form`, `update-form` and `patch-form-fields`
+return a `revision`. Send it as `expectedRevision` when you replace `fields` or
+upsert an existing field. A `save_conflict` means someone changed the fields
+after your read and nothing was saved: redo your edit on `details.current` (call
+`get-form` if it was left out) with `details.currentRevision`. Title, status and
+settings changes, new fields, removals and reorders don't need a revision.
+
+A rename moves the slug only on a draft still using the slug generated from its
+title. A custom slug or a published form keeps its link.
 
 ## Common Form Templates
 

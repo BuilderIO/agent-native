@@ -9,7 +9,9 @@ import {
 } from "h3";
 
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
+import { isSaveConflict, saveRevisionOf } from "../save-conflict/index.js";
 import { readBody } from "../server/h3-helpers.js";
+import { appStateSaveIfCurrent } from "./save-if-current.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
   appStateGet,
@@ -201,6 +203,46 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStatePut(sessionId, composeDraftKey(id), state, { requestSource });
   return state;
+});
+
+export const saveComposeDraft = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
+  const id = getRouterParam(event, "id") as string;
+  const { expectedRevision, next } = (await readBody(event)) as {
+    expectedRevision?: string | null;
+    next?: Record<string, unknown>;
+  };
+  if (
+    expectedRevision === undefined ||
+    typeof next?.subject !== "string" ||
+    typeof next.body !== "string"
+  ) {
+    setResponseStatus(event, 400);
+    return {
+      error: "expectedRevision, next.subject and next.body are required",
+    };
+  }
+
+  const state = { ...next, id };
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  try {
+    await appStateSaveIfCurrent(
+      sessionId,
+      composeDraftKey(id),
+      expectedRevision,
+      state,
+      { requestSource },
+    );
+    return { value: state, revision: saveRevisionOf(state) };
+  } catch (error) {
+    if (!isSaveConflict(error)) throw error;
+    setResponseStatus(event, 409);
+    return {
+      error: error.message,
+      errorCode: error.errorCode,
+      details: error.details,
+    };
+  }
 });
 
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {

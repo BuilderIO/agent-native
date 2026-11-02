@@ -1,20 +1,25 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  EXPECTED_REVISION_DESCRIPTION,
+  isSameRecord,
+  saveIfCurrent,
+} from "@agent-native/core/save-conflict/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   identifyTrims,
   parseEdits,
   serializeEdits,
+  trimsRevisionOf,
   type TrimRange,
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
-const MAX_CAS_ATTEMPTS = 5;
 const MAX_TRIMS = 2_000;
 
 const TrimSchema = z.object({
@@ -29,6 +34,12 @@ export default defineAction({
     "Replace the whole trim list on a recording. Each entry is {id?,startMs,endMs,excluded}: excluded ranges are skipped during playback, zero-width non-excluded entries are split markers. Blurs and the thumbnail spec are preserved.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        `${EXPECTED_REVISION_DESCRIPTION} Required, because this replaces the whole list: read it as recording.trimsRevision from get-recording-player-data.`,
+      ),
     trims: z
       .union([z.string(), z.array(TrimSchema)])
       .describe(
@@ -81,49 +92,61 @@ export default defineAction({
 
     const db = getDb();
 
-    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
-      const [existing] = await db
-        .select()
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, args.recordingId));
-      if (!existing) {
-        throw new Error(`Recording not found: ${args.recordingId}`);
-      }
-      assertNativeRecordingMedia(existing);
+    const { outcome, current } = await saveIfCurrent({
+      record: "clip_trims",
+      expectedRevision: args.expectedRevision,
+      requireRevision: true,
+      read: async () => {
+        const rows = await db
+          .select()
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId));
+        if (rows.length === 0) {
+          fail(`Recording not found: ${args.recordingId}`, {
+            errorCode: "recording_not_found",
+            statusCode: 404,
+          });
+        }
+        const existing = rows[0];
+        assertNativeRecordingMedia(existing);
+        const edits = parseEdits(existing.editsJson);
+        return {
+          value: edits.trims,
+          revision: trimsRevisionOf(existing.editsJson),
+          edits,
+          previousEditsJson: existing.editsJson,
+        };
+      },
+      isSameSave: (currentTrims) => isSameRecord(currentTrims, trims),
+      write: ({ edits, previousEditsJson }) =>
+        db
+          .update(schema.recordings)
+          .set({
+            editsJson: serializeEdits({ ...edits, trims }),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, args.recordingId),
+              eq(schema.recordings.editsJson, previousEditsJson),
+            ),
+          )
+          .returning({ id: schema.recordings.id }),
+    });
 
-      const previousEditsJson = existing.editsJson;
-      const next = { ...parseEdits(previousEditsJson), trims };
-
-      const result = await db
-        .update(schema.recordings)
-        .set({
-          editsJson: serializeEdits(next),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.recordings.id, args.recordingId),
-            previousEditsJson == null
-              ? isNull(schema.recordings.editsJson)
-              : eq(schema.recordings.editsJson, previousEditsJson),
-          ),
-        )
-        .returning({ id: schema.recordings.id });
-
-      if (result.length > 0) {
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        const cuts = trims.filter((t) => t.excluded).length;
-        console.log(
-          `Set trims on ${args.recordingId}: ${cuts} cut(s), ${trims.length - cuts} split marker(s)`,
-        );
-        return { id: args.recordingId, editsJson: next, trimCount: cuts };
-      }
-      // Someone else changed editsJson between our read and write — retry
-      // against the now-current value.
+    const next = { ...current.edits, trims };
+    const cuts = trims.filter((t) => t.excluded).length;
+    if (outcome === "written") {
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      console.log(
+        `Set trims on ${args.recordingId}: ${cuts} cut(s), ${trims.length - cuts} split marker(s)`,
+      );
     }
-
-    throw new Error(
-      `Could not set trims on recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
-    );
+    return {
+      id: args.recordingId,
+      editsJson: next,
+      trimCount: cuts,
+      revision: trimsRevisionOf(serializeEdits(next)),
+    };
   },
 });

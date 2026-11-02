@@ -2,6 +2,15 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { appendSignatureToBody } from "@shared/signature";
+import {
+  isSaveConflict,
+  mergeRecords,
+  rebaseOntoSaved,
+  saveRevisionOf,
+  saveWithMerge,
+  type SavedRecord,
+  type SaveOverlap,
+} from "@agent-native/core/save-conflict";
 import type { ComposeState, UserSettings } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
@@ -41,6 +50,113 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(`Request failed (${res.status})`);
   }
   return res.json();
+}
+
+/** Sends one draft save, checked against the revision it started from. */
+async function saveComposeDraftIfCurrent(
+  draft: ComposeState,
+  expectedRevision: string | null,
+): Promise<SavedRecord<ComposeState>> {
+  const res = await fetch(
+    agentNativePath(`/_agent-native/application-state/compose/${draft.id}`),
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
+      body: JSON.stringify({ expectedRevision, next: draft }),
+    },
+  );
+  if (res.ok) return res.json();
+  if (res.status !== 409) {
+    throw Object.assign(new Error(`Request failed (${res.status})`), {
+      status: res.status,
+    });
+  }
+  const conflict = await res.json();
+  throw Object.assign(new Error(conflict.error), {
+    status: 409,
+    errorCode: conflict.errorCode,
+    details: conflict.details,
+  });
+}
+
+const SAVED_DRAFT_METADATA = [
+  "savedDraftId",
+  "savedDraftBackend",
+  "savedDraftAccountEmail",
+] as const;
+
+/**
+ * Merges a draft, field by field. Which mailbox draft backs it isn't something a
+ * person can choose between, so the stored one wins without asking.
+ */
+export function mergeComposeDrafts(
+  base: ComposeState,
+  mine: ComposeState,
+  theirs: ComposeState,
+) {
+  const adopted = { ...mine };
+  if (theirs.savedDraftId) {
+    for (const key of SAVED_DRAFT_METADATA) {
+      (adopted as Record<string, unknown>)[key] = theirs[key];
+    }
+  }
+  return mergeRecords(base, adopted, theirs);
+}
+
+// Shared by every hook instance: a refetch started through one has to see edits
+// made through another, and the base of an edit doesn't depend on which saved it.
+const dirtyDrafts: Record<string, boolean> = {};
+const draftVersions: Record<string, number> = {};
+const savedDrafts = new Map<string, ComposeState>();
+let resolveDraftOverlap:
+  | ((overlap: SaveOverlap<ComposeState>) => Promise<ComposeState>)
+  | undefined;
+
+/** Lets the one mounted conflict prompt answer overlaps for every instance. */
+export function setDraftOverlapResolver(
+  resolver: typeof resolveDraftOverlap,
+): void {
+  resolveDraftOverlap = resolver;
+}
+
+/** What to put in an agent prompt so its update checks the draft it was shown. */
+export function draftRevisionPromptArg(id: string): string {
+  const known = savedDrafts.get(id);
+  return known ? `, expectedRevision "${saveRevisionOf(known)}"` : "";
+}
+
+/**
+ * Saves a draft on top of whatever another tab or the agent stored first, and
+ * returns what's stored now.
+ */
+export async function saveDraftMerging(
+  mine: ComposeState,
+): Promise<ComposeState> {
+  const known = savedDrafts.get(mine.id);
+  const saved = await saveWithMerge<ComposeState>({
+    base: known
+      ? { value: known, revision: saveRevisionOf(known) }
+      : { value: { id: mine.id } as ComposeState, revision: null },
+    mine,
+    merge: mergeComposeDrafts,
+    resolveOverlap: resolveDraftOverlap,
+    save: async ({ value, revision }) => {
+      try {
+        return await saveComposeDraftIfCurrent(value, revision);
+      } catch (error) {
+        // Deleted elsewhere while this window still holds the text: store it again.
+        if (isSaveConflict(error) && error.details.current === null) {
+          return saveComposeDraftIfCurrent(value, null);
+        }
+        throw error;
+      }
+    },
+  });
+  savedDrafts.set(mine.id, saved.value);
+  return saved.value;
 }
 
 function hasDraftContent(draft: ComposeState): boolean {
@@ -318,8 +434,8 @@ export function useComposeState() {
   const [stagedSendIds, setStagedSendIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const dirtyRef = useRef<Record<string, boolean>>({});
-  const versionRef = useRef<Record<string, number>>({});
+  const dirtyRef = useRef(dirtyDrafts);
+  const versionRef = useRef(draftVersions);
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
@@ -359,6 +475,11 @@ export function useComposeState() {
         result ?? [],
         removedDraftIdsRef.current,
       );
+      for (const serverDraft of serverDrafts) {
+        if (!dirtyRef.current[serverDraft.id]) {
+          savedDrafts.set(serverDraft.id, serverDraft);
+        }
+      }
       const localDrafts = filterRemovedDrafts(
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [],
         removedDraftIdsRef.current,
@@ -431,11 +552,15 @@ export function useComposeState() {
   const activeDraft = drafts.find((d) => d.id === resolvedActiveId) ?? null;
 
   const putMutation = useMutation({
-    mutationFn: (state: ComposeState) =>
-      apiFetch(`/_agent-native/application-state/compose/${state.id}`, {
-        method: "PUT",
-        body: JSON.stringify(state),
-      }),
+    mutationFn: async (state: ComposeState) => {
+      const saved = await saveDraftMerging(state);
+      qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+        (old ?? []).map((draft) =>
+          draft.id === state.id ? rebaseOntoSaved(state, draft, saved) : draft,
+        ),
+      );
+      return saved;
+    },
   });
 
   const deleteMutation = useMutation({

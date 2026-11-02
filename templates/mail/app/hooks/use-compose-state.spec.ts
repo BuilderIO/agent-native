@@ -1,3 +1,7 @@
+import {
+  saveRevisionOf,
+  SaveOverlapError,
+} from "@agent-native/core/save-conflict";
 import type { ComposeState } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,8 +14,11 @@ import {
   enqueueDraftSave,
   filterRemovedDrafts,
   getDraftSaveMetadataUpdate,
+  mergeComposeDrafts,
   newestUnseenPopoutDraftId,
+  saveDraftMerging,
   saveDraftToEmailsBestEffort,
+  setDraftOverlapResolver,
   type DraftSaveResult,
   type DraftSaveQueueResult,
 } from "./use-compose-state";
@@ -31,6 +38,186 @@ function draft(id: string, inline = false): ComposeState {
     inline,
   };
 }
+
+describe("saveDraftMerging", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setDraftOverlapResolver(undefined);
+  });
+
+  function respondWith(
+    ...responses: Array<{ status: number; body: unknown }>
+  ): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn();
+    for (const { status, body } of responses) {
+      fetchMock.mockResolvedValueOnce({
+        ok: status < 400,
+        status,
+        json: async () => body,
+      });
+    }
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const stored = (value: ComposeState) => ({
+    status: 200,
+    body: { value, revision: saveRevisionOf(value) },
+  });
+  const conflict = (current: ComposeState | null) => ({
+    status: 409,
+    body: {
+      error: "changed",
+      errorCode: "save_conflict",
+      details: {
+        current,
+        currentRevision: current && saveRevisionOf(current),
+      },
+    },
+  });
+  const sentBody = (fetchMock: ReturnType<typeof vi.fn>, call: number) =>
+    JSON.parse(fetchMock.mock.calls[call][1].body);
+
+  /** Gives this draft id a known saved state, as a read or an earlier save does. */
+  async function savedAs(value: ComposeState) {
+    respondWith(stored(value));
+    await saveDraftMerging(value);
+    vi.unstubAllGlobals();
+  }
+
+  it("checks the first save of a new draft against nothing being there", async () => {
+    const mine = { ...draft("merge-new"), body: "Hello" };
+    const fetchMock = respondWith(stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/_agent-native/application-state/compose/merge-new",
+    );
+    expect(fetchMock.mock.calls[0][1].method).toBe("PATCH");
+    expect(sentBody(fetchMock, 0)).toEqual({
+      expectedRevision: null,
+      next: mine,
+    });
+  });
+
+  it("merges another writer's change to a different field without asking", async () => {
+    const base = { ...draft("merge-other"), subject: "Base", body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const theirs = { ...base, subject: "Theirs" };
+    const merged = { ...base, subject: "Theirs", body: "Mine" };
+    const resolver = vi.fn();
+    setDraftOverlapResolver(resolver);
+    const fetchMock = respondWith(conflict(theirs), stored(merged));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(merged);
+
+    expect(sentBody(fetchMock, 0).expectedRevision).toBe(saveRevisionOf(base));
+    expect(sentBody(fetchMock, 1)).toEqual({
+      expectedRevision: saveRevisionOf(theirs),
+      next: merged,
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("asks when both changed the same field", async () => {
+    const base = { ...draft("merge-same"), body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const theirs = { ...base, body: "Theirs" };
+    const resolver = vi.fn(async (overlap) => overlap.keepMine);
+    setDraftOverlapResolver(resolver);
+    const fetchMock = respondWith(conflict(theirs), stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver.mock.calls[0][0]).toMatchObject({
+      fields: ["body"],
+      theirs,
+      mine,
+    });
+    expect(sentBody(fetchMock, 1).expectedRevision).toBe(
+      saveRevisionOf(theirs),
+    );
+  });
+
+  it("fails loudly rather than overwriting when nothing can ask", async () => {
+    const base = { ...draft("merge-noprompt"), body: "Base" };
+    await savedAs(base);
+    const fetchMock = respondWith(conflict({ ...base, body: "Theirs" }));
+
+    await expect(
+      saveDraftMerging({ ...base, body: "Mine" }),
+    ).rejects.toBeInstanceOf(SaveOverlapError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a draft again if it was deleted elsewhere while still open", async () => {
+    const base = { ...draft("merge-deleted"), body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const fetchMock = respondWith(conflict(null), stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(sentBody(fetchMock, 1).expectedRevision).toBeNull();
+  });
+
+  it("reports anything else as the failure it is", async () => {
+    const mine = { ...draft("merge-error"), body: "Mine" };
+    respondWith({ status: 500, body: { error: "nope" } });
+
+    await expect(saveDraftMerging(mine)).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe("mergeComposeDrafts", () => {
+  it("never asks about which mailbox draft backs the compose draft", () => {
+    const base = draft("meta");
+    const result = mergeComposeDrafts(
+      base,
+      {
+        ...base,
+        body: "Mine",
+        savedDraftId: "mine-gmail",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "mine@example.com",
+      },
+      {
+        ...base,
+        savedDraftId: "their-gmail",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "theirs@example.com",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      merged: {
+        body: "Mine",
+        savedDraftId: "their-gmail",
+        savedDraftAccountEmail: "theirs@example.com",
+      },
+    });
+  });
+
+  it("keeps my mailbox draft when the other writer has none", () => {
+    const base = draft("meta-mine");
+    const result = mergeComposeDrafts(
+      base,
+      { ...base, savedDraftId: "mine-gmail" },
+      { ...base, subject: "Theirs" },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      merged: { subject: "Theirs", savedDraftId: "mine-gmail" },
+    });
+  });
+});
 
 describe("newestUnseenPopoutDraftId", () => {
   it("focuses the newest server-added popout draft", () => {

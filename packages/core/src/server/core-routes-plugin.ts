@@ -64,6 +64,7 @@ import {
   listComposeDrafts,
   getComposeDraft,
   putComposeDraft,
+  saveComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
@@ -2810,6 +2811,7 @@ export function createBuilderProvisionHandler(
  *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
  *   GET    /_agent-native/application-state/compose/:id — get compose draft
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
+ *   PATCH  /_agent-native/application-state/compose/:id — save a compose draft only if it's unchanged
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
 /**
@@ -3291,6 +3293,7 @@ export function mountApplicationStateRoutes(
       } else {
         if (method === "GET") return getComposeDraft(event);
         if (method === "PUT") return putComposeDraft(event);
+        if (method === "PATCH") return saveComposeDraft(event);
         if (method === "DELETE") return deleteComposeDraft(event);
       }
       setResponseStatus(event, 405);

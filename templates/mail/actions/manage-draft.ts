@@ -4,12 +4,19 @@ import { embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
-  writeAppState,
   compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
 } from "@agent-native/core/application-state";
+import {
+  checkSaveRevision,
+  countSaveOutcome,
+  EXPECTED_REVISION_DESCRIPTION,
+  isSameRecord,
+  saveConflict,
+  saveRevisionOf,
+} from "@agent-native/core/save-conflict/server";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
@@ -69,6 +76,18 @@ function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
+const DRAFT_UPDATE_FIELDS = [
+  "to",
+  "cc",
+  "bcc",
+  "subject",
+  "body",
+  "mode",
+  "replyToId",
+  "replyToThreadId",
+  "accountEmail",
+] as const;
+
 const draftFields = {
   to: z.string().optional().describe("Recipient email(s)"),
   cc: z.string().optional().describe("CC email(s)"),
@@ -105,6 +124,12 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("update").describe("Update an existing draft"),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        `${EXPECTED_REVISION_DESCRIPTION} Required: the person may be typing in this draft. Read it from the create result, view-composer, or an earlier update.`,
+      ),
     id: draftId.describe(
       "Existing draft ID from compose state: if the state key is `compose-{id}`, pass only `{id}`. A prior create result also provides the ID.",
     ),
@@ -292,6 +317,8 @@ export default defineAction({
     "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
     "`delete-all` to remove all compose drafts. To start a new reply, call " +
     "`create` with mode=reply, replyToId, to, subject, and body. " +
+    "Send the draft's `revision` back as `expectedRevision` on `update`; if " +
+    "the draft changed since, redo your edit on the current value it returns. " +
     "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
   needsApproval: (args, ctx) =>
@@ -493,6 +520,7 @@ export default defineAction({
         draft,
         deepLink,
         ...draftCardEmbed(draft, deepLink),
+        revision: saveRevisionOf(draft),
         message: `Created draft ${id}`,
         change: draftChange("created", draft, deepLink),
       };
@@ -512,6 +540,34 @@ export default defineAction({
         });
       if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
         throw new Error(`Draft "${safeId}" has invalid stored data`);
+      }
+      const changes: Partial<
+        Record<(typeof DRAFT_UPDATE_FIELDS)[number], unknown>
+      > = args;
+      const decision = checkSaveRevision({
+        record: "draft",
+        expectedRevision: args.expectedRevision,
+        requireRevision: true,
+        current: { value: storedDraft, revision: saveRevisionOf(storedDraft) },
+        isSameSave: (current) =>
+          DRAFT_UPDATE_FIELDS.every(
+            (key) =>
+              changes[key] === undefined ||
+              isSameRecord(current[key], changes[key]),
+          ),
+      });
+      if (decision === "already_applied") {
+        const draft = storedDraft as unknown as ComposeState;
+        const deepLink = composeDeepLink(draft);
+        return {
+          id: safeId,
+          draft,
+          deepLink,
+          ...draftCardEmbed(draft, deepLink),
+          revision: saveRevisionOf(draft),
+          message: `Draft ${safeId} already has this update`,
+          change: draftChange("updated", draft, deepLink),
+        };
       }
       const draft = { ...storedDraft } as unknown as ComposeState;
       for (const key of [
@@ -574,17 +630,7 @@ export default defineAction({
           statusCode: 400,
         });
       }
-      for (const key of [
-        "to",
-        "cc",
-        "bcc",
-        "subject",
-        "body",
-        "mode",
-        "replyToId",
-        "replyToThreadId",
-        "accountEmail",
-      ]) {
+      for (const key of DRAFT_UPDATE_FIELDS) {
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
       }
@@ -646,13 +692,28 @@ export default defineAction({
         draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
-      await writeAppState(`compose-${safeId}`, draft);
+      // The revision was checked before Gmail. This catches a save in between.
+      const stored = await compareAndSetAppState(
+        `compose-${safeId}`,
+        storedDraft,
+        draft as unknown as Record<string, unknown>,
+      );
+      if (!stored) {
+        const latest = await readAppState(`compose-${safeId}`);
+        throw saveConflict(
+          "draft",
+          latest,
+          latest ? saveRevisionOf(latest) : null,
+        );
+      }
+      countSaveOutcome("draft", "written");
       const deepLink = composeDeepLink(draft);
       return {
         id: safeId,
         draft,
         deepLink,
         ...draftCardEmbed(draft, deepLink),
+        revision: saveRevisionOf(draft),
         message: `Updated draft ${safeId}`,
         change: draftChange("updated", draft, deepLink),
       };

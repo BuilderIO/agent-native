@@ -61,6 +61,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { fieldsRevision } from "../server/lib/merge-fields.js";
 import patchFormFields from "./patch-form-fields";
 
 describe("patch-form-fields published form validation", () => {
@@ -93,6 +94,7 @@ describe("patch-form-fields published form validation", () => {
     await expect(
       patchFormFields.run({
         id: "form-example",
+        expectedRevision: fieldsRevision(state.existing.fields),
         ops: [
           {
             op: "upsert",
@@ -166,6 +168,7 @@ describe("patch-form-fields published form validation", () => {
 
     const result = await patchFormFields.run({
       id: "form-example",
+      expectedRevision: fieldsRevision(state.existing.fields),
       ops: [
         {
           op: "upsert",

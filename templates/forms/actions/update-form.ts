@@ -1,4 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  checkSaveRevision,
+  countSaveOutcome,
+  EXPECTED_REVISION_DESCRIPTION,
+  isSameRecord,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -8,6 +15,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
+import { fieldsRevision } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
@@ -52,6 +60,12 @@ export default defineAction({
       .describe(
         "Array of complete field objects (a JSON string of the same array is also accepted). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted. To add or remove individual questions, use patch-form-fields instead.",
       ),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        `${EXPECTED_REVISION_DESCRIPTION} Required with \`fields\`, which replaces the whole list.`,
+      ),
     confirmReplaceFields: z
       .boolean()
       .optional()
@@ -95,9 +109,16 @@ export default defineAction({
 
       if (args.title !== undefined) {
         updates.title = args.title;
-        if (args.slug === undefined) {
-          const idSuffix = args.id.slice(0, 6);
-          updates.slug = slugify(args.title || "untitled") + "-" + idSuffix;
+        // A slug is a link someone may already have, so it follows the title
+        // only on a draft still using the slug generated from its title.
+        const generatedSlug = (title: string) =>
+          slugify(title || "untitled") + "-" + args.id.slice(0, 6);
+        if (
+          args.slug === undefined &&
+          existing.status === "draft" &&
+          existing.slug === generatedSlug(existing.title)
+        ) {
+          updates.slug = generatedSlug(args.title);
         }
       }
       if (args.description !== undefined)
@@ -114,15 +135,27 @@ export default defineAction({
             errorCode: "invalid_existing_fields",
           });
         }
-        assertNotUnconfirmedFieldLoss({
-          existing: existingFields,
-          incoming: parsedFields as FormField[],
-          confirmed: args.confirmReplaceFields === true,
-          existingTitle: existing.title,
-          incomingTitle: args.title,
+        const decision = checkSaveRevision({
+          record: "form_fields",
+          expectedRevision: args.expectedRevision,
+          requireRevision: true,
+          current: {
+            value: existingFields,
+            revision: fieldsRevision(existing.fields),
+          },
+          isSameSave: (fields) => isSameRecord(fields, parsedFields),
         });
-        updates.fields = JSON.stringify(parsedFields);
-        fieldsForTracking = parsedFields as FormField[];
+        if (decision === "apply") {
+          assertNotUnconfirmedFieldLoss({
+            existing: existingFields,
+            incoming: parsedFields as FormField[],
+            confirmed: args.confirmReplaceFields === true,
+            existingTitle: existing.title,
+            incomingTitle: args.title,
+          });
+          updates.fields = JSON.stringify(parsedFields);
+          fieldsForTracking = parsedFields as FormField[];
+        }
       }
       if (args.settings !== undefined) {
         const incomingSettings = args.settings as unknown as FormSettings;
@@ -175,11 +208,24 @@ export default defineAction({
         .returning({ id: schema.forms.id });
 
       if (!written) {
-        fail(
-          `Form ${args.id} changed while this update was in progress; read it again and retry`,
-          { errorCode: "form_changed", statusCode: 409 },
+        const latest = await db
+          .select()
+          .from(schema.forms)
+          .where(eq(schema.forms.id, args.id))
+          .limit(1);
+        if (latest.length === 0) {
+          fail(`Form ${args.id} not found`, {
+            errorCode: "form_not_found",
+            statusCode: 404,
+          });
+        }
+        throw saveConflict(
+          "form_fields",
+          JSON.parse(latest[0].fields) as FormField[],
+          fieldsRevision(latest[0].fields),
         );
       }
+      if (fieldsForTracking) countSaveOutcome("form_fields", "written");
 
       const row = { ...existing, ...updates } as typeof existing;
 
@@ -254,6 +300,7 @@ export default defineAction({
         ownerEmail: row!.ownerEmail,
         createdAt: row!.createdAt,
         updatedAt: row!.updatedAt,
+        revision: fieldsRevision(row.fields),
       };
     });
   },
