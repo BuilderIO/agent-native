@@ -1487,7 +1487,10 @@ jobs:
       # with the new run_attempt but the original started_at; that copy never
       # uploaded anything. So the job with the latest start time ran the group,
       # and among equal start times the lowest attempt is the one that ran it.
+      # A page that fails mid-pagination would leave a list that can miss the
+      # newest attempts, so only a complete list reaches the merge.
       - name: Read the attempt that last ran each group
+        id: jobs
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1497,7 +1500,8 @@ jobs:
           gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
             --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
-            > "$JOBS_FILE"
+            > "$JOBS_FILE.partial"
+          mv "$JOBS_FILE.partial" "$JOBS_FILE"
 
       - name: Merge Content convergence group reports
         id: merge
@@ -1576,9 +1580,14 @@ jobs:
       - name: Require the regular groups to pass
         if: ${{ !cancelled() }}
         env:
+          JOBS_OUTCOME: ${{ steps.jobs.outcome }}
           MERGE_OUTCOME: ${{ steps.merge.outcome }}
           FAILED_GROUPS: ${{ steps.merge.outputs.failed }}
         run: |
+          if [ "$JOBS_OUTCOME" != "success" ]; then
+            echo "::error::The run's job list could not be read in full, so no group's latest attempt is known"
+            exit 1
+          fi
           if [ "$MERGE_OUTCOME" != "success" ]; then
             echo "::error::The group reports could not be merged"
             exit 1

@@ -1,8 +1,9 @@
 // Renders the two-tab convergence report as a job summary:
 //   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]
 // Each Playwright report is one group, headed by its file name. A report after
-// --required must exist, read as a Playwright report with at least one test
-// that ran (not skipped), and have no failed test, or the summary exits 1. Any other report that is
+// --required must exist, read as a Playwright report whose every test has a
+// known status, have at least one test that passed (expected or flaky), and
+// have no failed test, or the summary exits 1. Any other report that is
 // missing or unreadable is listed and never changes the exit status.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -28,11 +29,26 @@ type PlaywrightSuite = {
 const KNOWN_LOSS = "known-loss";
 
 const [reportPath, ...reportArgs] = process.argv.slice(2);
-const playwrightReportPaths = reportArgs.filter((arg) => arg !== "--required");
-const requiredReportPaths = reportArgs.filter(
-  (arg, index) =>
-    arg !== "--required" && reportArgs[index - 1] === "--required",
-);
+const playwrightReportPaths: string[] = [];
+const requiredReportPaths: string[] = [];
+for (let index = 0; index < reportArgs.length; index += 1) {
+  const arg = reportArgs[index];
+  if (arg !== "--required") {
+    playwrightReportPaths.push(arg);
+    continue;
+  }
+  index += 1;
+  const required = reportArgs.at(index);
+  if (required === undefined || required === "--required") {
+    // A dropped report name would otherwise turn a required report optional.
+    console.error(
+      "Usage: convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]\n--required must be followed by a report path.",
+    );
+    process.exit(1);
+  }
+  playwrightReportPaths.push(required);
+  requiredReportPaths.push(required);
+}
 if (!reportPath || !existsSync(reportPath)) {
   // A missing report means the lane did not run, not that it found nothing.
   console.log(
@@ -168,14 +184,26 @@ if (unreadableRecords.length)
     ...unreadableRecords,
   );
 
-const isSpec = (spec: unknown): spec is PlaywrightSpec =>
-  typeof spec === "object" &&
-  spec !== null &&
-  typeof (spec as PlaywrightSpec).title === "string" &&
-  typeof (spec as PlaywrightSpec).ok === "boolean" &&
-  Array.isArray((spec as PlaywrightSpec).tags) &&
-  ((spec as PlaywrightSpec).tests === undefined ||
-    Array.isArray((spec as PlaywrightSpec).tests));
+const TEST_STATUSES: readonly unknown[] = [
+  "expected",
+  "unexpected",
+  "flaky",
+  "skipped",
+];
+const isTest = (test: unknown): test is PlaywrightTest =>
+  typeof test === "object" &&
+  test !== null &&
+  TEST_STATUSES.includes((test as PlaywrightTest).status);
+const isSpec = (spec: unknown): spec is PlaywrightSpec => {
+  if (typeof spec !== "object" || spec === null) return false;
+  const { title, ok, tags, tests } = spec as PlaywrightSpec;
+  return (
+    typeof title === "string" &&
+    typeof ok === "boolean" &&
+    Array.isArray(tags) &&
+    (tests === undefined || (Array.isArray(tests) && tests.every(isTest)))
+  );
+};
 // Returns the report's specs, or why it could not be read.
 const readReport = (file: string): PlaywrightSpec[] | string => {
   let report: unknown;
@@ -215,11 +243,11 @@ const reports = playwrightReportPaths.filter(existsSync).flatMap((file) => {
   if (required) {
     // Skips are listed, but a report of nothing but skips checked nothing. A
     // flaky test passed on retry; only an unexpected result is a failure.
-    const ran = specs
+    const passed = specs
       .flatMap((spec) => spec.tests ?? [])
-      .filter((test) => test.status !== "skipped");
-    if (!ran.length)
-      requiredProblems.push(`- \`${file}\`: reports no test that ran`);
+      .filter((test) => test.status === "expected" || test.status === "flaky");
+    if (!passed.length)
+      requiredProblems.push(`- \`${file}\`: reports no test that passed`);
     const failedTitles = specs
       .filter((spec) =>
         spec.tests?.some((test) => test.status === "unexpected"),
