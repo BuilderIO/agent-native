@@ -91,6 +91,17 @@ describe("upgradeModelForProvider", () => {
       ),
     ).toBeUndefined();
   });
+
+  it("moves saved Groq selections by provider name as well as engine name", () => {
+    const supportedModels = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+
+    expect(
+      upgradeModelForProvider("llama3-8b-8192", supportedModels, "groq"),
+    ).toBe("openai/gpt-oss-20b");
+    expect(
+      upgradeModelForProvider("llama3-8b-8192", supportedModels, "openrouter"),
+    ).toBeUndefined();
+  });
 });
 
 describe("normalizeModelForEngine", () => {
@@ -207,6 +218,22 @@ describe("normalizeModelForEngine", () => {
     expect(normalizeModelForEngine(groqEngine, "qwen/qwen3-32b")).toBe(
       "qwen/qwen3-32b",
     );
+  });
+
+  it("leaves Groq's retired ids alone on engines other than Groq", () => {
+    const openRouterEngine = {
+      name: "ai-sdk:openrouter",
+      defaultModel: "openai/gpt-oss-120b",
+      supportedModels: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+      acceptsCustomModels: true,
+    };
+
+    expect(
+      normalizeModelForEngine(openRouterEngine, "llama-3.3-70b-versatile"),
+    ).toBe("llama-3.3-70b-versatile");
+    expect(
+      normalizeModelForEngine(openRouterEngine, "llama-3.1-8b-instant"),
+    ).toBe("llama-3.1-8b-instant");
   });
 });
 
