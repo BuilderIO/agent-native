@@ -249,6 +249,19 @@ describe("file upload status", () => {
     });
   });
 
+  it("reports a store outage during the stored-grant lookup as unavailable, not reconnect", async () => {
+    auth.stored.mockRejectedValue(
+      new CredentialStoreUnavailableError(new Error("database unavailable")),
+    );
+
+    await expect(getFileUploadStatusForRequest()).resolves.toMatchObject({
+      configured: null,
+      unavailable: true,
+      builderUnavailable: true,
+      builderReauthorizationRequired: false,
+    });
+  });
+
   it("does not ask to reconnect when a private key still authorizes uploads", async () => {
     auth.custody.mockResolvedValue(true);
     auth.authorize.mockResolvedValue(true);
