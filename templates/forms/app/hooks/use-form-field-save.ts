@@ -66,7 +66,7 @@ export function useFormFieldSave(
   });
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
-  const leftMidSaveRef = useRef(false);
+  const retryAfterLeavingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const replaceLocal = useCallback((next: FormField[]) => {
@@ -136,11 +136,11 @@ export function useFormFieldSave(
       // Other failures toast from the mutation and keep the edits for the next
       // save. Only a record too contended to settle in one go tries by itself,
       // or a save that failed after the person left, since no next save will come.
-      const leftMidSave = leftMidSaveRef.current;
-      leftMidSaveRef.current = false;
+      const retryAfterLeaving = retryAfterLeavingRef.current;
+      retryAfterLeavingRef.current = false;
       if (
         isSaveConflict(error) ||
-        (leftMidSave && !(error instanceof SaveOverlapError))
+        (retryAfterLeaving && !(error instanceof SaveOverlapError))
       ) {
         schedule(CONTENDED_RETRY_MS);
       }
@@ -162,7 +162,7 @@ export function useFormFieldSave(
     () => () => {
       if (!dirtyRef.current) return;
       clearTimeout(timerRef.current);
-      leftMidSaveRef.current = savingRef.current;
+      retryAfterLeavingRef.current = true;
       void flushRef.current();
     },
     [],

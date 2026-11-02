@@ -325,6 +325,19 @@ describe("useFormFieldSave", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(2);
   });
 
+  it("tries once more when the save sent on leaving fails", async () => {
+    mutateAsync.mockRejectedValueOnce(new Error("offline"));
+    mutateAsync.mockRejectedValueOnce(new Error("still offline"));
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    act(() => root?.unmount());
+    root = undefined;
+
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
   it("tries a failed edit once more on leaving", async () => {
     mutateAsync.mockRejectedValueOnce(new Error("offline"));
     mutateAsync.mockResolvedValueOnce({
