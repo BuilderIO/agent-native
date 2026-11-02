@@ -46,16 +46,17 @@ const REGENERABLE = new Set([
   ".netlify",
   ".vite",
   ".nitro",
-  ".tmp",
   ".output",
 ]);
 
-export function hasUserFiles(status: string): boolean {
+// `.tmp` holds repo-local scratch that may be the only copy, so it keeps the
+// worktree unless the caller passes --discard-tmp.
+export function hasUserFiles(status: string, discardTmp = false): boolean {
   return status.split("\n").some((line) => {
     if (!line.trim()) return false;
     if (!line.startsWith("!! ")) return true;
     const last = line.slice(3).replace(/\/$/, "").split("/").pop() ?? "";
-    return !REGENERABLE.has(last);
+    return !(REGENERABLE.has(last) || (discardTmp && last === ".tmp"));
   });
 }
 
@@ -88,7 +89,7 @@ function isPublished(wt: string, branch: string | null): boolean | null {
     "rev-list",
     "HEAD",
     "--not",
-    "--remotes",
+    "--remotes=origin",
     "--count",
   );
   if (unpushed === null) return null;
@@ -189,7 +190,9 @@ export function main(argv = process.argv.slice(2)): number {
     const status = tryGit(wt, "status", "--porcelain", "--ignored=matching");
     const reason = keepReason(
       {
-        dirty: status === null || hasUserFiles(status),
+        dirty:
+          status === null ||
+          hasUserFiles(status, argv.includes("--discard-tmp")),
         locked: entry.includes("\nlocked"),
         inUse:
           busy === null

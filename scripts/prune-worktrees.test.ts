@@ -54,6 +54,8 @@ describe("hasUserFiles", () => {
       false,
     );
     assert.equal(hasUserFiles("!! templates/a/.env\n"), true);
+    assert.equal(hasUserFiles("!! .tmp/\n"), true);
+    assert.equal(hasUserFiles("!! .tmp/\n", true), false);
     assert.equal(hasUserFiles(" M src/a.ts\n"), true);
     assert.equal(hasUserFiles("?? notes.md\n"), true);
   });
