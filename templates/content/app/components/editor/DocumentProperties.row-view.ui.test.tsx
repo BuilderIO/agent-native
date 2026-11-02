@@ -108,7 +108,7 @@ function renderProperties(
           openThreadsByProperty: new Map(),
           pendingPropertyId: null,
           activeThreadId: null,
-          selectedThreadId: null,
+          selectedPropertyId: null,
           startComment: vi.fn(),
           openThread: vi.fn(),
           ...options.comments,
@@ -208,15 +208,7 @@ describe("a row's Properties in its view", () => {
   it("opens the hidden line for a thread being read", () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
-      {
-        comments: {
-          openThreadsByProperty: new Map([
-            ["a", [{ threadId: "thread" } as never]],
-          ]),
-          activeThreadId: "thread",
-          selectedThreadId: "thread",
-        },
-      },
+      { comments: { selectedPropertyId: "a" } },
     );
     expect(rowIds()).toEqual(["b", "c", "a"]);
   });

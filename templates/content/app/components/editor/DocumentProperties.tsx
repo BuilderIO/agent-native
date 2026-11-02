@@ -1109,9 +1109,7 @@ function HiddenInViewProperties({
     properties.some(
       (property) =>
         comments.pendingPropertyId === property.definition.id ||
-        comments.openThreadsByProperty
-          .get(property.definition.id)
-          ?.some((thread) => thread.threadId === comments.selectedThreadId),
+        comments.selectedPropertyId === property.definition.id,
     );
   useEffect(() => {
     if (holdsCurrentComment) setOpen(true);

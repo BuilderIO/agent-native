@@ -325,6 +325,7 @@ import {
   bodyCommentThreads,
   openThreadsByProperty,
   PropertyCommentsContext,
+  threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
 import { StaticDocumentBody } from "./StaticDocumentBody";
@@ -8810,7 +8811,7 @@ function PageEditorSessionBody({
       openThreadsByProperty: openThreadsByProperty(threads),
       pendingPropertyId: pendingComment?.property?.propertyId ?? null,
       activeThreadId,
-      selectedThreadId,
+      selectedPropertyId: threadPropertyId(threads, selectedThreadId),
       startComment: startPropertyComment,
       openThread: activateCommentThread,
     }),

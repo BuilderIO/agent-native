@@ -21,6 +21,7 @@ import {
   PropertyCommentsContext,
   openThreadsByProperty,
   propertyThreadTarget,
+  threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
 
@@ -313,6 +314,30 @@ describe("propertyThreadTarget", () => {
   });
 });
 
+describe("threadPropertyId", () => {
+  const onProperty = (propertyId: string) => ({
+    propertyId,
+    propertyName: propertyId,
+    propertyValue: null,
+  });
+  const threads = [
+    thread("open", onProperty("a")),
+    { ...thread("resolved", onProperty("b")), resolved: true },
+    thread("body", null),
+  ];
+
+  it("finds the Property of an open or a resolved thread", () => {
+    expect(threadPropertyId(threads, "open")).toBe("a");
+    expect(threadPropertyId(threads, "resolved")).toBe("b");
+  });
+
+  it("has none for a thread off any Property, or no thread", () => {
+    expect(threadPropertyId(threads, "body")).toBeNull();
+    expect(threadPropertyId(threads, null)).toBeNull();
+    expect(threadPropertyId(undefined, "open")).toBeNull();
+  });
+});
+
 describe("PropertyCommentControl", () => {
   function controls(overrides: Partial<PropertyCommentsValue> = {}) {
     return {
@@ -320,7 +345,7 @@ describe("PropertyCommentControl", () => {
       openThreadsByProperty: new Map(),
       pendingPropertyId: null,
       activeThreadId: null,
-      selectedThreadId: null,
+      selectedPropertyId: null,
       startComment: vi.fn(),
       openThread: vi.fn(),
       ...overrides,
