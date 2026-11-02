@@ -210,10 +210,10 @@ describe("a Toggle's title as page text", () => {
   it("keeps a block's Markdown marker typed in the title as text", () => {
     const editor = createEditor([titled("", true, [paragraph("Body")])]);
     editor.commands.setTextSelection(2);
-    type(editor, "# Plan");
+    type(editor, "#### Plan");
 
     expect(editor.getJSON().content).toEqual([
-      titled("# Plan", true, [paragraph("Body")]),
+      titled("#### Plan", true, [paragraph("Body")]),
     ]);
   });
 

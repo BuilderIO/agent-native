@@ -40,7 +40,8 @@ import {
   IconMathFunction,
   IconSquareRoot2,
 } from "@tabler/icons-react";
-import { Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
+import { Editor, type JSONContent } from "@tiptap/react";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import React, {
   useState,
@@ -75,10 +76,7 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
-import {
-  focusMostRecentEmptyToggleSummary,
-  TOGGLE_TITLE_NODE,
-} from "./extensions/NotionExtensions";
+import { TOGGLE_TITLE_NODE } from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
@@ -249,8 +247,7 @@ export function insertMediaPlaceholder(
 // The menu's commands turn the block it opens in into another, or put blocks
 // there. A Toggle's title is its own line, not a block to turn into another.
 function canOpenSlashMenu(editor: Editor) {
-  const { parent } = editor.state.selection.$from;
-  return parent.isTextblock && parent.type.name !== TOGGLE_TITLE_NODE;
+  return editor.state.selection.$from.parent.isTextblock;
 }
 
 function getActiveSlashCommandRange(editor: Editor) {
@@ -281,6 +278,26 @@ function getActiveSlashCommandRange(editor: Editor) {
  * ProseMirror's own history, used without Yjs, cannot drop a step
  * afterwards, so there the removal stays out of history.
  */
+/**
+ * A title is its Toggle's own line, so a command run from one makes its block
+ * below the Toggle, as in Notion. The query moves down there first, and the
+ * command runs as it does on any new line.
+ */
+function moveSlashQueryBelowToggle(editor: Editor) {
+  const { $from } = editor.state.selection;
+  if ($from.parent.type.name !== TOGGLE_TITLE_NODE) return;
+  const range = getActiveSlashCommandRange(editor);
+  const paragraph = editor.schema.nodes.paragraph;
+  if (!range || !paragraph) return;
+  const after = $from.after(-1);
+  const query = editor.state.doc.slice(range.from, range.to).content;
+  const tr = editor.state.tr.insert(after, paragraph.create(null, query));
+  tr.delete(range.from, range.to);
+  // The title lost as much as the new line holds, so its end is where it was.
+  tr.setSelection(TextSelection.create(tr.doc, after + 1));
+  editor.view.dispatch(tr);
+}
+
 function removeSlashQuery(editor: Editor, range: { from: number; to: number }) {
   const undoManager = yUndoPluginKey.getState(editor.state)?.undoManager;
   if (!undoManager) {
@@ -422,6 +439,64 @@ export function buildHeadingCommands(
         : chain.setHeading({ level: heading.level }).run();
     },
   }));
+}
+
+const toggleHeadingCommandMetadata = [
+  {
+    titleKey: "editor.slash.toggleHeading1",
+    descriptionKey: "editor.slash.toggleHeadingDescription",
+    icon: IconChevronRight,
+    level: 1,
+  },
+  {
+    titleKey: "editor.slash.toggleHeading2",
+    descriptionKey: "editor.slash.toggleHeadingDescription",
+    icon: IconChevronRight,
+    level: 2,
+  },
+  {
+    titleKey: "editor.slash.toggleHeading3",
+    descriptionKey: "editor.slash.toggleHeadingDescription",
+    icon: IconChevronRight,
+    level: 3,
+  },
+] as const;
+
+/** A new Toggle is closed, as in Notion, so Enter starts the next one. */
+function insertEmptyToggle(
+  editor: Editor,
+  slashRange: { from: number; to: number } | null,
+  headingLevel: number | null,
+) {
+  const toggle = {
+    type: "notionToggle",
+    attrs: { open: false, headingLevel },
+    content: [{ type: TOGGLE_TITLE_NODE }],
+  };
+  if (slashRange) {
+    editor.chain().focus().insertContentAt(slashRange, toggle).run();
+  } else {
+    editor.chain().focus().insertContent(toggle).run();
+  }
+}
+
+function turnBlockIntoToggle(editor: Editor, headingLevel: number | null) {
+  const { $from } = editor.state.selection;
+  const title = $from.parent.content.toJSON() as JSONContent[] | null;
+  editor
+    .chain()
+    .focus()
+    .deleteRange({ from: $from.start(), to: $from.end() })
+    .insertContent({
+      type: "notionToggle",
+      attrs: { open: true, headingLevel },
+      content: [
+        title
+          ? { type: TOGGLE_TITLE_NODE, content: title }
+          : { type: TOGGLE_TITLE_NODE },
+      ],
+    })
+    .run();
 }
 
 export function setPlainTextBlock(editor: Editor) {
@@ -628,19 +703,17 @@ const commands: CommandTemplate[] = [
     shortcut: ">",
     icon: IconChevronRight,
     preserveSlashRange: true,
-    action: (editor, { slashRange }) => {
-      const toggle = {
-        type: "notionToggle",
-        attrs: { summary: "", open: true },
-      };
-      if (slashRange) {
-        editor.chain().focus().insertContentAt(slashRange, toggle).run();
-      } else {
-        editor.chain().focus().insertContent(toggle).run();
-      }
-      focusMostRecentEmptyToggleSummary(editor);
-    },
+    action: (editor, { slashRange }) =>
+      insertEmptyToggle(editor, slashRange, null),
   },
+  ...toggleHeadingCommandMetadata.map(
+    (heading): CommandTemplate => ({
+      ...heading,
+      preserveSlashRange: true,
+      action: (editor, { slashRange }) =>
+        insertEmptyToggle(editor, slashRange, heading.level),
+    }),
+  ),
   {
     titleKey: "editor.slash.codeBlock",
     descriptionKey: "editor.slash.codeBlockDescription",
@@ -734,23 +807,15 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
-      const { state } = editor;
-      const { $from } = state.selection;
-      const text = $from.parent.textContent;
-      const blockStart = $from.start();
-      const blockEnd = $from.end();
-      editor
-        .chain()
-        .focus()
-        .deleteRange({ from: blockStart, to: blockEnd })
-        .insertContent({
-          type: "notionToggle",
-          attrs: { summary: text, open: true },
-        })
-        .run();
-      if (!text) focusMostRecentEmptyToggleSummary(editor);
+      turnBlockIntoToggle(editor, null);
     },
   },
+  ...toggleHeadingCommandMetadata.map(
+    (heading): CommandTemplate => ({
+      ...heading,
+      action: (editor) => turnBlockIntoToggle(editor, heading.level),
+    }),
+  ),
   {
     titleKey: "editor.slash.codeBlock",
     descriptionKey: "editor.slash.codeBlockDescription",
@@ -1403,6 +1468,7 @@ export function SlashCommandMenu({
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
       if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
+      moveSlashQueryBelowToggle(editor);
       const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??

@@ -1308,6 +1308,32 @@
   font-weight: 500;
 }
 
+.content-toggle[data-heading-level="1"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.875em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.content-toggle[data-heading-level="2"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.content-toggle[data-heading-level="3"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .content-toggle--titled:not(.content-toggle--open)
   > .content-toggle__content
   > [data-node-view-content-react]

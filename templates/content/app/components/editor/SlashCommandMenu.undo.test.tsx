@@ -248,7 +248,7 @@ describe("slash command undo", () => {
 });
 
 describe("slash menu in a Toggle's title", () => {
-  it("stays closed in the title and opens in the body", async () => {
+  it("makes the command's block below the Toggle and leaves the title", async () => {
     const { container, editor, unmount } = await mountSlashMenu(
       [
         '<details markdown="1">',
@@ -260,24 +260,18 @@ describe("slash menu in a Toggle's title", () => {
     try {
       typeAt(editor, 2, "/heading 3");
       await act(async () => Promise.resolve());
-      expect(container.querySelector(".slash-command-menu")).toBeNull();
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
 
-      // Enter runs a command whose name was typed even with the menu closed.
       await pressEnter();
       expect(editor.state.doc.firstChild?.firstChild?.toJSON()).toEqual({
         type: "notionToggleSummary",
-        content: [{ type: "text", text: "/heading 3Plan" }],
+        content: [{ type: "text", text: "Plan" }],
       });
-
-      let bodyStart = -1;
-      editor.state.doc.descendants((node, pos) => {
-        if (bodyStart < 0 && node.type.name === "paragraph") {
-          bodyStart = pos + 1;
-        }
-      });
-      typeAt(editor, bodyStart, "/heading 3");
-      await act(async () => Promise.resolve());
-      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+      const below = editor.state.doc.child(1);
+      expect(below.type.name).toBe("heading");
+      expect(below.attrs.level).toBe(3);
+      expect(below.textContent).toBe("");
+      expect(editor.state.selection.$from.parent).toBe(below);
     } finally {
       await unmount();
     }

@@ -167,7 +167,6 @@ import {
 import {
   CompatibleCode,
   createNotionEditorExtensions,
-  focusMostRecentEmptyToggleSummary,
   TOGGLE_SUMMARY_PLACEHOLDER,
   TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
@@ -714,6 +713,7 @@ const NotionMarkdownShortcuts = Extension.create({
       // A Toggle's title is its own line, not a block to turn into another.
       if (
         !$from.parent.isTextblock ||
+        $from.parent.type.spec.code ||
         $from.parent.type.name === TOGGLE_TITLE_NODE
       ) {
         return null;
@@ -754,28 +754,55 @@ const NotionMarkdownShortcuts = Extension.create({
 
             if (shortcut.marker === ">") {
               const toggle = schema.nodes.notionToggle;
-              if (!toggle) return false;
+              const title = schema.nodes[TOGGLE_TITLE_NODE];
+              if (!toggle || !title) return false;
 
-              view.dispatch(
-                view.state.tr
-                  .replaceWith(
-                    shortcut.blockFrom,
-                    shortcut.blockTo,
-                    toggle.create({ summary: "", open: true }),
-                  )
-                  .scrollIntoView(),
+              // In a list the item leaves the list and becomes the Toggle.
+              const item = view.state.selection.$from.node(-1);
+              if (["listItem", "taskItem"].includes(item.type.name)) {
+                editor.commands.liftListItem(item.type.name);
+              }
+
+              // The text after the marker becomes the title, as in Notion.
+              const { $from } = view.state.selection;
+              const tr = view.state.tr.replaceWith(
+                $from.before(),
+                $from.after(),
+                toggle.create(
+                  {
+                    open: true,
+                    headingLevel:
+                      $from.parent.type.name === "heading"
+                        ? ($from.parent.attrs.level as number)
+                        : null,
+                  },
+                  title.create(
+                    null,
+                    $from.parent.content.cut($from.parentOffset),
+                  ),
+                ),
               );
-              focusMostRecentEmptyToggleSummary(editor);
+              tr.setSelection(
+                Selection.near(tr.doc.resolve($from.before() + 2)),
+              );
+              view.dispatch(tr.scrollIntoView());
               return true;
             }
 
             const blockquote = schema.nodes.blockquote;
             if (!blockquote) return false;
 
+            const { $from } = view.state.selection;
             const tr = view.state.tr.replaceWith(
               shortcut.blockFrom,
               shortcut.blockTo,
-              blockquote.create(null, paragraph.create()),
+              blockquote.create(
+                null,
+                paragraph.create(
+                  null,
+                  $from.parent.content.cut($from.parentOffset),
+                ),
+              ),
             );
             tr.setSelection(
               Selection.near(tr.doc.resolve(shortcut.blockFrom + 2)),
