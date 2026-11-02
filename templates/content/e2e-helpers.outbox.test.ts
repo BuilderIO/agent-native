@@ -199,7 +199,6 @@ it("counts only this page's entries, with or without the actor in the key", asyn
   const { tabs, page, asPage } = await fixture();
   page.localStorage.setItem(LONGER_ID_KEY, V2_RECORD);
   page.localStorage.setItem(OTHER_PAGE_KEY, V2_RECORD);
-  page.localStorage.setItem(UNDECODABLE_KEY, V2_RECORD);
 
   await expect(outboxEntries(asPage, DOC_ID)).resolves.toEqual([]);
   // The other page's key names this actor, which must not read as a page id.
@@ -215,6 +214,15 @@ it("counts only this page's entries, with or without the actor in the key", asyn
   );
 });
 
+it("refuses an outbox key it cannot read instead of skipping it", async () => {
+  const { page, asPage } = await fixture();
+  page.localStorage.setItem(UNDECODABLE_KEY, V2_RECORD);
+
+  await expect(outboxEntries(asPage, DOC_ID)).rejects.toThrow(
+    `Outbox key ${UNDECODABLE_KEY} does not decode; the collab client's outbox key format changed.`,
+  );
+});
+
 it("passes once nothing is waiting in the outbox", async () => {
   const { tabs, page, asPage } = await fixture();
   page.localStorage.setItem("unrelated-key", "kept");
@@ -226,9 +234,13 @@ it("passes once nothing is waiting in the outbox", async () => {
   await expect(tabs.quiet()).resolves.toBeUndefined();
 });
 
-it("fails the client's next v2 outbox write once", async () => {
+it("fails the client's next v2 outbox write once, until restored", async () => {
   const { page, asPage } = await fixture();
-  await failNextOutboxWrite(asPage);
+  const original = page.Storage.prototype.setItem;
+  const failure = await failNextOutboxWrite(asPage);
+  await expect(failNextOutboxWrite(asPage)).rejects.toThrow(
+    "An outbox write failure is already installed.",
+  );
 
   page.localStorage.setItem("unrelated-key", "kept");
   expect(page.client.__outboxSetItemFailed).toBe(false);
@@ -240,4 +252,11 @@ it("fails the client's next v2 outbox write once", async () => {
 
   page.localStorage.setItem(V2_KEY, V2_RECORD);
   expect(page.localStorage.getItem(V2_KEY)).toBe(V2_RECORD);
+
+  await failure.restore();
+  expect(page.Storage.prototype.setItem).toBe(original);
+  expect(page.client.__outboxOriginalSetItem).toBeUndefined();
+  expect(page.client.__outboxSetItemFailed).toBe(true);
+  page.localStorage.setItem(V2_KEY, "restored");
+  expect(page.localStorage.getItem(V2_KEY)).toBe("restored");
 });

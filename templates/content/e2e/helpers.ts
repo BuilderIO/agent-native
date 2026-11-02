@@ -1269,9 +1269,9 @@ export async function outboxEntries(
         try {
           segments = decodeURIComponent(registryKey).split("\0");
         } catch {
-          // coercion-ok: a key whose registry part does not decode was not
-          // written by the collab client, so it holds no page's updates.
-          continue;
+          throw new Error(
+            `Outbox key ${key} does not decode; the collab client's outbox key format changed.`,
+          );
         }
         if (segments[1] === documentId) keys.push(key);
       }
@@ -1283,15 +1283,20 @@ export async function outboxEntries(
 
 /**
  * Makes the page's next outbox write throw a quota error, once. The page's
- * `__outboxSetItemFailed` turns true when that write was attempted, and
- * `__outboxOriginalSetItem` holds the setItem to restore.
+ * `__outboxSetItemFailed` turns true when that write was attempted, and stays
+ * readable after `restore` puts the original setItem back.
  */
-export async function failNextOutboxWrite(page: Page): Promise<void> {
+export async function failNextOutboxWrite(
+  page: Page,
+): Promise<{ restore: () => Promise<void> }> {
   await page.evaluate((prefixes) => {
     const flags = window as unknown as {
       __outboxOriginalSetItem?: Storage["setItem"];
       __outboxSetItemFailed?: boolean;
     };
+    // A second patch would save the first patch as the "original".
+    if (flags.__outboxOriginalSetItem)
+      throw new Error("An outbox write failure is already installed.");
     const original = Storage.prototype.setItem;
     flags.__outboxOriginalSetItem = original;
     flags.__outboxSetItemFailed = false;
@@ -1309,6 +1314,19 @@ export async function failNextOutboxWrite(page: Page): Promise<void> {
       return original.call(this, key, value);
     };
   }, COLLAB_OUTBOX_PREFIXES);
+  return {
+    restore: () =>
+      page.evaluate(() => {
+        const flags = window as unknown as {
+          __outboxOriginalSetItem?: Storage["setItem"];
+        };
+        const original = flags.__outboxOriginalSetItem;
+        if (!original)
+          throw new Error("No outbox write failure is installed to restore.");
+        Storage.prototype.setItem = original;
+        delete flags.__outboxOriginalSetItem;
+      }),
+  };
 }
 
 export function delay(ms: number): Promise<void> {

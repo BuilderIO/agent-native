@@ -367,7 +367,9 @@ async function peerTitleWhileUpdatesFail(
       body: "Collaboration update refused while another tab renames the page",
     });
   });
-  if (outboxWriteFailsOnce) await failNextOutboxWrite(a);
+  const outboxWriteFailure = outboxWriteFailsOnce
+    ? await failNextOutboxWrite(a)
+    : undefined;
 
   await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
   await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
@@ -398,10 +400,7 @@ async function peerTitleWhileUpdatesFail(
   const beforeReload = await getDocument(s.reader, s.id);
   expect(beforeReload.content).not.toContain(aMarker);
 
-  if (outboxWriteFailsOnce)
-    await a.evaluate(() => {
-      Storage.prototype.setItem = (window as any).__outboxOriginalSetItem;
-    });
+  await outboxWriteFailure?.restore();
   await a.unroute(collabUpdateMatcher);
   await a.reload({ waitUntil: "domcontentloaded" });
   await expectEditorReady(a);
