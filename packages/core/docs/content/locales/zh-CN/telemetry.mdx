@@ -112,22 +112,22 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 命令失败时，`$exception` 事件会报告 Agent-Native 的代码中出了什么问题，不涉及你的代码：
 
-| 属性               | 含义                                                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | 标准错误类型，例如 `TypeError`。其他类型（例如自定义错误类）一律作为 `Error` 发送。                                                 |
-| `exceptionCode`    | 标准错误代码，例如 `ENOENT`。                                                                                                       |
+| 属性               | 含义                                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | 标准错误类型，例如 `TypeError`。其他类型（例如自定义错误类）一律作为 `Error` 发送。                                                                       |
+| `exceptionCode`    | 标准错误代码，例如 `ENOENT`。                                                                                                                             |
 | `exceptionMessage` | 简短提示。Agent-Native 自己的已知错误发送其固定文本。其他消息只发送开头的词，最多 20 个字符，并在第一个含有字母以外内容的词处，或以冒号结尾的词之后停止。 |
-| `exceptionStack`   | Agent-Native 自身文件中的堆栈帧，路径相对于包。其他所有帧都会被移除。                                                               |
-| `handled`          | 错误使命令停止时为 `false`。                                                                                                        |
-| `level`            | 严重程度。                                                                                                                          |
-| `occurredAt`       | 发生时间。                                                                                                                          |
-| `release`          | CLI 的版本。                                                                                                                        |
-| `app`              | 始终为 `agent-native-cli`。                                                                                                         |
-| `template`         | 始终为 `cli`。                                                                                                                      |
-| `runtime`          | 始终为 `cli`。                                                                                                                      |
-| `source`           | 始终为 `cli`。                                                                                                                      |
-| `exceptionTags`    | 失败发生的位置；见下文。                                                                                                            |
-| `exceptionExtra`   | 失败的结束方式；见下文。                                                                                                            |
+| `exceptionStack`   | Agent-Native 自身文件中的堆栈帧，路径相对于包。其他所有帧都会被移除。                                                                                     |
+| `handled`          | 错误使命令停止时为 `false`。                                                                                                                              |
+| `level`            | 严重程度。                                                                                                                                                |
+| `occurredAt`       | 发生时间。                                                                                                                                                |
+| `release`          | CLI 的版本。                                                                                                                                              |
+| `app`              | 始终为 `agent-native-cli`。                                                                                                                               |
+| `template`         | 始终为 `cli`。                                                                                                                                            |
+| `runtime`          | 始终为 `cli`。                                                                                                                                            |
+| `source`           | 始终为 `cli`。                                                                                                                                            |
+| `exceptionTags`    | 失败发生的位置；见下文。                                                                                                                                  |
+| `exceptionExtra`   | 失败的结束方式；见下文。                                                                                                                                  |
 
 这两个字段只包含以下值：
 
