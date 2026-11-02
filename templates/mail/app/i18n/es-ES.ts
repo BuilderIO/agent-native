@@ -797,6 +797,7 @@ const messages = {
     draftCard: {
       loadFailed: "No se pudo cargar este borrador.",
       notFoundTitle: "No se encontró el borrador",
+      goneTitle: "Este borrador se envió o se eliminó.",
       threadUnavailable:
         "No se pudieron cargar los mensajes anteriores de esta conversación.",
       earlierMessages: "Mensajes anteriores ({{count}})",

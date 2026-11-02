@@ -770,6 +770,7 @@ const messages = {
     draftCard: {
       loadFailed: "이 초안을 불러오지 못했습니다.",
       notFoundTitle: "초안을 찾을 수 없음",
+      goneTitle: "이 초안은 전송되었거나 삭제되었습니다.",
       threadUnavailable: "이 대화의 이전 메시지를 불러오지 못했습니다.",
       earlierMessages: "이전 메시지 ({{count}})",
       sendInMail: "Mail에서 보내기",

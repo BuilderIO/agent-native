@@ -766,6 +766,7 @@ const messages = {
     draftCard: {
       loadFailed: "यह ड्राफ़्ट लोड नहीं हो सका।",
       notFoundTitle: "ड्राफ़्ट नहीं मिला",
+      goneTitle: "यह ड्राफ़्ट भेजा या हटाया जा चुका है।",
       threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
       earlierMessages: "पिछले संदेश ({{count}})",
       sendInMail: "Mail में भेजें",

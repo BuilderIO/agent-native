@@ -627,7 +627,7 @@ describe("DraftCard", () => {
     expect(queryClient.getQueryData(["settings"])).toBeUndefined();
   });
 
-  it("tells the model once when a draft it showed is gone", async () => {
+  it("says a draft it showed was sent or deleted, and tells the model once", async () => {
     let current: DraftCardData = cardData(newDraft);
     serveCard(() => current);
     const { findByTestId, findByText, queryClient } = renderCard(newDraft.id);
@@ -639,7 +639,7 @@ describe("DraftCard", () => {
       queryClient.invalidateQueries({ queryKey: ["draft-card", newDraft.id] }),
     );
 
-    expect(await findByText("mail.draftCard.notFoundTitle")).toBeTruthy();
+    expect(await findByText("mail.draftCard.goneTitle")).toBeTruthy();
     expect(mockUpdateModelContext).toHaveBeenCalledTimes(1);
     expect(mockUpdateModelContext.mock.lastCall?.[0].structuredContent).toEqual(
       {

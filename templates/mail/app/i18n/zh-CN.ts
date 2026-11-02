@@ -741,6 +741,7 @@ const messages = {
     draftCard: {
       loadFailed: "无法加载此草稿。",
       notFoundTitle: "找不到草稿",
+      goneTitle: "此草稿已发送或删除。",
       threadUnavailable: "无法加载此对话中较早的邮件。",
       earlierMessages: "较早的邮件（{{count}}）",
       sendInMail: "在 Mail 中发送",

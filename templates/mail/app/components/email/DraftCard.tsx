@@ -10,6 +10,7 @@ import {
   IconAlertCircle,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconMail,
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
@@ -109,6 +110,10 @@ export function DraftCard({ draftId }: { draftId: string }) {
   const { edits, update, flush, flushAll } = useDraftEdits(draftId);
 
   useReportDraftGoneToModel(draftId, card.data);
+  // A draft this card showed and can't read now was sent or deleted, most
+  // likely by Send in Mail.
+  const [showedDraft, setShowedDraft] = useState(false);
+  if (card.data?.draft && !showedDraft) setShowedDraft(true);
 
   const draft = useMemo<ComposeState | null>(
     () => (loaded ? { ...loaded.draft, ...edits } : null),
@@ -148,7 +153,14 @@ export function DraftCard({ draftId }: { draftId: string }) {
   }, [deepLink, flushAll, t]);
 
   let body: ReactNode;
-  if (!draftId || card.data?.draft === null) {
+  if (showedDraft && card.data?.draft === null) {
+    body = (
+      <CardNotice
+        icon={<IconMail className="size-5 text-muted-foreground" />}
+        title={t("mail.draftCard.goneTitle")}
+      />
+    );
+  } else if (!draftId || card.data?.draft === null) {
     body = (
       <CardNotice
         icon={<IconTrash className="size-5 text-muted-foreground" />}

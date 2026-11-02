@@ -765,6 +765,7 @@ const messages = {
     draftCard: {
       loadFailed: "تعذّر تحميل هذه المسودة.",
       notFoundTitle: "لم يتم العثور على المسودة",
+      goneTitle: "تم إرسال هذه المسودة أو حذفها.",
       threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
       earlierMessages: "الرسائل السابقة ({{count}})",
       sendInMail: "إرسال في Mail",

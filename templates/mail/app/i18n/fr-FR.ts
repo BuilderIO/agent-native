@@ -805,6 +805,7 @@ const messages = {
     draftCard: {
       loadFailed: "Impossible de charger ce brouillon.",
       notFoundTitle: "Brouillon introuvable",
+      goneTitle: "Ce brouillon a été envoyé ou supprimé.",
       threadUnavailable:
         "Impossible de charger les messages précédents de cette conversation.",
       earlierMessages: "Messages précédents ({{count}})",

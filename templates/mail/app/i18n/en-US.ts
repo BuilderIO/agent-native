@@ -769,6 +769,7 @@ const messages = {
     draftCard: {
       loadFailed: "Couldn't load this draft.",
       notFoundTitle: "Draft not found",
+      goneTitle: "This draft was sent or deleted.",
       threadUnavailable:
         "Couldn't load the earlier messages in this conversation.",
       earlierMessages: "Earlier messages ({{count}})",
