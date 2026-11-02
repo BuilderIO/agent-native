@@ -62,8 +62,10 @@ import {
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
+  DATABASE_FAILURE_MESSAGE,
   describeThrownForLog,
   HIDDEN_EMBED_URL,
+  isDatabaseQueryFailure,
   isEmbedStartUrl,
   redactEmbedText,
 } from "./embed-redaction.js";
@@ -185,6 +187,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       : callableActions[name]?.mcpOutputContract;
 
     const errorText = (err: any) => {
+      if (isDatabaseQueryFailure(err)) return DATABASE_FAILURE_MESSAGE;
       const projectedError =
         directoryCatalog && config.directoryProfile?.projectResult
           ? config.directoryProfile.projectResult(name, err.message)
