@@ -644,6 +644,8 @@ const messages = {
     couldNotEndMeeting: "회의를 종료할 수 없습니다",
   },
   transcriptPanel: {
+    partialTranscript:
+      "이 스크립트는 불완전합니다. 일부 오디오를 전사하지 못했습니다.",
     transcribing: "스크립트 작성 중…",
     pendingDescription:
       "음성이 캡처되는 즉시 실시간 기록이 나타납니다. 정리는 백그라운드에서 계속됩니다.",

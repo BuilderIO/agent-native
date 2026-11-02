@@ -639,6 +639,7 @@ const messages = {
     couldNotEndMeeting: "تعذر إنهاء الاجتماع",
   },
   transcriptPanel: {
+    partialTranscript: "هذا النص غير مكتمل. تعذر تفريغ جزء من الصوت.",
     transcribing: "جارٍ النسخ…",
     pendingDescription:
       "يظهر النص المباشر بمجرد التقاط الكلام. يستمر التنظيف في الخلفية.",

@@ -603,6 +603,7 @@ const messages = {
     couldNotEndMeeting: "无法结束会议",
   },
   transcriptPanel: {
+    partialTranscript: "此转录不完整。部分音频无法转录。",
     transcribing: "正在抄写…",
     pendingDescription:
       "捕获语音后，实时文字记录就会出现。清理工作在后台继续进行。",
