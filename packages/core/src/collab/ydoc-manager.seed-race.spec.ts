@@ -375,14 +375,19 @@ it("accepts one initial XmlFragment seed across independent manager instances", 
   }
 });
 
-it("does not reseed a marked live document after its text is intentionally deleted", async () => {
-  const pglite = await createTestPglite();
-  const docId = "xml-seed:cleared-marked-body";
-  const emit = vi.fn();
-  let manager: typeof import("./ydoc-manager.js") | null = null;
-  const peer = new Y.Doc();
-  try {
-    await pglite.exec(`
+it.each([
+  ["empty fragment", ""],
+  ["empty paragraph", "<paragraph></paragraph>"],
+] as const)(
+  "does not reseed a marked live document after deletion leaves an %s",
+  async (shape, expectedBody) => {
+    const pglite = await createTestPglite();
+    const docId = "xml-seed:cleared-marked-body";
+    const emit = vi.fn();
+    let manager: typeof import("./ydoc-manager.js") | null = null;
+    const peer = new Y.Doc();
+    try {
+      await pglite.exec(`
       CREATE TABLE _collab_docs (
         doc_id TEXT PRIMARY KEY,
         yjs_state TEXT NOT NULL,
@@ -391,53 +396,61 @@ it("does not reseed a marked live document after its text is intentionally delet
         updated_at TEXT NOT NULL DEFAULT NOW()::text
       )
     `);
-    const exec = createPgliteExec(pglite, {
-      armed: false,
-      paused: false,
-      onMissingRead: async () => {},
-    });
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
-    vi.doMock("../db/ddl-guard.js", () => ({
-      ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-      ensureTableExists: vi.fn().mockResolvedValue(undefined),
-    }));
-    vi.doMock("./emitter.js", () => ({ emitCollabUpdate: emit }));
-    manager = await import("./ydoc-manager.js");
-    const base = { revision: "revision-1", body: "saved body" };
-    const initial = await manager.seedXmlFragmentIfEmpty(
-      docId,
-      xmlSeedUpdate(base.body),
-      "first-tab",
-    );
-    const adopted = await manager.adoptSnapshotOnce(
-      docId,
-      initial.state,
-      base.revision,
-      { body: base.body },
-    );
-    expect(adopted.status).toBe("adopted");
-    Y.applyUpdate(peer, adopted.state);
-    const fragment = peer.getXmlFragment("default");
-    fragment.delete(0, fragment.length);
-    await manager.applyUpdate(docId, Y.encodeStateAsUpdate(peer), "delete-all");
-    expect(emit).toHaveBeenCalledTimes(3);
+      const exec = createPgliteExec(pglite, {
+        armed: false,
+        paused: false,
+        onMissingRead: async () => {},
+      });
+      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/ddl-guard.js", () => ({
+        ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+        ensureTableExists: vi.fn().mockResolvedValue(undefined),
+      }));
+      vi.doMock("./emitter.js", () => ({ emitCollabUpdate: emit }));
+      manager = await import("./ydoc-manager.js");
+      const base = { revision: "revision-1", body: "saved body" };
+      const initial = await manager.seedXmlFragmentIfEmpty(
+        docId,
+        xmlSeedUpdate(base.body),
+        "first-tab",
+      );
+      const adopted = await manager.adoptSnapshotOnce(
+        docId,
+        initial.state,
+        base.revision,
+        { body: base.body },
+      );
+      expect(adopted.status).toBe("adopted");
+      Y.applyUpdate(peer, adopted.state);
+      const fragment = peer.getXmlFragment("default");
+      fragment.delete(0, fragment.length);
+      if (shape === "empty paragraph") {
+        fragment.insert(0, [new Y.XmlElement("paragraph")]);
+      }
+      await manager.applyUpdate(
+        docId,
+        Y.encodeStateAsUpdate(peer),
+        "delete-all",
+      );
+      expect(emit).toHaveBeenCalledTimes(3);
 
-    const reopened = await manager.seedXmlFragmentIfEmpty(
-      docId,
-      xmlSeedUpdate(base.body),
-      "fresh-tab",
-    );
-    expect(reopened.seeded).toBe(false);
-    expect(xmlBody(reopened.state)).toBe("");
-    expect(xmlBase(reopened.state)).toEqual(base);
-    expect(emit).toHaveBeenCalledTimes(3);
-    expect(xmlBody(await manager.getState(docId))).toBe("");
-  } finally {
-    manager?.releaseDoc(docId);
-    peer.destroy();
-    await pglite.close();
-  }
-});
+      const reopened = await manager.seedXmlFragmentIfEmpty(
+        docId,
+        xmlSeedUpdate(base.body),
+        "fresh-tab",
+      );
+      expect(reopened.seeded).toBe(false);
+      expect(xmlBody(reopened.state)).toBe(expectedBody);
+      expect(xmlBase(reopened.state)).toEqual(base);
+      expect(emit).toHaveBeenCalledTimes(3);
+      expect(xmlBody(await manager.getState(docId))).toBe(expectedBody);
+    } finally {
+      manager?.releaseDoc(docId);
+      peer.destroy();
+      await pglite.close();
+    }
+  },
+);
 
 it("replaces only an empty paragraph filler and broadcasts its removal", async () => {
   const pglite = await createTestPglite();
