@@ -29,6 +29,7 @@ import {
   metricComparison,
   type MetricComparison,
 } from "@shared/metric-comparison";
+import { readPanelColumns } from "@shared/panel-columns";
 import {
   isNumericLikeValue,
   limitChartRows,
@@ -2820,15 +2821,16 @@ function TableRenderer({
   const resizable = editable || personalResize;
   const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
+  const configColumns = readPanelColumns(config?.columns);
   const savedColumns = useMemo<TableColumnConfig[]>(() => {
-    if (config?.columns?.length) {
-      const configured = config.columns.filter(
+    if (configColumns?.length) {
+      const configured = configColumns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
       );
       if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
-  }, [config?.columns, rows, rowKeys]);
+  }, [configColumns, rows, rowKeys]);
 
   // A viewer's own widths are drawn over the saved ones but never saved:
   // edits start from `editableColumns`, which reads the panel config.
@@ -2846,15 +2848,15 @@ function TableRenderer({
   // never drops a key the agent configured. Visible keys missing from it (the
   // all-keys fallback above) are appended so every visible column is editable.
   const editableColumns = useMemo<TableColumnConfig[]>(() => {
-    const base: TableColumnConfig[] = config?.columns?.length
-      ? config.columns
+    const base: TableColumnConfig[] = configColumns?.length
+      ? configColumns
       : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
     const listed = new Set(base.map((c) => c.key));
     return [
       ...base,
       ...columns.filter((c) => !listed.has(c.key)).map((c) => ({ key: c.key })),
     ];
-  }, [config?.columns, rows, columns]);
+  }, [configColumns, rows, columns]);
 
   const hiddenColumns = editable
     ? editableColumns.filter((c) => c.hidden && rowKeys.has(c.key))

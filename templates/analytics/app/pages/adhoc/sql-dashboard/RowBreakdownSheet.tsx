@@ -4,6 +4,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { readPanelColumns } from "@shared/panel-columns";
 import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   BREAKDOWN_SMALL_GROUP,
@@ -72,7 +73,7 @@ function shownColumns(
   panel: SqlPanel,
   row: Record<string, unknown>,
 ): TableColumnConfig[] {
-  const configured = (panel.config?.columns ?? []).filter(
+  const configured = (readPanelColumns(panel.config?.columns) ?? []).filter(
     (column) =>
       !column.hidden && Object.prototype.hasOwnProperty.call(row, column.key),
   );
@@ -114,7 +115,7 @@ export function RowBreakdownSheet({
   const dimensions = useMemo(
     () =>
       breakdownRowDimensions(
-        panel.config?.columns,
+        readPanelColumns(panel.config?.columns),
         row,
         activeColumn,
         resultRows,

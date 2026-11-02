@@ -4,6 +4,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteInRange, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
+import { readPanelColumns } from "@shared/panel-columns";
 import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
@@ -249,7 +250,7 @@ export function SqlChartCard({
   const personalColumnWidths = usePersonalColumnWidths(
     dashboardId,
     panel.id,
-    panel.config?.columns,
+    readPanelColumns(panel.config?.columns),
   );
   const tableColumnProps = editable
     ? { onSaveColumns }
