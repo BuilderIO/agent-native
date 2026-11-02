@@ -3122,6 +3122,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "從工作區移除應用",
   "chatFirst.showMore": "顯示更多",
   "chatFirst.showLess": "收合",
+  "chatFirst.showMoreCount": "再顯示 {{count}} 項",
   "chatFirst.appOrderUnavailable": "無法在此裝置上儲存應用順序。",
   "chatFirst.openSideSurfaces": "開啟側邊面板",
   "chatFirst.sideSurfaces": "側邊面板",

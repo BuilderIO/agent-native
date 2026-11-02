@@ -3335,6 +3335,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ऐप को वर्कस्पेस से हटाएँ",
   "chatFirst.showMore": "और दिखाएँ",
   "chatFirst.showLess": "कम दिखाएँ",
+  "chatFirst.showMoreCount": "{{count}} और दिखाएं",
   "chatFirst.appOrderUnavailable": "इस डिवाइस पर ऐप का क्रम सहेजा नहीं जा सका।",
   "chatFirst.openSideSurfaces": "साइड पैनल खोलें",
   "chatFirst.sideSurfaces": "साइड पैनल",
