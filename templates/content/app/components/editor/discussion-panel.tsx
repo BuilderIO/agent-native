@@ -485,8 +485,8 @@ export const DiscussionComposer = forwardRef<
     >
       <div className="flex h-9.5 shrink-0 items-center">
         <CommentAvatar
-          email={currentUserEmail}
-          name={currentUserName?.trim() || currentUserEmail}
+          email={currentUserEmail ?? null}
+          name={currentUserName?.trim() || currentUserEmail || null}
         />
       </div>
       <div className="min-w-0 flex-1">
