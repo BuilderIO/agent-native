@@ -2699,6 +2699,12 @@ function materializeArchiveSymlinks(
         `Archive symlink "${relativeLinkPath}" points outside the extraction directory.`,
       );
     }
+    // Copying a folder into itself recurses until the path is too long.
+    if (isPathWithin(resolvedTarget, linkPath)) {
+      throw new Error(
+        `Archive symlink "${relativeLinkPath}" points at a folder that contains it.`,
+      );
+    }
 
     active.add(relativeLinkPath);
     try {

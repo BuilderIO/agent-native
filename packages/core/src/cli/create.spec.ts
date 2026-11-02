@@ -1573,6 +1573,26 @@ describe("community template selections", () => {
     ).toBe("actions\n");
   });
 
+  it.each([".", "..", "../.."])(
+    "rejects an archive symlink to %s, a folder that contains it",
+    (target) => {
+      const extracted = path.join(tmpDir, "extracted");
+      fs.mkdirSync(path.join(extracted, "app", "src"), { recursive: true });
+      fs.writeFileSync(path.join(extracted, "app", "src", "index.ts"), "x\n");
+
+      expect(() =>
+        _materializeArchiveSymlinks(extracted, [
+          { path: "app/src/link", target },
+        ]),
+      ).toThrow(
+        'Archive symlink "app/src/link" points at a folder that contains it.',
+      );
+      expect(fs.existsSync(path.join(extracted, "app", "src", "link"))).toBe(
+        false,
+      );
+    },
+  );
+
   it.skipIf(process.platform === "win32")(
     "extracts archives without preserving Windows-incompatible symlinks",
     () => {
