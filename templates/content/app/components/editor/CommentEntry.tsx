@@ -124,8 +124,8 @@ export function CommentEntry({
   const edit = useEditComment();
   const react = useReactToComment();
   const create = useCreateComment({
-    email: currentUserEmail,
-    name: currentUserName,
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
   });
   const [checking, setChecking] = useState(false);
   const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =

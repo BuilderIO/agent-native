@@ -1199,8 +1199,8 @@ export function CommentsSidebar({
     currentUserOrgId,
   );
   const createComment = useCreateComment({
-    email: currentUserEmail,
-    name: currentUserName,
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
   });
   const clipWrites = useClipCommentWrites(documentId, {
     email: currentUserEmail,
