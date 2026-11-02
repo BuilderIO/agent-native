@@ -655,8 +655,6 @@ const messages = {
     couldNotEndMeeting: "会議を終了できませんでした",
   },
   transcriptPanel: {
-    partialTranscript:
-      "この文字起こしは不完全です。一部の音声を文字起こしできませんでした。",
     transcribing: "文字起こし中…",
     pendingDescription:
       "音声がキャプチャされるとすぐにライブトランスクリプトが表示されます。クリーンアップはバックグラウンドで続行されます。",
