@@ -1148,8 +1148,8 @@ class MarkdownConverter {
       }
       if (piece.type === "hardBreak") {
         inline.push({ type: "text", text: " " });
-      } else if (piece.type === "text") {
-        inline.push({ ...piece, text: piece.text?.replace(/\s+/g, " ") });
+      } else if (piece.text) {
+        inline.push({ ...piece, text: piece.text.replace(/\s+/g, " ") });
       } else {
         inline.push(piece);
       }

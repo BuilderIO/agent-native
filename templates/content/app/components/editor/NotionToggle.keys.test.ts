@@ -832,9 +832,9 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     });
     press(editor, { key: "Enter" });
 
-    const [hiddenBodyToggle] = (editor.getJSON().content ?? []).filter(
-      (block) => JSON.stringify(block).includes("Body"),
-    );
+    const [hiddenBodyToggle] = editor
+      .getJSON()
+      .content.filter((block) => JSON.stringify(block).includes("Body"));
     expect(hiddenBodyToggle).toEqual(
       toggle("After", false, [paragraph("Body")]),
     );
