@@ -69,16 +69,22 @@ export function GeneratingScreenGhost({
   useEffect(() => {
     setSettled(false);
     if (!done) return;
-    const refetchDesign = () =>
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-design", { id: designId }],
-      });
-    refetchDesign();
+    const queryKey = ["action", "get-design", { id: designId }];
+    let cancelled = false;
+    void queryClient.refetchQueries({ queryKey });
     const timer = window.setTimeout(() => {
-      refetchDesign();
-      setSettled(true);
+      // A failed refetch keeps the ghost: hiding it would leave an empty canvas.
+      queryClient
+        .refetchQueries({ queryKey }, { throwOnError: true })
+        .then(() => {
+          if (!cancelled) setSettled(true);
+        })
+        .catch(() => {});
     }, GENERATION_DRAFT_SETTLE_MS);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [done, preview?.html, designId, queryClient]);
 
   if ((!preview && !showPendingSkeleton) || settled) return null;

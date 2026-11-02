@@ -10,7 +10,7 @@ import {
   type CodeLayerProjection,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
 import {
@@ -55,7 +55,6 @@ import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
-import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
@@ -75,7 +74,6 @@ type CodeLayerFileModel = {
 export function useEditorLayerModels({
   editorCore,
   editorHistory,
-  editorGenerationAndAccess,
   editorFilesAndSaving,
   editorActiveScreenAndGeometry,
   editorCanvasAndScreens,
@@ -85,7 +83,6 @@ export function useEditorLayerModels({
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
-  editorGenerationAndAccess: EditorGenerationAndAccess;
   editorFilesAndSaving: EditorFilesAndSaving;
   editorActiveScreenAndGeometry: EditorActiveScreenAndGeometry;
   editorCanvasAndScreens: EditorCanvasAndScreens;
@@ -108,8 +105,6 @@ export function useEditorLayerModels({
     lockedLayerIds,
     hiddenLayerIds,
   } = editorHistory;
-  const { design, generating, pendingGenerationActive } =
-    editorGenerationAndAccess;
   const {
     files,
     codeLayerSourceForScreen,
