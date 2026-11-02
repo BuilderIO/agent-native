@@ -7264,7 +7264,9 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      if (schemaAcceptsToolValue(propertySchema, entry))
+      // A bare false is what providers fill unused optional booleans with, so
+      // it says nothing about which fields the model meant to clear.
+      if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(
