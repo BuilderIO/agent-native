@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -53,6 +54,7 @@ import {
   type MutationContext,
   type RowSnapshot,
 } from "./_database-row-mutation.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -675,9 +677,11 @@ function outcomeFor(
 
 export async function mutateDatabaseBlock(
   input: MutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseBlockMutationResult> {
   const inputDigest = mutationDigest(input);
-  await loadField({ target: input.target, role: "editor" });
+  const { row } = await loadField({ target: input.target, role: "editor" });
+  assertAgentsMayEditPageText(row.document, ctx);
   const result = await withContentDatabaseMutationLock(
     input.target.databaseId,
     async () => {

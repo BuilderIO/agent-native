@@ -1125,6 +1125,9 @@ const editorToolbarMessages = {
   closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
+  agentTextLock: "Agents can't edit the text of this",
+  agentTextLockDescription:
+    "Agents can still comment and suggest edits. Only people can accept them.",
   importingFromNotion: "Importing from Notion...",
   lastSynced: "Last synced",
   linkedToNotion: "Linked to Notion",

@@ -43,6 +43,7 @@ import {
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
@@ -316,6 +317,7 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      assertAgentsMayEditPageText(document, ctx);
       if (expectedGeneration !== undefined) {
         throw new ActionContractError(
           "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",

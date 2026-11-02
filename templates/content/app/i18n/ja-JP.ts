@@ -1107,6 +1107,9 @@ const editor = {
     hideInSearch: "検索で非表示にする",
     hideInSearchDescription:
       "組織から非表示にして検索します。リンクを知っている人は引き続き閲覧できます。",
+    agentTextLock: "エージェントはこのテキストを編集できません",
+    agentTextLockDescription:
+      "エージェントはコメントと編集の提案を引き続き行えます。提案を承認できるのは人だけです。",
     importingFromNotion: "Notion からインポートしています...",
     lastSynced: "最後に同期しました",
     linkedToNotion: "概念にリンク",

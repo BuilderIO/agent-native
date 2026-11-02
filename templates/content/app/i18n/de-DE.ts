@@ -1130,6 +1130,9 @@ const editor = {
     hideInSearch: "In der Suche verstecken",
     hideInSearchDescription:
       "Vor Organisation und Suche verbergen. Personen mit dem Link können ihn weiterhin ansehen.",
+    agentTextLock: "Agenten dürfen den Text hiervon nicht bearbeiten",
+    agentTextLockDescription:
+      "Agenten können weiterhin kommentieren und Änderungen vorschlagen. Nur Personen können sie annehmen.",
     importingFromNotion: "Aus Notion importieren...",
     lastSynced: "Zuletzt synchronisiert",
     linkedToNotion: "Mit Notion verknüpft",

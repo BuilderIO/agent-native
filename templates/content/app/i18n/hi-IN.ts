@@ -10,11 +10,13 @@ const database = {
   githubNewCollectionDescription:
     "Content फ़ोल्डर के नाम से एक संग्रह बनाता है। इसके दस्तावेज़ वहाँ केवल पढ़ने योग्य पेज के रूप में दिखेंगे, और GitHub पर फ़ाइलें बदलने पर अपने आप अपडेट होंगे।",
   githubLinkUrlLabel: "GitHub फ़ोल्डर का लिंक",
-  githubLinkUrlHelp: "GitHub पर फ़ोल्डर खोलें और अपने ब्राउज़र से उसका पता कॉपी करें।",
+  githubLinkUrlHelp:
+    "GitHub पर फ़ोल्डर खोलें और अपने ब्राउज़र से उसका पता कॉपी करें।",
   githubLinkCheck: "फ़ोल्डर जाँचें",
   githubLinkReading: "GitHub पर फ़ोल्डर पढ़ा जा रहा है…",
   githubConnectChecking: "आपका GitHub कनेक्शन जाँचा जा रहा है…",
-  githubConnectPrompt: "अपना GitHub खाता कनेक्ट करें ताकि Content आपके फ़ोल्डर पढ़ सके।",
+  githubConnectPrompt:
+    "अपना GitHub खाता कनेक्ट करें ताकि Content आपके फ़ोल्डर पढ़ सके।",
   githubConnect: "GitHub कनेक्ट करें",
   githubPreviewPagesOne: "1 पेज",
   githubPreviewPages: "{{count}} पेज",
@@ -54,7 +56,8 @@ const database = {
   githubLinkedToast: "लिंक हो गया। {{folder}} से {{count}} पेज यहाँ आ गए हैं।",
   githubLinkedPartialToast:
     "लिंक हो गया। {{total}} में से {{done}} पेज यहाँ आ गए हैं; बाकी एक मिनट में आ जाएँगे।",
-  githubLinkedSyncFailed: "{{folder}} लिंक हो गया, लेकिन अभी पेज नहीं लाए जा सके।",
+  githubLinkedSyncFailed:
+    "{{folder}} लिंक हो गया, लेकिन अभी पेज नहीं लाए जा सके।",
   githubLinkInvalidUrl:
     "यह GitHub फ़ोल्डर का लिंक नहीं है। GitHub पर फ़ोल्डर खोलें और अपने ब्राउज़र से उसका पता कॉपी करें।",
   githubLinkFileUrl: "यह एक फ़ाइल का लिंक है।",
@@ -73,7 +76,8 @@ const database = {
     "अभी GitHub तक नहीं पहुँच पाए। एक मिनट बाद फिर से कोशिश करें।",
   githubLinkBlockedHasRows:
     "इस संग्रह में अब पेज हैं, इसलिए GitHub फ़ोल्डर इसे नहीं भर सकता।",
-  githubLinkBlockedLinked: "यह संग्रह पहले से किसी दूसरे ऐप से अपने पेज लेता है।",
+  githubLinkBlockedLinked:
+    "यह संग्रह पहले से किसी दूसरे ऐप से अपने पेज लेता है।",
   githubLinkBlockedSystem: "यह संग्रह GitHub फ़ोल्डर नहीं दिखा सकता।",
   githubNewCollectionInstead: "GitHub से नया संग्रह",
   githubRowAvailable: "किसी GitHub फ़ोल्डर के दस्तावेज़ यहाँ दिखाएँ",
@@ -126,13 +130,15 @@ const database = {
   githubNotShown: "{{count}} फ़ाइलें नहीं दिखाई गईं",
   githubNotShownHeading: "नहीं दिखाई गईं",
   githubShowingAsOf: "पेज {{time}} की स्थिति में दिखाए जा रहे हैं।",
-  githubSyncingProgress: "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
+  githubSyncingProgress:
+    "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
   githubPicturesWaiting:
     "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक कुछ इमेज नहीं दिखेंगी।",
   githubPicturesNotSaved:
     "कुछ इमेज फ़ाइल स्टोरेज में सेव नहीं हो सकीं। हर सिंक इन्हें फिर से सेव करने की कोशिश करता है।",
   githubReconnect: "GitHub फिर से कनेक्ट करें",
-  githubProblemConnection: "अपडेट रुक गए: GitHub चाहता है कि आप फिर से साइन इन करें।",
+  githubProblemConnection:
+    "अपडेट रुक गए: GitHub चाहता है कि आप फिर से साइन इन करें।",
   githubProblemForbidden:
     "अपडेट रुक गए: आपका GitHub खाता अब इस रिपॉज़िटरी को नहीं खोल सकता। इसके मालिक से पहुँच माँगें।",
   githubProblemRepositoryNotFound:
@@ -141,15 +147,19 @@ const database = {
     "अपडेट रुक गए: “{{branch}}” ब्रांच अब GitHub पर नहीं है।",
   githubProblemFolderNotFound:
     "अपडेट रुक गए: “{{folder}}” फ़ोल्डर अब उस ब्रांच पर नहीं है।",
-  githubProblemPaused: "अपडेट कुछ देर के लिए रुके हैं। ये अपने आप फिर शुरू हो जाएँगे।",
-  githubProblemTooLarge: "अपडेट रुक गए: अब फ़ोल्डर में {{max}} से ज़्यादा फ़ाइलें हैं।",
+  githubProblemPaused:
+    "अपडेट कुछ देर के लिए रुके हैं। ये अपने आप फिर शुरू हो जाएँगे।",
+  githubProblemTooLarge:
+    "अपडेट रुक गए: अब फ़ोल्डर में {{max}} से ज़्यादा फ़ाइलें हैं।",
   githubProblemStorageUnavailable:
     "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक इमेज नहीं दिखेंगी।",
   githubAlreadyUpToDate: "सब अप टू डेट है।",
   githubSyncedToastOne: "अपडेट हो गया। 1 पेज बदला।",
   githubSyncedToast: "अपडेट हो गया। {{count}} पेज बदले।",
-  githubSyncPartialToast: "अपडेट हो रहा है: अब तक {{total}} में से {{done}} फ़ाइलें।",
-  githubSyncBusy: "अपडेट पहले से जाँचे जा रहे हैं। जाँच पूरी होने पर बदलाव दिखेंगे।",
+  githubSyncPartialToast:
+    "अपडेट हो रहा है: अब तक {{total}} में से {{done}} फ़ाइलें।",
+  githubSyncBusy:
+    "अपडेट पहले से जाँचे जा रहे हैं। जाँच पूरी होने पर बदलाव दिखेंगे।",
   emptyCollectionSourceHint: "या इसे किसी स्रोत से भरें",
   formChecked: "चयनित",
   formChooseOption: "एक विकल्प चुनें",
@@ -162,7 +172,8 @@ const database = {
   formNotChecked: "चयनित नहीं",
   formOnePerLinePlaceholder: "हर पंक्ति में एक मान लिखें",
   formQuestions: "सवाल",
-  formQuestionsDescription: "दिखने वाले और आवश्यक सवाल चुनें और उनका क्रम तय करें।",
+  formQuestionsDescription:
+    "दिखने वाले और आवश्यक सवाल चुनें और उनका क्रम तय करें।",
   formRequired: "आवश्यक",
   formRequiredError: "यह सवाल आवश्यक है।",
   formShowQuestion: "दिखाएँ",
@@ -172,7 +183,8 @@ const database = {
   formSubmittedDescription: "नया संग्रह पेज तैयार है।",
   formSubmitting: "जमा हो रहा है...",
   listRows: "पंक्तियाँ",
-  listRowsDescription: "कोई प्रीसेट चुनें, या तय करें कि पंक्ति का हर हिस्सा क्या दिखाए।",
+  listRowsDescription:
+    "कोई प्रीसेट चुनें, या तय करें कि पंक्ति का हर हिस्सा क्या दिखाए।",
   listRowsEdit: "पंक्तियाँ संपादित करें",
   listRowsDone: "हो गया",
   listRowsEditOnList: "सूची में संपादित करें",
@@ -223,14 +235,16 @@ const database = {
   addingDetails: "विवरण जोड़े जा रहे हैं",
   addingDetailsMatchedOn: "{{field}} पर मिले विवरण जोड़े जा रहे हैं।",
   addingItems: "आइटम जोड़े जा रहे हैं",
-  addingItemsAsRows: "आइटम को इस संग्रह में अपनी पंक्तियों के रूप में जोड़ा जा रहा है।",
+  addingItemsAsRows:
+    "आइटम को इस संग्रह में अपनी पंक्तियों के रूप में जोड़ा जा रहा है।",
   addMoreItemsToThisList: "इस सूची में और आइटम जोड़ें",
   allAvailableDetailFieldsAlreadyVisible:
     "सभी उपलब्ध विवरण फ़ील्ड पहले से दिखाई दे रहे हैं।",
   bestWhenSameKindAdditionalRows:
     "जब इस संग्रह में उसी तरह के रिकॉर्ड हों और उन्हें अतिरिक्त पंक्तियों के रूप में दिखना चाहिए, तब सबसे अच्छा।",
   checkingForMatchingFields: "मेल खाने वाले फ़ील्ड जाँचे जा रहे हैं...",
-  checkingHowTheseRecordsMatch: "ये रिकॉर्ड कैसे मेल खाते हैं, यह जाँचा जा रहा है...",
+  checkingHowTheseRecordsMatch:
+    "ये रिकॉर्ड कैसे मेल खाते हैं, यह जाँचा जा रहा है...",
   chooseFields: "फ़ील्ड चुनें",
   pickDetailsBecomeColumns: "चुनें कि कौन से विवरण संग्रह कॉलम बनें।",
   detailFieldsAdded: "विवरण फ़ील्ड जोड़े गए",
@@ -246,7 +260,8 @@ const database = {
     "लाइव राइट केवल Agent-Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
   builderWriteMode: "Builder राइट मोड",
   builderWriteModeUpdated: "Builder राइट मोड अपडेट किया गया",
-  allowPublishUnpublishPerItem: "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
+  allowPublishUnpublishPerItem:
+    "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
   builderChanges: "Builder परिवर्तन",
   reviewLocalEditsBeforeBuilder:
     "Builder तक पहुँचने से पहले स्थानीय संपादन की समीक्षा करें।",
@@ -260,13 +275,15 @@ const database = {
     "इन पंक्तियों पर मैप करने के लिए एक Builder संग्रह या अन्य तालिका कनेक्ट करें।",
   noBuilderWrites: "कोई Builder राइट नहीं।",
   stageOnly: "केवल स्टेज करें",
-  savesChangesNeverPublishes: "Builder में बदलाव सहेजता है — कभी प्रकाशित नहीं करता।",
+  savesChangesNeverPublishes:
+    "Builder में बदलाव सहेजता है — कभी प्रकाशित नहीं करता।",
   builderEffectNewTag: "नया",
   builderEffectNewSentence: "नई ड्राफ़्ट एंट्री बनाता है",
   builderEffectEditTag: "संपादित करें",
   builderEffectEditSentence: "लाइव एंट्री अपडेट करता है",
   builderEffectSaveTag: "सहेजें",
-  builderEffectAutosaveSentence: "सहेजा गया, Builder में प्रकाशित करने तक लाइव नहीं",
+  builderEffectAutosaveSentence:
+    "सहेजा गया, Builder में प्रकाशित करने तक लाइव नहीं",
   builderEffectSaveDraftSentence: "ड्राफ़्ट सहेजता है",
   builderEffectPublishTag: "प्रकाशित करें",
   builderEffectPublishSentence: "यह एंट्री प्रकाशित करता है",
@@ -304,7 +321,8 @@ const database = {
   keepPreparedUpdate: "तैयार अपडेट रखें",
   cancellingPreparedUpdate: "रद्द किया जा रहा है…",
   preparedUpdateCancelled: "तैयार Builder अपडेट रद्द किया गया",
-  preparedUpdateAlreadyCancelled: "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
+  preparedUpdateAlreadyCancelled:
+    "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
   cancelPreparedUpdateFailed: "तैयार Builder अपडेट रद्द नहीं हुआ",
   whatChanged: "क्या बदला",
   bodyChangeComparison: "मुख्य पाठ के बदलाव की तुलना",
@@ -318,11 +336,13 @@ const database = {
   thisUnpublishesTheLiveEntry:
     "यह Builder में लाइव प्रविष्टि को अप्रकाशित कर देता है।",
   needsAttentionBeforeFinish: "समाप्त होने से पहले ध्यान देने की आवश्यकता है",
-  noPendingLocalBuilderChanges: "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
+  noPendingLocalBuilderChanges:
+    "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
   needsAttention: "ध्यान देने की आवश्यकता है",
   failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
   reconciliationRequired: "मिलान आवश्यक है — पुनः प्रयास न करें",
-  builderPushAlreadyRunning: "Builder पुश पहले से चल रहा है। दूसरा लेखन नहीं भेजा गया।",
+  builderPushAlreadyRunning:
+    "Builder पुश पहले से चल रहा है। दूसरा लेखन नहीं भेजा गया।",
   needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
   working: "कार्य हो रहा है…",
   checksOnly: "केवल जाँच",
@@ -382,7 +402,8 @@ const database = {
   addAdvancedFilter: "उन्नत फ़िल्टर जोड़ें",
   addFilterRule: "फ़िल्टर नियम जोड़ें",
   addFilterGroup: "फ़िल्टर समूह जोड़ें",
-  nestedFilterGroupUnavailable: "नेस्टेड फ़िल्टर समूहों के लिए डेटा मॉडल अपडेट चाहिए",
+  nestedFilterGroupUnavailable:
+    "नेस्टेड फ़िल्टर समूहों के लिए डेटा मॉडल अपडेट चाहिए",
   deleteFilter: "फ़िल्टर हटाएँ",
   where: "जहाँ",
   sortBy: "इसके अनुसार क्रमबद्ध करें...",
@@ -578,7 +599,8 @@ const databaseExactEnglish = {
   matchFormula: "मिलान सूत्र",
   newSourceNormalize: "नया स्रोत · normalize",
   newView: "नया दृश्य",
-  noBuilderModelsWereFoundInThisSpace: "इस space में कोई Builder मॉडल नहीं मिला।",
+  noBuilderModelsWereFoundInThisSpace:
+    "इस space में कोई Builder मॉडल नहीं मिला।",
   noDatabasePageSelected: "कोई संग्रह पेज चयनित नहीं है।",
   noDate: "कोई तारीख नहीं",
   noEditableProperties: "कोई संपादन योग्य गुण नहीं",
@@ -587,7 +609,8 @@ const databaseExactEnglish = {
   noMatchingOptions: "कोई मेल खाते विकल्प नहीं",
   noMatchingPages: "कोई मेल खाते पेज नहीं",
   noMatchingProperties: "कोई मेल खाते गुण नहीं",
-  noOtherDatabasesAvailableToAdd: "जोड़ने के लिए कोई अन्य संग्रह उपलब्ध नहीं है।",
+  noOtherDatabasesAvailableToAdd:
+    "जोड़ने के लिए कोई अन्य संग्रह उपलब्ध नहीं है।",
   noPropertiesFound: "कोई गुण नहीं मिले",
   notMappedToBuilder: "Builder से मैप नहीं है।",
   openPagesIn: "पेज इसमें खोलें",
@@ -612,7 +635,8 @@ const databaseExactEnglish = {
   sortDescending: "अवरोही क्रम में सॉर्ट करें",
   sortRowsBy: "पंक्तियां इसके अनुसार सॉर्ट करें",
   startDate: "प्रारंभ तारीख",
-  thisDatabaseIsLocalConnectASourceToMapIts: "किसी दूसरे ऐप से इस संग्रह में पेज लाएँ।",
+  thisDatabaseIsLocalConnectASourceToMapIts:
+    "किसी दूसरे ऐप से इस संग्रह में पेज लाएँ।",
   thisPropertyHasNoOptionsYet: "इस गुण में अभी कोई विकल्प नहीं है।",
   thisSourceIsNoLongerConnected: "यह स्रोत अब कनेक्ट नहीं है।",
 };
@@ -641,7 +665,8 @@ const localFiles = {
   localComponentsConnectedDescription:
     "घटक पूर्वावलोकन और स्लैश मेनू इस फ़ोल्डर से फिर से लोड होंगे।",
   localFilesLinked: "स्थानीय फ़ाइलें लिंक की गईं",
-  componentPreviewsNeedBridge: "घटक पूर्वावलोकन के लिए स्थानीय डेवलपमेंट ब्रिज चाहिए।",
+  componentPreviewsNeedBridge:
+    "घटक पूर्वावलोकन के लिए स्थानीय डेवलपमेंट ब्रिज चाहिए।",
   mdxFilesLinked: "MDX फ़ाइलें लिंक की गईं",
   mdxFilesLinkedDescription:
     "यह ब्राउज़र फ़ाइलें संपादित कर सकता है, लेकिन React घटक पूर्वावलोकन के लिए Agent-Native Desktop या स्थानीय डेवलपमेंट सर्वर चाहिए।",
@@ -701,7 +726,8 @@ const editor = {
     keyCtrl: "Ctrl",
     keyShift: "Shift",
     keyDelete: "Del",
-    lockedSource: "स्रोत फ़ाइल के कॉम्पोनेंट यहाँ डुप्लिकेट या हटाए नहीं जा सकते।",
+    lockedSource:
+      "स्रोत फ़ाइल के कॉम्पोनेंट यहाँ डुप्लिकेट या हटाए नहीं जा सकते।",
     lockedSuggesting: "सुझाव इस तरह का ब्लॉक जोड़ या हटा नहीं सकते।",
     lockedPage: "यह पेज यह बदलाव करने की अनुमति नहीं देता।",
   },
@@ -710,10 +736,12 @@ const editor = {
   registryBlockUnreadable: "सहेजा गया ब्लॉक स्रोत पढ़ा नहीं जा सकता।",
   blocksFieldEditMovedToEnd:
     "यह ब्लॉक फ़ील्ड कहीं और भी बदला गया है। आपने उसी जगह जो टेक्स्ट लिखा था, उसे फ़ील्ड के अंत में ले जाया गया है।",
-  reconcileConflict: "यह पेज कहीं और बदल गया है। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
+  reconcileConflict:
+    "यह पेज कहीं और बदल गया है। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
   reconcileFailed:
     "नवीनतम बदलावों को जोड़ा नहीं जा सका। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
-  reconcileSaveFailed: "आपके संपादन सहेजे नहीं जा सके। समीक्षा करें और फिर से कोशिश करें।",
+  reconcileSaveFailed:
+    "आपके संपादन सहेजे नहीं जा सके। समीक्षा करें और फिर से कोशिश करें।",
   reconcileSaving: "आपके संपादन सहेजे जा रहे हैं…",
   reconcileReview: "बदलावों की समीक्षा करें",
   reconcileReviewStale:
@@ -743,7 +771,8 @@ const editor = {
     addImage: "एक छवि जोड़ें",
     addVideo: "एक वीडियो जोड़ें",
     altText: "वैकल्पिक पाठ",
-    altTextGenerationFailed: "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
+    altTextGenerationFailed:
+      "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
     assets: "संपत्ति",
     assetsImagePicker: "संपत्ति छवि चयनकर्ता",
     assetsMissingImageUrl: "एसेट ने कोई छवि URL नहीं लौटाया.",
@@ -754,7 +783,8 @@ const editor = {
     audioPreview: "ऑडियो पूर्वावलोकन",
     audioView: "ऑडियो दृश्य",
     chooseFromAssets: "संपत्तियों में से चुनें",
-    clickToEditAltText: "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
+    clickToEditAltText:
+      "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
     closeAltTextEditor: "वैकल्पिक टेक्स्ट संपादक बंद करें",
     closeAudioPreview: "ऑडियो पूर्वावलोकन बंद करें",
     closeImagePreview: "छवि पूर्वावलोकन बंद करें",
@@ -874,7 +904,8 @@ const editor = {
     deleteProperty: "संपत्ति हटाएं",
     deletePropertyDescription:
       'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "{{name}}" और उसके मानों को हटा देता है।',
-    deletePropertyDescriptionPrefix: 'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "',
+    deletePropertyDescriptionPrefix:
+      'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "',
     deletePropertyDescriptionSuffix: '" और उसके मानों को हटा देता है।',
     deletePropertyQuestion: "संपत्ति हटाएं?",
     duplicateProperty: "डुप्लिकेट संपत्ति",
@@ -1014,7 +1045,8 @@ const editor = {
     collectionInline: "संग्रह — इनलाइन",
     collectionInlineDescription: "इस पेज में एक संग्रह जोड़ें",
     collectionFullPage: "संग्रह — पूरा पेज",
-    collectionFullPageDescription: "एक चाइल्ड संग्रह बनाएँ और उसे यहाँ लिंक करें",
+    collectionFullPageDescription:
+      "एक चाइल्ड संग्रह बनाएँ और उसे यहाँ लिंक करें",
     divider: "विभाजक",
     dividerDescription: "क्षैतिज नियम",
     generate: "उत्पन्न करें",
@@ -1076,6 +1108,9 @@ const editor = {
     hideInSearch: "खोज में छिप जाओ",
     hideInSearchDescription:
       "संगठन से छिपाएँ और खोजें। जिन लोगों के पास लिंक है वे अभी भी देख सकते हैं.",
+    agentTextLock: "एजेंट इसका टेक्स्ट संपादित नहीं कर सकते",
+    agentTextLockDescription:
+      "एजेंट अब भी टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं। उन्हें सिर्फ़ लोग स्वीकार कर सकते हैं।",
     importingFromNotion: "नोशन से आयात किया जा रहा है...",
     lastSynced: "अंतिम बार समन्वयित किया गया",
     linkedToNotion: "धारणा से जुड़ा हुआ",
@@ -1090,7 +1125,8 @@ const editor = {
     openInNotion: "धारणा में खोलें",
     openInAgentNative: "Agent-Native में खोलें",
     orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
-    orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
+    orgLinkCanView:
+      "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
     pin: "पिन करें",
     unpin: "अनपिन करें",
     printDialogOpened: "प्रिंट संवाद खोला गया",
@@ -1364,7 +1400,8 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
-    widgetLoadStalled: "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
+    widgetLoadStalled:
+      "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
     widgetDocumentLoadStage: "सहेजे गए पेज का मुख्य भाग",
     widgetDraftCheckStage: "पेज ड्राफ़्ट की बहाली",
     widgetEditorInitStage: "रिच-टेक्स्ट एडिटर के शुरू होने",
@@ -1458,7 +1495,8 @@ const exactEnglish = {
       copyPageLink: "पेज लिंक कॉपी करें",
       createShareableCopy: "साझा करने योग्य प्रति बनाएँ",
       couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
-      clipboardAccessUnavailable: "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
+      clipboardAccessUnavailable:
+        "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
       pageBreadcrumb: "पेज ब्रेडक्रंब",
     },
     versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
@@ -1474,7 +1512,8 @@ const exactEnglish = {
     removeFromFavorites: "पसंदीदा से हटाएँ",
     localFolder: "स्थानीय फ़ोल्डर",
     newWorkspace: "नया वर्कस्पेस",
-    newWorkspaceDescription: "अपने Files संग्रह के साथ एक निजी वर्कस्पेस बनाएँ।",
+    newWorkspaceDescription:
+      "अपने Files संग्रह के साथ एक निजी वर्कस्पेस बनाएँ।",
     workspaceName: "वर्कस्पेस का नाम",
     createWorkspace: "वर्कस्पेस बनाएँ",
   },
@@ -1639,14 +1678,17 @@ const overrides = {
     labCreativeContextDescription:
       "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
     labSlashAdvancedCode: "उन्नत कोड ब्लॉक",
-    labSlashAdvancedCodeDescription: "स्लैश मेनू में कोड और कोड टैब ब्लॉक जोड़ें।",
+    labSlashAdvancedCodeDescription:
+      "स्लैश मेनू में कोड और कोड टैब ब्लॉक जोड़ें।",
     labSlashLayouts: "लेआउट ब्लॉक",
-    labSlashLayoutsDescription: "स्लैश मेनू में कस्टम HTML और टैब ब्लॉक जोड़ें।",
+    labSlashLayoutsDescription:
+      "स्लैश मेनू में कस्टम HTML और टैब ब्लॉक जोड़ें।",
     labSlashVisuals: "विज़ुअल ब्लॉक",
     labSlashVisualsDescription:
       "स्लैश मेनू में डायग्राम, Mermaid और वायरफ़्रेम ब्लॉक जोड़ें।",
     labSlashDeveloperDocs: "डेवलपर दस्तावेज़ ब्लॉक",
-    labSlashDeveloperDocsDescription: "स्लैश मेनू में API और डेवलपर दस्तावेज़ ब्लॉक जोड़ें।",
+    labSlashDeveloperDocsDescription:
+      "स्लैश मेनू में API और डेवलपर दस्तावेज़ ब्लॉक जोड़ें।",
   },
   chat: {
     publicEmptyState: "इस document के बारे में कुछ भी पूछें",

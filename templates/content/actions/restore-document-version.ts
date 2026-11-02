@@ -53,6 +53,7 @@ import {
   type OpenEditorTitleFlush,
 } from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 function isLinkedLocalSource(
@@ -332,6 +333,7 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
+    assertAgentsMayEditPageText(access.resource, ctx);
     const db = getDb();
     const readCurrent = async () => {
       const [current] = await db

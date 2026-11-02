@@ -1658,6 +1658,11 @@ export const runContentMigrations = runMigrations(
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
+    {
+      version: 135,
+      name: "content-document-agent-text-locked",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS agent_text_locked INTEGER NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "content_migrations" },
 );

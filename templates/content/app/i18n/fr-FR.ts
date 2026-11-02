@@ -1129,6 +1129,9 @@ const editor = {
     hideInSearch: "Masquer dans la recherche",
     hideInSearchDescription:
       "Masquer de l’organisation et effectuer la recherche. Les personnes disposant du lien peuvent toujours consulter.",
+    agentTextLock: "Les agents ne peuvent pas modifier le texte de cette page",
+    agentTextLockDescription:
+      "Les agents peuvent toujours commenter et suggérer des modifications. Seules les personnes peuvent les accepter.",
     importingFromNotion: "Importation depuis Notion...",
     lastSynced: "Dernière synchronisation",
     linkedToNotion: "Lié à Notion",

@@ -4,6 +4,7 @@ import {
   ActionContractError,
   defineAction,
   isActionContractError,
+  type ActionRunContext,
 } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -40,6 +41,7 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertSourceAllowsPageEdit,
   releaseRestoredPagesFromGitHubCollections,
@@ -1483,10 +1485,12 @@ const legacyTrashSchema = z
 
 async function trashDocumentWithReceipt(
   input: z.infer<typeof guardedTrashSchema>,
-  origin: string | undefined,
+  ctx: ActionRunContext | undefined,
 ) {
+  const origin = ctx?.caller;
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
   assertSourceAllowsPageEdit(access.resource, "trash");
+  assertAgentsMayEditPageText(access.resource, ctx);
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
@@ -1557,7 +1561,7 @@ export default defineAction({
           input,
           "Agent page deletes require id, the page's exact updatedAt as expectedUpdatedAt, and idempotencyKey.",
         ),
-        ctx?.caller,
+        ctx,
       );
     const args = input as z.infer<typeof legacyTrashSchema>;
     const id = args.id;
@@ -1613,6 +1617,7 @@ export default defineAction({
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing, "trash");
+    assertAgentsMayEditPageText(existing, ctx);
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
       .from(schema.contentDatabases)

@@ -52,6 +52,7 @@ import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
@@ -364,6 +365,7 @@ export default defineAction({
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||

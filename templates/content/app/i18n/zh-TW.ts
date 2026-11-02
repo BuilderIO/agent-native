@@ -1008,6 +1008,9 @@ const overrides = {
       failedToUpdateSharing: "更新分享失敗",
       hideInSearch: "隱藏在搜尋中",
       hideInSearchDescription: "從組織和搜尋中隱藏。知道連結的人仍然可以檢視。",
+      agentTextLock: "代理程式無法編輯此內容的文字",
+      agentTextLockDescription:
+        "代理程式仍可留言及建議編輯。只有人員可以接受這些建議。",
       importingFromNotion: "從概念匯入...",
       lastSynced: "上次同步",
       linkedToNotion: "連結到概念",

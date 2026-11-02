@@ -1052,6 +1052,9 @@ const editor = {
     failedToUpdateSharing: "更新分享失败",
     hideInSearch: "隐藏在搜索中",
     hideInSearchDescription: "从组织和搜索中隐藏。知道链接的人仍然可以查看。",
+    agentTextLock: "智能体不能编辑此内容的文本",
+    agentTextLockDescription:
+      "智能体仍可评论和建议修改。只有人员可以接受这些建议。",
     importingFromNotion: "从概念导入...",
     lastSynced: "上次同步",
     linkedToNotion: "链接到概念",

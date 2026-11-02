@@ -109,6 +109,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertSourceAllowsPageEdit,
   serializeDocumentSource,
@@ -1089,6 +1090,7 @@ const updateDocumentAction = defineAction({
         args.description.trim() !== existing.description;
       if (titleChanged || contentChanged || descriptionChanged) {
         assertSourceAllowsPageEdit(existing);
+        assertAgentsMayEditPageText(existing, ctx);
       }
       const anyChange =
         titleChanged ||
