@@ -10,7 +10,11 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
-import { OrgMembersPage, TeamPage } from "@agent-native/toolkit/app/org";
+import {
+  OrgAppsPage,
+  OrgMembersPage,
+  TeamPage,
+} from "@agent-native/toolkit/app/org";
 import {
   AccountSettingsCard,
   CORE_SETTINGS_PAGES,
@@ -26,6 +30,7 @@ import { IconShield } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
+import { HostedAppsSettingsGroup } from "../../components/hosted-apps-settings-group";
 import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
@@ -38,14 +43,36 @@ if (!coreMembersPage) {
   throw new Error("Core Settings has no members page for Dispatch app roles");
 }
 
+const coreAppsPage = CORE_SETTINGS_PAGES.find((page) => page.id === "apps");
+if (!coreAppsPage) {
+  throw new Error("Core Settings has no apps page for Dispatch hosted apps");
+}
+
 function DispatchMembersSettingsPage() {
   return <OrgMembersPage appRoles={dispatchAccessDescriptor} />;
 }
 
-// The redesigned Settings shows Members from core; Dispatch's replaces it so
-// the app-role column stays.
+function DispatchAppsSettingsPage() {
+  return <OrgAppsPage extraGroups={<HostedAppsSettingsGroup />} />;
+}
+
+// The redesigned Settings shows Members and Apps from core; Dispatch's
+// replace them so the app-role column and the hosted apps group stay.
 registerSettingsPages([
   { ...coreMembersPage, component: DispatchMembersSettingsPage },
+  {
+    ...coreAppsPage,
+    component: DispatchAppsSettingsPage,
+    searchEntries: [
+      ...(coreAppsPage.searchEntries ?? []),
+      {
+        id: "hosted-apps",
+        labelKey: "dispatch.pages.showHostedApps",
+        keywords: "agent-native.com hosted apps built-in agent-native mail calendar hide",
+        anchor: "show-hosted-apps",
+      },
+    ],
+  },
 ]);
 
 export function meta() {
