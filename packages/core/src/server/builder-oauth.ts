@@ -542,7 +542,7 @@ export async function hasStoredBuilderOAuthGrantForUse(
 ): Promise<boolean> {
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
-    orgOnly: access.orgOnly,
+    orgOnly: access.orgOnly ?? false,
   })) {
     const stored = await getOAuthTokens(
       "mcp",
