@@ -42,7 +42,7 @@ const signedIn = {
   email: "Reader@Example.test",
   name: "Robin Reader",
 };
-const publicReader = { kind: "public" as const };
+const publicReader = { kind: "public" as const, visitorKey: null };
 
 function configure(env: Record<string, string>) {
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
@@ -165,6 +165,22 @@ describe("mintContentClipToken", () => {
     expect(payload.sub).toBe("content-public-doc-reader");
     expect(payload.scope).toBe("content-clip:public-read");
     expect(payload.name).toBeUndefined();
+    expect(payload).not.toHaveProperty("visitor_key");
+
+    const keyed = await mintContentClipToken({
+      reader: { kind: "public", visitorKey: "visitor-key-0123456789abcdefgh" },
+      scope: "content-clip:public-read",
+      documentId: "doc_1",
+      recordingId: "rec_1",
+      clipsAppUrl: CLIPS_URL,
+      secret: PEER_SECRET,
+    });
+    expect(
+      (await claimsOf(keyed, `${CLIPS_URL}/content-clips`)).payload,
+    ).toMatchObject({
+      sub: "content-public-doc-reader",
+      visitor_key: "visitor-key-0123456789abcdefgh",
+    });
   });
 
   it("signs an upload token that names the editor, the page and their address, and no recording", async () => {
