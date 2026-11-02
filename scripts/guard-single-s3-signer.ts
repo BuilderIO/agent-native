@@ -11,7 +11,7 @@
  * literal finds the signer. Tests may use it to pin or check signatures.
  */
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -42,7 +42,7 @@ export function findStrayS3Signers(files: readonly string[]): string[] {
 
 /** Tracked and new (not ignored) source files that hold the literal. */
 export function listFilesWithSigningScope(root = rootDir): string[] {
-  const output = execFileSync(
+  const result = spawnSync(
     "git",
     [
       "grep",
@@ -55,7 +55,15 @@ export function listFilesWithSigningScope(root = rootDir): string[] {
     ],
     { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
   );
-  return output.split(/\r?\n/).filter(Boolean);
+  // `git grep` exits 1 when nothing matches. Anything else means it couldn't
+  // search, and a guard that didn't look must not pass.
+  if (result.status === 1) return [];
+  if (result.status !== 0) {
+    throw new Error(
+      `git grep failed: ${result.error?.message ?? result.stderr}`,
+    );
+  }
+  return result.stdout.split(/\r?\n/).filter(Boolean);
 }
 
 if (

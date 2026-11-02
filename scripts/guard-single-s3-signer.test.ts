@@ -53,4 +53,20 @@ describe("single S3 signer guard", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("finds nothing when no file holds the literal, and throws when it can't search", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "guard-single-s3-signer-"));
+    try {
+      execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+      writeFileSync(path.join(root, "clean.ts"), "const scope = 1;\n");
+
+      assert.deepEqual(listFilesWithSigningScope(root), []);
+      assert.throws(
+        () => listFilesWithSigningScope(path.join(root, "missing")),
+        /git grep failed/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
