@@ -2,8 +2,16 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import { useInModalLayer } from "./modal-layer.js";
 
-const Popover = PopoverPrimitive.Root;
+// Modal inside a dialog or sheet: its content joins the scroll lock's allowed layers, so the wheel scrolls it.
+function Popover({
+  modal,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const inModalLayer = useInModalLayer();
+  return <PopoverPrimitive.Root modal={modal ?? inModalLayer} {...props} />;
+}
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
 

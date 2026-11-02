@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
@@ -738,7 +739,7 @@ export default function ShareRoute() {
     queryKey: shareQueryKey,
     queryFn: async () => {
       const url = new URL(
-        `${appBasePath()}/api/public-recording`,
+        appApiPath("/api/public-recording"),
         window.location.origin,
       );
       url.searchParams.set("id", shareId ?? "");

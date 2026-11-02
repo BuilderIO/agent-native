@@ -18,10 +18,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- A public page's link opens a read-only copy for people who aren't signed in, instead of asking them to sign in
 - An AI suggestion in a comment thread uses the same group as suggested changes in the margin: its summary, edit count, Accept all and Reject all come first, and opening it shows each edit with the usual check and X.
 
 ### Fixed
 
+- Edits to a public page reach its readers within a minute, and making it private or moving it to Trash takes it down just as fast
+- Two collections connected to the same Builder model can no longer push over each other's changes to the same entry at the same moment.
 - Restoring page history preserves text without exposing unauthorized private callout images
 - An agent's Accept on words someone is still typing in returns the suggestion to pending instead of failing with a server error
 - Opening a page you can't access goes straight to the no-access screen without a brief error first, including when you come back to it
@@ -97,6 +100,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Shareable local-file copies open inline with document editing and sharing controls in compatible agent hosts.
 - Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
 - Tables get Header row, Header column and Fit to width in their block menu, colours for rows and columns, and menus that close the moment you press Escape.
 - The block menu turns a block into another kind, colours it and comments on it, filters as you type, and shows each action’s shortcut. It says why a locked block can’t be duplicated or deleted, and a click beside the page lets go of a selected block.

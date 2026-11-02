@@ -373,9 +373,6 @@ const messages = {
       connectionsNeeded: "{{count}} بحاجة إلى ربط",
       connectionsListName: "الاتصالات المطلوبة",
       jumpToProblem: "إظهار على اللوحة",
-      testRun: "تشغيل تجريبي",
-      testing: "جارٍ البدء",
-      saveAndTest: "حفظ وتشغيل تجريبي",
       moreActions: "إجراءات أخرى",
       runNow: "تشغيل الآن",
       runNowSaveFirst: "احفظ تغييراتك قبل التشغيل الفعلي.",
@@ -456,6 +453,13 @@ const messages = {
       body: "في سير العمل هذا تغييرات لم تُحفظ.",
       stay: "متابعة التحرير",
       discard: "تجاهل",
+    },
+    draft: {
+      restored: "تمت استعادة تغييراتك غير المحفوظة.",
+      saveFailed: "تعذّر حفظ مسودة لتغييراتك. {{reason}}",
+      unreadable:
+        "تعذّرت استعادة تغييراتك غير المحفوظة، لذلك فُتح الإصدار المحفوظ.",
+      discardFailed: "تعذّر تجاهل مسودتك. {{reason}}",
     },
     liveRun: {
       dialogTitle: "هل تريد تشغيل سير العمل هذا فعلياً؟",

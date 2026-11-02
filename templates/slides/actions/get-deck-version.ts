@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -31,7 +31,10 @@ export default defineAction({
       .limit(1);
 
     if (!version) {
-      throw new Error(`Deck version not found: ${versionId}`);
+      fail(`Deck version not found: ${versionId}`, {
+        errorCode: "deck_version_not_found",
+        statusCode: 404,
+      });
     }
 
     const data = JSON.parse(version.data);

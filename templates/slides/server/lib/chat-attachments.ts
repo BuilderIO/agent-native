@@ -21,6 +21,7 @@ import {
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
+import { rememberThreadUploads } from "./thread-uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_CHAT_UPLOAD_TOTAL_BYTES = MAX_REFERENCE_FILE_BYTES;
@@ -199,6 +200,7 @@ export async function prepareSlidesChatAttachments(args: {
   ownerEmail: string | null;
   message: string;
   attachments: AgentChatAttachment[];
+  threadId?: string;
 }): Promise<{ message?: string; attachments?: AgentChatAttachment[] } | void> {
   const generationContext = await readSlidesDeckGenerationContext();
   if (!args.ownerEmail || args.attachments.length === 0) {
@@ -334,6 +336,23 @@ export async function prepareSlidesChatAttachments(args: {
   const filesWithPaths = uploaded.filter(
     (file): file is typeof file & { path: string } => Boolean(file.path),
   );
+  if (args.threadId && filesWithPaths.length > 0) {
+    try {
+      await rememberThreadUploads(
+        args.threadId,
+        filesWithPaths.map((file) => ({
+          name: file.originalName,
+          path: file.path,
+        })),
+      );
+    } catch (error) {
+      // coercion-ok: this turn still lists every path below; only a later turn's by-name lookup loses this file.
+      console.warn(
+        "[slides] could not record this thread's uploads for later turns",
+        error,
+      );
+    }
+  }
   const urlOnlyImages = uploaded.filter(
     (file) =>
       !file.path &&

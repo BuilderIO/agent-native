@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import { ModalLayerProvider, useInModalLayer } from "./modal-layer.js";
 
 const Sheet = SheetPrimitive.Root;
 
@@ -71,24 +72,34 @@ const SheetContent = React.forwardRef<
       ...props
     },
     ref,
-  ) => (
-    <SheetPortal>
-      {showOverlay ? <SheetOverlay className={overlayClassName} /> : null}
-      <SheetPrimitive.Content
-        ref={ref}
-        className={cn(sheetVariants({ side }), className)}
-        {...props}
-      >
-        {children}
-        {showClose ? (
-          <SheetPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            <IconX className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </SheetPrimitive.Close>
+  ) => {
+    // A sheet opened from a dialog rises above it, and stays under the popovers at z-[290].
+    const nested = useInModalLayer();
+    return (
+      <SheetPortal>
+        {showOverlay ? (
+          <SheetOverlay className={cn(nested && "z-[284]", overlayClassName)} />
         ) : null}
-      </SheetPrimitive.Content>
-    </SheetPortal>
-  ),
+        <SheetPrimitive.Content
+          ref={ref}
+          className={cn(
+            sheetVariants({ side }),
+            nested && "z-[285]",
+            className,
+          )}
+          {...props}
+        >
+          <ModalLayerProvider value>{children}</ModalLayerProvider>
+          {showClose ? (
+            <SheetPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+              <IconX className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </SheetPrimitive.Close>
+          ) : null}
+        </SheetPrimitive.Content>
+      </SheetPortal>
+    );
+  },
 );
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 

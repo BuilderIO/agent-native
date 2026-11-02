@@ -12,6 +12,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
 import {
@@ -94,10 +95,6 @@ export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
   "We couldn't send your message right now. Please try again shortly.";
 export const CHAT_CAPABILITY_UNSUPPORTED_MESSAGE =
   "This app can't safely retry your saved prompt yet. Update the app, then try again.";
-const MALFORMED_REQUEST_CODES = new Set([
-  "invalid_request",
-  "invalid_request_error",
-]);
 const ATTACHMENT_REJECTION_PATTERN =
   /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
@@ -545,7 +542,7 @@ export function normalizeChatError(
     };
   }
 
-  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
+  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE

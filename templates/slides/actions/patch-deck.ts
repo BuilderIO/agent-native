@@ -32,6 +32,7 @@ import {
 } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -72,6 +73,7 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import {
   clampTransitionSpeed,
   normalizeSlideTransition,
@@ -739,8 +741,9 @@ export function assertSourceImportSlidesCovered(
   );
   if (missingSlideIds.length === 0) return;
 
-  throw new Error(
+  fail(
     `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying the changed slides with get-deck slideIds and compact=false.`,
+    { errorCode: "source_restyle_incomplete", statusCode: 400 },
   );
 }
 
@@ -1085,9 +1088,10 @@ export function applyOperation(
       const { orderedIds } = op;
       const duplicateId = firstDuplicate(orderedIds);
       if (duplicateId !== undefined) {
-        throw new Error(
-          `Cannot reorder slides with duplicate ID ${duplicateId}`,
-        );
+        fail(`Cannot reorder slides with duplicate ID ${duplicateId}`, {
+          errorCode: "duplicate_slide_id",
+          statusCode: 400,
+        });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       // Build the new order from the client's desired order, keeping only
@@ -1455,8 +1459,9 @@ export default defineAction({
           statusCode: 404,
         });
 
+      const storedDeck: { slides?: unknown } = JSON.parse(row.data);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deck: any = JSON.parse(row.data);
+      const deck: any = withUniqueSlideIds(deckId, storedDeck);
       if (
         !isMcpWidgetPatchAllowed(ctx?.caller, requestedOperations, {
           rewriteSource,
@@ -1528,7 +1533,9 @@ export default defineAction({
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
       if (ctx?.caller === "mcp-widget-write") {
-        const storedSlideIds = currentSlides
+        const storedSlideIds = (
+          Array.isArray(storedDeck.slides) ? storedDeck.slides : []
+        )
           .map((slide: { id?: unknown }) => slide?.id)
           .filter((id: unknown): id is string => typeof id === "string");
         const duplicateSlideId = firstDuplicate(storedSlideIds);
@@ -1557,8 +1564,14 @@ export default defineAction({
         .map((operation) => operation.slideId)
         .filter((slideId) => !existingSlideIds.has(slideId));
       if (missingSlideIds.length > 0) {
-        throw new Error(
-          `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+        const slideIds = [...new Set(missingSlideIds)];
+        throw new NoWriteError(
+          `Cannot patch slide(s) ${slideIds.join(", ")}: they are no longer in the deck. Re-read the deck with get-deck; no slides were changed.`,
+          {
+            errorCode: "slide_not_found",
+            statusCode: 404,
+            details: { slideIds },
+          },
         );
       }
 
@@ -2019,7 +2032,7 @@ export default defineAction({
           .update(schema.decks)
           .set({
             title: sqlTitle,
-            data: JSON.stringify(deck),
+            ...deckDataColumns(deck),
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
             ...deckClientWriteFields(clientWrite, now),

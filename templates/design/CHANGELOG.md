@@ -133,6 +133,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Generation sessions and coding handoffs open the design inline in compatible agent hosts.
 - Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
 - A selected line or arrow shows a handle at each end; drag one to move just that end, with Shift to snap to 45 degrees
 - Independent content and mobile layout reviews are available on request for HubSpot emails.

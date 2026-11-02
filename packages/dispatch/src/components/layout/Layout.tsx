@@ -263,6 +263,7 @@ export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
   agentPageHref?: string;
+  notice?: ReactNode;
 }
 
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
@@ -1293,6 +1294,7 @@ function DispatchLayout({
   children,
   extensions,
   agentPageHref,
+  notice,
   brandName,
   brandIcon,
 }: DispatchLayoutProps) {
@@ -2310,6 +2312,7 @@ function DispatchLayout({
             >
               <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 <Header showAgentToggle={false} />
+                {notice}
                 <InvitationBanner />
                 <main className="relative flex min-h-0 flex-1 overflow-hidden">
                   <div className="min-w-0 flex-1 overflow-y-auto">
@@ -2390,6 +2393,7 @@ function DispatchLayout({
   ];
   const appContent = (
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {notice}
       <InvitationBanner />
       {isChatRoute && chatFirstMode && chatFirstNotice ? (
         <div

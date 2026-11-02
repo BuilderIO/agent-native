@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_PROFILE as slides2Profile } from "../../../../templates/slides-2/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import {
@@ -69,6 +68,8 @@ const templateProfiles = [
   { appId: "content", profile: contentProfile },
 ] as const;
 
+const registryProfiles = [...templateProfiles] as const;
+
 // Framework actions the runtime merges into every app (mergeCoreSharingActions
 // and the review kit) that a profile binds to widget grants, so they have no
 // file under the template's actions/.
@@ -111,17 +112,16 @@ async function loadTemplateActions(appId: string) {
     path.join(projectRoot, ".generated/actions-registry.ts"),
     "utf8",
   );
-  const profile =
-    appId === "slides-2"
-      ? slides2Profile
-      : templateProfiles.find((profile) => profile.appId === appId)?.profile;
+  const profile = registryProfiles.find(
+    (profile) => profile.appId === appId,
+  )?.profile;
   if (!profile) throw new Error(`Unknown ChatGPT directory template ${appId}.`);
   const toolNames = profile.connectorCatalog;
-  const sharedActions =
-    sharedActionsByApp[appId === "slides-2" ? "slides" : appId] ?? {};
+  const sharedActions = sharedActionsByApp[appId] ?? {};
   const loadNames = [
     ...new Set([
       ...toolNames,
+      ...Object.keys(profile.widgetTargets ?? {}),
       ...Object.keys(profile.widgetReadActionArguments ?? {}),
       ...Object.keys(profile.widgetWriteActionArguments ?? {}),
     ]),
@@ -188,10 +188,7 @@ function mentionsTool(text: string, name: string): boolean {
 
 describe("ChatGPT directory template profiles", () => {
   it.each(
-    [
-      { appId: "slides-2", profile: slides2Profile },
-      { appId: "slides", profile: slidesProfile },
-    ].flatMap((template) =>
+    [{ appId: "slides", profile: slidesProfile }].flatMap((template) =>
       [
         { mode: "generic", catalogMode: undefined },
         { mode: "directory", catalogMode: "directory" as const },
@@ -309,6 +306,104 @@ describe("ChatGPT directory template profiles", () => {
       }
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it.each(registryProfiles)(
+    "$appId validates ordinary targets against the real registry without expanding directory tools",
+    async ({ appId, profile }) => {
+      const { actions, productionActions } = await loadTemplateActions(appId);
+      const { directoryProfile } = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: profile },
+      });
+      const config = {
+        name: `agent-native-${appId}`,
+        appId,
+        description: "Ordinary card and directory compatibility",
+        catalogMode: "directory" as const,
+        connectorCatalog: profile.connectorCatalog,
+        widgetDomain: profile.widgetDomain,
+        actions: productionActions,
+        productionActions,
+        directoryProfile,
+        widgetReadActions: selectMcpDirectoryWidgetReadActions(
+          directoryProfile,
+          actions,
+        ),
+        widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+          directoryProfile,
+          actions,
+        ),
+      };
+      expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+      expect(() =>
+        validateMcpDirectoryProfile({
+          ...config,
+          directoryProfile: {
+            ...directoryProfile!,
+            widgetTargets: {
+              ...profile.widgetTargets,
+              "unknown-card": () => ({
+                targetPath: "/unknown",
+                resourceIds: {},
+              }),
+            },
+          },
+        }),
+      ).toThrow(/widget target "unknown-card"/);
+
+      for (const name of Object.keys(profile.widgetTargets).filter(
+        (name) => !profile.connectorCatalog.includes(name),
+      )) {
+        expect(productionActions[name]?.mcpApp?.resource).toBeDefined();
+        const optedOutActions = {
+          ...productionActions,
+          [name]: { ...productionActions[name]!, mcpTool: false },
+        };
+        expect(() =>
+          validateMcpDirectoryProfile({
+            ...config,
+            actions: optedOutActions,
+            productionActions: optedOutActions,
+          }),
+        ).toThrow(/widget target/);
+        expect(() =>
+          validateMcpDirectoryProfile({
+            ...config,
+            externalAgents: { denyActions: [name] },
+          }),
+        ).toThrow(/widget target/);
+      }
+
+      const server = await createMCPServerForRequest(
+        config,
+        {
+          userEmail: "reviewer@example.test",
+        },
+        { origin: profile.widgetDomain, transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({
+        name: "ordinary-target-validation",
+        version: "1",
+      });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools
+            .filter((tool) => Object.hasOwn(productionActions, tool.name))
+            .map((tool) => tool.name)
+            .sort(),
+        ).toEqual([...profile.connectorCatalog].sort());
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    },
+    120_000,
   );
 
   it.each(templateProfiles)(
@@ -1190,7 +1285,9 @@ describe("ChatGPT directory template profiles", () => {
       ]);
       try {
         const { tools } = await client.listTools();
-        const widgetTargetNames = Object.keys(profile.widgetTargets).sort();
+        const widgetTargetNames = Object.keys(profile.widgetTargets)
+          .filter((name) => profile.connectorCatalog.includes(name))
+          .sort();
         const widgetToolNames = tools
           .filter((tool) => typeof tool._meta?.ui?.resourceUri === "string")
           .map((tool) => tool.name)

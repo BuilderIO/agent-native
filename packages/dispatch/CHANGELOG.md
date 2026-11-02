@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.40.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 568b298: Add an owner-only Builder backup status inspection that reports bounded metadata without downloading branch files.
+- Updated dependencies
+- Updated dependencies [39cb8ce]
+  - @agent-native/toolkit@0.222.2
+
 ## 0.40.43
 
 ### Patch Changes
@@ -1428,11 +1438,5 @@
 
 - Updated dependencies [60b7e74]
   - @agent-native/toolkit@0.16.8
-
-## 0.31.1
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

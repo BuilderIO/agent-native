@@ -62,10 +62,19 @@ export const CLIPS_LOOKBACK_CONTEXT = defineLab({
   keywords: "rewind lookback context history earlier screen before recording",
 });
 
+export const CLIPS_SCREENSHOTS = defineLab({
+  key: "clips.screenshots",
+  displayName: "Screenshots",
+  description: "Take screenshots.",
+  defaultEnabled: false,
+  keywords: "screenshots screenshot capture image",
+});
+
 export const CLIPS_LABS = defineLabs([
   CLIPS_VIDEO_EDITING,
   CLIPS_MEETINGS,
   CLIPS_VOICE_DICTATION,
   CLIPS_RESILIENT_RECORDING,
   CLIPS_LOOKBACK_CONTEXT,
+  CLIPS_SCREENSHOTS,
 ]);

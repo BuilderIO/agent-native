@@ -219,6 +219,7 @@ export function oauthRedirectUri(callbackPath: string): string {
   const oauthOrigin = shouldUseWorkspaceCallbackRelay(normalized)
     ? workspaceOAuthOrigin()
     : null;
+  if (!oauthOrigin && URL.canParse(path)) return path;
   const origin = oauthOrigin ?? getCallbackOrigin();
   return `${origin}${path}`;
 }

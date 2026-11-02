@@ -4,6 +4,7 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const hasOrgScopeResolutionUnavailableMock = vi.hoisted(() => vi.fn());
+const hasForbiddenOrgScopeMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
   resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
   hasOrgScopeResolutionUnavailable: hasOrgScopeResolutionUnavailableMock,
+  hasForbiddenOrgScope: hasForbiddenOrgScopeMock,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
@@ -73,6 +75,7 @@ describe("server/agent-run-context", () => {
     getOrgContextMock.mockReset();
     resolveOrgScopeForEmailMock.mockReset();
     hasOrgScopeResolutionUnavailableMock.mockReset();
+    hasForbiddenOrgScopeMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
     isLoopbackRequestMock.mockReset();
     isDirectLoopbackRequestMock.mockReset();
@@ -81,6 +84,7 @@ describe("server/agent-run-context", () => {
     getOrgContextMock.mockResolvedValue({ orgId: null });
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "personal" });
     hasOrgScopeResolutionUnavailableMock.mockReturnValue(false);
+    hasForbiddenOrgScopeMock.mockReturnValue(false);
     getTurnInitiatorByRunMock.mockResolvedValue(null);
     isLoopbackRequestMock.mockReturnValue(false);
     isDirectLoopbackRequestMock.mockReturnValue(false);
@@ -187,6 +191,59 @@ describe("server/agent-run-context", () => {
     expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["forbidden", null],
+    ["unavailable", null],
+    ["forbidden", "org-rejected"],
+    ["unavailable", "org-rejected"],
+  ])(
+    "does not use an org or email fallback after a %s scope result (resolver returned %s)",
+    async (failure, returnedOrgId) => {
+      const event = makeEvent();
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "other",
+      });
+      await expect(
+        resolveAgentRunOrgScope({
+          event,
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+          resolveOrgId: async () => {
+            if (failure === "forbidden")
+              hasForbiddenOrgScopeMock.mockReturnValue(true);
+            else hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+            return returnedOrgId;
+          },
+        }),
+      ).rejects.toMatchObject({
+        statusCode: failure === "forbidden" ? 403 : 503,
+      });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["forbidden", "unavailable"])(
+    "rejects %s scope marked while reading a session that has an org",
+    async (failure) => {
+      getSessionMock.mockImplementation(async () => {
+        if (failure === "forbidden")
+          hasForbiddenOrgScopeMock.mockReturnValue(true);
+        else hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+        return { orgId: "org-session" };
+      });
+      await expect(
+        resolveAgentRunOrgScope({
+          event: makeEvent(),
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+        }),
+      ).rejects.toMatchObject({
+        statusCode: failure === "forbidden" ? 403 : 503,
+      });
+      expect(getOrgContextMock).not.toHaveBeenCalled();
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("falls back to owner email when an explicit org resolver has no session org", async () => {
     const event = makeEvent();
     resolveOrgScopeForEmailMock.mockResolvedValue({
@@ -237,7 +294,7 @@ describe("server/agent-run-context", () => {
     ).resolves.toEqual({ orgScope: "personal" });
   });
 
-  it("keeps organization scope unknown when an organization lookup fails", async () => {
+  it("rejects unavailable organization scope instead of continuing as unknown", async () => {
     getSessionMock.mockRejectedValue(new Error("session unavailable"));
     getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
@@ -290,13 +347,13 @@ describe("server/agent-run-context", () => {
     hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
 
-    const requestContext = await resolveAgentRunRequestContext({
-      event,
-      ownerContext: { owner: "alice@example.com", anonymous: false },
-    });
-
-    expect(requestContext.orgId).toBeUndefined();
-    expect(requestContext.orgScope).toBeUndefined();
+    await expect(
+      resolveAgentRunRequestContext({
+        event,
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("falls back from session org to implicit org membership", async () => {

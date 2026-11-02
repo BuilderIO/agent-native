@@ -355,6 +355,20 @@ describe("generate-design action tool schema", () => {
     );
   });
 
+  it("offers the model only filename, content, and fileType per file", () => {
+    const fileProps = (
+      parameters.properties.files?.items as {
+        properties?: Record<string, unknown>;
+      }
+    ).properties;
+    expect(Object.keys(fileProps ?? {}).sort()).toEqual([
+      "content",
+      "fileType",
+      "filename",
+    ]);
+  });
+  // oracle-change: generate-design no longer accepts frameType, so the hidden-field parse and requested-email rejection checks are gone.
+
   it("keeps the placement and routing guidance in the field descriptions", () => {
     const { files, devices } = parameters.properties;
     expect(files?.description).toContain(
@@ -894,7 +908,6 @@ describe("generate-design: new-file creation path", () => {
         {
           filename: "email.html",
           fileType: "html",
-          frameType: "hubspot-email",
           content:
             '<!doctype html><html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
         },
@@ -3244,32 +3257,6 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid HubSpot frame before checkpointing or mutating metadata", async () => {
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Create an email",
-        files: [
-          {
-            filename: "email.html",
-            fileType: "html",
-            frameType: "hubspot-email",
-            content: "<html><body>Hello</body></html>",
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({
-      name: "NoWriteError",
-      noWrite: true,
-      errorCode: "hubspot_email_marker_required",
-      statusCode: 422,
-    });
-
-    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
-    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
-    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("preflights locked layers in every file before checkpointing or saving any file", async () => {

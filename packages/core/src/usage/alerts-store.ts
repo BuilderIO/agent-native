@@ -19,9 +19,11 @@ import {
 import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
-const DEFAULT_DAILY_USD = 100;
+const DEFAULT_MONTHLY_USD = 20;
 
-export const USAGE_ALERT_DEFAULT_DAILY_USD = DEFAULT_DAILY_USD;
+export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
+/** @deprecated The default is monthly now. Use USAGE_ALERT_DEFAULT_MONTHLY_USD. */
+export const USAGE_ALERT_DEFAULT_DAILY_USD = 100;
 export const USAGE_ALERT_UNIT_SCALE = {
   usd: 100,
   "builder-credits": 1,
@@ -167,9 +169,9 @@ function windowForPeriod(
 }
 
 function defaultLimit(unit: UsageAlertUnit): number {
-  if (unit === "usd") return DEFAULT_DAILY_USD;
+  if (unit === "usd") return DEFAULT_MONTHLY_USD;
   if (unit === "builder-credits") {
-    return builderCreditsFromCostCents(DEFAULT_DAILY_USD * 100);
+    return builderCreditsFromCostCents(DEFAULT_MONTHLY_USD * 100);
   }
   return 0;
 }
@@ -254,6 +256,7 @@ export const usageAlertsStore = defineStore({
     ...fromMigrationEntries(
       USAGE_ALERT_MIGRATIONS_TABLE,
       USAGE_ALERT_MIGRATIONS,
+      { data: ["usage-alert-default-twenty-a-month"] },
     ),
   ],
 });
@@ -393,18 +396,19 @@ async function storedRows(
 
 async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
   const now = Date.now();
+  // raw-sql-ok: static statement, every value is a bound parameter
   await getDbExec().execute({
     sql: `INSERT INTO usage_alert_rules (
         id, scope, owner_email, org_id, app_id, unit, period, limit_value,
         channels, enabled, is_default, dismissed_window_start, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, NULL, 'usd', 'day', ?, ?, 1, 1, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, NULL, 'usd', 'month', ?, ?, 1, 1, NULL, ?, ?)
       ON CONFLICT (id) DO NOTHING`,
     args: [
       defaultRuleId(partition),
       partition.scope,
       partition.ownerEmail,
       partition.orgId,
-      DEFAULT_DAILY_USD * USAGE_ALERT_UNIT_SCALE.usd,
+      DEFAULT_MONTHLY_USD * USAGE_ALERT_UNIT_SCALE.usd,
       JSON.stringify(["in-app", "email"]),
       now,
       now,
@@ -531,8 +535,9 @@ async function persistRule(
     : null;
   const unit = (input.unit ??
     (existing ? stringField(existing, "unit") : "usd")) as UsageAlertUnit;
+  // raw-sql-ok: not SQL, the word "period" only names a column read
   const period = (input.period ??
-    (existing ? stringField(existing, "period") : "day")) as UsageAlertPeriod;
+    (existing ? stringField(existing, "period") : "month")) as UsageAlertPeriod;
   const currentLimit = existing
     ? numberField(existing, "limit_value") /
       USAGE_ALERT_UNIT_SCALE[unit as UsageAlertUnit]

@@ -1,3 +1,4 @@
+import { snapToSlideGridStep } from "./slide-grid";
 import type { SlideImageDropPosition } from "./slide-image-replacement";
 
 const VIDEO_WIDTH = 320;
@@ -50,8 +51,8 @@ export function initialSlideVideoGeometry(
   const width = VIDEO_WIDTH;
   const height = VIDEO_HEIGHT;
   return {
-    left: Math.max(0, Math.round((position?.x ?? 640) - width / 2)),
-    top: Math.max(0, Math.round((position?.y ?? 360) - height / 2)),
+    left: Math.max(0, snapToSlideGridStep((position?.x ?? 640) - width / 2)),
+    top: Math.max(0, snapToSlideGridStep((position?.y ?? 360) - height / 2)),
     width,
     height,
   };

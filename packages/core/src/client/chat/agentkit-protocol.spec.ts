@@ -1848,6 +1848,7 @@ describe("createAgentKitProtocolAdapter", () => {
   });
 
   it("serializes approval metadata with structured tool history", async () => {
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
         type: "message-start",
@@ -1862,7 +1863,7 @@ describe("createAgentKitProtocolAdapter", () => {
               input: { payload: "large" },
               approval: {
                 approvalKey: "send-large-data:approved",
-                askId: "agent-tool-approval-large-1",
+                askId,
               },
             },
             {
@@ -1871,7 +1872,7 @@ describe("createAgentKitProtocolAdapter", () => {
               toolName: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalAskId: askId,
             },
           ],
         },
@@ -1899,8 +1900,8 @@ describe("createAgentKitProtocolAdapter", () => {
               id: "call-approval-history",
               name: "send-large-data",
               input: { payload: "large" },
-              approvalKey: approvalKeyForHistory("send-large-data:approved"),
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalKey: askId,
+              approvalAskId: askId,
             },
           },
           {
@@ -1911,7 +1912,7 @@ describe("createAgentKitProtocolAdapter", () => {
               name: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalAskId: askId,
             },
           },
         ],
@@ -1919,10 +1920,80 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it.each([
+    {
+      label: "private message without an ask id",
+      askId: undefined,
+      privateMessage: true,
+      privatePart: false,
+    },
+    {
+      label: "private part with a malformed ask id",
+      askId: "agent-tool-approval-malformed",
+      privateMessage: false,
+      privatePart: true,
+    },
+    {
+      label: "public part with a malformed ask id",
+      askId: "agent-tool-approval-malformed",
+      privateMessage: false,
+      privatePart: false,
+    },
+  ])("omits approval replay metadata for $label", async (scenario) => {
+    const rawKey = 'send-email:{"body":"synthetic-private-body"}';
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-private-approval",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-private-approval",
+              toolName: "send-email",
+              input: {},
+              approval: {
+                approvalKey: rawKey,
+                ...(scenario.askId ? { askId: scenario.askId } : {}),
+              },
+              ...(scenario.privatePart
+                ? { omitFromPersistedHistory: true }
+                : {}),
+            },
+          ],
+          ...(scenario.privateMessage
+            ? { metadata: { custom: { omitFromPersistedHistory: true } } }
+            : {}),
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-private-approval",
+      messages: [userMessage("Continue")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-private-approval", runId }),
+    );
+    const created = result.find((event) => event.type === "message.created");
+    expect(created).toBeDefined();
+    if (created?.type !== "message.created") return;
+    const callPart = created.message.parts.find(
+      (part) =>
+        part.type === "data" &&
+        part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+    );
+    expect(callPart).not.toHaveProperty("data.approvalKey");
+    expect(callPart).not.toHaveProperty("data.approvalAskId");
+    expect(JSON.stringify(callPart)).not.toContain(rawKey);
+  });
+
   it("keeps ask-ID approval history within the protocol event budget", async () => {
     const input = { payload: "x".repeat(140 * 1024) };
     const approvalKey = `send-large-data:${JSON.stringify(input)}`;
-    const askId = "agent-tool-approval-large-payload";
+    const askId = "agent-tool-approval-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
         type: "message-start",
@@ -1977,7 +2048,7 @@ describe("createAgentKitProtocolAdapter", () => {
         id: "call-large-approval-history",
         name: "send-large-data",
         input,
-        approvalKey: approvalKeyForHistory(approvalKey),
+        approvalKey: askId,
         approvalAskId: askId,
       },
     });
@@ -4956,6 +5027,113 @@ describe("createAgentKitProtocolAdapter", () => {
     await expect(
       transport.getRun?.({ threadId: "thread-1", runId }),
     ).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("keeps readers attached until a cancel whose stream closes first settles", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    const cancelSettled = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await cancelSettled.promise;
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const remaining: AgentEvent[] = [];
+    const drained = (async () => {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) return;
+        remaining.push(next.value);
+      }
+    })();
+
+    const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    // Let the closed stream end the pump and wake the reader.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    cancelSettled.resolve();
+    await cancelling;
+    await drained;
+
+    expect(remaining.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["run.status", "run.cancelled"]),
+    );
+    expect(remaining.at(-1)?.type).toBe("run.cancelled");
+    await transport.dispose();
+  });
+
+  it("releases readers when a cancel whose stream closed first fails", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      throw new Error("Cancel request failed");
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const drained = (async () => {
+      while (!(await iterator.next()).done) {}
+    })();
+
+    await expect(
+      transport.cancelRun({ threadId: "thread-1", runId }),
+    ).rejects.toThrow("Cancel request failed");
+    await expect(drained).resolves.toBeUndefined();
+    await transport.dispose();
   });
 
   it("leaves a paused Core turn to the server when the adapter is disposed", async () => {

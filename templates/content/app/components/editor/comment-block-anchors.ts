@@ -8,6 +8,8 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 import type { CommentThread } from "@/hooks/use-comments";
 
+import { msToClock } from "./clip-embed/scrubber-position";
+
 export type CommentAnchorBlock = {
   blockId: string;
   blockType: CommentAnchorBlockType;
@@ -141,12 +143,17 @@ export function threadCommentBlock(
 
 /**
  * The line a thread shows as its quote. A thread on a whole block quotes no
- * text, so it shows the block's name in the reader's language.
+ * text, so it shows the block's name in the reader's language, and a thread
+ * on a Clip shows the moment of its video it is at.
  */
 export function commentThreadQuote(
-  thread: Pick<CommentThread, "block" | "quotedText">,
+  thread: Pick<CommentThread, "block" | "quotedText" | "clip">,
   t: ReturnType<typeof useT>,
 ) {
+  if (thread.clip)
+    return t("clipEmbed.commentMoment", {
+      time: msToClock(thread.clip.videoTimestampMs),
+    });
   if (!thread.block) return thread.quotedText;
   return thread.block.blockType === "video" ? t("editor.media.video") : null;
 }
@@ -159,11 +166,13 @@ function cssEscape(value: string) {
 
 /**
  * The editor mark for a thread: a text highlight carries the thread's id, and
- * a block carries the ids of every thread on it.
+ * a block carries the ids of every thread on it. A Clip carries its threads'
+ * ids under its own name, so clicking or resting on its player, which a Clip
+ * needs for playing, never opens one of them.
  */
 export function commentThreadMarkSelector(threadId: string) {
   const id = cssEscape(threadId);
-  return `[data-comment-thread="${id}"], [data-comment-block-threads~="${id}"]`;
+  return `[data-comment-thread="${id}"], [data-comment-block-threads~="${id}"], [data-clip-comment-threads~="${id}"]`;
 }
 
 /**

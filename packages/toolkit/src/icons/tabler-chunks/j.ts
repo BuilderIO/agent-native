@@ -1,30 +1,6 @@
-import {
-  IconJacket,
-  IconJetpack,
-  IconJetpackFilled,
-  IconJetski,
-  IconJewishStar,
-  IconJewishStarFilled,
-  IconJoinBevel,
-  IconJoinRound,
-  IconJoinStraight,
-  IconJoker,
-  IconJpg,
-  IconJson,
-  IconJumpRope,
-} from "@tabler/icons-react";
-export default {
-  IconJacket,
-  IconJetpack,
-  IconJetpackFilled,
-  IconJetski,
-  IconJewishStar,
-  IconJewishStarFilled,
-  IconJoinBevel,
-  IconJoinRound,
-  IconJoinStraight,
-  IconJoker,
-  IconJpg,
-  IconJson,
-  IconJumpRope,
-};
+// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
+import type { IconNode } from "@tabler/icons-react";
+const icons: Record<string, IconNode> = JSON.parse(
+  '{"jacket":[["path",{"d":"M16 3l-4 5l-4 -5"}],["path",{"d":"M12 19a2 2 0 0 1 -2 2h-4a2 2 0 0 1 -2 -2v-8.172a2 2 0 0 1 .586 -1.414l.828 -.828a2 2 0 0 0 .586 -1.414v-2.172a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v2.172a2 2 0 0 0 .586 1.414l.828 .828a2 2 0 0 1 .586 1.414v8.172a2 2 0 0 1 -2 2h-4a2 2 0 0 1 -2 -2"}],["path",{"d":"M20 13h-3a1 1 0 0 0 -1 1v2a1 1 0 0 0 1 1h3"}],["path",{"d":"M4 17h3a1 1 0 0 0 1 -1v-2a1 1 0 0 0 -1 -1h-3"}],["path",{"d":"M12 19v-11"}]],"jetpack":[["path",{"d":"M10 6a3 3 0 1 0 -6 0v7h6v-7"}],["path",{"d":"M14 13h6v-7a3 3 0 0 0 -6 0v7"}],["path",{"d":"M5 16c0 2.333 .667 4 2 5c1.333 -1 2 -2.667 2 -5"}],["path",{"d":"M15 16c0 2.333 .667 4 2 5c1.333 -1 2 -2.667 2 -5"}],["path",{"d":"M10 8h4"}],["path",{"d":"M10 11h4"}]],"jetpack-filled":[["path",{"d":"M17 2a4 4 0 0 1 4 4v7a1 1 0 0 1 -1 1h-6a1 1 0 0 1 -1 -1v-1h-2v1a1 1 0 0 1 -1 1h-6a1 1 0 0 1 -1 -1v-7a4 4 0 0 1 8 0v1h2v-1a4 4 0 0 1 4 -4m-4 8v-1h-2v1zm-4 5a1 1 0 0 1 1 1c0 2.623 -.787 4.59 -2.4 5.8a1 1 0 0 1 -1.2 0c-1.613 -1.21 -2.4 -3.177 -2.4 -5.8a1 1 0 0 1 2 0c0 1.532 .308 2.684 .906 3.498l.094 .119l.094 -.12c.558 -.759 .864 -1.813 .902 -3.196l.004 -.301a1 1 0 0 1 1 -1m10 0a1 1 0 0 1 1 1c0 2.623 -.787 4.59 -2.4 5.8a1 1 0 0 1 -1.2 0c-1.613 -1.21 -2.4 -3.177 -2.4 -5.8a1 1 0 0 1 2 0c0 1.532 .308 2.684 .906 3.498l.094 .119l.094 -.12c.558 -.759 .864 -1.813 .902 -3.196l.004 -.301a1 1 0 0 1 1 -1"}]],"jetski":[["path",{"d":"M10 5h1.4a1 1 0 0 1 .882 .53l1.718 3.22"}],["path",{"d":"M3.485 16.94l.136 .545a2 2 0 0 0 1.94 1.515h7.439a10 10 0 0 0 8 -4c0 -6 -5 -8 -5 -8c-1.889 2.518 -5.852 4 -9 4h-2a2 2 0 0 0 -2 2c0 1.328 .163 2.652 .485 3.94"}],["path",{"d":"M3.25 15h17.75"}]],"jewish-star":[["path",{"d":"M12 2l3 5h6l-3 5l3 5h-6l-3 5l-3 -5h-6l3 -5l-3 -5h6l3 -5"}]],"jewish-star-filled":[["path",{"d":"M8.433 6h-5.433l-.114 .006a1 1 0 0 0 -.743 1.508l2.69 4.486l-2.69 4.486l-.054 .1a1 1 0 0 0 .911 1.414h5.434l2.709 4.514l.074 .108a1 1 0 0 0 1.64 -.108l2.708 -4.514h5.435l.114 -.006a1 1 0 0 0 .743 -1.508l-2.691 -4.486l2.691 -4.486l.054 -.1a1 1 0 0 0 -.911 -1.414h-5.434l-2.709 -4.514a1 1 0 0 0 -1.714 0l-2.71 4.514z"}]],"join-bevel":[["path",{"d":"M6 4h3a2 2 0 0 1 2 2v6a1 1 0 0 0 1 1h6a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-6.586a1 1 0 0 1 -.707 -.293l-6.414 -6.414a1 1 0 0 1 -.293 -.707v-6.586a2 2 0 0 1 2 -2"}]],"join-round":[["path",{"d":"M6 4h3a2 2 0 0 1 2 2v6a1 1 0 0 0 1 1h6a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-6a8 8 0 0 1 -8 -8v-6a2 2 0 0 1 2 -2"}]],"join-straight":[["path",{"d":"M6 4h3a2 2 0 0 1 2 2v6a1 1 0 0 0 1 1h6a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2"}]],"joker":[["path",{"d":"M5 17.5a1.5 1.5 0 0 1 1.5 -1.5h11a1.5 1.5 0 0 1 1.5 1.5a1.5 1.5 0 0 1 -1.5 1.5h-11a1.5 1.5 0 0 1 -1.5 -1.5"}],["path",{"d":"M12 16q -2.5 -8 -6 -8q -2.5 0 -3 2c2.953 .31 3.308 3.33 4 6"}],["path",{"d":"M12 16q 2.5 -8 6 -8q 2.5 0 3 2c-2.953 .31 -3.308 3.33 -4 6"}],["path",{"d":"M9 9.5q 2 -3.5 3 -3.5t 3 3.5"}]],"jpg":[["path",{"d":"M21 8h-2a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h2v-4h-1"}],["path",{"d":"M10 16v-8h2a2 2 0 1 1 0 4h-2"}],["path",{"d":"M3 8h4v6a2 2 0 0 1 -2 2h-1.5a.5 .5 0 0 1 -.5 -.5v-.5"}]],"json":[["path",{"d":"M20 16v-8l3 8v-8"}],["path",{"d":"M15 8a2 2 0 0 1 2 2v4a2 2 0 1 1 -4 0v-4a2 2 0 0 1 2 -2"}],["path",{"d":"M1 8h3v6.5a1.5 1.5 0 0 1 -3 0v-.5"}],["path",{"d":"M7 15a1 1 0 0 0 1 1h1a1 1 0 0 0 1 -1v-2a1 1 0 0 0 -1 -1h-1a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1h1a1 1 0 0 1 1 1"}]],"jump-rope":[["path",{"d":"M6 14v-6a3 3 0 1 1 6 0v8a3 3 0 0 0 6 0v-6"}],["path",{"d":"M16 5a2 2 0 0 1 2 -2a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2a2 2 0 0 1 -2 -2l0 -3"}],["path",{"d":"M4 16a2 2 0 0 1 2 -2a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2a2 2 0 0 1 -2 -2l0 -3"}]]}',
+);
+export default icons;

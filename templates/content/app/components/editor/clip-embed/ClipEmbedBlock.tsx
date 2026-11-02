@@ -12,8 +12,11 @@ import type { ClipPlayback } from "@shared/clips-peer-contract";
 import { IconMovie } from "@tabler/icons-react";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import {
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
+  useState,
   type MutableRefObject,
   type ReactNode,
 } from "react";
@@ -21,7 +24,18 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
+import {
+  clipMarginThreadId,
+  setClipPlayhead,
+  useClipCommentEmphasis,
+  useClipCommentHostOf,
+  useClipSeeker,
+  usePublishClipComments,
+  type ClipCommentSource,
+  type ClipThreadView,
+} from "./clip-comments";
 import { youtubeEmbedSrc, type MediaState } from "./clip-media";
 import {
   clearClipUpload,
@@ -33,7 +47,7 @@ import { ClipPlayer } from "./ClipPlayer";
 import { msToClock } from "./scrubber";
 import {
   isClipBeingMade,
-  useClipMarkers,
+  useClipComments,
   useClipPlayback,
   type ClipPlaybackState,
   type ClipPlayerError,
@@ -58,6 +72,7 @@ const ERROR_MESSAGES: Record<ClipPlayerError, string> = {
   clip_password_required: "clipEmbed.passwordRequired",
   clip_redaction_pending: "clipEmbed.redactionPending",
   clip_comments_disabled: "clipEmbed.failed",
+  clip_comment_required: "clipEmbed.failed",
   clip_forbidden: "clipEmbed.forbidden",
   clip_token_refused: "clipEmbed.refused",
   clip_rate_limited: "clipEmbed.rateLimited",
@@ -77,18 +92,46 @@ const RETRYABLE = new Set<ClipPlayerError>([
   "failed",
 ]);
 
+const NO_THREADS: ClipThreadView[] = [];
+
 function ClipFrame({
   recordingId,
+  commentThreadIds,
+  emphasis = null,
+  frameRef,
   children,
 }: {
   recordingId: string;
+  /** The margin's ids for the Clip's threads, which it places beside it. */
+  commentThreadIds?: readonly string[] | undefined;
+  emphasis?: "pending" | "active" | null;
+  frameRef?: (element: HTMLDivElement | null) => void;
   children: ReactNode;
 }) {
   return (
-    <div className="media-block-wrapper" data-clip-embed={recordingId}>
+    <div
+      ref={frameRef}
+      className={cn(
+        "media-block-wrapper",
+        emphasis &&
+          `comment-highlight comment-highlight--block comment-highlight--${emphasis}`,
+      )}
+      data-clip-embed={recordingId}
+      data-clip-comment-threads={
+        commentThreadIds?.length ? commentThreadIds.join(" ") : undefined
+      }
+    >
       <div className="media-block w-full">{children}</div>
     </div>
   );
+}
+
+/** The Blocks field tab an element is in; null is the page body. */
+function blockFieldIdOf(element: Element | null): string | null {
+  const panel = element?.closest("[data-block-field-panel]");
+  if (!panel || panel.hasAttribute("data-primary-block-field-panel"))
+    return null;
+  return panel.getAttribute("data-block-field-id");
 }
 
 function ClipMessage({
@@ -394,10 +437,62 @@ function ClipEmbedPlayer({
     provider === "youtube"
       ? youtubeEmbedSrc(grant?.playback.videoUrl ?? null)
       : null;
-  const markers = useClipMarkers(
+  // With comments off, Clips still shows its owner the comments it has.
+  const comments = useClipComments(
     documentId,
     recordingId,
-    Boolean(grant?.recording.enableComments) && !provider,
+    Boolean(
+      grant &&
+      !provider &&
+      (grant.recording.enableComments || grant.viewer.isOwner),
+    ),
+  );
+  const listed = "threads" in comments;
+  const threads = listed ? comments.threads : NO_THREADS;
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const fieldId = useMemo(() => blockFieldIdOf(frame), [frame]);
+  // A grant outlives a change to the Clip's settings; the comment list
+  // doesn't.
+  const canComment =
+    Boolean(grant?.viewer.canComment) && comments.status !== "off";
+  const isOwner = Boolean(grant?.viewer.isOwner);
+  const source = useMemo<ClipCommentSource | null>(
+    () =>
+      listed ? { recordingId, threads, canComment, isOwner, fieldId } : null,
+    [canComment, fieldId, isOwner, listed, recordingId, threads],
+  );
+  usePublishClipComments(documentId, source);
+  const host = useClipCommentHostOf(documentId);
+  const commentThreadIds = useMemo(
+    () => threads.map((thread) => clipMarginThreadId(recordingId, thread.id)),
+    [recordingId, threads],
+  );
+  const emphasis = useClipCommentEmphasis(
+    documentId,
+    recordingId,
+    commentThreadIds,
+  );
+  const [seek, setSeek] = useState<((ms: number) => void) | null>(null);
+  useClipSeeker(documentId, recordingId, seek);
+  const onSeekReady = useCallback(
+    (next: ((ms: number) => void) | null) => setSeek(() => next),
+    [],
+  );
+  const onPlayhead = useCallback(
+    (ms: number) => setClipPlayhead(documentId, recordingId, ms),
+    [documentId, recordingId],
+  );
+  const onOpenMarker = useCallback(
+    (threadId: string) =>
+      host?.openThread(clipMarginThreadId(recordingId, threadId)),
+    [host, recordingId],
+  );
+  const onComment = useMemo(
+    () =>
+      host?.canCompose && canComment
+        ? (ms: number) => host.compose(recordingId, ms)
+        : undefined,
+    [canComment, host, recordingId],
   );
 
   const openInClips = openUrl ? (
@@ -479,25 +574,34 @@ function ClipEmbedPlayer({
   }
 
   return (
-    <ClipFrame recordingId={recordingId}>
+    <ClipFrame
+      recordingId={recordingId}
+      commentThreadIds={host ? commentThreadIds : undefined}
+      emphasis={host ? emphasis : null}
+      frameRef={setFrame}
+    >
       <ClipPlayer
         grant={grant}
-        markers={"markers" in markers ? markers.markers : []}
+        markers={threads}
         onMediaError={playback.onMediaError}
         resumeRef={resumeRef}
+        onSeekReady={onSeekReady}
+        onPlayhead={onPlayhead}
+        onOpenMarker={host ? onOpenMarker : undefined}
+        onComment={onComment}
       />
       <ClipCaption
         grant={grant}
         openUrl={openUrl}
         trailing={
-          markers.status === "failed" ? (
+          comments.status === "failed" ? (
             <span className="shrink-0 text-xs">
               {t("clipEmbed.commentsFailed")}
             </span>
-          ) : markers.status === "ready" && markers.truncated ? (
+          ) : comments.status === "ready" && comments.truncated ? (
             <span className="shrink-0 text-xs">
               {t("clipEmbed.commentsTruncated", {
-                count: markers.markers.length,
+                count: comments.threads.length,
               })}
             </span>
           ) : null

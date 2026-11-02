@@ -862,8 +862,9 @@ describe("slide image replacement", () => {
     expect(img?.getAttribute("alt")).toBe("drop.png");
     expect(img?.getAttribute("data-slide-object-id")).toBeTruthy();
     expect(img?.getAttribute("style")).toContain("position: absolute");
+    // Centered on the drop point, then landed on the 8px grid.
     expect(img?.getAttribute("style")).toContain("left: 480px");
-    expect(img?.getAttribute("style")).toContain("top: 270px");
+    expect(img?.getAttribute("style")).toContain("top: 272px");
     expect(img?.getAttribute("style")).toContain("width: 320px");
     expect(img?.getAttribute("style")).toContain("height: 180px");
     expect(img?.getAttribute("style")).toContain("z-index: 1");

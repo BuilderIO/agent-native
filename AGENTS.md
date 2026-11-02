@@ -48,8 +48,8 @@ Use `/sidecar <task>` for read-only investigations.
   contacting another person, a missing credential, a user-only decision, or a
   destructive data change. See `ship` and `new-branch` for covered git/PR work.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- Use the current suitable branch. PRs are ready for review unless drafts are
-  requested.
+- Branch without asking; in a shared checkout, use a new worktree. PRs are
+  ready for review unless drafts are requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
