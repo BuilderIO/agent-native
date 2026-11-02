@@ -14,6 +14,7 @@ import {
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
+import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -2240,7 +2241,9 @@ function postProcessStandalone(
           } else if (key === "@agent-native/otel") {
             deps[key] = getOtelDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
-            deps[key] = "latest";
+            deps[key] = key.startsWith("@agent-native/")
+              ? releasedFrameworkPackageVersion(key)
+              : "latest";
           } else if (typeof val === "string" && val === "catalog:") {
             deps[key] = catalog[key] ?? "latest";
           }
@@ -3758,7 +3761,7 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  return getCorePackageVersion() ?? "latest";
+  return releasedFrameworkPackageVersion("@agent-native/core");
 }
 
 function getDispatchDependencyVersion(): string {
@@ -3767,18 +3770,16 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/dispatch");
 }
 
-// OTel is versioned independently of Core (it peer-depends on Core's public
-// observability provider API), so a scaffold takes its current npm release.
 function getOtelDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localOtel = findLocalPackage("otel");
     if (localOtel) return localPackageTarball(localOtel);
   }
 
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/otel");
 }
 
 function getToolkitDependencyVersion(): string {
@@ -3787,63 +3788,16 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  const publishedRange = getOwnPackageDependencyVersion(
-    "@agent-native/toolkit",
-  );
-  if (publishedRange !== "latest") return publishedRange;
-
-  // Changesets publishes Toolkit at Core's version from the fixed release group.
-  const coreVersion = getCorePackageVersion();
-  if (coreVersion) return `^${coreVersion}`;
-  throw new Error(
-    "Cannot determine a compatible @agent-native/toolkit version from @agent-native/core.",
-  );
+  return releasedFrameworkPackageVersion("@agent-native/toolkit");
 }
 
 function getAgentKitDependencyVersion(): string {
-  const localAgentKit = findLocalPackage("agentkit");
-  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" && localAgentKit) {
-    return localPackageTarball(localAgentKit);
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localAgentKit = findLocalPackage("agentkit");
+    if (localAgentKit) return localPackageTarball(localAgentKit);
   }
 
-  const publishedRange = getOwnPackageDependencyVersion(
-    "@agent-native/agentkit",
-  );
-  if (publishedRange !== "latest") return publishedRange;
-
-  if (localAgentKit) {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(localAgentKit, "package.json"), "utf-8"),
-    ) as { version?: unknown };
-    if (typeof manifest.version === "string" && manifest.version.length > 0) {
-      return `^${manifest.version}`;
-    }
-  }
-
-  throw new Error(
-    "Cannot determine a compatible @agent-native/agentkit version from @agent-native/core. Reinstall Core before scaffolding Chat.",
-  );
-}
-
-function getOwnPackageDependencyVersion(depName: string): string {
-  try {
-    const ownPkgPath = path.join(__dirname, "../../package.json");
-    const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
-    const range = [
-      ownPkg.dependencies,
-      ownPkg.optionalDependencies,
-      ownPkg.peerDependencies,
-      ownPkg.devDependencies,
-    ].find((dependencies) => dependencies?.[depName])?.[depName];
-    const isPublishedRange =
-      typeof range === "string" &&
-      range.length > 0 &&
-      !range.startsWith("workspace:") &&
-      range !== "catalog:";
-    if (isPublishedRange) return range;
-  } catch {}
-
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/agentkit");
 }
 
 function localToolkitOverride(): string | null {
