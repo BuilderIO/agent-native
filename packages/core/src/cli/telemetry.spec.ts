@@ -228,6 +228,17 @@ describe("CLI telemetry", () => {
     });
   });
 
+  it("gives up on a send the network never answers", async () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+
+    (await newRun()).track(ALIASED_EVENT);
+
+    const { signal } = fetchMock.mock.calls[0][1] as RequestInit;
+    await vi.waitFor(() => expect(signal?.aborted).toBe(true), {
+      timeout: 3000,
+    });
+  });
+
   describe("debug mode", () => {
     beforeEach(() => {
       vi.stubEnv("AGENT_NATIVE_TELEMETRY_DEBUG", "1");

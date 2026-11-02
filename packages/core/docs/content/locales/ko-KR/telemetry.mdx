@@ -116,7 +116,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `exceptionType`    | `TypeError` 같은 표준 오류 유형. 사용자 정의 오류 클래스 같은 그 밖의 유형은 `Error`로 전송됩니다.                                                                  |
 | `exceptionCode`    | `ENOENT` 같은 표준 오류 코드.                                                                                                                                       |
-| `exceptionMessage` | 짧은 힌트. Agent-Native 자체의 알려진 오류는 고정 텍스트를 보냅니다. 그 밖의 메시지는 첫 단어들만 최대 20자까지 보내며, 문자 외의 것이 포함된 첫 단어에서 멈춥니다. |
+| `exceptionMessage` | 짧은 힌트. Agent-Native 자체의 알려진 오류는 고정 텍스트를 보냅니다. 그 밖의 메시지는 첫 단어들만 최대 20자까지 보내며, 문자 외의 것이 포함된 첫 단어에서, 또는 콜론으로 끝나는 단어 바로 뒤에서 멈춥니다. |
 | `exceptionStack`   | Agent-Native 자체 파일의 스택 프레임으로, 경로는 패키지 기준 상대 경로입니다. 다른 프레임은 모두 제거됩니다.                                                        |
 | `handled`          | 오류로 명령이 중단되면 `false`.                                                                                                                                     |
 | `level`            | 심각도.                                                                                                                                                             |
@@ -138,7 +138,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ### Sentry {#sentry}
 
-`@agent-native/core`와 함께 `@sentry/node`가 설치되어 있으면 크래시와 실패한 빌드는 Agent-Native의 Sentry 프로젝트로도 전송되며, 워크스페이스 개발 서버의 경고 두 가지도 마찬가지입니다. 실패한 스킬 명령은 전송되지 않습니다. 이 보고서는 이 페이지의 모든 설정을 따르며 동일한 오류 유형, 힌트, 스택 프레임, `exceptionExtra` 필드와 다음 태그를 포함합니다: 위 `exceptionTags`의 필드, 오류의 `code`, `command` 이름, `nodeVersion`, `platform`. 환경은 항상 `production`입니다. CLI는 호스트 이름, 소스 줄, 콘솔 출력, 종속성 목록을 보내지 않습니다.
+`@agent-native/core`와 함께 `@sentry/node`가 설치되어 있으면 크래시와 실패한 빌드는 Agent-Native의 Sentry 프로젝트로도 전송되며, 워크스페이스 개발 서버의 경고 두 가지도 마찬가지입니다. 실패한 스킬 명령은 전송되지 않습니다. 이 보고서는 이 페이지의 모든 설정을 따르며 동일한 오류 유형, 힌트, 스택 프레임, `exceptionExtra` 필드와 다음 태그를 포함합니다: 위 `exceptionTags`의 필드, 오류의 `code`, `command` 이름, `nodeVersion`, `platform`. 환경은 항상 `production`입니다. 보고서에는 Sentry의 일반 필드인 이벤트 ID, 타임스탬프, 심각도, CLI 버전, Sentry SDK 이름과 버전도 포함됩니다. CLI는 호스트 이름, 소스 줄, 콘솔 출력, 종속성 목록을 보내지 않습니다.
 
 ## 절대 보내지 않는 내용 {#what-is-never-sent}
 

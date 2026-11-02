@@ -475,7 +475,9 @@ export async function runSkillsCli(
         publicSkillSource:
           loadedSource?.root ?? parsed.source ?? DEFAULT_SKILLS_SOURCE,
         customPublicSkillSource: Boolean(
-          parsed.source && parsed.source !== DEFAULT_SKILLS_SOURCE,
+          (parsed.source && parsed.source !== DEFAULT_SKILLS_SOURCE) ||
+          // Only a download is our own catalog. A folder named like it isn't.
+          (loadedSource && !loadedSource.cleanup),
         ),
         publicSkillEntries,
         promptSkills: options.promptSkills

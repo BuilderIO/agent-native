@@ -44,7 +44,8 @@ import {
 const EMBEDDED_PUBLIC_KEY =
   "anpk_dc523e34b99bc34d76e82d94c46593544e4a8509a4bfc93c";
 const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
-const FLUSH_TIMEOUT_MS = 1500;
+// How long a send can hold up a command, including one that never flushes.
+const SEND_TIMEOUT_MS = 1500;
 
 export interface CliTelemetryOptions {
   cli: string;
@@ -166,6 +167,7 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
         headers: { "Content-Type": "application/json" },
         body,
         keepalive: true,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       })
         .then(() => undefined)
         .catch(() => undefined);
@@ -178,7 +180,7 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
     if (inFlight.size === 0) return;
     await Promise.race([
       Promise.allSettled([...inFlight]),
-      new Promise((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
+      new Promise((resolve) => setTimeout(resolve, SEND_TIMEOUT_MS)),
     ]);
   }
 

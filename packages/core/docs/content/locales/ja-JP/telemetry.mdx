@@ -116,7 +116,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `exceptionType`    | `TypeError` などの標準的なエラーの種類。独自のエラークラスなど、それ以外の種類は `Error` として送信されます。                                                                 |
 | `exceptionCode`    | `ENOENT` などの標準的なエラーコード。                                                                                                                                         |
-| `exceptionMessage` | 短いヒント。Agent-Native 独自の既知のエラーは固定のテキストを送信します。それ以外のメッセージは冒頭の単語のみを最大 20 文字まで送信し、文字以外を含む最初の単語で止まります。 |
+| `exceptionMessage` | 短いヒント。Agent-Native 独自の既知のエラーは固定のテキストを送信します。それ以外のメッセージは冒頭の単語のみを最大 20 文字まで送信し、文字以外を含む最初の単語、またはコロンで終わる単語の直後で止まります。 |
 | `exceptionStack`   | Agent-Native 独自のファイルのスタックフレーム。パスはパッケージからの相対パスです。その他のフレームはすべて削除されます。                                                     |
 | `handled`          | エラーがコマンドを停止させた場合は `false`。                                                                                                                                  |
 | `level`            | 重大度。                                                                                                                                                                      |
@@ -138,7 +138,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ### Sentry {#sentry}
 
-`@agent-native/core` と一緒に `@sentry/node` がインストールされている場合、クラッシュと失敗したビルドは Agent-Native の Sentry プロジェクトにも送信されます。ワークスペース開発サーバーの 2 つの警告も同様です。失敗したスキルコマンドは送信されません。これらのレポートはこのページのすべての設定に従い、同じエラーの種類、ヒント、スタックフレーム、`exceptionExtra` のフィールドと次のタグを含みます: 上記の `exceptionTags` のフィールド、エラーの `code`、`command` 名、`nodeVersion`、`platform`。環境は常に `production` です。CLI はホスト名、ソース行、コンソール出力、依存関係のリストを送信しません。
+`@agent-native/core` と一緒に `@sentry/node` がインストールされている場合、クラッシュと失敗したビルドは Agent-Native の Sentry プロジェクトにも送信されます。ワークスペース開発サーバーの 2 つの警告も同様です。失敗したスキルコマンドは送信されません。これらのレポートはこのページのすべての設定に従い、同じエラーの種類、ヒント、スタックフレーム、`exceptionExtra` のフィールドと次のタグを含みます: 上記の `exceptionTags` のフィールド、エラーの `code`、`command` 名、`nodeVersion`、`platform`。環境は常に `production` です。レポートには Sentry の通常のフィールド（イベント ID、タイムスタンプ、重大度、CLI のバージョン、Sentry SDK の名前とバージョン）も含まれます。CLI はホスト名、ソース行、コンソール出力、依存関係のリストを送信しません。
 
 ## 決して送信されない内容 {#what-is-never-sent}
 

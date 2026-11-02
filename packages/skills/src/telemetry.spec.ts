@@ -147,6 +147,35 @@ describe("createCliTelemetry", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  it("sends a private skill from a folder named like our catalog as custom", async () => {
+    const home = pinHome();
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
+    delete process.env.DO_NOT_TRACK;
+    delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
+    delete process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT;
+    const skill = path.join(home, "BuilderIO/skills/skills/acme-internal");
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(
+      path.join(skill, "SKILL.md"),
+      "---\nname: acme-internal\ndescription: Private.\n---\n",
+    );
+    vi.spyOn(process, "cwd").mockReturnValue(home);
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    const { runSkillsCli } = await import("./index.js");
+    await runSkillsCli(["list", "--json"], { log: () => {} });
+
+    const sent = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string),
+    );
+    const listed = sent.find((e) => e.event === "skills_cli skills listed");
+    expect(listed.properties.available).toContain("custom");
+    expect(JSON.stringify(sent)).not.toContain("acme-internal");
+
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("posts a bounded exception event when a CLI command fails", async () => {
     const home = pinHome();
     process.env.NODE_ENV = "production";

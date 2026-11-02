@@ -116,7 +116,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `exceptionType`    | 標準錯誤類型，例如 `TypeError`。其他類型（例如自訂錯誤類別）一律以 `Error` 傳送。                                                   |
 | `exceptionCode`    | 標準錯誤代碼，例如 `ENOENT`。                                                                                                       |
-| `exceptionMessage` | 簡短提示。Agent-Native 自己的已知錯誤傳送其固定文字。其他訊息只傳送開頭的詞，最多 20 個字元，並在第一個含有字母以外內容的詞處停止。 |
+| `exceptionMessage` | 簡短提示。Agent-Native 自己的已知錯誤傳送其固定文字。其他訊息只傳送開頭的詞，最多 20 個字元，並在第一個含有字母以外內容的詞處，或以冒號結尾的詞之後停止。 |
 | `exceptionStack`   | Agent-Native 自身檔案中的堆疊框架，路徑相對於套件。其他所有框架都會被移除。                                                         |
 | `handled`          | 錯誤使命令停止時為 `false`。                                                                                                        |
 | `level`            | 嚴重程度。                                                                                                                          |
@@ -138,7 +138,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ### Sentry {#sentry}
 
-如果 `@sentry/node` 與 `@agent-native/core` 一起安裝，當機和失敗的建置也會傳送到 Agent-Native 的 Sentry 專案，工作區開發伺服器的兩個警告也是如此。失敗的技能命令則不會。這些報告遵循本頁的所有設定，並帶有相同的錯誤類型、提示、堆疊框架和 `exceptionExtra` 欄位，以及這些標籤：上面 `exceptionTags` 的欄位、錯誤的 `code`、`command` 名稱、`nodeVersion` 和 `platform`。環境一律為 `production`。CLI 不會傳送主機名稱、原始碼行、主控台輸出或你的相依性清單。
+如果 `@sentry/node` 與 `@agent-native/core` 一起安裝，當機和失敗的建置也會傳送到 Agent-Native 的 Sentry 專案，工作區開發伺服器的兩個警告也是如此。失敗的技能命令則不會。這些報告遵循本頁的所有設定，並帶有相同的錯誤類型、提示、堆疊框架和 `exceptionExtra` 欄位，以及這些標籤：上面 `exceptionTags` 的欄位、錯誤的 `code`、`command` 名稱、`nodeVersion` 和 `platform`。環境一律為 `production`。報告還帶有 Sentry 的一般欄位：事件 ID、時間戳記、嚴重程度、CLI 版本，以及 Sentry SDK 的名稱和版本。CLI 不會傳送主機名稱、原始碼行、主控台輸出或你的相依性清單。
 
 ## 絕不傳送的內容 {#what-is-never-sent}
 
