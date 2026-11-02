@@ -441,7 +441,7 @@ export async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list files (sorted by path, 50 per page; each page says how to get the next)/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
           parameters: {
             type: "object",
             properties: {
@@ -490,13 +490,12 @@ export async function createResourceScriptEntries(): Promise<
               },
               limit: {
                 type: "number",
-                description:
-                  "Resources per list page, 1-100 (default: 50). Json pages come back as { total, offset, limit, hasMore, nextOffset, resources }.",
+                description: "List page size, 1-100 (default: 50).",
               },
               offset: {
                 type: "number",
                 description:
-                  "Resources to skip when listing. Pass the next offset from the previous page.",
+                  "List start; pass the next offset from the last page.",
               },
               visibility: {
                 type: "string",
