@@ -331,6 +331,11 @@ describe("list-decks", () => {
       visibility: "visibility_col",
       canEdit: expect.anything(),
       canManage: expect.anything(),
+      starred: expect.objectContaining({
+        strings: expect.arrayContaining([
+          "::jsonb ->> 'starred') = 'true', false)",
+        ]),
+      }),
     });
     expect(result.decks[0]).not.toHaveProperty("slideCount");
   });
@@ -367,6 +372,11 @@ describe("list-decks", () => {
       ownerEmail: "owner_email_col",
       canEdit: expect.anything(),
       canManage: expect.anything(),
+      starred: expect.objectContaining({
+        strings: expect.arrayContaining([
+          "::jsonb ->> 'starred') = 'true', false)",
+        ]),
+      }),
     });
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
