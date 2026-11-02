@@ -10,6 +10,7 @@ import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type Plugin } from "vite";
 
+import { contentShellWorkerPlugin } from "./app/service-worker/vite-plugin";
 import {
   isLocalComponentWorkspaceStoreFile,
   localComponentWorkspaceStoreDir,
@@ -402,6 +403,7 @@ export default defineConfig({
       ],
       ssrStubs: ["shiki"],
     }),
+    contentShellWorkerPlugin(),
   ],
   optimizeDeps: {
     include: [

@@ -7,6 +7,7 @@ import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
 
 import { i18nCatalog } from "./i18n";
+import { installContentShellWorker } from "./service-worker/register-shell-worker";
 
 installRouteChunkRecovery();
 
@@ -24,3 +25,4 @@ configureClientRouterBasename();
 
 hydrateRoot(document, <HydratedRouter />);
 stripBuildCompatibilityCacheBuster();
+installContentShellWorker();
