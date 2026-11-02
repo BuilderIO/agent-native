@@ -766,6 +766,46 @@ describe("requestTranscript regeneration", () => {
     );
   });
 
+  it("retains the credits recovery reason with a partial transcript", async () => {
+    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
+      mimeType: "audio/mp4",
+      maxVolumeDb: -12,
+      chunks: [
+        { audioBytes: new Uint8Array([1]), startMs: 0, durationMs: 1000 },
+        { audioBytes: new Uint8Array([2]), startMs: 1000, durationMs: 1000 },
+      ],
+    });
+    mockTranscribeWithBuilder
+      .mockResolvedValueOnce({ text: "First part.", segments: [] })
+      .mockRejectedValue(new Error("Builder credits exhausted."));
+    mockSelectRows.queue = [
+      [{ status: "failed", retryCount: 0 }],
+      [],
+      [
+        {
+          videoUrl: "https://cdn.example.test/video",
+          videoFormat: "mp4",
+          hasAudio: true,
+          durationMs: 2000,
+          title: "Clip",
+        },
+      ],
+      [],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_long" });
+    expect(result).toMatchObject({
+      status: "failed",
+      failureReason: "Builder credits exhausted.",
+    });
+    expect(mockInsertValues.mock.calls.map(([row]) => row)).toContainEqual(
+      expect.objectContaining({
+        fullText: "First part.",
+        failureReason: "Builder credits exhausted.",
+      }),
+    );
+  });
+
   it("does not overwrite a native transcript that arrives while a chunk fails", async () => {
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
       mimeType: "audio/mp4",
