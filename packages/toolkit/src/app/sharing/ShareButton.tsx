@@ -132,6 +132,8 @@ export interface ShareButtonProps {
   shareUrlDescription?: ReactNode;
   /** @deprecated Copy link always sits in the panel footer. */
   shareUrlPlacement?: "top" | "bottom";
+  /** Keep invitations and people access ahead of general access. Defaults on. */
+  peopleFirst?: boolean;
   /** Show the Copy link button. Defaults to true when `shareUrl` is set. */
   showShareLinks?: boolean;
   /** @deprecated The Done action was removed; share popovers dismiss directly. */
@@ -153,7 +155,7 @@ export interface ShareButtonProps {
    */
   visibilityConfirmDetail?: ReactNode;
   roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
-  allowedRoles?: readonly Role[];
+  allowedRoles?: readonly ShareButtonRole[] | undefined;
   peopleAccessLabel?: ReactNode;
   generalAccessLabel?: ReactNode;
   accessNote?: ReactNode;
@@ -513,7 +515,7 @@ function SharePanel(
     handleHideInSearch,
   } = controller;
 
-  const loadFailed = controller.sharesQuery.isError && data === undefined;
+  const loadFailed = controller.sharesQuery.isError;
   const isLoading = !loadFailed && data === undefined;
   const peopleAccessLabel =
     props.peopleAccessLabel ??
@@ -544,6 +546,55 @@ function SharePanel(
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
+
+  const peopleContent = (
+    <>
+      <SharePeopleInvite
+        controller={controller}
+        basicSharingOnly={props.basicSharingOnly}
+        roleCopy={props.roleCopy}
+        allowedRoles={allowedRolesFor(props)}
+      />
+
+      {accessRequests}
+
+      <section className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
+        <SharePeopleList
+          controller={controller}
+          roleCopy={props.roleCopy}
+          allowedRoles={allowedRolesFor(props)}
+        />
+      </section>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
+    </>
+  );
+  const generalAccessContent = (
+    <section className="flex flex-col gap-1.5">
+      <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
+      <ShareGeneralAccessRow
+        controller={controller}
+        visibilityCopy={props.visibilityCopy}
+        confirmDetail={props.visibilityConfirmDetail}
+      >
+        {visibility === "org" && props.hideInSearchControl ? (
+          <AdvancedAccessPopover
+            control={props.hideInSearchControl}
+            canManage={canManage}
+            onToggle={handleHideInSearch}
+          />
+        ) : null}
+      </ShareGeneralAccessRow>
+    </section>
+  );
 
   const sharePanel = loadFailed ? (
     <div className="flex flex-col gap-4">
@@ -585,49 +636,17 @@ function SharePanel(
     </div>
   ) : (
     <div className="flex flex-col gap-4">
-      <SharePeopleInvite
-        controller={controller}
-        basicSharingOnly={props.basicSharingOnly}
-        roleCopy={props.roleCopy}
-        allowedRoles={allowedRolesFor(props)}
-      />
-
-      {accessRequests}
-
-      <section className="flex flex-col gap-1.5">
-        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
-        <SharePeopleList
-          controller={controller}
-          roleCopy={props.roleCopy}
-          allowedRoles={allowedRolesFor(props)}
-        />
-      </section>
-
-      {shareError && !canManage ? (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-        >
-          {shareError}
-        </div>
-      ) : null}
-
-      <section className="flex flex-col gap-1.5">
-        <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
-        <ShareGeneralAccessRow
-          controller={controller}
-          visibilityCopy={props.visibilityCopy}
-          confirmDetail={props.visibilityConfirmDetail}
-        >
-          {visibility === "org" && props.hideInSearchControl ? (
-            <AdvancedAccessPopover
-              control={props.hideInSearchControl}
-              canManage={canManage}
-              onToggle={handleHideInSearch}
-            />
-          ) : null}
-        </ShareGeneralAccessRow>
-      </section>
+      {props.peopleFirst === false ? (
+        <>
+          {generalAccessContent}
+          {peopleContent}
+        </>
+      ) : (
+        <>
+          {peopleContent}
+          {generalAccessContent}
+        </>
+      )}
 
       {props.accessNote ? (
         <div className="rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">

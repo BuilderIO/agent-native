@@ -1,5 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import {
   IconMessage,
   IconMoodSmile,
@@ -121,8 +121,9 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
               </div>
               {item.preview ? (
                 item.kind === "comment" || item.kind === "mention" ? (
-                  <InlineMarkdown
-                    content={item.preview}
+                  <CommentBody
+                    compact
+                    body={item.preview}
                     className="mt-1 line-clamp-2 text-sm text-muted-foreground"
                   />
                 ) : (

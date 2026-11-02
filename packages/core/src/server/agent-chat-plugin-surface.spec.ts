@@ -131,11 +131,13 @@ describe("interactive agent run options", () => {
         runSoftTimeoutMs: 13 * 60_000,
         runNoProgressTimeoutMs: 3 * 60_000,
         durableBackgroundRuns: true,
+        reasoningEffort: "high",
       }),
     ).toEqual({
       runSoftTimeoutMs: 13 * 60_000,
       runNoProgressTimeoutMs: 3 * 60_000,
       durableBackgroundRuns: true,
+      reasoningEffort: "high",
     });
   });
 });

@@ -109,6 +109,9 @@ export function preserveActionFlags(
   if (typeof entry.persistInBrowser === "boolean") {
     out.persistInBrowser = entry.persistInBrowser;
   }
+  if (typeof entry.persistInChatHistory === "boolean") {
+    out.persistInChatHistory = entry.persistInChatHistory;
+  }
   if (typeof entry.changeResource === "function") {
     out.changeResource = entry.changeResource as Flag<"changeResource">;
   }

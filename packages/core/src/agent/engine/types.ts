@@ -52,6 +52,7 @@ export interface EngineTool {
 export interface EngineTextPart {
   type: "text";
   text: string;
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineImagePart {
@@ -74,6 +75,7 @@ export interface EngineToolCallPart {
   input: unknown;
   executionStepId?: string;
   inputFingerprint?: string;
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineToolResultImagePart {
@@ -98,6 +100,7 @@ export interface EngineToolResultPart {
   /** With `outcome`: what its event recorded left it unknown. */
   unknownCause?: UnknownWriteCause;
   images?: EngineToolResultImagePart[];
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineThinkingPart {
