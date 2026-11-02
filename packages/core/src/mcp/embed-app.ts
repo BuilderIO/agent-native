@@ -1,5 +1,8 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -966,7 +969,33 @@ export function embedApp(
             credentials: "omit"
           });
           if (input instanceof Request) {
-            return originalFetch(new Request(url, input), nextInit);
+            const requestInit = {
+              method: input.method,
+              mode: input.mode,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              referrerPolicy: input.referrerPolicy,
+              integrity: input.integrity,
+              keepalive: input.keepalive,
+              signal: input.signal
+            };
+            // A body in init replaces the Request's, which may already be spent.
+            if (nextInit.body !== undefined) {
+              return originalFetch(url, Object.assign(requestInit, nextInit));
+            }
+            // Read the body first: a Request used as init sends it as a stream,
+            // which needs HTTP/2 and which not every browser can send.
+            return input.arrayBuffer().then(function(body) {
+              return originalFetch(
+                url,
+                Object.assign(
+                  requestInit,
+                  body.byteLength > 0 ? { body: body } : null,
+                  nextInit
+                )
+              );
+            });
           }
           return originalFetch(url, nextInit);
         };
@@ -1270,11 +1299,13 @@ export function embedApp(
       if (!isEmbedStartUrl(src)) {
         return { url: new URL(src), response: null };
       }
+      // A fetch has no document context, so the start route answers with its
+      // redirect, and the app serves that page only to a request for HTML.
       const response = await fetch(src, {
         credentials: "omit",
         redirect: "follow",
         headers: {
-          Accept: "application/json",
+          Accept: "text/html",
           "X-Agent-Native-Embed-Transplant": "1"
         }
       });
@@ -1293,6 +1324,8 @@ export function embedApp(
     }
 
     async function transplantAppDocument(src) {
+      window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =
+        renewTransplantedEmbedSession;
       rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -1848,6 +1881,30 @@ export function embedApp(
           type: "agentNative.embedSessionRenewed",
           data: { requestId, ok: false },
         });
+      }
+    }
+
+    // An app running in this window has the chat as its parent, not this shell,
+    // so it asks for a renewal by calling this rather than by posting a message.
+    async function renewTransplantedEmbedSession() {
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        return false;
+      }
+      embedSessionRefreshAttempts += 1;
+      try {
+        const args = embedSessionArgsFor(
+          openStartUrl || openUrl,
+          true,
+          activeEmbedSessionTicket,
+        );
+        if (!args.sourceTicket) return false;
+        const data = parseToolResult(await callEmbedSessionTool(args));
+        if (data.renewed !== true) return false;
+        embedSessionRefreshAttempts = 0;
+        return true;
+      } catch (err) {
+        console.warn("[agent-native] embedded session renewal failed", err);
+        return false;
       }
     }
 

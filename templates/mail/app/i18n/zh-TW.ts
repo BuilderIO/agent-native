@@ -739,9 +739,8 @@ const messages = {
       loadFailed: "無法載入此草稿。",
       notFoundTitle: "找不到草稿",
       threadUnavailable: "無法載入此對話中較早的郵件。",
-      threadLookupFailed: "找不到此回覆所屬的對話，暫時無法傳送。",
       earlierMessages: "較早的郵件（{{count}}）",
-      deleted: "草稿已刪除。",
+      sendInMail: "在 Mail 中傳送",
     },
     agentEngine: {
       activeEngine: "目前引擎",

@@ -798,10 +798,8 @@ const messages = {
       notFoundTitle: "Rascunho não encontrado",
       threadUnavailable:
         "Não foi possível carregar as mensagens anteriores desta conversa.",
-      threadLookupFailed:
-        "Não foi possível encontrar a conversa desta resposta, então ela ainda não pode ser enviada.",
       earlierMessages: "Mensagens anteriores ({{count}})",
-      deleted: "Rascunho excluído.",
+      sendInMail: "Enviar no Mail",
     },
     agentEngine: {
       activeEngine: "Motor activo",

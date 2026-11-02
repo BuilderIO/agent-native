@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { MAIL_CARD_PROFILE } from "../lib/mail-card-profile.js";
 import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
@@ -48,7 +49,11 @@ export default createAgentChatPlugin({
   appId: "mail",
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG], appApprovalPage: true },
+  mcp: {
+    connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
+    appApprovalPage: true,
+    directoryProfile: MAIL_CARD_PROFILE,
+  },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

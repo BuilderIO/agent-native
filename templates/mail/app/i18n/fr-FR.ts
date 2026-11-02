@@ -807,10 +807,8 @@ const messages = {
       notFoundTitle: "Brouillon introuvable",
       threadUnavailable:
         "Impossible de charger les messages précédents de cette conversation.",
-      threadLookupFailed:
-        "Impossible de trouver la conversation de cette réponse, elle ne peut donc pas encore être envoyée.",
       earlierMessages: "Messages précédents ({{count}})",
-      deleted: "Brouillon supprimé.",
+      sendInMail: "Envoyer dans Mail",
     },
     agentEngine: {
       activeEngine: "Motor activo",
