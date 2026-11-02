@@ -111,6 +111,7 @@ interface ErrorCaptureRuntime {
   removeHandlers: (() => void) | null;
   navigationInstalled: boolean;
   staleChunkExhaustedReported?: boolean;
+  domMutationDiagnosticsReported?: boolean;
 }
 
 const MAX_MESSAGE_LENGTH = 1000;
@@ -572,6 +573,40 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
   }
 }
 
+const DOM_MUTATION_ERROR =
+  /Failed to execute '(?:removeChild|insertBefore)' on 'Node'/;
+
+// A removeChild/insertBefore NotFoundError means something other than React
+// moved a node. Browser translation is the usual suspect, so record whether
+// the page shows its fingerprints. Attributes and booleans only, never text.
+function domMutationDiagnostics(
+  runtime: ErrorCaptureRuntime,
+  normalized: { type: string; message: string },
+): Record<string, unknown> | undefined {
+  if (
+    runtime.domMutationDiagnosticsReported ||
+    typeof document === "undefined" ||
+    normalized.type !== "NotFoundError" ||
+    !DOM_MUTATION_ERROR.test(normalized.message)
+  ) {
+    return undefined;
+  }
+  runtime.domMutationDiagnosticsReported = true;
+  const root = document.documentElement;
+  return {
+    domMutationDiagnostics: {
+      htmlTranslate: root.getAttribute("translate"),
+      htmlLang: root.getAttribute("lang"),
+      translatedClass:
+        root.classList.contains("translated-ltr") ||
+        root.classList.contains("translated-rtl"),
+      fontWrapperNodes: document.body.querySelector("font") != null,
+      navigatorLanguage:
+        typeof navigator === "undefined" ? null : navigator.language,
+    },
+  };
+}
+
 function buildEvent(
   runtime: ErrorCaptureRuntime,
   normalized: { type: string; message: string; stack?: string },
@@ -583,6 +618,11 @@ function buildEvent(
   },
 ): CapturedExceptionEvent {
   const context = runtime.config.getSessionContext?.() ?? {};
+  const diagnostics = domMutationDiagnostics(runtime, normalized);
+  const extra =
+    diagnostics || options.extra
+      ? { ...options.extra, ...diagnostics }
+      : undefined;
   const stack = normalized.stack
     ? truncate(redactSecrets(normalized.stack), MAX_STACK_LENGTH)
     : undefined;
@@ -606,7 +646,7 @@ function buildEvent(
     ...(context.anonymousId ? { anonymousId: context.anonymousId } : {}),
     breadcrumbs: snapshotBreadcrumbs(runtime),
     ...(options.tags ? { tags: options.tags } : {}),
-    ...(options.extra ? { extra: options.extra } : {}),
+    ...(extra ? { extra } : {}),
   };
 }
 

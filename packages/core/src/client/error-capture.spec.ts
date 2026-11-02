@@ -530,3 +530,45 @@ describe("installErrorCapture stale-chunk recovery exhaustion", () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+describe("DOM mutation diagnostics", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("attaches translation fingerprints to the first removeChild NotFoundError only", () => {
+    installBrowser();
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) =>
+          ({ translate: null, lang: "fr" })[name] ?? null,
+        classList: { contains: (c: string) => c === "translated-ltr" },
+      },
+      body: { querySelector: () => ({}) },
+    });
+    vi.stubGlobal("navigator", { language: "fr-FR" });
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const crash = () =>
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+        "NotFoundError",
+      );
+
+    captureException(crash());
+    captureException(crash());
+    captureException(new Error("unrelated"));
+
+    const [first, second, other] = send.mock.calls.map(([e]) => e);
+    expect(first.extra).toEqual({
+      domMutationDiagnostics: {
+        htmlTranslate: null,
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: true,
+        navigatorLanguage: "fr-FR",
+      },
+    });
+    expect(second.extra).toBeUndefined();
+    expect(other.extra).toBeUndefined();
+    dispose();
+  });
+});
