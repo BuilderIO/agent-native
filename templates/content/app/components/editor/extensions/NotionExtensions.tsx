@@ -289,7 +289,10 @@ export function splitToggleTitle(editor: Editor): boolean {
   if (cursor === titleStart && titleEnd > titleStart) {
     tr.insert(
       togglePos,
-      toggle.type.create({ open: false }, titleType.create()),
+      toggle.type.create(
+        { ...toggle.attrs, summary: "", open: false },
+        titleType.create(),
+      ),
     );
     dispatchToggleKeyTransaction(editor, tr);
     return true;
@@ -806,6 +809,8 @@ export function moveToggleSummaryToTitle(editor: Editor, pos: number): boolean {
   const toggle = editor.state.doc.nodeAt(pos);
   if (
     !titleType ||
+    !editor.isEditable ||
+    isSuggestingEdits(editor.state) ||
     toggle?.type.name !== "notionToggle" ||
     toggleTitleNode(toggle)
   ) {

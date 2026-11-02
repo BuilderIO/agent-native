@@ -262,6 +262,13 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
   if (node.isAtom || node.type.name === "table" || !node.textContent.trim()) {
     return null;
   }
+  // A comment on a Toggle is about its own line, not everything folded in it.
+  const title = toggleTitleNode(node);
+  if (title) {
+    return title.textContent.trim()
+      ? { from: pos + 2, to: pos + title.nodeSize }
+      : null;
+  }
   return { from: pos + 1, to: pos + node.nodeSize - 1 };
 }
 

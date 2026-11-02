@@ -166,6 +166,28 @@ describe("block actions", () => {
     ).toEqual({ duplicate: null, remove: null });
   });
 
+  it("quotes only a Toggle's title for a comment on the block", () => {
+    const page = mount([
+      {
+        type: "notionToggle",
+        content: [
+          { type: "notionToggleSummary", content: [text("Plan")] },
+          paragraph("Body"),
+        ],
+      },
+      {
+        type: "notionToggle",
+        content: [{ type: "notionToggleSummary" }, paragraph("Body")],
+      },
+    ]);
+    const { doc } = page.state;
+
+    const range = blockCommentRange(doc.child(0), 0);
+    expect(range).toEqual({ from: 2, to: 6 });
+    expect(doc.textBetween(2, 6)).toBe("Plan");
+    expect(blockCommentRange(doc.child(1), doc.child(0).nodeSize)).toBeNull();
+  });
+
   describe("Turn into, with Toggles", () => {
     const toggle = (headingLevel: number | null = null) => ({
       type: "notionToggle",

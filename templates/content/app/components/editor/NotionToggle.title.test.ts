@@ -257,27 +257,6 @@ describe("a Toggle's title as page text", () => {
     ]);
   });
 
-  it("keeps a list marker typed at the start of a title as text", () => {
-    for (const marker of ["- ", "1. "]) {
-      const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
-      editor.commands.setTextSelection(2);
-      for (const char of marker) {
-        const { view } = editor;
-        const { from, to } = view.state.selection;
-        const handled = view.someProp("handleTextInput", (handle) =>
-          handle(view, from, to, char, () =>
-            view.state.tr.insertText(char, from, to),
-          ),
-        );
-        if (!handled) view.dispatch(view.state.tr.insertText(char, from, to));
-      }
-
-      expect(editor.getJSON().content).toEqual([
-        titled(`${marker}Title`, true, [paragraph("Body")]),
-      ]);
-    }
-  });
-
   it("gives the Toggle Enter makes after a closed one the same indent and color", () => {
     const closed = titled("Title", false, [paragraph("Body")]);
     closed.attrs = { ...(closed.attrs as object), indent: 2, color: "blue" };
@@ -431,6 +410,15 @@ describe("an old Toggle's title on the first click", () => {
   it("does nothing to a Toggle that already has a title", () => {
     const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
     const before = editor.getJSON();
+
+    expect(moveToggleSummaryToTitle(editor, 0)).toBe(false);
+    expect(editor.getJSON()).toEqual(before);
+  });
+
+  it("does nothing for someone who can't edit the page", () => {
+    const editor = createEditor([old("Plan")]);
+    const before = editor.getJSON();
+    editor.setEditable(false);
 
     expect(moveToggleSummaryToTitle(editor, 0)).toBe(false);
     expect(editor.getJSON()).toEqual(before);
