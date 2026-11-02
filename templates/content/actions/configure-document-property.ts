@@ -35,6 +35,7 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -316,13 +317,28 @@ export default defineAction({
         }
         if (lockedDefinition.type !== type) {
           const memberships = await tx
-            .select({ id: schema.contentDatabaseItems.id })
+            .select({
+              id: schema.contentDatabaseItems.id,
+              documentId: schema.contentDatabaseItems.documentId,
+            })
             .from(schema.contentDatabaseItems)
             .where(eq(schema.contentDatabaseItems.databaseId, database.id));
           await lockDatabaseMemberships(
             tx,
             memberships.map((membership) => membership.id),
           );
+          // Leaving Blocks deletes the text this field holds on every row.
+          if (
+            isBlocksPropertyType(
+              lockedDefinition.type as DocumentPropertyType,
+            ) &&
+            !isBlocksPropertyType(type)
+          )
+            await assertAgentsMayEditPagesText(
+              tx as unknown as ReturnType<typeof getDb>,
+              memberships.map((membership) => membership.documentId),
+              context,
+            );
           [lockedDefinition] = await tx
             .select()
             .from(schema.documentPropertyDefinitions)

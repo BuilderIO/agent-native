@@ -40,6 +40,7 @@ import {
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { isAgentCall } from "./_document-agent-lock.js";
 import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -210,7 +211,7 @@ export default defineAction({
     description:
       "Import local Markdown/MDX source files into editable Content documents.",
   },
-  run: async ({ files, dryRun }) => {
+  run: async ({ files, dryRun }, ctx) => {
     const builderPaths = Object.keys(files).filter((filePath) =>
       isBuilderMdxSourcePath(filePath),
     );
@@ -539,6 +540,20 @@ export default defineAction({
           if (!lockedAnyChange) {
             return { changed: false, visibilityForbidden: false };
           }
+          if (
+            (lockedTitleChanged ||
+              lockedContentChanged ||
+              lockedDescriptionChanged ||
+              lockedSourceChanged) &&
+            locked.agentTextLocked === 1 &&
+            isAgentCall(ctx)
+          ) {
+            return {
+              changed: false,
+              visibilityForbidden: false,
+              agentTextLocked: true,
+            };
+          }
 
           const updatedAt = nextDocumentUpdatedAt(locked.updatedAt);
           if (lockedTitleChanged || lockedContentChanged) {
@@ -644,6 +659,13 @@ export default defineAction({
           skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
           desiredParentById.delete(id);
           desiredPositionById.delete(id);
+          continue;
+        }
+        if (mutation.agentTextLocked) {
+          skipped.push({
+            path: file.path,
+            reason: `A person has locked the text of document "${id}" against agents.`,
+          });
           continue;
         }
         if (mutation.visibilityForbidden) {

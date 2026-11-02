@@ -680,7 +680,7 @@ export async function mutateDatabaseBlock(
   ctx?: ActionRunContext,
 ): Promise<ContentDatabaseBlockMutationResult> {
   const inputDigest = mutationDigest(input);
-  const { row } = await loadField({ target: input.target, role: "editor" });
+  await loadField({ target: input.target, role: "editor" });
   const result = await withContentDatabaseMutationLock(
     input.target.databaseId,
     async () => {
@@ -690,8 +690,6 @@ export async function mutateDatabaseBlock(
         inputDigest,
       );
       if (replay) return replay;
-      // After the replay: a write that landed before the lock keeps its receipt.
-      assertAgentsMayEditPageText(row.document, ctx);
       return getDb().transaction(async (transaction) => {
         const tx = transaction as unknown as Db;
         await lockContentDatabaseMutation(tx, input.target.databaseId);
@@ -732,6 +730,9 @@ export async function mutateDatabaseBlock(
           db: tx,
           accessAlreadyResolved: true,
         });
+        // After both replays, so a write that landed before the lock keeps its
+        // receipt, and on this fresh read, because the queue can be a long wait.
+        assertAgentsMayEditPageText(loaded.row.document, ctx);
         assertSchema(loaded.context, input.expectedSchemaRevision);
         if (loaded.row.revision !== input.expectedRowRevision) {
           contractError("ROW_REVISION_CONFLICT", "The database row changed.", {

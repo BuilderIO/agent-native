@@ -8,6 +8,7 @@ import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { serializeContentSourceDocument } from "../shared/content-source.js";
 import { isAgentCall } from "./_document-agent-lock.js";
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
@@ -51,6 +52,8 @@ let patchRows: typeof import("./patch-database-items.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
+let importSource: typeof import("./import-content-source.js").default;
+let withContentDatabaseMutationLock: typeof import("./_content-database-mutation-lock.js").withContentDatabaseMutationLock;
 let setImageAlt: typeof import("./set-image-alt-text.js").default;
 let transcribe: typeof import("./transcribe-media.js").default;
 let deleteDatabase: typeof import("./delete-content-database.js").default;
@@ -91,6 +94,9 @@ beforeAll(async () => {
   setProperty = (await import("./set-document-property.js")).default;
   listBlocks = (await import("./list-content-database-blocks.js")).default;
   mutateBlock = (await import("./mutate-content-database-block.js")).default;
+  importSource = (await import("./import-content-source.js")).default;
+  ({ withContentDatabaseMutationLock } =
+    await import("./_content-database-mutation-lock.js"));
   setImageAlt = (await import("./set-image-alt-text.js")).default;
   transcribe = (await import("./transcribe-media.js")).default;
   deleteDatabase = (await import("./delete-content-database.js")).default;
@@ -418,6 +424,8 @@ describe("Agents can't edit the text of this", () => {
     await asOwner(async () => {
       const page = await lockedPage("Locked text");
       await updateDocument.run({ id: page.id, icon: "🔒" }, agent);
+      const after = (await readPage(page.id)) as unknown as { icon: unknown };
+      expect(JSON.stringify(after.icon)).toContain("🔒");
       expect((await readPage(page.id)).content).toContain("Locked text");
     });
   });
@@ -621,7 +629,7 @@ describe("Agents can't edit the text of this", () => {
     });
   });
 
-  it("refuses an agent's image alt text and transcript, not a person's", async () => {
+  it("refuses an agent's image alt text and transcript, and keeps a person's alt text", async () => {
     await asOwner(async () => {
       const image = "https://example.com/diagram.png";
       const page = await lockedPage(`![Old](${image})`);
@@ -775,6 +783,123 @@ describe("Agents can't edit the text of this", () => {
         rollbackSlash.run({ id: child.id, parentId: parent.id }, ownAgent),
       ).rejects.toMatchObject(locked);
       await rollbackSlash.run({ id: child.id, parentId: parent.id }, person);
+    });
+  });
+
+  it("refuses an agent importing over a locked page, and lets a person", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("The body");
+      const path = "notes/locked.md";
+      const files = {
+        [path]: serializeContentSourceDocument({
+          id: page.id,
+          parentId: null,
+          title: page.title,
+          description: "",
+          content: "Imported text",
+          icon: null,
+          position: 0,
+          isFavorite: false,
+          hideFromSearch: false,
+          visibility: "private",
+        }),
+      };
+
+      const refused = (await importSource.run(
+        { files, dryRun: false },
+        agent,
+      )) as { skipped: Array<{ path: string; reason: string }> };
+      expect(refused.skipped).toEqual([
+        { path, reason: expect.stringContaining("locked") },
+      ]);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      await importSource.run({ files, dryRun: false }, person);
+      expect((await readPage(page.id)).content).toContain("Imported text");
+    });
+  });
+
+  it("refuses an agent changing a Blocks field's type on locked rows, and lets a person", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const discovered = await contract(row.databaseId);
+      const documentId = discovered.target.databaseDocumentId;
+      const configured = (await configureProperty.run(
+        {
+          documentId,
+          databaseId: row.databaseId,
+          name: "Notes",
+          type: "blocks",
+        },
+        person,
+      )) as {
+        properties: Array<{ definition: { id: string; name: string } }>;
+      };
+      const notes = configured.properties.find(
+        (property) => property.definition.name === "Notes",
+      );
+      if (!notes) throw new Error("Fixture has no second Blocks field.");
+      const change = {
+        documentId,
+        databaseId: row.databaseId,
+        id: notes.definition.id,
+        name: "Notes",
+        type: "text" as const,
+      };
+
+      await expect(
+        configureProperty.run(change, { caller: "http", userEmail: OWNER }),
+      ).rejects.toMatchObject(locked);
+      await configureProperty.run(change, person);
+    });
+  });
+
+  it("checks the lock again after a block edit has waited its turn", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await setLock.run({ id: row.documentId, locked: false }, person);
+      const { discovered, listed } = await rowRevision(
+        row.databaseId,
+        row.blocksId,
+        row,
+      );
+      let release = () => {};
+      const queueAhead = withContentDatabaseMutationLock(
+        row.databaseId,
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const outcome = mutateBlock
+        .run(
+          {
+            target: {
+              ...discovered.target,
+              itemId: row.itemId,
+              rowDocumentId: row.documentId,
+              propertyId: row.blocksId,
+            },
+            expectedSchemaRevision: discovered.schemaRevision,
+            expectedRowRevision: listed.rowRevision,
+            expectedFieldRevision: listed.fieldRevision,
+            idempotencyKey: "row-block-queued",
+            operation: "insert",
+            block: { kind: "paragraph", nfm: "Changed block" },
+            position: { placement: "end" },
+          } as never,
+          agent,
+        )
+        .catch((error: unknown) => error);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await setLock.run({ id: row.documentId, locked: true }, person);
+      release();
+      await queueAhead;
+
+      expect(await outcome).toMatchObject(locked);
+      expect((await readPage(row.documentId)).content).not.toContain(
+        "Changed block",
+      );
     });
   });
 
