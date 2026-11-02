@@ -339,6 +339,7 @@ describe("CLI telemetry", () => {
     it.each([
       ["a GitHub token", "ghp_abcdefghij1234567890", "Error"],
       ["a Stripe key", "sk_live_abcdefghij rejected", "Error"],
+      // guard:allow-secret-literal — the example key from AWS docs, not a credential
       ["an AWS key ID", "AKIAIOSFODNN7EXAMPLE rejected", "Error"],
       ["an email", "ada@example.com is invalid", "Error"],
       [
