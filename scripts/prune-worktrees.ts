@@ -122,6 +122,23 @@ function isPublished(wt: string, branch: string | null): boolean | null {
   }
 }
 
+// Read fresh at every check: activity between the dry-run pass and removal
+// must reset the idle clock.
+function lastTouched(wt: string): number | null {
+  try {
+    const gitDir = tryGit(wt, "rev-parse", "--git-dir")?.trim();
+    const dirMtime = statSync(wt).mtimeMs;
+    if (!gitDir) return dirMtime;
+    return Math.max(
+      dirMtime,
+      statSync(path.resolve(wt, gitDir, "index")).mtimeMs,
+    );
+  } catch {
+    // coercion-ok: null means unreadable; check() keeps the worktree
+    return null;
+  }
+}
+
 // Open files as well as cwds, so an editor with the worktree open counts.
 // `null` means lsof failed: every worktree then counts as in use.
 function busyDirs(): string[] | null {
@@ -178,21 +195,11 @@ export function main(argv = process.argv.slice(2)): number {
         ?.slice(k.length + 1);
     const wt = field("worktree");
     if (!wt || wt === self || !isAgentWorktree(wt)) continue;
-    let mtime: number;
-    try {
-      mtime = statSync(wt).mtimeMs;
-      const gitDir = tryGit(wt, "rev-parse", "--git-dir")?.trim();
-      if (gitDir)
-        mtime = Math.max(
-          mtime,
-          statSync(path.resolve(wt, gitDir, "index")).mtimeMs,
-        );
-    } catch {
-      continue; // `git worktree prune` below handles directories that are gone
-    }
     const branch = field("branch")?.replace("refs/heads/", "") ?? null;
     // Re-run right before removal: a process or new work may have appeared.
     const check = (busyNow: string[] | null) => {
+      const touched = lastTouched(wt);
+      if (touched === null) return "could not read its timestamps";
       const status = tryGit(wt, "status", "--porcelain", "--ignored=matching");
       return keepReason(
         {
@@ -204,7 +211,7 @@ export function main(argv = process.argv.slice(2)): number {
             busyNow === null
               ? null
               : busyNow.some((d) => d === wt || d.startsWith(wt + path.sep)),
-          idleHours: (Date.now() - mtime) / 3_600_000,
+          idleHours: (Date.now() - touched) / 3_600_000,
           published: isPublished(wt, branch),
         },
         minIdle,
