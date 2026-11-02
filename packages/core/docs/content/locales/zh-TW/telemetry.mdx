@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 傳送的內容 {#what-is-sent}
 
-事件傳送到 Agent-Native 自己的分析服務 `analytics.agent-native.com`，使用一個唯寫金鑰，該金鑰在 CLI 原始碼中公開。傳送最多會讓命令等待 1.5 秒，網路較慢時隨後就會放棄。
+事件傳送到 Agent-Native 自己的分析服務 `analytics.agent-native.com`，使用一個唯寫金鑰，該金鑰在 CLI 原始碼中公開。事件在背景傳送。結束前等待傳送的命令最多等待 1.5 秒。不等待的短命令可能會一直保持開啟，直到緩慢或無回應的網路作出回應或放棄。
 
 每個事件都有名稱、時間戳記、機器 ID 和執行 ID，以及以下屬性。如果 CLI 可傳送的某個屬性沒有出現在本頁的英文版中，`packages/core/src/cli/telemetry.spec.ts` 中的測試就會失敗。
 

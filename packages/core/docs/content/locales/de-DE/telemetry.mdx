@@ -56,7 +56,7 @@ Der Hinweis erscheint einmal pro Rechner. Er erscheint nicht in CI oder bei abge
 
 ## Was gesendet wird {#what-is-sent}
 
-Ereignisse gehen an den eigenen Analysedienst von Agent-Native unter `analytics.agent-native.com`, mit einem reinen Schreibschlüssel, der im Quellcode der CLI öffentlich ist. Das Senden kann einen Befehl höchstens 1,5 Sekunden aufhalten und gibt danach auf, wenn das Netzwerk langsam ist.
+Ereignisse gehen an den eigenen Analysedienst von Agent-Native unter `analytics.agent-native.com`, mit einem reinen Schreibschlüssel, der im Quellcode der CLI öffentlich ist. Ereignisse werden im Hintergrund gesendet. Ein Befehl, der vor dem Beenden auf sie wartet, wartet höchstens 1,5 Sekunden. Ein kurzer Befehl, der nicht wartet, kann geöffnet bleiben, bis ein langsames oder nicht antwortendes Netzwerk antwortet oder aufgibt.
 
 Jedes Ereignis hat einen Namen, einen Zeitstempel, die Rechner-ID und die Lauf-ID sowie diese Eigenschaften. Der Test in `packages/core/src/cli/telemetry.spec.ts` schlägt fehl, wenn in der englischen Fassung dieser Seite eine Eigenschaft fehlt, die die CLI senden kann.
 

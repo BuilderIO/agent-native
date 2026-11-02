@@ -56,7 +56,7 @@ Se imprime una vez por equipo. No se imprime en CI ni con la telemetría desacti
 
 ## Qué se envía {#what-is-sent}
 
-Los eventos van al servicio de analítica propio de Agent-Native en `analytics.agent-native.com`, con una clave de solo escritura que es pública en el código fuente de la CLI. El envío puede retrasar un comando 1,5 segundos como máximo y luego se abandona si la red va lenta.
+Los eventos van al servicio de analítica propio de Agent-Native en `analytics.agent-native.com`, con una clave de solo escritura que es pública en el código fuente de la CLI. Los eventos se envían en segundo plano. Un comando que los espera antes de salir espera 1,5 segundos como máximo. Un comando corto que no los espera puede seguir abierto hasta que una red lenta o que no responde conteste o se rinda.
 
 Cada evento tiene un nombre, una marca de tiempo, el ID del equipo y el ID de la ejecución, además de estas propiedades. La prueba de `packages/core/src/cli/telemetry.spec.ts` falla si a la versión en inglés de esta página le falta una propiedad que la CLI pueda enviar.
 

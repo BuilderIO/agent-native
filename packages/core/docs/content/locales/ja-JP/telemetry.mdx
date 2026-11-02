@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 送信される内容 {#what-is-sent}
 
-イベントは Agent-Native 独自の分析サービス `analytics.agent-native.com` に、CLI のソースで公開されている書き込み専用キーを使って送信されます。送信によってコマンドが遅れるのは最大 1.5 秒で、ネットワークが遅い場合はその後諦めます。
+イベントは Agent-Native 独自の分析サービス `analytics.agent-native.com` に、CLI のソースで公開されている書き込み専用キーを使って送信されます。イベントはバックグラウンドで送信されます。終了前に送信を待つコマンドが待つのは最大 1.5 秒です。待たない短いコマンドは、遅いまたは応答のないネットワークが応答するか諦めるまで開いたままになることがあります。
 
 各イベントには名前、タイムスタンプ、マシン ID、実行 ID に加えて、次のプロパティが含まれます。CLI が送信できるプロパティがこのページの英語版に記載されていない場合、`packages/core/src/cli/telemetry.spec.ts` のテストが失敗します。
 

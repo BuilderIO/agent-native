@@ -56,7 +56,7 @@ Il s’affiche une fois par machine. Il ne s’affiche pas en CI ni quand la té
 
 ## Ce qui est envoyé {#what-is-sent}
 
-Les événements vont au service d’analyse d’Agent-Native sur `analytics.agent-native.com`, avec une clé en écriture seule publique dans le code source de la CLI. L’envoi peut retarder une commande de 1,5 seconde au plus, puis abandonne si le réseau est lent.
+Les événements vont au service d’analyse d’Agent-Native sur `analytics.agent-native.com`, avec une clé en écriture seule publique dans le code source de la CLI. Les événements sont envoyés en arrière-plan. Une commande qui les attend avant de se terminer attend au plus 1,5 seconde. Une commande courte qui ne les attend pas peut rester ouverte jusqu’à ce qu’un réseau lent ou muet réponde ou abandonne.
 
 Chaque événement a un nom, un horodatage, l’ID de machine et l’ID d’exécution, ainsi que ces propriétés. Le test de `packages/core/src/cli/telemetry.spec.ts` échoue s’il manque à la version anglaise de cette page une propriété que la CLI peut envoyer.
 

@@ -56,7 +56,7 @@ It prints once per machine. It doesn't print in CI or when telemetry is off. CI 
 
 ## What is sent
 
-Events go to Agent-Native's own analytics service at `analytics.agent-native.com`, with a write-only key that is public in the CLI's source. Sending can hold up a command for at most 1.5 seconds, then gives up if the network is slow.
+Events go to Agent-Native's own analytics service at `analytics.agent-native.com`, with a write-only key that is public in the CLI's source. Events are sent in the background. A command that waits for them before it exits waits at most 1.5 seconds. A short command that doesn't wait can stay open until a slow or unresponsive network answers or gives up.
 
 Each event has a name, a timestamp, the machine ID and the run ID, plus these properties. The docs test in `packages/core/src/cli/telemetry.spec.ts` fails if a property the CLI can send is missing from this page.
 

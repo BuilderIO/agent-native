@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 보내는 내용 {#what-is-sent}
 
-이벤트는 `analytics.agent-native.com`에 있는 Agent-Native 자체 분석 서비스로 전송되며, CLI 소스에 공개된 쓰기 전용 키를 사용합니다. 전송 때문에 명령이 지연되는 시간은 최대 1.5초이며, 네트워크가 느리면 그 후 포기합니다.
+이벤트는 `analytics.agent-native.com`에 있는 Agent-Native 자체 분석 서비스로 전송되며, CLI 소스에 공개된 쓰기 전용 키를 사용합니다. 이벤트는 백그라운드에서 전송됩니다. 종료 전에 전송을 기다리는 명령은 최대 1.5초까지 기다립니다. 기다리지 않는 짧은 명령은 느리거나 응답 없는 네트워크가 응답하거나 포기할 때까지 열린 상태로 남을 수 있습니다.
 
 각 이벤트에는 이름, 타임스탬프, 머신 ID, 실행 ID와 다음 속성이 있습니다. CLI가 보낼 수 있는 속성이 이 페이지의 영어 버전에 없으면 `packages/core/src/cli/telemetry.spec.ts`의 테스트가 실패합니다.
 

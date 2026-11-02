@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 发送的内容 {#what-is-sent}
 
-事件发送到 Agent-Native 自己的分析服务 `analytics.agent-native.com`，使用一个只写密钥，该密钥在 CLI 源码中公开。发送最多会让命令等待 1.5 秒，网络较慢时随后就会放弃。
+事件发送到 Agent-Native 自己的分析服务 `analytics.agent-native.com`，使用一个只写密钥，该密钥在 CLI 源码中公开。事件在后台发送。退出前等待发送的命令最多等待 1.5 秒。不等待的短命令可能会一直保持打开，直到缓慢或无响应的网络作出响应或放弃。
 
 每个事件都有名称、时间戳、机器 ID 和运行 ID，以及以下属性。如果 CLI 可发送的某个属性没有出现在本页的英文版中，`packages/core/src/cli/telemetry.spec.ts` 中的测试就会失败。
 

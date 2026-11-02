@@ -56,7 +56,7 @@ Na primeira vez que um comando enviaria algo em uma máquina, ele imprime isto e
 
 ## O que é enviado {#what-is-sent}
 
-Os eventos vão para o serviço de análise do próprio Agent-Native em `analytics.agent-native.com`, com uma chave somente de escrita que é pública no código-fonte da CLI. O envio pode atrasar um comando por no máximo 1,5 segundo e depois desiste se a rede estiver lenta.
+Os eventos vão para o serviço de análise do próprio Agent-Native em `analytics.agent-native.com`, com uma chave somente de escrita que é pública no código-fonte da CLI. Os eventos são enviados em segundo plano. Um comando que os espera antes de sair espera no máximo 1,5 segundo. Um comando curto que não espera pode ficar aberto até que uma rede lenta ou que não responde responda ou desista.
 
 Cada evento tem um nome, um carimbo de data/hora, o ID da máquina e o ID da execução, além destas propriedades. O teste em `packages/core/src/cli/telemetry.spec.ts` falha se faltar na versão em inglês desta página uma propriedade que a CLI possa enviar.
 

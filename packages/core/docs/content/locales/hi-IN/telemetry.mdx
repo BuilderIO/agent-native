@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## क्या भेजा जाता है {#what-is-sent}
 
-Events `analytics.agent-native.com` पर Agent-Native की अपनी analytics सेवा को जाते हैं, एक write-only key के साथ जो CLI के source में सार्वजनिक है। भेजने से कोई कमांड अधिकतम 1.5 सेकंड तक रुक सकता है, फिर नेटवर्क धीमा हो तो यह छोड़ देता है।
+Events `analytics.agent-native.com` पर Agent-Native की अपनी analytics सेवा को जाते हैं, एक write-only key के साथ जो CLI के source में सार्वजनिक है। Events पृष्ठभूमि में भेजे जाते हैं। जो कमांड बाहर निकलने से पहले उनका इंतज़ार करता है, वह अधिकतम 1.5 सेकंड रुकता है। जो छोटा कमांड इंतज़ार नहीं करता, वह तब तक खुला रह सकता है जब तक धीमा या जवाब न देने वाला नेटवर्क जवाब न दे या हार न मान ले।
 
 हर event में एक नाम, timestamp, मशीन ID और run ID होती है, साथ में ये properties। `packages/core/src/cli/telemetry.spec.ts` का test तब fail होता है जब CLI की भेजी जा सकने वाली कोई property इस पेज के अंग्रेज़ी संस्करण में न हो।
 
