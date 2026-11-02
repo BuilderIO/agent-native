@@ -809,10 +809,9 @@ describe("requestTranscript regeneration", () => {
     await requestTranscript.run({ recordingId: "rec_long" });
     const failedUpdate = mockUpdateSet.mock.calls
       .map(([row]) => row)
-      .find((row) => (row as any).status === "failed") as Record<
-      string,
-      unknown
-    >;
+      .find(
+        (row) => (row as { status?: string }).status === "failed",
+      ) as Record<string, unknown>;
     expect(failedUpdate).toBeTruthy();
     expect(failedUpdate).not.toHaveProperty("fullText");
     expect(failedUpdate).not.toHaveProperty("segmentsJson");
@@ -864,7 +863,7 @@ describe("requestTranscript regeneration", () => {
     expect(result).toMatchObject({ status: "ready", preserved: true });
     expect(
       mockUpdateSet.mock.calls.some(
-        ([row]) => (row as any).fullText === "First part.",
+        ([row]) => (row as { fullText?: string }).fullText === "First part.",
       ),
     ).toBe(false);
   });

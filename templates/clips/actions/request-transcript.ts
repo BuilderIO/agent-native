@@ -1474,7 +1474,14 @@ const requestTranscriptAction = defineAction({
           builderFailureCode = "CHUNK_FAILED";
           if (chunkErr.completed.length) {
             partialTranscript = joinChunkTranscripts(
-              chunkErr.completed.map(({ index }) => audioMedia.chunks[index]),
+              chunkErr.completed.map(({ index }) => {
+                const chunk = audioMedia.chunks.at(index);
+                if (!chunk)
+                  throw new Error(
+                    "Completed transcript chunk is missing its audio range.",
+                  );
+                return chunk;
+              }),
               chunkErr.completed.map(({ result }) => result),
             );
           }
@@ -1739,8 +1746,9 @@ async function upsertTranscriptRow(
       if (!current) return false;
     }
     const currentHasText =
-      Boolean(current.fullText?.trim()) ||
-      parseTranscriptSegments(current.segmentsJson).length > 0;
+      row.onlyIfEmpty === true &&
+      (Boolean(current.fullText.trim()) ||
+        parseTranscriptSegments(current.segmentsJson).length > 0);
     if (row.onlyIfEmpty && current.status === "ready" && currentHasText) {
       return "ready-kept" as const;
     }

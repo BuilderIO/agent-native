@@ -75,7 +75,9 @@ export async function transcribeAudioChunks<C extends TimedChunk>({
   isRetryable: (err: unknown) => boolean;
   concurrency?: number;
 }): Promise<ProviderTranscriptResult[]> {
-  const results = new Array<ProviderTranscriptResult>(chunks.length);
+  const results = new Array<ProviderTranscriptResult | undefined>(
+    chunks.length,
+  ).fill(undefined);
   let next = 0;
   let failure: { index: number; error: unknown } | null = null;
 
@@ -111,7 +113,10 @@ export async function transcribeAudioChunks<C extends TimedChunk>({
     );
     throw new ChunkTranscriptionError(index, chunks.length, error, completed);
   }
-  return results;
+  return results.map((result) => {
+    if (!result) throw new Error("Transcript chunk result is missing.");
+    return result;
+  });
 }
 
 function clamp(value: number, min: number, max: number): number {
