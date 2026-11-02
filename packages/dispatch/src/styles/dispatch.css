@@ -115,12 +115,22 @@
   padding-top: clamp(2rem, 8vh, 4rem);
 }
 
-/* The card's containing block is the composer stack, so a percentage keeps
-   the 1rem inset on each side if the composer's width cap ever changes. */
+/* The card's host can be wider than the composer stack, which agentkit caps
+   at the lane width minus 2rem. The cap mirrors that stack width and then
+   subtracts the same 2rem inset the percentage term does. */
 .dispatch-chat-panel
   .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-builder-setup-card--attached {
-  inline-size: calc(100% - 2rem);
+  inline-size: min(
+    calc(100% - 2rem),
+    calc(
+      var(
+          --agentkit-transcript-lane-width,
+          var(--agent-kit-conversation-max-width, 47rem)
+        ) -
+        4rem
+    )
+  );
 }
 
 @media (max-width: 767px) {
