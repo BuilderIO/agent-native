@@ -1,3 +1,9 @@
+## 0.4.2
+
+### Patch Changes
+
+- 2625de5: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
+
 ## 0.4.1
 
 ### Patch Changes

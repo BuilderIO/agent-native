@@ -741,8 +741,9 @@ export function assertSourceImportSlidesCovered(
   );
   if (missingSlideIds.length === 0) return;
 
-  throw new Error(
+  fail(
     `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying the changed slides with get-deck slideIds and compact=false.`,
+    { errorCode: "source_restyle_incomplete", statusCode: 400 },
   );
 }
 
@@ -782,7 +783,11 @@ async function resolvePatchSlideEdits(
     if (!slide) {
       throw new NoWriteError(
         `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
-        { errorCode: "slide_not_found", statusCode: 404 },
+        {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+          details: { slideIds: [operation.slideId] },
+        },
       );
     }
     const originalContent = String(slide.content ?? "");
@@ -1087,9 +1092,10 @@ export function applyOperation(
       const { orderedIds } = op;
       const duplicateId = firstDuplicate(orderedIds);
       if (duplicateId !== undefined) {
-        throw new Error(
-          `Cannot reorder slides with duplicate ID ${duplicateId}`,
-        );
+        fail(`Cannot reorder slides with duplicate ID ${duplicateId}`, {
+          errorCode: "duplicate_slide_id",
+          statusCode: 400,
+        });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       // Build the new order from the client's desired order, keeping only
@@ -1554,13 +1560,23 @@ export default defineAction({
             [slide.id, hashSlideContent(String(slide.content ?? ""))] as const,
         ),
       );
+      // Ops apply in order: earlier adds are valid targets, earlier deletes are not.
       const existingSlideIds = new Set(
         currentSlides.map((slide: { id?: unknown }) => slide.id),
       );
-      const missingSlideIds = operations
-        .filter((operation) => operation.op === "patch-slide")
-        .map((operation) => operation.slideId)
-        .filter((slideId) => !existingSlideIds.has(slideId));
+      const missingSlideIds: string[] = [];
+      for (const operation of operations) {
+        if (operation.op === "add-slide") {
+          existingSlideIds.add(operation.slideId);
+        } else if (operation.op === "delete-slide") {
+          existingSlideIds.delete(operation.slideId);
+        } else if (
+          operation.op === "patch-slide" &&
+          !existingSlideIds.has(operation.slideId)
+        ) {
+          missingSlideIds.push(operation.slideId);
+        }
+      }
       if (missingSlideIds.length > 0) {
         const slideIds = [...new Set(missingSlideIds)];
         throw new NoWriteError(
