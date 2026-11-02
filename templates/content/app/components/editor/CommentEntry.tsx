@@ -90,6 +90,7 @@ export function CommentEntry({
   comment,
   documentId,
   currentUserEmail,
+  currentUserName,
   canComment,
   headerActions,
   revealActions = "always",
@@ -102,6 +103,7 @@ export function CommentEntry({
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   canComment: boolean;
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
@@ -121,7 +123,10 @@ export function CommentEntry({
   const timestamp = useCommentTimestamp();
   const edit = useEditComment();
   const react = useReactToComment();
-  const create = useCreateComment({ email: currentUserEmail });
+  const create = useCreateComment({
+    email: currentUserEmail,
+    name: currentUserName,
+  });
   const [checking, setChecking] = useState(false);
   const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =
     useState<string | null>(null);

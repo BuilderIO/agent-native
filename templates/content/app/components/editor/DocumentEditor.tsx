@@ -240,6 +240,7 @@ import {
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 import { ContentImportDialog } from "./ContentImportDialog";
+import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
@@ -7805,8 +7806,11 @@ function PageEditorSessionBody({
       return;
     }
     if (
-      live === lastSavedContentRef.current.content ||
-      live === convergedSaveAttemptRef.current
+      !convergedContentNeedsSave({
+        live,
+        saved: lastSavedContentRef.current.content,
+        attempted: convergedSaveAttemptRef.current,
+      })
     ) {
       return;
     }

@@ -1198,7 +1198,10 @@ export function CommentsSidebar({
     currentUserEmail,
     currentUserOrgId,
   );
-  const createComment = useCreateComment({ email: currentUserEmail });
+  const createComment = useCreateComment({
+    email: currentUserEmail,
+    name: currentUserName,
+  });
   const clipWrites = useClipCommentWrites(documentId, {
     email: currentUserEmail,
     name: currentUserName,
@@ -3149,6 +3152,7 @@ export function CommentsSidebar({
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
+            currentUserName={currentUserName}
             // A Clip's comments are kept in Clips, so the page doesn't edit,
             // delete, or react to them.
             canComment={canComment && !thread.clip}
@@ -3759,7 +3763,7 @@ export function CommentsSidebar({
               <div className="flex h-9.5 shrink-0 items-center">
                 <CommentAvatar
                   email={currentUserEmail}
-                  name={currentUserEmail}
+                  name={currentUserName?.trim() || currentUserEmail}
                 />
               </div>
               <div className="min-w-0 flex-1">
