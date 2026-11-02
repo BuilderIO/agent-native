@@ -1578,7 +1578,7 @@ function openBrowser(url: string): void {
   child.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") {
       console.warn(
-        `[dev-lazy] Could not auto-open browser (${command} not installed). Open ${url} manually.`,
+        `[dev-lazy] Could not auto-open browser (${opener} not installed). Open ${url} manually.`,
       );
     } else {
       console.warn(`[dev-lazy] Failed to auto-open browser: ${err.message}`);
