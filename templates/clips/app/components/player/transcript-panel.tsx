@@ -304,7 +304,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   };
 
   const partialTranscript =
-    status === "failed" && (segments.length > 0 || Boolean(fullText?.trim()));
+    status === "failed" &&
+    (segments.some((segment) => segment.text.trim()) ||
+      Boolean(fullText?.trim()));
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
