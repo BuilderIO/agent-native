@@ -1,6 +1,8 @@
 // Renders the two-tab convergence report as a job summary:
-//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [playwright-report.json...]
-// Each Playwright report is one group, headed by its file name.
+//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]
+// Each Playwright report is one group, headed by its file name. A report after
+// --required must exist: without it the required tests never ran, so the
+// summary exits 1 instead of only warning.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 
@@ -24,7 +26,12 @@ type PlaywrightSuite = {
 
 const KNOWN_LOSS = "known-loss";
 
-const [reportPath, ...playwrightReportPaths] = process.argv.slice(2);
+const [reportPath, ...reportArgs] = process.argv.slice(2);
+const playwrightReportPaths = reportArgs.filter((arg) => arg !== "--required");
+const requiredReportPaths = reportArgs.filter(
+  (arg, index) =>
+    arg !== "--required" && reportArgs[index - 1] === "--required",
+);
 if (!reportPath || !existsSync(reportPath)) {
   // A missing report means the lane did not run, not that it found nothing.
   console.log(
@@ -141,6 +148,7 @@ if (notes.length)
   );
 
 const missing = playwrightReportPaths.filter((file) => !existsSync(file));
+const missingRequired = requiredReportPaths.filter((file) => !existsSync(file));
 const reports = playwrightReportPaths.filter(existsSync).map((file) => {
   const report = JSON.parse(readFileSync(file, "utf8")) as {
     suites: PlaywrightSuite[];
@@ -209,4 +217,13 @@ if (!playwrightReportPaths.length || missing.length)
     `No Playwright report${missing.length ? ` at ${missing.map((file) => `\`${file}\``).join(", ")}` : ""}, so the recorded scenarios may not be every test.`,
   );
 
+if (missingRequired.length)
+  lines.push(
+    "",
+    "### Required reports missing, so their tests did not run",
+    "",
+    ...missingRequired.map((file) => `- \`${file}\``),
+  );
+
 console.log(`${lines.join("\n")}\n`);
+if (missingRequired.length) process.exit(1);
