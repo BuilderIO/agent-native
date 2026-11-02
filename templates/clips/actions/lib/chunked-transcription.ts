@@ -35,8 +35,17 @@ export class ChunkTranscriptionError extends Error {
   readonly chunkIndex: number;
   readonly chunkCount: number;
   readonly cause: unknown;
+  readonly completed: Array<{
+    index: number;
+    result: ProviderTranscriptResult;
+  }>;
 
-  constructor(chunkIndex: number, chunkCount: number, cause: unknown) {
+  constructor(
+    chunkIndex: number,
+    chunkCount: number,
+    cause: unknown,
+    completed: Array<{ index: number; result: ProviderTranscriptResult }> = [],
+  ) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     super(
       `Transcribing part ${chunkIndex + 1} of ${chunkCount} failed: ${reason}`,
@@ -45,6 +54,7 @@ export class ChunkTranscriptionError extends Error {
     this.chunkIndex = chunkIndex;
     this.chunkCount = chunkCount;
     this.cause = cause;
+    this.completed = completed;
   }
 }
 
@@ -65,7 +75,9 @@ export async function transcribeAudioChunks<C extends TimedChunk>({
   isRetryable: (err: unknown) => boolean;
   concurrency?: number;
 }): Promise<ProviderTranscriptResult[]> {
-  const results = new Array<ProviderTranscriptResult>(chunks.length);
+  const results = new Array<ProviderTranscriptResult | undefined>(
+    chunks.length,
+  ).fill(undefined);
   let next = 0;
   let failure: { index: number; error: unknown } | null = null;
 
@@ -96,9 +108,15 @@ export async function transcribeAudioChunks<C extends TimedChunk>({
   if (failure) {
     const { index, error } = failure;
     if (chunks.length === 1) throw error;
-    throw new ChunkTranscriptionError(index, chunks.length, error);
+    const completed = results.flatMap((result, index) =>
+      result ? [{ index, result }] : [],
+    );
+    throw new ChunkTranscriptionError(index, chunks.length, error, completed);
   }
-  return results;
+  return results.map((result) => {
+    if (!result) throw new Error("Transcript chunk result is missing.");
+    return result;
+  });
 }
 
 function clamp(value: number, min: number, max: number): number {

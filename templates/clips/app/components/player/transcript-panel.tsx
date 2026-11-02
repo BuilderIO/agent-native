@@ -302,6 +302,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   };
 
+  const hasPartialTranscript =
+    status === "failed" && displaySegments.length > 0;
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -309,7 +311,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     !builderCreditsPaused &&
     isTranscriptionSetupNeeded(failureReason);
 
-  if (status === "failed" && audience === "viewer") {
+  if (status === "failed" && !hasPartialTranscript && audience === "viewer") {
     return (
       <div className="p-4">
         <p className="text-sm text-muted-foreground">
@@ -319,7 +321,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && builderCreditsPaused) {
+  if (status === "failed" && !hasPartialTranscript && builderCreditsPaused) {
     return withImport(
       <div className="p-4">
         <BuilderCreditsPausedNotice onRetry={onRetry} />
@@ -327,7 +329,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && needsSetup) {
+  if (status === "failed" && !hasPartialTranscript && needsSetup) {
     return withImport(
       <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />,
     );
@@ -347,7 +349,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && noSpeechFailure) {
+  if (status === "failed" && !hasPartialTranscript && noSpeechFailure) {
     return withImport(
       <div className="p-4 space-y-3">
         <div>
@@ -377,7 +379,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed") {
+  if (status === "failed" && !hasPartialTranscript) {
     return withImport(
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
@@ -408,6 +410,37 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {hasPartialTranscript && audience !== "viewer" && builderCreditsPaused ? (
+        <div className="p-4">
+          <BuilderCreditsPausedNotice {...(onRetry ? { onRetry } : {})} />
+        </div>
+      ) : hasPartialTranscript && audience !== "viewer" && needsSetup ? (
+        <TranscriptSetupCard
+          {...(failureReason !== undefined ? { failureReason } : {})}
+          {...(onRetry ? { onRetry } : {})}
+        />
+      ) : null}
+      {hasPartialTranscript ? (
+        <div
+          className="flex items-center justify-between gap-2 border-b border-border p-3 text-sm text-muted-foreground"
+          role="status"
+        >
+          <span>{t("transcriptPanel.partialTranscript")}</span>
+          {audience !== "viewer" &&
+          onRetry &&
+          !builderCreditsPaused &&
+          !needsSetup ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {t("transcriptPanel.regenerate")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex items-center gap-2 border-b border-border p-3">
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
