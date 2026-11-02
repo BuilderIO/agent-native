@@ -51,6 +51,12 @@ let patchRows: typeof import("./patch-database-items.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
+let setImageAlt: typeof import("./set-image-alt-text.js").default;
+let transcribe: typeof import("./transcribe-media.js").default;
+let deleteDatabase: typeof import("./delete-content-database.js").default;
+let deleteProperty: typeof import("./delete-document-property.js").default;
+let resolveDraft: typeof import("./resolve-preview-document-draft.js").default;
+let rollbackSlash: typeof import("./rollback-created-slash-document.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER, orgId: null }, run);
@@ -85,6 +91,13 @@ beforeAll(async () => {
   setProperty = (await import("./set-document-property.js")).default;
   listBlocks = (await import("./list-content-database-blocks.js")).default;
   mutateBlock = (await import("./mutate-content-database-block.js")).default;
+  setImageAlt = (await import("./set-image-alt-text.js")).default;
+  transcribe = (await import("./transcribe-media.js")).default;
+  deleteDatabase = (await import("./delete-content-database.js")).default;
+  deleteProperty = (await import("./delete-document-property.js")).default;
+  resolveDraft = (await import("./resolve-preview-document-draft.js")).default;
+  rollbackSlash = (await import("./rollback-created-slash-document.js"))
+    .default;
   ({ getDb, schema } = await import("../server/db/index.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
@@ -238,6 +251,10 @@ describe("who counts as an agent", () => {
 
   it("doesn't count the server's own calls, which carry no context", () => {
     expect(isAgentCall(undefined)).toBe(false);
+  });
+
+  it("doesn't count a person typing in a chat widget", () => {
+    expect(isAgentCall({ caller: "mcp-widget-write" })).toBe(false);
   });
 });
 
@@ -601,6 +618,262 @@ describe("Agents can't edit the text of this", () => {
         agent,
       );
       expect(updated.receipt.outcome).toBe("updated");
+    });
+  });
+
+  it("refuses an agent's image alt text and transcript, not a person's", async () => {
+    await asOwner(async () => {
+      const image = "https://example.com/diagram.png";
+      const page = await lockedPage(`![Old](${image})`);
+
+      await expect(
+        setImageAlt.run(
+          { documentId: page.id, imageUrl: image, altText: "New" },
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        transcribe.run(
+          {
+            documentId: page.id,
+            mediaUrl: "https://example.com/talk.mp4",
+            mediaType: "video",
+          },
+          ownAgent,
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      await setImageAlt.run(
+        { documentId: page.id, imageUrl: image, altText: "New" },
+        person,
+      );
+      expect((await readPage(page.id)).content).toContain("![New]");
+    });
+  });
+
+  it("refuses an agent moving a locked collection to Trash, by either request", async () => {
+    await asOwner(async () => {
+      const created = await createDatabase.run(
+        { title: "Locked collection" },
+        person,
+      );
+      const databaseId = created.database.id;
+      const documentId = created.database.documentId;
+      await setLock.run({ id: documentId, locked: true }, person);
+      const discovered = await contract(databaseId);
+      const read = (await getDatabase.run({ databaseId }, person)) as {
+        configurationRevision: string;
+      };
+
+      await expect(
+        deleteDatabase.run({ databaseId }, ownAgent),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        deleteDatabase.run(
+          {
+            target: {
+              spaceId: discovered.target.spaceId,
+              databaseId: discovered.target.databaseId,
+              databaseDocumentId: discovered.target.databaseDocumentId,
+            },
+            expectedConfigurationRevision: read.configurationRevision,
+            idempotencyKey: "trash-locked-collection",
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+      const [page] = await getDb()
+        .select({ trashedAt: schema.documents.trashedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      expect(page.trashedAt).toBeNull();
+
+      await deleteDatabase.run({ databaseId }, person);
+    });
+  });
+
+  it("refuses an agent's new description when it turns a locked page into a collection", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("The body");
+
+      await expect(
+        createDatabase.run(
+          { documentId: page.id, description: "Agent's description" },
+          ownAgent,
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).description).toBe(page.description);
+
+      await createDatabase.run(
+        { documentId: page.id, description: "A person's description" },
+        person,
+      );
+      expect((await readPage(page.id)).description).toBe(
+        "A person's description",
+      );
+    });
+  });
+
+  it("refuses an agent deleting a Blocks property that holds locked text, not its other columns", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const discovered = await contract(row.databaseId);
+      const remove = (propertyId: string) => ({
+        documentId: discovered.target.databaseDocumentId,
+        databaseId: row.databaseId,
+        propertyId,
+      });
+
+      await expect(
+        deleteProperty.run(remove(row.blocksId), ownAgent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(row.documentId)).content).toContain("First block");
+
+      await deleteProperty.run(remove(row.rankId), ownAgent);
+      await deleteProperty.run(remove(row.blocksId), person);
+      const propertyIds = (await contract(row.databaseId)).properties.map(
+        (property) => property.id,
+      );
+      expect(propertyIds).not.toContain(row.rankId);
+      expect(propertyIds).not.toContain(row.blocksId);
+    });
+  });
+
+  it("refuses an outside call keeping a preview draft over locked text", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Saved text");
+      await expect(
+        resolveDraft.run(
+          {
+            choice: "keep_mine",
+            documentId: page.id,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: page.title,
+            expectedDraftContent: "Draft text",
+            expectedDocumentUpdatedAt: page.updatedAt,
+          },
+          { caller: "http", userEmail: OWNER },
+        ),
+      ).rejects.toMatchObject(locked);
+    });
+  });
+
+  it("refuses an agent rolling back a new page a person locked", async () => {
+    await asOwner(async () => {
+      const parent = (await createDocument.run(
+        { title: "Parent", content: "" },
+        person,
+      )) as { id: string };
+      const child = (await createDocument.run(
+        { title: "", content: "", parentId: parent.id },
+        person,
+      )) as { id: string };
+      await setLock.run({ id: child.id, locked: true }, person);
+
+      await expect(
+        rollbackSlash.run({ id: child.id, parentId: parent.id }, ownAgent),
+      ).rejects.toMatchObject(locked);
+      await rollbackSlash.run({ id: child.id, parentId: parent.id }, person);
+    });
+  });
+
+  it("lets a person edit a locked page through a chat widget", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("The body");
+      await updateDocument.run({ id: page.id, title: "Typed in a widget" }, {
+        caller: "mcp-widget-write",
+        userEmail: OWNER,
+        mcpDirectoryWidgetWrite: {
+          appId: "content",
+          actionNames: ["update-document"],
+          resourceIds: { documentId: page.id },
+        },
+      } as never);
+      expect((await readPage(page.id)).title).toBe("Typed in a widget");
+    });
+  });
+
+  it("still returns the receipt of an edit that landed before the lock", async () => {
+    await asOwner(async () => {
+      const { id } = (await createDocument.run(
+        { title: "Replay", content: "First draft" },
+        person,
+      )) as { id: string };
+      const before = await readPage(id);
+      const edit = {
+        id,
+        baseRevision: before.revision,
+        idempotencyKey: "landed-before-lock",
+        find: "First",
+        replace: "Second",
+      };
+      await editDocument.run(edit, agent);
+      await setLock.run({ id, locked: true }, person);
+
+      const again = (await editDocument.run(edit, agent)) as {
+        receipt: { idempotency: { result: string } };
+      };
+      expect(again.receipt.idempotency.result).toBe("replayed");
+      const after = await readPage(id);
+      await expect(
+        editDocument.run(
+          {
+            ...edit,
+            baseRevision: after.revision,
+            idempotencyKey: "new-after-lock",
+            find: "Second",
+            replace: "Third",
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(id)).content).toContain("Second draft");
+    });
+  });
+
+  it("still returns the receipt of a block write that landed before the lock", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await setLock.run({ id: row.documentId, locked: false }, person);
+      const { discovered, listed } = await rowRevision(
+        row.databaseId,
+        row.blocksId,
+        row,
+      );
+      const write = {
+        target: {
+          ...discovered.target,
+          itemId: row.itemId,
+          rowDocumentId: row.documentId,
+          propertyId: row.blocksId,
+        },
+        expectedSchemaRevision: discovered.schemaRevision,
+        expectedRowRevision: listed.rowRevision,
+        expectedFieldRevision: listed.fieldRevision,
+        idempotencyKey: "block-landed-before-lock",
+        operation: "insert",
+        block: { kind: "paragraph", nfm: "Landed block" },
+        position: { placement: "end" },
+      } as never;
+      await mutateBlock.run(write, agent);
+      await setLock.run({ id: row.documentId, locked: true }, person);
+
+      const again = await mutateBlock.run(write, agent);
+      expect(again.receipt.idempotency.result).toBe("replayed");
+      await expect(
+        mutateBlock.run(
+          {
+            ...(write as object),
+            idempotencyKey: "block-new-after-lock",
+            block: { kind: "paragraph", nfm: "Refused block" },
+          } as never,
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(row.documentId)).content).not.toContain(
+        "Refused block",
+      );
     });
   });
 });

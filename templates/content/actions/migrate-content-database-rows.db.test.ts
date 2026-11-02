@@ -529,6 +529,50 @@ describe("migrate-content-database-rows", () => {
     expect(durableLock.entered).toBe(false);
   });
 
+  it("refuses an agent's apply and rollback over a locked row, and keeps an applied plan's replay", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    const db = getDb();
+    const lockRow = (agentTextLocked: number) =>
+      db
+        .update(schema.documents)
+        .set({ agentTextLocked })
+        .where(eq(schema.documents.id, seed.rows[0].documentId));
+    const agent = { caller: "mcp" as const, userEmail: OWNER };
+    const refused = { errorCode: "AGENT_TEXT_LOCKED" };
+
+    await lockRow(1);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }, agent),
+      ),
+    ).rejects.toMatchObject(refused);
+
+    await lockRow(0);
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+
+    await lockRow(1);
+    const replayed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+    expect(replayed.postDigest).toBe(applied.postDigest);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run(
+          {
+            phase: "rollback",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          },
+          agent,
+        ),
+      ),
+    ).rejects.toMatchObject(refused);
+  });
+
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {
     const seed = await fixture();
     const input = plan(seed);

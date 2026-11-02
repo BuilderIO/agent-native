@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { isLocalDatabase } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -25,6 +26,7 @@ import {
   validatePlan,
 } from "./_content-database-row-migration.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 const validateSchema = z.object({
@@ -154,7 +156,10 @@ async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
   }
 }
 
-export async function runMigration(args: MigrationInput) {
+export async function runMigration(
+  args: MigrationInput,
+  ctx?: ActionRunContext,
+) {
   const db = getDb();
   const databaseId =
     args.phase === "apply" || args.phase === "validate"
@@ -444,6 +449,11 @@ export async function runMigration(args: MigrationInput) {
           createdAt: now,
           updatedAt: now,
         });
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          args.plan.rows.map((row) => row.documentId),
+          ctx,
+        );
         const rollback = await applyMigration(
           tx,
           args.plan,
@@ -702,6 +712,11 @@ export async function runMigration(args: MigrationInput) {
           versionId: string;
           appliedUpdatedAt: string;
         }> = rollback.versions ?? [];
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
+          ctx,
+        );
         const versions = new Map<
           string,
           typeof schema.documentVersions.$inferSelect
@@ -925,5 +940,5 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
-  run: (args) => runMigration(args as MigrationInput),
+  run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

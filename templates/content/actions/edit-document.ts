@@ -365,7 +365,6 @@ export default defineAction({
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing);
-    assertAgentsMayEditPageText(existing, ctx);
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||
@@ -463,6 +462,7 @@ export default defineAction({
     }
 
     assertEditableDocument(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;

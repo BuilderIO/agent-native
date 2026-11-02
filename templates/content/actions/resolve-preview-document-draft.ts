@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
   fencePreviewDocumentDraftGeneration,
@@ -119,6 +120,9 @@ export default defineAction({
       });
     }
     const access = await assertAccess("document", args.documentId, "editor");
+    // Before the save below relabels this call as the browser's.
+    if (args.choice === "keep_mine")
+      assertAgentsMayEditPageText(access.resource, ctx);
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
     type ClaimTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];

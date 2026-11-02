@@ -57,6 +57,7 @@ import {
   boundedContentSaveReason,
   recordContentSaveOutcome,
 } from "./_content-save-outcomes.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -379,12 +380,14 @@ async function performDocumentBodyMutation(
   };
 
   try {
-    await assertAccess("document", args.documentId, "editor", {
+    const access = await assertAccess("document", args.documentId, "editor", {
       userEmail: args.ctx.userEmail,
       orgId: args.ctx.orgId ?? undefined,
     });
     const previous = await readReplay(db);
     if (previous) return previous;
+    // After the replay: a write that landed before the lock keeps its receipt.
+    assertAgentsMayEditPageText(access.resource, args.ctx);
     if ((await liveBodyWriterGate(args.documentId)).writePath === "live_copy") {
       const live = await mutateLiveCopyDocumentBody({
         db,
@@ -465,6 +468,7 @@ async function performDocumentBodyMutation(
         .where(eq(schema.documents.id, args.documentId));
       assertEditableDocument(document);
       assertSourceAllowsPageEdit(document);
+      assertAgentsMayEditPageText(document, args.ctx);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;

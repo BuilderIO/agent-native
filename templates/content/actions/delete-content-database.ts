@@ -13,6 +13,10 @@ import {
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
 import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
+import {
   lockLifecycleGroup,
   trashDocumentSubtree,
   type LifecycleGroupLocks,
@@ -54,8 +58,8 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Moved Content database to recoverable Trash"),
   },
-  run: async (args, context) => {
-    if (context?.caller === "mcp") setupLifecycleSchema.parse(args);
+  run: async (args, ctx) => {
+    if (ctx?.caller === "mcp") setupLifecycleSchema.parse(args);
     if ("target" in args) {
       const input = setupLifecycleSchema.parse(args);
       const { database } = await assertContentDatabaseLifecycleAccess(
@@ -83,6 +87,12 @@ export default defineAction({
               "UNSUPPORTED_DATABASE",
               "Use the owning page to manage an inline database.",
               400,
+            );
+          if (!context.database.deletedAt)
+            await assertAgentsMayEditPagesText(
+              tx,
+              [context.database.documentId],
+              ctx,
             );
           const deletedAt =
             context.database.deletedAt ?? new Date().toISOString();
@@ -118,7 +128,8 @@ export default defineAction({
     if (database.systemRole) {
       throw new Error("System Content databases cannot be deleted");
     }
-    await assertAccess("document", database.documentId, "admin");
+    const access = await assertAccess("document", database.documentId, "admin");
+    if (!database.deletedAt) assertAgentsMayEditPageText(access.resource, ctx);
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
     const deletedDocumentIds = await db.transaction(async (tx) => {

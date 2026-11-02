@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {
@@ -122,6 +123,7 @@ export default defineAction({
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     const existingContent = (access.resource.content as string | null) ?? "";
     const nextContent = updateImageAltInContent({
       content: existingContent,

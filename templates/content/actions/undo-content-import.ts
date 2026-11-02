@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { importedStateFingerprint } from "../server/lib/content-import.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
@@ -112,6 +113,7 @@ export default defineAction({
           spaceId: schema.documents.spaceId,
           createdBy: schema.documents.createdBy,
           trashedAt: schema.documents.trashedAt,
+          agentTextLocked: schema.documents.agentTextLocked,
         })
         .from(schema.documents)
         .where(inArray(schema.documents.id, [...importedIds]));
@@ -140,6 +142,7 @@ export default defineAction({
       const trashed: string[] = [];
       for (const page of live) {
         if (changed.includes(page)) continue;
+        assertAgentsMayEditPageText(page, ctx);
         // The page's owner now, not at import: moving a page between
         // workspaces makes the mover its owner.
         const subtree = await trashDocumentSubtree(

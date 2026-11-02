@@ -681,7 +681,6 @@ export async function mutateDatabaseBlock(
 ): Promise<ContentDatabaseBlockMutationResult> {
   const inputDigest = mutationDigest(input);
   const { row } = await loadField({ target: input.target, role: "editor" });
-  assertAgentsMayEditPageText(row.document, ctx);
   const result = await withContentDatabaseMutationLock(
     input.target.databaseId,
     async () => {
@@ -691,6 +690,8 @@ export async function mutateDatabaseBlock(
         inputDigest,
       );
       if (replay) return replay;
+      // After the replay: a write that landed before the lock keeps its receipt.
+      assertAgentsMayEditPageText(row.document, ctx);
       return getDb().transaction(async (transaction) => {
         const tx = transaction as unknown as Db;
         await lockContentDatabaseMutation(tx, input.target.databaseId);

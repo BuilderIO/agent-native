@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
@@ -103,6 +104,7 @@ export default defineAction({
           content: schema.documents.content,
           parentId: schema.documents.parentId,
           trashedAt: schema.documents.trashedAt,
+          agentTextLocked: schema.documents.agentTextLocked,
         })
         .from(schema.documents)
         .where(
@@ -168,6 +170,7 @@ export default defineAction({
         hasDatabaseItems: !!databaseItem || !!database?.systemRole,
         now: Date.now(),
       });
+      assertAgentsMayEditPageText(child, context);
       return trashDocumentSubtree(tx, id, ownerEmail, undefined, locks);
     });
     if (deletedIds.length > 0) {

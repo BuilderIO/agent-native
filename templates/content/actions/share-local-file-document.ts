@@ -27,6 +27,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
@@ -99,7 +100,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
@@ -183,6 +184,7 @@ export default defineAction({
     await verifyPrivateIconAssignment({ icon: copiedIcon, userEmail, orgId });
 
     if (existing) {
+      assertAgentsMayEditPageText(existing, ctx);
       await db.transaction(async (tx) => {
         const legacy = await lockLegacyBodyWrites(tx, [existing.id], {
           operation: "share-local-file-document",

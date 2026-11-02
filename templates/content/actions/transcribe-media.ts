@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import "../server/db/index.js";
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -435,6 +436,7 @@ export default defineAction({
   }),
   run: async ({ documentId, mediaUrl, mediaType, placeholderText }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
       mediaUrl,
