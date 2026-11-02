@@ -4312,6 +4312,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(bar?.textContent).toBe("Explore my apps");
   });
 
+  it.each([
+    [undefined, "compact"],
+    ["comfortable", "comfortable"],
+  ] as const)(
+    "forwards empty-state suggestion size %s to the shared bar",
+    async (emptyStateSuggestionSize, expectedSize) => {
+      chatMocks.renderEmptyState = true;
+      await mount(
+        baseProps({
+          suggestions: ["Explore my apps"],
+          ...(emptyStateSuggestionSize ? { emptyStateSuggestionSize } : {}),
+        }),
+      );
+
+      expect(chatMocks.suggestionBarProps.size).toBe(expectedSize);
+    },
+  );
+
   it("shows a host's empty-state text as muted body copy instead of the greeting", async () => {
     chatMocks.renderEmptyState = true;
     await mount(

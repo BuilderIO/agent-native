@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.222.2",
+  "version": "0.223.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -96,6 +96,7 @@
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.js"
     },
+    "./native": "./dist/native/index.js",
     "./vite": "./dist/vite/index.js",
     "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",

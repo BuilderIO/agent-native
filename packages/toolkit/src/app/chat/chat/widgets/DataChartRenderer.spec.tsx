@@ -1,4 +1,7 @@
-import React from "react";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,7 +25,826 @@ const chart: DataChartWidgetData = {
   data: [{ day: "Monday", first: 1, second: 2, third: 3, fourth: 4 }],
 };
 
+function chartWithTooltip(tooltip: {
+  enabled?: boolean;
+  fields?: string[];
+  includeAutomatic?: boolean;
+}): DataChartWidgetData {
+  return {
+    type: "bar",
+    layout: "horizontal",
+    xKey: "category",
+    xAxisTitle: "Value",
+    yAxisTitle: "Category",
+    series: [{ key: "value", label: "Value" }],
+    data: [{ category: "beta", value: 2, region: "west" }],
+    tooltip,
+  } as DataChartWidgetData;
+}
+
+function areaPathPoints(path: SVGPathElement) {
+  return Array.from(
+    path.getAttribute("d")?.matchAll(/[ML]\s+(-?[\d.]+)\s+(-?[\d.]+)/g) ?? [],
+    (match) => ({ x: Number(match[1]), y: Number(match[2]) }),
+  );
+}
+
+async function hoverFirstBar(chart: DataChartWidgetData) {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(<DataChartRenderer chart={chart} />);
+    });
+
+    const mark = container.querySelector<SVGRectElement>("svg rect");
+    if (!mark) throw new Error("Expected a rendered bar mark");
+
+    await act(async () => {
+      mark.dispatchEvent(
+        new PointerEvent("pointerover", {
+          bubbles: true,
+          pointerId: 1,
+          pointerType: "mouse",
+        }),
+      );
+    });
+
+    return {
+      ariaLabel: mark.getAttribute("aria-label"),
+      tooltipText: container.querySelector('[role="tooltip"]')?.textContent,
+    };
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+}
+
 describe("DataChartRenderer theme colors", () => {
+  it("makes bar marks focusable with category and value labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "category",
+          xAxisTitle: "Value",
+          yAxisTitle: "Category",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ category: "beta", value: 2 }],
+        }}
+      />,
+    );
+
+    expect(markup).toContain('tabindex="0"');
+    expect(markup).toContain('aria-label="Category: beta, Value: 2"');
+  });
+
+  it("plots numeric scatter pairs and colors the points by category", () => {
+    const data = [
+      { category: "alpha", series_one: 1, series_two: 2 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ];
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "scatter",
+          xKey: "series_one",
+          xAxisTitle: "series_one",
+          yAxisTitle: "Sum of series_two",
+          colorByKey: "category",
+          series: [{ key: "series_two", label: "Sum of series_two" }],
+          data,
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const chart = container.querySelector<SVGSVGElement>(
+      'svg[role="img"][aria-label="agentChat.widget.dataChart"]',
+    );
+    const points = Array.from(
+      chart?.querySelectorAll<SVGCircleElement>(
+        "[data-scatter-point='true']",
+      ) ?? [],
+    );
+
+    expect(points).toHaveLength(3);
+    expect(points.map((point) => point.getAttribute("aria-label"))).toEqual([
+      "series_one: 1, Sum of series_two: 2, category: alpha",
+      "series_one: 2, Sum of series_two: 1, category: beta",
+      "series_one: 3, Sum of series_two: 2, category: gamma",
+    ]);
+    expect(points.map((point) => point.getAttribute("data-scatter-x"))).toEqual(
+      ["1", "2", "3"],
+    );
+    expect(points.map((point) => point.getAttribute("data-scatter-y"))).toEqual(
+      ["2", "1", "2"],
+    );
+    expect(
+      new Set(points.map((point) => point.getAttribute("fill"))).size,
+    ).toBe(3);
+    expect(Number(points[0]?.getAttribute("cx"))).toBeLessThan(
+      Number(points[1]?.getAttribute("cx")),
+    );
+    expect(Number(points[1]?.getAttribute("cx"))).toBeLessThan(
+      Number(points[2]?.getAttribute("cx")),
+    );
+    expect(points[0]?.getAttribute("cy")).toBe(points[2]?.getAttribute("cy"));
+    expect(Number(points[1]?.getAttribute("cy"))).toBeGreaterThan(
+      Number(points[0]?.getAttribute("cy")),
+    );
+    expect(
+      Array.from(
+        chart?.querySelectorAll<SVGTextElement>(
+          "[data-scatter-x-tick='true']",
+        ) ?? [],
+        (tick) => tick.textContent,
+      ),
+    ).toEqual(["-0.5", "0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5"]);
+    expect(
+      Array.from(container.querySelectorAll("ul > li"), (item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["alpha", "beta", "gamma"]);
+    expect(data).toEqual([
+      { category: "alpha", series_one: 1, series_two: 2 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ]);
+  });
+
+  it("plots one histogram count for each unique numeric value", () => {
+    const data = [
+      { value: 1, count: 1 },
+      { value: 2, count: 1 },
+      { value: 3, count: 1 },
+    ];
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "histogram",
+          xKey: "value",
+          xAxisTitle: "value",
+          yAxisTitle: "Count of Records",
+          series: [{ key: "count", label: "Count of Records" }],
+          data,
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const marks = Array.from(
+      container.querySelectorAll<SVGRectElement>(
+        "rect[data-histogram-mark='true']",
+      ),
+    );
+
+    expect(marks).toHaveLength(3);
+    expect(marks.map((mark) => mark.getAttribute("aria-label"))).toEqual([
+      "value: 1, Count of Records: 1",
+      "value: 2, Count of Records: 1",
+      "value: 3, Count of Records: 1",
+    ]);
+    expect(marks.map((mark) => Number(mark.getAttribute("x")))).toStrictEqual(
+      [...marks]
+        .map((mark) => Number(mark.getAttribute("x")))
+        .sort((a, b) => a - b),
+    );
+    expect(data).toEqual([
+      { value: 1, count: 1 },
+      { value: 2, count: 1 },
+      { value: 3, count: 1 },
+    ]);
+  });
+
+  it("renders ordered horizontal stack segments, category totals, and legend", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          stacking: "stacked",
+          title: "Synthetic regional mix",
+          xKey: "region",
+          xAxisTitle: "Value",
+          yAxisTitle: "Region",
+          series: [
+            { key: "core", label: "Core" },
+            { key: "support", label: "Support" },
+          ],
+          data: [
+            { region: "North", core: 4, support: 3 },
+            { region: "South", core: 2, support: 5 },
+          ],
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+
+    const chart = container.querySelector<SVGSVGElement>(
+      'svg[role="img"][aria-label="Synthetic regional mix"]',
+    );
+    const marks = Array.from(
+      container.querySelectorAll<SVGRectElement>('rect[role="img"]'),
+    );
+    expect(chart).not.toBeNull();
+    expect(marks.map((mark) => mark.getAttribute("aria-label"))).toEqual([
+      "Region: North, Core: 4, Value: 7",
+      "Region: North, Support: 3, Value: 7",
+      "Region: South, Core: 2, Value: 7",
+      "Region: South, Support: 5, Value: 7",
+    ]);
+    expect(
+      Array.from(container.querySelectorAll("ul > li"), (item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["Core", "Support"]);
+
+    for (const [first, second] of [
+      [marks[0], marks[1]],
+      [marks[2], marks[3]],
+    ] as const) {
+      expect(first?.getAttribute("y")).toBe(second?.getAttribute("y"));
+      expect(
+        Number(first?.getAttribute("x")) + Number(first?.getAttribute("width")),
+      ).toBeCloseTo(Number(second?.getAttribute("x")), 6);
+    }
+    expect(marks[0]?.getAttribute("y")).not.toBe(marks[2]?.getAttribute("y"));
+  });
+
+  it("normalizes percent-stacked horizontal bars without changing rows", () => {
+    const data = [
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ];
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          stacking: "percent",
+          title: "Synthetic category shares",
+          xKey: "category",
+          xAxisTitle: "Share",
+          yAxisTitle: "Category",
+          series: [
+            { key: "series_one", label: "First" },
+            { key: "series_two", label: "Second" },
+          ],
+          data,
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const chartElement = container.querySelector<SVGSVGElement>(
+      'svg[role="img"][aria-label="Synthetic category shares"]',
+    );
+    const marks = Array.from(
+      chartElement?.querySelectorAll<SVGRectElement>('rect[role="img"]') ?? [],
+    );
+    const tickLabels = Array.from(
+      chartElement?.querySelectorAll<SVGTextElement>("text") ?? [],
+      (tick) => tick.textContent,
+    );
+
+    expect(marks.map((mark) => mark.getAttribute("aria-label"))).toEqual([
+      "Category: alpha, First: 1 (25%), Share: 100%",
+      "Category: alpha, Second: 3 (75%), Share: 100%",
+      "Category: beta, First: 2 (66.7%), Share: 100%",
+      "Category: beta, Second: 1 (33.3%), Share: 100%",
+      "Category: gamma, First: 3 (60%), Share: 100%",
+      "Category: gamma, Second: 2 (40%), Share: 100%",
+    ]);
+    expect(tickLabels).toContain("100%");
+
+    for (let row = 0; row < 3; row += 1) {
+      const first = marks[row * 2]!;
+      const second = marks[row * 2 + 1]!;
+      const firstWidth = Number(first.getAttribute("width"));
+      const secondWidth = Number(second.getAttribute("width"));
+      expect(first.getAttribute("y")).toBe(second.getAttribute("y"));
+      expect(Number(first.getAttribute("x")) + firstWidth).toBeCloseTo(
+        Number(second.getAttribute("x")),
+        6,
+      );
+      expect(firstWidth / (firstWidth + secondWidth)).toBeCloseTo(
+        [0.25, 2 / 3, 0.6][row]!,
+        3,
+      );
+    }
+    expect(data).toEqual([
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ]);
+  });
+
+  it("renders stacked columns with ordered segments and category totals", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "vertical",
+          stacking: "stacked",
+          title: "Synthetic regional mix",
+          xKey: "region",
+          xAxisTitle: "Region",
+          yAxisTitle: "Value",
+          series: [
+            { key: "core", label: "Core" },
+            { key: "support", label: "Support" },
+          ],
+          data: [
+            { region: "North", core: 4, support: 3 },
+            { region: "South", core: 2, support: 5 },
+          ],
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const marks = Array.from(
+      container.querySelectorAll<SVGRectElement>('rect[role="img"]'),
+    );
+
+    expect(marks.map((mark) => mark.getAttribute("aria-label"))).toEqual([
+      "Region: North, Core: 4, Value: 7",
+      "Region: North, Support: 3, Value: 7",
+      "Region: South, Core: 2, Value: 7",
+      "Region: South, Support: 5, Value: 7",
+    ]);
+    expect(
+      Array.from(container.querySelectorAll("ul > li"), (item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["Core", "Support"]);
+
+    for (const [lower, upper] of [
+      [marks[0], marks[1]],
+      [marks[2], marks[3]],
+    ] as const) {
+      expect(lower?.getAttribute("x")).toBe(upper?.getAttribute("x"));
+      expect(lower?.getAttribute("width")).toBe(upper?.getAttribute("width"));
+      expect(
+        Number(upper?.getAttribute("y")) +
+          Number(upper?.getAttribute("height")),
+      ).toBeCloseTo(Number(lower?.getAttribute("y")), 6);
+    }
+    expect(marks[0]?.getAttribute("x")).not.toBe(marks[2]?.getAttribute("x"));
+  });
+
+  it("normalizes percent-stacked columns per category without changing rows", () => {
+    const data = [
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ];
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "vertical",
+          stacking: "percent",
+          title: "Synthetic category shares",
+          xKey: "category",
+          xAxisTitle: "Category",
+          yAxisTitle: "Share",
+          series: [
+            { key: "series_one", label: "First" },
+            { key: "series_two", label: "Second" },
+          ],
+          data,
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const chart = container.querySelector<SVGSVGElement>(
+      'svg[role="img"][aria-label="Synthetic category shares"]',
+    );
+    const marks = Array.from(
+      chart?.querySelectorAll<SVGRectElement>('rect[role="img"]') ?? [],
+    );
+
+    expect(marks.map((mark) => mark.getAttribute("aria-label"))).toEqual([
+      "Category: alpha, First: 1 (25%), Share: 100%",
+      "Category: alpha, Second: 3 (75%), Share: 100%",
+      "Category: beta, First: 2 (66.7%), Share: 100%",
+      "Category: beta, Second: 1 (33.3%), Share: 100%",
+      "Category: gamma, First: 3 (60%), Share: 100%",
+      "Category: gamma, Second: 2 (40%), Share: 100%",
+    ]);
+    expect(
+      Array.from(
+        chart?.querySelectorAll<SVGTextElement>(
+          '[data-value-axis-tick="true"]',
+        ) ?? [],
+        (tick) => tick.textContent,
+      ),
+    ).toContain("100%");
+
+    for (let row = 0; row < 3; row += 1) {
+      const lower = marks[row * 2]!;
+      const upper = marks[row * 2 + 1]!;
+      const lowerHeight = Number(lower.getAttribute("height"));
+      const upperHeight = Number(upper.getAttribute("height"));
+      expect(lower.getAttribute("x")).toBe(upper.getAttribute("x"));
+      expect(Number(upper.getAttribute("y")) + upperHeight).toBeCloseTo(
+        Number(lower.getAttribute("y")),
+        6,
+      );
+      expect(lowerHeight / (lowerHeight + upperHeight)).toBeCloseTo(
+        [0.25, 2 / 3, 0.6][row]!,
+        3,
+      );
+    }
+    expect(data).toEqual([
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ]);
+  });
+
+  it("stacks area bands against the preceding cumulative boundary", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "area",
+          layout: "vertical",
+          stacking: "stacked",
+          title: "Synthetic stacked area",
+          xKey: "category",
+          series: [
+            { key: "series_one", label: "First" },
+            { key: "series_two", label: "Second" },
+          ],
+          data: [
+            { category: "alpha", series_one: 1, series_two: 3 },
+            { category: "beta", series_one: 2, series_two: 1 },
+            { category: "gamma", series_one: 3, series_two: 2 },
+          ],
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const paths = Array.from(
+      container.querySelectorAll<SVGPathElement>('path[stroke="none"]'),
+    );
+
+    expect(paths).toHaveLength(2);
+    const firstUpper = areaPathPoints(paths[0]!).slice(0, 3);
+    const secondPoints = areaPathPoints(paths[1]!);
+    const secondLower = secondPoints.slice(3, 6);
+    expect(secondLower).toHaveLength(3);
+    for (let index = 0; index < 3; index += 1) {
+      expect(secondLower[index]?.x).toBeCloseTo(firstUpper[2 - index]!.x, 6);
+      expect(secondLower[index]?.y).toBeCloseTo(firstUpper[2 - index]!.y, 6);
+    }
+    const cumulativeTop = secondPoints.slice(0, 3);
+    expect(cumulativeTop[1]!.y).toBeGreaterThan(cumulativeTop[0]!.y);
+    expect(cumulativeTop[2]!.y).toBeLessThan(cumulativeTop[0]!.y);
+    expect(
+      Array.from(container.querySelectorAll("ul > li"), (item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["First", "Second"]);
+  });
+
+  it("normalizes stacked area values to 100% at every category", () => {
+    const data = [
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ];
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "area",
+          layout: "vertical",
+          stacking: "percent",
+          title: "Synthetic percent area",
+          xKey: "category",
+          showValueLabels: true,
+          series: [
+            { key: "series_one", label: "First" },
+            { key: "series_two", label: "Second" },
+          ],
+          data,
+        }}
+      />,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const chartElement = container.querySelector<SVGSVGElement>(
+      'svg[role="img"][aria-label="Synthetic percent area"]',
+    );
+    const paths = Array.from(
+      chartElement?.querySelectorAll<SVGPathElement>('path[stroke="none"]') ??
+        [],
+    );
+    const tickLabels = Array.from(
+      chartElement?.querySelectorAll<SVGTextElement>(
+        '[data-value-axis-tick="true"]',
+      ) ?? [],
+      (tick) => tick.textContent,
+    );
+    const valueLabels = Array.from(
+      chartElement?.querySelectorAll<SVGTextElement>(
+        '[data-value-label="true"]',
+      ) ?? [],
+      (label) => label.textContent,
+    );
+
+    expect(paths).toHaveLength(2);
+    expect(tickLabels).toContain("100%");
+    expect(valueLabels).toEqual(["25%", "66.7%", "60%", "75%", "33.3%", "40%"]);
+    const topBoundary = areaPathPoints(paths[1]!).slice(0, 3);
+    expect(topBoundary.map((point) => point.y)).toEqual([
+      topBoundary[0]!.y,
+      topBoundary[0]!.y,
+      topBoundary[0]!.y,
+    ]);
+    const firstUpper = areaPathPoints(paths[0]!).slice(0, 3);
+    const secondLower = areaPathPoints(paths[1]!).slice(3, 6);
+    for (let index = 0; index < 3; index += 1) {
+      expect(secondLower[index]?.y).toBeCloseTo(firstUpper[2 - index]!.y, 6);
+    }
+    expect(data).toEqual([
+      { category: "alpha", series_one: 1, series_two: 3 },
+      { category: "beta", series_one: 2, series_two: 1 },
+      { category: "gamma", series_one: 3, series_two: 2 },
+    ]);
+  });
+
+  it("labels null categories visibly and accessibly without hiding the bar", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "category",
+          xAxisTitle: "Value",
+          yAxisTitle: "Category",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ category: null, value: 5 }],
+        }}
+      />,
+    );
+
+    expect(markup).toContain(">NULL</text>");
+    expect(markup).toContain('aria-label="Category: NULL, Value: 5"');
+    expect(Array.from(markup.matchAll(/<rect /g))).toHaveLength(1);
+  });
+
+  it("supports square horizontal bars while preserving the default radius", () => {
+    const chart: DataChartWidgetData = {
+      type: "bar",
+      layout: "horizontal",
+      xKey: "category",
+      series: [{ key: "value", label: "Value" }],
+      data: [{ category: "alpha", value: 1 }],
+    };
+    const defaultMarkup = renderToStaticMarkup(
+      <DataChartRenderer chart={chart} />,
+    );
+    const squareMarkup = renderToStaticMarkup(
+      <DataChartRenderer chart={chart} layout={{ horizontalBarRadius: 0 }} />,
+    );
+
+    expect(defaultMarkup).toContain('rx="3"');
+    expect(squareMarkup).toContain('rx="0"');
+    expect(() =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={chart}
+          layout={{ horizontalBarRadius: -1 }}
+        />,
+      ),
+    ).toThrow(
+      "dataChartLayout.horizontalBarRadius must be a non-negative CSS length",
+    );
+  });
+
+  it("shows the hovered category and value and emphasizes only that bar", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DataChartRenderer
+            chart={{
+              type: "bar",
+              layout: "horizontal",
+              xKey: "category",
+              xAxisTitle: "Value",
+              yAxisTitle: "Category",
+              series: [{ key: "value", label: "Value" }],
+              data: [
+                { category: "gamma", value: 3 },
+                { category: "beta", value: 2 },
+                { category: "alpha", value: 1 },
+              ],
+            }}
+          />,
+        );
+      });
+
+      const marks = Array.from(
+        container.querySelectorAll<SVGRectElement>("svg rect"),
+      );
+      const before = marks.map((mark) => mark.getAttribute("stroke"));
+      await act(async () => {
+        marks[1]!.dispatchEvent(
+          new PointerEvent("pointerover", {
+            bubbles: true,
+            pointerId: 1,
+            pointerType: "mouse",
+          }),
+        );
+      });
+
+      expect(container.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "Category: betaValue: 2",
+      );
+      expect(marks[1]?.getAttribute("stroke")).toBeNull();
+      expect(marks[1]?.getAttribute("opacity")).toBeNull();
+      expect(marks[0]?.getAttribute("opacity")).toBe("0.3");
+      expect(marks[0]?.getAttribute("stroke")).toBe(before[0]);
+      expect(marks[2]?.getAttribute("opacity")).toBe("0.3");
+      expect(marks[2]?.getAttribute("stroke")).toBe(before[2]);
+
+      await act(async () => {
+        marks[1]!.dispatchEvent(
+          new PointerEvent("pointerout", {
+            bubbles: true,
+            pointerId: 1,
+            pointerType: "mouse",
+          }),
+        );
+      });
+      await act(async () => {
+        marks[1]!.focus();
+      });
+
+      expect(marks[1]?.getAttribute("stroke")).toBe("hsl(var(--foreground))");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("positions a hovered tooltip left of the pointer in chart coordinates", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(<DataChartRenderer chart={chartWithTooltip({})} />);
+      });
+
+      const chartRoot = container.querySelector("svg")?.parentElement;
+      if (!chartRoot) throw new Error("Expected a chart wrapper");
+      vi.spyOn(chartRoot, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(100, 50, 640, 360),
+      );
+      const mark = container.querySelector<SVGRectElement>("svg rect");
+      if (!mark) throw new Error("Expected a rendered bar mark");
+
+      await act(async () => {
+        mark.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerId: 1,
+            pointerType: "mouse",
+            clientX: 500,
+            clientY: 200,
+          }),
+        );
+      });
+
+      const tooltip = container.querySelector<HTMLElement>('[role="tooltip"]');
+      expect(tooltip?.style.left).toBe("392px");
+      expect(tooltip?.style.top).toBe("142px");
+      expect(tooltip?.style.transform).toBe("translateX(-100%)");
+      expect(tooltip?.className).toContain("py-1.5");
+      expect(tooltip?.className).toContain("leading-5");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows automatic category and value tooltip lines by default", async () => {
+    const result = await hoverFirstBar(chartWithTooltip({}));
+
+    expect(result.tooltipText).toBe("Category: betaValue: 2");
+    expect(result.ariaLabel).toBe("Category: beta, Value: 2");
+  });
+
+  it("adds a selected scalar row field to the automatic tooltip lines", async () => {
+    const result = await hoverFirstBar(
+      chartWithTooltip({ fields: ["region"] }),
+    );
+
+    expect(result.tooltipText).toBe("Category: betaValue: 2region: west");
+    expect(result.ariaLabel).toBe("Category: beta, Value: 2, region: west");
+  });
+
+  it("can show selected tooltip fields without automatic category and value", async () => {
+    const result = await hoverFirstBar(
+      chartWithTooltip({ fields: ["region"], includeAutomatic: false }),
+    );
+
+    expect(result.tooltipText).toBe("region: west");
+    expect(result.ariaLabel).toBe("region: west");
+  });
+
+  it("hides the tooltip when disabled while retaining the mark label", async () => {
+    const result = await hoverFirstBar(chartWithTooltip({ enabled: false }));
+
+    expect(result.tooltipText).toBeUndefined();
+    expect(result.ariaLabel).toBe("Category: beta, Value: 2");
+  });
+
+  it("renders a number chart as one labeled value without axes", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "number",
+          title: "Quarterly revenue",
+          xKey: "period",
+          series: [{ key: "revenue", label: "Revenue" }],
+          data: [{ period: "Current quarter", revenue: 1234.5 }],
+        }}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Quarterly revenue: 1,234.5"');
+    expect(markup).toContain(">1,234.5</text>");
+    expect(markup).toContain(">Quarterly revenue</text>");
+    expect(markup).not.toContain("<line ");
+    expect(markup).not.toContain("<rect ");
+  });
+
+  it.each([
+    ["pie", false],
+    ["donut", true],
+  ] as const)(
+    "renders %s slices and an accessible category legend",
+    (type, isDonut) => {
+      const markup = renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type,
+            title: "Revenue by category",
+            xKey: "category",
+            series: [{ key: "value", label: "Revenue" }],
+            data: [
+              { category: "alpha", value: 1 },
+              { category: "beta", value: 2 },
+              { category: "gamma", value: 3 },
+            ],
+          }}
+        />,
+      );
+
+      expect(markup).toContain('aria-label="Revenue by category"');
+      expect(markup.match(/data-pie-slice="true"/g)).toHaveLength(3);
+      expect(markup).toContain('data-pie-value="1"');
+      expect(markup).toContain('data-pie-value="2"');
+      expect(markup).toContain('data-pie-value="3"');
+      expect(markup.indexOf('data-pie-category="alpha"')).toBeLessThan(
+        markup.indexOf('data-pie-category="beta"'),
+      );
+      expect(markup.indexOf('data-pie-category="beta"')).toBeLessThan(
+        markup.indexOf('data-pie-category="gamma"'),
+      );
+      expect(markup).toContain(">alpha</span>");
+      expect(markup).toContain(">beta</span>");
+      expect(markup).toContain(">gamma</span>");
+      expect(markup.includes('data-pie-hole="true"')).toBe(isDonut);
+      expect(markup).not.toContain("<line ");
+      expect(markup).not.toContain("<rect ");
+    },
+  );
+
   it("uses the validated row range when rendering a capped chart", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
@@ -134,7 +956,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(plotRightEdge).toBeLessThanOrEqual(632);
     expect(markup).toContain('fill="hsl(var(--muted-foreground))"');
     const maximumBarValueLabel = markup.match(
-      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--chart-1, var\(--primary\)\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
     );
     expect(maximumBarValueLabel).not.toBeNull();
     expect(Number(maximumBarValueLabel?.[1])).toBeGreaterThan(plotRightEdge);
@@ -463,6 +1285,183 @@ describe("DataChartRenderer theme colors", () => {
     expect(renderBar()).toContain('stroke-dasharray="3 3"');
     expect(() => renderBar(0.91)).toThrow(
       "Horizontal category gap ratio must be between 0 and 0.9",
+    );
+  });
+
+  it("uses the chat layout gap only when the saved chart omits its ratio", () => {
+    const renderBar = (chartRatio?: number, layoutRatio?: number) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout: "horizontal",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 3 }],
+            horizontalCategoryGapRatio: chartRatio,
+          }}
+          layout={{ horizontalCategoryGapRatio: layoutRatio }}
+        />,
+      );
+    const barHeight = (markup: string) =>
+      Number(markup.match(/<rect[^>]*height="([\d.]+)"/)?.[1]);
+
+    expect(barHeight(renderBar(undefined, 0.1))).toBeGreaterThan(
+      barHeight(renderBar()),
+    );
+    expect(barHeight(renderBar(0.5, 0.1))).toBeLessThan(
+      barHeight(renderBar(undefined, 0.1)),
+    );
+    expect(() => renderBar(undefined, 0.91)).toThrow(
+      "Horizontal category gap ratio must be between 0 and 0.9",
+    );
+  });
+
+  it("draws opt-in horizontal category guides through bar-row centers", () => {
+    const renderChart = (horizontalCategoryGridlines?: boolean) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout: "horizontal",
+            xKey: "category",
+            series: [{ key: "total", label: "Total" }],
+            data: [
+              { category: "alpha", total: 1 },
+              { category: "beta", total: 2 },
+              { category: "gamma", total: 3 },
+            ],
+          }}
+          layout={{ horizontalCategoryGridlines }}
+        />,
+      );
+    const horizontalLines = (markup: string) =>
+      Array.from(
+        markup.matchAll(
+          /<line x1="([\d.]+)" x2="([\d.]+)" y1="([\d.]+)" y2="([\d.]+)"/g,
+        ),
+        (match) => ({
+          x1: Number(match[1]),
+          x2: Number(match[2]),
+          y1: Number(match[3]),
+          y2: Number(match[4]),
+        }),
+      ).filter((line) => line.x1 !== line.x2 && line.y1 === line.y2);
+
+    expect(horizontalLines(renderChart())).toHaveLength(0);
+    expect(horizontalLines(renderChart(true))).toHaveLength(3);
+    expect(horizontalLines(renderChart(true)).map((line) => line.y1)).toEqual([
+      66, 170, 274,
+    ]);
+  });
+
+  it("places horizontal category labels five viewBox units before the plot", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "category",
+          yAxisTitle: "Category",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ category: "alpha", value: 1 }],
+        }}
+      />,
+    );
+    const categoryLabel = Array.from(
+      markup.matchAll(/<text\b([^>]*)>(.*?)<\/text>/g),
+    ).find(([, , text]) => text === "alpha");
+    const labelX = Number(categoryLabel?.[1].match(/\bx="([\d.]+)"/)?.[1]);
+    const plotX = Number(markup.match(/<rect\b[^>]*\bx="([\d.]+)"/)?.[1]);
+
+    expect(categoryLabel).toBeDefined();
+    expect(plotX - labelX).toBe(5);
+  });
+
+  it("raises horizontal value-axis titles by two viewBox units", () => {
+    const axisTitleY = (layout?: "horizontal") => {
+      const markup = renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout,
+            xKey: "category",
+            xAxisTitle: "Total",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ category: "alpha", value: 1 }],
+          }}
+        />,
+      );
+      const title = Array.from(
+        markup.matchAll(/<text\b([^>]*)>(.*?)<\/text>/g),
+      ).find(([, , text]) => text === "Total");
+
+      return Number(title?.[1].match(/\by="([\d.]+)"/)?.[1]);
+    };
+
+    expect(axisTitleY("horizontal")).toBe(354);
+    expect(axisTitleY()).toBe(356);
+  });
+
+  it("applies scoped horizontal-bar plot adjustments and fill overrides", () => {
+    const renderChart = (
+      type: "bar" | "line",
+      horizontalPlotAdjustments?: {
+        left?: number;
+        right?: number;
+        top?: number;
+        bottom?: number;
+      },
+    ) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type,
+            layout: type === "bar" ? "horizontal" : undefined,
+            xKey: "category",
+            yAxisTitle: "Category",
+            series: [{ key: "total", label: "Total" }],
+            data: [
+              { category: "alpha", total: 1 },
+              { category: "beta", total: 2 },
+              { category: "gamma", total: 3 },
+            ],
+            horizontalCategoryGapRatio: 0.1,
+          }}
+          layout={{
+            horizontalPlotAdjustments,
+            horizontalBarColor: "hsl(var(--chart-2))",
+          }}
+        />,
+      );
+    const firstBar = (markup: string) => {
+      const attributes = markup.match(/<rect\b([^>]*)\/>/)?.[1] ?? "";
+      return Object.fromEntries(
+        ["x", "y", "width", "height"].map((attribute) => [
+          attribute,
+          Number(
+            attributes.match(new RegExp(`\\b${attribute}="([\\d.]+)"`))?.[1],
+          ),
+        ]),
+      ) as Record<"x" | "y" | "width" | "height", number>;
+    };
+    const base = renderChart("bar");
+    const adjusted = renderChart("bar", {
+      left: -5,
+      right: -3,
+      top: 6,
+      bottom: -6,
+    });
+    const baseBar = firstBar(base);
+    const adjustedBar = firstBar(adjusted);
+
+    expect(adjustedBar.x).toBe(baseBar.x - 5);
+    expect(adjustedBar.width).toBe(baseBar.width + 8);
+    expect(adjustedBar.y).toBe(baseBar.y + 6);
+    expect(adjustedBar.height).toBe(baseBar.height);
+    expect(adjusted).toContain('fill="hsl(var(--chart-2))"');
+    expect(renderChart("line", { left: -5, top: 6 })).toContain(
+      'stroke="hsl(var(--chart-1, var(--primary)))"',
     );
   });
 
@@ -1115,7 +2114,7 @@ describe("DataChartRenderer theme colors", () => {
       /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
     );
     const largestValueLabel = markup.match(
-      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--chart-1, var\(--primary\)\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
     );
 
     expect(categoryLabel).not.toBeNull();
