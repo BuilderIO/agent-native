@@ -1207,6 +1207,43 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("separates text blocks across an auto-continue boundary", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First block ends here." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "text", text: "Second block starts here." } },
+      ],
+      "run-sep",
+    );
+
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+  });
+
+  it("does not carry the separator past reasoning that follows auto-continue", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "thinking", text: "hmm" } },
+        { seq: 3, event: { type: "text", text: "Second " } },
+        { seq: 4, event: { type: "text", text: "block." } },
+      ],
+      "run-sep2",
+    );
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "First." },
+      { type: "reasoning", text: "hmm" },
+      { type: "text", text: "Second block." },
+    ]);
+  });
+
   it("persists partial output from suppressed loop-limit boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
