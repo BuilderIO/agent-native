@@ -40,7 +40,8 @@ describe("empty design", () => {
 
     expect(handler).not.toContain("generationOutputReadyRef.current === true");
     expect(handler).not.toContain("hasPersistedOutputBaseline");
-    expect(handler).toContain("rememberPendingGenerationForRetry()");
+    expect(handler).toContain("rememberPendingGenerationForRetry(");
+    expect(handler).toContain("failure?.retryable !== false");
     expect(handler).toContain('t("designEditor.generationStoppedRetry")');
   });
 
