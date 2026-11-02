@@ -121,6 +121,24 @@ describe("inlineOwnedToolResultImages", () => {
     ]);
   });
 
+  it("does not let malformed https URLs use up the hydration budget", async () => {
+    const owned = ownedUrl();
+    const input = [
+      toolResultMessage([{ url: owned }]),
+      toolResultMessage(
+        Array.from({ length: 8 }, (_, i) => ({
+          url: `https://user:pw@cdn.builder.io/bad-${urlCounter++}-${i}`,
+        })),
+      ),
+    ];
+
+    const out = await inlineOwnedToolResultImages(input);
+
+    expect(imagesOf(out[0])).toEqual([
+      { data: PNG_1X1, mediaType: "image/png" },
+    ]);
+  });
+
   it("reads each image once across model steps", async () => {
     const input = [toolResultMessage([{ url: ownedUrl() }])];
 

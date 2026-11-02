@@ -141,11 +141,16 @@ async function readOwnedImage(
   budget: OwnedAttachmentHydrationBudget,
 ): Promise<InlineImage | null> {
   const result = await hydrateOwnedImageUrl(url, undefined, budget);
+  // Unowned and malformed URLs are rejected before any fetch, so they must not
+  // spend a slot that an older owned screenshot needs.
   if (result.kind === "unowned") {
     releaseOwnedAttachmentHydrationCandidate(budget);
     return null;
   }
   if (result.kind === "failed") {
+    if (result.code === "invalid-url") {
+      releaseOwnedAttachmentHydrationCandidate(budget);
+    }
     console.warn(
       `[builder-engine] tool-result image sent as a URL: ${result.code}`,
     );
