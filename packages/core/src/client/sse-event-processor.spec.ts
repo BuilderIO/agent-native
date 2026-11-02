@@ -2051,6 +2051,23 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  it("turns a single trailing newline into a blank line at auto-continue", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "First line.\n" },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    ).catch(() => undefined);
+
+    expect(content).toEqual([{ type: "text", text: "First line.\n\n" }]);
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {

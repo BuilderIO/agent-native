@@ -312,19 +312,20 @@ export function buildAssistantMessage(
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
 
-  let textBreakPending = false;
+  // Content length at the last auto_continue; the separator belongs only to a
+  // text delta that lands directly on that tail, not after reasoning or tools.
+  let textBreakAt = -1;
   const appendText = (text: string) => {
-    const last = content[content.length - 1];
+    const last = content.at(-1);
     const sep =
-      textBreakPending &&
-      content.length > 0 &&
-      last.type === "text" &&
+      text &&
+      last?.type === "text" &&
       last.text &&
-      text
+      content.length === textBreakAt
         ? "\n\n"
         : "";
-    if (text) textBreakPending = false;
-    if (last && last.type === "text") {
+    if (text) textBreakAt = -1;
+    if (last?.type === "text") {
       last.text = (last.text ?? "") + sep + text;
     } else {
       content.push({ type: "text", text });
@@ -592,7 +593,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "auto_continue") {
-      textBreakPending = true;
+      textBreakAt = content.length;
       if (options.suppressInternalContinuation) {
         endedAtInternalContinuationBoundary = true;
       }
