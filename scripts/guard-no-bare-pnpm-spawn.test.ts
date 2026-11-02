@@ -127,6 +127,44 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [10]);
   });
 
+  it("counts an argument a caller leaves out as no shell", () => {
+    const source = [
+      "function launch(cmd, opts) {",
+      "  return spawn(cmd, [], opts);",
+      "}",
+      'launch("pnpm");',
+      'launch("node", { shell: true });',
+      "function first() {",
+      "  function start(tool, settings) {",
+      "    return spawn(tool, [], settings);",
+      "  }",
+      '  return start("pnpm");',
+      "}",
+      "function second() {",
+      "  function start(tool, settings) {",
+      "    return other(tool, settings);",
+      "  }",
+      '  return start("node", { shell: true });',
+      "}",
+      "function withFlag(exe, flag) {",
+      "  return spawn(exe, [], { shell: flag });",
+      "}",
+      'withFlag("pnpm");',
+      'withFlag("node", true);',
+      "function defaulted(program, config = { shell: true }) {",
+      "  return spawn(program, [], config);",
+      "}",
+      'defaulted("pnpm");',
+      "function spreads(binary, extra) {",
+      "  return spawn(binary, [], { shell: true, ...extra });",
+      "}",
+      'spreads("pnpm");',
+      'spreads("pnpm", { cwd: "." });',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [2, 8, 19]);
+  });
+
   it("flags startCommand's command passed without its shell", () => {
     const source = [
       "const start = startCommand(cmd, args);",

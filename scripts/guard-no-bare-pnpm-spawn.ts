@@ -214,6 +214,9 @@ function functionParameters(sourceFile: ts.SourceFile) {
   return found;
 }
 
+/** The value of a parameter a caller leaves out. */
+const LEFT_OUT = ts.factory.createIdentifier("undefined");
+
 /**
  * Every value the file gives each variable name: its initializer, any later
  * `name = <value>` assignment, and, for a parameter of a local function, its
@@ -303,11 +306,16 @@ function variableValues(sourceFile: ts.SourceFile) {
         (name) => parameters.get(name) ?? [],
       );
       for (const params of lists) {
-        for (const [index, argument] of node.arguments.entries()) {
+        for (const [index, param] of params.entries()) {
+          const argument = node.arguments.at(index);
           // A spread shifts every later argument by an unknown amount.
-          if (ts.isSpreadElement(argument) || index >= params.length) break;
-          const param = params[index].name;
-          if (ts.isIdentifier(param)) add(param.text, argument);
+          if (argument && ts.isSpreadElement(argument)) break;
+          if (!ts.isIdentifier(param.name)) continue;
+          if (argument) add(param.name.text, argument);
+          // Left out, it's undefined, so another call's shell can't cover it.
+          else if (!param.initializer && !param.dotDotDotToken) {
+            add(param.name.text, LEFT_OUT);
+          }
         }
       }
     }
@@ -497,6 +505,7 @@ export function findBarePnpmSpawns(
   ): ShellSetting => {
     const inner = unwrap(node);
     if (ts.isIdentifier(inner)) {
+      if (inner.text === "undefined") return "unset";
       if (seen.has(inner.text)) return "unknown";
       seen.add(inner.text);
       const settings = new Set(
