@@ -45,7 +45,6 @@ let listSuggestions: typeof import("@agent-native/core/review/suggestions/action
 let createDatabase: typeof import("./create-content-database.js").default;
 let getDatabase: typeof import("./get-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
-let createRow: typeof import("./add-database-item.js").default;
 let updateRow: typeof import("./update-database-item.js").default;
 let upsertRow: typeof import("./upsert-database-item-by-key.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
@@ -87,7 +86,6 @@ beforeAll(async () => {
   getDatabase = (await import("./get-content-database.js")).default;
   configureProperty = (await import("./configure-document-property.js"))
     .default;
-  createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   upsertRow = (await import("./upsert-database-item-by-key.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
