@@ -48,11 +48,11 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";

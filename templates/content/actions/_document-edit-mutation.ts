@@ -381,13 +381,18 @@ async function performDocumentBodyMutation(
 
   try {
     const access = await assertAccess("document", args.documentId, "editor", {
-      userEmail: args.ctx.userEmail,
-      orgId: args.ctx.orgId ?? undefined,
+      ...(args.ctx.userEmail !== undefined
+        ? { userEmail: args.ctx.userEmail }
+        : {}),
+      ...(args.ctx.orgId != null ? { orgId: args.ctx.orgId } : {}),
     });
     const previous = await readReplay(db);
     if (previous) return previous;
     // After the replay: a write that landed before the lock keeps its receipt.
-    assertAgentsMayEditPageText(access.resource, args.ctx);
+    assertAgentsMayEditPageText(
+      access.resource as { agentTextLocked?: number | null },
+      args.ctx,
+    );
     if ((await liveBodyWriterGate(args.documentId)).writePath === "live_copy") {
       const live = await mutateLiveCopyDocumentBody({
         db,

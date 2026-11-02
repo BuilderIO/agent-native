@@ -42,6 +42,7 @@ import {
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -53,7 +54,6 @@ import {
   type OpenEditorTitleFlush,
 } from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 function isLinkedLocalSource(

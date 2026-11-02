@@ -31,6 +31,7 @@ import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-gua
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 import { setupError } from "./_database-setup-mutation.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertPageLifecycleTarget,
   claimDocumentLifecycleIntent,
@@ -41,7 +42,6 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertSourceAllowsPageEdit,
   releaseRestoredPagesFromGitHubCollections,

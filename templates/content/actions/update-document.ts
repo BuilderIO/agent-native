@@ -98,6 +98,7 @@ import {
 } from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -109,7 +110,6 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertSourceAllowsPageEdit,
   serializeDocumentSource,
@@ -450,9 +450,8 @@ function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
   return (content ?? "")
-    .replace(
-      /(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g,
-      (marker) => (marker.includes('componentName="Image"') ? "\n" : marker),
+    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, (marker) =>
+      marker.includes('componentName="Image"') ? "\n" : marker,
     )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
