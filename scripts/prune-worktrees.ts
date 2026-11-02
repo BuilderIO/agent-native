@@ -71,6 +71,7 @@ function tryGit(cwd: string, ...args: string[]): string | null {
   try {
     return git(cwd, ...args);
   } catch {
+    // coercion-ok: null means unreadable; callers keep the worktree
     return null;
   }
 }
@@ -116,6 +117,7 @@ function isPublished(wt: string, branch: string | null): boolean | null {
       (p) => p.headRefOid === head,
     );
   } catch {
+    // coercion-ok: null means unreadable; keepReason keeps the worktree
     return null;
   }
 }
@@ -134,6 +136,7 @@ function busyDirs(): string[] | null {
       .filter((l) => l.startsWith("n"))
       .map((l) => l.slice(1));
   } catch {
+    // coercion-ok: null means lsof failed; every worktree counts as unchecked
     return null;
   }
 }
