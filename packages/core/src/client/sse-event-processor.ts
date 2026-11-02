@@ -27,7 +27,7 @@ import {
 } from "./tool-display.js";
 
 export type ContentPart =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; omitFromPersistedHistory?: true }
   | {
       /**
        * Model chain-of-thought / extended-thinking prose. Streamed from
@@ -37,9 +37,11 @@ export type ContentPart =
        */
       type: "reasoning";
       text: string;
+      omitFromPersistedHistory?: true;
     }
   | {
       type: "tool-call";
+      omitFromPersistedHistory?: true;
       toolCallId: string;
       toolName: string;
       argsText: string;
@@ -99,6 +101,8 @@ type AgentChatStreamResult = {
 
 export interface SSEEvent {
   type: string;
+  omitFromPersistedHistory?: true;
+  allText?: boolean;
   text?: string;
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
@@ -1563,6 +1567,8 @@ export function appendMissingFinalResponseWarning(
 
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
+  omitFromPersistedHistory?: boolean;
+  assistantTurnBoundaryPending?: boolean;
   /** Set once `agent-chat:stream-progress` has been dispatched for the
    *  current chunk, so a burst of per-token text/reasoning deltas only fires
    *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
@@ -1668,10 +1674,22 @@ export function processEvent(
     errorInfo?: AgentAutoContinueErrorInfo;
   };
 } {
+  if (ev.type === "user_message") {
+    if (state) {
+      state.omitFromPersistedHistory = false;
+      state.assistantTurnBoundaryPending = true;
+    }
+  } else if (ev.omitFromPersistedHistory === true && state) {
+    state.omitFromPersistedHistory = true;
+  }
+  const omitFromPersistedHistory =
+    ev.omitFromPersistedHistory === true ||
+    state?.omitFromPersistedHistory === true;
+
   if (ev.type === "clear") {
     // Server is retrying — discard rejected draft text and unfinished tool
     // output while keeping completed tool results visible.
-    clearAssistantDraftContent(content);
+    clearAssistantDraftContent(content, ev.allText === true);
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
     return {
@@ -1693,12 +1711,24 @@ export function processEvent(
       if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     }
     if (ev.text?.trim()) markAssistantText(state);
-    const lastPart = content[content.length - 1];
-    if (lastPart && lastPart.type === "text") {
+    const lastPart = content.at(-1);
+    if (
+      lastPart &&
+      lastPart.type === "text" &&
+      state?.assistantTurnBoundaryPending !== true
+    ) {
       lastPart.text += ev.text ?? "";
+      if (omitFromPersistedHistory) {
+        lastPart.omitFromPersistedHistory = true;
+      }
     } else {
-      content.push({ type: "text", text: ev.text ?? "" });
+      content.push({
+        type: "text",
+        text: ev.text ?? "",
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
+      });
     }
+    if (state) state.assistantTurnBoundaryPending = false;
     return {
       action: "yield",
       result: { content: contentSnapshot(content) },
@@ -1711,12 +1741,24 @@ export function processEvent(
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
     if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
-    const lastPart = content[content.length - 1];
-    if (lastPart && lastPart.type === "reasoning") {
+    const lastPart = content.at(-1);
+    if (
+      lastPart &&
+      lastPart.type === "reasoning" &&
+      state?.assistantTurnBoundaryPending !== true
+    ) {
       lastPart.text += delta;
+      if (omitFromPersistedHistory) {
+        lastPart.omitFromPersistedHistory = true;
+      }
     } else {
-      content.push({ type: "reasoning", text: delta });
+      content.push({
+        type: "reasoning",
+        text: delta,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
+      });
     }
+    if (state) state.assistantTurnBoundaryPending = false;
     return {
       action: "yield",
       result: { content: contentSnapshot(content) },
@@ -1775,6 +1817,9 @@ export function processEvent(
           argsText: "",
           args: {},
           activity: true,
+          ...(omitFromPersistedHistory
+            ? { omitFromPersistedHistory: true }
+            : {}),
         });
       }
     }
@@ -1809,6 +1854,9 @@ export function processEvent(
           argsText: "",
           args: {},
           activity: true,
+          ...(omitFromPersistedHistory
+            ? { omitFromPersistedHistory: true }
+            : {}),
         });
         toolCallIndex = content.length - 1;
       }
@@ -1821,6 +1869,9 @@ export function processEvent(
       }
       if (ev.type === "tool_input_delta" && ev.text) {
         pending.argsText += ev.text;
+      }
+      if (omitFromPersistedHistory) {
+        pending.omitFromPersistedHistory = true;
       }
     }
 
@@ -1853,6 +1904,9 @@ export function processEvent(
     if (completedIndex >= 0) {
       const completedPart = content[completedIndex];
       if (completedPart?.type === "tool-call") {
+        if (omitFromPersistedHistory) {
+          completedPart.omitFromPersistedHistory = true;
+        }
         if (completedPart.approvalPause === true) {
           completedPart.approvalResumeCandidate = true;
         }
@@ -1910,6 +1964,7 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
       };
     } else {
       content.push({
@@ -1918,6 +1973,7 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
       });
     }
     return {
@@ -1976,6 +2032,9 @@ export function processEvent(
       if (completedPart?.type !== "tool-call") {
         return { action: "continue" };
       }
+      if (omitFromPersistedHistory) {
+        completedPart.omitFromPersistedHistory = true;
+      }
       const legacyApprovalPause =
         ev.approvalPause === undefined &&
         completedPart.approvalPauseCandidate === true;
@@ -2025,8 +2084,11 @@ export function processEvent(
         ? approvedResumeIndex
         : findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
-      const part = content[doneIdx];
-      if (part.type === "tool-call") {
+      const part = content.at(doneIdx);
+      if (part?.type === "tool-call") {
+        if (omitFromPersistedHistory) {
+          part.omitFromPersistedHistory = true;
+        }
         part.result = ev.result ?? "";
         const legacyApprovalPause =
           ev.approvalPause === undefined &&
@@ -2496,7 +2558,10 @@ export function processEvent(
  * and started over", and `thread-data-builder` replays this same scoping on
  * rebuild, so the loss survived a reload.
  */
-export function clearAssistantDraftContent(content: ContentPart[]): void {
+export function clearAssistantDraftContent(
+  content: ContentPart[],
+  allText = false,
+): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
@@ -2505,7 +2570,8 @@ export function clearAssistantDraftContent(content: ContentPart[]): void {
       part.activity !== true &&
       part.result !== undefined
     ) {
-      return;
+      if (!allText) return;
+      continue;
     }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);

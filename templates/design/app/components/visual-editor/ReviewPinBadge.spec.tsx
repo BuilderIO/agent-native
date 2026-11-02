@@ -44,6 +44,35 @@ describe("ReviewPinBadge", () => {
     expect(pin()?.textContent).toBe("RS3");
   });
 
+  it("draws a named author as two letters, hidden from screen readers like the rest of the pin", () => {
+    render(
+      <ReviewPinBadge
+        authors={[{ name: "Enzo Ames", email: "enzo@example.com" }]}
+        ariaLabel="Thread"
+      />,
+    );
+
+    expect(pin()?.textContent).toBe("EA");
+    expect(pin()?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+      "EA",
+    );
+  });
+
+  it("stacks an agent's mark with people, with no letters for the agent", () => {
+    render(
+      <ReviewPinBadge
+        authors={[
+          { name: "Enzo Ames", email: "enzo@example.com" },
+          { name: "Claude", agent: { kind: "claude" } },
+        ]}
+        ariaLabel="Thread"
+      />,
+    );
+
+    expect(pin()?.textContent).toBe("EA");
+    expect(pin()?.querySelectorAll("svg")).toHaveLength(1);
+  });
+
   it("rings the selected pin in the darker pin token, offset 2px from the pin", () => {
     render(
       <ReviewPinBadge authors={AUTHORS} ariaLabel="Thread" selected={false} />,

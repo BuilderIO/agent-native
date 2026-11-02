@@ -126,6 +126,7 @@ describe("agent run local schema readiness", () => {
       },
       { name: "baseline", source: "step" },
       { name: "execution-leases-and-steps", source: "step" },
+      { name: "retained-private-thread-runs", source: "step" },
       {
         name: "thread-projection-retry-quarantine-runtime-schema",
         source: "step",

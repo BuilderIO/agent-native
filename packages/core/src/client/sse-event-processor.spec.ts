@@ -99,6 +99,86 @@ describe("SSE tool completion tab identity", () => {
   });
 });
 
+describe("SSE persisted-history provenance", () => {
+  it("keeps private tool data and derived output live, then clears at a user boundary", () => {
+    const content: ContentPart[] = [];
+    const state = {
+      completedToolsAfterLastAssistantText: new Set<string>(),
+      streamProgressDispatched: false,
+    };
+
+    processEvent(
+      {
+        type: "tool_start",
+        id: "private-read",
+        tool: "read-document",
+        input: { query: "PRIVATE_ARGUMENT_SENTINEL" },
+        omitFromPersistedHistory: true,
+      },
+      content,
+      { value: 0 },
+      undefined,
+      state,
+    );
+    processEvent(
+      {
+        type: "tool_done",
+        id: "private-read",
+        tool: "read-document",
+        result: "PRIVATE_RESULT_SENTINEL",
+      },
+      content,
+      { value: 0 },
+      undefined,
+      state,
+    );
+    const privateText = processEvent(
+      { type: "text", text: "PRIVATE_DERIVED_SUMMARY_SENTINEL" },
+      content,
+      { value: 0 },
+      undefined,
+      state,
+    );
+
+    expect(privateText.result?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        args: { query: "PRIVATE_ARGUMENT_SENTINEL" },
+        result: "PRIVATE_RESULT_SENTINEL",
+        omitFromPersistedHistory: true,
+      }),
+    );
+    expect(privateText.result?.content).toContainEqual({
+      type: "text",
+      text: "PRIVATE_DERIVED_SUMMARY_SENTINEL",
+      omitFromPersistedHistory: true,
+    });
+
+    processEvent(
+      { type: "user_message" },
+      content,
+      { value: 0 },
+      undefined,
+      state,
+    );
+    const publicText = processEvent(
+      { type: "text", text: "PUBLIC_NEXT_TURN_SENTINEL" },
+      content,
+      { value: 0 },
+      undefined,
+      state,
+    );
+
+    expect(publicText.result?.content).toContainEqual({
+      type: "text",
+      text: "PUBLIC_NEXT_TURN_SENTINEL",
+    });
+    expect(publicText.result?.content?.at(-1)?.omitFromPersistedHistory).toBe(
+      undefined,
+    );
+  });
+});
+
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return new ReadableStream<Uint8Array>({
@@ -3920,6 +4000,35 @@ describe("SSE event processor error classification", () => {
           result: "1",
         }),
         { type: "text", text: "Step 2: corrected answer." },
+      ],
+    });
+  });
+
+  it("clears narration across completed tools when explicitly requested", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Earlier step." },
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "tool_done", tool: "query", result: "1" },
+          { type: "text", text: "Rejected draft." },
+          { type: "clear", allText: true },
+          { type: "text", text: "Replacement answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Replacement answer." },
       ],
     });
   });

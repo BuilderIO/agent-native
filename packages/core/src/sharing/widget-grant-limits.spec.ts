@@ -79,6 +79,23 @@ describe("assertWidgetShareWriteGrant: what a widget may hand out", () => {
     },
   );
 
+  it("refuses an org agent from a widget, but not a person", () => {
+    expect(() =>
+      assertWidgetShareWriteGrant(
+        widgetContext(),
+        "share-resource",
+        share({ principalId: "svc-reviewer@service.org-widget" }),
+      ),
+    ).toThrow(ForbiddenError);
+    expect(() =>
+      assertWidgetShareWriteGrant(
+        widgetContext(),
+        "share-resource",
+        share({ principalId: teammateEmail }),
+      ),
+    ).not.toThrow();
+  });
+
   it("refuses the admin role from a widget", () => {
     expect(() =>
       assertWidgetShareWriteGrant(

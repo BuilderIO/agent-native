@@ -17,7 +17,7 @@ jobs:
   change-scope:
     name: Determine change scope
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       full: ${{ steps.scope.outputs.full }}
@@ -164,9 +164,11 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - uses: ./.github/actions/setup-pnpm
+      - id: setup
+        uses: ./.github/actions/setup-pnpm
         with:
-          install: no-scripts
+          install: ${{ needs.change-scope.outputs.has_reports == 'true' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ needs.change-scope.outputs.has_reports == 'true' && 'true' || 'false' }}
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
@@ -209,13 +211,13 @@ jobs:
           fi
 
       - name: Require changeset for publishable package changes
-        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: node scripts/check-changeset.mjs
 
       - name: Enforce package bump policy
-        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
 
       - name: Re-run feedback fix proofs
@@ -1868,7 +1870,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -2130,37 +2132,102 @@ jobs:
       - name: Model-check the execution lease
         run: pnpm verify:execution-lease
 
-  mutation-changed:
-    name: Mutation test changed Core lines
+  mutation-plan:
+    name: Plan Core mutation workers
     needs: change-scope
-    # Required check: run when selected, and also when change-scope did not
-    # succeed so the check fails closed instead of reporting "skipped".
-    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
+    if: ${{ !cancelled() && needs.change-scope.result == 'success' && needs.change-scope.outputs.core_mutation == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_ranges: ${{ steps.plan.outputs.has_ranges }}
     steps:
-      - name: Require a successful change scope
-        env:
-          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
-        run: |
-          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
-            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
-            exit 1
-          fi
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Plan complete mutation scope
+        id: plan
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/mutation-changed.ts --plan
 
+  mutation-shards:
+    name: Core mutation report ${{ matrix.index }}
+    needs: [change-scope, mutation-plan]
+    if: ${{ !cancelled() && needs.mutation-plan.result == 'success' && needs.mutation-plan.outputs.has_ranges == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.mutation-plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
-
-      - name: Mutation-test the Core lines this branch added
+      - name: Run owned mutants with the complete original test scope
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: pnpm mutation:changed
+        run: pnpm mutation:changed --shard '${{ matrix.index }}' '${{ matrix.count }}'
+      - name: Upload owner-only mutation receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-owner-${{ matrix.index }}-${{ github.run_attempt }}
+          path: .tmp/mutation-shards/shard-${{ matrix.index }}.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  mutation-changed:
+    name: Mutation test changed Core lines
+    needs: [change-scope, mutation-plan, mutation-shards]
+    # Required check also reports failed scope, planning, missing reports and cancelled workers.
+    if: ${{ always() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require complete scope and workers
+        env:
+          SCOPE_RESULT: ${{ needs.change-scope.result }}
+          PLAN_RESULT: ${{ needs.mutation-plan.result }}
+          HAS_RANGES: ${{ needs.mutation-plan.outputs.has_ranges }}
+          SHARD_RESULT: ${{ needs.mutation-shards.result }}
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ] || [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::Mutation scope or planning did not succeed"
+            exit 1
+          fi
+          case "$HAS_RANGES:$SHARD_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "::error::Mutation workers were incomplete ($HAS_RANGES:$SHARD_RESULT)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download complete owner receipts
+        if: needs.mutation-plan.outputs.has_ranges == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutation-owner-*
+          path: .tmp/mutation-shards
+          merge-multiple: false
+      - name: Verify complete inventories and the original global threshold
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/mutation-changed.ts --aggregate .tmp/mutation-shards
 
   guards:
     name: Security guards

@@ -1,5 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -73,7 +77,8 @@ export function TimestampedCommentBar({
 
   const submit = () => {
     const content = draft.trim();
-    if (!content) return;
+    // Enter repeats while held, so send each comment once until it settles.
+    if (!content || addComment.isPending) return;
     addComment.mutate(
       { recordingId, content, videoTimestampMs: atMs },
       {
@@ -97,7 +102,9 @@ export function TimestampedCommentBar({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // An input method's Escape cancels its candidate, not the bar.
+            if (isComposingKey(e)) return;
+            if (isCommentSendKey(e)) {
               e.preventDefault();
               submit();
             }

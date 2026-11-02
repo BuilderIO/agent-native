@@ -1,4 +1,5 @@
 import type { ActionRunContext } from "../action.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ForbiddenError } from "./access.js";
 
 interface WidgetShareTarget {
@@ -8,6 +9,7 @@ interface WidgetShareTarget {
 
 interface WidgetShareGrantee {
   principalType?: string;
+  principalId?: string;
   role?: string;
 }
 
@@ -59,12 +61,22 @@ export function assertWidgetShareWriteGrant(
 /**
  * A widget ticket is a short-lived credential an iframe holds, not the person
  * clicking: what it can grant outlives it. It hands out access to individuals,
- * and never the admin role that lets the grantee manage sharing in turn.
+ * and never the admin role that lets the grantee manage sharing in turn. An
+ * org agent is a `user` share too, but it is a standing identity, so a widget
+ * cannot add one by any address shaped like one.
  */
 function assertWidgetMayGrant(args: WidgetShareTarget & WidgetShareGrantee) {
   if (args.principalType !== undefined && args.principalType !== "user") {
     throw new ForbiddenError(
       "A widget can share only with individual people, not an organization or group.",
+    );
+  }
+  if (
+    args.principalId !== undefined &&
+    parseServiceIdentityEmail(args.principalId) !== null
+  ) {
+    throw new ForbiddenError(
+      "A widget cannot share with an agent. Add it in the app.",
     );
   }
   if (args.role === "admin") {

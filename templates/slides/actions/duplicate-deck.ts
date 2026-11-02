@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
@@ -78,7 +79,7 @@ export default defineAction({
     await db.insert(schema.decks).values({
       id: newId,
       title: newTitle,
-      data: JSON.stringify(deckData),
+      ...deckDataColumns(deckData),
       designSystemId: source.designSystemId ?? null,
       createdAt: now,
       updatedAt: now,

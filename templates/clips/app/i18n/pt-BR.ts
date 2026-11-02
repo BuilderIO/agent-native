@@ -318,6 +318,33 @@ const messages = {
     clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
+    deletedMediaPending:
+      "Gravação excluída. Os arquivos de mídia ainda estão sendo removidos.",
+    deletedMediaBlocked:
+      "Gravação excluída, mas não foi possível remover os arquivos de mídia.",
+    deletedMediaRetained:
+      "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    clipsDeletedMediaPending:
+      "Gravações excluídas: {{count}}. Os arquivos de mídia ainda estão sendo removidos.",
+    clipsDeletedMediaBlocked:
+      "Gravações excluídas: {{count}}. Não foi possível remover os arquivos de mídia.",
+    clipsDeletedMediaRetained:
+      "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    mediaCleanupListLabel: "Remoção de mídia",
+    mediaCleanupPending: "Removendo arquivos de mídia de gravações excluídas",
+    mediaCleanupBlocked:
+      "Não foi possível remover os arquivos de mídia de gravações excluídas",
+    mediaCleanupReconnect:
+      "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
+    mediaCleanupRetained:
+      "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
+    mediaCleanupRemoved: "Arquivos de mídia removidos",
+    mediaCleanupStillBlocked:
+      "Ainda não foi possível remover os arquivos de mídia",
+    mediaCleanupRetryFailed:
+      "Não foi possível tentar remover a mídia novamente",
+    mediaCleanupLoadFailed:
+      "Não foi possível carregar o status da remoção de mídia",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
