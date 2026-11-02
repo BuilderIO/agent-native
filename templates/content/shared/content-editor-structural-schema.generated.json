@@ -47,7 +47,7 @@
           "default": 0
         }
       ],
-      "content": "notionToggleSummary? block*",
+      "content": "notionToggleSummary? (block | notionToggleSummary)*",
       "group": "block",
       "draggable": true,
       "defining": true
