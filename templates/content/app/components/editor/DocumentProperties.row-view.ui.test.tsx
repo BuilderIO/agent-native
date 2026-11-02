@@ -83,7 +83,7 @@ async function openHiddenInView() {
 }
 
 function renderProperties(
-  rowView?: DatabaseRowView | null,
+  rowView: DatabaseRowView | null,
   options: {
     rowViewPending?: boolean;
     canEdit?: boolean;
@@ -96,7 +96,7 @@ function renderProperties(
       databaseId="database"
       databaseDocumentId="database-page"
       rowView={rowView}
-      rowViewPending={options.rowViewPending}
+      rowViewPending={options.rowViewPending ?? false}
       canEdit={options.canEdit ?? true}
     />
   );

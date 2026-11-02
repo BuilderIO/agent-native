@@ -1234,7 +1234,7 @@ function PropertyRow({
   canEditValues: boolean;
   canManageSchema: boolean;
   popoversPortalled: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
