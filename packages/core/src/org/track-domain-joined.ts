@@ -1,4 +1,5 @@
 import type { H3Event } from "h3";
+
 import { registerBackgroundWork } from "./track-invite-accepted.js";
 
 export function trackDomainJoined(input: {

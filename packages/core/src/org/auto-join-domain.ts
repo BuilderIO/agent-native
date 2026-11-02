@@ -1,4 +1,5 @@
 import type { H3Event } from "h3";
+
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
