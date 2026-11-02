@@ -21,7 +21,7 @@ import { toast } from "sonner";
 
 interface PendingChoice<T> {
   overlap: SaveOverlap<T>;
-  finished: Promise<void>;
+  finished: Promise<boolean>;
   resolve: (value: T) => void;
   reject: (reason: unknown) => void;
 }
@@ -42,7 +42,7 @@ export interface SaveConflictPromptOptions<T> {
 /**
  * The one prompt for two writers changing the same field. Pass `resolveOverlap`
  * to `saveWithMerge` and render `prompt`. It waits for a choice, counts it, and
- * once that save is over offers the other version until it's dismissed.
+ * once that save lands offers the other version until it's dismissed.
  */
 export function useSaveConflictPrompt<T>({
   record,
@@ -88,7 +88,7 @@ export function useSaveConflictPrompt<T>({
   );
 
   const resolveOverlap = React.useCallback(
-    (overlap: SaveOverlap<T>, finished: Promise<void>) =>
+    (overlap: SaveOverlap<T>, finished: Promise<boolean>) =>
       new Promise<T>((resolve, reject) => {
         if (!mountedRef.current) {
           toast.error(tRef.current("saveConflict.notSaved"));
@@ -121,8 +121,9 @@ export function useSaveConflictPrompt<T>({
     // A restore while this save is out would be undone when it comes back, since
     // it can look like no edit at all next to what was sent. The notice doesn't
     // say which record it means, so an older save finishing late can't take it.
-    void finished.then(() => {
-      if (newestChoiceRef.current === pending) {
+    // A save that failed kept nothing, and the next one asks again.
+    void finished.then((landed) => {
+      if (landed && newestChoiceRef.current === pending) {
         setSettled({ kept, chosen, other });
       }
     });

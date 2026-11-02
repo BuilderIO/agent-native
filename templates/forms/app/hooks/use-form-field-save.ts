@@ -66,7 +66,7 @@ export function useFormFieldSave(
   });
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
-  const retryAfterLeavingRef = useRef(false);
+  const retryOnFailureRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const replaceLocal = useCallback((next: FormField[]) => {
@@ -106,7 +106,13 @@ export function useFormFieldSave(
   });
 
   flushRef.current = async () => {
-    if (savingRef.current || !formId) return;
+    if (!formId) return;
+    if (savingRef.current) {
+      // The save that's out takes this edit along if it lands. If it fails,
+      // its catch has to, since this edit's timer has already gone.
+      retryOnFailureRef.current = true;
+      return;
+    }
     savingRef.current = true;
     try {
       while (!isSameRecord(savedRef.current.value, localRef.current)) {
@@ -135,16 +141,16 @@ export function useFormFieldSave(
     } catch (error) {
       // Other failures toast from the mutation and keep the edits for the next
       // save. Only a record too contended to settle in one go tries by itself,
-      // or a save that failed after the person left, since no next save will come.
-      const retryAfterLeaving = retryAfterLeavingRef.current;
-      retryAfterLeavingRef.current = false;
+      // or a save with no next one coming: the person left, or a newer edit's
+      // timer went off while this save was out.
       if (
         isSaveConflict(error) ||
-        (retryAfterLeaving && !(error instanceof SaveOverlapError))
+        (retryOnFailureRef.current && !(error instanceof SaveOverlapError))
       ) {
         schedule(CONTENDED_RETRY_MS);
       }
     } finally {
+      retryOnFailureRef.current = false;
       savingRef.current = false;
     }
   };
@@ -162,7 +168,7 @@ export function useFormFieldSave(
     () => () => {
       if (!dirtyRef.current) return;
       clearTimeout(timerRef.current);
-      retryAfterLeavingRef.current = true;
+      retryOnFailureRef.current = true;
       void flushRef.current();
     },
     [],

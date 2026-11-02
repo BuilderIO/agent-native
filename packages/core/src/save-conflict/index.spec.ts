@@ -239,8 +239,8 @@ describe("saveWithMerge", () => {
       mine: { a: 2, b: 1 },
       save,
       resolveOverlap: async (overlap, finished) => {
-        void finished.then(() => {
-          over = true;
+        void finished.then((landed) => {
+          over = landed;
         });
         return overlap.keepMine;
       },
@@ -255,8 +255,8 @@ describe("saveWithMerge", () => {
     await vi.waitFor(() => expect(over).toBe(true));
   });
 
-  it("tells the prompt the save is over when it fails too", async () => {
-    let over = false;
+  it("tells the prompt when the save it chose failed", async () => {
+    let result: boolean | undefined;
     const save = vi
       .fn()
       .mockRejectedValueOnce(conflict({ a: 9, b: 1 }, "r1"))
@@ -267,14 +267,32 @@ describe("saveWithMerge", () => {
         mine: { a: 2, b: 1 },
         save,
         resolveOverlap: async (overlap, finished) => {
-          void finished.then(() => {
-            over = true;
+          void finished.then((landed) => {
+            result = landed;
           });
           return overlap.keepMine;
         },
       }),
     ).rejects.toThrow("offline");
-    await vi.waitFor(() => expect(over).toBe(true));
+    await vi.waitFor(() => expect(result).toBe(false));
+  });
+
+  it("counts taking their version as landed, with nothing to send", async () => {
+    let result: boolean | undefined;
+    const save = vi.fn().mockRejectedValueOnce(conflict({ a: 9, b: 1 }, "r1"));
+    await saveWithMerge({
+      base,
+      mine: { a: 2, b: 1 },
+      save,
+      resolveOverlap: async (overlap, finished) => {
+        void finished.then((landed) => {
+          result = landed;
+        });
+        return overlap.useTheirs;
+      },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(result).toBe(true));
   });
 
   it("returns the first save when nothing conflicts", async () => {

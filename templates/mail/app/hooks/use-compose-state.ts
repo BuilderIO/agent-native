@@ -121,7 +121,7 @@ const pendingDraftMutations = new Map<string, Promise<unknown>>();
 let resolveDraftOverlap:
   | ((
       overlap: SaveOverlap<ComposeState>,
-      finished: Promise<void>,
+      finished: Promise<boolean>,
     ) => Promise<ComposeState>)
   | undefined;
 

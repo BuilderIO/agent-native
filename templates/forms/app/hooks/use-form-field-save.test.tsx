@@ -338,6 +338,66 @@ describe("useFormFieldSave", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(2);
   });
 
+  it("saves an edit whose timer went off while a failing save was out", async () => {
+    let failFirst = (_error: Error) => {};
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failFirst = reject;
+        }),
+    );
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "Later")],
+      revision: "rev-2",
+    });
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+    edit(renamed("b", "Later"));
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+    failFirst(new Error("offline"));
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(mutateAsync.mock.lastCall?.[0].ops).toEqual([
+      { op: "upsert", field: field("a", "Mine") },
+      { op: "upsert", field: field("b", "Later") },
+    ]);
+  });
+
+  it("doesn't retry a later failure because of a save that already landed", async () => {
+    let landFirst = (_saved: unknown) => {};
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landFirst = resolve;
+        }),
+    );
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "Later")],
+      revision: "rev-3",
+    });
+    mutateAsync.mockRejectedValueOnce(new Error("offline"));
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+    edit(renamed("b", "Later"));
+    await settle();
+    landFirst({
+      fields: [field("a", "Mine"), field("b", "B")],
+      revision: "rev-2",
+    });
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+
+    edit(renamed("b", "Last"));
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(mutateAsync).toHaveBeenCalledTimes(3);
+  });
+
   it("tries a failed edit once more on leaving", async () => {
     mutateAsync.mockRejectedValueOnce(new Error("offline"));
     mutateAsync.mockResolvedValueOnce({

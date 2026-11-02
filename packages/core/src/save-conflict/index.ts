@@ -309,11 +309,11 @@ export interface SaveWithMergeOptions<T> {
   merge?: (base: T, mine: T, theirs: T) => RecordMerge<T>;
   /**
    * Asks the person which version to keep and returns the value to save.
-   * `finished` settles when this save is over, however it ended. Without this
-   * option an overlap throws {@link SaveOverlapError}.
+   * `finished` settles when this save is over, with whether it landed. Without
+   * this option an overlap throws {@link SaveOverlapError}.
    */
   resolveOverlap?:
-    | ((overlap: SaveOverlap<T>, finished: Promise<void>) => Promise<T>)
+    | ((overlap: SaveOverlap<T>, finished: Promise<boolean>) => Promise<T>)
     | undefined;
 }
 
@@ -329,19 +329,22 @@ export async function saveWithMerge<T>({
   merge = mergeRecords,
   resolveOverlap,
 }: SaveWithMergeOptions<T>): Promise<SavedRecord<T>> {
-  let finish = () => {};
-  const finished = new Promise<void>((resolve) => {
+  let finish: (landed: boolean) => void = () => {};
+  const finished = new Promise<boolean>((resolve) => {
     finish = resolve;
   });
+  let landed = false;
   let attempt = { base, mine };
   try {
     for (let merges = 0; ; merges += 1) {
       try {
-        return await save({
+        const saved = await save({
           value: attempt.mine,
           revision: attempt.base.revision,
           base: attempt.base.value,
         });
+        landed = true;
+        return saved;
       } catch (error) {
         if (!isSaveConflict(error) || merges >= MAX_CONFLICT_MERGES) {
           throw error;
@@ -366,6 +369,7 @@ export async function saveWithMerge<T>({
         }
         // Nothing of mine is left to add, so a save would only rewrite their copy.
         if (isSameRecord(next, theirs)) {
+          landed = true;
           return { value: theirs, revision: currentRevision };
         }
         attempt = {
@@ -375,6 +379,6 @@ export async function saveWithMerge<T>({
       }
     }
   } finally {
-    finish();
+    finish(landed);
   }
 }
