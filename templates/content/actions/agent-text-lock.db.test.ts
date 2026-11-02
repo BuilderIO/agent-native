@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { isAgentCall } from "./_document-agent-lock.js";
@@ -27,6 +28,8 @@ const agent = { caller: "mcp" as const, userEmail: OWNER };
 const ownAgent = { caller: "tool" as const, userEmail: OWNER };
 const locked = { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 };
 
+let getDb: typeof import("../server/db/index.js").getDb;
+let schema: typeof import("../server/db/index.js").schema;
 let setLock: typeof import("./set-document-agent-text-lock.js").default;
 let createDocument: typeof import("./create-document.js").default;
 let getDocument: typeof import("./get-document.js").default;
@@ -82,7 +85,7 @@ beforeAll(async () => {
   setProperty = (await import("./set-document-property.js")).default;
   listBlocks = (await import("./list-content-database-blocks.js")).default;
   mutateBlock = (await import("./mutate-content-database-block.js")).default;
-  await import("../server/db/index.js");
+  ({ getDb, schema } = await import("../server/db/index.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
   await (
@@ -265,6 +268,64 @@ describe("Agents can't edit the text of this", () => {
       expect((await readPage(id)).agentTextLocked).toBe(true);
       await setLock.run({ id, locked: false }, person);
       expect((await readPage(id)).agentTextLocked).toBe(false);
+    });
+  });
+
+  it("takes manage access to change, and binds people's agents too", async () => {
+    const page = await asOwner(() => lockedPage("Locked text"));
+    const colleague = "colleague@example.com";
+    const share = async (role: "editor" | "admin") => {
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `share-${crypto.randomUUID()}`,
+          resourceId: page.id,
+          principalType: "user",
+          principalId: colleague,
+          role,
+          createdBy: OWNER,
+          createdAt: new Date().toISOString(),
+        });
+    };
+    const asColleague = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: colleague, orgId: null }, run);
+    const colleaguePerson = {
+      caller: "frontend" as const,
+      userEmail: colleague,
+    };
+
+    await share("editor");
+    await asColleague(async () => {
+      await expect(
+        setLock.run({ id: page.id, locked: false }, colleaguePerson),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      // The lock is on the page, so it holds for an editor's own agent.
+      await expect(
+        updateDocument.run(
+          { id: page.id, title: "Colleague's agent" },
+          { caller: "mcp", userEmail: colleague },
+        ),
+      ).rejects.toMatchObject(locked);
+      await updateDocument.run(
+        { id: page.id, title: "Colleague's own edit" },
+        colleaguePerson,
+      );
+    });
+    await asOwner(async () => {
+      const after = await readPage(page.id);
+      expect(after.agentTextLocked).toBe(true);
+      expect(after.title).toBe("Colleague's own edit");
+    });
+
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "admin" })
+      .where(eq(schema.documentShares.resourceId, page.id));
+    await asColleague(() =>
+      setLock.run({ id: page.id, locked: false }, colleaguePerson),
+    );
+    await asOwner(async () => {
+      expect((await readPage(page.id)).agentTextLocked).toBe(false);
     });
   });
 
