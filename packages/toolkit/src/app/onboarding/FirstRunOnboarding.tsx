@@ -176,6 +176,9 @@ const FIRST_RUN_ROLE_OPTIONS = [
   { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
   { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
   { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  { value: "creator", labelKey: "agentChat.onboarding.roleCreator" },
+  { value: "student", labelKey: "agentChat.onboarding.roleStudent" },
+  { value: "educator", labelKey: "agentChat.onboarding.roleEducator" },
   {
     value: "individual",
     labelKey: "agentChat.onboarding.roleIndividual",
