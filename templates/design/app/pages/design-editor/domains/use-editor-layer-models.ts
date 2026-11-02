@@ -18,7 +18,6 @@ import {
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
 import { getCanonicalScreenStack } from "@/components/design/multi-screen/frame-geometry";
-import { GENERATION_DRAFT_SETTLE_MS } from "@/hooks/use-generating-design-preview";
 import { prettyScreenName } from "@/lib/screen-names";
 
 import {
@@ -727,45 +726,6 @@ export function useEditorLayerModels({
     () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
     [boardElements, overviewScreens.length],
   );
-  // A run that starts on an empty design builds its first screen in the
-  // generation preview, which follows the saved screen across a skeleton-first
-  // build's calls. It stays up until the run ends, then briefly while the
-  // last section's frames finish drawing. Set during render, so the preview
-  // never unmounts in between.
-  const generationActive = generating || pendingGenerationActive;
-  // `null` until the design has loaded: a loading design looks empty.
-  const [buildingFirstScreen, setBuildingFirstScreen] = useState<
-    boolean | null
-  >(null);
-  const [generationWasActive, setGenerationWasActive] = useState(false);
-  const [firstScreenSettling, setFirstScreenSettling] = useState(false);
-  if (generationWasActive !== generationActive) {
-    setGenerationWasActive(generationActive);
-    if (generationActive) {
-      setBuildingFirstScreen(design ? designIsEmpty : null);
-      setFirstScreenSettling(false);
-    } else {
-      if (buildingFirstScreen) setFirstScreenSettling(true);
-      setBuildingFirstScreen(null);
-    }
-  } else if (generationActive && buildingFirstScreen === null && design) {
-    setBuildingFirstScreen(designIsEmpty);
-  }
-  useEffect(() => {
-    if (!firstScreenSettling) return;
-    const timer = window.setTimeout(
-      () => setFirstScreenSettling(false),
-      GENERATION_DRAFT_SETTLE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [firstScreenSettling]);
-  const firstScreenBuild =
-    buildingFirstScreen === true || firstScreenSettling
-      ? {
-          settling: firstScreenSettling,
-          savedHtml: overviewScreens[0]?.content,
-        }
-      : null;
   const [chatMessageCount, setChatMessageCount] = useState(0);
 
   const designAgentSuggestions = useMemo(
@@ -1064,7 +1024,6 @@ export function useEditorLayerModels({
     overviewLayerPanelFiles,
     boardElements,
     designIsEmpty,
-    firstScreenBuild,
     chatMessageCount,
     setChatMessageCount,
     designAgentSuggestions,
