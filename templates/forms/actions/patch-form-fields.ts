@@ -88,7 +88,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        `${EXPECTED_REVISION_DESCRIPTION} Required when an upsert replaces an existing field.`,
+        `${EXPECTED_REVISION_DESCRIPTION} Required for everything except adding a new field.`,
       ),
     ops: z
       .array(fieldOpSchema)
@@ -112,11 +112,11 @@ export default defineAction({
       const { outcome, current } = await saveIfCurrent({
         record: "form_fields",
         expectedRevision: args.expectedRevision,
-        // A whole field built from an earlier read can carry stale values.
+        // Only adding a field can't undo something another writer just did.
         requireRevision: ({ value }) =>
           ops.some(
             (op) =>
-              op.op === "upsert" &&
+              op.op !== "upsert" ||
               value.some((field) => field.id === op.field.id),
           ),
         read: async () => {
@@ -150,7 +150,7 @@ export default defineAction({
             existing,
           };
         },
-        isSameSave: (fields) =>
+        isSameSave: (fields: FormField[]) =>
           isSameRecord(applyFieldOps(fields, ops), fields),
         write: async ({ value, existing }) => {
           const nextFields = applyFieldOps(value, ops);

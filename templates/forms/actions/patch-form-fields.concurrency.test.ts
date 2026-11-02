@@ -197,6 +197,37 @@ describe("patch-form-fields concurrent writes", () => {
     expect(storedRace().fields).toBe(before);
   });
 
+  it.each([
+    ["remove", { op: "remove", id: "field-a" }],
+    ["reorder", { op: "reorder", ids: ["field-b", "field-a"] }],
+  ])("refuses a %s without the revision it read", async (_name, op) => {
+    const before = storedRace().fields;
+
+    await expect(
+      patchFormFields.run({ id: "form-race", ops: [op] }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: fieldsRevision(before) },
+    });
+    expect(storedRace().fields).toBe(before);
+  });
+
+  it("applies a repeated removal once", async () => {
+    const revision = fieldsRevision(storedRace().fields);
+    const remove = {
+      id: "form-race",
+      expectedRevision: revision,
+      ops: [{ op: "remove", id: "field-a" }],
+    };
+
+    await patchFormFields.run(remove);
+    const after = storedRace();
+    await patchFormFields.run(remove);
+
+    expect(storedRace().updatedAt).toBe(after.updatedAt);
+    expect(storedRace().fields).toBe(after.fields);
+  });
+
   it("applies a repeated patch once", async () => {
     const revision = fieldsRevision(storedRace().fields);
     const patch = {
@@ -215,18 +246,20 @@ describe("patch-form-fields concurrent writes", () => {
   });
 
   it("repairs legacy fields before applying a granular edit", async () => {
+    const legacyFields = JSON.stringify([
+      { id: "legacy-a", type: "dropdown", label: "A" },
+      { id: "legacy-b", type: "text", label: "B" },
+    ]);
     store.set("form-legacy", {
       id: "form-legacy",
       status: "draft",
-      fields: JSON.stringify([
-        { id: "legacy-a", type: "dropdown", label: "A" },
-        { id: "legacy-b", type: "text", label: "B" },
-      ]),
+      fields: legacyFields,
       updatedAt: "2026-09-03T00:00:00.000Z",
     });
 
     const result = await patchFormFields.run({
       id: "form-legacy",
+      expectedRevision: fieldsRevision(legacyFields),
       ops: [{ op: "reorder", ids: ["legacy-b", "legacy-a"] }],
     });
 

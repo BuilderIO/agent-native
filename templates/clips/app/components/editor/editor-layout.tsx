@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  saveWithMerge,
+  SaveOverlapError,
   type SavedRecord,
 } from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
@@ -91,7 +91,6 @@ import {
   buildTimelinePieces,
   formatMs,
   getExcludedRanges,
-  identifyTrims,
   parseEdits,
   removeCut,
   removeSplit,
@@ -100,6 +99,7 @@ import {
   type EditsJson,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
+import { saveNewestTrims } from "@/lib/trim-save";
 import { cn } from "@/lib/utils";
 import {
   extractFilmstripThumbnails,
@@ -856,6 +856,7 @@ export function EditorLayout({
       revision: recording.trimsRevision ?? null,
     };
   }, [edits.trims, recording]);
+  const localTrimsRef = useRef<TrimRange[] | null>(null);
   const commitEditsRef = useRef<
     (next: EditsJson, options?: { record?: boolean }) => Promise<boolean>
   >(async () => false);
@@ -907,13 +908,14 @@ export function EditorLayout({
       const historyEntry = record ? snapshotOf(savedEdits) : null;
       if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
+      localTrimsRef.current = next.trims;
       const saveGeneration = beginEditSave("trims");
       let succeeded = false;
       try {
         await enqueueRecordingEditorSave(recordingId, "trims", async () => {
-          savedTrimsRef.current = await saveWithMerge<TrimRange[]>({
-            base: savedTrimsRef.current,
-            mine: identifyTrims(next.trims),
+          await saveNewestTrims({
+            saved: savedTrimsRef,
+            local: localTrimsRef,
             resolveOverlap: trimConflict.resolveOverlap,
             save: async ({ value, revision }) => {
               const saved = await setTrims.mutateAsync({
@@ -924,13 +926,17 @@ export function EditorLayout({
               return { value: saved.editsJson.trims, revision: saved.revision };
             },
           });
+          setPendingTrims(localTrimsRef.current);
           await playerDataQuery.refetch();
         });
         succeeded = true;
         return true;
       } catch (err: any) {
         if (historyEntry) discardHistory(historyEntry);
-        toast.error(err?.message ?? t("editorLayout.editFailed"));
+        // The conflict prompt has already said this one wasn't saved.
+        if (!(err instanceof SaveOverlapError)) {
+          toast.error(err?.message ?? t("editorLayout.editFailed"));
+        }
         return false;
       } finally {
         finishEditSave("trims", saveGeneration, succeeded);
@@ -938,6 +944,7 @@ export function EditorLayout({
           isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
         ) {
           setPendingTrims(null);
+          localTrimsRef.current = null;
         }
       }
     },

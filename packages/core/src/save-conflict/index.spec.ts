@@ -172,6 +172,24 @@ describe("mergeRecords", () => {
     });
   });
 
+  it("doesn't flag both sides choosing the same order", () => {
+    const base = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    expect(
+      mergeRecords(
+        base,
+        [{ id: "b" }, { id: "a", label: "Mine" }, { id: "c" }],
+        [{ id: "b" }, { id: "a" }, { id: "c", label: "Theirs" }],
+      ),
+    ).toEqual({
+      ok: true,
+      merged: [
+        { id: "b" },
+        { id: "a", label: "Mine" },
+        { id: "c", label: "Theirs" },
+      ],
+    });
+  });
+
   it("treats a changed list without ids as one value", () => {
     expect(
       mergeRecords(

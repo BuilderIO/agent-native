@@ -12,7 +12,12 @@ import {
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
 import type { ComposeState, UserSettings } from "@shared/types";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
@@ -157,6 +162,28 @@ export async function saveDraftMerging(
   });
   savedDrafts.set(mine.id, saved.value);
   return saved.value;
+}
+
+/**
+ * Saves a queued draft as it stands now, not as it stood when queued: a save
+ * ahead of it may have merged another writer's change into the cache, and the
+ * older snapshot would write over that. Edits made while it runs stay.
+ */
+export async function saveNewestDraft(
+  qc: QueryClient,
+  queued: ComposeState,
+): Promise<ComposeState> {
+  const mine =
+    qc
+      .getQueryData<ComposeState[]>(["compose-drafts"])
+      ?.find((draft) => draft.id === queued.id) ?? queued;
+  const saved = await saveDraftMerging(mine);
+  qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+    (old ?? []).map((draft) =>
+      draft.id === mine.id ? rebaseOntoSaved(mine, draft, saved) : draft,
+    ),
+  );
+  return saved;
 }
 
 function hasDraftContent(draft: ComposeState): boolean {
@@ -552,15 +579,7 @@ export function useComposeState() {
   const activeDraft = drafts.find((d) => d.id === resolvedActiveId) ?? null;
 
   const putMutation = useMutation({
-    mutationFn: async (state: ComposeState) => {
-      const saved = await saveDraftMerging(state);
-      qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
-        (old ?? []).map((draft) =>
-          draft.id === state.id ? rebaseOntoSaved(state, draft, saved) : draft,
-        ),
-      );
-      return saved;
-    },
+    mutationFn: (state: ComposeState) => saveNewestDraft(qc, state),
   });
 
   const deleteMutation = useMutation({

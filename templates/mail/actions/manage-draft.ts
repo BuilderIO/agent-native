@@ -699,6 +699,14 @@ export default defineAction({
         draft as unknown as Record<string, unknown>,
       );
       if (!stored) {
+        // Nothing points at a Gmail draft this call made, and a redo makes another.
+        if (savedGmailDraft?.created && ownerEmail) {
+          await discardUnstoredGmailDraft({
+            ownerEmail,
+            accountEmail: savedGmailDraft.accountEmail,
+            draftId: savedGmailDraft.draftId,
+          });
+        }
         const latest = await readAppState(`compose-${safeId}`);
         throw saveConflict(
           "draft",

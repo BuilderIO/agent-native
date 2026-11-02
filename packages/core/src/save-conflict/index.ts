@@ -144,7 +144,11 @@ function mergeKeyedArray(
     common(baseIds, theirItems),
     common(theirIds, baseItems),
   );
-  if (mineReordered && theirsReordered) {
+  if (
+    mineReordered &&
+    theirsReordered &&
+    !sameSequence(common(mineIds, theirItems), common(theirIds, mineItems))
+  ) {
     run.overlaps.push(fieldPath([...path, "order"]));
   }
 

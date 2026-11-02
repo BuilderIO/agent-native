@@ -83,6 +83,7 @@ describe("patch-form-fields published form validation", () => {
     await expect(
       patchFormFields.run({
         id: "form-example",
+        expectedRevision: fieldsRevision(state.existing.fields),
         ops: [{ op: "remove", id: "choice" }],
       }),
     ).rejects.toThrow("Cannot publish: form has no fields");

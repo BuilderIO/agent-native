@@ -15,6 +15,7 @@ export interface SaveConflictMessages {
   usedTheirs: string;
   getOtherBack: string;
   dismiss: string;
+  notSaved: string;
 }
 
 export const SAVE_CONFLICT_MESSAGES: Record<
@@ -32,6 +33,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "Using the other version.",
     getOtherBack: "Get the other version back",
     dismiss: "Dismiss",
+    notSaved:
+      "Your last change wasn't saved because someone else changed the same thing. Open it again to redo it.",
   },
   "es-ES": {
     title: "Otra persona también ha cambiado esto",
@@ -44,6 +47,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "Se está usando la otra versión.",
     getOtherBack: "Recuperar la otra versión",
     dismiss: "Descartar",
+    notSaved:
+      "Tu último cambio no se ha guardado porque otra persona ha cambiado lo mismo. Vuelve a abrirlo para rehacerlo.",
   },
   "fr-FR": {
     title: "Quelqu'un d'autre a aussi modifié ceci",
@@ -56,6 +61,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "L'autre version est utilisée.",
     getOtherBack: "Récupérer l'autre version",
     dismiss: "Ignorer",
+    notSaved:
+      "Votre dernière modification n'a pas été enregistrée, car quelqu'un d'autre a modifié le même élément. Rouvrez-le pour la refaire.",
   },
   "de-DE": {
     title: "Jemand anderes hat dies ebenfalls geändert",
@@ -68,6 +75,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "Die andere Version wird verwendet.",
     getOtherBack: "Andere Version zurückholen",
     dismiss: "Schließen",
+    notSaved:
+      "Deine letzte Änderung wurde nicht gespeichert, weil jemand anderes dasselbe geändert hat. Öffne es erneut, um sie zu wiederholen.",
   },
   "pt-BR": {
     title: "Outra pessoa também alterou isto",
@@ -80,6 +89,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "Usando a outra versão.",
     getOtherBack: "Recuperar a outra versão",
     dismiss: "Dispensar",
+    notSaved:
+      "Sua última alteração não foi salva porque outra pessoa alterou a mesma coisa. Abra novamente para refazê-la.",
   },
   "zh-CN": {
     title: "其他人也更改了此内容",
@@ -92,6 +103,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "正在使用另一个版本。",
     getOtherBack: "找回另一个版本",
     dismiss: "关闭",
+    notSaved:
+      "你的上一次更改未保存,因为其他人更改了同一处内容。请重新打开后再改一次。",
   },
   "zh-TW": {
     title: "其他人也變更了此內容",
@@ -104,6 +117,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "正在使用另一個版本。",
     getOtherBack: "取回另一個版本",
     dismiss: "關閉",
+    notSaved:
+      "你上一次的變更未儲存,因為其他人變更了同一處內容。請重新開啟後再改一次。",
   },
   "ja-JP": {
     title: "他の人もこの内容を変更しました",
@@ -116,6 +131,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "もう一方のバージョンを使用しています。",
     getOtherBack: "もう一方のバージョンに戻す",
     dismiss: "閉じる",
+    notSaved:
+      "他の人が同じ箇所を変更したため、直前の変更は保存されませんでした。もう一度開いてやり直してください。",
   },
   "ko-KR": {
     title: "다른 사람도 이 내용을 변경했습니다",
@@ -128,6 +145,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "다른 버전을 사용 중입니다.",
     getOtherBack: "다른 버전 되돌리기",
     dismiss: "닫기",
+    notSaved:
+      "다른 사람이 같은 항목을 변경해 마지막 변경 내용이 저장되지 않았습니다. 다시 열어 변경해 주세요.",
   },
   "hi-IN": {
     title: "किसी और ने भी इसे बदला है",
@@ -140,6 +159,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "दूसरे संस्करण का उपयोग हो रहा है।",
     getOtherBack: "दूसरा संस्करण वापस पाएँ",
     dismiss: "खारिज करें",
+    notSaved:
+      "आपका पिछला बदलाव सहेजा नहीं गया, क्योंकि किसी और ने वही चीज़ बदली है। इसे फिर से खोलकर दोबारा बदलें।",
   },
   "ar-SA": {
     title: "غيّر شخص آخر هذا أيضًا",
@@ -152,6 +173,8 @@ export const SAVE_CONFLICT_MESSAGES: Record<
     usedTheirs: "يتم استخدام النسخة الأخرى.",
     getOtherBack: "استعادة النسخة الأخرى",
     dismiss: "إغلاق",
+    notSaved:
+      "لم يتم حفظ تغييرك الأخير لأن شخصًا آخر غيّر الشيء نفسه. افتحه مرة أخرى لإعادة التغيير.",
   },
 };
 

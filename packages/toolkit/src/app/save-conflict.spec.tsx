@@ -4,14 +4,24 @@ import {
   SaveOverlapError,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useSaveConflictPrompt } from "./save-conflict.js";
 
-const { trackEvent } = vi.hoisted(() => ({ trackEvent: vi.fn() }));
+const { trackEvent, toastError } = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
+  toastError: vi.fn(),
+}));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
     values ? `${key} ${JSON.stringify(values)}` : key,
@@ -131,5 +141,26 @@ describe("useSaveConflictPrompt", () => {
     });
     view.unmount();
     await expect(choice).rejects.toBeInstanceOf(SaveOverlapError);
+    expect(toastError).toHaveBeenCalledWith("saveConflict.notSaved");
+  });
+
+  it("fails an overlap that arrives after the prompt went away", async () => {
+    const { ask, view } = setup();
+    view.unmount();
+    await expect(ask()).rejects.toBeInstanceOf(SaveOverlapError);
+    expect(toastError).toHaveBeenCalledWith("saveConflict.notSaved");
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("doesn't say a choice already made went unsaved", async () => {
+    const { ask, view } = setup();
+    let choice!: Promise<Draft>;
+    act(() => {
+      choice = ask();
+    });
+    fireEvent.click(screen.getByText("saveConflict.keepMine"));
+    await choice;
+    view.unmount();
+    expect(toastError).not.toHaveBeenCalled();
   });
 });

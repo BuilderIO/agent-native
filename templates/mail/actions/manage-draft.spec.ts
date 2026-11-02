@@ -823,6 +823,64 @@ describe("manage-draft saves against the revision it read", () => {
     });
     expect(appState.get("compose-shared-draft")).toBe(typed);
   });
+
+  it("removes the Gmail draft it made when it loses that race", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return {
+        draftId: "new-gmail-draft",
+        accountEmail: "user@example.com",
+        created: true,
+      };
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountEmail: "user@example.com",
+        draftId: "new-gmail-draft",
+      }),
+    );
+  });
+
+  it("keeps a Gmail draft it only updated when it loses that race", async () => {
+    const saved = {
+      ...stored,
+      savedDraftId: "existing-gmail-draft",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "user@example.com",
+    };
+    appState.set("compose-shared-draft", saved);
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", {
+        ...saved,
+        body: "Typed during the Gmail save",
+      });
+      return {
+        draftId: "existing-gmail-draft",
+        accountEmail: "user@example.com",
+        created: false,
+      };
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
 });
 
 describe("manage-draft approval", () => {

@@ -16,6 +16,7 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
 import * as React from "react";
+import { toast } from "sonner";
 
 interface PendingChoice<T> {
   overlap: SaveOverlap<T>;
@@ -49,17 +50,23 @@ export function useSaveConflictPrompt<T>({
     other: T;
   } | null>(null);
 
-  const queueRef = React.useRef(queue);
-  queueRef.current = queue;
+  const tRef = React.useRef(t);
+  tRef.current = t;
+  const mountedRef = React.useRef(true);
+  const waitingRef = React.useRef(new Set<PendingChoice<T>>());
   // A save waiting on a choice nobody can make any more must fail, not hang.
-  React.useEffect(
-    () => () => {
-      for (const pending of queueRef.current) {
-        pending.reject(new SaveOverlapError(pending.overlap));
+  React.useEffect(() => {
+    mountedRef.current = true;
+    const waiting = waitingRef.current;
+    return () => {
+      mountedRef.current = false;
+      if (waiting.size > 0) toast.error(tRef.current("saveConflict.notSaved"));
+      for (const choice of waiting) {
+        choice.reject(new SaveOverlapError(choice.overlap));
       }
-    },
-    [],
-  );
+      waiting.clear();
+    };
+  }, []);
 
   const count = React.useCallback(
     (outcome: string, fieldCount?: number) => {
@@ -75,8 +82,15 @@ export function useSaveConflictPrompt<T>({
   const resolveOverlap = React.useCallback(
     (overlap: SaveOverlap<T>) =>
       new Promise<T>((resolve, reject) => {
+        if (!mountedRef.current) {
+          toast.error(tRef.current("saveConflict.notSaved"));
+          reject(new SaveOverlapError(overlap));
+          return;
+        }
         count("shown", overlap.fields.length);
-        setQueue((current) => [...current, { overlap, resolve, reject }]);
+        const choice = { overlap, resolve, reject };
+        waitingRef.current.add(choice);
+        setQueue((current) => [...current, choice]);
       }),
     [count],
   );
@@ -86,6 +100,7 @@ export function useSaveConflictPrompt<T>({
   function choose(kept: "mine" | "theirs") {
     if (!pending) return;
     const { overlap, resolve } = pending;
+    waitingRef.current.delete(pending);
     count(kept === "mine" ? "keep_mine" : "use_theirs", overlap.fields.length);
     setSettled({
       kept,

@@ -3,6 +3,7 @@ import {
   SaveOverlapError,
 } from "@agent-native/core/save-conflict";
 import type { ComposeState } from "@shared/types";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -18,6 +19,7 @@ import {
   newestUnseenPopoutDraftId,
   saveDraftMerging,
   saveDraftToEmailsBestEffort,
+  saveNewestDraft,
   setDraftOverlapResolver,
   type DraftSaveResult,
   type DraftSaveQueueResult,
@@ -171,6 +173,131 @@ describe("saveDraftMerging", () => {
     respondWith({ status: 500, body: { error: "nope" } });
 
     await expect(saveDraftMerging(mine)).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe("saveNewestDraft", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setDraftOverlapResolver(undefined);
+  });
+
+  /** A server holding `stored`, refusing any save that isn't current. */
+  function server(initial: ComposeState) {
+    const state = { stored: initial };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const { expectedRevision, next } = JSON.parse(init.body);
+        const currentRevision = saveRevisionOf(state.stored);
+        if (expectedRevision !== currentRevision) {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              errorCode: "save_conflict",
+              details: { current: state.stored, currentRevision },
+            }),
+          };
+        }
+        state.stored = next;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ value: next, revision: saveRevisionOf(next) }),
+        };
+      }),
+    );
+    return state;
+  }
+
+  function cacheHolding(value: ComposeState) {
+    const qc = new QueryClient();
+    qc.setQueryData(["compose-drafts"], [value]);
+    return {
+      qc,
+      cached: () =>
+        qc.getQueryData<ComposeState[]>([
+          "compose-drafts",
+        ])?.[0] as ComposeState,
+      edit: (change: Partial<ComposeState>) =>
+        qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+          (old ?? []).map((one) => ({ ...one, ...change })),
+        ),
+    };
+  }
+
+  /** Teaches the module this draft's saved base through a first plain save. */
+  async function seen(value: ComposeState) {
+    server(value);
+    await saveDraftMerging(value);
+  }
+
+  it("keeps another writer's change through an edit queued behind the merge", async () => {
+    const base = { ...draft("queued-merge"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, body: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "First" });
+    const first = cached();
+    edit({ subject: "Second" });
+    const second = cached();
+    await saveNewestDraft(qc, first);
+    await saveNewestDraft(qc, second);
+
+    expect(state.stored).toMatchObject({ subject: "Second", body: "Theirs" });
+    expect(cached()).toMatchObject({ subject: "Second", body: "Theirs" });
+  });
+
+  it("keeps edits made while the save ran on top of what came back", async () => {
+    const base = { ...draft("edit-while-saving"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, body: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "First" });
+    const running = saveNewestDraft(qc, cached());
+    edit({ subject: "Typed meanwhile" });
+    await running;
+
+    expect(state.stored).toMatchObject({ subject: "First", body: "Theirs" });
+    expect(cached()).toMatchObject({
+      subject: "Typed meanwhile",
+      body: "Theirs",
+    });
+  });
+
+  it("doesn't undo the choice made on the save ahead of it", async () => {
+    const base = { ...draft("queued-choice"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, subject: "Theirs" });
+    setDraftOverlapResolver(async (overlap) => overlap.useTheirs);
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "Mine" });
+    const first = cached();
+    const running = saveNewestDraft(qc, first);
+    edit({ body: "Next edit" });
+    const second = cached();
+    await running;
+    await saveNewestDraft(qc, second);
+
+    expect(state.stored).toMatchObject({
+      subject: "Theirs",
+      body: "Next edit",
+    });
+  });
+
+  it("saves the queued copy when the draft has left the cache", async () => {
+    const base = { ...draft("closed"), subject: "A" };
+    await seen(base);
+    const state = server(base);
+    const qc = new QueryClient();
+
+    await saveNewestDraft(qc, { ...base, subject: "Closed with this" });
+
+    expect(state.stored).toMatchObject({ subject: "Closed with this" });
   });
 });
 
