@@ -1,3 +1,4 @@
+import { writeAppState } from "@agent-native/core/application-state";
 // guard:allow-unscoped — isolated PostgreSQL-compatible fixtures.
 // oracle-change: Approved durable cleanup replaces synchronous deletion; assert row/intent atomicity and eventual worker outcomes in the database.
 import { PGlite } from "@electric-sql/pglite";
@@ -5,7 +6,6 @@ import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { writeAppState } from "@agent-native/core/application-state";
 import * as schema from "../server/db/schema.js";
 import { recordingMediaCleanupMigration } from "../server/lib/recording-media-cleanup-schema.js";
 import { buildRecordingMediaReferenceIndexes } from "../server/lib/recording-media-reference-indexes.js";
