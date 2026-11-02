@@ -17,6 +17,13 @@ describe("isRunFailureRetryable", () => {
     "error:http_401",
     "error:authentication_error",
     "missing_api_key",
+    "error:provider_rate_limited",
+    "error:http_429",
+    "error:run_budget_exhausted",
+    "error:billing_error",
+    "error:request_too_large",
+    "error:gateway_not_enabled",
+    "error:aborted_user",
   ])("does not retry %s, which fails the same way again", (reason) => {
     expect(isRunFailureRetryable(reason)).toBe(false);
   });
