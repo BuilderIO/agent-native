@@ -320,6 +320,7 @@ describe("PropertyCommentControl", () => {
       openThreadsByProperty: new Map(),
       pendingPropertyId: null,
       activeThreadId: null,
+      selectedThreadId: null,
       startComment: vi.fn(),
       openThread: vi.fn(),
       ...overrides,

@@ -30,6 +30,8 @@ export interface PropertyCommentsValue {
   pendingPropertyId: string | null;
   /** The thread being read or hovered, if any. */
   activeThreadId: string | null;
+  /** The thread being read, if any. */
+  selectedThreadId: string | null;
   startComment: (property: DocumentProperty) => void;
   openThread: (threadId: string) => void;
 }

@@ -378,6 +378,7 @@ import {
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
+import type { DatabaseRowView } from "./row-view-layout";
 import { scopedDatabaseRowTitleUpdateRequest } from "./scoped-row-write";
 import { DatabaseTimelineView } from "./TimelineView";
 import {
@@ -2049,6 +2050,7 @@ function DatabaseTable({
           item.document.id,
           databaseId,
           document.id,
+          activeView.id,
         );
         const link = threadId
           ? `${path}&comment=${encodeURIComponent(threadId)}`
@@ -2114,7 +2116,12 @@ function DatabaseTable({
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     void navigate(
-      databaseItemPagePath(item.document.id, databaseId, document.id),
+      databaseItemPagePath(
+        item.document.id,
+        databaseId,
+        document.id,
+        activeView.id,
+      ),
     );
   }
 
@@ -3957,6 +3964,7 @@ function DatabaseTable({
 
       <DatabaseItemPreviewSheet
         item={previewItem}
+        rowView={activeView}
         transitionPending={previewTransitionPending}
         onSessionChange={handlePreviewSessionChange}
         previousItem={previousPreviewItem}
@@ -4239,8 +4247,10 @@ export function databaseItemPagePath(
   documentId: string,
   databaseId: string,
   databaseDocumentId: string,
+  fromViewId?: string,
 ) {
   const search = new URLSearchParams({ databaseId, databaseDocumentId });
+  if (fromViewId) search.set("fromViewId", fromViewId);
   return `/page/${documentId}?${search.toString()}`;
 }
 
@@ -5278,6 +5288,7 @@ export function databaseItemPreviewPosition(
 
 function DatabaseItemPreviewSheet({
   item,
+  rowView,
   previousItem,
   nextItem,
   position,
@@ -5293,6 +5304,7 @@ function DatabaseItemPreviewSheet({
   commentIntent,
 }: {
   item: ContentDatabaseItem | null;
+  rowView: DatabaseRowView;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5338,6 +5350,7 @@ function DatabaseItemPreviewSheet({
             key={`${item.databaseId}:${item.id}:${item.document.id}`}
             item={item}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
@@ -5372,6 +5385,7 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 
 function DatabaseItemPreview({
   item,
+  rowView,
   previousItem,
   nextItem,
   position,
@@ -5386,6 +5400,7 @@ function DatabaseItemPreview({
   commentIntent,
 }: {
   item: ContentDatabaseItem;
+  rowView: DatabaseRowView;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5578,6 +5593,7 @@ function DatabaseItemPreview({
             documentId={item.document.id}
             databaseId={item.databaseId}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}

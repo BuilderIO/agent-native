@@ -943,6 +943,7 @@ const editor = {
       video: "Vídeo",
     },
     fromSource: "De {{name}}",
+    hiddenInThisView: "Ocultas nesta visualização",
     hiddenProperties: "Propriedades ocultas",
     imageUploaded_zero: "Imagens enviadas",
     imageUploaded_one: "Imagem enviada",
