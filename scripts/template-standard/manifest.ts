@@ -56,6 +56,24 @@ export function templatePath(template: string, ...segments: string[]): string {
   return join(templateDir(template), ...segments);
 }
 
+export function listScaffoldSourceDirs(templates: string[]): string[] {
+  const communityTemplates = existsSync(COMMUNITY_TEMPLATES_DIR)
+    ? readdirSync(COMMUNITY_TEMPLATES_DIR, { withFileTypes: true })
+        .filter(
+          (entry) =>
+            entry.isDirectory() &&
+            existsSync(join(COMMUNITY_TEMPLATES_DIR, entry.name, "package.json")),
+        )
+        .map((entry) => join(COMMUNITY_TEMPLATES_DIR, entry.name))
+        .sort()
+    : [];
+  return [
+    ...templates.map(templateDir),
+    ...SCAFFOLD_SOURCE_DIRS_OUTSIDE_TEMPLATES,
+    ...communityTemplates,
+  ];
+}
+
 export const CANONICAL_LEARNINGS_DEFAULTS = join(
   MODULE_DIR,
   "assets",
@@ -100,6 +118,17 @@ export const AUTH_MIDDLEWARE_REQUIRED_IMPORT = "runAuthGuard";
 
 export const SSR_ROUTE_REL = join("server", "routes", "[...page].get.ts");
 export const SSR_ROUTE_REQUIRED_IMPORT = "createH3SSRHandler";
+
+// Nitro compiles `[...page]` to the named wildcard `/**:page`, which never
+// matches `/`, so without this re-export a mounted app 404s at `/<app-id>`.
+export const SSR_ROOT_ROUTE_REL = join("server", "routes", "index.get.ts");
+export const SSR_ROOT_ROUTE_REEXPORT =
+  /^export \{ default \} from ["']\.\/\[\.\.\.page\]\.get["'];?$/;
+
+const SCAFFOLD_SOURCE_DIRS_OUTSIDE_TEMPLATES = [
+  join(REPO_ROOT, "packages", "core", "src", "templates", "default"),
+];
+const COMMUNITY_TEMPLATES_DIR = join(REPO_ROOT, "community-templates");
 
 export const TEMPLATE_PLACEHOLDER_PATTERN = /\{\{[A-Z][A-Z0-9_]*\}\}/;
 
