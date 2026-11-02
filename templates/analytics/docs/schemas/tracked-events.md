@@ -39,7 +39,10 @@ Events tracked by application instrumentation and stored in the configured appli
   later request. Properties: `app`, `template`, `org_id`, `role` (always
   `member`), and `federated` (boolean). Tracked under the member's `userId`
   (their email). Together with `invite_accepted`, it counts every way someone
-  joins a team.
+  joins a team. `invite_accepted` also fires when an existing member accepts
+  an invitation, such as an SSO sign-in that domain-joins a user before
+  accepting their pending invite to the same organization, so count joins as
+  distinct `userId` and `org_id` pairs across both events.
 
 ### Agent Chat / AI
 
