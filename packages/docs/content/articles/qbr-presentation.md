@@ -2,10 +2,10 @@
 slug: qbr-presentation
 type: how-to-guide
 title: How to make a QBR presentation
-seo_title: How to make a QBR presentation from real numbers
-og_title: How to make a QBR presentation
-meta_description: "Make a QBR presentation your customer can trust: pull each number from its source, set it next to its goal, check it, then build the slides."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F98c9e0590b0b40d6b5dac5ab4d8984cf
+seo_title: How to make a QBR presentation (with example slides)
+og_line: With a slide outline and an example deck
+meta_description: "Make a quarterly business review (QBR) presentation your customer can trust: pull each number from its source, set it next to its goal, then build the slides."
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -17,10 +17,12 @@ app: Slides
 cta:
   label: Make a deck
   url: https://slides.agent-native.com
+  heading: Create a QBR presentation with Agent-Native Slides
+  prompt: "Read https://www.agent-native.com/articles/qbr-presentation/ and help me make a QBR deck for [customer]. First ask me for the decision this meeting should reach, last quarter's goals with the number that measures each one, and the value we delivered. I'll attach my goals table. Then build these slides: the decision for today, a scorecard of every goal, one slide per goal with its headline first, the value we delivered, what we missed and the risk ahead, proposed goals for next quarter, what we need from them, owners and dates, and an appendix with each number's source, definition and date window."
 images:
-  - dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7452f8b85d9e4b9992a64e79d50ecde4
-    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e616db6763347ceb9370de737d2f9eb
-    alt: Six slides from the Brightline example deck. The top row has the title, the scorecard with 3 of 4 goals met and a goal slide. The bottom row has 410 dispatcher hours saved, what missed and the risk ahead, and the Q4 goals.
+  - dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8dfc321ccfe64b00a56a3bf5105c44a5
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F822ab03b3a1d491fa1fd05cea1f876b8
+    alt: Four slides from an example deck for a made-up customer, Brightline Logistics. They show the title slide with today's decision, the scorecard with 3 of 4 goals met, 410 dispatcher hours saved this quarter, and three goals for Q4.
   - dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fae16a9e75220453c9b53e2e1b69d7c63
     light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F788d71824eb449fdb70588d9eed9577a
     alt: The Slides prompt box with a Q3 QBR request typed in, and last quarter's PowerPoint deck and a Q3 goals PDF attached.
@@ -41,31 +43,33 @@ faqs:
   - q: How often should you hold a QBR?
     a: Quarterly, as the name says, for accounts large enough to justify the meeting. Smaller accounts can get a shorter review twice a year, or a written summary instead of a meeting.
   - q: What's the difference between a QBR and an EBR?
-    a: An EBR, or executive business review, is a strategic review with the customer's executives, held once or twice a year. It covers outcomes, strategy and the renewal, with less product detail than a QBR.
-  - q: Do you need a QBR template?
-    a: A QBR template is a ready-made deck with the slides in order and placeholders for your numbers. It gives you a slide order, but it can't give you the numbers. Start from the slide outline in this guide or your last QBR deck, and spend your time on the goals table, which is the part no template fills in.
+    a: An EBR, or executive business review, is a strategic review with the customer's executives, held once or twice a year. It covers outcomes, strategy and the renewal, with less product detail than a QBR. A QBR comes every quarter, goes through each goal, and usually includes the day-to-day contacts as well as the sponsor.
+  - q: What is a quarterly business review?
+    a: A quarterly business review (QBR) is a meeting a vendor holds with a customer every quarter. It checks the last quarter's results against the goals both sides agreed, then sets the next quarter's goals. The customer success manager or account manager usually runs it, with the customer's day-to-day contacts and an executive sponsor in the room. The QBR presentation is the deck the meeting runs on.
 ---
 
 A QBR presentation is the deck for a quarterly business review. In it, you and a customer look at the last quarter against the goals you agreed, then set the next quarter's goals. Most of the work is getting the numbers out of your CRM, product analytics, support tool and billing, and checking each one against its goal. This guide does that first and builds the slides last.
 
+![Four slides from an example deck for a made-up customer, Brightline Logistics. They show the title slide with today's decision, the scorecard with 3 of 4 goals met, 410 dispatcher hours saved this quarter, and three goals for Q4.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8dfc321ccfe64b00a56a3bf5105c44a5)
+
 ## What you need
 
-- The goals you agreed with the customer last quarter. For a first QBR, use the goals from the kickoff or the success plan.
-- Access to the account in your CRM, product analytics, support tool and billing.
-- The list of people from the customer who will attend.
-- Two weeks before the meeting to prepare: a week to pull and check the numbers (ask the customer for any figures you need in the first days), a few days to build and rehearse the deck, and a day or two for the customer to read it.
+- Last quarter's goals
+- For a first QBR, the success plan
+- Access to your CRM, analytics, support and billing
+- The list of attendees
 
 ## How to make a QBR presentation
 
 ### 1. Decide who the QBR is for
 
-List the people the customer is sending, then name what the meeting should settle, such as renewing early or adding a team.
+List the people the customer is sending, then **name the one decision the meeting should reach**, such as renewing early or adding a team. Write it as a sentence that starts "By the end of this meeting, we agree…".
 
-An executive sponsor, the senior person who decides on the renewal, wants outcomes and decisions. A day-to-day contact wants detail on how the product is used. When both come, lead with outcomes and keep the detail for the appendix. You should end up with an attendee list and one sentence that starts "By the end of this meeting, we agree…".
+An executive sponsor, the senior person who decides on the renewal, wants outcomes and decisions. A day-to-day contact wants detail on how the product is used. When both come, lead with outcomes and keep the detail for the appendix.
 
 ### 2. Pull the quarter's numbers from each source
 
-Start from last quarter's goals and pull the number that measures each one. Add the contract basics: seats, contract value, renewal date and open tickets. Use one date window for every number, the quarter you agreed with the customer.
+Start from last quarter's goals, or the kickoff or success plan for a first QBR, and **pull the number that measures each one**. Add the contract basics: seats, contract value, renewal date and open tickets. Use one date window for every number, the quarter you agreed with the customer.
 
 | Number | Where it usually lives |
 |---|---|
@@ -74,11 +78,11 @@ Start from last quarter's goals and pull the number that measures each one. Add 
 | Tickets opened, time to resolve | Your support tool |
 | Invoices, usage-based charges | Billing |
 
-If your deals are in HubSpot, you can [ask Agent-Native Analytics for deal numbers in plain English](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copy every number into one sheet with a column for its source. When you finish, every number has a source, a date window and a value.
+If your deals are in HubSpot, you can [ask Agent-Native Analytics for deal numbers in plain English](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copy every number into one sheet, with its source and date window beside it.
 
 ### 3. Put each number next to its goal
 
-Add each goal to the sheet as a row with its target, the actual number and the gap. Mark it as met, missed, or still moving for goals that aren't due yet, and for each miss, note what you'll change. Leave out any number that doesn't measure a goal or explain one. Here's an example for a made-up customer, Brightline Logistics:
+Add each goal to the sheet as a row with its target, the actual number and the gap. **Mark each goal as met, missed or still moving** (for goals not due yet), and note what you'll change for each miss. Leave out any number that doesn't measure a goal or explain one. Here's an example for a made-up customer, Brightline Logistics:
 
 | Goal | Target | Actual | Status |
 |---|---|---|---|
@@ -87,35 +91,33 @@ Add each goal to the sheet as a row with its target, the actual number and the g
 | Driver app adoption | 70% | 76% | Met |
 | Tickets resolved in 8 hours | 90% | 81% | Missed |
 
-You end up with a goals table that already says how the quarter went.
+The table already tells the customer how the quarter went.
 
 ### 4. Check the numbers before the slides
 
-Compare each number with last quarter's deck. Check that it uses the same definition: "active users" counted the same way, over the same window. Make sure totals match the source tool, and find the reason for any number that jumped or dropped.
+Compare each number with last quarter's deck. Check that it uses **the same definition**: "active users" counted the same way, over the same window. Make sure totals match the source tool, and find the reason for any number that jumped or dropped.
 
-Write each definition and window next to its number in the sheet, because the customer will ask where a surprising number came from. When you finish, you can explain every number in the table out loud.
+Write each definition and window next to its number in the sheet, because the customer will ask where a surprising number came from.
 
 ### 5. Show the value the customer got
 
-Turn the goals you met into what they're worth to the customer, in time saved, cost avoided or revenue. Measure what changed against a baseline: the starting numbers in the kickoff or success plan, or the same measure before the product went live. If you have neither, ask the customer's team to estimate it. Then multiply by a figure the customer gives you, such as an hourly cost.
+Turn the goals you met into **what they're worth to the customer**, in time saved, cost avoided or revenue. Measure what changed against a baseline: the starting numbers in the kickoff or success plan, or the same measure before the product went live. If you have neither, ask the customer's team to estimate it. Multiply the change by a figure the customer gives you, such as an hourly cost.
 
 In the Brightline example, faster route planning saved 410 dispatcher hours (minutes saved per route × routes planned). At the $40 hourly cost Brightline gave, that's about $16,400. When no goal turns into money, show the outcome itself, such as orders shipped on time.
 
-Write the formula and every input in the sheet, and mark which inputs came from the customer. Ask your contact to confirm the inputs before the meeting. You end up with one value number the customer agrees with.
+Write the formula and its inputs in the sheet, marking those the customer gave. **Ask your contact to confirm the inputs** before the meeting.
 
 ### 6. Write the story of the quarter
 
-Go down your goals table and write one headline per row that says what the number means. For Brightline's dispatch goal, that could be "Dispatchers plan routes 22% faster". Add one headline for your value number, one for the biggest risk and one for what you need from the customer. Each headline becomes a slide title, so the deck tells one story instead of listing metrics.
-
-You end up with a list of headlines: one per goal, plus value, risk and asks.
+Go down your goals table and **write one headline per row that says what the number means**. For Brightline's dispatch goal, that could be "Dispatchers plan routes 22% faster". Add one headline for your value number, one for the biggest risk and one for what you need from the customer. Each headline becomes a slide title, so the deck tells one story instead of listing metrics.
 
 ### 7. Propose next quarter's goals and asks
 
-Suggest two or three goals for the next quarter, each with a number and the tool that will measure it. Add your asks: an introduction to another team, feedback on a feature, a date for the renewal talk. Label the goals as proposals, so the customer can change them in the meeting. You end up with draft goals, each with its measure, and a short list of asks.
+Suggest two or three goals for the next quarter, each with a number and the tool that will measure it. Add your asks: an introduction to another team, feedback on a feature, a date for the renewal talk. **Label the goals as proposals**, so the customer can change them in the meeting.
 
 ### 8. Build the slides from an outline
 
-The outline below has eight slides, plus one per goal and an optional health slide. Give each one a single message and its proof.
+Give each slide in this outline **one message and its proof**.
 
 | Slide | Built from |
 |---|---|
@@ -130,17 +132,15 @@ The outline below has eight slides, plus one per goal and an optional health sli
 | Optional: account health | Your health score, if you track one |
 | Appendix: numbers and definitions | Your sheet of sources |
 
-Use a line chart for a trend and a bar with the target marked for a goal. Mark each goal met or missed with a label.
-
-![Six slides from the Brightline example deck. The top row has the title, the scorecard with 3 of 4 goals met and a goal slide. The bottom row has 410 dispatcher hours saved, what missed and the risk ahead, and the Q4 goals.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7452f8b85d9e4b9992a64e79d50ecde4)
+Use a line chart for a trend and a bar with the target marked for a goal. The Brightline slides at the top of this guide are four slides from a deck built on this outline.
 
 ### 9. Send the deck ahead and follow up
 
-Rehearse the deck once with a teammate, then send it to the attendees a day or two before the meeting, so they arrive with questions instead of reading slides. Open the meeting with the decision you want it to reach. Afterwards, send a short note with what was agreed, each next step's owner and its date. That note is where next quarter's goals table starts.
+Rehearse the deck once with a teammate, then **send it to the attendees before the meeting**, so they arrive with questions instead of reading slides. Open the meeting with the decision you want it to reach. Afterwards, send a short note with what was agreed, each next step's owner and its date. That note is where next quarter's goals table starts.
 
 ## How to make a QBR presentation with Agent-Native Slides
 
-[Agent-Native Slides](https://www.agent-native.com/apps/slides/) builds the slides (step 8) from your own material. The numbers, the story and the goals stay yours: Slides works from what you give it and doesn't check your figures. Slides is in alpha, so expect some rough edges.
+[Agent-Native Slides](https://www.agent-native.com/apps/slides/) builds the deck from [the slide outline](#8-build-the-slides-from-an-outline) and your own material. The numbers, the story and the goals stay yours: Slides works from what you give it and doesn't check your figures. Slides is in alpha, so expect some rough edges.
 
 ### 1. Describe the QBR and attach your material
 
@@ -158,13 +158,13 @@ The Slides agent plans an outline from your request, then builds each slide in t
 
 Edit any text in place. To change a whole slide, select it and ask the agent, for example to move support to the appendix. Ask the agent to write speaker notes for each slide.
 
-Check every number on the slides against your goals table before you share the deck.
+**Check every number on the slides against your goals table** before you share the deck.
 
 ![The whole Slides editor. The toolbar is at the top and the slide list on the left, with the scorecard slide open in the middle. Its speaker notes are underneath, and the agent chat on the right has written notes for every slide.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F397a6e6c392d4cfc9970050b85d8f095)
 
 ### 4. Share it for review or export it
 
-Share the deck with a teammate before you send it. They can comment on each slide or edit it with you at the same time. Present it full screen from Slides, or export it as a PowerPoint file, a PDF or a file to import into Google Slides.
+Click **Share** to send the deck to a teammate before it goes to the customer. They can comment on each slide or edit it with you at the same time. Present it full screen from Slides, or open **Export** to save it as a PowerPoint file, a PDF or a file to import into Google Slides.
 
 ![The Slides Export menu open over the QBR title slide, with HTML, PDF, PowerPoint and Google Slides options.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01de5fb8352f49978deefbebb9490223)
 
@@ -177,6 +177,10 @@ The customer's admin may count users or tickets with a different definition or d
 ### The meeting runs out of time before the plan
 
 The review slides usually carry too much detail when this happens. Cap the look back at half the meeting, move raw tables to the appendix, and put next quarter's goals before the goal slides if time is tight.
+
+### Most goals missed this quarter
+
+Keep the scorecard honest and show every miss. Lead the review with what you've changed for each one, and move the decision to what the customer needs from you next quarter.
 
 ### The executive sponsor doesn't come
 
@@ -198,8 +202,8 @@ Quarterly, as the name says, for accounts large enough to justify the meeting. S
 
 ### What's the difference between a QBR and an EBR?
 
-An EBR, or executive business review, is a strategic review with the customer's executives, held once or twice a year. It covers outcomes, strategy and the renewal, with less product detail than a QBR.
+An EBR, or executive business review, is a strategic review with the customer's executives, held once or twice a year. It covers outcomes, strategy and the renewal, with less product detail than a QBR. A QBR comes every quarter, goes through each goal, and usually includes the day-to-day contacts as well as the sponsor.
 
-### Do you need a QBR template?
+### What is a quarterly business review?
 
-A QBR template is a ready-made deck with the slides in order and placeholders for your numbers. It gives you a slide order, but it can't give you the numbers. Start from the slide outline in this guide or your last QBR deck, and spend your time on the goals table, which is the part no template fills in.
+A quarterly business review (QBR) is a meeting a vendor holds with a customer every quarter. It checks the last quarter's results against the goals both sides agreed, then sets the next quarter's goals. The customer success manager or account manager usually runs it, with the customer's day-to-day contacts and an executive sponsor in the room. The QBR presentation is the deck the meeting runs on.
