@@ -17,6 +17,7 @@ const calls = vi.hoisted(() => ({
   tracked: [] as Array<{ properties: unknown; source: unknown }>,
   invalidated: [] as string[],
   notified: [] as Array<{ resourceId: string; before: unknown }>,
+  noticeFails: new Set<string>(),
 }));
 
 vi.mock("../../tracking/registry.js", async (importOriginal) => ({
@@ -45,6 +46,7 @@ vi.mock("./extension-change.js", () => ({
     before: unknown,
   ) => {
     calls.notified.push({ resourceId, before });
+    if (calls.noticeFails.has(resourceId)) throw new Error("notice failed");
   },
 }));
 
@@ -179,6 +181,7 @@ beforeEach(async () => {
   calls.tracked.length = 0;
   calls.invalidated.length = 0;
   calls.notified.length = 0;
+  calls.noticeFails.clear();
   pglite = await createTestPglite();
   await pglite.exec(`
     CREATE TABLE visibility_docs (
@@ -422,6 +425,29 @@ describe("set-resource-visibility on several resources", () => {
     ]);
     expect(result.change.title).toBe("doc-loose");
     expect(calls.tracked).toEqual([]);
+  });
+
+  it("still succeeds, and sends the other notices, when one notice fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    calls.noticeFails.add("doc-a");
+    await insertDoc({ id: "doc-a" });
+    await insertDoc({ id: "doc-b" });
+
+    const result = await batch(["doc-a", "doc-b"], "org");
+
+    expect(result.changedCount).toBe(2);
+    expect(await visibilities()).toEqual({ "doc-a": "org", "doc-b": "org" });
+    expect(calls.notified.map(({ resourceId }) => resourceId)).toEqual([
+      "doc-a",
+      "doc-b",
+    ]);
+    expect(consoleError).toHaveBeenCalledWith(
+      `[sharing] Could not send the change notice for ${resourceType} doc-a:`,
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
   });
 
   it("returns no card when nothing changes", async () => {

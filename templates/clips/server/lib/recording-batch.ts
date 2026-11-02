@@ -87,9 +87,11 @@ export async function assertRecordingsEditable(ids: string[]): Promise<void> {
     try {
       assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
     } catch (error) {
-      failures.push(
-        `${id}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // Only a refusal belongs in the list. An operational failure, such as
+      // the database being unavailable, goes through as itself so the caller
+      // can tell it apart and retry.
+      if (!(error instanceof ForbiddenError)) throw error;
+      failures.push(`${id}: ${error.message}`);
     }
   }
   if (failures.length) {

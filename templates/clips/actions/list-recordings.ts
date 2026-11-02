@@ -169,11 +169,13 @@ export default defineAction({
       .describe("Only recordings with one of these visibilities"),
     hasShares: z
       .preprocess(
-        (v) => (typeof v === "string" ? v === "true" : v),
+        // A query string arrives as "true" or "false"; anything else is
+        // left for z.boolean() to refuse rather than read as false.
+        (v) => (v === "true" ? true : v === "false" ? false : v),
         z.boolean().optional(),
       )
       .describe(
-        "true: only your recordings shared with at least one person, group or org; false: only your recordings shared with no one. Either value leaves out recordings you don't own.",
+        "true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
       ),
     sort: z
       .enum(["recent", "views", "oldest"])

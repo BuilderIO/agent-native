@@ -99,8 +99,9 @@ than a week private unless I've shared them with someone", find them with one
 
 - `list-recordings` takes `createdBefore` / `createdAfter` (ISO dates),
   `visibility` (a list, such as `["public", "org"]`) and `hasShares`
-  (`false` for clips the user hasn't shared with any person, group or org;
-  it only ever matches the user's own clips).
+  (`false` for clips whose share list names no person, group or org; it
+  reads that list, not visibility, and only ever matches the user's own
+  clips).
 - `set-resource-visibility` takes `resourceIds` with `resourceType:
   "recording"`. Making any clip public asks for one approval for the call.
 - `archive-recording`, `trash-recording`, `restore-recording` and

@@ -310,11 +310,20 @@ export default defineAction({
     const app = getAppConfig().app.slug ?? "unknown";
     for (const change of prepared) {
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
-      await notifyExtensionShareChanged(
-        args.resourceType,
-        change.resourceId,
-        beforeExtensionTargets.get(change.resourceId) ?? [],
-      );
+      // The writes have committed, so a notice that fails is logged rather
+      // than reported as a failed change, and the rest still go out.
+      try {
+        await notifyExtensionShareChanged(
+          args.resourceType,
+          change.resourceId,
+          beforeExtensionTargets.get(change.resourceId) ?? [],
+        );
+      } catch (error) {
+        console.error(
+          `[sharing] Could not send the change notice for ${args.resourceType} ${change.resourceId}:`,
+          error,
+        );
+      }
       if (change.visibilityChanged) {
         track(
           "share_visibility_change",
@@ -332,7 +341,7 @@ export default defineAction({
     }
 
     const changed = prepared.filter((change) => change.resourceChanged);
-    const [firstChanged] = changed;
+    const firstChanged = changed.at(0);
     const card = firstChanged
       ? sharingChangeFor(reg, firstChanged, changed.length, args.visibility)
       : undefined;

@@ -35,38 +35,42 @@ async function tagOne(recordingId: string, tag: string, op: "add" | "remove") {
     eq(schema.recordingTags.recordingId, recordingId),
     eq(schema.recordingTags.tag, tag),
   );
-  let changed: boolean;
-  if (op === "add") {
-    const existing = await db
-      .select({ id: schema.recordingTags.id })
-      .from(schema.recordingTags)
-      .where(tagged);
-    changed = !existing.length;
-    if (changed) {
-      await db.insert(schema.recordingTags).values({
-        id: nanoid(),
-        recordingId,
-        organizationId: rows[0].organizationId,
-        tag,
-      });
+  // The readback shares the write's transaction, so if it fails the write is
+  // undone too and a batch can truthfully report the recording as skipped.
+  return db.transaction(async (tx) => {
+    let changed: boolean;
+    if (op === "add") {
+      const existing = await tx
+        .select({ id: schema.recordingTags.id })
+        .from(schema.recordingTags)
+        .where(tagged);
+      changed = !existing.length;
+      if (changed) {
+        await tx.insert(schema.recordingTags).values({
+          id: nanoid(),
+          recordingId,
+          organizationId: rows[0].organizationId,
+          tag,
+        });
+      }
+    } else {
+      const removed = await tx
+        .delete(schema.recordingTags)
+        .where(tagged)
+        .returning({ id: schema.recordingTags.id });
+      changed = removed.length > 0;
     }
-  } else {
-    const removed = await db
-      .delete(schema.recordingTags)
-      .where(tagged)
-      .returning({ id: schema.recordingTags.id });
-    changed = removed.length > 0;
-  }
 
-  const tags = await db
-    .select({ tag: schema.recordingTags.tag })
-    .from(schema.recordingTags)
-    .where(eq(schema.recordingTags.recordingId, recordingId));
+    const tags = await tx
+      .select({ tag: schema.recordingTags.tag })
+      .from(schema.recordingTags)
+      .where(eq(schema.recordingTags.recordingId, recordingId));
 
-  return {
-    status: changed ? ("changed" as const) : ("unchanged" as const),
-    tags: tags.map((t) => t.tag),
-  };
+    return {
+      status: changed ? ("changed" as const) : ("unchanged" as const),
+      tags: tags.map((t) => t.tag),
+    };
+  });
 }
 
 export default defineAction({

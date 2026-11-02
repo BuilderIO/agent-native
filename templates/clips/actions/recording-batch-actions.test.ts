@@ -18,6 +18,8 @@ import * as schema from "../server/db/schema.js";
 const identity = vi.hoisted(() => ({
   email: "owner@example.test",
   denied: new Set<string>(),
+  // Recordings whose access check fails for a reason other than a refusal.
+  unavailable: new Set<string>(),
   writeAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -33,6 +35,7 @@ vi.mock("@agent-native/core/sharing", async (original) => {
     ...actual,
     assertAccess: async (_type: string, id: string) => {
       if (identity.denied.has(id)) throw new actual.ForbiddenError();
+      if (identity.unavailable.has(id)) throw new Error("database unavailable");
       return { role: "owner", resource: { expiresAt: null } };
     },
   };
@@ -62,6 +65,7 @@ const { default: restore } = await import("./restore-recording.js");
 const { default: tag } = await import("./tag-recording.js");
 const { default: addToSpace } = await import("./add-recording-to-space.js");
 const { default: list } = await import("./list-recordings.js");
+const { ForbiddenError } = await import("@agent-native/core/sharing");
 
 const client = new PGlite();
 const db = drizzle(client, { schema });
@@ -116,6 +120,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   identity.email = owner;
   identity.denied.clear();
+  identity.unavailable.clear();
   identity.writeAppState.mockClear();
   await db.delete(schema.recordings);
   await db.delete(schema.recordingTags);
@@ -161,6 +166,19 @@ describe("batch recording actions", () => {
 
     expect((await recordingRow("a")).trashedAt).toBeNull();
     expect(identity.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("passes an operational failure through instead of calling it a refusal", async () => {
+    await insertRecording("a");
+    await insertRecording("b");
+    identity.denied.add("a");
+    identity.unavailable.add("b");
+
+    const failed = trash.run(trash.schema.parse({ ids: ["a", "b"] }));
+    await expect(failed).rejects.toThrow(/^database unavailable$/);
+    await expect(failed).rejects.not.toBeInstanceOf(ForbiddenError);
+
+    expect((await recordingRow("b")).trashedAt).toBeNull();
   });
 
   it("skips, with the reason, a recording that disappears after the check", async () => {
@@ -322,6 +340,13 @@ describe("list-recordings batch filters", () => {
       }),
     ).toEqual(["old-public"]);
     expect(await ids({ hasShares: "true" })).toEqual(["old-shared"]);
+    expect(await ids({ hasShares: "false" })).not.toContain("old-shared");
+  });
+
+  it("refuses a hasShares value other than true or false", () => {
+    for (const hasShares of ["TRUE", "yes", "flase", ""]) {
+      expect(list.schema.safeParse({ hasShares }).success).toBe(false);
+    }
   });
 
   it("rejects a date it can't read", () => {
