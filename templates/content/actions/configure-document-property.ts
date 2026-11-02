@@ -35,7 +35,7 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
+import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -334,7 +334,7 @@ export default defineAction({
             ) &&
             !isBlocksPropertyType(type)
           )
-            await assertAgentsMayEditPagesText(
+            await lockPagesAndAssertAgentsMayEditText(
               tx as unknown as ReturnType<typeof getDb>,
               memberships.map((membership) => membership.documentId),
               context,

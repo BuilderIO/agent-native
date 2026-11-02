@@ -5,7 +5,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ROLE_RANK,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -1105,27 +1109,38 @@ export async function checkBuilderDocsSource(args: {
  * An agent's push can carry whatever text it supplies, and the page's next pull
  * would bring that back, so a locked page's Builder entry is out of its reach.
  */
-async function assertAgentMayPushBuilderEntry(args: {
+export async function assertAgentMayPushBuilderEntry(args: {
   documentId?: string | null | undefined;
   model: string;
   entryId: string;
   ctx: CallProvenance | undefined;
 }) {
   if (!isAgentCall(args.ctx)) return;
-  const ownerEmail = getRequestUserEmail();
-  const following = ownerEmail
-    ? await findBuilderDocumentBySource({
-        ownerEmail,
-        orgId: getRequestOrgId() ?? null,
-        model: args.model,
-        entryId: args.entryId,
-      })
-    : null;
+  // Any page the caller can reach, since a shared one follows the entry too.
+  const reachable = await getDb()
+    .select({
+      id: schema.documents.id,
+      sourceRootPath: schema.documents.sourceRootPath,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.sourceMode, BUILDER_DOCS_MDX_SOURCE_MODE),
+        eq(schema.documents.sourceKind, builderSourceKindForModel(args.model)),
+        accessFilter(schema.documents, schema.documentShares),
+      ),
+    );
   await assertAgentsMayEditPagesText(
     getDb(),
     [
       ...(args.documentId ? [args.documentId] : []),
-      ...(following ? [following.id] : []),
+      ...reachable
+        .filter(
+          (page) =>
+            parseBuilderSourceRootPath(page.sourceRootPath)?.entryId ===
+            args.entryId,
+        )
+        .map((page) => page.id),
     ],
     args.ctx,
   );

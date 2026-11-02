@@ -3,6 +3,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export type CallProvenance = Pick<
   ActionRunContext,
@@ -93,6 +94,21 @@ export function isAgentTextLockRefusal(
 }
 
 /** The same refusal for an action that writes many pages at once. */
+/**
+ * For a write across a collection's rows. Its collection and membership locks
+ * don't stop the switch, which updates only the page's row, so an agent's write
+ * takes the pages' rows too, next in Content's lock order, and checks under them.
+ */
+export async function lockPagesAndAssertAgentsMayEditText(
+  db: ReturnType<typeof getDb>,
+  documentIds: readonly string[],
+  ctx: CallProvenance | undefined,
+) {
+  if (!isAgentCall(ctx)) return;
+  await lockDocumentRows(db, documentIds);
+  await assertAgentsMayEditPagesText(db, documentIds, ctx);
+}
+
 export async function assertAgentsMayEditPagesText(
   db: Pick<ReturnType<typeof getDb>, "select">,
   documentIds: readonly string[],

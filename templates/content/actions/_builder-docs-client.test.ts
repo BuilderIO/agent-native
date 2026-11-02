@@ -151,6 +151,7 @@ vi.mock("../server/db/index.js", async () => {
 });
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => undefined),
   ROLE_RANK: {
     viewer: 0,
     editor: 1,

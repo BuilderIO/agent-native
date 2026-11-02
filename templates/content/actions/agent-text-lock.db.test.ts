@@ -17,6 +17,11 @@ import {
 } from "vitest";
 
 import { runAsRouteCaller } from "../server/lib/agent-lock-route.js";
+import {
+  BUILDER_DOCS_MDX_SOURCE_MODE,
+  builderSourceKindForModel,
+  builderSourceRootPath,
+} from "../shared/builder-docs-blocks.js";
 import { serializeContentSourceDocument } from "../shared/content-source.js";
 import {
   isAgentCall,
@@ -42,6 +47,25 @@ vi.mock("../server/lib/document-body-revision.js", async (importOriginal) => {
       beforeRowLock.run = null;
       await run?.(args[0]);
       return actual.lockLegacyBodyWrites(...args);
+    },
+  };
+});
+
+const beforePageRowsLock = vi.hoisted(() => ({
+  run: null as null | ((tx: unknown) => Promise<unknown>),
+}));
+
+vi.mock("./_row-lock-order.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_row-lock-order.js")>();
+  return {
+    ...actual,
+    lockDocumentRows: async (
+      ...args: Parameters<typeof actual.lockDocumentRows>
+    ) => {
+      const run = beforePageRowsLock.run;
+      beforePageRowsLock.run = null;
+      await run?.(args[0]);
+      return actual.lockDocumentRows(...args);
     },
   };
 });
@@ -1677,6 +1701,75 @@ describe("a lock turned on just before a write takes the page's row", () => {
     });
   });
 
+  it("stops an agent deleting a Blocks property, and a person's lands", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await setLock.run({ id: row.documentId, locked: false }, person);
+      const discovered = await contract(row.databaseId);
+      const remove = {
+        documentId: discovered.target.databaseDocumentId,
+        databaseId: row.databaseId,
+        propertyId: row.blocksId,
+      };
+
+      beforePageRowsLock.run = lockInTransaction(row.documentId);
+      await expect(deleteProperty.run(remove, ownAgent)).rejects.toMatchObject(
+        locked,
+      );
+      expect((await readPage(row.documentId)).content).toContain("First block");
+
+      await deleteProperty.run(remove, person);
+      expect(
+        (await contract(row.databaseId)).properties.map(
+          (property) => property.id,
+        ),
+      ).not.toContain(row.blocksId);
+    });
+  });
+
+  it("stops an agent changing a Blocks field's type, and a person's lands", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await setLock.run({ id: row.documentId, locked: false }, person);
+      const discovered = await contract(row.databaseId);
+      const documentId = discovered.target.databaseDocumentId;
+      const configured = (await configureProperty.run(
+        {
+          documentId,
+          databaseId: row.databaseId,
+          name: "Notes",
+          type: "blocks",
+        },
+        person,
+      )) as {
+        properties: Array<{ definition: { id: string; name: string } }>;
+      };
+      const notes = configured.properties.find(
+        (property) => property.definition.name === "Notes",
+      );
+      if (!notes) throw new Error("Fixture has no second Blocks field.");
+      const change = {
+        documentId,
+        databaseId: row.databaseId,
+        id: notes.definition.id,
+        name: "Notes",
+        type: "text" as const,
+      };
+
+      beforePageRowsLock.run = lockInTransaction(row.documentId);
+      await expect(
+        configureProperty.run(change, { caller: "http", userEmail: OWNER }),
+      ).rejects.toMatchObject(locked);
+      expect(
+        (await contract(row.databaseId)).properties.find(
+          (property) => property.id === notes.definition.id,
+        )?.type,
+      ).toBe("blocks");
+
+      await configureProperty.run(change, person);
+    });
+  });
+
   it("stops an agent refreshing a local file's copy, and a person's lands", async () => {
     await asOwner(async () => {
       const id = "content_agent_lock_local_file";
@@ -1755,6 +1848,73 @@ describe("a lock turned on just before a write takes the page's row", () => {
 
       await decideSuggestion.run(decision("raced-person-accept"), person);
       expect((await readPage(page.id)).content).toContain("second draft");
+    });
+  });
+});
+
+describe("an agent's Builder push to an entry a locked page follows", () => {
+  const colleague = "colleague@example.com";
+  const model = "docs-content";
+  const asColleague = <T>(run: () => Promise<T>) =>
+    runWithRequestContext({ userEmail: colleague, orgId: null }, run);
+  const lockedFollowingPage = (entryId: string) =>
+    asOwner(async () => {
+      const page = await lockedPage("Some text");
+      await getDb()
+        .update(schema.documents)
+        .set({
+          sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
+          sourceKind: builderSourceKindForModel(model),
+          sourceRootPath: builderSourceRootPath({
+            entryId,
+            sourceHash: "source",
+            blocksHash: "blocks",
+          }),
+        })
+        .where(eq(schema.documents.id, page.id));
+      return page;
+    });
+  const check = async (entryId: string, caller: "mcp" | "frontend") => {
+    const { assertAgentMayPushBuilderEntry } =
+      await import("./_builder-docs-client.js");
+    return assertAgentMayPushBuilderEntry({
+      model,
+      entryId,
+      ctx: { caller, userEmail: colleague },
+    });
+  };
+
+  it("refuses when someone else's page, shared with the caller, follows it", async () => {
+    const page = await lockedFollowingPage("builder-entry-shared");
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: `share-${crypto.randomUUID()}`,
+        resourceId: page.id,
+        principalType: "user",
+        principalId: colleague,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+
+    await asColleague(async () => {
+      await expect(check("builder-entry-shared", "mcp")).rejects.toMatchObject(
+        locked,
+      );
+      await expect(
+        check("builder-entry-shared", "frontend"),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  it("isn't stopped by a locked page the caller can't reach", async () => {
+    await lockedFollowingPage("builder-entry-unreachable");
+
+    await asColleague(async () => {
+      await expect(
+        check("builder-entry-unreachable", "mcp"),
+      ).resolves.toBeUndefined();
     });
   });
 });

@@ -19,7 +19,7 @@ import {
 } from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
-import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
+import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
 import {
   listPropertiesForDocument,
   parseDatabaseViewConfig,
@@ -133,7 +133,7 @@ export default defineAction({
 
       // A Blocks property holds rows' text, and its last one holds their bodies.
       if (isBlocks)
-        await assertAgentsMayEditPagesText(
+        await lockPagesAndAssertAgentsMayEditText(
           tx as unknown as ReturnType<typeof getDb>,
           items.map((item) => item.documentId),
           ctx,
