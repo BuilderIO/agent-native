@@ -404,6 +404,10 @@ const messages = {
     editorLinkDescription: "Opens the deck in the editor",
     presentationLink: "Presentation link",
     presentationLinkDescription: "Opens the deck in presentation mode",
+    copyEditorLink: "Copy editor link",
+    copyPresentationLink: "Copy presentation link",
+    linkCopied: "Link copied",
+    linkCopyFailed: "Couldn't copy the link.",
     present: "Present",
     presentInTab: "In this tab",
     presentFullScreen: "Full Screen",
@@ -508,6 +512,9 @@ const messages = {
   },
   share: {
     createFailed: "Failed to create share link",
+    snapshotLinks: "Snapshot links",
+    revokeLink: "Revoke",
+    revokeFailed: "Could not revoke share link",
     title: "Share Presentation",
     cloudUpgradeDescription:
       "To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere.",

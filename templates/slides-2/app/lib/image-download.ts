@@ -1,7 +1,7 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 function imageProxyUrl(src: string): string {
-  return `${appBasePath()}/api/image-proxy?url=${encodeURIComponent(src)}`;
+  return appApiPath(`/api/image-proxy?url=${encodeURIComponent(src)}`);
 }
 
 function isRemoteHttpUrl(src: string): boolean {

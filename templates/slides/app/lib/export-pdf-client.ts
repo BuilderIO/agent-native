@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { settleGoogleFontStylesheets } from "@agent-native/toolkit/design-tweaks/google-fonts";
 import {
   SLIDES_PDF_SIDECAR_MAX_JSON_BYTES,
@@ -20,7 +20,7 @@ import {
 export function imageProxyUrl(src: string, shareToken?: string): string {
   const params = new URLSearchParams({ url: src });
   if (shareToken) params.set("shareToken", shareToken);
-  return `${appBasePath()}/api/image-proxy?${params.toString()}`;
+  return appApiPath(`/api/image-proxy?${params.toString()}`);
 }
 
 export function throwIfExportAborted(signal?: AbortSignal): void {

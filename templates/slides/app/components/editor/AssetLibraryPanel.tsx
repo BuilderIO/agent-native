@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -64,7 +64,7 @@ export default function AssetLibraryPanel({
   const fetchAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${appBasePath()}/api/assets`);
+      const res = await fetch(appApiPath("/api/assets"));
       if (res.ok) setAssets(await res.json());
     } catch {
     } finally {
@@ -92,7 +92,7 @@ export default function AssetLibraryPanel({
         form.append("file", file);
         if (deckId) form.append("deckId", deckId);
         try {
-          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+          const res = await fetch(appApiPath("/api/assets/upload"), {
             method: "POST",
             body: form,
           });
@@ -146,7 +146,7 @@ export default function AssetLibraryPanel({
   const handleDelete = async (id: string) => {
     try {
       const res = await fetch(
-        `${appBasePath()}/api/assets/${encodeURIComponent(id)}`,
+        appApiPath(`/api/assets/${encodeURIComponent(id)}`),
         {
           method: "DELETE",
         },

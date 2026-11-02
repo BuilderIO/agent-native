@@ -31,6 +31,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
@@ -142,7 +143,10 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
       if (!row) throw new Error(`Deck ${deckId} not found`);
-      const deck = JSON.parse(row.data) as Record<string, unknown>;
+      const deck = withUniqueSlideIds(
+        deckId,
+        JSON.parse(row.data) as Record<string, unknown>,
+      );
       const slides = Array.isArray(deck.slides)
         ? ([...deck.slides] as Array<Record<string, unknown>>)
         : [];

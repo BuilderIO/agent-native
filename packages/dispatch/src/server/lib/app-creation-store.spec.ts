@@ -3091,6 +3091,37 @@ describe("startWorkspaceAppCreation", () => {
     );
   }
 
+  describe("in a Builder-linked workspace", () => {
+    beforeEach(() => {
+      vi.stubEnv("BUILDER_WORKSPACE_PROJECT_ID", "ws-123");
+      vi.stubEnv("BUILDER_APP_HOST", "https://builder.io");
+    });
+
+    it("links to Builder instead of creating the app", async () => {
+      const settingsBefore = new Map(mocks.settings);
+
+      const result = await create("onboarding");
+
+      expect(result).toEqual({
+        mode: "builder-managed",
+        url: "https://builder.io/app/workspaces/ws-123",
+        message: expect.stringContaining("built in Builder"),
+      });
+      expect(mocks.settings).toEqual(settingsBefore);
+      expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+      expect(mocks.createBuilderProject).not.toHaveBeenCalled();
+    });
+
+    it("refuses to scaffold a template", async () => {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "dev@example.test", orgId: "org-123" },
+          () => scaffoldWorkspaceAppFromTemplate({ template: "mail" }),
+        ),
+      ).rejects.toThrow("built in Builder");
+    });
+  });
+
   it("persists the private default for local-agent app creation", async () => {
     mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
 

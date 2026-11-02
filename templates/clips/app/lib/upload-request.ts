@@ -1,7 +1,7 @@
 import { getAnalyticsSessionId } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
-  appBasePath,
+  appApiPath,
 } from "@agent-native/core/client/api-path";
 
 interface UploadChunkRequestOptions {
@@ -67,7 +67,7 @@ export function fetchUploadStatus(
   signal?: AbortSignal,
 ): Promise<Response> {
   return fetch(
-    `${appBasePath()}/api/uploads/${encodeURIComponent(recordingId)}/status`,
+    appApiPath(`/api/uploads/${encodeURIComponent(recordingId)}/status`),
     { cache: "no-store", credentials: "include", signal },
   );
 }

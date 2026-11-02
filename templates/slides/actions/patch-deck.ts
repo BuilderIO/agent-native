@@ -73,6 +73,7 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import {
   clampTransitionSpeed,
   normalizeSlideTransition,
@@ -1456,8 +1457,9 @@ export default defineAction({
           statusCode: 404,
         });
 
+      const storedDeck: { slides?: unknown } = JSON.parse(row.data);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deck: any = JSON.parse(row.data);
+      const deck: any = withUniqueSlideIds(deckId, storedDeck);
       if (
         !isMcpWidgetPatchAllowed(ctx?.caller, requestedOperations, {
           rewriteSource,
@@ -1529,7 +1531,9 @@ export default defineAction({
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
       if (ctx?.caller === "mcp-widget-write") {
-        const storedSlideIds = currentSlides
+        const storedSlideIds = (
+          Array.isArray(storedDeck.slides) ? storedDeck.slides : []
+        )
           .map((slide: { id?: unknown }) => slide?.id)
           .filter((id: unknown): id is string => typeof id === "string");
         const duplicateSlideId = firstDuplicate(storedSlideIds);

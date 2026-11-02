@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   SLIDES_PDF_SIDECAR_MAX_JSON_BYTES,
   SLIDES_PDF_SIDECAR_NAMESPACE,
@@ -20,7 +20,7 @@ import {
 export function imageProxyUrl(src: string, shareToken?: string): string {
   const params = new URLSearchParams({ url: src });
   if (shareToken) params.set("shareToken", shareToken);
-  return `${appBasePath()}/api/image-proxy?${params.toString()}`;
+  return appApiPath(`/api/image-proxy?${params.toString()}`);
 }
 
 function throwIfExportAborted(signal?: AbortSignal): void {

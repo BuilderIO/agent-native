@@ -406,6 +406,10 @@ const messages = {
       "편집기에서 덱을 엽니다. 접근 권한이 있는 누구나 이 링크를 사용할 수 있습니다.",
     presentationLink: "프레젠테이션 링크",
     presentationLinkDescription: "덱을 프레젠테이션 모드로 엽니다",
+    copyEditorLink: "편집기 링크 복사",
+    copyPresentationLink: "프레젠테이션 링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    linkCopyFailed: "링크를 복사할 수 없습니다.",
     present: "발표",
     presentInTab: "이 탭에서",
     presentFullScreen: "전체 화면",
@@ -509,6 +513,9 @@ const messages = {
   },
   share: {
     createFailed: "공유 링크를 만들 수 없습니다",
+    snapshotLinks: "스냅샷 링크",
+    revokeLink: "취소",
+    revokeFailed: "공유 링크를 취소할 수 없습니다",
     title: "프레젠테이션 공유",
     cloudUpgradeDescription:
       "프레젠테이션을 공개적으로 공유하려면 클라우드 데이터베이스를 연결해 어디서나 슬라이드에 접근할 수 있게 하세요.",

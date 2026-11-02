@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   contiguousRanges,
   mutateSpecs,
+  mutationShardCount,
+  selectMutationShardArtifacts,
   namedSpecs,
   survivingMutants,
 } from "./mutation-changed.ts";
@@ -15,6 +17,63 @@ const repoRoot = path.resolve(
   "..",
 );
 const absolute = (repoPath: string) => path.join(repoRoot, repoPath);
+
+test("reuses successful workers across attempts and selects the newest rerun", () => {
+  assert.deepEqual(
+    selectMutationShardArtifacts([
+      "mutation-owner-1-2",
+      "mutation-owner-0-1",
+      "mutation-owner-1-1",
+    ]),
+    [
+      {
+        shardIndex: 0,
+        attempt: 1,
+        relativePath: "mutation-owner-0-1/shard-0.json",
+      },
+      {
+        shardIndex: 1,
+        attempt: 2,
+        relativePath: "mutation-owner-1-2/shard-1.json",
+      },
+    ],
+  );
+});
+
+test("supports local receipts and rejects ambiguous artifact entries", () => {
+  assert.deepEqual(selectMutationShardArtifacts(["shard-0.json"]), [
+    { shardIndex: 0, attempt: 0, relativePath: "shard-0.json" },
+  ]);
+  for (const name of [
+    "mutation-owner-0-0",
+    "mutation-owner-01-2",
+    "../shard-0.json",
+    "unexpected.json",
+  ])
+    assert.throws(
+      () => selectMutationShardArtifacts([name]),
+      /Unexpected mutation artifact/,
+    );
+  assert.throws(
+    () => selectMutationShardArtifacts(["shard-0.json", "shard-0.json"]),
+    /Duplicate mutation artifact/,
+  );
+});
+
+test("bounds mutation workers to the complete changed-line workload", () => {
+  assert.equal(mutationShardCount([]), 1);
+  assert.equal(mutationShardCount(["src/a.ts:1-32"]), 1);
+  assert.equal(mutationShardCount(["src/a.ts:1-32", "src/b.ts:9-9"]), 2);
+  assert.equal(mutationShardCount(["src/a.ts:1-10000"]), 64);
+  assert.throws(
+    () => mutationShardCount(["src/a.ts:5-1"]),
+    /Invalid mutation range/,
+  );
+  assert.throws(
+    () => mutationShardCount(["src/a.ts"]),
+    /Invalid mutation range/,
+  );
+});
 
 test("merges added lines into inclusive contiguous ranges", () => {
   assert.deepEqual(contiguousRanges([5, 1, 2, 3, 9, 10, 3]), [
@@ -155,6 +214,30 @@ test("skips specs that import the repo-root catalog harness", () => {
   assert.deepEqual(
     namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
     { include: ["src/plugin.spec.ts"], missing: [] },
+  );
+});
+
+test("keeps Core fixture readers while excluding file URLs outside the sandbox", () => {
+  const listing = [
+    "plugin.spec.ts",
+    "plugin.guidance.spec.ts",
+    "plugin.fixture.spec.ts",
+    "plugin.ts",
+  ];
+  const files = {
+    "src/server/plugin.spec.ts": `import { start } from "./plugin";`,
+    "src/server/plugin.guidance.spec.ts": `import { start } from "./plugin"; await readFile(new URL("../../../.agents/skills/example/SKILL.md", import.meta.url), "utf8");`,
+    "src/server/plugin.fixture.spec.ts": `import { start } from "./plugin"; await readFile(new URL("../fixtures/example.md", import.meta.url), "utf8");`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/server/plugin.ts:1-2"], () => listing, readFrom(files)),
+    {
+      include: [
+        "src/server/plugin.fixture.spec.ts",
+        "src/server/plugin.spec.ts",
+      ],
+      missing: [],
+    },
   );
 });
 

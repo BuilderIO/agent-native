@@ -86,13 +86,57 @@ export interface SignOutOptions {
   redirectTo?: string;
 }
 
+export type SignOutCleanup = () => void | Promise<void>;
+
+export class SignOutCleanupError extends Error {
+  readonly code = "sign_out_cleanup_failed";
+  readonly retryable = true;
+
+  constructor() {
+    super("Local app data could not be cleared. Retry sign-out.");
+    this.name = "SignOutCleanupError";
+  }
+}
+
+const signOutCleanups = new Set<SignOutCleanup>();
+
+export function registerSignOutCleanup(cleanup: SignOutCleanup): () => void {
+  signOutCleanups.add(cleanup);
+  return () => signOutCleanups.delete(cleanup);
+}
+
+function runSignOutCleanups(
+  cleanups: SignOutCleanup[],
+): Promise<void> | undefined {
+  if (cleanups.length === 0) return undefined;
+  return Promise.allSettled(
+    cleanups.map((cleanup) => Promise.resolve().then(cleanup)),
+  ).then((results) => {
+    if (results.some((result) => result.status === "rejected")) {
+      throw new SignOutCleanupError();
+    }
+  });
+}
+
 export function signOut(options: SignOutOptions = {}): Promise<void> {
   if (signOutOperation) return signOutOperation;
-  signOutOperation = signOutFlow(options);
-  return signOutOperation;
+  const operation = signOutFlow(options);
+  signOutOperation = operation;
+  void operation.catch((error) => {
+    if (
+      error instanceof SignOutCleanupError &&
+      signOutOperation === operation
+    ) {
+      signOutOperation = null;
+    }
+  });
+  return operation;
 }
 
 async function signOutFlow(options: SignOutOptions): Promise<void> {
+  const registeredCleanups = [...signOutCleanups];
+  const registeredCleanup = runSignOutCleanups(registeredCleanups);
+  if (registeredCleanup) await registeredCleanup;
   setBetaRedirectSignOutSignal();
   beginSignOut();
   const cleanup = runBeforeSignOutCleanups();

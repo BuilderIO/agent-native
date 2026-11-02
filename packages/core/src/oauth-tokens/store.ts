@@ -332,17 +332,6 @@ export async function saveOAuthTokens(
     ...(existingTokens ?? {}),
     ...cleanedIncomingTokens,
   };
-  const existingScope = existingTokens?.scope;
-  const incomingScope = cleanedIncomingTokens.scope;
-  if (typeof existingScope === "string" && typeof incomingScope === "string") {
-    tokensToStore.scope = Array.from(
-      new Set(
-        `${existingScope} ${incomingScope}`
-          .split(/[\s,]+/)
-          .filter((scope) => scope.length > 0),
-      ),
-    ).join(" ");
-  }
 
   const result = await client.execute({
     sql: `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`,

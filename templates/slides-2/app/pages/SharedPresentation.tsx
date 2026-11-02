@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   actionErrorMessage,
   callAction,
@@ -95,7 +95,7 @@ export default function SharedPresentation({
       return;
     }
 
-    fetch(`${appBasePath()}/api/share/${token}`)
+    fetch(appApiPath(`/api/share/${token}`))
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json();

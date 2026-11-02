@@ -27,6 +27,7 @@ import {
   FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   inferWorkspaceAppRootHomePath,
@@ -310,6 +311,11 @@ export interface WorkspaceInfo {
   displayName: string | null;
   rootPath: string | null;
   appCount: number;
+  /**
+   * Set when this workspace is linked to Builder: apps are created there, so
+   * Dispatch links to it instead of offering its own create-app flow.
+   */
+  builderWorkspaceUrl: string | null;
 }
 
 interface PendingWorkspaceApp {
@@ -2403,7 +2409,13 @@ export function getEnvBuilderProjectId(): string | null {
 export function getWorkspaceInfo(): WorkspaceInfo {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
-    return { name: null, displayName: null, rootPath: null, appCount: 0 };
+    return {
+      name: null,
+      displayName: null,
+      rootPath: null,
+      appCount: 0,
+      builderWorkspaceUrl: getBuilderWorkspaceUrl(),
+    };
   }
   const pkg = readJson(path.join(rootPath, "package.json"));
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
@@ -2427,6 +2439,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     displayName,
     rootPath,
     appCount,
+    builderWorkspaceUrl: getBuilderWorkspaceUrl(),
   };
 }
 
@@ -2774,6 +2787,10 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   template: string;
   appId?: string | null;
 }): Promise<{ appId: string; template: string; output: string }> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl) {
+    throw new Error(builderManagedCreationResult(builderWorkspaceUrl).message);
+  }
   if (!isLocalAppCreationRuntime()) {
     throw new Error(
       "Scaffolding from Dispatch is only available in local development. " +
@@ -3419,7 +3436,25 @@ export interface AppCreationBuilderResult {
   message: string;
 }
 
+/** A Builder-linked workspace: apps are built in Builder, so nothing was created. */
+export interface AppCreationBuilderManagedResult {
+  mode: "builder-managed";
+  url: string;
+  message: string;
+}
+
+export function builderManagedCreationResult(
+  url: string,
+): AppCreationBuilderManagedResult {
+  return {
+    mode: "builder-managed",
+    url,
+    message: `Apps in this workspace are built in Builder. Open ${url} and choose New app.`,
+  };
+}
+
 export type StartWorkspaceAppCreationResult =
+  | AppCreationBuilderManagedResult
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
   | AppCreationAppIdTakenResult
@@ -3437,6 +3472,9 @@ export async function startWorkspaceAppCreation(input: {
   attachments?: BuilderAgentAttachment[];
   communitySourceId?: string;
 }): Promise<StartWorkspaceAppCreationResult> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl)
+    return builderManagedCreationResult(builderWorkspaceUrl);
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,

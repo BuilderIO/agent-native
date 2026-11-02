@@ -45,7 +45,7 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
-import { approvalKeyForHistory } from "../../agent/approval-key.js";
+import { approvalKeyForPrivateHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
@@ -988,6 +988,7 @@ function runtimeFileUrl(
 function runtimePartToProtocolPart(
   part: AgentChatRuntimeContentPart,
   fallbackTextFormat?: TextPart["format"],
+  privateMessage = false,
 ): AgentMessage["parts"][number] {
   switch (part.type) {
     case "text":
@@ -1014,7 +1015,13 @@ function runtimePartToProtocolPart(
         mediaType: part.mediaType,
         url: runtimeFileUrl(part),
       } satisfies FilePart;
-    case "tool-call":
+    case "tool-call": {
+      const approvalAskId = approvalKeyForPrivateHistory(part.approval?.askId);
+      const approvalKey = part.approval?.askId
+        ? approvalAskId
+        : privateMessage || part.omitFromPersistedHistory === true
+          ? undefined
+          : part.approval?.approvalKey;
       return {
         type: "data",
         mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
@@ -1023,18 +1030,11 @@ function runtimePartToProtocolPart(
           name: part.toolName,
           input: part.input,
           inputText: part.inputText,
-          ...(part.approval?.approvalKey
-            ? {
-                approvalKey: part.approval.askId
-                  ? approvalKeyForHistory(part.approval.approvalKey)
-                  : part.approval.approvalKey,
-              }
-            : {}),
-          ...(part.approval?.askId
-            ? { approvalAskId: part.approval.askId }
-            : {}),
+          ...(approvalKey ? { approvalKey } : {}),
+          ...(approvalKey && approvalAskId ? { approvalAskId } : {}),
         },
       } satisfies DataPart;
+    }
     case "tool-result":
       return {
         type: "data",
@@ -1073,11 +1073,14 @@ function runtimeMessageToProtocolMessage(
 ): AgentMessage {
   const textFormat =
     message.role === "assistant" ? fallbackTextFormat : undefined;
+  const privateMessage =
+    asRecord(asRecord(message.metadata)?.custom)?.omitFromPersistedHistory ===
+    true;
   return {
     id: message.id,
     role: message.role,
     parts: message.content.map((part) =>
-      runtimePartToProtocolPart(part, textFormat),
+      runtimePartToProtocolPart(part, textFormat, privateMessage),
     ),
     createdAt: message.createdAt,
     status: message.status,

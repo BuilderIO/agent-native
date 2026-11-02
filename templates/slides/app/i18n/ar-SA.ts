@@ -403,6 +403,10 @@ const messages = {
       "يفتح العرض في المحرر. يمكن لأي شخص لديه وصول استخدام هذا الرابط.",
     presentationLink: "رابط العرض",
     presentationLinkDescription: "يفتح العرض في وضع التقديم",
+    copyEditorLink: "نسخ رابط المحرر",
+    copyPresentationLink: "نسخ رابط العرض التقديمي",
+    linkCopied: "تم نسخ الرابط",
+    linkCopyFailed: "تعذّر نسخ الرابط.",
     present: "تقديم",
     presentInTab: "في هذا التبويب",
     presentFullScreen: "ملء الشاشة",
@@ -507,6 +511,9 @@ const messages = {
   },
   share: {
     createFailed: "تعذر إنشاء رابط المشاركة",
+    snapshotLinks: "روابط اللقطات",
+    revokeLink: "إلغاء",
+    revokeFailed: "تعذّر إلغاء رابط المشاركة",
     title: "مشاركة العرض التقديمي",
     cloudUpgradeDescription:
       "لمشاركة العروض التقديمية علنا، اربط قاعدة بيانات سحابية حتى يمكن الوصول إلى الشرائح من أي مكان.",

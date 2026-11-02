@@ -2245,6 +2245,147 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("creates a meeting after refreshing an expired Zoom connection", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "ZOOM_CLIENT_ID"
+        ? "fake-client-id"
+        : key === "ZOOM_CLIENT_SECRET"
+          ? "fake-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "fake-account",
+        displayName: "Test account",
+        tokens: {
+          access_token: "fake-expired-access",
+          refresh_token: "fake-old-refresh",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "fake-connection",
+        label: "Test account",
+        accountId: "fake-account",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "fake-new-access",
+            refresh_token: "fake-rotated-refresh",
+            expires_in: 3600,
+            token_type: "bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ topic: "Test meeting" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "calendar",
+      providerIds: ["zoom"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "zoom",
+      method: "POST",
+      path: "/users/me/meetings",
+      body: { topic: "Test meeting", type: 2 },
+      connectionId: "fake-connection",
+    });
+
+    expect(result).toMatchObject({
+      response: { status: 200, json: { topic: "Test meeting" } },
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://zoom.us/oauth/token");
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: `Basic ${Buffer.from("fake-client-id:fake-client-secret").toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toBe(
+      "grant_type=refresh_token&refresh_token=fake-old-refresh",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://api.zoom.us/v2/users/me/meetings",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer fake-new-access",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "zoom",
+      "fake-account",
+      expect.objectContaining({
+        access_token: "fake-new-access",
+        refresh_token: "fake-rotated-refresh",
+      }),
+      credentialContext.userEmail,
+    );
+  });
+
+  it("fails a Zoom request when refresh credentials are missing or refresh is rejected", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "fake-account",
+        tokens: {
+          access_token: "fake-expired-access",
+          refresh_token: "fake-refresh",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "fake-connection",
+        label: "Test account",
+        accountId: "fake-account",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "calendar",
+      providerIds: ["zoom"],
+      getCredentialContext: () => credentialContext,
+    });
+    const request = () =>
+      runtime.executeRequest({
+        provider: "zoom",
+        method: "POST",
+        path: "/users/me/meetings",
+        connectionId: "fake-connection",
+      });
+
+    await expect(request()).rejects.toThrow(
+      "ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    resolveSecret.mockResolvedValue("fake-credential");
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "sensitive detail" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(request()).rejects.toThrow("Zoom OAuth refresh failed (401).");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
   it("refreshes Figma OAuth with the v1 token endpoint and preserves rotated refresh tokens", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "FIGMA_CLIENT_ID"
@@ -5549,6 +5690,293 @@ describe("provider API runtime", () => {
       connectionId: undefined,
       timeoutMs: undefined,
       maxBytes: undefined,
+    });
+  });
+
+  describe("provider response byte caps", () => {
+    const streamedResponse = (bytes: number) => {
+      const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+      let sent = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent >= bytes) {
+            controller.close();
+            return;
+          }
+          const remaining = bytes - sent;
+          sent += Math.min(chunk.byteLength, remaining);
+          controller.enqueue(
+            remaining >= chunk.byteLength
+              ? chunk
+              : chunk.subarray(0, remaining),
+          );
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    };
+
+    it.each([
+      ["built-in", false],
+      ["built-in", true],
+      ["custom", false],
+      ["custom", true],
+    ])(
+      "saves a complete streamed 5 MiB %s response (content length: %s)",
+      async (kind, withLength) => {
+        resolveCredential.mockResolvedValue("test-token");
+        const bytes = 5 * 1024 * 1024;
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock.mockImplementation(async () => {
+          const response = streamedResponse(bytes);
+          if (withLength) response.headers.set("content-length", String(bytes));
+          return response;
+        });
+        const runtime = createProviderApiRuntime({
+          appId: "test-app",
+          providerIds: ["hubspot"],
+          getCredentialContext: () => credentialContext,
+          getCustomProviders: async () => [
+            {
+              id: "test-api",
+              scope: "org",
+              scopeId: "org-1",
+              label: "Test API",
+              baseUrl: "https://api.example.test",
+              auth: { type: "bearer", credentialKey: "TEST_TOKEN" },
+              docsUrls: [],
+              allowedHostSuffixes: [],
+              defaultHeaders: {},
+              notes: "",
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+        });
+
+        const request = {
+          provider: kind === "built-in" ? "hubspot" : "test-api",
+          path: "/records",
+          auth: "none" as const,
+        };
+        const [result, inline] = await Promise.all([
+          runtime.executeRequest({
+            ...request,
+            saveToFile: "scratch/response.txt",
+          }),
+          runtime.executeRequest({ ...request, maxBytes: 8 * 1024 * 1024 }),
+        ]);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(inline).toMatchObject({ response: { truncated: true } });
+        expect(result).toMatchObject({ savedToFile: true, bytes });
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          "x".repeat(bytes),
+          "text/plain",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it("keeps the existing per-request ceiling when no runtime cap is opted in", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(streamedResponse(5 * 1024 * 1024));
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+      });
+
+      const result = (await runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 8 * 1024 * 1024,
+      })) as {
+        response: {
+          truncated: boolean;
+          sizeIsLowerBound?: true;
+          text?: string;
+        };
+      };
+
+      expect(result.response.truncated).toBe(true);
+      expect(result.response.sizeIsLowerBound).toBe(true);
+      expect(result.response.text).toHaveLength(4 * 1024 * 1024);
+    });
+
+    it("reads a response above the default ceiling when the runtime opts in", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(streamedResponse(5 * 1024 * 1024));
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+        maxResponseBytes: 32 * 1024 * 1024,
+      });
+
+      const result = (await runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 8 * 1024 * 1024,
+      })) as { response: { truncated: boolean; text?: string } };
+
+      expect(result.response.truncated).toBe(false);
+      expect(result.response.text).toHaveLength(5 * 1024 * 1024);
+    });
+
+    it("caps the opt-in ceiling at the hard maximum even when the runtime asks for more", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        new Response("ignored", {
+          status: 200,
+          headers: {
+            "content-type": "text/plain",
+            "content-length": String(64 * 1024 * 1024),
+          },
+        }),
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+        maxResponseBytes: 64 * 1024 * 1024,
+      });
+
+      const result = (await runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 64 * 1024 * 1024,
+      })) as { response: { truncated: boolean; text?: string } };
+
+      expect(result.response.truncated).toBe(true);
+      expect(result.response.text).toContain(`max ${36 * 1024 * 1024}`);
+    });
+
+    it("applies the runtime byte cap to each paginated page", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ results: ["x".repeat(5 * 1024 * 1024)] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+        maxResponseBytes: 32 * 1024 * 1024,
+      });
+
+      const result = await runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 8 * 1024 * 1024,
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 1,
+        },
+      });
+
+      expect(result).toMatchObject({
+        pagesRead: 1,
+        totalItems: 1,
+        truncated: false,
+      });
+    });
+
+    it("applies the runtime byte cap to a custom provider response", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(streamedResponse(5 * 1024 * 1024));
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["grafana"],
+        getCredentialContext: () => credentialContext,
+        maxResponseBytes: 32 * 1024 * 1024,
+        getCustomProviders: async () => [
+          {
+            id: "partner-api",
+            scope: "org",
+            scopeId: "org-1",
+            label: "Partner API",
+            baseUrl: "https://partner-api.example.test",
+            auth: { type: "bearer", credentialKey: "PARTNER_TOKEN" },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+        resolveCredential: async ({ key }) => ({
+          key,
+          value: "partner-token",
+          source: "app_local",
+          provider: "partner-api",
+          scope: "org",
+          scopeId: "org-1",
+        }),
+      });
+
+      const result = (await runtime.executeRequest({
+        provider: "partner-api",
+        path: "/records",
+        maxBytes: 8 * 1024 * 1024,
+      })) as { response: { truncated: boolean; text?: string } };
+
+      expect(result.response.truncated).toBe(false);
+      expect(result.response.text).toHaveLength(5 * 1024 * 1024);
+    });
+
+    it("does not coalesce concurrent identical reads with different byte caps", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ results: [{ id: "deal-1" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+      });
+
+      const [first, second] = await Promise.all([
+        runtime.executeRequest({
+          provider: "hubspot",
+          path: "/crm/v3/objects/deals",
+          maxBytes: 1_000,
+        }),
+        runtime.executeRequest({
+          provider: "hubspot",
+          path: "/crm/v3/objects/deals",
+          maxBytes: 2_000,
+        }),
+      ]);
+
+      expect(first).toMatchObject({ response: { status: 200 } });
+      expect(second).toMatchObject({ response: { status: 200 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 });

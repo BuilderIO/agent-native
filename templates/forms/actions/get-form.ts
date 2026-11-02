@@ -20,6 +20,7 @@ export default defineAction({
     id: z.string().describe("Form ID"),
   }),
   http: { method: "GET" },
+  readOnly: true,
   run: async (args) => {
     const access = await resolveAccess("form", args.id);
     if (!access) {

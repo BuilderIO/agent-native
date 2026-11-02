@@ -79,6 +79,9 @@ export default defineAction({
         await tx
           .delete(schema.slideComments)
           .where(eq(schema.slideComments.deckId, id));
+        await tx
+          .delete(schema.deckShareLinks)
+          .where(eq(schema.deckShareLinks.deckId, id));
         return tx
           .delete(schema.decks)
           .where(eq(schema.decks.id, id))

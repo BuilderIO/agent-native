@@ -394,6 +394,10 @@ const messages = {
       "在編輯器中開啟幻燈片。有存取權限的人都可以使用此連結。",
     presentationLink: "簡報連結",
     presentationLinkDescription: "在簡報模式中開啟幻燈片",
+    copyEditorLink: "複製編輯器連結",
+    copyPresentationLink: "複製簡報連結",
+    linkCopied: "已複製連結",
+    linkCopyFailed: "無法複製連結。",
     present: "播放簡報",
     presentInTab: "在此分頁中",
     presentFullScreen: "全螢幕",
@@ -488,6 +492,9 @@ const messages = {
   },
   share: {
     createFailed: "無法建立共用連結",
+    snapshotLinks: "快照連結",
+    revokeLink: "撤銷",
+    revokeFailed: "無法撤銷分享連結",
     title: "共用簡報",
     cloudUpgradeDescription:
       "要公開共用簡報，請連線雲端資料庫，讓幻燈片可從任何位置存取。",
