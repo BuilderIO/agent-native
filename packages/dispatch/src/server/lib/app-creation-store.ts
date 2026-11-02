@@ -2099,13 +2099,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    if (requestContext.orgId && !orgDomain) {
-      throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
-        "workspace_gateway_org_domain_missing",
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-      );
-    }
+    // The hosted registry is keyed by organization domain, so an org that has
+    // none (a new Builder-connected account) has no hosted workspace to read.
+    // A failed domain lookup still throws above.
+    if (requestContext.orgId && !orgDomain) return null;
     if (requestContext.orgId) {
       try {
         orgSecret =

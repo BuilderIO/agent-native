@@ -1462,7 +1462,7 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("does not make an unauthenticated local gateway read when the org domain is unavailable", async () => {
+  it("lists the deployment's own apps without a gateway read when the org has no domain", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("NODE_ENV", "production");
@@ -1471,19 +1471,13 @@ describe("listWorkspaceApps", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
     mocks.getOrgDomain.mockResolvedValueOnce(null);
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "dev@example.test", orgId: "org-without-domain" },
-        () => listWorkspaceApps({ includeAgentCards: false }),
-      ),
-    ).rejects.toMatchObject({
-      name: "WorkspaceAppsGatewayAuthorizationError",
-      statusCode: 401,
-      errorCode: "workspace_gateway_org_domain_missing",
-      message:
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-    });
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-without-domain" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps.map((app) => app.id)).toContain("dispatch");
   });
 
   it("binds hosted registry tokens to the workspace domain, not its local org id", async () => {
