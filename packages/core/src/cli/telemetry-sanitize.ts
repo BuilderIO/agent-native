@@ -7,6 +7,7 @@
  * own files. Raw messages, logs, paths and the developer's stack frames stay on
  * the machine.
  */
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,9 +98,23 @@ const STANDARD_ERROR_NAMES: ReadonlySet<string> = new Set([
   "TypeError",
   "URIError",
 ]);
-// Node's own codes: errno names, ERR_* and undici's UND_ERR_*.
-const STANDARD_ERROR_CODE_RE =
-  /^(?:E[A-Z0-9]{1,63}|(?:UND_)?ERR_[A-Z0-9_]{1,60})$/;
+// Any other code can be a developer's own identifier, so it stays home.
+const STANDARD_ERROR_CODES: ReadonlySet<string> = new Set([
+  ...Object.keys(os.constants.errno),
+  "ERR_INVALID_ARG_TYPE",
+  "ERR_INVALID_ARG_VALUE",
+  "ERR_INVALID_URL",
+  "ERR_MODULE_NOT_FOUND",
+  "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  "ERR_REQUIRE_ESM",
+  "ERR_UNHANDLED_REJECTION",
+  "ERR_UNKNOWN_FILE_EXTENSION",
+  "MODULE_NOT_FOUND",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const FRAME_RE = /^\s*at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/;
 const FRAME_FUNCTION_RE = /^[\w$.<> ]+$/;
 const PLAIN_WORD_RE = /^[A-Za-z]+$/;
@@ -144,7 +159,7 @@ export function errorType(error: unknown): string {
 
 export function errorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null | undefined)?.code;
-  return typeof code === "string" && STANDARD_ERROR_CODE_RE.test(code)
+  return typeof code === "string" && STANDARD_ERROR_CODES.has(code)
     ? code
     : undefined;
 }

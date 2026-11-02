@@ -387,6 +387,8 @@ describe("CLI telemetry", () => {
 
     it.each([
       ["ACME_BILLING_FAILED", undefined],
+      ["ERR_ACME_PRIVATE_BILLING", undefined],
+      ["EACMEBILLING", undefined],
       ["ENOENT", "ENOENT"],
       ["ERR_MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"],
       ["UND_ERR_CONNECT_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT"],
