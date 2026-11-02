@@ -39,7 +39,6 @@ import type {
   ChatFirstAppItem,
   ChatFirstAppIconRenderOptions,
   ChatFirstAppRailProps,
-  ChatFirstAppRailSection,
   ChatFirstCopy,
 } from "./types.js";
 

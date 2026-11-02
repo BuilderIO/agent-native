@@ -14,7 +14,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { ConnectedAppSummary } from "../lib/other-apps";
-import { cn } from "../lib/utils";
 import {
   hasPinnedWorkspaceApp,
   orderWorkspaceApps,
