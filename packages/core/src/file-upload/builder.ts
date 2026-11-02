@@ -107,11 +107,11 @@ async function withAssetAuthorization<T>(
   } catch (error) {
     if ((error as { status?: unknown } | null)?.status !== 401) throw error;
     const refreshed = await assetAuthorization({ forceRefresh: true });
-    // The same token again (no refresh token, a key credential) would only
-    // repeat the 401; report the original refusal instead.
+    // A refresh that hands back the same token (no refresh token, a key
+    // credential) cannot change the outcome: Builder has refused the only
+    // credential we hold, so the connection needs reconnecting.
     if (refreshed.authorization === auth.authorization) {
-      if (auth.apiKey) throw confirmedBuilderAuthorizationFailure(error);
-      throw error;
+      throw confirmedBuilderAuthorizationFailure(error);
     }
     held.auth = refreshed;
     try {

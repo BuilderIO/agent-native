@@ -139,11 +139,14 @@ Real replies that missed, and what to send instead:
     days;
   - an earlier run's PR for it is still open. That PR's `/ship` closes the
     report out when it merges.
-- **PRs:** push to, comment on, or merge only PRs authored by the active
-  GitHub login (`gh api user --jq .login`). Never touch anyone else's PR unless
-  the invocation names that exact PR and action.
-- **One run, one PR.** Work only on the PR this run opened. Every sweep PR is
-  authored by Steve's login, so the author check can't tell runs apart: an
+- **PRs:** push to, comment on, or merge only the PR this run opened. Most of
+  Steve's PRs share the active GitHub login (`gh api user --jq .login`), so
+  authorship proves nothing: a PR that merely carries his name may be another
+  thread's work in flight, and pushing to it lands unreviewed commits under his
+  name. Never touch any other PR unless the invocation names that exact PR and
+  action. That holds inside `/ship` too: its "Your PRs" means this run's PR.
+- **One run, one PR.** Every sweep PR is authored by Steve's login, so the
+  author check can't tell runs apart: an
   open PR with a `Reports` section that this run didn't open belongs to
   another run that may still be working on it. Don't push to, reply on, or
   merge it; list it under "Still open from earlier runs".
@@ -155,6 +158,18 @@ Real replies that missed, and what to send instead:
   collides with it.
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
+
+## Dry run
+
+When the invocation says "dry run", run every step, but nothing reaches a
+reporter, a reviewer, or `main`:
+
+- No reactions or replies. Record each reaction you'd add and the exact reply
+  you'd send, linking the fix branch where the PR would go.
+- Treat other runs' claims as unclaimed; still honor Steve's `:mag:` and 👀.
+- Publish each fix group as its own branch; skip PRs, merges, `/ship`, and
+  issue comments.
+- Skip the Steve profile check; use the state the invocation names.
 
 ## 1. Collect (keep it under ~15 minutes)
 

@@ -25,6 +25,7 @@ export default function DocumentPage() {
   const databaseId = searchParams.get("databaseId");
   const databaseDocumentId = searchParams.get("databaseDocumentId");
   const viewId = searchParams.get("viewId");
+  const rowViewId = searchParams.get("fromViewId");
   // An open page sends action writes as its editor mounts, so the UI write
   // capability is minted while the page loads instead of holding them.
   useEffect(() => prepareUiActionCapability(), []);
@@ -36,6 +37,7 @@ export default function DocumentPage() {
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      rowViewId={rowViewId}
     />
   ) : (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">

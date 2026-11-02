@@ -922,6 +922,7 @@ const editor = {
       video: "비디오",
     },
     fromSource: "{{name}}에서",
+    hiddenInThisView: "이 보기에서 숨김",
     hiddenProperties: "숨겨진 속성",
     imageUploaded_zero: "업로드된 이미지",
     imageUploaded_one: "이미지 업로드됨",
