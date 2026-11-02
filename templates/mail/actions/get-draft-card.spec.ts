@@ -48,6 +48,7 @@ describe("get-draft-card", () => {
     mocks.getRequestUserEmail.mockReturnValue("me@example.com");
     mocks.readSettings.mockResolvedValue({
       signature: "Sam",
+      imagePolicy: "block-all",
       trustedSenders: ["secret@example.com"],
     });
     mocks.getConnectedAccountsWithErrors.mockResolvedValue({
@@ -99,10 +100,23 @@ describe("get-draft-card", () => {
       accounts: [],
       thread: { messages: [], status: "none" },
       // Only what the card shows; the rest of the settings stay out.
-      settings: { signature: "Sam" },
+      settings: { signature: "Sam", imagePolicy: "block-all" },
       deepLink: "/_agent-native/open?deep-link",
     });
     expect(mocks.getThreadRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps who queued a draft, and why, out of the card", async () => {
+    mocks.readAppState.mockResolvedValue({
+      ...compose,
+      queuedDraftId: "queued-1",
+      queuedDraftRequesterEmail: "lee@example.com",
+      queuedDraftContext: "Lee asked for this after standup",
+    });
+    const result = (await action.run({ id: "draft-1" })) as {
+      draft: Record<string, unknown>;
+    };
+    expect(result.draft).toEqual({ ...compose, queuedDraftId: "queued-1" });
   });
 
   it("offers only the account the draft is saved to", async () => {

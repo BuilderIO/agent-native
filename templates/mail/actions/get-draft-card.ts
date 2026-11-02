@@ -111,7 +111,10 @@ export default defineAction({
         messages: z.array(z.looseObject({ id: z.string() })),
         status: z.enum(["none", "ready", "unavailable"]),
       }),
-      settings: z.object({ signature: z.string().optional() }),
+      settings: z.object({
+        signature: z.string().optional(),
+        imagePolicy: z.enum(["show", "block-trackers", "block-all"]).optional(),
+      }),
       deepLink: z.string(),
     }),
   ]),
@@ -124,7 +127,12 @@ export default defineAction({
     if (!ownerEmail) throw new Error("Unauthenticated");
     const stored = await readAppState(`compose-${id}`);
     if (!stored) return { draft: null };
-    const draft = stored as unknown as ComposeState;
+    // A queued draft keeps who asked for it and why, which the card doesn't show.
+    const {
+      queuedDraftRequesterEmail: _requester,
+      queuedDraftContext: _context,
+      ...draft
+    } = stored as unknown as ComposeState;
     const [thread, settings] = await Promise.all([
       readDraftThread(draft, ownerEmail),
       readSettings(ownerEmail),
@@ -135,7 +143,11 @@ export default defineAction({
       // A saved draft keeps its account, so the card has no From picker.
       accounts: account ? [{ email: account }] : [],
       thread,
-      settings: { signature: settings.signature },
+      // Outside a chat the card's images follow the user's setting.
+      settings: {
+        signature: settings.signature,
+        imagePolicy: settings.imagePolicy,
+      },
       deepLink: composeDeepLink(draft),
     };
   },

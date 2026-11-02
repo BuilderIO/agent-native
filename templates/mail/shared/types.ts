@@ -89,7 +89,7 @@ export type DraftCardData =
       draft: ComposeState;
       accounts: Array<{ email: string }>;
       thread: DraftCardThread;
-      settings: { signature?: string };
+      settings: Pick<UserSettings, "signature" | "imagePolicy">;
       deepLink: string;
     };
 

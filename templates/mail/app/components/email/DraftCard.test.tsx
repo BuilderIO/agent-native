@@ -14,6 +14,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { forwardRef, type ButtonHTMLAttributes } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCallAction = vi.hoisted(() => vi.fn());
@@ -103,6 +104,8 @@ vi.mock("./EmailThread", () => ({
     </div>
   )),
 }));
+
+import DraftCardRoute from "@/routes/draft";
 
 import { DraftCard } from "./DraftCard";
 
@@ -262,6 +265,45 @@ describe("DraftCard", () => {
     expect(queryClient.getQueryData(["settings"])).toEqual({
       signature: "Sam",
     });
+  });
+
+  it("starts over when the route moves to another draft", async () => {
+    const drafts = { [newDraft.id]: newDraft, [replyDraft.id]: replyDraft };
+    mockCallAction.mockImplementation(
+      async (name: string, params: Record<string, unknown>) => {
+        const { action: _action, id, ...edits } = params;
+        const draft = drafts[id as string]!;
+        if (name === "get-draft-card") return cardData(draft);
+        return { draft: { ...draft, ...edits } };
+      },
+    );
+    const router = createMemoryRouter(
+      [{ path: "/draft", Component: DraftCardRoute }],
+      { initialEntries: [`/draft?id=${newDraft.id}`] },
+    );
+    const { findByTestId } = render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await findByTestId("composer");
+    act(() => composer().onUpdate(newDraft.id, { body: "Free Friday" }));
+
+    await act(() => router.navigate(`/draft?id=${replyDraft.id}`));
+
+    await waitFor(() => expect(composer().activeId).toBe(replyDraft.id));
+    // The unsaved edit saves to its own draft and doesn't follow the reader.
+    expect(saves()).toEqual([
+      [
+        "manage-draft",
+        { action: "update", id: newDraft.id, body: "Free Friday" },
+      ],
+    ]);
+    expect(composer().activeDraft?.body).toBe(replyDraft.body);
   });
 
   it("shows only the draft for a new email", async () => {

@@ -44,7 +44,8 @@ const LATEST_MESSAGE_MIN_VISIBLE = 120;
 const SAVE_DELAY_MS = 1_500;
 const EDITABLE_FIELDS = ["to", "cc", "bcc", "subject", "body"] as const;
 // A card's session reaches only its draft's read and edit. The read carries the
-// signature, and recipients get no address book to autocomplete from.
+// signature and image setting, and recipients get no address book to
+// autocomplete from.
 const QUERIES_THE_CARD_CANNOT_FETCH = [
   ["settings"],
   ["aliases"],
@@ -221,8 +222,8 @@ export function DraftCard({ draftId }: { draftId: string }) {
 
 /**
  * The reader's unsaved edits, shown over the stored draft and saved through
- * manage-draft. A save sends only the fields the reader changed, so it leaves
- * alone whatever the agent changes in the meantime.
+ * manage-draft. A save sends only the fields the reader changed, so the
+ * agent's earlier changes to other fields stay.
  */
 function useDraftEdits(draftId: string) {
   const t = useT();
