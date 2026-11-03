@@ -6,8 +6,8 @@ seo_title: How to take meeting notes (with an example)
 og_line: Notes from a weekly product sync
 meta_description: "Take meeting notes your team will use: set up the page before the meeting, write down decisions and action items with owners, and send the notes right after."
 og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f82aed2b7684955ae1a2a1c0a38d243
-published: 2026-11-03
-updated: 2026-11-03
+published: 2026-11-02
+updated: 2026-11-02
 author:
   name: Vishwas Gopinath
   url: https://x.com/CodevolutionWeb
