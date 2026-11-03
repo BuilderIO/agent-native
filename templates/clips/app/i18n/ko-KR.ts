@@ -311,27 +311,47 @@ const messages = {
     clipsPermanentlyDeleted: "클립 {{count}}개 영구 삭제됨",
     clipsDeleteFailed: "클립 {{count}}개를 삭제할 수 없습니다",
     deletedMediaPending:
-      "녹화가 삭제되었습니다. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 동영상을 제거했습니다. 삭제 확인을 진행하고 있습니다.",
     deletedMediaBlocked:
-      "녹화가 삭제되었지만 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 동영상을 제거했습니다. 파일 삭제를 확인할 수 없습니다.",
     deletedMediaRetained:
       "녹화가 삭제되었습니다. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
     clipsDeletedMediaPending:
-      "삭제된 녹화: {{count}}개. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 제거한 동영상: {{count}}개. 삭제 확인을 진행하고 있습니다.",
     clipsDeletedMediaBlocked:
-      "삭제된 녹화: {{count}}개. 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 제거한 동영상: {{count}}개. 파일 삭제를 확인할 수 없습니다.",
     clipsDeletedMediaRetained:
       "삭제된 녹화: {{count}}개. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    deletedMediaFinalizing:
+      "Clips에서 동영상을 제거했습니다. 스토리지 사용량 업데이트를 다시 시도해야 합니다.",
+    clipsDeletedMediaFinalizing:
+      "Clips에서 제거한 동영상: {{count}}개. 스토리지 사용량 업데이트를 다시 시도해야 합니다.",
+    mediaCleanupFinalizing: "스토리지 사용량 업데이트를 다시 시도해야 함",
+    mediaCleanupFinalizingHelp:
+      "파일 제거 확인은 끝났지만 이 동영상이 아직 저장 용량 한도에 포함될 수 있습니다. 사용량 업데이트를 재시도하여 저장 용량 합계를 업데이트하세요.",
     mediaCleanupListLabel: "미디어 제거",
-    mediaCleanupPending: "삭제된 녹화의 미디어 파일을 제거하는 중",
-    mediaCleanupBlocked: "삭제된 녹화의 미디어 파일을 제거할 수 없습니다",
+    mediaCleanupPending: "삭제 확인 진행 중",
+    mediaCleanupPendingHelp:
+      "Clips가 백그라운드에서 확인을 계속합니다. 이 페이지를 나가도 되며 휴지통에서 업데이트를 확인할 수 있습니다.",
+    mediaCleanupBlocked: "동영상 파일 삭제를 확인할 수 없음",
+    mediaCleanupBlockedHelp:
+      "저장된 동영상 파일이 아직 남아 있을 수 있습니다. 제거 재시도를 누르면 다시 시도합니다. 이 페이지를 나가도 되며 휴지통에서 결과를 확인할 수 있습니다.",
     mediaCleanupReconnect:
       "삭제된 녹화의 미디어 파일을 제거하려면 스토리지를 다시 연결하세요",
     mediaCleanupRetained:
       "삭제된 녹화의 공유 미디어 파일은 다른 녹화에서 사용하는 동안 유지됩니다",
+    mediaCleanupHelp: "자세한 정보",
+    mediaCleanupRetryFiles: "제거 다시 시도",
+    mediaCleanupRetryingFiles: "동영상 파일 삭제를 다시 시도하는 중",
+    mediaCleanupRetryUsage: "사용량 업데이트 다시 시도",
+    mediaCleanupRetryingUsage: "스토리지 사용량 업데이트를 다시 시도하는 중",
     mediaCleanupRemoved: "미디어 파일이 제거됨",
-    mediaCleanupStillBlocked: "미디어 파일을 여전히 제거할 수 없습니다",
-    mediaCleanupRetryFailed: "미디어 제거를 다시 시도할 수 없습니다",
+    mediaCleanupUsageUpdated: "스토리지 사용량이 업데이트됨",
+    mediaCleanupStillBlocked: "동영상 파일 삭제를 여전히 확인할 수 없습니다",
+    mediaCleanupStillFinalizing:
+      "스토리지 사용량 업데이트를 여전히 다시 시도해야 합니다",
+    mediaCleanupRetryFailed:
+      "다시 시도를 시작할 수 없습니다. 다시 시도해 주세요.",
     mediaCleanupLoadFailed: "미디어 제거 상태를 불러올 수 없습니다",
   },
   recordingRoute: {

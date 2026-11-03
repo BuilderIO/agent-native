@@ -53,6 +53,32 @@ describe("document page route context", () => {
       databaseId: "database-1",
       databaseDocumentId: "database-page",
       viewId: "ready-view",
+      rowViewId: null,
+      foreground: true,
+    });
+  });
+
+  it("passes the view a row was opened from to the editor", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            "/page/row-1?databaseId=database-1&databaseDocumentId=database-page&fromViewId=ready-view",
+          ]}
+        >
+          <Routes>
+            <Route path="/page/:id" element={<DocumentPage />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(documentEditor).toHaveBeenCalledWith({
+      documentId: "row-1",
+      databaseId: "database-1",
+      databaseDocumentId: "database-page",
+      viewId: null,
+      rowViewId: "ready-view",
       foreground: true,
     });
   });

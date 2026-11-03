@@ -14,6 +14,13 @@ import { decodeHTML } from "entities/decode";
  */
 export const HIDDEN_EMBED_URL = "[hidden embed URL]";
 
+export const DATABASE_FAILURE_MESSAGE = "The database rejected the request.";
+
+/** Drizzle puts a failed query's SQL and bound parameters in its message. */
+export function isDatabaseQueryFailure(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Failed query:");
+}
+
 /** Replaces a value already being serialized higher up the same result. */
 export const CIRCULAR_RESULT = "[circular result]";
 

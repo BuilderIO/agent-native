@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "ログアウトに失敗しました",
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
   "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
@@ -129,6 +130,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "マーケティング",
   "onboarding.roleSales": "営業",
   "onboarding.roleOps": "オペレーション",
+  "onboarding.roleCreator": "コンテンツクリエイター",
+  "onboarding.roleStudent": "学生",
+  "onboarding.roleEducator": "教育関係者",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",

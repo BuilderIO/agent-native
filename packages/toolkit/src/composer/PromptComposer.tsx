@@ -185,6 +185,8 @@ export interface PromptComposerProps {
   queuesBehindSubmission?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
+  /** Called when the composer is clicked while the host shows its setup card. */
+  onSetupCardClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -234,9 +236,9 @@ export interface PromptComposerProps {
    */
   extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
   /** Let an explicit host handoff replace a saved draft. */
   initialTextOverridesSavedDraft?: boolean;
   /** Skip onTextChange notifications caused only by initial draft setup. */
@@ -803,6 +805,7 @@ function PromptComposerInner({
   willQueue = false,
   queuesBehindSubmission,
   onDisabledClick,
+  onSetupCardClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -1019,9 +1022,12 @@ function PromptComposerInner({
     disabled || (missingApiKey && setupCardVisible),
   );
   const handleDisabledComposerClick = useCallback(() => {
-    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
-    onDisabledClick?.();
-  }, [missingApiKey, onDisabledClick]);
+    if (setupCardVisible) {
+      setSetupBouncePulse((pulse) => pulse + 1);
+      onSetupCardClick?.();
+    }
+    if (composerDisabled) onDisabledClick?.();
+  }, [composerDisabled, setupCardVisible, onDisabledClick, onSetupCardClick]);
   const validateEngineBeforeSubmit = useCallback(async () => {
     if (!engineStatusChecksEnabled) return "configured" as const;
     try {
@@ -1158,6 +1164,7 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
+          setupCardVisible && "agent-composer-setup-gated",
           (composerDisabled ||
             (engineStatusChecksEnabled && engineState === "missing") ||
             (missingApiKey && setupCardVisible)) &&
@@ -1169,7 +1176,11 @@ function PromptComposerInner({
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
         noticeOutlet={noticeOutlet}
-        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
+        onClickCapture={
+          setupCardVisible || composerDisabled
+            ? handleDisabledComposerClick
+            : undefined
+        }
       >
         {engineState === "unavailable" && !engineNoticeDismissed ? (
           <ComposerNotice

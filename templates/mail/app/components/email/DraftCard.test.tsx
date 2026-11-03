@@ -33,6 +33,7 @@ const mockUseEmail = vi.hoisted(() => vi.fn());
 const mockEnsureThread = vi.hoisted(() => vi.fn());
 const mockUpdateModelContext = vi.hoisted(() => vi.fn());
 const mockToast = vi.hoisted(() => ({ error: vi.fn() }));
+const mockSetDraftOverlapResolver = vi.hoisted(() => vi.fn());
 const mockAccounts = vi.hoisted(() => ({
   current: [{ email: "agent@example.com" }] as Array<{ email: string }>,
 }));
@@ -72,6 +73,7 @@ vi.mock("@/components/ui/skeleton", () => ({
 vi.mock("@/hooks/use-compose-state", () => ({
   DRAFT_DELETE_FAILED_EVENT: "mail:draft-delete-failed",
   DRAFT_SAVE_FAILED_EVENT: "mail:draft-save-failed",
+  setDraftOverlapResolver: mockSetDraftOverlapResolver,
   useComposeState: () => mockCompose,
 }));
 vi.mock("@/hooks/use-emails", () => ({
@@ -208,6 +210,13 @@ describe("DraftCard", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("answers save overlaps itself, outside the layout that usually does", () => {
+    render(<DraftCard draftId="missing" />);
+    expect(mockSetDraftOverlapResolver).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
   });
 
   it("says when the draft is gone", () => {

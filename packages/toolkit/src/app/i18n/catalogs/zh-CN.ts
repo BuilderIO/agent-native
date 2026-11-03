@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "退出登录失败",
   "block.renderUnavailable": "此区块暂时不可用。",
   "block.loading": "正在加载区块。",
   "composer.contextUrlLabel": "网址",
@@ -121,6 +122,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "市场营销",
   "onboarding.roleSales": "销售",
   "onboarding.roleOps": "运营",
+  "onboarding.roleCreator": "内容创作者",
+  "onboarding.roleStudent": "学生",
+  "onboarding.roleEducator": "教育工作者",
   "onboarding.roleIndividual": "个人用户",
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",

@@ -1,4 +1,5 @@
 const messages = {
+  "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
@@ -124,6 +125,9 @@ const messages = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
   "onboarding.roleOps": "Ops",
+  "onboarding.roleCreator": "Content creator",
+  "onboarding.roleStudent": "Student",
+  "onboarding.roleEducator": "Educator",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",

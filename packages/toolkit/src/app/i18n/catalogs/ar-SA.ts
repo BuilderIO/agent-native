@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "تعذّر تسجيل الخروج",
   "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
   "block.loading": "جارٍ تحميل هذه الكتلة.",
   "composer.contextUrlLabel": "عنوان URL",
@@ -126,6 +127,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "التسويق",
   "onboarding.roleSales": "المبيعات",
   "onboarding.roleOps": "العمليات",
+  "onboarding.roleCreator": "صانع محتوى",
+  "onboarding.roleStudent": "طالب",
+  "onboarding.roleEducator": "معلم",
   "onboarding.roleIndividual": "فردي",
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",

@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
   "composer.contextUrlLabel": "URL",
@@ -126,6 +127,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "마케팅",
   "onboarding.roleSales": "영업",
   "onboarding.roleOps": "운영",
+  "onboarding.roleCreator": "콘텐츠 크리에이터",
+  "onboarding.roleStudent": "학생",
+  "onboarding.roleEducator": "교육자",
   "onboarding.roleIndividual": "개인",
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
