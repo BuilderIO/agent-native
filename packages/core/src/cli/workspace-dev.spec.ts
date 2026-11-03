@@ -1131,6 +1131,39 @@ describe("workspace dev helpers", () => {
     expect((await fetch(`${url}/_workspace/apps`)).ok).toBe(true);
   });
 
+  it("auto-opens the gateway root, not Dispatch, while the default app is being created", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    const env = {
+      ...testEnv(),
+      DISPLAY: ":0",
+      WORKSPACE_DEFAULT_APP: "todo",
+    };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener?.args).toContain(url);
+    expect(opener?.args.join(" ")).not.toContain("/dispatch");
+  });
+
   it.each([
     { code: 1, signal: null, exit: "exited with code 1" },
     {

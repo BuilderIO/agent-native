@@ -1565,9 +1565,13 @@ export async function runWorkspaceDev(
           `[workspace] Gateway port ${requestedPort} was in use; listening on ${actualPort} instead — the URLs below are the real ones.\n`,
         );
       }
-      stdout.write(
-        `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
-      );
+      // While a requested default app is still being created, point at the
+      // gateway root (the app list), not dispatch, which a visit would boot.
+      const defaultAppUrl =
+        redirectRootToDefault && !pendingDefaultApp
+          ? `${gatewayUrl}/${defaultApp}`
+          : gatewayUrl;
+      stdout.write(`[workspace] Default: ${defaultAppUrl}\n`);
       stdout.write(`[workspace] Gateway: ${gatewayUrl}\n`);
       const prewarming = shouldPrewarmWorkspaceApps(args, env);
       stdout.write(
@@ -1590,9 +1594,7 @@ export async function runWorkspaceDev(
           );
         });
       }
-      openBrowser(
-        redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl,
-      );
+      openBrowser(defaultAppUrl);
       readyResolve({ port: actualPort, url: gatewayUrl });
     });
   }
