@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { ensureCaptureAudience } from "../server/lib/audiences.js";
+import { withCaptureAudience } from "../server/lib/audiences.js";
 import {
   contentHash,
   getAccessibleCapture,
@@ -260,21 +260,11 @@ export default defineAction({
       }
       if (!args.dryRun) {
         const nextContentHash = await contentHash(sanitized.content);
-        let aclHash = row.capture.audienceAclHash;
-        if (!aclHash && sanitized.decision?.disposition === "allowed") {
-          aclHash = (
-            await ensureCaptureAudience({
-              captureId: row.capture.id,
-              source: row.source,
-              memberEmails:
-                row.source.visibility === "org"
-                  ? undefined
-                  : [row.source.ownerEmail],
-            })
-          ).aclHash;
-        }
         const afterCommit: Array<() => void | Promise<void>> = [];
-        await db.transaction(async (tx) => {
+        const persist = async (
+          tx: ReturnType<typeof getDb>,
+          aclHash: string | null,
+        ) => {
           await tx
             .update(schema.brainRawCaptures)
             .set({
@@ -308,11 +298,9 @@ export default defineAction({
             (sanitized.decision?.disposition !== "allowed" ||
               row.capture.contentHash !== nextContentHash)
           ) {
-            await invalidateDerivedForCapture(
-              row.capture.id,
-              tx as unknown as ReturnType<typeof getDb>,
-              { afterCommit },
-            );
+            await invalidateDerivedForCapture(row.capture.id, tx, {
+              afterCommit,
+            });
           }
           if (sanitized.withheldDecision) {
             await recordBlockedCapture(
@@ -336,7 +324,7 @@ export default defineAction({
                 },
                 retentionHours: settings.quarantineRetentionHours ?? 72,
               },
-              tx as unknown as ReturnType<typeof getDb>,
+              tx,
             );
           }
           await enqueueCaptureInvalidation(
@@ -372,9 +360,31 @@ export default defineAction({
                   }
                 : {}),
             },
-            tx as unknown as ReturnType<typeof getDb>,
+            tx,
           );
-        });
+        };
+        if (
+          !row.capture.audienceAclHash &&
+          sanitized.decision?.disposition === "allowed"
+        ) {
+          await withCaptureAudience(
+            {
+              captureId: row.capture.id,
+              source: row.source,
+              ...(row.source.visibility === "org"
+                ? {}
+                : { memberEmails: [row.source.ownerEmail] }),
+            },
+            (assignment, tx) => persist(tx, assignment.aclHash),
+          );
+        } else {
+          await db.transaction((tx) =>
+            persist(
+              tx as unknown as ReturnType<typeof getDb>,
+              row.capture.audienceAclHash,
+            ),
+          );
+        }
         for (const notify of afterCommit) await notify();
       }
       results.push({

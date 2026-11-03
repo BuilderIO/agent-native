@@ -224,31 +224,34 @@ function deterministicSanitizeContent(
   content: string,
   options: { dropTranscriptLines?: boolean; preserveGaps?: boolean } = {},
 ): string {
-  const source = preferredDeterministicSection(content);
+  const source = options.preserveGaps
+    ? content
+    : preferredDeterministicSection(content);
   const hasSummarySection = source !== content;
   const retained = source
     .split(/\r?\n/g)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^chat with meeting transcript:/i.test(line))
+    .map((line) => {
+      if (options.preserveGaps && line === "[…]") return line;
+      const keep =
+        !/^chat with meeting transcript:/i.test(line) &&
+        (!(hasSummarySection || options.dropTranscriptLines) ||
+          !looksLikeRawTranscriptLine(line)) &&
+        !isRecruitingSensitiveLine(line) &&
+        COMPANY_SIGNAL.test(line) &&
+        !PERSONAL_SIGNAL.test(line);
+      return keep
+        ? sanitizeSensitiveText(neutralizeSpeakerLabel(line))
+        : options.preserveGaps
+          ? "[…]"
+          : "";
+    })
+    .filter(Boolean)
     .filter(
-      (line) =>
-        (options.preserveGaps && line === "[…]") ||
-        !(hasSummarySection || options.dropTranscriptLines) ||
-        !looksLikeRawTranscriptLine(line),
-    )
-    .filter((line) => !isRecruitingSensitiveLine(line))
-    .filter(
-      (line) =>
-        (options.preserveGaps && line === "[…]") ||
-        (COMPANY_SIGNAL.test(line) && !PERSONAL_SIGNAL.test(line)),
-    )
-    .map((line) =>
-      options.preserveGaps && line === "[…]"
-        ? line
-        : sanitizeSensitiveText(neutralizeSpeakerLabel(line)),
-    )
-    .filter(Boolean);
+      (line, index, lines) =>
+        line !== "[…]" || index === 0 || lines[index - 1] !== "[…]",
+    );
 
   if (retained.length === 0 || retained.every((line) => line === "[…]"))
     return DEFAULT_SANITIZATION_OUTPUT;

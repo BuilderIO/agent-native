@@ -380,11 +380,9 @@ function SearchResultRow({
             {result.title || t("searchPage.untitledResult")}
           </h3>
           <IncompleteTranscriptWarning
-            withheldPassages={
-              result.withheldPassages === undefined
-                ? 0
-                : result.withheldPassages
-            }
+            withheldPassages={result.withheldPassages}
+            provider={sourceProvider}
+            resultType={result.type}
           />
           <p className="mt-2 line-clamp-3 max-w-4xl text-sm leading-6 text-muted-foreground">
             {body}
@@ -491,11 +489,9 @@ function SearchResultDetails({
             {result.title || t("searchPage.untitledResult")}
           </SheetTitle>
           <IncompleteTranscriptWarning
-            withheldPassages={
-              result.withheldPassages === undefined
-                ? 0
-                : result.withheldPassages
-            }
+            withheldPassages={result.withheldPassages}
+            provider={sourceProvider}
+            resultType={result.type}
           />
           <SheetDescription className="text-start leading-6">
             {body}
@@ -615,13 +611,19 @@ function SearchResultDetails({
 
 function IncompleteTranscriptWarning({
   withheldPassages,
+  provider,
+  resultType,
 }: {
-  withheldPassages?: number | null;
+  withheldPassages: number | null | undefined;
+  provider: string | null;
+  resultType: SearchEverythingResult["type"];
 }) {
   const t = useT();
+  if (resultType === "source") return null;
   if (
-    withheldPassages === undefined ||
-    (withheldPassages !== null && withheldPassages <= 0)
+    withheldPassages === undefined
+      ? provider !== "zoom"
+      : withheldPassages !== null && withheldPassages <= 0
   )
     return null;
 

@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/resources";
 import { resourcePut, SHARED_OWNER } from "@agent-native/core/resources/store";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import resanitizeCaptures from "../../actions/resanitize-captures.js";
@@ -137,6 +138,14 @@ describe("capture invalidation across Brain and the core resource transaction", 
             "Unrelated personal resource",
           );
           if (operation === "resanitize") {
+            await db
+              .update(schema.brainSources)
+              .set({ visibility: "org" })
+              .where(eq(schema.brainSources.id, "source"));
+            await db
+              .update(schema.brainRawCaptures)
+              .set({ audienceAclHash: null })
+              .where(eq(schema.brainRawCaptures.id, capture.id));
             await writeBrainSettings({ captureSanitizationEnabled: true });
           }
           const before = await snapshot();
@@ -209,6 +218,22 @@ describe("capture invalidation across Brain and the core resource transaction", 
               contentHash: await contentHash(expectedContent),
               sensitivityDisposition: "allowed",
             });
+            if (operation === "resanitize") {
+              expect(after.audiences).toHaveLength(before.audiences.length + 1);
+              expect(after.captureAudiences).toHaveLength(1);
+              const assignment = after.captureAudiences[0];
+              ok(assignment);
+              expect(after.captures[0]?.audienceAclHash).toBe(
+                assignment.aclHash,
+              );
+              expect(after.audiences).toContainEqual(
+                expect.objectContaining({
+                  id: assignment.audienceId,
+                  kind: "org",
+                  aclHash: assignment.aclHash,
+                }),
+              );
+            }
             expect(after.knowledge).toEqual([
               expect.objectContaining({
                 id: "knowledge",

@@ -872,7 +872,7 @@ describe("Brain knowledge citation completeness", () => {
   it.each(["missing", "source", "sensitivity", "audience"])(
     "does not expose completeness or a historical URL for %s-inaccessible evidence",
     async (restriction) => {
-      const { capture } = seedCitedCapture(
+      const { capture, knowledge } = seedCitedCapture(
         "zoom",
         JSON.stringify({
           zoomPassageQuarantine: {
@@ -882,6 +882,13 @@ describe("Brain knowledge citation completeness", () => {
           },
         }),
       );
+      knowledge.evidenceJson = JSON.stringify([
+        {
+          captureId: capture.id,
+          captureTitle: "Private cited meeting title",
+          quote: "Private cited meeting excerpt",
+        },
+      ]);
       const knowledgeSource = mocks.rows.sources[0];
       ok(knowledgeSource);
       knowledgeSource.provider = "zoom";
@@ -894,11 +901,15 @@ describe("Brain knowledge citation completeness", () => {
       if (restriction === "sensitivity")
         capture.sensitivityDisposition = "quarantined";
       if (restriction === "audience") capture.audienceIds = ["aud_private"];
-      expect(await searchKnowledge()).toMatchObject({
+      const result = await searchKnowledge();
+      ok(result);
+      expect(result).toMatchObject({
         withheldPassages: null,
         sourceUrl: null,
         citation: { captureId: "capture-cited", sourceUrl: null },
       });
+      expect(result.citation).not.toHaveProperty("captureTitle");
+      expect(result.citation).not.toHaveProperty("quote");
     },
   );
 

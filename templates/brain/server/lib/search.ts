@@ -631,10 +631,10 @@ async function searchKnowledgeResults(
             ...(citation.captureId !== undefined
               ? { captureId: citation.captureId }
               : {}),
-            ...(citation.captureTitle !== undefined
+            ...(displayedCapture && citation.captureTitle !== undefined
               ? { captureTitle: redactSensitiveText(citation.captureTitle) }
               : {}),
-            ...(citation.quote !== undefined
+            ...(displayedCapture && citation.quote !== undefined
               ? { quote: redactSensitiveText(citation.quote) }
               : {}),
             sourceUrl,

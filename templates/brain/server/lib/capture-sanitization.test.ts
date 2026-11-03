@@ -188,6 +188,53 @@ describe("Zoom passage quarantine", () => {
     },
   );
 
+  it.each([false, true])(
+    "marks each filtered run in a Zoom excerpt with a prior receipt %s",
+    async (storedExcerpt) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content),
+      );
+      const retainedLines = [
+        "Product API is ready.",
+        "Nice to see you.",
+        "Have a great day.",
+        "Product roadmap ships Monday.",
+        "My family vacation was great.",
+        "Product launch is Tuesday.",
+      ].join("\n");
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content: storedExcerpt
+          ? retainedLines
+          : `${retainedLines}\n${transcript}`,
+        metadata: { sanitizeBeforeStorage: true },
+        ...(storedExcerpt
+          ? {
+              storedZoomPassageQuarantine: {
+                version: 1,
+                totalPassages: 12,
+                withheldPassages: 5,
+              },
+            }
+          : {}),
+      });
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).toContain(
+        "Product API is ready.\n[…]\nProduct roadmap ships Monday.\n[…]\nProduct launch is Tuesday.",
+      );
+      expect(result.content).not.toContain("Nice to see you");
+      expect(result.content).not.toContain("family vacation");
+      expect(result.metadata.zoomPassageQuarantine).toBeDefined();
+      if (!storedExcerpt) {
+        const finalInput =
+          mocks.classifyWithJev.mock.calls[
+            mocks.classifyWithJev.mock.calls.length - 1
+          ]?.[0];
+        expect(finalInput.content).toBe(result.content);
+      }
+    },
+  );
+
   it.each(["slack", "granola"] as const)(
     "keeps whole-capture quarantine for %s",
     async (provider) => {
@@ -412,7 +459,7 @@ describe("Zoom passage quarantine", () => {
         metadata: { sanitizeBeforeStorage: true },
         storedZoomPassageQuarantine: receipt,
       });
-      expect(result.content).toBe("Product roadmap is on track.");
+      expect(result.content).toBe("Product roadmap is on track.\n[…]");
       expect(result.metadata.zoomPassageQuarantine).toMatchObject({
         withheldPassages: null,
       });
