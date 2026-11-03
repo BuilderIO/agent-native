@@ -41,7 +41,7 @@ faqs:
   - q: What does a QBR agenda look like?
     a: For an hour-long QBR, try this split. Spend 5 minutes on the decision for today and 25 on the scorecard, goal and value slides. Then give 20 to next quarter's goals and asks, and 10 to owners and dates. Adjust the split, but keep the look back to half the meeting or less.
   - q: How often should you hold a QBR?
-    a: Quarterly, as the name says, for accounts large enough to justify the meeting. Smaller accounts can get a shorter review twice a year, or a written summary instead of a meeting.
+    a: Quarterly, as the name says, for accounts large enough to justify the meeting. Smaller accounts can get a shorter review twice a year, or a written summary instead of a meeting. Inside your own team, a weekly business review tracks operating metrics and a monthly business review checks results against plan.
   - q: What's the difference between a QBR and an EBR?
     a: An EBR, or executive business review, is a strategic review with the customer's executives, held once or twice a year. It covers outcomes, strategy and the renewal, with less product detail than a QBR. A QBR comes every quarter, goes through each goal, and usually includes the day-to-day contacts as well as the sponsor.
   - q: What is a quarterly business review?
@@ -198,7 +198,7 @@ For an hour-long QBR, try this split. Spend 5 minutes on the decision for today 
 
 ### How often should you hold a QBR?
 
-Quarterly, as the name says, for accounts large enough to justify the meeting. Smaller accounts can get a shorter review twice a year, or a written summary instead of a meeting.
+Quarterly, as the name says, for accounts large enough to justify the meeting. Smaller accounts can get a shorter review twice a year, or a written summary instead of a meeting. Inside your own team, a [weekly business review](https://www.agent-native.com/articles/weekly-business-review/) tracks operating metrics and a [monthly business review](https://www.agent-native.com/articles/monthly-business-review/) checks results against plan.
 
 ### What's the difference between a QBR and an EBR?
 
