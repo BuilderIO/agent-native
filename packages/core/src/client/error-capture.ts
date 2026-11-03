@@ -599,7 +599,7 @@ function domMutationDiagnostics(
       translatedClass:
         root.classList.contains("translated-ltr") ||
         root.classList.contains("translated-rtl"),
-      fontWrapperNodes: document.body.querySelector("font") != null,
+      fontWrapperNodes: document.body?.querySelector("font") != null,
       navigatorLanguage:
         typeof navigator === "undefined" ? null : navigator.language,
     },
