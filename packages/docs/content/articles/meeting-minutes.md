@@ -3,9 +3,9 @@ slug: meeting-minutes
 type: how-to-guide
 title: How to write meeting minutes
 seo_title: How to write meeting minutes (with an example)
-og_line: With a template and a full board example
+og_line: What the group did, not what it said
 meta_description: "Write meeting minutes your group can approve: a template built from the agenda, how to record decisions, motions and action items, and a full example."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d04506e2687496098c0dc96dbbdc888
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F90faf73b56ee43068d867b84fa94ecf4
 published: 2026-11-03
 updated: 2026-11-03
 author:
