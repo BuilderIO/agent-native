@@ -40,7 +40,11 @@ faqs:
     a: |-
       A consulting deck runs in five parts, in this order:
 
-      A title slide that states the answerAn executive summary of the answer and its reasonsOne section per reason, each slide proving one action titleThe recommendation, with owners and datesAn appendix with methods and full data
+      A title slide that states the answer
+      An executive summary of the answer and its reasons
+      One section per reason, each slide proving one action title
+      The recommendation, with owners and dates
+      An appendix with methods and full data
   - q: What is a consulting deck?
     a: A consulting deck is the presentation a consultant gives a client with the answer to the client's question, the findings behind it, and a recommendation. It leads with the answer, gives each slide a full-sentence title, and backs every claim with sourced data. It's written to be read as well as presented.
   - q: What is a ghost deck in consulting?
