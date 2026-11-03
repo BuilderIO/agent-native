@@ -264,6 +264,60 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("sends / to WORKSPACE_DEFAULT_APP from the root .env while keeping Dispatch redirects", async () => {
+    const previous = process.env.WORKSPACE_DEFAULT_APP;
+    delete process.env.WORKSPACE_DEFAULT_APP;
+    try {
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "programs");
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "WORKSPACE_DEFAULT_APP=programs\n",
+      );
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const redirects = fs.readFileSync(
+        path.join(tmpDir, "dist", "_redirects"),
+        "utf-8",
+      );
+      const lines = redirects.split("\n");
+      expect(lines).toContain("/ /programs/ 302");
+      expect(lines).not.toContain("/ /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const config = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(config.routes).toContainEqual({
+        src: "/",
+        status: 302,
+        headers: { Location: "/programs/" },
+      });
+      expect(config.routes).toContainEqual({
+        src: "/dispatch",
+        status: 302,
+        headers: { Location: "/dispatch/overview" },
+      });
+    } finally {
+      restoreEnv("WORKSPACE_DEFAULT_APP", previous);
+    }
+  });
+
   it("omits an empty framework route prefix and forwards a configured prefix", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";

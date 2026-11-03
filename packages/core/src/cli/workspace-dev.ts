@@ -20,6 +20,10 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import {
+  resolveWorkspaceDefaultApp,
+  withWorkspaceRootEnv,
+} from "../shared/workspace-default-app.js";
+import {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
@@ -674,8 +678,8 @@ export async function runWorkspaceDev(
   options: WorkspaceDevOptions = {},
 ): Promise<WorkspaceDevHandle> {
   const args = options.args ?? process.argv.slice(2);
-  const env = options.env ?? process.env;
   const root = options.root ?? process.cwd();
+  const env = options.env ?? process.env;
   const appsDir = path.join(root, "apps");
   const spawnProcess = options.spawnProcess ?? spawn;
   const stdout = options.stdout ?? process.stdout;
@@ -751,10 +755,10 @@ export async function runWorkspaceDev(
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
-  const explicitDefaultApp =
-    env.WORKSPACE_DEFAULT_APP && appById.has(env.WORKSPACE_DEFAULT_APP)
-      ? env.WORKSPACE_DEFAULT_APP
-      : null;
+  const explicitDefaultApp = resolveWorkspaceDefaultApp(
+    withWorkspaceRootEnv(root, env),
+    apps.map((app) => app.id),
+  );
   const hasDispatch = appById.has("dispatch");
   const defaultApp =
     explicitDefaultApp ?? (hasDispatch ? "dispatch" : apps[0].id);

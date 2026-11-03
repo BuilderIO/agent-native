@@ -294,6 +294,10 @@ Alguns fluxos de integração já reconhecem o espaço de trabalho:
 
 Os aplicativos no mesmo espaço de trabalho apontam para o mesmo `DATABASE_URL` por padrão, portanto, o armazenamento de credenciais da estrutura pode disponibilizar uma credencial para cada aplicativo sem configuração por aplicativo. Use `@agent-native/core/credentials` diretamente ou adicione um auxiliar fino em `packages/shared` se seu espaço de trabalho desejar uma convenção de nomenclatura mais rígida.
 
+## App padrão em `/` {#default-app}
+
+`/` abre o Dispatch quando o workspace tem um app `dispatch`, e caso contrário o primeiro app. Defina `WORKSPACE_DEFAULT_APP=<app-id>` para abrir outro app. `agent-native dev` e os deploys do workspace leem a variável primeiro do ambiente do processo e depois do `.env` na raiz do workspace; um valor que não corresponde a nenhum app é ignorado. Os deploys leem a variável em tempo de build, então defina-a onde você faz o build. O Dispatch mantém o próprio redirecionamento `/dispatch`, e `deployment.workspace.rootPage: "directory"` continua mostrando a lista de apps.
+
 ## Tokens de design compartilhados {#design-tokens}
 
 A estrutura está no Tailwind v4. Adicione um arquivo CSS compartilhado ao `packages/shared` somente quando o espaço de trabalho tiver tokens de marca reais para compartilhar e, em seguida, importe-o do `app/global.css` de cada aplicativo:

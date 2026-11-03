@@ -310,6 +310,10 @@ A few onboarding flows are workspace-aware out of the box:
 
 This works because every app in the same workspace points at the same `DATABASE_URL` by default, so framework credential storage (`@agent-native/core/credentials`) makes a credential available to every app without per-app config. Add a thin helper in `packages/shared` if your workspace wants a stricter naming convention.
 
+## Default app at `/` {#default-app}
+
+`/` opens Dispatch when the workspace has a `dispatch` app, and otherwise the first app. Set `WORKSPACE_DEFAULT_APP=<app-id>` to open a different app. `agent-native dev` and workspace deploys both read it from the process environment first, then from the workspace root `.env`; a value that names no app is ignored. Deploys read it at build time, so set it where you build. Dispatch keeps its own `/dispatch` redirect, and `deployment.workspace.rootPage: "directory"` still shows the app list instead.
+
 ## Shared design tokens {#design-tokens}
 
 The framework is on Tailwind v4. Add a shared CSS file to `packages/shared` only when the workspace has real brand tokens to share, then import it from each app's `app/global.css`:

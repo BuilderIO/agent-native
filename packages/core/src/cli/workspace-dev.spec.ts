@@ -583,6 +583,36 @@ describe("workspace dev startup", () => {
     expect(res.headers.get("location")).toBe("/dispatch?builderPreview=1");
   });
 
+  it("reads WORKSPACE_DEFAULT_APP from the workspace root .env without overriding the environment", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter", "other"]);
+    fs.writeFileSync(
+      path.join(tmpDir, ".env"),
+      "WORKSPACE_DEFAULT_APP=starter\n",
+    );
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const res = await fetch(`${url}/`, { redirect: "manual" });
+    expect(res.headers.get("location")).toBe("/starter");
+    handle.shutdown();
+
+    const overridden = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_DEFAULT_APP: "other" },
+      spawnProcess: overridden.spawnProcess,
+      openBrowser: false,
+    });
+    const second = await handle.ready;
+    const res2 = await fetch(`${second.url}/`, { redirect: "manual" });
+    expect(res2.headers.get("location")).toBe("/other");
+  });
+
   it("refreshes the root fallback app list before rendering", async () => {
     tmpDir = makeWorkspace(["starter"]);
     const fake = fakeSpawn();
