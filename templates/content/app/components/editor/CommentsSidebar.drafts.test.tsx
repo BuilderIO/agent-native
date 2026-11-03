@@ -46,10 +46,10 @@ import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
 
-/** The nth suggestion reply sent, or a failed test naming the one missing. */
-function sentReply(index: number) {
-  const call = replyMutate.mock.calls[index];
-  if (!call) throw new Error(`No reply ${index}`);
+/** The suggestion reply sent last, or a failed test saying there is none. */
+function lastReply() {
+  const call = replyMutate.mock.lastCall;
+  if (!call) throw new Error("No reply sent");
   return { request: call[0], handlers: call[1] };
 }
 
@@ -1900,11 +1900,12 @@ it("keeps decided suggestion history readable and replies only to pending thread
       status: 429,
     });
     await act(async () => {
-      sentReply(1).handlers.onError(refused);
-      sentReply(1).handlers.onSettled();
+      lastReply().handlers.onError(refused);
+      lastReply().handlers.onSettled();
     });
     await act(async () => submit?.click());
-    expect(sentReply(2).request.clientOperationId).toBe(firstOperationId);
+    expect(replyMutate).toHaveBeenCalledTimes(3);
+    expect(lastReply().request.clientOperationId).toBe(firstOperationId);
   } finally {
     await act(async () => root.unmount());
     container.remove();
@@ -1970,12 +1971,12 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
       drafts.setText("thread-pending-suggestion", "Pending reply");
     });
     await send();
-    const key = sentReply(0).request.clientOperationId;
+    const key = lastReply().request.clientOperationId;
     await act(async () => {
-      sentReply(0).handlers.onError(
+      lastReply().handlers.onError(
         Object.assign(new Error("Request timed out"), { timedOut: true }),
       );
-      sentReply(0).handlers.onSettled();
+      lastReply().handlers.onSettled();
     });
 
     await act(async () => root.render(<Harness mount={1} />));
@@ -1983,7 +1984,7 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
       await reply();
     await send();
     expect(replyMutate).toHaveBeenCalledTimes(2);
-    expect(sentReply(1).request.clientOperationId).toBe(key);
+    expect(lastReply().request.clientOperationId).toBe(key);
   } finally {
     await act(async () => root.unmount());
     container.remove();
