@@ -335,7 +335,6 @@ export default defineAction({
         sourceAppName: args.sourceAppName?.trim() || null,
         recordingPlatform: recordingPlatform ?? "unknown",
         sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
-        sourceHeadSha256: args.sourceHeadSha256 ?? null,
         status: "uploading",
         uploadProgress: 0,
         uploadLeaseExpiresAt: uploadLeaseExpiry(),

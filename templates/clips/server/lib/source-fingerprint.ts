@@ -40,6 +40,7 @@ export async function findUploadedSourceRecording(
  * Stores the fingerprint of the file an upload carries, from its first chunk.
  * A first chunk shorter than the fingerprinted span is skipped unless it is
  * the whole file, so a live recording's small first chunk records nothing.
+ * The hash always comes from the bytes received, never from a caller's claim.
  * A failed write fails the chunk so the client retries it: a clip left without
  * its fingerprint is the duplicate this exists to prevent.
  */
@@ -60,7 +61,6 @@ export async function recordSourceHeadFromFirstChunk(input: {
       and(
         eq(schema.recordings.id, input.recordingId),
         ownerEmailMatches(schema.recordings.ownerEmail, input.ownerEmail),
-        isNull(schema.recordings.sourceHeadSha256),
       ),
     );
 }

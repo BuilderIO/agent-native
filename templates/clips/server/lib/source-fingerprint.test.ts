@@ -214,9 +214,8 @@ describe("recordSourceHeadFromFirstChunk", () => {
     }
   });
 
-  it("keeps a fingerprint already set and never touches another owner's row", async () => {
-    const sentAtCreate = "d".repeat(64);
-    await seed({ id: "rec-1", status: "uploading", sha256: sentAtCreate });
+  it("replaces an earlier fingerprint with the uploaded bytes' and never touches another owner's row", async () => {
+    await seed({ id: "rec-1", status: "uploading", sha256: "d".repeat(64) });
     await seed({
       id: "rec-2",
       status: "uploading",
@@ -234,7 +233,7 @@ describe("recordSourceHeadFromFirstChunk", () => {
       });
     }
 
-    expect(await storedSha256("rec-1")).toBe(sentAtCreate);
+    expect(await storedSha256("rec-1")).toBe(await sourceHeadSha256(chunk));
     expect(await storedSha256("rec-2")).toBeNull();
   });
 });

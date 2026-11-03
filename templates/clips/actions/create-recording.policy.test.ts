@@ -338,7 +338,7 @@ describe("create-recording policy", () => {
     expect(calls.insert).not.toHaveBeenCalled();
   });
 
-  it("stores the fingerprint on a new recording when no uploaded clip matches", async () => {
+  it("creates the recording without storing the caller's fingerprint when nothing matches", async () => {
     const sha256 = "b".repeat(64);
     const action = createRecording as unknown as {
       run: (
@@ -354,7 +354,10 @@ describe("create-recording policy", () => {
       ),
     ).resolves.toMatchObject({ id: "rec-1", status: "uploading" });
     expect(calls.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "rec-1", sourceHeadSha256: sha256 }),
+      expect.objectContaining({ id: "rec-1" }),
+    );
+    expect(calls.insert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sourceHeadSha256: sha256 }),
     );
   });
 
