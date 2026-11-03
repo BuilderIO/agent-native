@@ -4442,6 +4442,7 @@ function createAuthGuardFn(
           getAppConfig().access.autoCreateDefaultOrg
         ) {
           const { getOrgContext } = await import("../org/context.js");
+          // coercion-ok: a failed default-org initialization must leave the request denied, not granted; null means "no org" and the unchanged ACL then refuses.
           const org = await getOrgContext(event).catch(() => null);
           if (org?.orgId) effectiveOrgId = org.orgId;
         }
