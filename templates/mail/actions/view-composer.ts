@@ -3,6 +3,7 @@ import {
   readAppState,
   listAppState,
 } from "@agent-native/core/application-state";
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
 import { z } from "zod";
 
 function sanitizeDraftId(id: string): string | null {
@@ -21,12 +22,19 @@ export default defineAction({
       if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
       const draft = await readAppState(`compose-${safeId}`);
       if (!draft) return `No draft found with id "${safeId}"`;
-      return JSON.stringify(draft, null, 2);
+      return JSON.stringify(
+        { ...draft, revision: saveRevisionOf(draft) },
+        null,
+        2,
+      );
     }
 
     const items = await listAppState("compose-");
     if (items.length === 0) return "No compose drafts are open.";
-    const drafts = items.map((item) => item.value);
+    const drafts = items.map((item) => ({
+      ...item.value,
+      revision: saveRevisionOf(item.value),
+    }));
     return JSON.stringify(drafts, null, 2);
   },
 });

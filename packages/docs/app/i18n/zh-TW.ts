@@ -1,5 +1,5 @@
 const messages = {
-  campaign: {
+  siteContent: {
     recipeWhen: "何時使用",
     howOften: "使用頻率",
     filterRole: "角色",
@@ -21,31 +21,28 @@ const messages = {
     whereItBreaks: "不足之處",
     updatedDate: "更新於 {{date}}",
     publishedDate: "發佈於 {{date}}",
-    allArticles: "所有文章",
     useCases: "使用情境",
     useCasesDescription: "依應用程式分類的重複工作頁面",
     useCasesTitle: "使用 Agent-Native 應用程式和你的 AI 代理完成日常重複工作",
     useCasesIntro:
       "選擇你反覆執行的工作，或瀏覽{{articles}}，尋找範本和操作指南。",
     articles: "文章",
-    articlesIntro:
-      "關於與 AI 代理一起完成重複工作的實用解答。如需查看針對單項工作的逐步指南，請瀏覽{{useCases}}。",
-    useCasesLink: "使用情境",
+    articlesIntro: "借助 AI 代理完成重複性工作的指南與說明。",
     articleCount_other: "{{count}} 篇文章",
-    moreOnTopic: "更多關於{{topic}}的內容",
-    faqs: "常見問題",
     copyPage: "複製頁面",
+    enlargeImage: "放大圖片",
+    closeImage: "關閉圖片",
+    copyPrompt: "複製提示詞",
+    promptHint: "將提示詞貼到 {{app}} 的輸入框中。",
     copyLink: "複製連結",
     copied: "已複製",
     copyFailed: "無法複製，請再試一次。",
     breadcrumb: "麵包屑導覽",
     readTime_other: "閱讀需 {{count}} 分鐘",
     partOf: "所屬情境：",
-    relatedResources: "相關資源",
     moreArticles: "更多 {{category}} 文章",
     genericMore: "更多文章",
     showMore: "顯示更多文章",
-    allTopics: "所有主題",
     topics: {
       clips: "AI 代理可使用的螢幕錄製、會議和聽寫",
       design: "與 AI 代理一起建立互動式原型",

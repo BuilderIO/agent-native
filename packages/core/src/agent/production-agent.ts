@@ -7264,8 +7264,7 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A bare false is what providers fill unused optional booleans with, so
-      // it says nothing about which fields the model meant to clear.
+      // A valid `false` sets a value; only null, "", [] and {} can clear one.
       if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }

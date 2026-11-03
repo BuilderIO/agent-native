@@ -37,6 +37,7 @@ const mockSetResumableSession = vi.hoisted(() => vi.fn());
 const mockCompareAndSetResumableSession = vi.hoisted(() => vi.fn());
 const mockRelayChunk = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
+const mockRecordSourceHeadFromFirstChunk = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 const mockIsStreamingUploadDisabled = vi.hoisted(() => vi.fn());
@@ -212,6 +213,11 @@ vi.mock("../../../../lib/upload-lease.js", () => ({
 vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
   resolveResumableUploadProvider: (...args: unknown[]) =>
     mockResolveResumableUploadProvider(...args),
+}));
+
+vi.mock("../../../../lib/source-fingerprint.js", () => ({
+  recordSourceHeadFromFirstChunk: (...args: unknown[]) =>
+    mockRecordSourceHeadFromFirstChunk(...args),
 }));
 
 vi.mock("../../../../lib/streaming-upload-mode.js", () => ({
@@ -3210,6 +3216,70 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).not.toHaveBeenCalled();
     expect(mockSetResumableSession).not.toHaveBeenCalled();
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("fingerprints a fresh first resumable chunk before relaying it", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    setRequest({
+      query: { index: "0", total: "0", mimeType: "video/webm" },
+      body: bytes,
+    });
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as H3Event)).resolves.toEqual(
+        expect.objectContaining({ ok: true, index: 0 }),
+      );
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    expect(mockRecordSourceHeadFromFirstChunk).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      index: 0,
+      bytes,
+      isFinal: false,
+    });
+    expect(mockRecordSourceHeadFromFirstChunk).toHaveBeenCalledBefore(
+      mockRelayChunk,
+    );
+  });
+
+  it("leaves the fingerprint alone for a replayed first resumable chunk", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 5,
+      lastCommittedIndex: 0,
+    });
+    setRequest({
+      query: { index: "0", total: "0", mimeType: "video/webm" },
+      body: new Uint8Array([9, 9, 9, 9, 9]),
+    });
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as H3Event)).resolves.toEqual(
+        expect.objectContaining({ duplicate: true, index: 0 }),
+      );
+    } finally {
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockRecordSourceHeadFromFirstChunk).not.toHaveBeenCalled();
   });
 
   it("reports an expired provider session without destroying its live generation", async () => {
