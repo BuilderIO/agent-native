@@ -100,7 +100,10 @@ export function reportablePreset(preset: string): string {
   return PRESET_HOST_RE.exec(preset.trim().toLowerCase())?.[1] ?? OTHER_PRESET;
 }
 
-/** A preset marker that can't be read doesn't name a host or cost the event. */
+/**
+ * A preset marker that can't be read costs neither the event nor a guess: the
+ * empty preset is left out of it, where no preset at all would mean Node.
+ */
 export function readPresetForReport(
   read: () => string | undefined,
 ): string | undefined {
@@ -108,13 +111,13 @@ export function readPresetForReport(
     return read();
     // coercion-ok: the build reports its own outcome whatever this marker holds
   } catch {
-    return OTHER_PRESET;
+    return "";
   }
 }
 
 export function deployFinishedProperties(
   exitCode: number,
-  run: { step: string; preset?: string },
+  run: { step: string; preset?: string | undefined },
 ): Record<string, unknown> {
   const failed = exitCode !== 0;
   // With no preset a build targets Node. A failed run may not have got as far

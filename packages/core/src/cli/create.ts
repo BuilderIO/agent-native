@@ -955,7 +955,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
-    noteCreateTemplates([tpl], "workspace-add");
+    noteCreateTemplates(preselected, "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,

@@ -109,7 +109,7 @@ describe("deploy outcome", () => {
     });
     expect(
       m.deployFinishedProperties(0, { step: "vite-build", preset }),
-    ).toEqual({ outcome: "completed", preset: "other" });
+    ).toEqual({ outcome: "completed" });
     expect(m.readPresetForReport(() => "vercel")).toBe("vercel");
     expect(m.readPresetForReport(() => undefined)).toBeUndefined();
   });
