@@ -139,9 +139,7 @@ export function startWorkspaceProviderOAuth(
       features: "width=640,height=760",
     });
     if (popup) {
-      watchWorkspaceConnectionCompletion(popup, () =>
-        window.location.reload(),
-      );
+      watchWorkspaceConnectionCompletion(popup, () => window.location.reload());
       return;
     }
   }

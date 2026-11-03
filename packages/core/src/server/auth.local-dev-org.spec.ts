@@ -26,7 +26,11 @@ function createMockEvent(opts: {
   const headers = { host: "localhost:3000", ...(opts.headers ?? {}) };
   const requestHeaders = new Headers(headers);
   return {
-    req: { method, url: `http://localhost:3000${opts.path}`, headers: requestHeaders },
+    req: {
+      method,
+      url: `http://localhost:3000${opts.path}`,
+      headers: requestHeaders,
+    },
     url: new URL(`http://localhost:3000${opts.path}`),
     res: { headers: new Headers(), status: 200 },
     node: {
@@ -72,8 +76,9 @@ function mockModules(opts: {
       const execute = vi.fn(async () => ({ rows: [] }));
       return {
         execute,
-        transaction: async (run: (tx: { execute: typeof execute }) => unknown) =>
-          run({ execute }),
+        transaction: async (
+          run: (tx: { execute: typeof execute }) => unknown,
+        ) => run({ execute }),
       };
     },
     getRefusedLocalDatabaseSource: () => null,
