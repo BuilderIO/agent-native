@@ -88,7 +88,7 @@ Agent-Native publishes Clips, so weigh the last row accordingly. The first two w
 
 ## What should you check before you share it?
 
-Logs and recordings can include customer data. Look at what's on screen and in the console before you share. Clips recordings use public links by default unless your organization changes that, so use private or organization access when the content is sensitive. Clips also needs somewhere to store recordings: connect Builder or your own storage, or it offers the recording as a download instead of a link. Your agent needs to be able to open the link and read images to use a recording. Clips is labeled alpha, so expect rough edges.
+Logs and recordings can include customer data. Look at what's on screen and in the console before you share. Clips recordings use public links by default unless your organization changes that, so use private or organization access when the content is sensitive. Clips also needs somewhere to store recordings: connect Builder or your own storage, or it offers the recording as a download instead of a link. Your agent needs to be able to open the link and read images to use a recording. Clips is in beta, so expect rough edges.
 
 ## Frequently asked questions
 
@@ -110,4 +110,4 @@ Yes. A coding agent can work from a written report and the logs you paste. With 
 
 ### Is Clips free?
 
-Yes. Clips is free and open source. It's labeled alpha, so expect rough edges.
+Yes. Clips is free and open source. It's in beta, so expect rough edges.
