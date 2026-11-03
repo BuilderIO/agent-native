@@ -619,7 +619,9 @@ describe("DraftCard", () => {
       act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
       server.draft = { ...server.draft, subject: agentSubject };
       await act(() =>
-        queryClient.invalidateQueries({ queryKey: ["draft-card", newDraft.id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["draft-card", newDraft.id],
+        }),
       );
       expect(
         queryClient.getQueryData<{ draft: ComposeState }>([
