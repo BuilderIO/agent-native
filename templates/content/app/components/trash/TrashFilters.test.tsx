@@ -68,4 +68,14 @@ describe("Empty Trash with several workspaces", () => {
     expect(button?.disabled).toBe(false);
     expect(host.querySelector('[data-testid="tip"]')).toBeNull();
   });
+
+  it("shows no hint while the workspace list is empty", () => {
+    const host = render({}, [] as never);
+    expect(host.querySelector('[data-testid="tip"]')).toBeNull();
+  });
+
+  it("makes the disabled button's wrapper keyboard-focusable", () => {
+    const host = render({});
+    expect(host.querySelector("span[tabindex='0']")).not.toBeNull();
+  });
 });

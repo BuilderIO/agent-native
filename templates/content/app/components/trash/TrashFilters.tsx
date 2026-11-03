@@ -68,6 +68,7 @@ export function TrashFilters({
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
   const active = FILTER_KEYS.filter((key) => filters[key]);
   const needsSpace = spaces.length !== 1 && !filters.spaceId;
+  const showSpaceHint = needsSpace && spaces.length > 1;
   const sortLabel = SORTS.find(([sort]) => sort === filters.sort)?.[1];
   const set = <K extends (typeof FILTER_KEYS)[number]>(
     key: K,
@@ -250,9 +251,12 @@ export function TrashFilters({
             ) : null}
           </PopoverContent>
         </Popover>
-        <Tooltip open={needsSpace ? undefined : false}>
+        <Tooltip open={showSpaceHint ? undefined : false}>
           <TooltipTrigger asChild>
-            <span className="ms-auto shrink-0">
+            <span
+              className="ms-auto shrink-0"
+              tabIndex={showSpaceHint ? 0 : undefined}
+            >
               <Button
                 ref={emptyTrashRef}
                 variant="ghost"
