@@ -21,6 +21,7 @@ function createMockEvent(opts: {
   method?: string;
   path: string;
   headers?: Record<string, string>;
+  context?: Record<string, unknown>;
 }): any {
   const method = opts.method ?? "GET";
   const headers = { host: "localhost:3000", ...(opts.headers ?? {}) };
@@ -47,7 +48,7 @@ function createMockEvent(opts: {
       },
     },
     headers: requestHeaders,
-    context: {},
+    context: { ...(opts.context ?? {}) },
     path: opts.path,
   };
 }
@@ -216,6 +217,146 @@ describe("loopback dev org initialization before the app-access guard", () => {
     expect(getOrgContext).not.toHaveBeenCalled();
     expect(checkAppAccess).toHaveBeenCalledWith("content", {
       email: "member@example.com",
+    });
+  });
+
+  async function withDevApp(access: Record<string, unknown> = {}) {
+    vi.stubEnv("NODE_ENV", "development");
+    const { defineAppConfig } = await import("../app-config/index.js");
+    defineAppConfig({
+      app: { id: "content", workspaceId: "content" },
+      access: {
+        orgCreation: "open",
+        autoCreateDefaultOrg: true,
+        ...access,
+      } as never,
+    });
+  }
+
+  it("skips initialization when the session already carries an org", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => true);
+    const getOrgContext = vi.fn(async () => ({ orgId: "new-org" }));
+    const guard = await mountGuard({
+      session: {
+        email: "dev@local.test",
+        emailVerified: true,
+        orgId: "org-9",
+      },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toBeUndefined();
+    expect(getOrgContext).not.toHaveBeenCalled();
+    expect(checkAppAccess).toHaveBeenCalledWith("content", {
+      email: "dev@local.test",
+      orgId: "org-9",
+    });
+  });
+
+  it("skips initialization for an explicit personal org scope", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: true },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({
+      path: "/_agent-native/actions/list",
+      context: { __anExplicitPersonalOrgScope: true },
+    });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("skips initialization for a Builder-preview host", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: true },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({
+      path: "/_agent-native/actions/list",
+      headers: { host: "preview.builder.codes" },
+    });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("skips initialization when default org creation is disabled", async () => {
+    await withDevApp({ autoCreateDefaultOrg: false });
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: true },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("skips initialization when org creation is closed", async () => {
+    await withDevApp({ orgCreation: "closed" });
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: true },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("skips initialization when the session email is not verified", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: false },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("passes no org to the ACL when the initializer yields no org id", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => false);
+    const getOrgContext = vi.fn(async () => ({}));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: true },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).toHaveBeenCalledTimes(1);
+    expect(checkAppAccess).toHaveBeenCalledWith("content", {
+      email: "dev@local.test",
     });
   });
 });
