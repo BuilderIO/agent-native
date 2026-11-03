@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
   activeUploadFromContent,
   contentPageUrls,
@@ -146,6 +147,7 @@ async function fetchTranscript(recordingId: string) {
 }
 
 async function fetchComments(recordingId: string) {
+  await assertCommentAccess(recordingId, "read");
   const db = getDb();
   const rows = await db
     .select()

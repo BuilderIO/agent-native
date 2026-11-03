@@ -221,4 +221,29 @@ describe("delete-comment", () => {
       });
     },
   );
+  it("recognizes the author regardless of email case", async () => {
+    state.rows[0].authorEmail = "Author@Example.com";
+    mockGetUserEmail.mockReturnValue("author@example.COM");
+    mockAssertAccess.mockImplementation(async (_type, _id, role) => {
+      if (role === "editor") throw new ForbiddenError();
+      return { role: "viewer", resource: { enableComments: true } };
+    });
+    expect(await action.run({ id: "comment-1" })).toMatchObject({
+      id: "comment-1",
+    });
+    expect(state.rows.map((row) => row.id)).not.toContain("comment-1");
+  });
+
+  it("still refuses deletion by an unrelated viewer", async () => {
+    mockGetUserEmail.mockReturnValue("unrelated@example.com");
+    mockAssertAccess.mockImplementation(async (_type, _id, role) => {
+      if (role === "editor") throw new ForbiddenError();
+      return { role: "viewer", resource: { enableComments: true } };
+    });
+    const originalRows = [...state.rows];
+    await expect(action.run({ id: "comment-1" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(state.rows).toEqual(originalRows);
+  });
 });
