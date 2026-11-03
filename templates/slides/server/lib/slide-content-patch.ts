@@ -871,8 +871,16 @@ function throwLiteralMatchFailure(
 
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
-  const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
-  return `\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
+  const lines = candidates
+    .map(
+      (c) =>
+        `line ${c.line}${c.whitespaceOnly ? " (whitespace only)" : ""}: ${c.text}`,
+    )
+    .join("\n");
+  const whitespaceOnly = candidates.some((c) => c.whitespaceOnly)
+    ? "\nA candidate marked (whitespace only) is the stored text with different whitespace: copy it exactly. Do not quote get-deck format=true output."
+    : "";
+  return `${whitespaceOnly}\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
 }
 
 function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {

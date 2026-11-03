@@ -75,9 +75,10 @@ skip steps 2, 4, and 5 and the fit and contrast checks below.
      slides) without re-reading. Read with `get-deck` only if an edit fails to
      match or the write is rejected as stale; someone may have edited it since.
    - **Otherwise** (truncated, ambiguous, split by markup, or structural): call
-     `get-deck` with that `slideId` (`compact=false` for full HTML, plus
-     `format=true` for code-style work) and use its `contentHash` as
-     `baseContentHash`.
+     `get-deck` with that `slideId` (`compact=false` for full HTML) and use its
+     `contentHash` as `baseContentHash`. Quote `find` text from that
+     unformatted HTML: `format=true` is for reading only and rewrites spacing
+     (`padding: 4px` vs stored `padding:4px`), so its text can miss.
    - **Trend values:** when you change the number in a `data-trend="auto"`
      element, set its `--trend` to `var(--trend-up)` for a leading "+" or
      positive value, `var(--trend-down)` for "-" or "−", and
