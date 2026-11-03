@@ -251,7 +251,7 @@ export function TrashFilters({
             ) : null}
           </PopoverContent>
         </Popover>
-        <Tooltip {...(showSpaceHint ? {} : { open: false })}>
+        <Tooltip>
           <TooltipTrigger asChild>
             <span
               className="ms-auto shrink-0"
@@ -273,7 +273,9 @@ export function TrashFilters({
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{t("trash.emptyTrashPickSpace")}</TooltipContent>
+          {showSpaceHint ? (
+            <TooltipContent>{t("trash.emptyTrashPickSpace")}</TooltipContent>
+          ) : null}
         </Tooltip>
       </ContentTableToolbar>
       {filters.query || filters.sort || active.length ? (
