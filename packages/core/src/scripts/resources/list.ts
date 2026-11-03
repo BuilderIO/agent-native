@@ -55,6 +55,9 @@ Options:
 
   const prefix = parsed.prefix;
   const scope = parsed.scope ?? "all";
+  if (!["personal", "shared", "workspace", "all"].includes(scope)) {
+    fail("--scope must be one of: personal, shared, workspace, all.");
+  }
   const format = parsed.format ?? "text";
   const includeAgentScratch =
     parsed["include-agent-scratch"] === "true" ||
