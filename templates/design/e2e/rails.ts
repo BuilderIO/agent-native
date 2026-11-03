@@ -29,6 +29,21 @@ export type SavedNode = {
   text: string;
 };
 
+// Concurrent awareness posts can arrive out of order; the server answers the stale one 409 with the sequence the client resyncs to.
+function isAwarenessSequenceReset(response: {
+  status(): number;
+  url(): string;
+  headers(): Record<string, string>;
+}) {
+  return (
+    response.status() === 409 &&
+    /\/_agent-native\/collab\/[^/]+\/awareness$/.test(
+      new URL(response.url()).pathname,
+    ) &&
+    response.headers()["x-awareness-client-sequence"] !== undefined
+  );
+}
+
 export class App {
   private readonly failures: Failure[] = [];
   private readonly allowed: { pattern: RegExp; reason: string }[] = [];
@@ -143,7 +158,8 @@ export class App {
       if (
         this.recording &&
         url.pathname.includes("/_agent-native/") &&
-        response.status() >= 400
+        response.status() >= 400 &&
+        !isAwarenessSequenceReset(response)
       ) {
         const motionTimeline422 =
           response.status() === 422 &&
