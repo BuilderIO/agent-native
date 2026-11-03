@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { encryptSharePassword } from "../server/lib/share-password.js";
@@ -124,8 +125,10 @@ export default defineAction({
       patch.title = args.title.trim();
       patch.titleSource = "manual";
     }
-    if (typeof args.description === "string")
+    if (typeof args.description === "string") {
       patch.description = args.description;
+      patch.descriptionSource = "user";
+    }
     if (args.folderId !== undefined) patch.folderId = args.folderId ?? null;
     if (args.spaceIds) patch.spaceIds = stringifySpaceIds(args.spaceIds);
     if (typeof args.enableComments === "boolean")
@@ -183,6 +186,16 @@ export default defineAction({
     ) {
       return { id: args.id, recording: null, reason: "unavailable" as const };
     }
-    return { id: args.id, recording: updated };
+    if (!updated) return { id: args.id, recording: null };
+    const description = await loadPublicRecordingDescription(updated);
+    const {
+      descriptionSource: _descriptionSource,
+      sourceWindowTitle: _sourceWindowTitle,
+      ...recording
+    } = updated;
+    return {
+      id: args.id,
+      recording: { ...recording, description },
+    };
   },
 });

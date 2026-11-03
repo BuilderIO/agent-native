@@ -108,6 +108,7 @@ function recordingRow(extra: Record<string, unknown> = {}) {
     title: "Clip",
     titleSource: "user",
     description: "x",
+    descriptionSource: "user",
     durationMs: 1200,
     ...extra,
   };
@@ -164,7 +165,15 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [],
-      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+      [
+        {
+          status: "ready",
+          title: "Clip",
+          description: "x",
+          descriptionSource: "user",
+          durationMs: 1200,
+        },
+      ],
     ];
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
       { id: "meeting-1" },
@@ -275,7 +284,15 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [],
-      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+      [
+        {
+          status: "ready",
+          title: "Clip",
+          description: "x",
+          descriptionSource: "user",
+          durationMs: 1200,
+        },
+      ],
     ];
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
       { id: "meeting-1" },

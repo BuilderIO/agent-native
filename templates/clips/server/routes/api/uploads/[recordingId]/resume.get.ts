@@ -1,5 +1,5 @@
+import { randomUUID } from "node:crypto";
 // guard:allow-api-route — Upload transport resume endpoint returns lease and offset state for the chunk protocol.
-
 /**
  * Report the authoritative received-offset for an in-flight upload, so a
  * client whose stream dropped can continue instead of stranding.
@@ -10,8 +10,6 @@
  *
  * Route: GET /api/uploads/:recordingId/resume
  */
-
-import { randomUUID } from "node:crypto";
 
 import {
   compareAndSetAppState,
@@ -25,6 +23,7 @@ import {
   defineEventHandler,
   getRouterParam,
   getQuery,
+  getHeader,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
@@ -54,6 +53,7 @@ import {
   UPLOAD_LEASE_MS,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
+import { assertUploadRecoveryIdentity } from "../../../../lib/upload-recovery-identity.js";
 
 const RETRY_CLAIM_LIVENESS_MS = 30 * 1000;
 const RETRY_CLAIM_RETRY_AFTER_MIN_MS = 250;
@@ -103,6 +103,17 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
 
+  const expected = assertUploadRecoveryIdentity(
+    {
+      expectedOwnerEmail:
+        getQuery(event).expectedOwnerEmail ??
+        getHeader(event, "x-clips-expected-owner"),
+      expectedOrgId:
+        getQuery(event).expectedOrgId ??
+        getHeader(event, "x-clips-expected-org"),
+    },
+    { ownerEmail, orgId },
+  );
   const recoveryEnabled = await getUploadRecoveryPolicy(
     ownerEmail,
     orgId,
@@ -122,6 +133,9 @@ export default defineEventHandler(async (event: H3Event) => {
           and(
             eq(schema.recordings.id, recordingId),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ...(expected.expectedOrgId
+              ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+              : []),
           ),
         );
       if (!recording) {
@@ -179,6 +193,9 @@ export default defineEventHandler(async (event: H3Event) => {
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
         ),
       );
 
@@ -273,6 +290,9 @@ export default defineEventHandler(async (event: H3Event) => {
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
           or(
             isNull(schema.recordings.failureCode),
             ne(schema.recordings.failureCode, "taken_down"),
@@ -364,6 +384,9 @@ export default defineEventHandler(async (event: H3Event) => {
           and(
             eq(schema.recordings.id, recordingId),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ...(expected.expectedOrgId
+              ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+              : []),
           ),
         );
       if (

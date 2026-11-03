@@ -48,20 +48,32 @@ function getOrgId(): string | null {
 interface TableColumn {
   table: string;
   column: string;
+  rawToolsDenied?: boolean;
+  rawColumnDenied?: boolean;
 }
 
 async function discoverColumns(client: {
   unsafe(sql: string, args?: unknown[]): Promise<unknown[]>;
 }): Promise<TableColumn[]> {
+  // Private tables and columns need this marker or raw SQL tools can expose them.
   const rows = (await client.unsafe(`
-    SELECT table_name, column_name
+    SELECT table_name, column_name,
+      obj_description(to_regclass(format('%I.%I', table_schema, table_name)), 'pg_class') = 'agent-native:raw-db-denied' AS raw_tools_denied,
+      col_description(to_regclass(format('%I.%I', table_schema, table_name)), ordinal_position) = 'agent-native:raw-db-denied' AS raw_column_denied
     FROM information_schema.columns
     WHERE table_schema = 'public'
     ORDER BY table_name, ordinal_position
-  `)) as Array<{ table_name: string; column_name: string }>;
+  `)) as Array<{
+    table_name: string;
+    column_name: string;
+    raw_tools_denied?: boolean;
+    raw_column_denied?: boolean;
+  }>;
   return rows.map((row) => ({
     table: row.table_name,
     column: row.column_name,
+    rawToolsDenied: row.raw_tools_denied === true,
+    rawColumnDenied: row.raw_column_denied === true,
   }));
 }
 
@@ -78,6 +90,11 @@ function buildScopedTables(
   userEmail: string,
   orgId: string | null,
 ): ScopedTable[] {
+  const deniedTables = new Set(
+    allColumns
+      .filter((column) => column.rawToolsDenied)
+      .map((column) => column.table),
+  );
   const columnsByTable = new Map<string, string[]>();
   for (const { table, column } of allColumns) {
     const cols = columnsByTable.get(table) || [];
@@ -97,11 +114,26 @@ function buildScopedTables(
     return {
       name: table,
       predicate: whereSql,
-      viewSql: `CREATE OR REPLACE TEMPORARY VIEW "${escapedTable}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+      viewSql: `CREATE OR REPLACE TEMPORARY VIEW "${escapedTable}" AS SELECT ${
+        allColumns.some(
+          (column) => column.table === table && column.rawColumnDenied,
+        )
+          ? allColumns
+              .filter(
+                (column) => column.table === table && !column.rawColumnDenied,
+              )
+              .map((column) => `"${escapeIdentifier(column.column)}"`)
+              .join(", ") || "NULL AS __raw_tools_denied"
+          : "*"
+      } FROM ${realTable} WHERE ${whereSql}${checkOption}`,
     };
   };
 
   for (const [table, columns] of columnsByTable) {
+    if (deniedTables.has(table)) {
+      scoped.push(viewFor(table, "1 = 0"));
+      continue;
+    }
     const coreScoping = CORE_TABLE_SCOPING[table];
     if (coreScoping) {
       let whereSql: string;
@@ -188,6 +220,8 @@ export interface ScopingContext {
   ownerEmailTables: Set<string>;
   orgIdTables: Set<string>;
   tablePredicates: Map<string, string>;
+  deniedTables: ReadonlySet<string>;
+  deniedColumns: ReadonlyMap<string, ReadonlySet<string>>;
   columnsByTable: Map<string, string[]>;
 }
 
@@ -213,6 +247,13 @@ export async function buildScopingPostgres(client: {
     if (columns.includes(ORG_COLUMN)) orgIdTables.add(table);
   }
 
+  const deniedColumns = new Map<string, Set<string>>();
+  for (const column of allColumns)
+    if (column.rawColumnDenied) {
+      const denied = deniedColumns.get(column.table) ?? new Set<string>();
+      denied.add(column.column);
+      deniedColumns.set(column.table, denied);
+    }
   return {
     setup: scoped.map((s) => s.viewSql),
     teardown: scoped.map(
@@ -225,5 +266,11 @@ export async function buildScopingPostgres(client: {
     orgIdTables,
     tablePredicates: new Map(scoped.map((s) => [s.name, s.predicate])),
     columnsByTable,
+    deniedColumns,
+    deniedTables: new Set(
+      allColumns
+        .filter((column) => column.rawToolsDenied)
+        .map((column) => column.table),
+    ),
   };
 }

@@ -10,6 +10,7 @@ import {
   getAppConfig,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -62,6 +63,7 @@ import {
   renewUploadLease,
   type UploadLeaseResult,
 } from "../../../../lib/upload-lease.js";
+import { assertUploadRecoveryIdentity } from "../../../../lib/upload-recovery-identity.js";
 import {
   allowsSqlRecordingChunkScratch,
   HOSTED_STORAGE_UNAVAILABLE_REASON,
@@ -597,6 +599,13 @@ export async function handleRecordingChunk(
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
+  const expected = assertUploadRecoveryIdentity(
+    {
+      expectedOwnerEmail: getHeader(event, "x-clips-expected-owner"),
+      expectedOrgId: getHeader(event, "x-clips-expected-org"),
+    },
+    { ownerEmail, orgId },
+  );
   const browserSessionId = readBrowserSessionIdHeader(event);
   const requestContext = {
     userEmail: ownerEmail,
@@ -621,6 +630,9 @@ export async function handleRecordingChunk(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
         ),
       );
 
@@ -801,6 +813,9 @@ export async function handleRecordingChunk(
           and(
             eq(schema.recordings.id, recordingId),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ...(expected.expectedOrgId
+              ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+              : []),
             eq(schema.recordings.status, "uploading"),
             attemptId === null
               ? isNull(schema.recordings.uploadAttemptId)
@@ -1249,6 +1264,9 @@ export async function handleRecordingChunk(
             and(
               eq(schema.recordings.id, recordingId),
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              ...(expected.expectedOrgId
+                ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+                : []),
             ),
           );
         if (
@@ -1380,6 +1398,9 @@ export async function handleRecordingChunk(
             and(
               eq(schema.recordings.id, recordingId),
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              ...(expected.expectedOrgId
+                ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+                : []),
               eq(schema.recordings.status, "processing"),
               attemptId
                 ? eq(schema.recordings.uploadAttemptId, attemptId)
@@ -1527,6 +1548,13 @@ async function handleResumableChunk(
   ) => Promise<boolean>,
   uploadStateAttribution?: Record<string, unknown> | null,
 ) {
+  const expected = assertUploadRecoveryIdentity(
+    {
+      expectedOwnerEmail: getHeader(event, "x-clips-expected-owner"),
+      expectedOrgId: getHeader(event, "x-clips-expected-org"),
+    },
+    { ownerEmail, orgId: getRequestOrgId() },
+  );
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
   );
@@ -1557,6 +1585,9 @@ async function handleResumableChunk(
           and(
             eq(schema.recordings.id, recordingId),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ...(expected.expectedOrgId
+              ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+              : []),
             inArray(schema.recordings.status, ["uploading", "processing"]),
             attemptId === null
               ? isNull(schema.recordings.uploadAttemptId)
@@ -2136,6 +2167,9 @@ async function handleResumableChunk(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
         ),
       );
     const sameUpload =
@@ -2247,6 +2281,9 @@ async function handleResumableChunk(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
           eq(schema.recordings.status, "processing"),
           attemptId === null
             ? isNull(schema.recordings.uploadAttemptId)

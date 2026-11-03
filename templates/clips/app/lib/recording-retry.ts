@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { chunkUploadUrl, UPLOAD_SLICE_BYTES } from "@shared/recording-core";
 
 import {
@@ -10,6 +10,7 @@ import {
   verifyServerCopy,
 } from "./recording-backup";
 import { uploadChunkRequest } from "./upload-request";
+import { prepareRecordingUploadRetry } from "./upload-retry-target";
 
 export { hasRecordingBackup } from "./recording-backup";
 
@@ -65,77 +66,16 @@ async function replayLocalCopy(
     );
   }
 
-  const attemptId = crypto.randomUUID();
-  const resumeUrl = appApiPath(
-    `/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`,
-  );
-  const resumeRes = await fetch(resumeUrl, { method: "GET" });
-  if (!resumeRes.ok) {
-    // coercion-ok: response text only enriches an already-failing claim error.
-    const text = await resumeRes.text().catch(() => "");
-    throw new Error(
-      `Couldn't claim the upload retry (resume ${resumeRes.status}). ${
-        text || resumeRes.statusText
-      }`,
-    );
-  }
-  let resume: {
-    resumable?: unknown;
-    attemptId?: unknown;
-    uploadGenerationId?: unknown;
-  };
-  try {
-    resume = (await resumeRes.json()) as typeof resume;
-  } catch {
-    throw new Error("The upload retry claim returned an unreadable response.");
-  }
-  if (resume.resumable !== true || resume.attemptId !== attemptId) {
-    throw new Error("The upload retry could not claim this recording.");
-  }
-  const claimedGenerationId =
-    typeof resume.uploadGenerationId === "string" && resume.uploadGenerationId
-      ? resume.uploadGenerationId
-      : undefined;
-
-  const resetUrl = appApiPath(`/api/uploads/${recordingId}/reset-chunks`);
-  const resetRes = await fetch(resetUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      requestStreaming: true,
+  const { attemptId, uploadGenerationId } = await prepareRecordingUploadRetry(
+    recordingId,
+    {
       mimeType: meta.mimeType,
-      attemptId,
-      useGenerationFence: true,
-      ...(claimedGenerationId
-        ? { uploadGenerationId: claimedGenerationId }
-        : {}),
-    }),
-  });
-  if (!resetRes.ok) {
-    // coercion-ok: the request already failed; this only fills in the
-    // human-readable detail on the error we're about to throw.
-    const text = await resetRes.text().catch(() => "");
-    throw new Error(
-      `Couldn't restart the upload (reset-chunks ${resetRes.status}). ${
-        text || resetRes.statusText
-      }`,
-    );
-  }
-  let reset: { uploadGenerationId?: unknown };
-  try {
-    reset = (await resetRes.json()) as typeof reset;
-  } catch {
-    throw new Error("Upload retry setup returned an unreadable response.");
-  }
-  if (
-    typeof reset.uploadGenerationId !== "string" ||
-    !reset.uploadGenerationId
-  ) {
-    throw new Error("Upload retry setup returned no upload generation.");
-  }
-  const uploadGenerationId = reset.uploadGenerationId;
+      ...(meta.ownerEmail ? { expectedOwnerEmail: meta.ownerEmail } : {}),
+      ...(meta.ownerOrgId ? { expectedOrgId: meta.ownerOrgId } : {}),
+    },
+  );
 
-  const chunkBaseUrl = appApiPath(`/api/uploads/${recordingId}/chunk`);
+  const chunkBaseUrl = `${appBasePath()}/api/uploads/${recordingId}/chunk`;
   const recordingBlob = new Blob(
     chunks.map((chunk) => chunk.blob),
     { type: meta.mimeType },
@@ -171,6 +111,8 @@ async function replayLocalCopy(
       url,
       contentType: meta.mimeType || "application/octet-stream",
       body,
+      expectedOwnerEmail: meta.ownerEmail ?? undefined,
+      expectedOrgId: meta.ownerOrgId ?? undefined,
     });
     if (!res.ok) {
       // coercion-ok: the request already failed; this only fills in the

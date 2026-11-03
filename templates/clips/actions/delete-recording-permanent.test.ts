@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "../server/db/schema.js";
+import { DIAGNOSTIC_CONTEXT_MIGRATION_SQL } from "../server/lib/diagnostic-context-migration.js";
 import { recordingMediaCleanupMigration } from "../server/lib/recording-media-cleanup-schema.js";
 import { buildRecordingMediaReferenceIndexes } from "../server/lib/recording-media-reference-indexes.js";
 
@@ -166,6 +167,7 @@ beforeEach(async () => {
     "CREATE TABLE application_state(session_id TEXT,key TEXT,value TEXT,updated_at BIGINT,PRIMARY KEY(session_id,key))",
   );
   await client.exec(recordingMediaCleanupMigration);
+  await client.exec(DIAGNOSTIC_CONTEXT_MIGRATION_SQL);
   await buildRecordingMediaReferenceIndexes((statement) =>
     client.query(statement),
   );
@@ -176,6 +178,37 @@ afterEach(async () => {
 });
 
 describe("permanent recording deletion with durable media cleanup", () => {
+  it("seals private diagnostic access and queues its blob in the recording transaction", async () => {
+    await client.query(
+      `INSERT INTO recording_diagnostic_contexts (
+        id,recording_id,capture_id,context_version,digest,recording_started_at,
+        requested_from,requested_to,coverage_json,gaps_json,pauses_json,
+        dropped_events,captured,blob_json,expires_at,owner_email,org_id,visibility
+      ) VALUES ('context-1','rec-1','capture-1',1,'digest','2026-11-01T10:00:00.000Z',
+        '2026-11-01T09:55:00.000Z','2026-11-01T10:00:00.000Z','[]','[]','[]',0,
+        'ready','{"id":"private-blob"}','2026-11-30T10:00:00.000Z',$1,'org-1','private')`,
+      [owner],
+    );
+    await client.query(
+      `INSERT INTO recording_diagnostic_grants (
+        id,context_id,context_version,label,scopes_json,issuer_email,org_id,expires_at
+      ) VALUES ('grant-1','context-1',1,'agent','["summary"]',$1,'org-1','2026-11-02T10:00:00.000Z')`,
+      [owner],
+    );
+
+    await action.run({ id: "rec-1" });
+
+    expect(await rows("recording_diagnostic_contexts")).toMatchObject([
+      { id: "context-1", removed_at: expect.any(String) },
+    ]);
+    expect(await rows("recording_diagnostic_grants")).toMatchObject([
+      { id: "grant-1", revoked_at: expect.any(String) },
+    ]);
+    expect(await rows("recording_diagnostic_cleanup")).toMatchObject([
+      { context_id: "context-1", blob_json: '{"id":"private-blob"}' },
+    ]);
+  });
+
   it("blocks provider work until the reference indexes are ready", async () => {
     await client.exec("DROP INDEX clips_recording_media_reference_idx");
     await action.run({ id: "rec-1" });

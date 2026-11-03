@@ -155,6 +155,7 @@ describe("regenerate-title fallback refinement", () => {
           titleSource: "manual",
           updatedAt: "one",
           description: "Saved",
+          descriptionSource: "user",
         },
       ],
     ];
@@ -176,7 +177,14 @@ describe("regenerate-title fallback refinement", () => {
       updatedAt: "one",
     };
     mockSelectRows.queue = [
-      [{ id: "rec_1", ...manual, description: "Saved" }],
+      [
+        {
+          id: "rec_1",
+          ...manual,
+          description: "Saved",
+          descriptionSource: "user",
+        },
+      ],
       [
         {
           status: "ready",
@@ -206,6 +214,7 @@ describe("regenerate-title fallback refinement", () => {
             title: "Untitled recording",
             titleSource: "default",
             description: "Saved",
+            descriptionSource: "user",
           },
         ],
         [
@@ -239,7 +248,15 @@ describe("regenerate-title fallback refinement", () => {
       expiryAccess.role = owner ? "owner" : "editor";
       const title = "Agent Credits Cost $63";
       mockSelectRows.queue = [
-        [{ id: "rec_1", title, titleSource: "manual", description: "Saved" }],
+        [
+          {
+            id: "rec_1",
+            title,
+            titleSource: "manual",
+            description: "Saved",
+            descriptionSource: "user",
+          },
+        ],
         [
           {
             status: "ready",
@@ -274,6 +291,7 @@ describe("regenerate-title fallback refinement", () => {
           title: "Untitled recording",
           titleSource: "default",
           description: "Saved",
+          descriptionSource: "user",
         },
       ],
       [
@@ -309,6 +327,7 @@ describe("regenerate-title fallback refinement", () => {
         titleSource: "default",
         updatedAt: "2026-01-01T00:00:00Z",
         description: "Saved",
+        descriptionSource: "user",
       };
       const renamed = {
         title: original.title,

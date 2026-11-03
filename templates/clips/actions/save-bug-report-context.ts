@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -67,6 +67,7 @@ export default defineAction({
   description:
     "Attach redacted host-app bug-report metadata to a Clips recording. UI/internal use for the embedded bug-report flow.",
   agentTool: false,
+  audit: { recordInputs: false },
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     projectId: z.string().max(120).nullish(),
@@ -114,38 +115,45 @@ export default defineAction({
       updatedAt: now,
     };
 
-    const [existing] = await db
-      .select({ recordingId: schema.recordingBugReports.recordingId })
-      .from(schema.recordingBugReports)
-      .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
-      .limit(1);
-
-    if (existing) {
-      await db
-        .update(schema.recordingBugReports)
-        .set(values)
-        .where(eq(schema.recordingBugReports.recordingId, args.recordingId));
-    } else {
-      await db.insert(schema.recordingBugReports).values({
-        ...values,
-        createdAt: now,
-      });
-    }
-
-    const recordingPatch: Record<string, string> = { updatedAt: now };
-    if (title) {
-      recordingPatch.title = title;
-      recordingPatch.titleSource = "context";
-    }
-    if (description) {
-      recordingPatch.description = description;
-    }
-    if (Object.keys(recordingPatch).length > 1) {
-      await db
-        .update(schema.recordings)
-        .set(recordingPatch)
-        .where(eq(schema.recordings.id, args.recordingId));
-    }
+    await db.transaction(async (tx) => {
+      const existing = (
+        await tx
+          .select({
+            recordingId: schema.recordingBugReports.recordingId,
+            description: schema.recordingBugReports.description,
+          })
+          .from(schema.recordingBugReports)
+          .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
+          .limit(1)
+      )
+        .values()
+        .next().value;
+      if (existing?.description)
+        await tx
+          .update(schema.recordings)
+          .set({ descriptionSource: "report" })
+          .where(
+            and(
+              eq(schema.recordings.id, args.recordingId),
+              ne(schema.recordings.descriptionSource, "user"),
+              eq(schema.recordings.description, existing.description),
+            ),
+          );
+      if (existing)
+        await tx
+          .update(schema.recordingBugReports)
+          .set(values)
+          .where(eq(schema.recordingBugReports.recordingId, args.recordingId));
+      else
+        await tx
+          .insert(schema.recordingBugReports)
+          .values({ ...values, createdAt: now });
+      if (title)
+        await tx
+          .update(schema.recordings)
+          .set({ title, titleSource: "context", updatedAt: now })
+          .where(eq(schema.recordings.id, args.recordingId));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

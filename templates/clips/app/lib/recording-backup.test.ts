@@ -125,6 +125,34 @@ describe("selectRecoverableRecordingBackups", () => {
     ]);
   });
 
+  it("keeps another workspace's copies hidden even for the same account", () => {
+    const copies = [
+      meta({
+        recordingId: "mine",
+        ownerEmail: "me@example.com",
+        ownerOrgId: "org-a",
+      }),
+      meta({
+        recordingId: "other-workspace",
+        ownerEmail: "me@example.com",
+        ownerOrgId: "org-b",
+      }),
+    ];
+    expect(
+      selectRecoverableRecordingBackups(copies, {
+        liveIds: null,
+        ownerEmail: "me@example.com",
+        ownerOrgId: "org-a",
+      }).map((copy) => copy.recordingId),
+    ).toEqual(["mine"]);
+    expect(
+      selectRecoverableRecordingBackups(copies, {
+        liveIds: null,
+        ownerEmail: "me@example.com",
+      }),
+    ).toEqual([]);
+  });
+
   it("lists every copy without Web Locks instead of guessing liveness from age", () => {
     const picked = selectRecoverableRecordingBackups(
       [

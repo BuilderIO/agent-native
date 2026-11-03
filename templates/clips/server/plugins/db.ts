@@ -12,6 +12,11 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import {
+  DIAGNOSTIC_CONTEXT_MIGRATION_SQL,
+  DIAGNOSTIC_RAW_DB_POLICY_SQL,
+  DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
+} from "../lib/diagnostic-context-migration.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
@@ -207,7 +212,6 @@ const mediaCleanupMigration = {
   name: "recording-durable-media-cleanup",
   sql: recordingMediaCleanupMigration,
 }; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
-
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1397,6 +1401,21 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
     },
     mediaCleanupMigration,
+    {
+      version: 100,
+      name: "private-recording-diagnostic-context",
+      sql: DIAGNOSTIC_CONTEXT_MIGRATION_SQL,
+    },
+    {
+      version: 101,
+      name: "diagnostic-raw-db-policy",
+      sql: DIAGNOSTIC_RAW_DB_POLICY_SQL,
+    },
+    {
+      version: 102,
+      name: "diagnostic-description-publication",
+      sql: DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
+    },
   ]),
   { table: "clips_migrations" },
 );

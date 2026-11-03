@@ -18,6 +18,8 @@ const RECORDER_EVENT_TYPES = [
 export type RecorderEventType = (typeof RECORDER_EVENT_TYPES)[number];
 
 export interface RecorderEvent {
+  documentId?: string;
+  seq?: number;
   t: number;
   at: number;
   type: RecorderEventType;
@@ -37,6 +39,12 @@ export interface RecorderPendingWork {
 }
 
 export interface RecorderReport {
+  documentId?: string;
+  generation?: number;
+  recordingSince?: number;
+  coverageFrom?: number;
+  watchedAt?: string;
+  pendingAt?: string;
   app: string;
   build: string;
   url: string;
@@ -63,6 +71,9 @@ const OMITTED = "[omitted]";
 // An app event on the recording's diagnostics clock: elapsedMs is negative
 // for lookback and excludes paused time, like console and network entries.
 export interface AppActivityEvent {
+  documentId?: string;
+  seq?: number;
+  duringPause?: boolean;
   timestampMs: number;
   elapsedMs: number;
   type: RecorderEventType;
@@ -83,6 +94,22 @@ export interface AppActivityWindow {
 }
 
 export interface AppActivity {
+  recordingStartedAtMs?: number;
+  requestedWindow?: { fromMs: number; toMs: number };
+  watchedAtMs?: number;
+  pendingAtMs?: number;
+  sources?: Array<{ documentId: string; app: string; build: string }>;
+  sourceCoverage?: Array<{ documentId: string; fromMs: number; toMs: number }>;
+  gaps?: Array<{ fromMs: number; toMs: number; reason: string }>;
+  collectionStatus?:
+    | "ready"
+    | "partial"
+    | "unsupported"
+    | "denied"
+    | "failed"
+    | "disabled";
+  collectionOutcomes?: Array<{ atMs: number; status: string; reason?: string }>;
+  sourceCursors?: Array<{ documentId: string; seq: number; dropped: number }>;
   app: string;
   build: string;
   coverage: AppActivityWindow[];
@@ -170,14 +197,21 @@ export function isAppActivityFailure(
   );
 }
 
-function normalizeEvent(value: unknown): AppActivityEvent | null {
+function normalizeEvent(
+  value: unknown,
+  minimumElapsedMs: number,
+  requestedWindow?: { fromMs: number; toMs: number },
+): AppActivityEvent | null {
   if (!isRecord(value)) return null;
   const { timestampMs, elapsedMs, type, status, durationMs } = value;
   if (
     !isFiniteNumber(timestampMs) ||
     timestampMs < 0 ||
+    (requestedWindow !== undefined &&
+      (timestampMs < requestedWindow.fromMs ||
+        timestampMs > requestedWindow.toMs)) ||
     !isFiniteNumber(elapsedMs) ||
-    elapsedMs < -BROWSER_DIAGNOSTIC_LOOKBACK_MS ||
+    elapsedMs < minimumElapsedMs ||
     !RECORDER_EVENT_TYPES.includes(type as RecorderEventType)
   ) {
     return null;
@@ -186,6 +220,15 @@ function normalizeEvent(value: unknown): AppActivityEvent | null {
   const errorCode = optionalString(value.errorCode);
   const requestId = optionalString(value.requestId);
   return {
+    ...(typeof value.documentId === "string" && value.documentId.length <= 200
+      ? { documentId: value.documentId }
+      : {}),
+    ...(typeof value.seq === "number" &&
+    Number.isSafeInteger(value.seq) &&
+    value.seq >= 0
+      ? { seq: value.seq }
+      : {}),
+    ...(value.duringPause === true ? { duringPause: true } : {}),
     timestampMs: Math.round(timestampMs),
     elapsedMs: Math.round(elapsedMs),
     type: type as RecorderEventType,
@@ -247,15 +290,185 @@ export function sanitizeAppActivity(input: {
   events: readonly unknown[];
   watched: Record<string, unknown>;
   pending: readonly unknown[];
+  recordingStartedAtMs?: number;
+  requestedWindow?: { fromMs: number; toMs: number };
+  watchedAtMs?: number;
+  pendingAtMs?: number;
+  sources?: AppActivity["sources"];
+  sourceCoverage?: AppActivity["sourceCoverage"];
+  gaps?: AppActivity["gaps"];
+  collectionStatus?: AppActivity["collectionStatus"];
+  collectionOutcomes?: AppActivity["collectionOutcomes"];
+  sourceCursors?: AppActivity["sourceCursors"];
 }): AppActivity {
+  if (
+    typeof input.app !== "string" ||
+    typeof input.build !== "string" ||
+    !Array.isArray(input.events) ||
+    !Array.isArray(input.coverage) ||
+    !Array.isArray(input.pending) ||
+    !isRecord(input.watched) ||
+    !isFiniteNumber(input.dropped) ||
+    input.dropped < 0
+  ) {
+    throw new TypeError("Invalid app activity payload");
+  }
+  const requestedWindow = input.requestedWindow;
+  const startedAtMs = input.recordingStartedAtMs;
+  if (
+    requestedWindow &&
+    (!isFiniteNumber(startedAtMs) ||
+      !isFiniteNumber(requestedWindow.fromMs) ||
+      !isFiniteNumber(requestedWindow.toMs) ||
+      requestedWindow.fromMs > startedAtMs ||
+      requestedWindow.toMs < startedAtMs ||
+      startedAtMs - requestedWindow.fromMs > 300_000)
+  )
+    throw new RangeError("Invalid app activity requested window");
+  if (
+    input.sources &&
+    (!Array.isArray(input.sources) ||
+      input.sources.length > 100 ||
+      input.sources.some(
+        (source) =>
+          !isRecord(source) ||
+          typeof source.documentId !== "string" ||
+          typeof source.app !== "string" ||
+          typeof source.build !== "string",
+      ))
+  )
+    throw new TypeError("Invalid app activity sources");
+  const validSpan = (span: { fromMs: number; toMs: number }) =>
+    isRecord(span) &&
+    isFiniteNumber(span.fromMs) &&
+    isFiniteNumber(span.toMs) &&
+    span.fromMs <= span.toMs &&
+    (!requestedWindow ||
+      (span.fromMs >= requestedWindow.fromMs &&
+        span.toMs <= requestedWindow.toMs));
+  if (
+    input.sourceCoverage &&
+    (!Array.isArray(input.sourceCoverage) ||
+      input.sourceCoverage.length > 200 ||
+      input.sourceCoverage.some(
+        (span) => !validSpan(span) || typeof span.documentId !== "string",
+      ))
+  )
+    throw new TypeError("Invalid app activity coverage");
+  if (
+    input.gaps &&
+    (!Array.isArray(input.gaps) ||
+      input.gaps.length > 200 ||
+      input.gaps.some(
+        (gap) => !validSpan(gap) || typeof gap.reason !== "string",
+      ))
+  )
+    throw new TypeError("Invalid app activity gaps");
+  if (
+    (input.watchedAtMs !== undefined && !isFiniteNumber(input.watchedAtMs)) ||
+    (input.pendingAtMs !== undefined && !isFiniteNumber(input.pendingAtMs))
+  )
+    throw new TypeError("Invalid app activity sample time");
+  if (
+    input.collectionOutcomes &&
+    (!Array.isArray(input.collectionOutcomes) ||
+      input.collectionOutcomes.length > 100 ||
+      input.collectionOutcomes.some(
+        (outcome) =>
+          !isRecord(outcome) ||
+          !isFiniteNumber(outcome.atMs) ||
+          typeof outcome.status !== "string" ||
+          (outcome.reason !== undefined && typeof outcome.reason !== "string"),
+      ))
+  )
+    throw new TypeError("Invalid app activity outcomes");
+  if (
+    input.sourceCursors &&
+    (!Array.isArray(input.sourceCursors) ||
+      input.sourceCursors.length > 100 ||
+      input.sourceCursors.some(
+        (cursor) =>
+          !isRecord(cursor) ||
+          typeof cursor.documentId !== "string" ||
+          !Number.isSafeInteger(cursor.seq) ||
+          cursor.seq < -1 ||
+          !Number.isSafeInteger(cursor.dropped) ||
+          cursor.dropped < 0,
+      ))
+  )
+    throw new TypeError("Invalid app activity source cursors");
+  const minimumElapsedMs =
+    requestedWindow && startedAtMs !== undefined
+      ? requestedWindow.fromMs - startedAtMs
+      : -BROWSER_DIAGNOSTIC_LOOKBACK_MS;
   const valid = input.events
-    .map(normalizeEvent)
+    .map((event) => normalizeEvent(event, minimumElapsedMs, requestedWindow))
     .filter((event): event is AppActivityEvent => event !== null)
     .sort((a, b) => a.elapsedMs - b.elapsedMs);
   const rest = {
+    ...(input.sourceCursors
+      ? {
+          sourceCursors: input.sourceCursors.map((cursor) => ({
+            ...cursor,
+            documentId: boundedString(cursor.documentId),
+          })),
+        }
+      : {}),
+    ...(startedAtMs === undefined ? {} : { recordingStartedAtMs: startedAtMs }),
+    ...(requestedWindow ? { requestedWindow } : {}),
+    ...(input.watchedAtMs === undefined
+      ? {}
+      : { watchedAtMs: input.watchedAtMs }),
+    ...(input.pendingAtMs === undefined
+      ? {}
+      : { pendingAtMs: input.pendingAtMs }),
+    ...(input.sources
+      ? {
+          sources: input.sources.slice(0, 100).map((source) => ({
+            documentId: boundedString(source.documentId),
+            app: boundedString(source.app),
+            build: boundedString(source.build),
+          })),
+        }
+      : {}),
+    ...(input.sourceCoverage
+      ? { sourceCoverage: input.sourceCoverage.slice(-200) }
+      : {}),
+    ...(input.gaps
+      ? {
+          gaps: input.gaps
+            .slice(-200)
+            .map((gap) => ({ ...gap, reason: boundedString(gap.reason) })),
+        }
+      : {}),
+    ...(input.collectionStatus
+      ? { collectionStatus: input.collectionStatus }
+      : {}),
+    ...(input.collectionOutcomes
+      ? {
+          collectionOutcomes: input.collectionOutcomes
+            .slice(-100)
+            .map((outcome) => ({
+              atMs: outcome.atMs,
+              status: boundedString(outcome.status),
+              ...(outcome.reason
+                ? { reason: boundedString(outcome.reason) }
+                : {}),
+            })),
+        }
+      : {}),
     app: boundedString(input.app),
     build: boundedString(input.build),
-    coverage: input.coverage.slice(0, MAX_APP_ACTIVITY_COVERAGE_WINDOWS),
+    coverage: input.coverage
+      .filter(
+        (span) =>
+          isRecord(span) &&
+          isFiniteNumber(span.fromElapsedMs) &&
+          isFiniteNumber(span.toElapsedMs) &&
+          span.fromElapsedMs <= span.toElapsedMs &&
+          span.fromElapsedMs >= minimumElapsedMs,
+      )
+      .slice(0, MAX_APP_ACTIVITY_COVERAGE_WINDOWS),
     watched: boundedObject(input.watched, MAX_WATCHED_CHARS),
     pending: input.pending
       .map(normalizePendingWork)

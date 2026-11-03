@@ -35,6 +35,30 @@ describe("recordingEmbedProvider", () => {
     expect(isEmbedBackedRecording(undefined)).toBe(false);
   });
 
+  it("uses safe provider fields when private source metadata is omitted", () => {
+    expect(
+      recordingEmbedProvider({
+        sourceProvider: "loom",
+        embedProvider: "loom",
+        videoUrl: "/api/video/clip-1",
+      }),
+    ).toBe("loom");
+    expect(
+      recordingEmbedProvider({
+        sourceProvider: "youtube",
+        embedProvider: "youtube",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      }),
+    ).toBe("youtube");
+    expect(
+      recordingEmbedProvider({
+        sourceProvider: "loom",
+        embedProvider: null,
+        videoUrl: "/api/video/clip-1?loomMedia=1",
+      }),
+    ).toBeNull();
+  });
+
   it("explains why each provider has no frames", () => {
     expect(embedFramesUnavailableReason("youtube")).toContain(
       "YouTube's embedded player",

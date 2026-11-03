@@ -68,8 +68,12 @@ class FakeMediaRecorder extends EventTarget {
     this.state = "inactive";
     this.emitChunk(new Blob(["tail"], { type: "video/webm" }));
   }
-  pause(): void {}
-  resume(): void {}
+  pause(): void {
+    this.state = "paused";
+  }
+  resume(): void {
+    this.state = "recording";
+  }
   emitChunk(blob: Blob): void {
     const event = new Event("dataavailable");
     Object.defineProperty(event, "data", { value: blob });
@@ -117,6 +121,40 @@ describe("RecorderEngine local copy", () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     FakeMediaRecorder.instance = null;
+  });
+
+  it("anchors diagnostic history and pauses to the actual media clock across wall-clock changes", async () => {
+    let monotonic = 100;
+    const performanceClock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => monotonic);
+    const wallClock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      const engine = await startedEngine();
+      monotonic = 1_100;
+      engine.pause();
+      monotonic = 3_100;
+      wallClock.mockReturnValue(900_000);
+      const pausedSnapshot = engine.getDiagnosticClock();
+      expect(pausedSnapshot).toEqual({
+        startedAtMs: 100_000,
+        nowMs: 103_000,
+        pauses: [{ startedAtMs: 101_000, endedAtMs: 103_000 }],
+      });
+      engine.resume();
+      monotonic = 5_100;
+      expect(engine.getDiagnosticClock()).toEqual({
+        startedAtMs: 100_000,
+        nowMs: 105_000,
+        pauses: [{ startedAtMs: 101_000, endedAtMs: 103_000 }],
+      });
+      expect(engine.getElapsedMs()).toBe(3_000);
+      expect(pausedSnapshot?.nowMs).toBe(103_000);
+      await engine.stop();
+    } finally {
+      performanceClock.mockRestore();
+      wallClock.mockRestore();
+    }
   });
 
   it("records with no storage into the local copy and never uploads", async () => {

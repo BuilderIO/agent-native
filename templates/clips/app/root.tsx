@@ -13,13 +13,14 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Links,
   Meta,
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { useDiagnosticOutboxRecovery } from "@/hooks/use-diagnostic-outbox";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   buildClipsExtensionBaseUrl,
@@ -212,6 +214,39 @@ type ExternalChromeRuntime = {
   ) => void;
 };
 
+function useClipsExtensionSignOut() {
+  const { session, status } = useSession();
+  const organization = useOrg({ enabled: status === "authenticated" });
+  const activeOrgId = organization.data
+    ? organization.data.orgId
+    : session?.orgId;
+  const previousIdentity = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      status === "loading" ||
+      status === "unavailable" ||
+      (status === "authenticated" && !organization.data && !session?.orgId)
+    )
+      return;
+    const identity = session
+      ? `${session.email.toLowerCase()}:${activeOrgId ?? ""}`
+      : null;
+    const switched =
+      previousIdentity.current !== null &&
+      previousIdentity.current !== identity;
+    previousIdentity.current = identity;
+    if (status !== "signing-out" && !switched) return;
+    const clipsBaseUrl = buildClipsExtensionBaseUrl(
+      window.location.origin,
+      appPath("/"),
+    );
+    window.postMessage(
+      { source: "clips-auth-bridge", kind: "session", token: "", clipsBaseUrl },
+      window.location.origin,
+    );
+  }, [session?.email, activeOrgId, status]);
+}
+
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
   const t = useT();
@@ -353,6 +388,8 @@ function ClipsExtensionAuthBridge() {
 }
 
 function PrivateAppContent() {
+  useDiagnosticOutboxRecovery();
+  useClipsExtensionSignOut();
   const location = useLocation();
   const { status: sessionStatus } = useSession();
   const authenticatedShare =

@@ -11,6 +11,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
+import { recordingMediaProvenance } from "../server/lib/recording-media-provenance.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   getActiveOrganizationId,
@@ -254,12 +256,11 @@ async function buildPayload(
         id: recording.id,
         organizationId: recording.organizationId,
         title: recording.title,
-        description: recording.description,
+        description: await loadPublicRecordingDescription(recording),
         durationMs: recording.durationMs,
         createdAt: recording.createdAt,
         updatedAt: recording.updatedAt,
-        sourceAppName: recording.sourceAppName,
-        sourceWindowTitle: recording.sourceWindowTitle,
+        ...recordingMediaProvenance(recording),
         spaceIds: safeJsonParse<string[]>(recording.spaceIds, []),
         chapters: safeJsonParse<Array<Record<string, unknown>>>(
           recording.chaptersJson,

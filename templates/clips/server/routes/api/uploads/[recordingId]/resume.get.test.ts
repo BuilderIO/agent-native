@@ -71,6 +71,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRouterParam: () => "rec-1",
+  getHeader: () => undefined,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
   setResponseHeader: vi.fn(),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
@@ -151,6 +152,25 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockUpdateSets.length = 0;
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
   });
+
+  it.each([
+    { expectedOwnerEmail: "other@example.com" },
+    { expectedOrgId: "another-org" },
+  ])(
+    "rejects a switched recovery identity before claiming state",
+    async (expected) => {
+      mockGetQuery.mockReturnValue({
+        attemptId: "client-attempt-0001",
+        ...expected,
+      });
+      await expect(handler({} as H3Event)).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "upload_identity_mismatch",
+      });
+      expect(mockDb.select).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+    },
+  );
 
   it("leaves legacy upload state untouched when resumable retry is disabled", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);

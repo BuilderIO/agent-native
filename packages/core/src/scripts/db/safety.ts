@@ -263,8 +263,32 @@ export function finalRawDbSql(
 export async function verifyRawDbStatement(
   db: AgentSqlQueryRunner,
   statement: AgentPostgresStatement,
-  options: { columnsByTable?: Map<string, string[]>; label?: string } = {},
+  options: {
+    columnsByTable?: Map<string, string[]>;
+    label?: string;
+    deniedTables?: ReadonlySet<string> | undefined;
+    deniedColumns?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  } = {},
 ): Promise<void> {
+  for (const token of statement.tokens) {
+    if (isName(token) && options.deniedTables?.has(token.value))
+      fail(
+        `Table "${token.value}" requires its scoped app actions and is unavailable through raw database tools.`,
+        { errorCode: "raw_db_table_forbidden", statusCode: 403 },
+      );
+  }
+  const names = new Set(
+    statement.tokens.filter(isName).map((token) => token.value),
+  );
+  for (const [table, columns] of options.deniedColumns ?? []) {
+    if (!names.has(table)) continue;
+    for (const column of columns)
+      if (names.has(column))
+        fail(
+          `Column "${table}.${column}" requires its scoped app actions and is unavailable through raw database tools.`,
+          { errorCode: "raw_db_column_forbidden", statusCode: 403 },
+        );
+  }
   await guardedAsync(
     () => verifyAgentPostgresResolution(db, statement),
     options.label,

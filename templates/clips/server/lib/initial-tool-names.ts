@@ -3,6 +3,7 @@ export const INITIAL_TOOL_NAMES = [
   "list-recordings",
   "search-recordings",
   "get-recording-player-data",
+  "get-recording-diagnostic-context",
   "prepare-crm-call-evidence",
   "request-transcript",
   "create-recording",

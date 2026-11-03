@@ -218,6 +218,8 @@ Options:
           );
           await verifyRawDbStatement(timedTx, executed.statement, {
             columnsByTable: scoping.columnsByTable,
+            deniedTables: scoping.deniedTables,
+            deniedColumns: scoping.deniedColumns,
             label,
           });
           const sql = executed.sql;

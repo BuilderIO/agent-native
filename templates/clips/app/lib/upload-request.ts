@@ -9,6 +9,8 @@ interface UploadChunkRequestOptions {
   body: ArrayBuffer;
   contentType: string;
   signal?: AbortSignal;
+  expectedOwnerEmail?: string;
+  expectedOrgId?: string;
 }
 
 export async function uploadChunkRequest({
@@ -16,6 +18,8 @@ export async function uploadChunkRequest({
   body,
   contentType,
   signal,
+  expectedOwnerEmail,
+  expectedOrgId,
 }: UploadChunkRequestOptions): Promise<Response> {
   const browserSessionId = getAnalyticsSessionId();
   const request = (authorization?: string) =>
@@ -23,6 +27,10 @@ export async function uploadChunkRequest({
       method: "POST",
       headers: {
         "Content-Type": contentType,
+        ...(expectedOwnerEmail
+          ? { "X-Clips-Expected-Owner": expectedOwnerEmail }
+          : {}),
+        ...(expectedOrgId ? { "X-Clips-Expected-Org": expectedOrgId } : {}),
         ...(browserSessionId
           ? { "X-Agent-Native-Session-Id": browserSessionId }
           : {}),
@@ -78,7 +86,13 @@ export function fetchUploadStatus(
  */
 export function postUploadAbort(
   abortUrl: string,
-  body: { reason: string; failureCode: string; httpStatus?: number },
+  body: {
+    reason: string;
+    failureCode: string;
+    httpStatus?: number;
+    attemptId?: string;
+    uploadGenerationId?: string;
+  },
 ): Promise<Response> {
   return fetch(abortUrl, {
     method: "POST",

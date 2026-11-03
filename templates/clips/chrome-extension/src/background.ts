@@ -6,13 +6,13 @@ import {
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
-  type AppActivityRead,
-  buildAppActivity,
+  AppActivityCollector,
+  type AppActivityReadResult,
   type DiagnosticsClock,
+  diagnosticsClockMs,
   MAX_RECORDER_REPORT_CHARS,
   parseRecorderReportResult,
   readRecorderReport,
-  stopReadSeconds,
   withReadTimeout,
 } from "./app-activity";
 import {
@@ -31,6 +31,15 @@ import {
   removeTabActivation,
   type TabActivation,
 } from "./debugger-scope";
+import {
+  DIAGNOSTIC_OUTBOX_KEY,
+  type DiagnosticOutboxEntry,
+  diagnosticSavePayload,
+  finalizeDiagnosticJournal,
+  putDiagnosticOutboxEntry,
+  pruneExpiredDiagnosticOutbox,
+  sameDiagnosticIdentity,
+} from "./diagnostic-outbox";
 import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
@@ -53,6 +62,7 @@ import {
 } from "./overlay-follow";
 import { parseClipDurationLimitMs } from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
+import { webCaptureSenderAllowed, webCaptureUrl } from "./web-capture";
 
 initExtensionSentry("background");
 
@@ -104,6 +114,8 @@ type ExtensionSettings = {
 type PopupStartMessage = {
   type: "CLIPS_POPUP_START";
   settings?: Partial<ExtensionSettings>;
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
 };
 
 type AuthSessionMessage = {
@@ -119,15 +131,24 @@ type ExternalMessage =
       sessionId?: string;
       recordingId?: string;
       pageUrl?: string;
+      diagnosticConsent?: boolean | undefined;
+      requestedHistorySeconds?: number | undefined;
+      captureId?: string;
+      startedAtMs?: number;
     }
   | {
       type: "CLIPS_CAPTURE_STOP";
       sessionId?: string;
       recordingId?: string;
+      pauses?: Array<{ startedAtMs: number; endedAtMs: number }>;
+      recordingStoppedAtMs?: number;
     }
   | {
       type: "CLIPS_CAPTURE_CANCEL";
       sessionId?: string;
+      discard?: boolean;
+      recordingStoppedAtMs?: number;
+      pauses?: Array<{ startedAtMs: number; endedAtMs: number }>;
     }
   | AuthSessionMessage;
 
@@ -223,6 +244,8 @@ type NativeRecording = {
   savedToDisk?: boolean;
   savedFilename?: string;
   mimeType?: string;
+  diagnosticCapture?: DiagnosticCapture;
+  diagnosticFailureCode?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -303,7 +326,20 @@ type CaptureSession = {
   diagnosticsPausedAtMs: number | null;
   diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
-  appActivityStartRead: Promise<AppActivityRead | null> | null;
+  appActivityCollector: AppActivityCollector | null;
+  diagnosticCapture: DiagnosticCapture | null;
+  diagnosticFailureCode: string | null;
+  activityPauses: Array<{ startedAtMs: number; endedAtMs: number }>;
+  webRecorderTabId?: number;
+  finalDiagnosticEntry?: Promise<DiagnosticOutboxEntry | null>;
+};
+
+type DiagnosticCapture = {
+  captureId: string;
+  ownerEmail: string;
+  orgId: string;
+  captureAuthorization: string;
+  requestedHistorySeconds: number;
 };
 
 type NativeDiagnostics = {
@@ -421,7 +457,75 @@ async function restoreRuntimeState(): Promise<void> {
     "pendingNativeRecording",
     "overlayRuntime",
     "armingNativeRecordingSessionId",
+    "webCaptureSources",
   ]);
+  if (Array.isArray(stored.webCaptureSources)) {
+    for (const source of stored.webCaptureSources as WebCaptureSource[]) {
+      if (
+        typeof source.sessionId !== "string" ||
+        typeof source.recorderTabId !== "number" ||
+        typeof source.targetTabId !== "number" ||
+        (!source.capture && nowMs() - source.createdAtMs > 15 * 60_000) ||
+        sessions.has(source.sessionId)
+      )
+        continue;
+      const session = createSession(
+        source.sessionId,
+        {
+          id: source.targetTabId,
+          ...(source.targetTitle === undefined
+            ? {}
+            : { title: source.targetTitle }),
+          ...(source.targetUrl === undefined ? {} : { url: source.targetUrl }),
+        },
+        await readSettings(),
+      );
+      session.webRecorderTabId = source.recorderTabId;
+      if (
+        source.capture &&
+        source.recordingId &&
+        typeof source.startedAtMs === "number"
+      ) {
+        const sourceCapture = source.capture;
+        const journal = (await readDiagnosticOutbox()).find(
+          (entry) =>
+            entry.captureId === sourceCapture.captureId &&
+            sameDiagnosticIdentity(entry.identity, sourceCapture),
+        );
+        const capture = {
+          ...sourceCapture,
+          ...(journal
+            ? { captureAuthorization: journal.captureAuthorization }
+            : {}),
+        };
+        session.diagnosticCapture = capture;
+        session.recordingId = source.recordingId;
+        session.startedAtMs = source.startedAtMs;
+        session.startedAt = new Date(source.startedAtMs).toISOString();
+        session.captureBegun = true;
+        const settings = await readSettings();
+        try {
+          const identity = await postAction<{
+            ownerEmail: string;
+            orgId: string;
+          }>(settings, "check-diagnostic-capture-authorization", {
+            recordingId: source.recordingId,
+            captureId: capture.captureId,
+            captureAuthorization: capture.captureAuthorization,
+          });
+          if (sameDiagnosticIdentity(identity, capture))
+            await startAppActivityCollector(session, settings, true);
+        } catch (error) {
+          captureExtensionError(error, {
+            tags: {
+              surface: "background",
+              recordingStep: "restore-private-context",
+            },
+          });
+        }
+      }
+    }
+  }
   const rawArmingSessionId = persistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
   );
@@ -446,6 +550,37 @@ async function restoreRuntimeState(): Promise<void> {
   ) {
     const session = restoreCaptureSession(activeNativeRecording);
     await attachSession(session);
+    if (activeNativeRecording.diagnosticCapture) {
+      const settings = settingsFromRecording(activeNativeRecording);
+      try {
+        const auth = await readAuthSession(settings);
+        if (
+          auth?.email?.toLowerCase() ===
+          activeNativeRecording.diagnosticCapture.ownerEmail.toLowerCase()
+        ) {
+          const capture = activeNativeRecording.diagnosticCapture;
+          const identity = await postAction<{
+            ownerEmail: string;
+            orgId: string;
+          }>(settings, "check-diagnostic-capture-authorization", {
+            recordingId: activeNativeRecording.recordingId,
+            captureId: capture.captureId,
+            captureAuthorization: capture.captureAuthorization,
+          });
+          if (sameDiagnosticIdentity(capture, identity)) {
+            session.diagnosticCapture = capture;
+            await startAppActivityCollector(session, settings, true);
+          }
+        }
+      } catch (error) {
+        captureExtensionError(error, {
+          tags: {
+            surface: "background",
+            recordingStep: "restore-private-context",
+          },
+        });
+      }
+    }
   }
   const freshArmingSessionId = await readFreshPersistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
@@ -889,9 +1024,18 @@ function sessionStorageSet(value: Record<string, unknown>): Promise<void> {
   });
 }
 
+function isStorageRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function sessionStorageGet(keys: string[]): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    chrome.storage.session.get(keys, (value) => resolve(value));
+  return new Promise((resolve, reject) => {
+    chrome.storage.session.get(keys, (value) => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else if (isStorageRecord(value)) resolve(value);
+      else reject(new Error("Extension session storage returned no result."));
+    });
   });
 }
 
@@ -1091,6 +1235,8 @@ function createTab(url: string): Promise<void> {
 }
 
 type PendingPermissionStart = {
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
   settings: ExtensionSettings;
   targetTabId: number;
   createdAtMs: number;
@@ -1367,7 +1513,10 @@ function createSession(
     lookbackConsoleLogs: [],
     lookbackNetworkRequests: [],
     lookbackNetworkKeys: new Set(),
-    appActivityStartRead: null,
+    appActivityCollector: null,
+    diagnosticCapture: null,
+    diagnosticFailureCode: null,
+    activityPauses: [],
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
@@ -1385,6 +1534,7 @@ function restoreCaptureSession(recording: NativeRecording): CaptureSession {
     settingsFromRecording(recording),
   );
   session.recordingId = recording.recordingId;
+  session.diagnosticCapture = recording.diagnosticCapture ?? null;
   session.startedAt = recording.startedAt;
   session.startedAtMs = recording.startedAtMs;
   // A restored recording already began, so late console replay is not lookback.
@@ -1413,13 +1563,20 @@ async function handlePopupStart(message: PopupStartMessage) {
     return { ok: false, error: "No active tab is available to record." };
   }
   const settings = await readSettings(message.settings);
-  return startRecordingFromTab({ tab, settings });
+  return startRecordingFromTab({
+    tab,
+    settings,
+    diagnosticConsent: message.diagnosticConsent,
+    requestedHistorySeconds: message.requestedHistorySeconds,
+  });
 }
 
 async function startRecordingFromTab(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
   allowPermissionRecovery?: boolean;
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
 }) {
   const { tab, settings } = args;
   const allowPermissionRecovery = args.allowPermissionRecovery !== false;
@@ -1454,6 +1611,8 @@ async function startRecordingFromTab(args: {
       tab,
       settings,
       allowPermissionRecovery,
+      diagnosticConsent: args.diagnosticConsent,
+      requestedHistorySeconds: args.requestedHistorySeconds,
     });
   } finally {
     if (armingNativeRecordingSessionId === sessionId) {
@@ -1465,6 +1624,8 @@ async function startRecordingFromTab(args: {
 async function handlePopupPreparePermissionStart(message: {
   settings?: Partial<ExtensionSettings>;
   targetTabId?: number;
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
 }) {
   const settings = await readSettings(message.settings);
   const tab =
@@ -1478,6 +1639,8 @@ async function handlePopupPreparePermissionStart(message: {
     settings,
     targetTabId: tab.id,
     createdAtMs: Date.now(),
+    diagnosticConsent: message.diagnosticConsent,
+    requestedHistorySeconds: message.requestedHistorySeconds,
   });
   return { ok: true };
 }
@@ -1499,6 +1662,8 @@ async function handlePermissionStartAfterGrant() {
   return startRecordingFromTab({
     tab,
     settings: pending.settings,
+    diagnosticConsent: pending.diagnosticConsent,
+    requestedHistorySeconds: pending.requestedHistorySeconds,
     allowPermissionRecovery: false,
   });
 }
@@ -1513,6 +1678,8 @@ async function recoverMissingMediaPermission(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
   openPermissionPage: boolean;
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
 }): Promise<{ ok: false; error: string }> {
   const { error, tab, settings, openPermissionPage } = args;
   captureExtensionError(error, {
@@ -1534,6 +1701,8 @@ async function recoverMissingMediaPermission(args: {
       settings,
       targetTabId: tab.id,
       createdAtMs: Date.now(),
+      diagnosticConsent: args.diagnosticConsent,
+      requestedHistorySeconds: args.requestedHistorySeconds,
     });
   }
   await createTab(
@@ -1549,6 +1718,8 @@ async function armRecording(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
   allowPermissionRecovery: boolean;
+  diagnosticConsent?: boolean | undefined;
+  requestedHistorySeconds?: number | undefined;
 }) {
   const { sessionId, tab, settings, allowPermissionRecovery } = args;
   const mode: CaptureMode =
@@ -1580,6 +1751,8 @@ async function armRecording(args: {
         tab,
         settings,
         openPermissionPage: allowPermissionRecovery,
+        diagnosticConsent: args.diagnosticConsent,
+        requestedHistorySeconds: args.requestedHistorySeconds,
       });
     }
     throw err;
@@ -1629,6 +1802,7 @@ async function armRecording(args: {
       hasAudio: settings.includeMicrophone,
       mimeType: "video/webm",
       requestStreaming: true,
+      ...(args.diagnosticConsent === true ? { visibility: "private" } : {}),
     });
   } catch (err) {
     captureExtensionError(err, {
@@ -1653,6 +1827,24 @@ async function armRecording(args: {
   const uploadUrl = `${settings.clipsBaseUrl}${created.uploadChunkUrl}`;
   const session = createSession(sessionId, tab, settings);
   session.recordingId = created.id;
+  if (args.diagnosticConsent === true) {
+    try {
+      session.diagnosticCapture = await authorizeDiagnosticCapture(
+        settings,
+        created.id,
+        sessionId,
+        args.requestedHistorySeconds ?? 30,
+      );
+    } catch (error) {
+      session.diagnosticFailureCode = "capture-authorization-failed";
+      captureExtensionError(error, {
+        tags: {
+          surface: "background",
+          recordingStep: "authorize-private-context",
+        },
+      });
+    }
+  }
 
   activeNativeRecording = {
     sessionId,
@@ -1675,6 +1867,12 @@ async function armRecording(args: {
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
+    ...(session.diagnosticCapture
+      ? { diagnosticCapture: session.diagnosticCapture }
+      : {}),
+    ...(session.diagnosticFailureCode
+      ? { diagnosticFailureCode: session.diagnosticFailureCode }
+      : {}),
   };
   try {
     await persistPendingNativeRecording(activeNativeRecording);
@@ -1753,10 +1951,11 @@ async function markRecordingStarted() {
   if (session) {
     await refreshLookbackNetwork(session);
     beginSessionCapture(session, overlayBaseEpochMs);
-    if (session.includeDeveloperLogs) {
-      session.appActivityStartRead = readAppActivity(
-        session.targetTabId,
-        BROWSER_DIAGNOSTIC_LOOKBACK_MS / 1000,
+    if (session.diagnosticCapture && activeNativeRecording) {
+      await startAppActivityCollector(
+        session,
+        settingsFromRecording(activeNativeRecording),
+        true,
       );
     }
   }
@@ -2063,6 +2262,12 @@ async function cancelRecording(force = false) {
     reason: "Recording cancelled by user",
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
+  if (recording.diagnosticCapture)
+    await updateDiagnosticOutbox((entries) =>
+      entries.filter(
+        (entry) => entry.captureId !== recording.diagnosticCapture?.captureId,
+      ),
+    );
   await postAction(settingsFromRecording(recording), "trash-recording", {
     id: recording.recordingId,
   }).catch(() => undefined);
@@ -2074,39 +2279,37 @@ async function saveNativeDiagnostics(
   recording: NativeRecording,
   captured: NativeDiagnostics | null,
 ): Promise<void> {
-  if (!recording.includeDeveloperLogs) return;
   const session = sessions.get(recording.sessionId);
   const snapshot =
     captured?.diagnostics ?? (session ? snapshotSession(session) : null);
-  if (!snapshot) return;
   const settings = settingsFromRecording(recording);
-  try {
-    await postAction(settings, "save-browser-diagnostics", {
-      recordingId: recording.recordingId,
-      sessionId: recording.sessionId,
-      source: "extension",
-      phase: "recording",
-      pageUrl: snapshot.pageUrl,
-      userAgent: snapshot.userAgent,
-      startedAt: snapshot.startedAt,
-      endedAt: snapshot.endedAt,
-      consoleLogs: snapshot.consoleLogs,
-      networkRequests: snapshot.networkRequests,
-      interactionEvents: snapshot.interactionEvents,
-    });
-  } catch (err) {
-    console.warn("[clips-extension] diagnostics save failed:", err);
-    return;
-  }
-  // App activity is attached to the diagnostics row, so it is saved second.
   const appActivity = await captured?.appActivity;
-  if (!appActivity) return;
-  await postAction(settings, "save-recording-app-activity", {
-    recordingId: recording.recordingId,
-    ...appActivity,
-  }).catch((err) => {
-    console.warn("[clips-extension] app activity save failed:", err);
-  });
+  if (appActivity && recording.diagnosticCapture) {
+    const entry = diagnosticOutboxEntry(
+      recording.diagnosticCapture,
+      recording.recordingId,
+      settings.clipsBaseUrl,
+      appActivity,
+      diagnosticsClockOf(recording),
+      true,
+      snapshot,
+    );
+    try {
+      await updateDiagnosticOutbox((entries) =>
+        putDiagnosticOutboxEntry(entries, entry),
+      );
+      await retryDiagnosticOutbox(settings);
+    } catch (error) {
+      failedDiagnosticPayloads.set(entry.captureId, entry);
+      recording.diagnosticFailureCode = "diagnostic-local-save-failed";
+      captureExtensionError(error, {
+        tags: {
+          surface: "background",
+          recordingStep: "private-context-persistence",
+        },
+      });
+    }
+  }
 }
 
 async function stopNativeDiagnostics(
@@ -2117,12 +2320,35 @@ async function stopNativeDiagnostics(
   const diagnostics = recording.includeDeveloperLogs
     ? snapshotSession(session)
     : null;
-  const appActivity = recording.includeDeveloperLogs
-    ? collectAppActivity(session, recording).catch((err) => {
-        console.warn("[clips-extension] app activity dropped:", err);
-        return null;
-      })
+  const activity = session.appActivityCollector
+    ? await session.appActivityCollector.stop()
     : null;
+  const appActivity = activity ? Promise.resolve(activity) : null;
+  if (activity && recording.diagnosticCapture) {
+    const entry = diagnosticOutboxEntry(
+      recording.diagnosticCapture,
+      recording.recordingId,
+      recording.clipsBaseUrl,
+      activity,
+      diagnosticsClockOf(recording),
+      true,
+      diagnostics,
+    );
+    try {
+      await updateDiagnosticOutbox((entries) =>
+        putDiagnosticOutboxEntry(entries, entry),
+      );
+    } catch (error) {
+      failedDiagnosticPayloads.set(entry.captureId, entry);
+      recording.diagnosticFailureCode = "diagnostic-local-save-failed";
+      captureExtensionError(error, {
+        tags: {
+          surface: "background",
+          recordingStep: "finalize-private-context-journal",
+        },
+      });
+    }
+  }
   await deleteSession(recording.sessionId).catch((err) => {
     console.warn("[clips-extension] diagnostics detach failed:", err);
   });
@@ -2139,19 +2365,6 @@ function diagnosticsClockOf(recording: NativeRecording): DiagnosticsClock {
         : []),
     ],
   };
-}
-
-async function collectAppActivity(
-  session: CaptureSession,
-  recording: NativeRecording,
-): Promise<AppActivity | null> {
-  const clock = diagnosticsClockOf(recording);
-  const startRead = await session.appActivityStartRead;
-  const stopRead = await readAppActivity(
-    session.targetTabId,
-    stopReadSeconds(clock.startedAtMs, nowMs(), startRead !== null),
-  );
-  return buildAppActivity({ start: startRead, stop: stopRead }, clock);
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -2202,8 +2415,28 @@ async function reconcilePersistedNativeRecording(): Promise<void> {
 async function handlePopupStatus() {
   await reconcilePersistedNativeRecording();
   if (armingNativeRecordingSessionId) await restoreRuntimeState();
+  for (const entry of failedDiagnosticPayloads.values()) {
+    try {
+      await updateDiagnosticOutbox((entries) =>
+        putDiagnosticOutboxEntry(entries, entry),
+      );
+      failedDiagnosticPayloads.delete(entry.captureId);
+    } catch (error) {
+      captureExtensionError(error, {
+        tags: {
+          surface: "background",
+          recordingStep: "private-context-local-retry",
+        },
+      });
+    }
+  }
+  await retryDiagnosticOutbox(await readSettings());
   return {
     ok: true,
+    diagnosticLocalSaveFailed: failedDiagnosticPayloads.size > 0,
+    diagnosticPending: (await readDiagnosticOutbox()).filter(
+      (entry) => entry.finalized,
+    ).length,
     activeRecording: activeNativeRecording,
     arming: Boolean(armingNativeRecordingSessionId),
   };
@@ -2252,16 +2485,37 @@ async function handleAuthSession(
   ) {
     return { ok: false, error: "Auth message came from the wrong origin." };
   }
-  if (typeof message.token !== "string" || !message.token.trim()) {
-    return { ok: false, error: "Missing auth token." };
+  const previousAuth = await readAuthSession(settings);
+  const signedOut = typeof message.token !== "string" || !message.token.trim();
+  const switchedAccount =
+    previousAuth?.email &&
+    previousAuth.email.toLowerCase() !== message.email?.toLowerCase();
+  if (signedOut || switchedAccount) {
+    for (const session of sessions.values()) {
+      session.appActivityCollector?.cancel();
+      session.appActivityCollector = null;
+      session.diagnosticCapture = null;
+      session.diagnosticFailureCode = "cancelled-on-sign-out";
+    }
+    await updateDiagnosticOutbox(() => []);
+    await sessionStorageSet({ webCaptureSources: [] });
+    failedDiagnosticPayloads.clear();
+  }
+  if (signedOut) {
+    await localStorageSet({
+      clipsAuth: null,
+      clipsDiagnosticCancellation: { at: nowIso(), reason: "signed-out" },
+    });
+    return { ok: true };
   }
   await storageSet({ ...settings, clipsBaseUrl });
   await saveAuthSession({
-    token: message.token,
+    token: message.token as string,
     email: typeof message.email === "string" ? message.email : undefined,
     clipsBaseUrl,
     savedAt: nowIso(),
   });
+  await retryDiagnosticOutbox(settings);
   return { ok: true };
 }
 
@@ -2322,11 +2576,33 @@ function diagnosticElapsedMs(
 
 function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
   const endedAt = nowIso();
-  const consoleLogs = session.consoleLogs.slice(-MAX_CONSOLE_LOGS);
-  const networkRequests = [
-    ...session.networkRequests,
-    ...pendingNetworkSnapshot(session),
-  ].slice(-MAX_NETWORK_REQUESTS);
+  const clock =
+    activeNativeRecording?.sessionId === session.sessionId
+      ? diagnosticsClockOf(activeNativeRecording)
+      : { startedAtMs: session.startedAtMs, pauses: session.activityPauses };
+  const mapClock = <T extends { timestampMs: number; elapsedMs: number }>(
+    entries: T[],
+  ): T[] =>
+    entries.map((entry) => ({
+      ...entry,
+      elapsedMs: diagnosticsClockMs(entry.timestampMs, clock),
+    }));
+  const consoleLogs = mapClock(
+    session.consoleLogs
+      .filter(
+        (entry) =>
+          !session.diagnosticCapture || entry.tabId === session.targetTabId,
+      )
+      .slice(-MAX_CONSOLE_LOGS),
+  );
+  const networkRequests = mapClock(
+    [...session.networkRequests, ...pendingNetworkSnapshot(session)]
+      .filter(
+        (entry) =>
+          !session.diagnosticCapture || entry.tabId === session.targetTabId,
+      )
+      .slice(-MAX_NETWORK_REQUESTS),
+  );
   return {
     pageUrl: sanitizeUrl(session.targetUrl),
     userAgent:
@@ -2337,7 +2613,7 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
     endedAt,
     consoleLogs,
     networkRequests,
-    interactionEvents: session.interactionEvents.slice(-800),
+    interactionEvents: mapClock(session.interactionEvents.slice(-800)),
     summary: summarize({ endedAt, consoleLogs, networkRequests }),
   };
 }
@@ -2403,11 +2679,12 @@ async function attachSession(session: CaptureSession): Promise<void> {
   // attached, and the failure is reported rather than hidden.
   let wanted = [session.targetTabId];
   try {
-    wanted = pickDebugTabIds({
-      targetTabId: session.targetTabId,
-      activations: await readTabActivations(),
-      nowMs: nowMs(),
-    });
+    if (!session.diagnosticCapture)
+      wanted = pickDebugTabIds({
+        targetTabId: session.targetTabId,
+        activations: await readTabActivations(),
+        nowMs: nowMs(),
+      });
   } catch (err) {
     session.attachError = `Could not read recently used tabs: ${
       err instanceof Error ? err.message : String(err)
@@ -2546,12 +2823,10 @@ async function readLookbackNetwork(
   }
 }
 
-// Pages without the agent-native recorder are the common case and are skipped
-// silently.
 async function readAppActivity(
   tabId: number,
   seconds: number,
-): Promise<AppActivityRead | null> {
+): Promise<AppActivityReadResult> {
   let result: unknown;
   try {
     const [injection] = await withReadTimeout(
@@ -2564,14 +2839,20 @@ async function readAppActivity(
     );
     result = injection?.result;
   } catch (err) {
-    console.warn("[clips-bg] no app activity for tab", tabId, err);
-    return null;
+    const reason =
+      err instanceof Error ? err.message : "recorder-injection-failed";
+    return {
+      status: /permission|cannot access|not allowed/i.test(reason)
+        ? "denied"
+        : "failed",
+      reason,
+    };
   }
   const parsed = parseRecorderReportResult(result, nowMs());
   if (parsed.status === "failed") {
     console.warn("[clips-bg] unreadable app activity", tabId, parsed.reason);
   }
-  return parsed.status === "ok" ? parsed.read : null;
+  return parsed;
 }
 
 async function refreshLookbackNetwork(session: CaptureSession): Promise<void> {
@@ -2583,8 +2864,20 @@ async function refreshLookbackNetwork(session: CaptureSession): Promise<void> {
 async function deleteSession(sessionId: string): Promise<void> {
   const session = sessions.get(sessionId);
   if (!session) return;
+  session.appActivityCollector?.cancel();
   await detachSession(session);
   sessions.delete(sessionId);
+  if (session.webRecorderTabId !== undefined) {
+    const stored = await sessionStorageGet(["webCaptureSources"]);
+    const sources = Array.isArray(stored.webCaptureSources)
+      ? (stored.webCaptureSources as WebCaptureSource[])
+      : [];
+    await sessionStorageSet({
+      webCaptureSources: sources.filter(
+        (source) => source.sessionId !== sessionId,
+      ),
+    });
+  }
 }
 
 function pushConsole(
@@ -3000,15 +3293,59 @@ async function handleExternalMessage(
   if (message.type === "CLIPS_AUTH_SESSION") {
     return handleAuthSession(message, sender?.url);
   }
+  const settings = await readSettings();
+  if (!sender?.url || originOf(sender.url) !== originOf(settings.clipsBaseUrl))
+    return { ok: false, error: "Capture message came from the wrong origin." };
 
+  if ("sessionId" in message && message.sessionId) {
+    const session = sessions.get(message.sessionId);
+    if (
+      session?.webRecorderTabId !== undefined &&
+      !webCaptureSenderAllowed({
+        senderUrl: sender.url,
+        senderTabId: sender.tab?.id,
+        recorderTabId: session.webRecorderTabId,
+        clipsBaseUrl: settings.clipsBaseUrl,
+      })
+    )
+      return {
+        ok: false,
+        error: "Capture session belongs to another recorder tab.",
+      };
+  }
   if (message.type === "CLIPS_CAPTURE_START") {
     if (!message.sessionId) return { ok: false, error: "Missing sessionId." };
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
+    if (session.webRecorderTabId === undefined || session.captureBegun)
+      return {
+        ok: false,
+        error: "Capture session has already started or is not a web recorder.",
+      };
     session.recordingId = message.recordingId ?? null;
+    if (message.diagnosticConsent === true && session.recordingId) {
+      session.diagnosticCapture = await authorizeDiagnosticCapture(
+        settings,
+        session.recordingId,
+        message.captureId ?? session.sessionId,
+        message.requestedHistorySeconds ?? 30,
+      );
+      for (const tabId of session.debugTabs.keys())
+        if (tabId !== session.targetTabId) await detachDebugTab(session, tabId);
+      session.interactionEvents = [];
+    }
     await refreshLookbackNetwork(session);
-    beginSessionCapture(session);
+    const startedAtMs =
+      typeof message.startedAtMs === "number" &&
+      Math.abs(message.startedAtMs - nowMs()) < 30_000
+        ? message.startedAtMs
+        : nowMs();
+    beginSessionCapture(session, startedAtMs);
     await attachSession(session);
+    if (message.diagnosticConsent === true && session.recordingId) {
+      await persistWebCaptureIdentity(session);
+      await startAppActivityCollector(session, settings, true);
+    }
     return {
       ok: true,
       attached: session.attached,
@@ -3021,14 +3358,65 @@ async function handleExternalMessage(
     if (!message.sessionId) return { ok: false, error: "Missing sessionId." };
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
-    session.recordingId = message.recordingId ?? session.recordingId;
-    const diagnostics = snapshotSession(session);
+    if (
+      !session.captureBegun ||
+      (message.recordingId && message.recordingId !== session.recordingId)
+    )
+      return { ok: false, error: "Capture recording identity does not match." };
+    if (Array.isArray(message.pauses)) {
+      session.activityPauses = message.pauses
+        .filter(
+          (pause) =>
+            Number.isFinite(pause.startedAtMs) &&
+            Number.isFinite(pause.endedAtMs) &&
+            pause.startedAtMs >= session.startedAtMs &&
+            pause.endedAtMs >= pause.startedAtMs &&
+            pause.endedAtMs <= nowMs(),
+        )
+        .slice(0, 200);
+    }
+    const entry = await finalizeWebDiagnosticCapture(
+      session,
+      settings,
+      message.recordingStoppedAtMs,
+    );
+    const diagnostics = entry?.browserDiagnostics ?? snapshotSession(session);
+    const appActivity = entry?.activity ?? null;
     await deleteSession(message.sessionId);
-    return { ok: true, diagnostics };
+    return {
+      ok: true,
+      diagnostics,
+      appActivity,
+      ...(entry ? { diagnosticContext: diagnosticSavePayload(entry) } : {}),
+    };
   }
 
   if (message.type === "CLIPS_CAPTURE_CANCEL") {
-    if (message.sessionId) await deleteSession(message.sessionId);
+    if (message.sessionId) {
+      const session = sessions.get(message.sessionId);
+      if (session?.diagnosticCapture) {
+        if (message.discard === true) {
+          session.appActivityCollector?.cancel();
+          const captureId = session.diagnosticCapture.captureId;
+          await updateDiagnosticOutbox((entries) =>
+            entries.filter((entry) => entry.captureId !== captureId),
+          );
+          failedDiagnosticPayloads.delete(captureId);
+        } else {
+          session.activityPauses = validWebCapturePauses(
+            session,
+            message.pauses,
+          );
+          await finalizeWebDiagnosticCapture(
+            session,
+            settings,
+            message.recordingStoppedAtMs,
+            "recording-interrupted",
+          );
+        }
+      }
+      await deleteSession(message.sessionId);
+    }
     return { ok: true };
   }
 
@@ -3051,7 +3439,16 @@ function ensureRestored(): Promise<void> {
   }
   return restorePromise;
 }
-void ensureRestored();
+void ensureRestored()
+  .then(async () => {
+    await finalizeOrphanDiagnosticJournals();
+    await retryDiagnosticOutbox(await readSettings());
+  })
+  .catch((error) =>
+    captureExtensionError(error, {
+      tags: { surface: "background", recordingStep: "recover-private-context" },
+    }),
+  );
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
@@ -3110,6 +3507,7 @@ async function dispatchRuntimeMessage(
     const kind = (message as { kind?: unknown }).kind;
     if (
       !session ||
+      (session.diagnosticCapture !== null && tabId !== session.targetTabId) ||
       (kind !== "navigation" &&
         kind !== "click" &&
         kind !== "input" &&
@@ -3282,6 +3680,16 @@ async function dispatchRuntimeMessage(
   }
 
   switch (type) {
+    case "CLIPS_PREPARE_WEB_CAPTURE":
+      if (
+        sender?.id !== chrome.runtime.id ||
+        !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)
+      )
+        return {
+          ok: false,
+          error: "Capture preparation requires the Clips extension.",
+        };
+      return prepareWebCapture(message as PopupStartMessage);
     case "CLIPS_POPUP_START":
       return handlePopupStart(message as PopupStartMessage);
     case "CLIPS_POPUP_STATUS":
@@ -3368,7 +3776,8 @@ function recordingDiagnosticsSession(): CaptureSession | null {
 // its logs so far stay in the recording.
 async function followRecordingTab(tabId: number, now: number): Promise<void> {
   const session = recordingDiagnosticsSession();
-  if (!session) return;
+  if (!session || (session.diagnosticCapture && tabId !== session.targetTabId))
+    return;
   if (session.debugTabs.has(tabId)) {
     session.debugTabs.set(tabId, now);
     return;
@@ -3559,3 +3968,555 @@ function startDevHotReload(): void {
   connect();
 }
 startDevHotReload();
+
+const failedDiagnosticPayloads = new Map<string, DiagnosticOutboxEntry>();
+let diagnosticOutboxWrite: Promise<void> = Promise.resolve();
+let diagnosticOutboxRetry: Promise<void> | null = null;
+
+async function readDiagnosticOutbox(): Promise<DiagnosticOutboxEntry[]> {
+  const data = await new Promise<unknown>((resolve, reject) => {
+    chrome.storage.local.get([DIAGNOSTIC_OUTBOX_KEY], (stored) => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve(stored[DIAGNOSTIC_OUTBOX_KEY]);
+    });
+  });
+  if (data === undefined) return [];
+  if (
+    !Array.isArray(data) ||
+    data.some(
+      (item) =>
+        !item ||
+        typeof item !== "object" ||
+        typeof item.captureId !== "string" ||
+        typeof item.identity?.ownerEmail !== "string" ||
+        typeof item.identity?.orgId !== "string",
+    )
+  ) {
+    throw new Error("diagnostic-outbox-unreadable");
+  }
+  return data as DiagnosticOutboxEntry[];
+}
+
+function updateDiagnosticOutbox(
+  update: (entries: DiagnosticOutboxEntry[]) => DiagnosticOutboxEntry[],
+): Promise<void> {
+  const write = async () => {
+    const next = update(await readDiagnosticOutbox());
+    await new Promise<void>((resolve, reject) => {
+      chrome.storage.local.set({ [DIAGNOSTIC_OUTBOX_KEY]: next }, () => {
+        const error = chromeLastError();
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  };
+  diagnosticOutboxWrite = diagnosticOutboxWrite.then(write, write);
+  return diagnosticOutboxWrite;
+}
+
+async function authorizeDiagnosticCapture(
+  settings: ExtensionSettings,
+  recordingId: string,
+  captureId: string,
+  requestedHistorySeconds: number,
+): Promise<DiagnosticCapture> {
+  if (
+    !Number.isInteger(requestedHistorySeconds) ||
+    requestedHistorySeconds < 0 ||
+    requestedHistorySeconds > 300
+  )
+    throw new Error("invalid-diagnostic-history");
+  await updateDiagnosticOutbox(pruneExpiredDiagnosticOutbox);
+  if (
+    [...sessions.values()].some(
+      (session) =>
+        session.diagnosticCapture &&
+        session.diagnosticCapture.captureId !== captureId &&
+        session.appActivityCollector,
+    )
+  )
+    throw new Error("diagnostic-capture-already-active");
+  const authorization = await postAction<{
+    authorized: boolean;
+    ownerEmail: string;
+    orgId: string;
+    captureAuthorization: string;
+  }>(settings, "authorize-diagnostic-capture", {
+    recordingId,
+    captureId,
+    consent: true,
+  });
+  if (
+    authorization.authorized !== true ||
+    !authorization.ownerEmail ||
+    !authorization.orgId ||
+    !authorization.captureAuthorization
+  )
+    throw new Error("diagnostic-capture-not-authorized");
+  return {
+    captureId,
+    ownerEmail: authorization.ownerEmail,
+    orgId: authorization.orgId,
+    captureAuthorization: authorization.captureAuthorization,
+    requestedHistorySeconds,
+  };
+}
+
+function diagnosticOutboxEntry(
+  capture: DiagnosticCapture,
+  recordingId: string,
+  origin: string,
+  activity: AppActivity,
+  clock: DiagnosticsClock,
+  finalized: boolean,
+  browserDiagnostics?: BrowserDiagnosticsData | null,
+): DiagnosticOutboxEntry {
+  return {
+    captureId: capture.captureId,
+    captureAuthorization: capture.captureAuthorization,
+    recordingId,
+    origin: new URL(origin).origin,
+    identity: { ownerEmail: capture.ownerEmail, orgId: capture.orgId },
+    activity,
+    finalized,
+    saved: "pending",
+    pauses: clock.pauses.map((pause) => ({
+      from: new Date(pause.startedAtMs).toISOString(),
+      to: new Date(
+        pause.endedAtMs ?? activity.requestedWindow?.toMs ?? Date.now(),
+      ).toISOString(),
+    })),
+    ...(browserDiagnostics
+      ? { browserDiagnostics: { ...browserDiagnostics } }
+      : {}),
+  };
+}
+
+async function startAppActivityCollector(
+  session: CaptureSession,
+  settings: ExtensionSettings,
+  persist = false,
+): Promise<void> {
+  const capture = session.diagnosticCapture;
+  if (!capture || !session.recordingId) return;
+  const recordingId = session.recordingId;
+  const initial = persist
+    ? (await readDiagnosticOutbox()).find(
+        (entry) =>
+          entry.captureId === capture.captureId &&
+          entry.origin === new URL(settings.clipsBaseUrl).origin &&
+          sameDiagnosticIdentity(entry.identity, capture),
+      )
+    : undefined;
+  if (initial?.finalized) return;
+  const clock = () =>
+    activeNativeRecording?.sessionId === session.sessionId
+      ? diagnosticsClockOf(activeNativeRecording)
+      : { startedAtMs: session.startedAtMs, pauses: session.activityPauses };
+  session.appActivityCollector = new AppActivityCollector({
+    startedAtMs: session.startedAtMs,
+    requestedHistorySeconds: capture.requestedHistorySeconds,
+    read: async (seconds) => {
+      try {
+        const current = await authorizeDiagnosticCapture(
+          settings,
+          recordingId,
+          capture.captureId,
+          capture.requestedHistorySeconds,
+        );
+        if (
+          !sameDiagnosticIdentity(capture, current) ||
+          session.diagnosticCapture !== capture
+        )
+          return {
+            status: "denied",
+            reason: "diagnostic-capture-identity-changed",
+          };
+      } catch (error) {
+        return {
+          status: "denied",
+          reason: "diagnostic-collection-not-authorized",
+        };
+      }
+      const result = await readAppActivity(session.targetTabId, seconds);
+      return session.diagnosticCapture === capture
+        ? result
+        : { status: "denied", reason: "diagnostic-capture-identity-changed" };
+    },
+    clock,
+    ...(initial ? { initialActivity: initial.activity } : {}),
+    ...(persist
+      ? {
+          onSnapshot: async (activity: AppActivity) => {
+            const entry = diagnosticOutboxEntry(
+              capture,
+              recordingId,
+              settings.clipsBaseUrl,
+              activity,
+              clock(),
+              false,
+            );
+            if (session.webRecorderTabId !== undefined) {
+              entry.recorderTabId = session.webRecorderTabId;
+              entry.sourceTabId = session.targetTabId;
+            }
+            try {
+              await updateDiagnosticOutbox((entries) =>
+                putDiagnosticOutboxEntry(entries, entry),
+              );
+            } catch (error) {
+              session.diagnosticFailureCode = "diagnostic-local-save-failed";
+              if (activeNativeRecording?.sessionId === session.sessionId) {
+                activeNativeRecording.diagnosticFailureCode =
+                  session.diagnosticFailureCode;
+                await saveActiveNativeRecording();
+              }
+              throw error;
+            }
+          },
+        }
+      : {}),
+  });
+  try {
+    await session.appActivityCollector.start();
+  } catch (error) {
+    session.diagnosticFailureCode = "diagnostic-local-save-failed";
+    if (activeNativeRecording?.sessionId === session.sessionId) {
+      activeNativeRecording.diagnosticFailureCode =
+        session.diagnosticFailureCode;
+      await saveActiveNativeRecording();
+    }
+    captureExtensionError(error, {
+      tags: { surface: "background", recordingStep: "private-context-journal" },
+    });
+  }
+}
+
+async function retryDiagnosticOutbox(
+  settings: ExtensionSettings,
+): Promise<void> {
+  if (diagnosticOutboxRetry) return diagnosticOutboxRetry;
+  const retry = async () => {
+    const auth = await readAuthSession(settings);
+    if (!auth?.email) return;
+    const entries = await readDiagnosticOutbox();
+    for (const entry of entries) {
+      if (
+        !entry.finalized ||
+        entry.origin !== new URL(settings.clipsBaseUrl).origin ||
+        entry.identity.ownerEmail.toLowerCase() !== auth.email.toLowerCase()
+      )
+        continue;
+      try {
+        const identity = await postAction<{
+          ownerEmail: string;
+          orgId: string;
+        }>(settings, "check-diagnostic-capture-authorization", {
+          recordingId: entry.recordingId,
+          captureId: entry.captureId,
+          captureAuthorization: entry.captureAuthorization,
+        });
+        if (!sameDiagnosticIdentity(entry.identity, identity))
+          throw new Error("diagnostic-outbox-owner-mismatch");
+        await postAction(
+          settings,
+          "save-recording-diagnostic-context",
+          diagnosticSavePayload(entry),
+        );
+        await updateDiagnosticOutbox((current) =>
+          current.filter((item) => item.captureId !== entry.captureId),
+        );
+      } catch (error) {
+        const status = (error as { status?: unknown } | null)?.status;
+        const terminal =
+          typeof status === "number" &&
+          [400, 404, 409, 410, 422].includes(status);
+        await updateDiagnosticOutbox((current) =>
+          terminal
+            ? current.filter((item) => item.captureId !== entry.captureId)
+            : current.map((item) =>
+                item.captureId === entry.captureId
+                  ? {
+                      ...item,
+                      saved: "failed",
+                      failureCode: "diagnostic-upload-failed",
+                    }
+                  : item,
+              ),
+        );
+        captureExtensionError(error, {
+          tags: {
+            surface: "background",
+            recordingStep: "save-private-context",
+          },
+        });
+      }
+    }
+  };
+  diagnosticOutboxRetry = retry().finally(() => {
+    diagnosticOutboxRetry = null;
+  });
+  return diagnosticOutboxRetry;
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (
+    area !== "local" ||
+    !("clipsAuth" in changes) ||
+    !changes.clipsAuth.oldValue
+  )
+    return;
+  const before = changes.clipsAuth.oldValue as Partial<StoredAuth>;
+  const after = changes.clipsAuth.newValue as Partial<StoredAuth> | undefined;
+  if (
+    after?.token &&
+    before.email?.toLowerCase() === after.email?.toLowerCase()
+  )
+    return;
+  for (const session of sessions.values()) {
+    session.appActivityCollector?.cancel();
+    session.appActivityCollector = null;
+    session.diagnosticCapture = null;
+    session.diagnosticFailureCode = "cancelled-on-sign-out";
+  }
+  failedDiagnosticPayloads.clear();
+  if (activeNativeRecording) {
+    delete activeNativeRecording.diagnosticCapture;
+    activeNativeRecording.diagnosticFailureCode = "cancelled-on-sign-out";
+  }
+  void Promise.all([
+    updateDiagnosticOutbox(() => []),
+    sessionStorageSet({ webCaptureSources: [] }),
+    saveActiveNativeRecording(),
+    localStorageSet({
+      clipsDiagnosticCancellation: { at: nowIso(), reason: "signed-out" },
+    }),
+  ]).catch((error) =>
+    captureExtensionError(error, {
+      tags: { surface: "background", recordingStep: "cancel-private-context" },
+    }),
+  );
+});
+
+type WebCaptureSource = {
+  capture?: DiagnosticCapture;
+  recordingId?: string;
+  startedAtMs?: number;
+  sessionId: string;
+  recorderTabId: number;
+  targetTabId: number;
+  targetTitle?: string;
+  targetUrl?: string;
+  createdAtMs: number;
+};
+
+async function prepareWebCapture(message: PopupStartMessage) {
+  if (activeNativeRecording)
+    return { ok: false, error: "Clips is already recording." };
+  const tab = await queryActiveTab();
+  if (typeof tab?.id !== "number")
+    return { ok: false, error: "No source tab is available." };
+  const settings = await readSettings(message.settings);
+  const sessionId = crypto.randomUUID();
+  const session = createSession(sessionId, tab, settings);
+  const url = webCaptureUrl({
+    clipsBaseUrl: settings.clipsBaseUrl,
+    extensionId: chrome.runtime.id,
+    sessionId,
+    mode:
+      settings.captureSurface === "camera"
+        ? "camera"
+        : settings.includeCamera
+          ? "screen+camera"
+          : "screen",
+    surface: settings.captureSurface,
+    developerLogs: settings.includeDeveloperLogs,
+    diagnosticConsent: message.diagnosticConsent === true,
+    requestedHistorySeconds: message.requestedHistorySeconds ?? 30,
+  });
+  const recorder = await new Promise<chrome.tabs.Tab>((resolve, reject) => {
+    chrome.tabs.create({ url }, (created) => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve(created);
+    });
+  });
+  if (typeof recorder.id !== "number")
+    throw new Error("Could not open the recording tab.");
+  session.webRecorderTabId = recorder.id;
+  const stored = await sessionStorageGet(["webCaptureSources"]);
+  const sources = Array.isArray(stored.webCaptureSources)
+    ? (stored.webCaptureSources as WebCaptureSource[])
+    : [];
+  await sessionStorageSet({
+    webCaptureSources: [
+      ...sources
+        .filter(
+          (source) =>
+            source.targetTabId !== tab.id &&
+            nowMs() - source.createdAtMs < 15 * 60_000,
+        )
+        .slice(-7),
+      {
+        sessionId,
+        recorderTabId: recorder.id,
+        targetTabId: tab.id,
+        targetTitle: tab.title,
+        targetUrl: tab.url,
+        createdAtMs: nowMs(),
+      },
+    ],
+  });
+  return { ok: true, sessionId, recorderTabId: recorder.id };
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  for (const session of sessions.values()) {
+    if (session.webRecorderTabId === tabId)
+      void readSettings()
+        .then(async (settings) => {
+          await finalizeWebDiagnosticCapture(
+            session,
+            settings,
+            undefined,
+            "recorder-tab-closed",
+          );
+          await deleteSession(session.sessionId);
+        })
+        .catch((error) =>
+          captureExtensionError(error, {
+            tags: { surface: "background", recordingStep: "close-web-capture" },
+          }),
+        );
+  }
+});
+
+function validWebCapturePauses(
+  session: CaptureSession,
+  pauses?: Array<{ startedAtMs: number; endedAtMs: number }>,
+): Array<{ startedAtMs: number; endedAtMs: number }> {
+  if (!Array.isArray(pauses)) return session.activityPauses;
+  return pauses
+    .filter(
+      (pause) =>
+        Number.isFinite(pause.startedAtMs) &&
+        Number.isFinite(pause.endedAtMs) &&
+        pause.startedAtMs >= session.startedAtMs &&
+        pause.endedAtMs >= pause.startedAtMs &&
+        pause.endedAtMs <= nowMs(),
+    )
+    .slice(0, 200);
+}
+
+async function persistWebCaptureIdentity(
+  session: CaptureSession,
+): Promise<void> {
+  const capture = session.diagnosticCapture;
+  const recordingId = session.recordingId;
+  if (!capture || !recordingId) return;
+  const stored = await sessionStorageGet(["webCaptureSources"]);
+  const sources = Array.isArray(stored.webCaptureSources)
+    ? (stored.webCaptureSources as WebCaptureSource[])
+    : [];
+  if (
+    session.diagnosticCapture !== capture ||
+    session.recordingId !== recordingId
+  )
+    return;
+  await sessionStorageSet({
+    webCaptureSources: sources.map((source) =>
+      source.sessionId === session.sessionId
+        ? {
+            ...source,
+            capture,
+            recordingId,
+            startedAtMs: session.startedAtMs,
+          }
+        : source,
+    ),
+  });
+}
+
+async function finalizeWebDiagnosticCapture(
+  session: CaptureSession,
+  settings: ExtensionSettings,
+  stoppedAtMs?: number,
+  failureCode?: string,
+): Promise<DiagnosticOutboxEntry | null> {
+  if (session.finalDiagnosticEntry) return session.finalDiagnosticEntry;
+  session.finalDiagnosticEntry = (async () => {
+    const capture = session.diagnosticCapture;
+    if (!capture || !session.recordingId) return null;
+    const existing = (await readDiagnosticOutbox()).find(
+      (entry) =>
+        entry.captureId === capture.captureId &&
+        sameDiagnosticIdentity(entry.identity, capture),
+    );
+    if (existing?.finalized) return existing;
+    const now = nowMs();
+    const stoppedAt =
+      typeof stoppedAtMs === "number" && Math.abs(now - stoppedAtMs) < 30_000
+        ? stoppedAtMs
+        : now;
+    const activity = session.appActivityCollector
+      ? await session.appActivityCollector.stop(stoppedAt)
+      : existing?.activity;
+    if (session.diagnosticCapture !== capture) return null;
+    if (!activity) throw new Error("diagnostic-journal-unavailable");
+    const base = diagnosticOutboxEntry(
+      capture,
+      session.recordingId,
+      settings.clipsBaseUrl,
+      activity,
+      { startedAtMs: session.startedAtMs, pauses: session.activityPauses },
+      false,
+      session.includeDeveloperLogs ? snapshotSession(session) : null,
+    );
+    if (session.webRecorderTabId !== undefined)
+      base.recorderTabId = session.webRecorderTabId;
+    base.sourceTabId = session.targetTabId;
+    const entry = finalizeDiagnosticJournal(base, {
+      stoppedAtMs: stoppedAt,
+      ...(failureCode ? { failureCode } : {}),
+    });
+    try {
+      await updateDiagnosticOutbox((entries) =>
+        putDiagnosticOutboxEntry(entries, entry),
+      );
+    } catch (error) {
+      if (session.diagnosticCapture !== capture) return null;
+      failedDiagnosticPayloads.set(entry.captureId, entry);
+      session.diagnosticFailureCode = "diagnostic-local-save-failed";
+      captureExtensionError(error, {
+        tags: {
+          surface: "background",
+          recordingStep: "finalize-web-context-journal",
+        },
+      });
+    }
+    await retryDiagnosticOutbox(settings);
+    return session.diagnosticCapture === capture ? entry : null;
+  })();
+  return session.finalDiagnosticEntry;
+}
+
+async function finalizeOrphanDiagnosticJournals(): Promise<void> {
+  const active = new Set(
+    [...sessions.values()]
+      .filter((session) => session.appActivityCollector)
+      .map((session) => session.diagnosticCapture?.captureId),
+  );
+  await updateDiagnosticOutbox((entries) =>
+    entries.map((entry) => {
+      if (entry.finalized || active.has(entry.captureId)) return entry;
+      const stoppedAtMs = entry.activity.requestedWindow?.toMs;
+      if (stoppedAtMs === undefined)
+        throw new Error("diagnostic-journal-clock-unavailable");
+      return finalizeDiagnosticJournal(entry, {
+        stoppedAtMs,
+        failureCode: "capture-interrupted",
+      });
+    }),
+  );
+}

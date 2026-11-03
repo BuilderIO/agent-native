@@ -32,6 +32,9 @@ const SKIP_DIRS = new Set([
 // access is mediated through a scoped parent, custom action, public token, or
 // cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
+  "clips:recording_diagnostic_cleanup":
+    "private blob deletion outbox is managed by the diagnostic worker",
+
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
   "content:content_database_builder_blob_cleanup":

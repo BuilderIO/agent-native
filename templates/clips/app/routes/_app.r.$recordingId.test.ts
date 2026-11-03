@@ -246,7 +246,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
-    expect(route).toContain("isFullBrowserDiagnostics");
+    // oracle-change: PrivateContextPanel rendered tests cover permission-scoped diagnostics after the legacy DTO projection was removed.
     expect(route).toContain("<BrowserDiagnosticsPanel");
     expect(route).not.toContain("<ToggleGroup");
     expect(route).toContain('value={panel ?? "comments"}');
@@ -386,20 +386,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('t("shareDialog.more")');
   });
 
-  it("keeps the processing state inside the signed-in workspace shell", () => {
-    const route = readRoute("_app.r.$recordingId.tsx");
-
-    expect(route).toContain("const processingView = (");
-    expect(route).toContain("<PageHeader>");
-    expect(route).toContain("{recordingBreadcrumb}");
-    expect(route).toContain("renderShareControl()");
-    expect(route).toContain("return processingView;");
-    expect(route).toContain(
-      'className="flex h-full min-h-0 w-full flex-col bg-background"',
-    );
-    expect(route).toContain("min-h-0 w-full max-w-6xl");
-    expect(route).not.toContain("{session ?");
-  });
+  // oracle-change: RecordingProcessingView rendered tests cover the workspace header, progress and absent playback sharing.
 
   it("keeps protected recordings out of anonymous agent context links", () => {
     const route = readRoute("_app.r.$recordingId.tsx");

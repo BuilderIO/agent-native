@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import {
   assertRecordingNotExpired,
   assertRecordingNotExpiredForEmail,
@@ -84,10 +85,12 @@ export default defineAction({
     const now = new Date().toISOString();
     const [recording] = await db
       .select({
+        ownerEmail: schema.recordings.ownerEmail,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
         status: schema.recordings.status,
         durationMs: schema.recordings.durationMs,
       })
@@ -324,7 +327,12 @@ export default defineAction({
       recording.title,
       recording.titleSource,
     );
-    const summaryQueued = !recording.description?.trim();
+    const summaryQueued = !(
+      await loadPublicRecordingDescription({
+        ...recording,
+        id: args.recordingId,
+      })
+    ).trim();
     if (
       recording.status === "ready" &&
       (truncated || titleQueued || summaryQueued)

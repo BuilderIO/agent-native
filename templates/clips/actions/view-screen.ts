@@ -27,13 +27,16 @@ import {
   uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import { resolveRecordingDiagnosticAccess } from "../server/lib/diagnostic-context.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { recordingMediaProvenance } from "../server/lib/recording-media-provenance.js";
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -42,7 +45,7 @@ import {
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
-import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { diagnosticScopeSchema } from "../shared/diagnostic-context.js";
 import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
@@ -71,9 +74,7 @@ function mapRecording(r: any) {
     status: r.status,
     visibility: r.visibility,
     ownerEmail: r.ownerEmail,
-    sourceAppName: r.sourceAppName,
-    sourceProvider:
-      recordingEmbedProvider(r) ?? (r.sourceAppName === "Loom" ? "loom" : null),
+    ...recordingMediaProvenance(r),
     // Embed-backed clips play in another service's player; Clips has no
     // frames for them. A hosted clip has none until it is ready.
     framesAvailable:
@@ -119,7 +120,10 @@ async function fetchRecording(id: string) {
   ) {
     return null;
   }
-  return mapRecording(row);
+  return mapRecording({
+    ...row,
+    description: await loadPublicRecordingDescription(row),
+  });
 }
 
 async function fetchTranscript(recordingId: string) {
@@ -165,41 +169,6 @@ async function fetchComments(recordingId: string) {
       createdAt: c.createdAt,
     })),
   );
-}
-
-async function fetchBrowserDiagnosticsSummary(recordingId: string) {
-  const db = getDb();
-  const [row] = await db
-    .select()
-    .from(schema.recordingBrowserDiagnostics)
-    .where(eq(schema.recordingBrowserDiagnostics.recordingId, recordingId))
-    .limit(1);
-  return parseBrowserDiagnosticsRow(row)?.summary ?? null;
-}
-
-async function fetchBugReportSummary(recordingId: string) {
-  const access = await resolveAccess("recording", recordingId);
-  if (!access || !["owner", "admin", "editor"].includes(String(access.role))) {
-    return null;
-  }
-  const db = getDb();
-  const [row] = await db
-    .select()
-    .from(schema.recordingBugReports)
-    .where(eq(schema.recordingBugReports.recordingId, recordingId))
-    .limit(1);
-  if (!row) return null;
-  return {
-    projectId: row.projectId,
-    title: row.title,
-    severity: row.severity,
-    sourceUrl: row.sourceUrl,
-    pageTitle: row.pageTitle,
-    appVersion: row.appVersion,
-    environment: row.environment,
-    submittedAt: row.submittedAt,
-    note: "Bug report metadata only. Call get-recording-player-data for reporter fields and host metadata when you have editor access.",
-  };
 }
 
 async function fetchLibrary({
@@ -514,16 +483,13 @@ async function addRecordingContext(
   const recording = await fetchRecording(recordingId);
   if (!recording) return;
 
-  const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
-    await Promise.all([
-      fetchTranscript(recordingId),
-      recording.enableComments ||
-      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
-        ? fetchComments(recordingId)
-        : [],
-      fetchBrowserDiagnosticsSummary(recordingId),
-      fetchBugReportSummary(recordingId),
-    ]);
+  const [transcript, comments] = await Promise.all([
+    fetchTranscript(recordingId),
+    recording.enableComments ||
+    sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+      ? fetchComments(recordingId)
+      : [],
+  ]);
   screen.recording = recording;
   if (transcript) {
     screen.transcript = buildTranscriptPreview({
@@ -536,13 +502,6 @@ async function addRecordingContext(
     });
   }
   screen.comments = comments.slice(0, 50);
-  if (browserDiagnosticsSummary) {
-    screen.browserDiagnostics = {
-      summary: browserDiagnosticsSummary,
-      note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
-    };
-  }
-  if (bugReportSummary) screen.bugReport = bugReportSummary;
 }
 
 async function fetchShare(shareId: string) {
@@ -695,9 +654,7 @@ export default defineAction({
         if (nav.recordingId) {
           const recording = await fetchRecording(nav.recordingId);
           if (!recording) break;
-          const bugReportSummary = await fetchBugReportSummary(nav.recordingId);
           screen.recording = recording;
-          if (bugReportSummary) screen.bugReport = bugReportSummary;
         }
         break;
       }
@@ -707,6 +664,35 @@ export default defineAction({
       case "settings":
       default:
         break;
+    }
+
+    const diagnosticSelection = z
+      .object({
+        contextId: z.string(),
+        contextVersion: z.number(),
+        recordingId: z.string(),
+        scopes: z.array(diagnosticScopeSchema),
+        fromMs: z.number().nullable(),
+        toMs: z.number().nullable(),
+      })
+      .safeParse(await readAppState("diagnostic-context-selection"));
+    if (diagnosticSelection.success) {
+      try {
+        const access = await resolveRecordingDiagnosticAccess({
+          contextId: diagnosticSelection.data.contextId,
+        });
+        if (
+          access.context.contextVersion ===
+          diagnosticSelection.data.contextVersion
+        )
+          screen.diagnosticContextSelection = diagnosticSelection.data;
+      } catch (error) {
+        const status =
+          error && typeof error === "object" && "statusCode" in error
+            ? error.statusCode
+            : undefined;
+        if (status !== 403 && status !== 410) throw error;
+      }
     }
 
     if (Object.keys(screen).length === 0) {

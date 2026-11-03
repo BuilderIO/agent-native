@@ -29,7 +29,7 @@ export function isRecordingWaitingForStorage(
   return (
     isStorageSetupFailureReason(failureReason) ||
     ((isLoomRecordingSource(recording) ||
-      recording?.sourceAppName?.trim().toLowerCase() === "video link") &&
+      recording?.sourceProvider === "video-link") &&
       failureReason === WAITING_STORAGE_EXPIRED_REASON)
   );
 }

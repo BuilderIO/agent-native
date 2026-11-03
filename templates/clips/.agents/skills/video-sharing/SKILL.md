@@ -278,24 +278,32 @@ temporary agent-link path:
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
 
-Public agent context also exposes the recording's redacted browser diagnostics:
-the bounded relative event sequence as `browserDiagnostics.timeline`, including
-navigation, click/input targets, console events, and request/response markers;
-the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
-fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
-with query values redacted, status, duration), plus `consoleIssues` and
-`failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
-bodies, and cookies stay omitted. When a list is trimmed, failures and
-pre-recording entries are kept before the newest.
+Private diagnostic context has independent ownership and access. Video visibility,
+organization membership, recording editing rights, passwords and ordinary
+`agent_access` playback links do not grant diagnostics or reveal their existence.
+The owner inspects context in Debug before explicitly sharing it.
 
-When the clip carries app activity from an agent-native app, the context adds
-`appActivity` (counts, recorder coverage windows, up to 20 failures with
-`elapsedMs`). For the owner, or a Share with agents link made by someone who
-can still edit the clip, it also lists `apis.appActivity`
-(`/api/agent-app-activity.json`, filtered by `fromMs`, `toMs`, `maxEvents`,
-continued with `start=nextStart`). An open public link, a share password, or a
-link made by a viewer gets the summary only, because event data is more
-sensitive than the summary.
+Named same-organization readers use `share-recording-diagnostic-context` and
+`unshare-recording-diagnostic-context`; context visibility stays private. The
+owner creates a bounded bearer capability with
+`create-recording-diagnostic-grant`: select context version, label, categories,
+relative event interval and expiry. `list-recording-diagnostic-grants` omits
+bearer credentials; `revoke-recording-diagnostic-grant` blocks the next read
+without changing playback. New agent grants are gated by
+`clips-diagnostic-agent-grants`, default off. Never publish diagnostic bearer
+URLs in an issue, chat post or Clip description.
+
+The diagnostic activity endpoint accepts `diagnostic_access` separately from
+playback `agent_access`. A diagnostic-only grant can read only the approved
+context; it cannot play video, read transcripts or extract frames. Each bounded
+page rechecks current context version, scopes, window, expiry and revocation.
+Counts and highlights are computed from the authorized subset. A missing or
+unreadable blob returns a failure, never a whole-capture fallback summary.
+
+`remove-recording-diagnostic-context` revokes access before queuing private blob
+cleanup. Diagnostic retention is bounded by the Clip expiry and its own deadline;
+removal never deletes the video. Managed copies are cleared on sign-out,
+revocation or expiry; evidence already downloaded by a recipient cannot be recalled.
 
 Password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.
@@ -308,9 +316,9 @@ accepting legacy `t` tokens so already-copied links do not break.
 
 The share popover's "Share with agents" field should copy an agent context URL
 or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
-field may wrap that URL with instructions to fetch transcripts, frames, and
-browser diagnostics, but it should still point agents at the context response so
-they can fetch only the visual context they need.
+field may wrap that URL with instructions to fetch transcripts and frames.
+Private diagnostic access is created separately in Debug after the owner previews
+the approved categories and interval.
 
 HTTP access is the default browser-independent path: fetch the agent context
 URL and then use its advertised transcript and frame URLs. It works for

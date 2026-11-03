@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { sealRecordingDiagnostics } from "../server/lib/diagnostic-context.js";
 import { mediaCleanupSummary } from "../server/lib/recording-media-cleanup-worker.js";
 import { recordingMediaUrls } from "../server/lib/recording-media-cleanup.js";
 import { captureRecordingMediaCleanup } from "../server/lib/recording-media-lifecycle.js";
@@ -98,6 +99,7 @@ export default defineAction({
             .filter((value): value is string => Boolean(value) && value !== id),
         ),
       ];
+      await sealRecordingDiagnostics(tx, id);
       await captureRecordingMediaCleanup(tx, recording, footageIds, scope);
       if (footageIds.length)
         await tx

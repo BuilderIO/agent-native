@@ -16,7 +16,7 @@ describe("isRecordingWaitingForStorage", () => {
     ).toBe(true);
     expect(
       isRecordingWaitingForStorage(
-        { sourceAppName: " Video Link " },
+        { sourceProvider: "video-link" },
         WAITING_STORAGE_EXPIRED_REASON,
       ),
     ).toBe(true);

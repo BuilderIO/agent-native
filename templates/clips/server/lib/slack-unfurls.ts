@@ -10,6 +10,7 @@ import {
 } from "../../shared/share-meta.js";
 import { getDb, schema } from "../db/index.js";
 import { isRecordingExpired } from "./recording-page-access.js";
+import { loadPublicRecordingDescription } from "./recording-public-description.js";
 
 const SLACK_API_URL = "https://slack.com/api/chat.unfurl";
 const MAX_UNFURL_LINKS = 5;
@@ -273,8 +274,10 @@ export async function loadSlackVideoBlockForUrl(
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
+      ownerEmail: schema.recordings.ownerEmail,
       title: schema.recordings.title,
       description: schema.recordings.description,
+      descriptionSource: schema.recordings.descriptionSource,
       durationMs: schema.recordings.durationMs,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
@@ -300,7 +303,10 @@ export async function loadSlackVideoBlockForUrl(
 
   return recording
     ? buildSlackVideoBlock({
-        recording,
+        recording: {
+          ...recording,
+          description: await loadPublicRecordingDescription(recording),
+        },
         origin: share.origin,
         basePath: share.basePath,
       })

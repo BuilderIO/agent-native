@@ -1,8 +1,13 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
-import { getTableName } from "drizzle-orm";
-import { describe, expect, it, vi } from "vitest";
+import { getTableName, type Table } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -12,24 +17,6 @@ import * as mediaCleanupTables from "../db/media-cleanup-tables.js";
 import * as schema from "../db/schema";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
-
-/**
- * Regression guard, mirroring templates/analytics/server/plugins/db.spec.ts.
- *
- * This walks every Drizzle table exported from schema.ts and asserts every
- * declared SQL column name appears somewhere in the migrations source
- * (db.ts) — either in the table's original `CREATE TABLE` or in a later
- * `ADD COLUMN` migration. It can't prove *ordering* (a column could still be
- * referenced only in a comment), but it catches the exact failure mode this
- * guard exists for: a schema column with zero mentions in the migration
- * history, which silently 500s every query touching a pre-existing
- * production table once the column is used.
- *
- * A small number of columns are intentionally NOT asserted here (see
- * `KNOWN_COVERAGE_DRIFT` below) — pre-existing drift unrelated to this
- * change, where `ensureAdditiveColumns` (wired in db.ts below) self-heals the
- * gap at boot instead of a hand-written migration.
- */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 const failureBackfillSource = readFileSync(
@@ -62,57 +49,98 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
+let migrationDb: Awaited<ReturnType<typeof PGlite.create>> | undefined;
+let migrationRoot: string | undefined;
+const migratedColumns = new Map<string, Set<string>>();
 
-describe("clips db migrations cover every schema.ts column", () => {
+describe("recording media cleanup migration", () => {
+  for (const [exportName, exported] of Object.entries(mediaCleanupTables)) {
+    const columns = columnsOf(exported as unknown as DrizzleTable);
+
+    it(`creates schema.${exportName} columns and can apply its DDL repeatedly`, async () => {
+      const { splitSqlStatements } = await vi.importActual<{
+        splitSqlStatements: (sql: string) => string[];
+      }>("../../../../packages/core/src/db/migrations.js");
+      const database = await PGlite.create("memory://");
+      try {
+        await database.exec(`CREATE TABLE recordings(id TEXT PRIMARY KEY,video_url TEXT,thumbnail_url TEXT,animated_thumbnail_url TEXT,filmstrip_url TEXT,image_url TEXT,base_image_url TEXT,edits_json TEXT DEFAULT '{}');
+          CREATE TABLE recording_agent_frames(recording_id TEXT,storage_url TEXT);
+          CREATE TABLE recording_browser_diagnostics(recording_id TEXT,app_activity_blob_json TEXT);`);
+        for (let pass = 0; pass < 2; pass++)
+          for (const statement of splitSqlStatements(
+            recordingMediaCleanupMigration,
+          ))
+            await database.exec(statement);
+        const result = await database.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+          [getTableName(exported as unknown as Table)],
+        );
+        const actual = new Set(
+          result.rows.map((row: { column_name: string }) => row.column_name),
+        );
+        expect(
+          columns
+            .map((column) => column.name)
+            .filter((name) => !actual.has(name)),
+        ).toEqual([]);
+      } finally {
+        await database.close();
+      }
+    });
+  }
+});
+
+beforeAll(async () => {
+  const scratch = fileURLToPath(new URL("../../../../.tmp/", import.meta.url));
+  await mkdir(scratch, { recursive: true });
+  migrationRoot = await mkdtemp(join(scratch, "clips-schema-test-"));
+  const databasePath = join(migrationRoot, "db");
+  await promisify(execFile)(
+    process.execPath,
+    ["--import", "tsx", "scripts/migrate-production.ts"],
+    {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      env: {
+        ...process.env,
+        DATABASE_URL: `pglite:${databasePath}`,
+        NODE_ENV: "test",
+      },
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+  migrationDb = await PGlite.create(databasePath);
+  const rows = await migrationDb.query(
+    "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public'",
+  );
+  for (const row of rows.rows as Array<{
+    table_name: string;
+    column_name: string;
+  }>) {
+    const columns = migratedColumns.get(row.table_name) ?? new Set<string>();
+    columns.add(row.column_name);
+    migratedColumns.set(row.table_name, columns);
+  }
+}, 60_000);
+afterAll(async () => {
+  await migrationDb?.close();
+  if (migrationRoot) await rm(migrationRoot, { recursive: true, force: true });
+});
+
+describe("fresh Clips migrations create every declared schema column", () => {
   for (const [exportName, exported] of Object.entries(schema)) {
     if (!isDrizzleTable(exported)) continue;
     const columns = columnsOf(exported as DrizzleTable);
     if (!columns.length) continue;
 
-    // oracle-change: imported cleanup DDL is checked by applying it, not by finding its column names in db.ts.
-    if (Object.values(mediaCleanupTables).some((table) => table === exported)) {
-      it(`migrates every schema.${exportName} column and can apply its DDL repeatedly`, async () => {
-        const { splitSqlStatements } = await vi.importActual<{
-          splitSqlStatements: (sql: string) => string[];
-        }>("../../../../packages/core/src/db/migrations.js");
-        const database = await PGlite.create("memory://");
-        try {
-          await database.exec(`CREATE TABLE recordings(id TEXT PRIMARY KEY,video_url TEXT,thumbnail_url TEXT,animated_thumbnail_url TEXT,filmstrip_url TEXT,image_url TEXT,base_image_url TEXT,edits_json TEXT DEFAULT '{}');
-            CREATE TABLE recording_agent_frames(recording_id TEXT,storage_url TEXT);
-            CREATE TABLE recording_browser_diagnostics(recording_id TEXT,app_activity_blob_json TEXT);`);
-          for (let pass = 0; pass < 2; pass++)
-            for (const statement of splitSqlStatements(
-              recordingMediaCleanupMigration,
-            ))
-              await database.exec(statement);
-          const result = await database.query(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
-            [getTableName(exported)],
-          );
-          const actual = new Set(
-            result.rows.map((row: { column_name: string }) => row.column_name),
-          );
-          expect(
-            columns
-              .map((column) => column.name)
-              .filter((name) => !actual.has(name)),
-          ).toEqual([]);
-        } finally {
-          await database.close();
-        }
-      });
-      continue;
-    }
-
-    it(`every column on schema.${exportName} is mentioned in db.ts migrations`, () => {
-      const missing = columns
-        .map((c) => c.name)
-        .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
-        )
-        .filter((columnName) => !KNOWN_COVERAGE_DRIFT.has(columnName));
-      expect(missing).toEqual([]);
+    it(`every column on schema.${exportName} exists after production migrations`, () => {
+      const tableName = getTableName(exported as unknown as Table);
+      const actual = migratedColumns.get(tableName);
+      expect(actual).toBeDefined();
+      expect(
+        columns
+          .map((column) => column.name)
+          .filter((column) => !actual?.has(column)),
+      ).toEqual([]);
     });
   }
 });

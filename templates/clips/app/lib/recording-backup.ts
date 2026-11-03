@@ -71,6 +71,7 @@ export interface RecordingBackupMeta {
   /** Earlier attempts' rows that never became ready; trashed on success. */
   staleServerRecordingIds?: string[];
   ownerEmail?: string | null;
+  ownerOrgId?: string | null;
   /** Absent on copies saved before the recorder stored it. */
   recordingPlatform?: LocalRecorderPlatform | null;
   title?: string | null;
@@ -580,6 +581,7 @@ export function selectRecoverableRecordingBackups(
   options: {
     liveIds: Set<string> | null;
     ownerEmail: string | null;
+    ownerOrgId?: string | null;
   },
 ): RecordingBackupMeta[] {
   return metas
@@ -588,6 +590,9 @@ export function selectRecoverableRecordingBackups(
       (meta) =>
         !meta.ownerEmail ||
         meta.ownerEmail.toLowerCase() === options.ownerEmail?.toLowerCase(),
+    )
+    .filter(
+      (meta) => !meta.ownerOrgId || meta.ownerOrgId === options.ownerOrgId,
     )
     .filter((meta) => !options.liveIds?.has(meta.recordingId))
     .sort((a, b) => savedAtMs(b) - savedAtMs(a));

@@ -1,6 +1,7 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { organizations, registerIdentityColumns } from "@agent-native/core/org";
 import {
+  ForbiddenError,
   registerHostAccessResolver,
   registerShareableResource,
 } from "@agent-native/core/sharing";
@@ -77,6 +78,25 @@ registerShareableResource({
   getDb,
   ownerAccessIgnoresOrg: true,
 });
+registerShareableResource({
+  type: "recording-diagnostic-context",
+  resourceTable: schema.recordingDiagnosticContexts,
+  sharesTable: schema.recordingDiagnosticContextShares,
+  displayName: "Private context",
+  titleColumn: "id",
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+  assertSharingChange: ({ change }) => {
+    if (change.kind === "grant" || change.visibility !== "private") {
+      throw new ForbiddenError(
+        "Private context requires an explicit named diagnostic share.",
+      );
+    }
+  },
+  getResourcePath: (context) =>
+    `/recording/${encodeURIComponent(context.recordingId)}`,
+  getDb,
+});
 registerHostAccessResolver("recording", contentDocReaderRole, {
   includeSignedOut: true,
 });
@@ -142,6 +162,22 @@ registerIdentityColumns([
     offboard: "retain",
     reason:
       "Keep in-flight media outputs reachable by their original cleanup intent.",
+  },
+  {
+    table: "recording_diagnostic_contexts",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Private capture identity never transfers with video ownership; membership revocation seals it until retention cleanup.",
+  },
+  {
+    table: "recording_diagnostic_grants",
+    column: "issuer_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "Removing the diagnostic issuer immediately invalidates every bearer grant.",
   },
   {
     table: "space_members",

@@ -4,6 +4,7 @@ import { createError, defineEventHandler, getHeader } from "h3";
 
 import { runBrainExportSweepOnce } from "../../../../jobs/brain-export.js";
 import { runTransactionalEmailsOnce } from "../../../../jobs/transactional-emails.js";
+import { cleanupDiagnosticContexts } from "../../../../lib/diagnostic-context.js";
 import { reapExpiredUploads } from "../../../../lib/upload-lease.js";
 
 declare global {
@@ -42,24 +43,31 @@ export default defineEventHandler(async (event) => {
     !headerMatchesSecret(getHeader(event, "authorization"), secret)
   )
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  const [uploads, transactionalEmails, brainExport] = await Promise.allSettled([
-    reapExpiredUploads(),
-    runTransactionalEmailsOnce().catch((error) => {
-      console.error("[transactional-emails] scheduled run failed:", error);
-      return null;
-    }),
-    runBrainExportSweepOnce(),
-  ]);
+  const [uploads, transactionalEmails, brainExport, diagnosticCleanup] =
+    await Promise.allSettled([
+      reapExpiredUploads(),
+      runTransactionalEmailsOnce().catch((error) => {
+        console.error("[transactional-emails] scheduled run failed:", error);
+        return null;
+      }),
+      runBrainExportSweepOnce(),
+      cleanupDiagnosticContexts(),
+    ]);
   const failures = [
     ["uploads", uploads],
     ["brain-export", brainExport],
+    ["diagnostic-cleanup", diagnosticCleanup],
   ] as const;
   for (const [name, result] of failures) {
     if (result.status === "rejected") {
       console.error(`[${name}] scheduled run failed:`, result.reason);
     }
   }
-  if (uploads.status === "rejected" || brainExport.status === "rejected") {
+  if (
+    uploads.status === "rejected" ||
+    brainExport.status === "rejected" ||
+    diagnosticCleanup.status === "rejected"
+  ) {
     throw createError({
       statusCode: 500,
       statusMessage: "One or more scheduled Clips jobs failed",

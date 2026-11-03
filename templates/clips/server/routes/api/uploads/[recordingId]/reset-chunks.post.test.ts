@@ -288,6 +288,22 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockReacquireHostedClipRecordingForRetry.mockResolvedValue({ ok: true });
   });
 
+  it.each([
+    { expectedOwnerEmail: "other@example.com" },
+    { expectedOrgId: "another-org" },
+  ])(
+    "rejects a switched identity before resetting chunks",
+    async (expected) => {
+      mockReadBody.mockResolvedValue(expected);
+      await expect(handler({} as never)).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "upload_identity_mismatch",
+      });
+      expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+      expect(mockDb.select).not.toHaveBeenCalled();
+    },
+  );
+
   it("validates streaming MIME before changing upload state", async () => {
     mockReadBody.mockResolvedValue({
       requestStreaming: true,

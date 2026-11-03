@@ -283,9 +283,15 @@ export function RecordingContextPanel({
     content = <ContextPanelSkeleton />;
   }
 
+  const showFootageActivityUnavailable = visibleCount > 0 && canManage;
   return (
     <div className="max-h-80 shrink-0 overflow-y-auto border-b border-border px-4 py-4">
       {content}
+      {showFootageActivityUnavailable ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t("privateContext.unsupported")}
+        </p>
+      ) : null}
       {visibleCount > 0 && canManage ? (
         <p className="mt-4 text-xs text-muted-foreground">
           {t("lookbackContext.editHint")}

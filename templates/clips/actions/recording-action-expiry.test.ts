@@ -14,9 +14,6 @@ vi.mock("../server/db/index.js", async () => ({
   schema: await import("../server/db/schema.js"),
   getDb: () => boundary.read(),
 }));
-vi.mock("../server/lib/app-activity.js", () => ({
-  loadRecordingAppActivity: () => boundary.read(),
-}));
 vi.mock("@agent-native/core/application-state", async (original) => ({
   ...(await original<typeof import("@agent-native/core/application-state")>()),
   readAppState: async () => boundary.read(),
@@ -35,7 +32,6 @@ vi.mock("../server/lib/recordings.js", () => ({
 const loaders = {
   "remove-silences": () => import("./remove-silences.js"),
   "request-transcript": () => import("./request-transcript.js"),
-  "get-recording-app-activity": () => import("./get-recording-app-activity.js"),
   "generate-workflow": () => import("./generate-workflow.js"),
   "regenerate-chapters": () => import("./regenerate-chapters.js"),
   "regenerate-summary": () => import("./regenerate-summary.js"),
@@ -49,7 +45,6 @@ const loaders = {
 const readers = [
   "remove-silences",
   "request-transcript",
-  "get-recording-app-activity",
   "generate-workflow",
   "regenerate-chapters",
   "regenerate-summary",

@@ -5,6 +5,8 @@ import {
 } from "@agent-native/core/client/api-path";
 import {
   actionErrorMessage,
+  actionErrorCode,
+  callAction,
   useActionMutation,
   useActionQuery,
   useSession,
@@ -28,18 +30,12 @@ import type {
   ClipsAiRequestStatus,
 } from "@shared/ai-request-status";
 import {
-  type AppActivityEvent,
-  MAX_APP_ACTIVITY_EVENTS,
-} from "@shared/app-activity";
-import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
 import { canReadRecordingComments } from "@shared/comment-access";
-import { recordingEmbedProvider } from "@shared/embed-provider";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
-import { isLoomRecordingSource } from "@shared/loom";
 import {
   isImageRecording,
   screenshotFileExtension,
@@ -79,7 +75,14 @@ import {
   IconMoodSmile,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   Link,
@@ -103,7 +106,6 @@ import { RecordingContextSection } from "@/components/lookback/recording-context
 import {
   type AppActivityEventsState,
   BrowserDiagnosticsPanel,
-  isFullBrowserDiagnostics,
 } from "@/components/player/browser-diagnostics-panel";
 import {
   VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
@@ -118,9 +120,14 @@ import {
 } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import {
+  PrivateContextPanel,
+  type PrivateDiagnosticContext,
+} from "@/components/player/private-context-panel";
+import {
   REACTION_EMOJIS,
   REACTION_NAMES,
 } from "@/components/player/reaction-emojis";
+import { RecordingProcessingView } from "@/components/player/recording-processing-view";
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingTagsBar } from "@/components/player/recording-tags-bar";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
@@ -1070,7 +1077,6 @@ export default function RecordingPage() {
     failProcessingToast,
     recording?.id,
     recording?.failureReason,
-    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1158,7 +1164,7 @@ export default function RecordingPage() {
     recordingId: recording?.id ?? "",
     agentContextUrl: directAgentContextUrl,
     recordingStatus: recording?.status,
-    frameAvailable: !recordingEmbedProvider(recording),
+    frameAvailable: !recording?.embedProvider,
   });
   const comments = useMemo(() => {
     const loadedComments: PlayerComment[] = playerDataQ.data?.comments ?? [];
@@ -1229,28 +1235,36 @@ export default function RecordingPage() {
   ]);
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
-  const browserDiagnosticsCandidate =
-    recordingId === VIEWER_REDESIGN_PREVIEW_ID
-      ? VIEWER_PREVIEW_BROWSER_DIAGNOSTICS
-      : playerDataQ.data?.browserDiagnostics;
-  const browserDiagnostics =
-    canEdit && isFullBrowserDiagnostics(browserDiagnosticsCandidate)
-      ? browserDiagnosticsCandidate
-      : null;
-  const appActivityQ = useActionQuery<{ events: AppActivityEvent[] }>(
-    "get-recording-app-activity",
-    { recordingId: recordingId ?? "", maxEvents: MAX_APP_ACTIVITY_EVENTS },
+  const diagnosticContextQ = useActionQuery<PrivateDiagnosticContext>(
+    "get-recording-diagnostic-context",
+    { recordingId: recordingId ?? "" },
     {
-      enabled: Boolean(
-        recordingId && browserDiagnostics?.appActivity && panel === "debug",
-      ),
+      enabled:
+        !!session?.email &&
+        !!recordingId &&
+        recordingId !== VIEWER_REDESIGN_PREVIEW_ID,
+      retry: false,
+      gcTime: 0,
+      queryKeyScope: [session?.email, session?.orgId],
     },
   );
-  const appActivityEvents: AppActivityEventsState = appActivityQ.data
-    ? { status: "ready", events: appActivityQ.data.events }
-    : appActivityQ.isError
-      ? { status: "failed" }
-      : { status: "loading" };
+  const privateContext = diagnosticContextQ.isError
+    ? null
+    : diagnosticContextQ.data;
+  const browserDiagnostics =
+    recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_BROWSER_DIAGNOSTICS
+      : null;
+  const privateContextUnavailable = [
+    "diagnostic_storage_unavailable",
+    "diagnostic_payload_unreadable",
+  ].includes(actionErrorCode(diagnosticContextQ.error) ?? "");
+  const hasDebugContext =
+    !!privateContext || !!browserDiagnostics || privateContextUnavailable;
+  const appActivityEvents: AppActivityEventsState = {
+    status: "ready",
+    events: [],
+  };
   const browserDiagnosticsDurationMs =
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
@@ -1284,7 +1298,9 @@ export default function RecordingPage() {
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
-      (!browserDiagnostics && panel === "debug") ||
+      (!hasDebugContext &&
+        !diagnosticContextQ.isLoading &&
+        panel === "debug") ||
       (recording && !canReadComments && panel === "comments") ||
       (isImage && panel === "transcript")
     ) {
@@ -1292,6 +1308,8 @@ export default function RecordingPage() {
     }
   }, [
     browserDiagnostics,
+    hasDebugContext,
+    diagnosticContextQ.isLoading,
     canEdit,
     canReadComments,
     defaultPanel,
@@ -1333,12 +1351,14 @@ export default function RecordingPage() {
         panelParam === "debug" ||
         panelParam === "settings") &&
       (panelParam !== "settings" || canEdit) &&
-      (panelParam !== "debug" || browserDiagnostics)
+      (panelParam !== "debug" || hasDebugContext)
     ) {
       setPanel(panelParam === "insights" ? defaultPanel : panelParam);
     }
   }, [
     browserDiagnostics,
+    hasDebugContext,
+    diagnosticContextQ.isLoading,
     canEdit,
     isCompactLayout,
     panelParam,
@@ -1949,11 +1969,11 @@ export default function RecordingPage() {
     t,
   ]);
 
-  const embedProvider = recordingEmbedProvider(recording);
+  const embedProvider = recording?.embedProvider ?? null;
   const isEmbedBacked = embedProvider !== null;
   // A YouTube clip has no media to transcribe; its transcript is imported.
   const canTranscribe = canEdit && embedProvider !== "youtube";
-  const isLoomRecording = isLoomRecordingSource(recording);
+  const isLoomRecording = recording?.sourceProvider === "loom";
   // The editor is a timeline: trims, cuts, speed. None of it applies to a
   // still, whose editing story is markup over the image instead.
   const canUseNativeEditor =
@@ -2069,43 +2089,20 @@ export default function RecordingPage() {
     setProcessingTimeout(false);
     try {
       const isUrlImportRetry =
-        isLoomRecording ||
-        recording?.sourceAppName?.trim().toLowerCase() === "video link";
-      const actionPath = isUrlImportRetry
-        ? "/_agent-native/actions/import-loom-recording"
-        : "/_agent-native/actions/finalize-recording";
-      if (isUrlImportRetry && !recording?.sourceWindowTitle) {
-        throw new Error(t("recordingPage.loomMissingUrl"));
-      }
-      const res = await fetch(agentNativePath(actionPath), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          isUrlImportRetry
-            ? {
-                recordingId,
-                url: recording?.sourceWindowTitle,
-              }
-            : {
-                id: recordingId,
-                uploadAttemptId: recording?.uploadAttemptId ?? null,
-                uploadGenerationId: recording?.uploadGenerationId ?? null,
-              },
-        ),
-      });
-      const body = (await res.json()) as {
-        error?: string;
-        result?: { status?: string; storageSetupRequired?: boolean };
-        status?: string;
-        storageSetupRequired?: boolean;
-      } | null;
-      if (!res.ok) {
-        throw new Error(
-          body?.error ??
-            t("recordingPage.finalizeFailed", { status: res.status }),
-        );
-      }
-      const result = body?.result ?? body;
+        isLoomRecording || recording?.sourceProvider === "video-link";
+      const result = isUrlImportRetry
+        ? await callAction<{ status?: string; storageSetupRequired?: boolean }>(
+            "retry-recording-import",
+            { recordingId },
+          )
+        : await callAction<{ status?: string; storageSetupRequired?: boolean }>(
+            "finalize-recording",
+            {
+              id: recordingId,
+              uploadAttemptId: recording?.uploadAttemptId ?? null,
+              uploadGenerationId: recording?.uploadGenerationId ?? null,
+            },
+          );
       if (
         result?.storageSetupRequired ||
         result?.status === "waiting_storage"
@@ -2142,7 +2139,14 @@ export default function RecordingPage() {
       setRetryingFinalize(false);
       void playerDataQ.refetch();
     }
-  }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
+  }, [
+    isLoomRecording,
+    playerDataQ,
+    recording?.sourceProvider,
+    recording?.uploadAttemptId,
+    recording?.uploadGenerationId,
+    recordingId,
+  ]);
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
@@ -2676,6 +2680,43 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
+  const withPrivateInspection = (media: ReactNode) =>
+    privateContext || privateContextUnavailable ? (
+      <div className="grid h-full min-h-0 min-w-0 overflow-auto lg:grid-cols-[minmax(0,1fr)_360px]">
+        {media}
+        <section
+          aria-label={t("privateContext.title")}
+          className="min-h-0 min-w-0 overflow-auto border-s border-border"
+        >
+          <div className="border-b border-border px-3 py-2 text-sm font-medium">
+            {t("privateContext.title")}
+          </div>
+          {privateContext ? (
+            <PrivateContextPanel
+              data={privateContext}
+              recordingId={recordingId}
+              durationMs={0}
+            />
+          ) : (
+            <p role="alert" className="p-3 text-sm">
+              {t("privateContext.unavailable")}
+            </p>
+          )}
+        </section>
+      </div>
+    ) : (
+      media
+    );
+
+  if (accessView === "share" && (privateContext || privateContextUnavailable))
+    return withPrivateInspection(
+      <p className="p-6 text-sm text-muted-foreground">
+        {t("recordingPage.noAccess")}
+      </p>,
+    );
+  if (accessView === "share" && diagnosticContextQ.isLoading)
+    return <RecordingWorkspaceSkeleton />;
+
   if (accessView === "pending") return <RecordingWorkspaceSkeleton />;
 
   if (accessView === "share") {
@@ -2687,7 +2728,7 @@ export default function RecordingPage() {
   }
 
   if (accessView === "retry") {
-    return (
+    return withPrivateInspection(
       <Empty className="min-h-[calc(100dvh-3.5rem)] rounded-none border-0">
         <EmptyHeader>
           <EmptyTitle>{t("sharePage.somethingWentWrong")}</EmptyTitle>
@@ -2702,12 +2743,12 @@ export default function RecordingPage() {
             {t("libraryGrid.retry")}
           </Button>
         </EmptyContent>
-      </Empty>
+      </Empty>,
     );
   }
 
   if (playerDataQ.isError || !recording) {
-    return (
+    return withPrivateInspection(
       <Empty className="min-h-[calc(100dvh-3.5rem)] rounded-none border-0">
         <EmptyHeader>
           <EmptyTitle>{t("recordingPage.recordingNotFound")}</EmptyTitle>
@@ -2726,7 +2767,7 @@ export default function RecordingPage() {
             </Link>
           </Button>
         </EmptyContent>
-      </Empty>
+      </Empty>,
     );
   }
 
@@ -2794,50 +2835,16 @@ export default function RecordingPage() {
       : failureDetail(rawFailureReason);
     if (!showRecoveryState) {
       const processingView = (
-        <div className="flex h-full min-h-0 w-full flex-col bg-background">
-          <PageHeader>
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="min-w-0 flex-1">{recordingBreadcrumb}</div>
-              {isPrivateRecipient ? (
-                <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
-                  {t("recordingPage.sharedWithYou")}
-                </span>
-              ) : null}
-            </div>
-          </PageHeader>
-
-          <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
-            <div className="relative flex aspect-video w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-foreground">
-              <div className="flex flex-col items-center gap-3 text-center text-background">
-                <Spinner className="size-8" />
-                <p className="text-sm font-medium">
-                  {t("recordingPage.finishingClip")}
-                </p>
-              </div>
-            </div>
-
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
-              <p className="text-center text-sm text-muted-foreground">
-                {t("recordingPage.uploadingAssembling")}
-              </p>
-              {progress > 0 ? (
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-foreground transition-[width]"
-                    style={{
-                      width: `${Math.min(100, Math.max(0, progress))}%`,
-                    }}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </main>
-        </div>
+        <RecordingProcessingView
+          breadcrumb={recordingBreadcrumb}
+          isPrivateRecipient={isPrivateRecipient}
+          progress={progress}
+        />
       );
 
-      return processingView;
+      return withPrivateInspection(processingView);
     }
-    return (
+    return withPrivateInspection(
       <div className="flex h-full min-h-0 w-full flex-col bg-background">
         <PageHeader>{recordingBreadcrumb}</PageHeader>
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6">
@@ -2938,7 +2945,7 @@ export default function RecordingPage() {
             </Button>
           </div>
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -2971,7 +2978,7 @@ export default function RecordingPage() {
         <ViewerTabsTrigger value="agent">
           {t("sharePage.agent")}
         </ViewerTabsTrigger>
-        {browserDiagnostics ? (
+        {hasDebugContext ? (
           <ViewerTabsTrigger value="debug">
             <span className="flex items-center justify-center gap-1.5">
               {t("browserDiagnostics.debug")}
@@ -3161,17 +3168,30 @@ export default function RecordingPage() {
             showTabBar={false}
           />
         </TabsContent>
-        {browserDiagnostics ? (
+        {hasDebugContext ? (
           <TabsContent
             value="debug"
             className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
-            <BrowserDiagnosticsPanel
-              diagnostics={browserDiagnostics}
-              appActivityEvents={appActivityEvents}
-              durationMs={browserDiagnosticsDurationMs}
-              onSeek={(ms) => playerRef.current?.seek(ms)}
-            />
+            {privateContext ? (
+              <PrivateContextPanel
+                data={privateContext}
+                recordingId={recordingId}
+                durationMs={recording?.durationMs ?? 0}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+              />
+            ) : browserDiagnostics ? (
+              <BrowserDiagnosticsPanel
+                diagnostics={browserDiagnostics}
+                appActivityEvents={appActivityEvents}
+                durationMs={browserDiagnosticsDurationMs}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+              />
+            ) : privateContextUnavailable ? (
+              <p role="alert" className="p-3 text-sm">
+                {t("privateContext.unavailable")}
+              </p>
+            ) : null}
           </TabsContent>
         ) : null}
         {canEdit ? (

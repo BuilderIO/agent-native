@@ -43,12 +43,14 @@ import {
 } from "../../lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
+import { recordingMediaProvenance } from "../../lib/recording-media-provenance.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
+import { loadPublicRecordingDescription } from "../../lib/recording-public-description.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
 import {
   countRecordingViews,
@@ -509,7 +511,7 @@ export default defineEventHandler(async (event) => {
     recording: {
       id: rec.id,
       title: rec.title,
-      description: rec.description,
+      description: await loadPublicRecordingDescription(rec),
       kind: resolveRecordingKind(rec.kind),
       // A screenshot's picture is served by the thumbnail route, which is the
       // full stored image and carries the same short-lived token as the video
@@ -517,7 +519,7 @@ export default defineEventHandler(async (event) => {
       imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
-      sourceAppName: rec.sourceAppName,
+      ...recordingMediaProvenance(rec),
       durationMs: rec.durationMs,
       editsJson: isImageRecording(rec)
         ? viewerScreenshotEditsJson(rec.editsJson)

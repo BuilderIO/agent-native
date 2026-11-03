@@ -26,6 +26,7 @@ import {
   postUploadAbort,
   uploadChunkRequest,
 } from "./upload-request";
+import { prepareRecordingUploadRetry } from "./upload-retry-target";
 
 export type LocalUploadFailureCode =
   | "missing_local_copy"
@@ -233,6 +234,8 @@ export interface LocalUploadOptions {
    * the server re-checks this against the live session.
    */
   ownerEmail: string;
+  ownerOrgId?: string | null;
+  stillOwner?: () => boolean;
   signal?: AbortSignal;
   /**
    * The recording held in memory, used instead of the local copy when that
@@ -249,6 +252,7 @@ export interface LocalUploadOptions {
     title?: string | null;
     /** The account that recorded it; the stored copy's owner wins. */
     ownerEmail?: string | null;
+    ownerOrgId?: string | null;
     recordingPlatform?: LocalRecorderPlatform | null;
     /** False when the recorder never delivered its final chunk. */
     whole?: boolean;
@@ -292,15 +296,7 @@ export function isProcessingStuck(
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000] as const;
 
-/**
- * Upload a recording's local copy as a fresh server recording.
- *
- * The local copy is deleted only once the server reports the clip `ready`.
- * Every failure leaves it in `recorded-local` with the classified error, and
- * the attempt's server row is marked failed with that code so analytics see a
- * real cause. A previous attempt's row that never became ready is trashed once
- * this upload succeeds.
- */
+/** Upload a local copy into its original server recording, preserving private-context identity. */
 export async function uploadLocalRecording(
   localId: string,
   options: LocalUploadOptions,
@@ -315,14 +311,18 @@ export async function uploadLocalRecording(
       );
     },
   );
+  const memoryOwnerEmail = stored?.meta.ownerEmail ?? memorySource?.ownerEmail;
+  const memoryOwnerOrgId = stored?.meta.ownerOrgId ?? memorySource?.ownerOrgId;
+  const memoryPlatform =
+    stored?.meta.recordingPlatform ?? memorySource?.recordingPlatform;
   const copy = memorySource
     ? {
         meta: {
           ...stored?.meta,
           ...memorySource,
-          ownerEmail: stored?.meta.ownerEmail ?? memorySource.ownerEmail,
-          recordingPlatform:
-            stored?.meta.recordingPlatform ?? memorySource.recordingPlatform,
+          ...(memoryOwnerEmail ? { ownerEmail: memoryOwnerEmail } : {}),
+          ...(memoryOwnerOrgId ? { ownerOrgId: memoryOwnerOrgId } : {}),
+          ...(memoryPlatform ? { recordingPlatform: memoryPlatform } : {}),
           recordingId: localId,
           localOnly: stored?.meta.localOnly ?? true,
           bytes: memorySource.blob.size,
@@ -359,6 +359,21 @@ export async function uploadLocalRecording(
       "This recording belongs to another account.",
     );
   }
+  if (meta.ownerOrgId && meta.ownerOrgId !== options.ownerOrgId) {
+    throw new LocalRecordingUploadError(
+      "owner_mismatch",
+      "This recording belongs to another workspace.",
+    );
+  }
+  const assertOwner = () => {
+    if (options.stillOwner && !options.stillOwner()) {
+      throw new LocalRecordingUploadError(
+        "owner_mismatch",
+        "The recording account or workspace changed.",
+      );
+    }
+  };
+  assertOwner();
   const persist = (
     patch: Parameters<typeof updateRecordingBackupMeta>[1],
   ): Promise<unknown> =>
@@ -387,10 +402,13 @@ export async function uploadLocalRecording(
   };
 
   const staleServerIds = new Set(meta.staleServerRecordingIds ?? []);
-  const previousServerId =
-    meta.serverRecordingId ?? (meta.localOnly ? null : meta.recordingId);
+  const previousServerId = !meta.localOnly
+    ? meta.recordingId
+    : (meta.serverRecordingId ?? null);
+  let resumePreviousServer = false;
   if (previousServerId) {
     const previous = await fetchServerUploadStatus(previousServerId, signal);
+    resumePreviousServer = previous.found;
     if (previous.found && previous.status === "ready") {
       const proof = verifyServerCopy(previous, local);
       if (proof === "verified" || !options.reuploadMismatched) {
@@ -410,7 +428,6 @@ export async function uploadLocalRecording(
         };
       }
     }
-    if (previous.found) staleServerIds.add(previousServerId);
   }
 
   let state: LocalRecordingState = localRecordingState(meta);
@@ -420,8 +437,11 @@ export async function uploadLocalRecording(
   if (state === "uploaded") {
     state = nextLocalRecordingState(state, "failed") as LocalRecordingState;
   }
-  const serverId =
-    meta.localOnly && !meta.serverRecordingId ? localId : newRecordingId();
+  const serverId = previousServerId ?? localId;
+  staleServerIds.delete(serverId);
+  if (meta.serverRecordingId && meta.serverRecordingId !== serverId)
+    staleServerIds.add(meta.serverRecordingId);
+  assertOwner();
   await persist({
     state: nextLocalRecordingState(state, "upload") as LocalRecordingState,
     serverRecordingId: serverId,
@@ -431,7 +451,13 @@ export async function uploadLocalRecording(
 
   let uploaded: Awaited<ReturnType<typeof createAndUpload>>;
   try {
-    uploaded = await createAndUpload(serverId, meta, blob, options);
+    uploaded = await createAndUpload(
+      serverId,
+      meta,
+      blob,
+      options,
+      resumePreviousServer,
+    );
   } catch (error) {
     const failure =
       error instanceof LocalRecordingUploadError
@@ -448,8 +474,17 @@ export async function uploadLocalRecording(
       lastError: failure?.message ?? null,
     });
     const failedAbortUrl = (error as { abortUrl?: string } | null)?.abortUrl;
-    if (failure && failedAbortUrl) {
+    if (
+      failure &&
+      failedAbortUrl &&
+      (!options.stillOwner || options.stillOwner())
+    ) {
       void postUploadAbort(failedAbortUrl, {
+        ...((
+          error as {
+            abortFence?: { attemptId?: string; uploadGenerationId?: string };
+          }
+        ).abortFence ?? {}),
         reason: failure.message,
         failureCode: SERVER_FAILURE_CODE[failure.code],
         ...(failure.status ? { httpStatus: failure.status } : {}),
@@ -538,6 +573,7 @@ async function createAndUpload(
   meta: RecordingBackupMeta,
   blob: Blob,
   options: LocalUploadOptions,
+  resumeExisting: boolean,
 ): Promise<{
   status: "ready" | "processing";
   sourceSizeBytes: number | null;
@@ -550,35 +586,49 @@ async function createAndUpload(
     abortUrl?: string;
   };
   let created: UploadTarget & { result?: UploadTarget };
+  let uploadFence: { attemptId?: string; uploadGenerationId?: string } = {};
   try {
-    created = (await callAction(
-      "create-recording" as any,
-      {
-        id: serverId,
-        expectedOwnerEmail: meta.ownerEmail,
-        title: meta.title ?? undefined,
-        titleSource: meta.title ? "context" : undefined,
-        // Absent rather than a guess: the server stores and reports it as
-        // "unknown", and the schema only accepts real recorder platforms.
-        recordingPlatform: meta.recordingPlatform ?? undefined,
-        recordingSource: "local_copy_upload",
-        recordingAttemptId: meta.recordingId,
-        hasAudio: meta.hasAudio,
-        hasCamera: meta.hasCamera,
-        width: meta.width,
-        height: meta.height,
+    if (resumeExisting) {
+      uploadFence = await prepareRecordingUploadRetry(serverId, {
         mimeType: meta.mimeType,
-        requestStreaming: true,
-        folderId: options.folderId ?? undefined,
-        spaceIds: options.spaceIds,
-      } as any,
-      { signal },
-    )) as typeof created;
+        ...(signal ? { signal } : {}),
+        ...(meta.ownerEmail ? { expectedOwnerEmail: meta.ownerEmail } : {}),
+        ...(meta.ownerOrgId ? { expectedOrgId: meta.ownerOrgId } : {}),
+      });
+      created = {
+        id: serverId,
+        uploadChunkUrl: `/api/uploads/${encodeURIComponent(serverId)}/chunk`,
+      };
+    } else {
+      created = (await callAction(
+        "create-recording",
+        {
+          id: serverId,
+          expectedOwnerEmail: options.ownerEmail,
+          title: meta.title ?? undefined,
+          titleSource: meta.title ? "context" : undefined,
+          // Absent rather than a guess: the server stores and reports it as
+          // "unknown", and the schema only accepts real recorder platforms.
+          recordingPlatform: meta.recordingPlatform ?? undefined,
+          recordingSource: "local_copy_upload",
+          recordingAttemptId: meta.recordingId,
+          hasAudio: meta.hasAudio,
+          hasCamera: meta.hasCamera,
+          width: meta.width,
+          height: meta.height,
+          mimeType: meta.mimeType,
+          requestStreaming: true,
+          folderId: options.folderId ?? undefined,
+          spaceIds: options.spaceIds,
+        },
+        signal ? { signal } : {},
+      )) as typeof created;
+    }
   } catch (error) {
     if (isAbortError(error)) {
       // The server may have inserted the row before the request was cut off;
       // trashing a row that was never inserted is a harmless no-op.
-      void trashStaleServerRecordings([serverId]);
+      if (!resumeExisting) void trashStaleServerRecordings([serverId]);
       throw error;
     }
     const details = errorDetails(error);
@@ -599,7 +649,7 @@ async function createAndUpload(
     target.abortUrl ?? `/api/uploads/${serverId}/abort`,
   );
   const withAbortUrl = (error: unknown) =>
-    Object.assign(error as object, { abortUrl });
+    Object.assign(error as object, { abortUrl, abortFence: uploadFence });
 
   if (meta.transcript || meta.transcriptFailureReason) {
     void callAction(
@@ -623,12 +673,19 @@ async function createAndUpload(
   let finalBody: Record<string, unknown> | null = null;
   try {
     for (let index = 0; index < total; index++) {
+      if (options.stillOwner && !options.stillOwner()) {
+        throw new LocalRecordingUploadError(
+          "owner_mismatch",
+          "The recording account or workspace changed.",
+        );
+      }
       const isFinal = index === total - 1;
       const url = chunkUploadUrl(base, {
         index,
         total,
         isFinal,
         mimeType: meta.mimeType,
+        ...uploadFence,
         ...(isFinal
           ? {
               durationMs: meta.durationMs,
@@ -707,6 +764,12 @@ async function postChunkWithRetry(
 ): Promise<Record<string, unknown>> {
   const delays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   for (let attempt = 0; ; attempt++) {
+    if (options.stillOwner && !options.stillOwner()) {
+      throw new LocalRecordingUploadError(
+        "owner_mismatch",
+        "The recording account or workspace changed.",
+      );
+    }
     let failure: LocalRecordingUploadError;
     try {
       const response = await uploadChunkRequest({
@@ -714,6 +777,8 @@ async function postChunkWithRetry(
         body,
         contentType: contentType || "application/octet-stream",
         signal: options.signal,
+        expectedOwnerEmail: options.ownerEmail,
+        expectedOrgId: options.ownerOrgId ?? undefined,
       });
       const text = await response.text();
       const classified = classifyUploadResponseError({

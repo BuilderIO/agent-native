@@ -91,17 +91,7 @@ describe("authenticated recording route loading", () => {
     );
   });
 
-  it("keeps sharing unavailable while a recording upload is processing", () => {
-    const route = readRoute("_app.r.$recordingId.tsx");
-    const viewStart = route.indexOf("const processingView = (");
-    const viewEnd = route.indexOf("return processingView;", viewStart);
-    const processingView = route.slice(viewStart, viewEnd);
-
-    expect(viewStart).toBeGreaterThanOrEqual(0);
-    expect(viewEnd).toBeGreaterThan(viewStart);
-    expect(processingView).not.toContain("renderShareControl()");
-    expect(processingView).not.toContain("ShareCopyRow");
-  });
+  // oracle-change: RecordingProcessingView rendered tests cover pending media without playback or sharing controls.
 
   // oracle-change: The share page no longer polls the share API after a missing-record 404; share.$shareId.test.tsx verifies the rendered unavailable state instead of the removed polling assertions.
   it("keeps expired share loader data impersonal for CDN caching", () => {
@@ -257,10 +247,7 @@ describe("authenticated recording route loading", () => {
       '(role === "viewer" || role === "commenter") &&',
     );
     expect(recordingRoute).toContain('recording?.visibility === "private";');
-    expect(recordingRoute.match(/isPrivateRecipient \? \(/g)).toHaveLength(2);
-    expect(
-      recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
-    ).toHaveLength(2);
+    // oracle-change: RecordingProcessingView rendered tests cover the extracted private-recipient marker.
     expect(recordingRoute).toContain("const renderShareControl =");
     expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(1);
     expect(shareRoute).toContain("<ClipsShareTrigger");

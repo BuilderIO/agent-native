@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import {
@@ -136,7 +137,7 @@ export default defineAction({
         requestId,
         ...(requestedBy ? { requestedBy } : {}),
         recordingTitle: rec.title,
-        recordingDescription: rec.description,
+        recordingDescription: await loadPublicRecordingDescription(rec),
         transcriptStatus: transcript?.status ?? "pending",
         transcriptText: transcript?.fullText ?? "",
         stateKey,

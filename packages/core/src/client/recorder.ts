@@ -19,6 +19,8 @@ export type RecorderEventType =
 export type RecorderReportReason = "user" | "error" | "test" | "manual";
 
 export interface RecorderEvent {
+  documentId?: string;
+  seq?: number;
   /** Seconds before the report was made (negative). */
   t: number;
   /** Epoch ms, the same clock as Clips diagnostics `timestampMs`. */
@@ -41,6 +43,12 @@ export interface RecorderPendingWork {
 }
 
 export interface RecorderReport {
+  documentId?: string;
+  generation?: number;
+  recordingSince?: number;
+  coverageFrom?: number;
+  watchedAt?: string;
+  pendingAt?: string;
   app: string;
   build: string;
   /** The route path, with every query value redacted. */
@@ -61,7 +69,7 @@ export interface RecorderReportOptions {
 }
 
 type StoredEvent = Omit<RecorderEvent, "t">;
-type NewEvent = Omit<StoredEvent, "at">;
+type NewEvent = Omit<StoredEvent, "at" | "documentId" | "seq">;
 type Budget = { left: number };
 type Work = { type: "action" | "state"; name: string; since: number };
 type ExtraRedaction = { field: string } | { path: RegExp };
@@ -92,8 +100,11 @@ let buffer: { event: StoredEvent; chars: number }[] = [];
 let bufferChars = 0;
 let dropped = 0;
 let recordingSince = Date.now();
+let retainedSince = recordingSince;
 // Bumped by every clear, so work that started before a sign-out records nothing.
 let generation = 0;
+let documentId = recorderDocumentId();
+let nextEventSeq = 0;
 let lastPath: string | null = null;
 let lastErrorReportAt = -Infinity;
 let nextWorkId = 0;
@@ -104,6 +115,14 @@ const stateBaselines = new Map<string, unknown>();
 const watchers = new Map<string, () => unknown>();
 const listeners = new Set<(report: RecorderReport) => void>();
 const extraRedactions: ExtraRedaction[] = [];
+
+function recorderDocumentId(): string {
+  const hex = [...globalThis.crypto.getRandomValues(new Uint8Array(16))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const variant = ((Number.parseInt(hex.charAt(16), 16) & 3) | 8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
 
 function recording(): boolean {
   return enabled && typeof window !== "undefined";
@@ -122,6 +141,8 @@ function record(build: () => NewEvent): void {
 function push(event: NewEvent): void {
   const stored: StoredEvent = {
     at: Date.now(),
+    documentId,
+    seq: ++nextEventSeq,
     ...event,
     ...(event.name === undefined
       ? {}
@@ -146,6 +167,7 @@ function push(event: NewEvent): void {
 
 function trim(now: number): void {
   const oldest = now - windowSeconds * 1000;
+  retainedSince = Math.max(retainedSince, oldest);
   while (buffer.length > 0 && buffer[0]!.event.at < oldest) {
     bufferChars -= buffer.shift()!.chars;
   }
@@ -556,7 +578,7 @@ export function buildRecorderReport(
   const events: RecorderEvent[] = [];
   for (const { event } of buffer) {
     if (event.at >= from) {
-      events.push({ t: (event.at - now) / 1000, ...event });
+      events.push(structuredClone({ t: (event.at - now) / 1000, ...event }));
     }
   }
   const watched: Record<string, unknown> = {};
@@ -576,6 +598,16 @@ export function buildRecorderReport(
     }
   }
   return {
+    documentId,
+    generation,
+    recordingSince,
+    coverageFrom: Math.max(
+      enabled ? retainedSince : now,
+      from,
+      dropped > 0 ? (buffer[0]?.event.at ?? now) : from,
+    ),
+    watchedAt: new Date(now).toISOString(),
+    pendingAt: new Date(now).toISOString(),
     app: injectedAgentNativeAppId() ?? (window.location.host || "unknown"),
     build: clientBuildId() || "unknown",
     url: reportUrl(),
@@ -693,6 +725,7 @@ export function configureRecorder(options: {
         "configureRecorder({ windowSeconds }) needs a positive number of seconds.",
       );
     }
+    trim(Date.now());
     windowSeconds = options.windowSeconds;
   }
   if (options.maxEvents !== undefined) {
@@ -706,6 +739,7 @@ export function configureRecorder(options: {
   if (options.sentry !== undefined) sentry = options.sentry;
   if (options.enabled === false) stopRecorder();
   if (options.enabled === true) {
+    if (!enabled) clearRecorder();
     enabled = true;
     startRecorder();
   }
@@ -723,7 +757,10 @@ export function clearRecorder(): void {
   bufferChars = 0;
   dropped = 0;
   recordingSince = Date.now();
+  retainedSince = recordingSince;
   generation += 1;
+  documentId = recorderDocumentId();
+  nextEventSeq = 0;
   inFlight.clear();
   lastPath = null;
   stateBaselines.clear();

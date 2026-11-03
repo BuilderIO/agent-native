@@ -1,24 +1,26 @@
 # Clips — Agent Guide
 
-Clips records screens and meetings, manages transcripts, dictation, editing, and video sharing through shared SQL state and actions.
+Clips manages screen and meeting recordings, transcripts, editing, and sharing through shared actions.
 
 ## Skills
 
-Search with `rg --hidden --follow`; read the exact linked guide before deeper work. App: `.agents/skills/recording/SKILL.md` (capture, upload, playback, Loom, mobile, folders), `.agents/skills/ai-video-tools/SKILL.md` (transcription, cleanup, summaries, AI setup), `.agents/skills/video-editing/SKILL.md`, `.agents/skills/video-sharing/SKILL.md`, `.agents/skills/meetings/SKILL.md`, `.agents/skills/dictate/SKILL.md`, `.agents/skills/brain-export/SKILL.md`, `.agents/skills/crm-call-evidence/SKILL.md`, `.agents/skills/screen-memory/SKILL.md`, `.agents/skills/bug-reports/SKILL.md`, `.agents/skills/external-integrations/SKILL.md`. Shared: `.agents/skills/a2a-protocol/SKILL.md`, `.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`, `.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/authentication/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/performance/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`, `.agents/skills/secrets/SKILL.md`, `.agents/skills/security/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`, `.agents/skills/server-plugins/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+App skills: `recording` (capture, upload, playback, Loom, mobile, folders), `ai-video-tools`, `video-editing`, `video-sharing`, `meetings`, `dictate`, `brain-export`, `crm-call-evidence`, `screen-memory`, `bug-reports`, `external-integrations`. Shared skills: `a2a-protocol`, `actions`, `adding-a-feature`, `agent-native-docs`, `agent-native-toolkit`, `authentication`, `client-side-routing`, `context-awareness`, `customizing-agent-native`, `delegate-to-agent`, `external-agents`, `frontend-design`, `performance`, `portability`, `real-time-sync`, `reliable-mutations`, `secrets`, `security`, `self-modifying-code`, `server-plugins`, `shadcn-ui`, `sharing`, `storing-data`, `turn-into-skill`, `workspace-conventions`. Read the exact `.agents/skills/<name>/SKILL.md` guide before deeper work.
 
-Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`.
+Use local docs only, no web research: `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --slug "<slug>"`.
+Hidden/linked skills: `rg --hidden --follow --files .agents/skills`.
 
 ## Core rules
 
-- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Use actions for recording metadata, transcripts, cleanup, chapters, comments, meetings, folders, sharing, and collaboration. Respect access helpers. Keep large media/blob payloads out of SQL, state, settings, and resources; store bytes in configured storage and persist references.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Never hardcode credentials, webhook URLs, private/customer data, or credential-like literals.
+- Use actions for recording metadata, transcripts, cleanup, chapters, comments, meetings, folders, sharing, and collaboration. Respect access helpers. Store large media/blob bytes in configured storage and persist references, not bytes in SQL, state, settings, or resources.
+- For external integrations, inspect the workspace/provider connection catalog first. Reuse its scoped resolver. Never hardcode credentials, webhook URLs, private/customer data, or credential-like literals.
 - Recording start/stop/pause are browser gestures requiring user activation; navigate to the recording view instead of using a server action. Prefer native transcripts; cloud transcription is fallback-only. Do not hide a usable transcript after failed metadata work.
 - Use `import-loom-recording` for Loom, YouTube, or direct MP4/WebM URLs. Loom/public transcripts import in the background; request a transcript afterward for direct video. Transactional email claims two-Clip summary work and ends in one sentence.
 - `view-screen` may return a transcript preview truncated mid-sentence without an ending marker. When `previewTruncated`, read `get-recording-player-data` before judging completeness or quoting.
 - Clips are unlisted-by-link, not searchable. Only inspect recordings the user owns, viewed, or identified by URL/id. Never use `list-recordings` / `search-recordings` to find another person's clip, answer a date question, or recover a failed lookup; report the failure.
-- Sharing actions control access; passwords/expiry only tighten it. Screen Memory is local-only and disabled by default; raw segments are never uploaded or shared. The one exception is an owner's explicit request: a chosen window of Rewind history is uploaded as an owner-only recording attached to one Clip, that Clip follows its normal share rules, and sharing the Clip shares its earlier screen time with it.
+- Sharing actions control access; passwords/expiry only tighten it. Screen Memory is local-only and disabled by default; raw segments are never uploaded or shared. For an authorized private clip, use its chosen Rewind window only after the owner explicitly asks; the resulting Clip follows normal sharing rules.
 - Never fabricate. Read via actions, verify writes by read-back, and refresh after writes. Use `view-screen` when recording, transcript segment, meeting, or share context is unclear.
+- Read `dictate` before dictation work.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 
 ## Application state
 
@@ -29,17 +31,18 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 Use `tool-search` for the full surface, including screen-memory.
 
-| Action | Purpose |
-| --- | --- |
-| `view-screen` / `navigate` | Read context or open a surface |
-| `get-video-storage-status` | Check storage and any hosted clips available in the current rollout before asking to connect Builder |
-| `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
-| `create-recording-agent-link` | Make a temporary scoped link for an authorized private clip |
-| `create-recording-upload` / `import-loom-recording` | Upload a local video file, or import one from a URL |
-| `request-transcript` / `import-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription, imported VTT/SRT/timestamped transcripts, and metadata |
-| `trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words` | Edit video |
-| `share-resource` / `set-resource-visibility` / `build-embed-url` | Share or embed |
-| `list-meetings` / `search-meetings` / `list-dictations` | Meetings and dictation |
-| `export-to-brain` / `prepare-crm-call-evidence` | Send transcripts or CRM call evidence |
+|Action|Purpose|
+|---|---|
+|`view-screen` / `navigate`|Read context or open a surface|
+|`get-video-storage-status`|Check storage before asking to connect Builder|
+|`list-recordings` / `search-recordings` / `get-recording-player-data`|Find authorized clips; read transcript and chapters|
+|`create-recording-agent-link`|Make a temporary playback-only link|
+|`get-recording-diagnostic-context`|Inspect explicitly authorized private context; see recording/video-sharing skills|
+|`create-recording-upload` / `import-loom-recording`|Upload a local video file or import one from a URL|
+|`request-transcript` / `import-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters`|Transcription, imported VTT/SRT/timestamped transcripts, and metadata|
+|`trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words`|Edit video|
+|`share-resource` / `set-resource-visibility` / `build-embed-url`|Share or embed|
+|`list-meetings` / `search-meetings` / `list-dictations`|Meetings and dictation|
+|`export-to-brain` / `prepare-crm-call-evidence`|Send transcripts or CRM call evidence|
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
