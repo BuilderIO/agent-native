@@ -2257,6 +2257,7 @@ function queuedMessageFileParts(
   const seenUrls = new Set(
     files.flatMap((part) => (part.url ? [part.url] : [])),
   );
+  const unmatchedStored = [...files];
   for (const attachment of queued.requestAttachments ?? []) {
     const url =
       persistedFileUrl(attachment.referenceUrl) ??
@@ -2275,14 +2276,15 @@ function queuedMessageFileParts(
       }
       continue;
     }
-    if (
-      attachment.data &&
-      !files.some(
-        (part) =>
-          part.name === attachment.name &&
-          part.mediaType === attachment.contentType,
-      )
-    ) {
+    if (!attachment.data) continue;
+    const matchIndex = unmatchedStored.findIndex(
+      (part) =>
+        part.name === attachment.name &&
+        part.mediaType === attachment.contentType,
+    );
+    if (matchIndex >= 0) {
+      unmatchedStored.splice(matchIndex, 1);
+    } else {
       files.push({
         type: "file",
         name: attachment.name,
