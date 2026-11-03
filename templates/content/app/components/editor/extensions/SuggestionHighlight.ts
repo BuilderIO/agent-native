@@ -1064,8 +1064,15 @@ function typedDraftSpecs(
     // Typing at either edge of a draft is part of it.
     const from = tr.mapping.map(spec.from, -1);
     const to = tr.mapping.map(spec.to, 1);
-    return spec.kind === "delete" && to > from
-      ? { ...spec, from, to, kind: "mark" as const, editableText: true }
+    if (spec.kind === "delete" && to > from)
+      return { ...spec, from, to, kind: "mark" as const, editableText: true };
+    return spec.lineBreak
+      ? {
+          ...spec,
+          from,
+          to,
+          lineBreak: /^\n+$/.test(tr.doc.textBetween(from, to)),
+        }
       : { ...spec, from, to };
   });
   return typed ? [...mapped, typed] : mapped;

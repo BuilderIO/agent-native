@@ -2127,6 +2127,29 @@ describe("drafts while the author types", () => {
     expect(specsOf(editorState)).toHaveLength(1);
   });
 
+  it.each([
+    { label: "more line breaks", insert: "\n", at: 3, to: 3, lineBreak: true },
+    { label: "text after it", insert: "x", at: 3, to: 3, lineBreak: false },
+    { label: "text over it", insert: "x", at: 2, to: 3, lineBreak: false },
+  ])(
+    "shows a draft line break's arrow only while it holds no ink: $label",
+    ({ insert, at, to, lineBreak }) => {
+      const editorState = drafting("a\nb", [
+        {
+          suggestionId: "draft-4",
+          kind: "mark",
+          from: 2,
+          to: 3,
+          editableText: true,
+          draft: true,
+          lineBreak: true,
+        },
+      ]);
+      const next = editorState.apply(editorState.tr.insertText(insert, at, to));
+      expect(specsOf(next)).toMatchObject([{ lineBreak }]);
+    },
+  );
+
   it("turns a draft deletion into a replacement when the author types there", () => {
     const deletion: SuggestionHighlightSpec = {
       suggestionId: "draft-3",
