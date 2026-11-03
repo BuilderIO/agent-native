@@ -132,7 +132,7 @@ describe("resolveNotionSetupTarget", () => {
     }) as unknown as typeof fetch;
 
     await expect(
-      resolveNotionSetupTarget({ error: undefined }),
+      resolveNotionSetupTarget({}),
     ).resolves.toEqual({
       kind: "oauth",
       url: "https://api.notion.com/v1/oauth/authorize",
