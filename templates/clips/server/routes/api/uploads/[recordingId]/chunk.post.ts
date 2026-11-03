@@ -1794,13 +1794,6 @@ async function handleResumableChunk(
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
   }
-  await recordSourceHeadFromFirstChunk({
-    recordingId,
-    ownerEmail,
-    index,
-    bytes,
-    isFinal,
-  });
 
   if (isFinal && bytes.byteLength === 0) {
     if (session.bytesUploaded <= 0) {
@@ -1958,6 +1951,15 @@ async function handleResumableChunk(
           error: lease.failureReason ?? "Recording upload has already failed.",
         };
       }
+      // Here and not before the replay check: a committed chunk's replay is
+      // acked without storing its bytes, so it must not change the fingerprint.
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
       const start = session.bytesUploaded;
       const end = start + bytes.byteLength - 1;
       const contentRange = isFinal
