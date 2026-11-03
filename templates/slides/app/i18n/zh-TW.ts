@@ -817,8 +817,7 @@ const messages = {
     restoreFailedDescription: "無法恢復此幻燈片版本。",
     alreadyAtVersion: "已是此版本",
     restoreReloadFailed: "無法重新整理幻燈片",
-    restoreReloadFailedDescription:
-      "此版本已在伺服器上還原。請重新整理頁面查看。",
+    restoreReloadFailedDescription: "請重新整理頁面查看此簡報的目前版本。",
     backToSavedVersions: "返回已儲存版本",
     savedVersions: "已儲存版本",
     description: "瀏覽已儲存的幻燈片版本並恢復以前的快照。",

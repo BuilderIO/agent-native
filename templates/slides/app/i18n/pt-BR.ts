@@ -865,7 +865,7 @@ const messages = {
     alreadyAtVersion: "Já está nesta versão",
     restoreReloadFailed: "Não foi possível atualizar o deck",
     restoreReloadFailedDescription:
-      "A versão foi restaurada no servidor. Recarregue a página para vê-la.",
+      "Recarregue a página para ver a versão atual deste deck.",
     backToSavedVersions: "Voltar ao histórico",
     savedVersions: "Histórico",
     description:

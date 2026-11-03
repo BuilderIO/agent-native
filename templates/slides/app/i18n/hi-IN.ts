@@ -833,7 +833,7 @@ const messages = {
     alreadyAtVersion: "इस संस्करण पर पहले से है",
     restoreReloadFailed: "डेक ताज़ा नहीं हो सका",
     restoreReloadFailedDescription:
-      "संस्करण सर्वर पर बहाल किया गया। इसे देखने के लिए पेज फिर से लोड करें।",
+      "इस डेक का वर्तमान संस्करण देखने के लिए पेज फिर से लोड करें।",
     backToSavedVersions: "सहेजे गए संस्करणों पर वापस जाएं",
     savedVersions: "सहेजे गए संस्करण",
     description: "सहेजे गए डेक संस्करण ब्राउज़ करें और पिछला स्नैपशॉट बहाल करें।",

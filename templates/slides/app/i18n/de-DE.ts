@@ -871,7 +871,7 @@ const messages = {
     alreadyAtVersion: "Bereits bei dieser Version",
     restoreReloadFailed: "Deck konnte nicht aktualisiert werden",
     restoreReloadFailedDescription:
-      "Die Version wurde auf dem Server wiederhergestellt. Lade die Seite neu, um sie zu sehen.",
+      "Lade die Seite neu, um die aktuelle Version dieses Decks zu sehen.",
     backToSavedVersions: "Zurück zum Verlauf",
     savedVersions: "Verlauf",
     description:

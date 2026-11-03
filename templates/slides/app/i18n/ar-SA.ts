@@ -859,7 +859,7 @@ const messages = {
     alreadyAtVersion: "هذا هو الإصدار الحالي بالفعل",
     restoreReloadFailed: "تعذّر تحديث العرض",
     restoreReloadFailedDescription:
-      "تمت استعادة الإصدار على الخادم. أعد تحميل الصفحة لرؤيته.",
+      "أعد تحميل الصفحة لرؤية النسخة الحالية من هذا العرض.",
     backToSavedVersions: "العودة إلى السجل",
     savedVersions: "السجل",
     description: "تصفّح سجل العرض واستعد لقطة سابقة.",

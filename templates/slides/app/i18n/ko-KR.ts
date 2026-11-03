@@ -847,7 +847,7 @@ const messages = {
     alreadyAtVersion: "이미 이 버전입니다",
     restoreReloadFailed: "덱을 새로고침하지 못했습니다",
     restoreReloadFailedDescription:
-      "서버에서 버전이 복원되었습니다. 페이지를 새로고침해 확인하세요.",
+      "페이지를 새로고침해 이 덱의 현재 버전을 확인하세요.",
     backToSavedVersions: "기록으로 돌아가기",
     savedVersions: "기록",
     description: "덱 기록을 살펴보고 이전 스냅샷을 복원하세요.",
