@@ -4498,8 +4498,7 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
         if let Ok(mut runtime) = state.inner.lock() {
-            runtime.ocr_cancelled_segments.remove(segment_id);
-            runtime.transcript_cancelled_segments.remove(segment_id);
+            forget_cancellations(&mut runtime, |id| id == segment_id);
         }
     }
     Ok(ScreenMemoryDeleteResult {
@@ -4566,14 +4565,27 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
         if let Ok(mut runtime) = state.inner.lock() {
-            runtime.ocr_cancelled_segments.clear();
-            runtime.transcript_cancelled_segments.clear();
+            forget_cancellations(&mut runtime, |_| true);
         }
     }
     Ok(ScreenMemoryDeleteResult {
         deleted_segments,
         deleted_bytes,
     })
+}
+
+// The caller holds `indexing`, so an active job has not started: its worker is waiting on that
+// lock and clears the mark when the job retires. Without the mark, that job would recreate
+// sidecars for the segment that was just deleted.
+fn forget_cancellations(runtime: &mut ScreenMemoryRuntime, deleted: impl Fn(&str) -> bool) {
+    let ocr_active = runtime.ocr_active_segment.as_deref();
+    runtime
+        .ocr_cancelled_segments
+        .retain(|id| !deleted(id) || ocr_active == Some(id.as_str()));
+    let transcript_active = runtime.transcript_active_segment.as_deref();
+    runtime
+        .transcript_cancelled_segments
+        .retain(|id| !deleted(id) || transcript_active == Some(id.as_str()));
 }
 
 fn clear_history_files(
@@ -4587,6 +4599,7 @@ fn clear_history_files(
     let _event_log = event_log
         .map(|event_log| event_log.lock().map_err(|error| error.to_string()))
         .transpose()?;
+    let _egress_log = crate::rewind_egress::lock_log()?;
     for entry in std::fs::read_dir(dir)
         .map_err(|error| format!("screen memory directory read failed: {error}"))?
     {
@@ -4779,6 +4792,43 @@ command = "keep"
             runtime.transcript_active_segment.as_deref(),
             Some("transcript")
         );
+    }
+
+    fn runtime_with_a_job_waiting_to_run() -> ScreenMemoryRuntime {
+        let cancelled = BTreeSet::from(["waiting".to_string(), "dequeued-earlier".to_string()]);
+        ScreenMemoryRuntime {
+            ocr_active_segment: Some("waiting".to_string()),
+            ocr_cancelled_segments: cancelled.clone(),
+            transcript_active_segment: Some("waiting".to_string()),
+            transcript_cancelled_segments: cancelled,
+            ..ScreenMemoryRuntime::default()
+        }
+    }
+
+    #[test]
+    fn clearing_history_keeps_the_cancellation_of_a_job_waiting_to_run() {
+        let mut runtime = runtime_with_a_job_waiting_to_run();
+
+        forget_cancellations(&mut runtime, |_| true);
+
+        let waiting = BTreeSet::from(["waiting".to_string()]);
+        assert_eq!(runtime.ocr_cancelled_segments, waiting);
+        assert_eq!(runtime.transcript_cancelled_segments, waiting);
+    }
+
+    #[test]
+    fn deleting_a_segment_keeps_its_cancellation_while_its_job_waits_to_run() {
+        let mut runtime = runtime_with_a_job_waiting_to_run();
+
+        forget_cancellations(&mut runtime, |id| id == "waiting");
+        assert!(runtime.ocr_cancelled_segments.contains("waiting"));
+        assert!(runtime.transcript_cancelled_segments.contains("waiting"));
+
+        forget_cancellations(&mut runtime, |id| id == "dequeued-earlier");
+        assert!(!runtime.ocr_cancelled_segments.contains("dequeued-earlier"));
+        assert!(!runtime
+            .transcript_cancelled_segments
+            .contains("dequeued-earlier"));
     }
 
     #[test]
@@ -5744,6 +5794,36 @@ command = "keep"
                 .unwrap();
         });
         started_rx.recv().unwrap();
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        std::fs::rename(temporary_path, &path).unwrap();
+        drop(rewrite);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_an_egress_log_rewrite() {
+        let dir = retention_fixture_dir("clear-during-egress-rewrite");
+        let path = dir.join("egress.jsonl");
+        let temporary_path = path.with_extension("jsonl.sanitize-1");
+        std::fs::write(&path, b"old receipts").unwrap();
+        std::fs::write(&temporary_path, b"rewritten receipts").unwrap();
+        let rewrite = crate::rewind_egress::lock_log().unwrap();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_dir = dir.clone();
+        let clear = std::thread::spawn(move || {
+            finished_tx
+                .send(clear_history_files(&clear_dir, None, None))
+                .unwrap();
+        });
         assert!(matches!(
             finished_rx.recv_timeout(Duration::from_millis(100)),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout)

@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Manager};
 
 const EGRESS_LOG_NAME: &str = "egress.jsonl";
@@ -247,6 +247,14 @@ impl EgressStore {
         self.append_unlocked(&event)?;
         Ok(event)
     }
+}
+
+// Clear History removes the log under this lock, so a migration that already read the log
+// cannot rename its pre-clear rewrite back into place.
+pub(crate) fn lock_log() -> Result<MutexGuard<'static, ()>, String> {
+    EGRESS_IO_LOCK
+        .lock()
+        .map_err(|err| format!("Rewind egress log lock failed: {err}"))
 }
 
 fn egress_store(app: &AppHandle) -> Result<EgressStore, String> {
