@@ -13,7 +13,11 @@ vi.mock("./analytics.js", () => analyticsMocks);
 
 import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 import { fetchAuthSessionStatus } from "./client-status-requests.js";
-import { FETCH_TRANSPORT_CHANGED_EVENT } from "./fetch-transport.js";
+import {
+  bearerTransport,
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  markFetchTransport,
+} from "./fetch-transport.js";
 import {
   navigateForSession,
   notifySessionInvalidated,
@@ -1374,6 +1378,7 @@ describe("sessionReadIdentityStatus", () => {
 
     // An embed now signs the page's requests with B's bearer token, inside
     // the cookie answer's lifetime. The next session read goes out as B.
+    markFetchTransport(bearerReads.fetcher, () => bearerTransport("token-b"));
     vi.stubGlobal("fetch", bearerReads.fetcher);
     const switchedAt = shown.length;
     await act(async () => {

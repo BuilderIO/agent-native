@@ -1,6 +1,7 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import {
   FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
@@ -972,6 +973,16 @@ export function embedApp(
             return originalFetch(new Request(url, input), nextInit);
           }
           return originalFetch(url, nextInit);
+        };
+        // The requests it signs go out on a transport of their own, one per
+        // token, so the app shares no answer between them and the page's own.
+        var signedTransport = null;
+        window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
+          var token = activeConfig().token || "";
+          if (!signedTransport || signedTransport.token !== token) {
+            signedTransport = { token: token, transport: {} };
+          }
+          return signedTransport.transport;
         };
         // Requests now go out signed by this runtime: the app reads the
         // session again over it.
