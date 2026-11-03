@@ -1794,15 +1794,17 @@ export function PageEditorSurface({
     );
   }
 
-  const previewPlaceholder = previewRow ? (
-    <DatabaseItemPreviewPlaceholder
-      row={previewRow}
-      documentId={documentId}
-      databaseId={databaseId ?? null}
-      databaseDocumentId={databaseDocumentId ?? null}
-      rowView={rowView}
-    />
-  ) : null;
+  // An embedded widget keeps the page skeletons for the stall message they show.
+  const previewPlaceholder =
+    previewRow && !widgetBridgeActive ? (
+      <DatabaseItemPreviewPlaceholder
+        row={previewRow}
+        documentId={documentId}
+        databaseId={databaseId ?? null}
+        databaseDocumentId={databaseDocumentId ?? null}
+        rowView={rowView}
+      />
+    ) : null;
 
   if (previewPlaceholder && (!document || loadState.view === "skeleton")) {
     return previewPlaceholder;
