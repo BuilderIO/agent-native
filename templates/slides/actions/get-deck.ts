@@ -565,6 +565,7 @@ export default defineAction({
           transition: s.transition,
           transitionSpeed: s.transitionSpeed,
           isBlank: !isRealSlide(s),
+          skipped: s.skipped === true,
           animations: compactAnimationSummary(
             s.animations,
             typeof s.content === "string" ? s.content : "",

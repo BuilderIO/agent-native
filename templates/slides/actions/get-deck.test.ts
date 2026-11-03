@@ -194,6 +194,28 @@ function storeDuplicateSlideDeck(): string {
   return currentResource.data;
 }
 
+describe("get-deck compact silent success", () => {
+  it("keeps the skipped flag on compact slide summaries", async () => {
+    currentResource!.data = JSON.stringify({
+      slides: [
+        { id: "a", layout: "blank", content: "<div>Visible</div>" },
+        {
+          id: "b",
+          layout: "blank",
+          content: "<div>Hidden</div>",
+          skipped: true,
+        },
+      ],
+    });
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+    expect(result.slides[1]).toMatchObject({ id: "b", skipped: true });
+    expect(result.slides[0]).toMatchObject({ id: "a", skipped: false });
+  });
+});
+
 describe("get-deck", () => {
   it("is classified read-only so read-scoped MCP grants can call it", () => {
     // oracle-change: only the app's own UI saves the duplicate-ID repair now, so the read is read-only for every outside caller.
