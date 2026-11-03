@@ -1034,10 +1034,10 @@ export async function runWorkspaceDev(
       }
       clearTimeout(stableTimer);
       const wasInstalling = app.installing;
-      app.process = undefined;
+      delete app.process;
       app.installing = false;
       app.ready = false;
-      app.readinessProbe = undefined;
+      delete app.readinessProbe;
       if (installingApp === app) {
         installingApp = undefined;
         releaseAppsAwaitingInstall();
