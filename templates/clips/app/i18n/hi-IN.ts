@@ -306,28 +306,45 @@ const messages = {
     clipsRestoreFailed: "{{count}} क्लिप पुनर्स्थापित नहीं की जा सकीं",
     clipsPermanentlyDeleted: "{{count}} क्लिप स्थायी रूप से हटा दी गईं",
     clipsDeleteFailed: "{{count}} क्लिप हटाई नहीं जा सकीं",
-    deletedMediaPending:
-      "रिकॉर्डिंग हटा दी गई। उसकी मीडिया फ़ाइलें अभी हटाई जा रही हैं।",
+    deletedMediaPending: "वीडियो Clips से हटा दिया गया। हटाने की जाँच चल रही है।",
     deletedMediaBlocked:
-      "रिकॉर्डिंग हटा दी गई, लेकिन उसकी मीडिया फ़ाइलें हटाई नहीं जा सकीं।",
+      "वीडियो Clips से हटा दिया गया। फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी।",
     deletedMediaRetained:
       "रिकॉर्डिंग हटा दी गई। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
     clipsDeletedMediaPending:
-      "हटाई गई रिकॉर्डिंग: {{count}}। मीडिया फ़ाइलें अभी हटाई जा रही हैं।",
+      "Clips से हटाए गए वीडियो: {{count}}। हटाने की जाँच चल रही है।",
     clipsDeletedMediaBlocked:
-      "हटाई गई रिकॉर्डिंग: {{count}}। मीडिया फ़ाइलें हटाई नहीं जा सकीं।",
+      "Clips से हटाए गए वीडियो: {{count}}। फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी।",
     clipsDeletedMediaRetained:
       "हटाई गई रिकॉर्डिंग: {{count}}। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    deletedMediaFinalizing:
+      "वीडियो Clips से हटा दिया गया। स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा।",
+    clipsDeletedMediaFinalizing:
+      "Clips से हटाए गए वीडियो: {{count}}। स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा।",
+    mediaCleanupFinalizing: "स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा",
+    mediaCleanupFinalizingHelp:
+      "फ़ाइलें हटाने की जाँच पूरी हो गई है, लेकिन यह वीडियो अभी भी आपकी स्टोरेज सीमा में गिना जा सकता है। अपना कुल स्टोरेज अपडेट करने के लिए उपयोग अपडेट करने का फिर से प्रयास करें।",
     mediaCleanupListLabel: "मीडिया हटाना",
-    mediaCleanupPending: "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाई जा रही हैं",
-    mediaCleanupBlocked: "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाई नहीं जा सकीं",
+    mediaCleanupPending: "हटाने की जाँच जारी है",
+    mediaCleanupPendingHelp:
+      "Clips बैकग्राउंड में जाँच जारी रखता है। आप यह पेज छोड़ सकते हैं और अपडेट के लिए ट्रैश देख सकते हैं।",
+    mediaCleanupBlocked: "वीडियो फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी",
+    mediaCleanupBlockedHelp:
+      "स्टोर की गई वीडियो फ़ाइलें अभी भी मौजूद हो सकती हैं। हटाने का फिर से प्रयास करने पर एक और कोशिश शुरू होती है। आप यह पेज छोड़ सकते हैं और परिणाम के लिए ट्रैश देख सकते हैं।",
     mediaCleanupReconnect:
       "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाने के लिए स्टोरेज फिर से कनेक्ट करें",
     mediaCleanupRetained:
       "हटाई गई रिकॉर्डिंग की साझा मीडिया फ़ाइलें तब तक रखी जाती हैं जब तक अन्य रिकॉर्डिंग उनका उपयोग करती हैं",
+    mediaCleanupHelp: "अधिक जानकारी",
+    mediaCleanupRetryFiles: "हटाने की दोबारा कोशिश करें",
+    mediaCleanupRetryingFiles: "वीडियो फ़ाइलें हटाने की दोबारा कोशिश हो रही है",
+    mediaCleanupRetryUsage: "उपयोग अपडेट की दोबारा कोशिश करें",
+    mediaCleanupRetryingUsage: "स्टोरेज उपयोग अपडेट की दोबारा कोशिश हो रही है",
     mediaCleanupRemoved: "मीडिया फ़ाइलें हटा दी गईं",
-    mediaCleanupStillBlocked: "मीडिया फ़ाइलें अब भी हटाई नहीं जा सकीं",
-    mediaCleanupRetryFailed: "मीडिया हटाने की दोबारा कोशिश नहीं हो सकी",
+    mediaCleanupUsageUpdated: "स्टोरेज उपयोग अपडेट हो गया",
+    mediaCleanupStillBlocked: "वीडियो फ़ाइलें हटाए जाने की पुष्टि अब भी नहीं हो सकी",
+    mediaCleanupStillFinalizing: "स्टोरेज उपयोग का अपडेट अब भी दोबारा आज़माना होगा",
+    mediaCleanupRetryFailed: "दोबारा कोशिश शुरू नहीं हो सकी। फिर से कोशिश करें।",
     mediaCleanupLoadFailed: "मीडिया हटाने की स्थिति लोड नहीं हो सकी",
   },
   recordingRoute: {

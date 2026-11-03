@@ -11,9 +11,14 @@ const state = vi.hoisted(() => {
     }>,
     insertChain,
     db: {
-      select: vi.fn(() => ({
+      select: vi.fn<() => unknown>(() => ({
         from: vi.fn(() => ({
-          where: vi.fn(async () => state.existingFiles),
+          // Listing the design's files; .limit is the insert's race recheck.
+          where: vi.fn(() =>
+            Object.assign(Promise.resolve(state.existingFiles), {
+              limit: vi.fn(async () => []),
+            }),
+          ),
         })),
       })),
       insert: vi.fn(() => insertChain),
@@ -30,6 +35,7 @@ const state = vi.hoisted(() => {
     hasCollabState: vi.fn(),
     applyText: vi.fn(),
     nanoid: vi.fn(),
+    resolveAccess: vi.fn(),
   };
 });
 
@@ -41,11 +47,16 @@ vi.mock("@agent-native/core/collab", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => values,
+  or: (...values: unknown[]) => values,
   eq: (left: unknown, right: unknown) => ({ left, right }),
   sql: vi.fn(),
 }));
 
 vi.mock("nanoid", () => ({ nanoid: state.nanoid }));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: state.resolveAccess,
+}));
 
 vi.mock("../db/index.js", () => ({
   getDb: () => state.db,
@@ -67,6 +78,7 @@ import { upsertFusionScreens } from "./fusion-screens.js";
 beforeEach(() => {
   vi.clearAllMocks();
   state.existingFiles = [];
+  state.resolveAccess.mockResolvedValue(null);
   state.data = {
     concurrentTokenWrite: { keep: true },
     canvasFrames: {
@@ -143,7 +155,9 @@ describe("fusion screen designs.data mutation", () => {
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => [{ id: "legacy-home" }]),
+            limit: vi.fn(async () => [
+              { id: "legacy-home", content: "https://example.test/" },
+            ]),
           }),
         ),
       })),
@@ -225,14 +239,14 @@ describe("fusion screen designs.data mutation", () => {
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => [{ id: "app-home" }]),
+            limit: vi.fn(async () => [
+              { id: "app-home", content: "https://example.test/" },
+            ]),
           }),
         ),
       })),
     });
-    state.db.select
-      .mockImplementationOnce(selectWithLimit)
-      .mockImplementationOnce(selectWithLimit);
+    state.db.select.mockImplementationOnce(selectWithLimit);
     const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
     state.db.update.mockImplementationOnce(() => ({ set }));
     state.hasCollabState.mockResolvedValue(false);
@@ -250,5 +264,151 @@ describe("fusion screen designs.data mutation", () => {
       expect.objectContaining({ fileId: "app-home", filename: "home-2.html" }),
     ]);
     expect(state.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing when the screens are already bound to the URL", async () => {
+    state.existingFiles = [
+      {
+        id: "app-home",
+        filename: "home.html",
+        content: "https://example.test/",
+      },
+    ];
+    const bound = {
+      canvasFrames: {
+        "app-home": { x: 0, y: 0, width: 800, height: 600, z: 0 },
+      },
+      screenMetadata: {
+        "app-home": {
+          sourceType: "fusion",
+          previewState: "live",
+          url: "https://example.test/",
+          previewUrl: "https://example.test/",
+          path: "/",
+        },
+      },
+    };
+    state.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify(bound) },
+    });
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "app-home", filename: "home.html" }),
+    ]);
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+    expect(state.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("reuses a screen another bind created while this one waited", async () => {
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: "raced-home",
+                filename: "home.html",
+                content: "https://example.test/",
+              },
+            ]),
+          })),
+        })),
+      }));
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "raced-home", filename: "home.html" }),
+    ]);
+  });
+
+  it("never overwrites a user's file that took the screen's name meanwhile", async () => {
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: "user-home",
+                filename: "home.html",
+                content: "<!doctype html><h1>Mine</h1>",
+              },
+            ]),
+          })),
+        })),
+      }));
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "home-2.html" }),
+    );
+    expect(result.screens).toEqual([
+      expect.objectContaining({ filename: "home-2.html" }),
+    ]);
+  });
+
+  it("leaves a screen the user edited into their own page meanwhile", async () => {
+    state.existingFiles = [
+      { id: "app-home", filename: "home.html", content: "https://old.test/" },
+    ];
+    const edited = {
+      id: "app-home",
+      filename: "home.html",
+      content: "<!doctype html><h1>Mine now</h1>",
+    };
+    const rows = state.existingFiles;
+    // The update's re-read and the insert's recheck both see the edit.
+    const lockedRead = () => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => [edited]) })),
+      })),
+    });
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => rows) })),
+      }))
+      .mockImplementationOnce(lockedRead)
+      .mockImplementationOnce(lockedRead);
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "home-2.html",
+        content: "https://example.test/",
+      }),
+    );
+    expect(result.screens).toEqual([
+      expect.objectContaining({ filename: "home-2.html" }),
+    ]);
   });
 });

@@ -49,9 +49,15 @@ function isCorrelatedContinuationRun(args: {
   );
 }
 
+export interface GenerationFailure {
+  /** False when the server knows the same prompt would fail the same way. */
+  retryable: boolean;
+}
+
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
-  onFailed?: (tabId: string | null) => void;
+  /** `failure` is present only when the server classified the errored run. */
+  onFailed?: (tabId: string | null, failure?: GenerationFailure) => void;
   onStopped?: (tabId: string | null) => void;
   onStale?: (tabId: string | null) => void;
   shouldAdoptRunningTab?: () => boolean;
@@ -379,6 +385,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             successorOfRunId?: unknown;
             terminalReason?: unknown;
             awaitingRedispatch?: unknown;
+            retryable?: unknown;
           };
           if (
             typeof state.active !== "boolean" ||
@@ -390,7 +397,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             (state.terminalReason != null &&
               typeof state.terminalReason !== "string") ||
             (state.awaitingRedispatch != null &&
-              typeof state.awaitingRedispatch !== "boolean")
+              typeof state.awaitingRedispatch !== "boolean") ||
+            (state.retryable != null && typeof state.retryable !== "boolean")
           ) {
             throw new Error("Agent run state was incomplete");
           }
@@ -648,7 +656,13 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             } else if (!isCurrentRun) {
               generationIdlePollCountRef.current = 0;
             } else if (state.status === "errored") {
-              callbacksRef.current.onFailed?.(tabId);
+              if (typeof state.retryable === "boolean") {
+                callbacksRef.current.onFailed?.(tabId, {
+                  retryable: state.retryable,
+                });
+              } else {
+                callbacksRef.current.onFailed?.(tabId);
+              }
               reset();
               return;
             } else if (state.status === "aborted") {

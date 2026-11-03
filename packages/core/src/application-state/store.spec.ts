@@ -54,6 +54,7 @@ vi.mock("./emitter.js", () => ({
 
 const {
   appStatePut,
+  appStateDelete,
   appStateGet,
   appStateGetMany,
   appStateGetManyEntries,
@@ -68,7 +69,7 @@ const SESSION = "alice@example.com";
 
 beforeEach(async () => {
   resetAppConfigForTests();
-  defineAppConfig({ app: { packageName: "slides-2" } });
+  defineAppConfig({ app: { packageName: "slides" } });
   postgres = await createTestPglite();
   await postgres.exec(`CREATE TABLE IF NOT EXISTS application_state (
     session_id TEXT NOT NULL,
@@ -107,6 +108,12 @@ describe("application-state store", () => {
     );
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)",
+    );
+    expect(seen).toContain(
+      "ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer TEXT",
+    );
+    expect(seen).toContain(
+      "ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer_seq BIGINT",
     );
   });
 
@@ -147,27 +154,27 @@ describe("application-state store", () => {
   });
 
   it("lists only current-app keys without reading their values", async () => {
-    await appStatePut(SESSION, "slides-2:cleanup-1", { private: "payload" });
-    await appStatePut("bob@example.com", "slides-2:cleanup-2", {
+    await appStatePut(SESSION, "slides:cleanup-1", { private: "payload" });
+    await appStatePut("bob@example.com", "slides:cleanup-2", {
       private: "other payload",
     });
     await appStatePut("bob@example.com", "other-app:cleanup-3", {
       private: "foreign app payload",
     });
-    await appStatePut(SESSION, "slides-2Xcleanup-3", { private: "ignored" });
+    await appStatePut(SESSION, "slidesXcleanup-3", { private: "ignored" });
 
     rawClient.execute.mockClear();
     await expect(
       appStateListKeysByKeySuffixPrefix("cleanup-"),
     ).resolves.toEqual([
-      { sessionId: SESSION, key: "slides-2:cleanup-1" },
-      { sessionId: "bob@example.com", key: "slides-2:cleanup-2" },
+      { sessionId: SESSION, key: "slides:cleanup-1" },
+      { sessionId: "bob@example.com", key: "slides:cleanup-2" },
     ]);
     expect(rawClient.execute).toHaveBeenCalledWith({
       sql: expect.stringContaining(
         "SELECT session_id, key FROM application_state",
       ),
-      args: ["slides-2:cleanup-%", 100],
+      args: ["slides:cleanup-%", 100],
     });
   });
 
@@ -399,5 +406,88 @@ describe("application-state store", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("application-state write order", () => {
+  const page = (seq: number, writer = "page-1") => ({ order: { writer, seq } });
+
+  beforeEach(async () => {
+    // The columns the write-order migration adds; the store's migrations run
+    // once per module, against the first test's database.
+    await postgres.exec(
+      `ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer TEXT`,
+    );
+    await postgres.exec(
+      `ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer_seq BIGINT`,
+    );
+  });
+
+  it("skips a write numbered at or below the last one applied from the same writer", async () => {
+    await appStatePut(SESSION, "draft", { text: "ab" }, page(2));
+    emitAppStateChange.mockClear();
+
+    await appStatePut(SESSION, "draft", { text: "a" }, page(1));
+    await appStatePut(SESSION, "draft", { text: "a" }, page(2));
+
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "ab",
+    });
+    expect(emitAppStateChange).not.toHaveBeenCalled();
+
+    await appStatePut(SESSION, "draft", { text: "abc" }, page(3));
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "abc",
+    });
+    expect(emitAppStateChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies writes from another writer, and unordered writes, whatever the numbers", async () => {
+    await appStatePut(SESSION, "draft", { text: "page 1" }, page(5));
+
+    await appStatePut(SESSION, "draft", { text: "page 2" }, page(1, "page-2"));
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "page 2",
+    });
+
+    await appStatePut(SESSION, "draft", { text: "agent" });
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "agent",
+    });
+  });
+
+  it("keeps the last order across an unordered write", async () => {
+    await appStatePut(SESSION, "draft", { text: "ab" }, page(2));
+    await appStatePut(SESSION, "draft", { text: "agent" });
+
+    // The page's older write lands after both.
+    await appStatePut(SESSION, "draft", { text: "a" }, page(1));
+
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "agent",
+    });
+  });
+
+  it("skips an older delete and applies a newer one", async () => {
+    await appStatePut(SESSION, "draft", { text: "ab" }, page(2));
+
+    await expect(appStateDelete(SESSION, "draft", page(1))).resolves.toBe(
+      false,
+    );
+    await expect(appStateGet(SESSION, "draft")).resolves.toEqual({
+      text: "ab",
+    });
+    expect(emitAppStateDelete).not.toHaveBeenCalled();
+
+    await expect(appStateDelete(SESSION, "draft", page(3))).resolves.toBe(true);
+    await expect(appStateGet(SESSION, "draft")).resolves.toBeNull();
+    expect(emitAppStateDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a row another writer wrote, whatever the numbers", async () => {
+    await appStatePut(SESSION, "draft", { text: "page 2" }, page(9, "page-2"));
+
+    await expect(appStateDelete(SESSION, "draft", page(1))).resolves.toBe(true);
+    await expect(appStateGet(SESSION, "draft")).resolves.toBeNull();
   });
 });

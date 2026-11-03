@@ -234,17 +234,16 @@ export default defineAction({
       })
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
-    const orgDisplayNames = await loadOrgDisplayNames(db, shares);
-    const groupDisplayNames = await loadGroupDisplayNames(
-      access.resource.orgId,
-      shares,
-    );
     const ownerEmail: string = access.resource.ownerEmail;
-    const nameAccess = await profileNameAccess(
-      access.role,
-      access.resource.orgId,
-      shares,
-    );
+    const [orgDisplayNames, groupDisplayNames, nameAccess, shareableAgents] =
+      await Promise.all([
+        loadOrgDisplayNames(db, shares),
+        loadGroupDisplayNames(access.resource.orgId, shares),
+        profileNameAccess(access.role, access.resource.orgId, shares),
+        context?.mcpDirectoryWidgetReadOnly
+          ? {}
+          : loadShareableAgents(access.resource.orgId, access.role),
+      ]);
     const { names: userDisplayNames, unavailable: displayNamesUnavailable } =
       nameAccess !== "allowed"
         ? {
@@ -263,10 +262,6 @@ export default defineAction({
                 .map((s) => s.principalId),
             ].map((email) => email.trim().toLowerCase()),
           );
-    const shareableAgents = context?.mcpDirectoryWidgetReadOnly
-      ? {}
-      : await loadShareableAgents(access.resource.orgId, access.role);
-
     return {
       ownerEmail,
       ownerDisplayName:

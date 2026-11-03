@@ -40,6 +40,10 @@ vi.mock("../server/lib/clips-peer.js", () => ({
   writeClipComment: mocks.writeClipComment,
 }));
 
+import {
+  __resetPublicClipReadsForTests,
+  PUBLIC_CLIP_READS_PER_MINUTE,
+} from "../server/lib/clip-public-visitor";
 import addClipComment from "./add-clip-comment";
 import getClipPlayback from "./get-clip-playback";
 import listClipComments from "./list-clip-comments";
@@ -88,6 +92,7 @@ async function failureOf(promise: Promise<unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetPublicClipReadsForTests();
   mocks.userEmail = "reader@example.test";
   mocks.userName = "Robin Reader";
   mocks.documentRows = [
@@ -158,10 +163,117 @@ describe("get-clip-playback", () => {
         { userEmail: undefined, orgId: "org_page" },
       );
       expect(mocks.requestClips).toHaveBeenCalledWith(
-        expect.objectContaining({ reader: { kind: "public" } }),
+        expect.objectContaining({
+          reader: { kind: "public", visitorKey: null },
+        }),
       );
     },
   );
+
+  describe("for a signed-out reader", () => {
+    const from = (headers: Record<string, string>) =>
+      ({ caller: "frontend", requestHeaders: new Headers(headers) }) as never;
+    const edge = (address: string) =>
+      from({ "x-nf-client-connection-ip": address });
+
+    async function keyFor(ctx: never) {
+      mocks.requestClips.mockClear();
+      await getClipPlayback.run(args, ctx);
+      const [[request]] = mocks.requestClips.mock.calls as [
+        [{ reader: { visitorKey: string | null } }],
+      ];
+      return request.reader.visitorKey;
+    }
+
+    beforeEach(() => {
+      mocks.userEmail = undefined;
+      mocks.documentRows = [
+        { visibility: "public", trashedAt: null, orgId: "org_page" },
+      ];
+    });
+
+    it("vouches for each network under its own opaque key", async () => {
+      const first = await keyFor(edge("203.0.113.7"));
+      expect(first).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(await keyFor(edge("203.0.113.7"))).toBe(first);
+      expect(await keyFor(edge("::ffff:203.0.113.7"))).toBe(first);
+      expect(await keyFor(edge("203.0.113.8"))).not.toBe(first);
+
+      // One IPv6 network may rotate addresses within its /64.
+      const v6 = await keyFor(edge("2001:db8:12:34::9"));
+      expect(await keyFor(edge("2001:0db8:0012:0034:abcd::1"))).toBe(v6);
+      expect(await keyFor(edge("2001:db8:12:35::9"))).not.toBe(v6);
+    });
+
+    it("signs no key without an address from Content's edge, never trusting a forwarded one", async () => {
+      expect(await keyFor(from({}))).toBeNull();
+      expect(
+        await keyFor(from({ "x-forwarded-for": "198.51.100.1" })),
+      ).toBeNull();
+    });
+
+    it("counts addresses it can't read under one shared key, rather than not at all", async () => {
+      const unreadable = await keyFor(edge("not-an-address"));
+      expect(unreadable).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(await keyFor(edge("fe80::1%eth0"))).toBe(unreadable);
+      expect(await keyFor(edge("203.0.113.7, 198.51.100.1"))).toBe(unreadable);
+      expect(await keyFor(edge("203.0.113.7"))).not.toBe(unreadable);
+
+      for (let read = 3; read < PUBLIC_CLIP_READS_PER_MINUTE; read++) {
+        await getClipPlayback.run(args, edge("not-an-address"));
+      }
+      mocks.requestClips.mockClear();
+      await expect(
+        failureOf(getClipPlayback.run(args, edge("not-an-address"))),
+      ).resolves.toEqual({ errorCode: "clip_rate_limited", statusCode: 429 });
+      expect(mocks.requestClips).not.toHaveBeenCalled();
+    });
+
+    it("spends the same budget on a comment list, which carries the same key", async () => {
+      const key = await keyFor(edge("203.0.113.7"));
+      mocks.requestClips.mockClear();
+      mocks.requestClips.mockResolvedValueOnce({
+        ok: true,
+        body: { comments: [], truncated: false },
+      });
+      await listClipComments.run(args, edge("203.0.113.7"));
+      const [[request]] = mocks.requestClips.mock.calls as [
+        [{ reader: { visitorKey: string | null } }],
+      ];
+      expect(request.reader.visitorKey).toBe(key);
+
+      for (let read = 2; read < PUBLIC_CLIP_READS_PER_MINUTE; read++) {
+        await getClipPlayback.run(args, edge("203.0.113.7"));
+      }
+      mocks.requestClips.mockClear();
+      await expect(
+        failureOf(listClipComments.run(args, edge("203.0.113.7"))),
+      ).resolves.toEqual({ errorCode: "clip_rate_limited", statusCode: 429 });
+      expect(mocks.requestClips).not.toHaveBeenCalled();
+    });
+
+    it("refuses one network once it has used up its reads, before asking Clips, and no one else", async () => {
+      for (let read = 0; read < PUBLIC_CLIP_READS_PER_MINUTE; read++) {
+        await getClipPlayback.run(args, edge("203.0.113.7"));
+      }
+      mocks.requestClips.mockClear();
+      await expect(
+        failureOf(getClipPlayback.run(args, edge("203.0.113.7"))),
+      ).resolves.toEqual({ errorCode: "clip_rate_limited", statusCode: 429 });
+      expect(mocks.requestClips).not.toHaveBeenCalled();
+
+      await expect(
+        getClipPlayback.run(args, edge("203.0.113.8")),
+      ).resolves.toEqual(playback);
+      mocks.userEmail = "reader@example.test";
+      mocks.documentRows = [
+        { visibility: "private", trashedAt: null, orgId: "org_page" },
+      ];
+      await expect(
+        getClipPlayback.run(args, edge("203.0.113.7")),
+      ).resolves.toEqual(playback);
+    });
+  });
 
   it("refuses a signed-out caller a page that isn't public, before asking Clips", async () => {
     mocks.userEmail = PUBLIC_VIEWER;

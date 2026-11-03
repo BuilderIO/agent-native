@@ -17,7 +17,7 @@ metadata:
 The job: find what's broken, fix as much of it as you can, ship it, and tell
 each reporter in one friendly sentence what happened. A sweep is judged by
 bugs fixed and merged, and by every claimed report getting a clear answer. It is
-not judged by ledgers, receipts, or checker output, so don't produce them.
+not judged by ledgers, receipts, or checker output.
 
 ## The contract
 
@@ -45,12 +45,10 @@ Steve (`U0GCV21HC`) steers the sweep with his own reactions on a root:
 Reactions can't be removed through the Slack connector, so never add one you
 might need to take back. Every 👀 you add ends the run with a reply, plus
 either ✅ or 🎫, or a fix PR that is still open and lists the report (its
-merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
+merge adds the ✅).
 
 Every claimed report gets **one** reply in its thread per outcome. The one exception is
-the merged `✅` close-out after an in-review reply, which gets no second reply. People
-have pushed back on replies that were long, technical, condescending, vague
-about who does what next, or that handed them work. Each reply must be:
+the merged `✅` close-out after an in-review reply, which gets no second reply. Each reply must be:
 
 - **An answer first:** if they asked something ("is this expected?"),
   answer it in the first words ("no, that's a bug"), not with a status.
@@ -139,11 +137,14 @@ Real replies that missed, and what to send instead:
     days;
   - an earlier run's PR for it is still open. That PR's `/ship` closes the
     report out when it merges.
-- **PRs:** push to, comment on, or merge only PRs authored by the active
-  GitHub login (`gh api user --jq .login`). Never touch anyone else's PR unless
-  the invocation names that exact PR and action.
-- **One run, one PR.** Work only on the PR this run opened. Every sweep PR is
-  authored by Steve's login, so the author check can't tell runs apart: an
+- **PRs:** push to, comment on, or merge only the PR this run opened. Most of
+  Steve's PRs share the active GitHub login (`gh api user --jq .login`), so
+  authorship proves nothing: a PR that merely carries his name may be another
+  thread's work in flight, and pushing to it lands unreviewed commits under his
+  name. Never touch any other PR unless the invocation names that exact PR and
+  action. That holds inside `/ship` too: its "Your PRs" means this run's PR.
+- **One run, one PR.** Every sweep PR is authored by Steve's login, so the
+  author check can't tell runs apart: an
   open PR with a `Reports` section that this run didn't open belongs to
   another run that may still be working on it. Don't push to, reply on, or
   merge it; list it under "Still open from earlier runs".
@@ -155,6 +156,18 @@ Real replies that missed, and what to send instead:
   collides with it.
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
+
+## Dry run
+
+When the invocation says "dry run", run every step, but nothing reaches a
+reporter, a reviewer, or `main`:
+
+- No reactions or replies. Record each reaction you'd add and the exact reply
+  you'd send, linking the fix branch where the PR would go.
+- Treat other runs' claims as unclaimed; still honor Steve's `:mag:` and 👀.
+- Publish each fix group as its own branch; skip PRs, merges, `/ship`, and
+  issue comments.
+- Skip the Steve profile check; use the state the invocation names.
 
 ## 1. Collect (keep it under ~15 minutes)
 

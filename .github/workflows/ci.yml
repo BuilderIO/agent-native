@@ -362,11 +362,7 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            if [[ "$name" == "slides-2" ]]; then
-              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            else
-              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            fi
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -494,11 +490,7 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            if [[ "$name" == "slides-2" ]]; then
-              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            else
-              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            fi
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -2262,6 +2254,9 @@ jobs:
 
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
+
+      - name: Test single S3 signer guard
+        run: pnpm test:single-s3-signer
 
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
