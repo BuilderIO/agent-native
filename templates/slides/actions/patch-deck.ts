@@ -1107,8 +1107,7 @@ export function applyOperation(
           { errorCode: "reorder_unknown_slide_id", statusCode: 409 },
         );
       }
-      // Build the new order from the client's desired order; slides the client
-      // did not name stay appended at the end.
+      // Unnamed slides stay at the end so a concurrent add is not dropped.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const reordered: any[] = orderedIds.map((id) => byId.get(id));
       const orderedSet = new Set(orderedIds);
@@ -1663,6 +1662,7 @@ export default defineAction({
 
       const layoutFitSlideIds = new Set<string>();
       const deletedSlideIds = new Set<string>();
+      const skippedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
       const animationBaselinesBeforeOperations = slideAnimationBaselines(deck);
@@ -1708,6 +1708,14 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
+        if (
+          op.op === "add-slide" &&
+          (deck.slides as Array<{ id?: string }>).some(
+            (slide) => slide.id === op.slideId,
+          )
+        ) {
+          skippedSlideIds.add(op.slideId);
+        }
         const operationChangedStructure = applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
           sourceContentHashes,
@@ -2131,6 +2139,14 @@ export default defineAction({
             signaturesBeforeOperations.has(slideId) &&
             !signaturesAfterOperations.has(slideId),
         ),
+        ...(skippedSlideIds.size
+          ? {
+              skippedSlideIds: [...skippedSlideIds],
+              warnings: [
+                `add-slide skipped ${[...skippedSlideIds].join(", ")}: a slide with that ID already exists, so nothing was added. Use a new slideId to add another slide.`,
+              ],
+            }
+          : {}),
         ...(unchangedSlideIds.length
           ? {
               unchangedSlideIds,
