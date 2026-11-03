@@ -56,7 +56,7 @@ faqs:
 
 To take good meeting notes, set up the page before the meeting and write down only decisions, action items and open questions. Give each action item an owner and a date, then send the cleaned-up notes soon after.
 
-This guide follows one weekly product sync from the invite to the notes in everyone's inbox. Notes are the team's working record, less formal than meeting minutes and longer than the recap message you send afterwards.
+This guide follows one weekly product sync from the invite to the notes in everyone's inbox. Notes are the team's working record, less formal than [the meeting minutes a board approves](https://www.agent-native.com/articles/meeting-minutes/) and longer than the recap message you send afterwards.
 
 ![The finished notes for a made-up weekly product sync at Marlowe Studio. At the top are the date, the four attendees and the purpose, then two decisions, three action items each with a name and a date, and one open question. Short notes follow under each of the three agenda items.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd197a512580741d5aeaffe496d8c008b)
 
@@ -155,7 +155,7 @@ Open questions
 
 ### 7. Send the notes and track the actions
 
-**Send the notes to every attendee and anyone affected the same day.** Paste the decisions and action items into the message itself, where people see them without opening a file. Then add each action item to the tool your team tracks work in, with its owner and date, and save the notes where the team can search them later.
+**Send the notes to every attendee and anyone affected the same day.** Paste the decisions and action items into the message itself, where people see them without opening a file. For what goes in that message, see [how to write a meeting summary from your notes](https://www.agent-native.com/articles/meeting-summary/). Then add each action item to the tool your team tracks work in, with its owner and date, and save the notes where the team can search them later.
 
 At the next meeting, start by going through last time's action items. Any item that slipped shows up before new work piles on top of it.
 
