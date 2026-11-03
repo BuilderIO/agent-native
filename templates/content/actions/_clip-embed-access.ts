@@ -10,6 +10,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  publicClipVisitor,
+  takePublicClipRead,
+} from "../server/lib/clip-public-visitor.js";
 import type { ClipReader, ClipUploader } from "../server/lib/clips-peer.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { isClipRecordingId } from "../shared/clip-embed-block.js";
@@ -117,15 +121,34 @@ async function documentState(documentId: string) {
   return row;
 }
 
+const warnedVisitorReasons = new Set<string>();
+
 /**
  * The reader Content may vouch for to Clips about a Clip in this page, after
  * checking they can read it. A signed-out reader, or a public page's
- * anonymous viewer, counts only on a public page and is never named.
+ * anonymous viewer, counts only on a public page and is never named: each
+ * network spends its own reads, here and at Clips, under an opaque key.
  */
 export async function authorizeClipReader(
   documentId: string,
+  requestHeaders: Headers | undefined,
 ): Promise<ClipReader> {
-  return (await authorizeReader(documentId)).reader;
+  const { reader } = await authorizeReader(documentId);
+  if (reader.kind === "signed-in") return reader;
+
+  const visitor = publicClipVisitor(requestHeaders);
+  if (visitor.reason && !warnedVisitorReasons.has(visitor.reason)) {
+    warnedVisitorReasons.add(visitor.reason);
+    console.warn(
+      "[content-clips] no readable edge client address on a signed-out Clip read; those readers share one budget",
+      { reason: visitor.reason },
+    );
+  }
+  if (visitor.key === null) return { kind: "public", visitorKey: null };
+  if (!takePublicClipRead(visitor.key)) {
+    failClip(CLIP_PLAYBACK_ERRORS.rateLimited);
+  }
+  return { kind: "public", visitorKey: visitor.key };
 }
 
 /**
@@ -182,7 +205,7 @@ async function authorizeReader(documentId: string) {
         email: readerEmail,
         name: getRequestUserName() ?? null,
       }
-    : { kind: "public" };
+    : { kind: "public", visitorKey: null };
   return { reader, role };
 }
 

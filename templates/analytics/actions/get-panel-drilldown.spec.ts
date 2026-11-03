@@ -28,7 +28,7 @@ describe("get-panel-drilldown", () => {
     "SELECT r'{{drillX}}'",
     'SELECT R"{{drillSeries}}"',
     "SELECT br'''{{appFilter}}'''",
-    'SELECT rB"""{{apps:list}}"""',
+    'SELECT rB"""{{apps}}"""',
     "SELECT r'\\{{drillX}}'",
     "SELECT # '\nr'{{drillX}}' # '",
   ])(
@@ -45,7 +45,7 @@ describe("get-panel-drilldown", () => {
     "SELECT '{{drillX}}'",
     "SELECT r'\\d+' WHERE app = '{{drillSeries}}'",
     "SELECT 'r\"{{drillX}}\"'",
-    "SELECT '{{drillX}}' WHERE app IN ({{apps:list}})",
+    "SELECT '{{drillX}}' WHERE ('{{apps}}' IN ('', 'all') OR app IN UNNEST(SPLIT('{{apps}}', ',')))",
     "SELECT '\\\\{{drillX}}'",
     "SELECT '''{{drillX}}''' WHERE b = '''a {{drillX}} b'''",
     "SELECT '{{drillX}}{{drillSeries}}'",
@@ -60,10 +60,7 @@ describe("get-panel-drilldown", () => {
 
   it.each([
     "SELECT r{{drillSeries}}'{{drillX}}'",
-    "SELECT r{{apps:list}}",
-    "SELECT {{apps:list}}'suffix'",
     "SELECT `{{drillX}}`",
-    "SELECT '{{apps:list}}'",
     "SELECT 1 # r'{{unused}}'",
     "SELECT '{{drillX}}' /* {{unused}} */",
     "SELECT '\\{{drillX}}' AND owner = 'expected'",
@@ -110,7 +107,67 @@ describe("get-panel-drilldown", () => {
   );
 
   it.each([
-    "SELECT visitor FROM events WHERE page = '{{drillX}}' AND app IN ({{appFilter:list}}) LIMIT 500",
+    {
+      panelSource: "bigquery",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE CASE WHEN '{{appFilter}}' = '' THEN TRUE ELSE app IN ({{appFilter:list}}) END",
+      },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT r{{appFilter:list}}" },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT {{appFilter:list}}'suffix'" },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT '{{appFilter:list}}'" },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN (U&{{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}}𝐀)",
+      },
+    },
+  ])(
+    "rejects a list variable in a $panelSource record template and names the pattern to use: $drilldown.sql",
+    async ({ panelSource, drilldown }) => {
+      const run = getPanelDrilldown.run({ ...panel, panelSource, drilldown });
+      await expect(run).rejects.toThrow(
+        "must not use list variables such as {{appFilter:list}}",
+      );
+      await expect(run).rejects.toThrow(
+        "In BigQuery: ('{{appFilter}}' IN ('', 'all') OR <column> IN UNNEST(SPLIT('{{appFilter}}', ',')))",
+      );
+      await expect(run).rejects.toThrow(
+        "In first-party SQL: ('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || <column> || ',') > 0).",
+      );
+      expect(mocks.getFirstPartyDrilldown).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "SELECT visitor FROM events WHERE page = '{{drillX}}' AND ('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0) LIMIT 500",
     "SELECT visitor FROM events WHERE note = 'o''brien {{drillX}}' AND day >= DATE '2026-10-01'",
     "SELECT visitor FROM events WHERE path = '\\{{drillX}}' -- {{ not a slot\n LIMIT 500",
     "SELECT visitor FROM events WHERE page = '{{drillX}}{{drillSeries}}' /* note */",
@@ -157,18 +214,6 @@ describe("get-panel-drilldown", () => {
     [
       "SELECT visitor FROM events WHERE page = €'{{drillX}}'",
       /plain quoted strings/,
-    ],
-    [
-      "SELECT visitor FROM events WHERE app IN (U&{{appFilter:list}})",
-      /list variables require standalone SQL positions/,
-    ],
-    [
-      "SELECT visitor FROM events WHERE app IN (€{{appFilter:list}})",
-      /list variables require standalone SQL positions/,
-    ],
-    [
-      "SELECT visitor FROM events WHERE app IN ({{appFilter:list}}𝐀)",
-      /list variables require standalone SQL positions/,
     ],
     [
       "SELECT visitor FROM events WHERE day = DATE'{{drillX}}'",

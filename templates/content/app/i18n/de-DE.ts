@@ -949,6 +949,7 @@ const editor = {
       video: "Video [de-DE]",
     },
     fromSource: "Von {{name}}",
+    hiddenInThisView: "In dieser Ansicht ausgeblendet",
     hiddenProperties: "Versteckte Eigenschaften",
     imageUploaded_zero: "Bilder hochgeladen",
     imageUploaded_one: "Bild hochgeladen",
@@ -1294,6 +1295,23 @@ const rawLiterals = {
     restoreDatabase: "Wiederherstellen",
     restoreDatabaseNamed: "{{title}} wiederherstellen",
     trash: "Papierkorb",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Kostenlos und Open Source auf GitHub",
+    pagePath: "Seitenpfad",
+    privateDescription:
+      "Bitte den Eigentümer, es mit deinem Konto oder Arbeitsbereich zu teilen, bevor du diesen Link öffnest.",
+    privateTitle: "Dieses Dokument ist privat",
+    signIn: "Anmelden",
+    signUp: "Registrieren",
+    signUpFree: "Kostenlos registrieren",
+    subPages: "Unterseiten",
+    tryContentFree: "Content kostenlos testen",
+    updated: "Aktualisiert am {{date}}",
+    writtenIn: "Geschrieben in Agent-Native Content.",
+    writtenInDescription:
+      "Schreibe und veröffentliche eigene Seiten, mit einem KI-Agenten, der direkt in deinen Dokumenten arbeitet.",
   },
 };
 

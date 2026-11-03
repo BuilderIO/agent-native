@@ -36,6 +36,7 @@ import { ensureThread } from "@/lib/thread-cache";
 import { cn } from "@/lib/utils";
 
 import { ComposeModal, type ComposeSendProgress } from "./ComposeModal";
+import { DraftConflictPrompt } from "./DraftConflictPrompt";
 import { CollapsedMessageRow, ExpandedMessageCard } from "./EmailThread";
 
 // Older messages past this many fold into one row until the reader opens them.
@@ -262,6 +263,10 @@ export function DraftCard({ draftId }: { draftId: string }) {
       >
         {body}
       </div>
+      <DraftConflictPrompt
+        drafts={compose.drafts}
+        onRestore={(next) => compose.update(next.id, next)}
+      />
     </AccountFilterContext.Provider>
   );
 }

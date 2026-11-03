@@ -44,7 +44,7 @@ flowchart LR
 ## Not in this version
 
 - A call whose transcript is not ready yet is not retried for six hours. The transcript read is retried within the run; a read that still fails for a reason a later try may fix sets the call aside at that step and tries it again after 5 and then 10 minutes, and a read that cannot succeed hands the call to a person at once. The plan's "retry for up to 6 hours" is not built.
-- A very long transcript is cut at the node's input budget by the AI runner, and the run records that on the step (`inputTruncated`). The post does not say so.
+- A long transcript is cut by the lookup first: it keeps who spoke, the topic and the words (not the times) of the call's opening, about 15 minutes of speech (`truncated: true` and `cuts` on its answer), so that three external calls fit one step with their summaries. A fourth external call in the same half hour fails the step with `output_over_cap`, and the window moves on without any of them. The AI runner then cuts at the node's input budget if it must, and records that on the step (`inputTruncated`). The post does not say a call was only partly read.
 - A mention of the account owner in the post (there is no owner lookup in the graph), and the call's link in the post unless the model adds it from the item.
 
 ## Scenarios

@@ -3,10 +3,29 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-30
+
+### Improved
+
+- Select content inside screens with one click while keeping selected frames and auto-layout containers draggable
+
 ## 2026-10-29
+
+### Improved
+
+- A person looks the same everywhere in comments: their photo when they have one, otherwise their initials on their own color, on the thread card, the @ list, the pins and the Threads list.
+- Comment cards give every comment its own menu with Edit and Delete, show just how long ago it was posted, and name the buttons in the top corner when you hover them.
+- Import is one button that opens your files, and pasting a Figma link into the home prompt offers to import it.
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+- The comment card menu no longer has "Reply in thread"; mention an agent with @ to ask it something.
+- The font menu lists the full Google Fonts library with each font previewed in its own face, and font size offers a type scale.
+- The home prompt now starts a design without a mode switch
 
 ### Fixed
 
+- Accounts with no profile photo now show initials in comments instead of a generic silhouette icon.
+- Deleting a comment thread now deletes its replies too, and the thread menu says "Delete thread". You can delete a thread you started while it holds only your own replies, and editors can always delete it.
+- Typing @ in a comment now finds anyone in your organization, not only the first few people alphabetically.
 - Design ChatGPT tools describe parameters without referring to unavailable actions.
 
 ## 2026-10-28
@@ -2430,30 +2449,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - The inspector stays read-only while an empty design is still generating.
 - Typography controls now keep the font name visible and move text box sizing into a details popover.
 - Visual edit actions now reject missing design targets before running.
-
-## 2026-06-28
-
-### Improved
-
-- Annotate mode now combines drawing and comment pins in one canvas submission.
-- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
-- Live cursors now use a sharper pointer with a cleaner adjacent name tag.
-- The bottom toolbar now groups tool menus with a distinct mode section.
-- Screen overview now selects screens on click and opens them on double-click.
-- Screen overview zooms into the active screen with smoother edit transitions and consistent tooltips.
-- The Design editor toolbar is more compact and the app menu mark is easier to see.
-- Tweaks now live at the top of the design sidebar instead of behind a floating canvas button.
-- Tweaks now live in the right inspector beside the Design tab.
-- Design mode now has a full-featured visual code canvas with adaptive inspection, patch proof, artboard duplication, clarify cards, and annotation queues.
-
-### Fixed
-
-- Design editor panel borders are cleaner so the canvas edge stays rounded without doubled dividers.
-- Drawing prompts now reliably open and submit to the design agent.
-- Editor app menus now use an outline Agent-Native mark with bordered, instant submenus.
-- Layer selection now updates chat context without opening the agent sidebar.
-- Layer selections now preserve hidden and locked canvas state more faithfully.
-- Screen overview now handles zooming, drawing, opening, and deleting screens more reliably.
-- Selected-element chips in chat are shorter and easier to scan.
 
 For the full list of updates, see the [changelog folder](./changelog/).

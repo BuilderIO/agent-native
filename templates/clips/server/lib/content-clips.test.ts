@@ -1610,6 +1610,59 @@ describe("a signed-out reader's token", () => {
       ).status,
     ).toBe(401);
   });
+
+  it("spends only its own visitor's reads, so one busy reader refuses no other", async () => {
+    const visitor = (key: string) =>
+      publicReaderToken({ extra: { visitor_key: key } });
+    const busy = await visitor("busy-visitor-key-0123456789abcd");
+    for (let attempt = 0; attempt < 600; attempt++) {
+      expect((await playback("rec-upload", busy)).status).toBe(200);
+    }
+    expect((await playback("rec-upload", busy)).status).toBe(429);
+
+    expect(
+      (
+        await playback(
+          "rec-upload",
+          await visitor("other-visitor-key-0123456789ab"),
+        )
+      ).status,
+    ).toBe(200);
+    // A token from a Content that signs no keys still plays, counted with
+    // the other keyless readers of this Clip on this page.
+    expect(
+      (await playback("rec-upload", await publicReaderToken())).status,
+    ).toBe(200);
+    expect((await playback("rec-upload", await token())).status).toBe(200);
+  });
+
+  it("is refused with a visitor key that isn't one, or on a signed-in reader's token", async () => {
+    for (const visitorKey of [
+      "short",
+      "x".repeat(65),
+      "has space 0123456789",
+      42,
+    ]) {
+      expect(
+        (
+          await playback(
+            "rec-upload",
+            await publicReaderToken({ extra: { visitor_key: visitorKey } }),
+          )
+        ).status,
+      ).toBe(401);
+    }
+    expect(
+      (
+        await playback(
+          "rec-upload",
+          await token({
+            extra: { visitor_key: "signed-in-visitor-key-0123456" },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+  });
 });
 
 describe("token checks", () => {

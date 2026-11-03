@@ -27,6 +27,7 @@ import type {
 import {
   isBlocksPropertyType,
   isComputedPropertyType,
+  isUrlPropertyValue,
   parsePropertyOptions,
   parsePropertyValue,
   serializePropertyValue,
@@ -674,13 +675,11 @@ async function strictValue(
     case "url": {
       if (typeof value !== "string" || value !== value.trim())
         invalidProperty(definition, "expected a URL");
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error();
-      } catch {
-        invalidProperty(definition, "expected an http or https URL");
-      }
+      if (!isUrlPropertyValue(value))
+        invalidProperty(
+          definition,
+          "expected an http or https URL, or a t3-thread link",
+        );
       return value;
     }
     case "email":

@@ -930,6 +930,7 @@ const editor = {
       video: "ビデオ",
     },
     fromSource: "{{name}}から",
+    hiddenInThisView: "このビューで非表示",
     hiddenProperties: "隠しプロパティ",
     imageUploaded_zero: "アップロードされた画像",
     imageUploaded_one: "画像がアップロードされました",
@@ -1264,6 +1265,23 @@ const rawLiterals = {
     restoreDatabase: "復元",
     restoreDatabaseNamed: "{{title}} を復元",
     trash: "ゴミ箱",
+  },
+  publicDocument: {
+    chat: "チャット",
+    freeAndOpenSource: "無料のオープンソース（GitHub）",
+    pagePath: "ページの階層",
+    privateDescription:
+      "このリンクを開く前に、オーナーにあなたのアカウントまたはワークスペースと共有するよう依頼してください。",
+    privateTitle: "このドキュメントは非公開です",
+    signIn: "サインイン",
+    signUp: "新規登録",
+    signUpFree: "無料で登録",
+    subPages: "サブページ",
+    tryContentFree: "Content を無料で試す",
+    updated: "{{date}} に更新",
+    writtenIn: "Agent-Native Content で作成されました。",
+    writtenInDescription:
+      "ドキュメントの中で働く AI エージェントと一緒に、自分のページを書いて公開できます。",
   },
 };
 

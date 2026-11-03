@@ -724,7 +724,7 @@ describe("the rows a provider query stores", () => {
 });
 
 describe("an inbox poll in a dry run", () => {
-  it("says it ingested, because the poller behind it writes rows in every mode", async () => {
+  it("says it ingested only when the run was live: a dry run's read stores nothing", async () => {
     for (const mode of ["live", "dry"] as const) {
       const { test, id } = await setup({
         source: "inbox-poll",
@@ -737,7 +737,7 @@ describe("an inbox poll in a dry run", () => {
 
       expect(stepOf(result, "src").fields).toMatchObject({
         source: "inbox-poll",
-        ingested: true,
+        ingested: mode === "live",
       });
       expect(test.inbox.requests[0].mode).toBe(mode);
     }
