@@ -6,6 +6,7 @@ const presignMock = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
 }));
+// raw-sql-ok: drizzle mock, no SQL is composed
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   desc: vi.fn(),
