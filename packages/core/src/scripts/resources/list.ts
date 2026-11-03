@@ -24,7 +24,13 @@ function parseNonNegativeInt(
 ): number {
   if (value === undefined) return fallback;
   if (!/^\d+$/.test(value)) fail(`--${name} must be a non-negative integer.`);
-  return Number(value);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) fail(`--${name} is too large.`);
+  return parsed;
+}
+
+function compareCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 export default async function resourceListScript(
@@ -116,7 +122,8 @@ Options:
   }
 
   const sorted = [...resources].sort(
-    (a, b) => a.path.localeCompare(b.path) || a.owner.localeCompare(b.owner),
+    (a, b) =>
+      compareCodeUnits(a.path, b.path) || compareCodeUnits(a.owner, b.owner),
   );
   const total = sorted.length;
   const page = sorted.slice(offset, offset + limit);
