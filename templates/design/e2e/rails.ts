@@ -40,7 +40,7 @@ function isAwarenessSequenceReset(response: {
     /\/_agent-native\/collab\/[^/]+\/awareness$/.test(
       new URL(response.url()).pathname,
     ) &&
-    response.headers()["x-awareness-client-sequence"] !== undefined
+    "x-awareness-client-sequence" in response.headers()
   );
 }
 
