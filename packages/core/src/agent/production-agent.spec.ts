@@ -155,6 +155,7 @@ import {
   permanentPreconditionRemedy,
   permanentPreconditionReason,
   normalizeToolErrorForBreaker,
+  executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
@@ -6483,6 +6484,7 @@ describe("createProductionAgentHandler", () => {
         ),
       ).resolves.toEqual({
         error: "submissionPayload does not match this message",
+        code: "submission_payload_attachments_mismatch",
       });
       expect(event.res.status).toBe(400);
       expect(append).not.toHaveBeenCalled();
@@ -9760,10 +9762,137 @@ describe("createProductionAgentHandler", () => {
 
     await expect(handler(event)).resolves.toEqual({
       error: "engine must be a string",
+      code: "invalid_engine",
     });
     expect(event.res.status).toBe(400);
     expect(systemPrompt).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
+  });
+
+  describe("400 responses carry a stable code", () => {
+    const threadId = "thread-400-codes";
+    const messageId = "message-400-codes";
+    const payload = { threadId, id: messageId, text: "Run" };
+    const post = async (body: BodyInit) => {
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      return { response, status: event.res.status };
+    };
+
+    it.each([
+      ["invalid_request_body", "{not json", "Invalid request body"],
+      [
+        "submission_payload_not_object",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: "payload",
+        }),
+        "Invalid submissionPayload",
+      ],
+      [
+        "submission_payload_message_mismatch",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: { ...payload, id: "another-message" },
+        }),
+        "submissionPayload does not match this message",
+      ],
+      [
+        "submission_payload_rejected",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: { threadId, id: messageId },
+        }),
+        "Invalid submissionPayload",
+      ],
+      [
+        "submission_payload_options_mismatch",
+        JSON.stringify({
+          message: "Another message",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: payload,
+        }),
+        "submissionPayload does not match this message",
+      ],
+      [
+        "unsupported_hosted_harness",
+        JSON.stringify({ message: "Run", harness: { runtime: "unknown" } }),
+        "Unsupported hosted harness runtime",
+      ],
+    ])("%s", async (code, body, error) => {
+      await expect(post(body)).resolves.toEqual({
+        response: { error, code },
+        status: 400,
+      });
+    });
+
+    it("continuation_action_scope_missing", async () => {
+      const claimBackgroundRun = vi
+        .spyOn(runStore, "claimBackgroundRun")
+        .mockResolvedValue(true);
+      const recordRunDiagnostic = vi
+        .spyOn(runStore, "recordRunDiagnostic")
+        .mockResolvedValue(undefined);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+        resolveActionSurface: async () => ({ actionScope: undefined }),
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      );
+      event.context.__agentChatBackgroundBody = {
+        message: "Run",
+        threadId,
+        actionScope: { id: "scope" },
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+          runId: "run-continuation-scope",
+          turnId: "turn-continuation-scope",
+        },
+      };
+
+      try {
+        await expect(
+          runWithRequestContext(
+            { userEmail: "alice@example.com", orgId: "acme", run: {} },
+            () => handler(event),
+          ),
+        ).resolves.toEqual({
+          error: "Resolved actionScope is required for continuation",
+          code: "continuation_action_scope_missing",
+        });
+        expect(event.res.status).toBe(400);
+      } finally {
+        claimBackgroundRun.mockRestore();
+        recordRunDiagnostic.mockRestore();
+      }
+    });
   });
 
   it("refuses a busy thread before uploading the message's attachments", async () => {
@@ -10705,6 +10834,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(response).toEqual({
       error: "actionScope must be at most 8192 bytes",
+      code: "invalid_action_scope",
     });
     expect(resolver).not.toHaveBeenCalled();
   });
@@ -10735,6 +10865,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(response).toEqual({
       error: "actionScope requires resolveActionSurface",
+      code: "action_scope_unsupported",
     });
   });
 
@@ -21048,6 +21179,60 @@ describe("runAgentLoop", () => {
         completedSideEffect: false,
       }),
     );
+  });
+
+  it("strips null placeholders beside a chosen false and runs the tool", async () => {
+    const optionSchema = z.object({
+      label: z.string().min(1),
+      color: z.string().optional(),
+      recommended: z.boolean().optional(),
+    });
+    const questionsSchema = z.object({
+      designId: z.string(),
+      questions: z.array(
+        z.object({
+          id: z.string().min(1),
+          options: z.array(optionSchema).optional(),
+          choices: z.array(optionSchema).optional(),
+          multiSelect: z.boolean().optional(),
+          min: z.number().optional(),
+        }),
+      ),
+    });
+    const run = vi.fn(async (input: z.infer<typeof questionsSchema>) => input);
+    const action = defineAction({
+      description: "Show questions",
+      schema: questionsSchema,
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "show-questions": action as unknown as ActionEntry },
+      name: "show-questions",
+      callId: "strict-mode-nulls",
+      input: {
+        designId: "design-1",
+        questions: [
+          {
+            id: "form_factor",
+            options: [{ label: "Website", color: null, recommended: false }],
+            choices: null,
+            multiSelect: false,
+            min: null,
+          },
+        ],
+      },
+    });
+    expect(result.status).toBe("completed");
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      designId: "design-1",
+      questions: [
+        {
+          id: "form_factor",
+          options: [{ label: "Website", recommended: false }],
+          multiSelect: false,
+        },
+      ],
+    });
   });
 
   it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {

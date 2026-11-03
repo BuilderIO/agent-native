@@ -188,6 +188,10 @@ export const recordings = table("recordings", {
   recordingPlatform: text("recording_platform", {
     enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
   }),
+  // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
+  // so an automatic retry of a file the owner already uploaded gets that clip
+  // back instead of a second copy. Null for live recordings.
+  sourceHeadSha256: text("source_head_sha256"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
 

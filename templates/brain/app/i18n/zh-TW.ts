@@ -1,6 +1,7 @@
 const messages = {
   common: {
     saving: "正在儲存",
+    incompleteTranscript: "逐字稿不完整。因隱私保護而隱藏的段落數：{{count}}。",
   },
   routeTitles: {
     extension: "擴充功能 - Brain",

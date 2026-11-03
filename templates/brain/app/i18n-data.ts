@@ -5,6 +5,8 @@ import zhTW from "./i18n/zh-TW";
 const enUS = {
   common: {
     saving: "Saving",
+    incompleteTranscript:
+      "Incomplete transcript. Passages withheld for privacy: {{count}}.",
   },
   routeTitles: {
     extension: "Extension - Brain",
@@ -889,7 +891,10 @@ const baseMessagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
-    common: { saving: "正在保存" },
+    common: {
+      saving: "正在保存",
+      incompleteTranscript: "转录不完整。因隐私保护而隐藏的段落数：{{count}}。",
+    },
     routeTitles: {
       extension: "扩展 - Brain",
       extensions: "扩展 - Brain",
@@ -1099,6 +1104,8 @@ const baseMessagesByLocale = {
   "es-ES": mergeMessages({
     common: {
       saving: "Guardando",
+      incompleteTranscript:
+        "Transcripción incompleta. Fragmentos ocultos por privacidad: {{count}}.",
     },
     routeTitles: {
       extension: "Extensión - Brain",
@@ -1322,6 +1329,8 @@ const baseMessagesByLocale = {
   "fr-FR": mergeMessages({
     common: {
       saving: "Enregistrement",
+      incompleteTranscript:
+        "Transcription incomplète. Passages masqués pour protéger la confidentialité : {{count}}.",
     },
     routeTitles: {
       extension: "Module d’extension - Brain",
@@ -1546,6 +1555,8 @@ const baseMessagesByLocale = {
   "de-DE": mergeMessages({
     common: {
       saving: "Speichern",
+      incompleteTranscript:
+        "Unvollständiges Transkript. Aus Datenschutzgründen zurückgehaltene Passagen: {{count}}.",
     },
     routeTitles: {
       extension: "Erweiterung - Brain",
@@ -1768,7 +1779,11 @@ const baseMessagesByLocale = {
     },
   }),
   "ja-JP": mergeMessages({
-    common: { saving: "保存中" },
+    common: {
+      saving: "保存中",
+      incompleteTranscript:
+        "文字起こしは不完全です。プライバシー保護のため非表示にした箇所数：{{count}}。",
+    },
     routeTitles: {
       extension: "拡張機能 - Brain",
       extensions: "拡張機能 - Brain",
@@ -1985,6 +2000,8 @@ const baseMessagesByLocale = {
   "ko-KR": mergeMessages({
     common: {
       saving: "저장 중",
+      incompleteTranscript:
+        "불완전한 대본입니다. 개인정보 보호를 위해 숨긴 구절 수: {{count}}.",
     },
     routeTitles: {
       extension: "확장 - Brain",
@@ -2201,6 +2218,8 @@ const baseMessagesByLocale = {
   "pt-BR": mergeMessages({
     common: {
       saving: "Salvando",
+      incompleteTranscript:
+        "Transcrição incompleta. Trechos ocultados por privacidade: {{count}}.",
     },
     routeTitles: {
       extension: "Extensão - Brain",
@@ -2423,6 +2442,8 @@ const baseMessagesByLocale = {
   "hi-IN": mergeMessages({
     common: {
       saving: "सहेज रहे हैं",
+      incompleteTranscript:
+        "अधूरा प्रतिलेख। गोपनीयता के लिए रोके गए अंशों की संख्या: {{count}}।",
     },
     routeTitles: {
       extension: "एक्सटेंशन - Brain",
@@ -2640,6 +2661,8 @@ const baseMessagesByLocale = {
   "ar-SA": mergeMessages({
     common: {
       saving: "جارٍ الحفظ",
+      incompleteTranscript:
+        "نص غير مكتمل. عدد المقاطع المحجوبة لحماية الخصوصية: {{count}}.",
     },
     routeTitles: {
       extension: "إضافة - Brain",

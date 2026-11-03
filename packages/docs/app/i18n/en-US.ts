@@ -1,5 +1,5 @@
 const enUS = {
-  campaign: {
+  siteContent: {
     recipeWhen: "When",
     howOften: "How often",
     filterRole: "Role",
@@ -21,7 +21,6 @@ const enUS = {
     whereItBreaks: "Where it breaks",
     updatedDate: "Updated {{date}}",
     publishedDate: "Published {{date}}",
-    allArticles: "All articles",
     useCases: "Use cases",
     useCasesDescription: "Pages for recurring jobs, by app",
     useCasesTitle:
@@ -29,14 +28,14 @@ const enUS = {
     useCasesIntro:
       "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
     articles: "Articles",
-    articlesIntro:
-      "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
-    useCasesLink: "use cases",
+    articlesIntro: "Guides and explainers for recurring work with AI agents.",
     articleCount_one: "{{count}} article",
     articleCount_other: "{{count}} articles",
-    moreOnTopic: "More on {{topic}}",
-    faqs: "FAQs",
     copyPage: "Copy page",
+    enlargeImage: "Enlarge image",
+    closeImage: "Close image",
+    copyPrompt: "Copy prompt",
+    promptHint: "Paste the prompt into the {{app}} prompt box.",
     copyLink: "Copy link",
     copied: "Copied",
     copyFailed: "Could not copy. Please try again.",
@@ -44,11 +43,9 @@ const enUS = {
     readTime_one: "{{count}} min read",
     readTime_other: "{{count}} min read",
     partOf: "Part of:",
-    relatedResources: "Related resources",
     moreArticles: "More {{category}} articles",
     genericMore: "More articles",
     showMore: "Show more articles",
-    allTopics: "All topics",
     topics: {
       clips: "Screen recordings, meetings, and dictation your AI agent can use",
       design: "Interactive prototypes with your AI agent",
@@ -2814,11 +2811,11 @@ type PluralKey =
   `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
 
 /** Locales supply only the plural categories their language uses. */
-export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
-  campaign: {
-    [K in keyof typeof enUS.campaign as K extends PluralKey
+export type PluralLocaleMessages = Omit<typeof enUS, "siteContent"> & {
+  siteContent: {
+    [K in keyof typeof enUS.siteContent as K extends PluralKey
       ? never
-      : K]: (typeof enUS.campaign)[K];
+      : K]: (typeof enUS.siteContent)[K];
   } & Record<PluralKey, string>;
 };
 
