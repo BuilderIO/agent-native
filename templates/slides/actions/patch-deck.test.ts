@@ -1323,12 +1323,27 @@ describe("silent success: reorder and agent field schema", () => {
       ],
     };
     expect(() =>
-      applyOperation(deck, {
-        op: "reorder-slides",
-        orderedIds: ["s2", "ghost"],
-      }),
+      applyOperation(
+        deck,
+        { op: "reorder-slides", orderedIds: ["s2", "ghost"] },
+        { strictReorder: true },
+      ),
     ).toThrow(/ghost/);
     expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("ignores stale reorder-slides ids for non-agent callers", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    applyOperation(deck, {
+      op: "reorder-slides",
+      orderedIds: ["s2", "ghost", "s1"],
+    });
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s2", "s1"]);
   });
 
   it("agent patch-deck-fields schema does not accept visibility", () => {

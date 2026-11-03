@@ -940,6 +940,7 @@ export function applyOperation(
   op: Operation,
   options?: {
     clearLayoutWarningDismissal?: boolean;
+    strictReorder?: boolean;
     sourceContentHashes?: ReadonlyMap<string, string>;
   },
 ): boolean {
@@ -1101,7 +1102,7 @@ export function applyOperation(
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       const unknownId = orderedIds.find((id) => !byId.has(id));
-      if (unknownId !== undefined) {
+      if (unknownId !== undefined && options?.strictReorder) {
         fail(
           `Cannot reorder: slide ${unknownId} is not in this deck. Nothing was moved; re-read the deck and reorder with current slide IDs.`,
           { errorCode: "reorder_unknown_slide_id", statusCode: 409 },
@@ -1109,7 +1110,9 @@ export function applyOperation(
       }
       // Unnamed slides stay at the end so a concurrent add is not dropped.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reordered: any[] = orderedIds.map((id) => byId.get(id));
+      const reordered: any[] = orderedIds
+        .filter((id) => byId.has(id))
+        .map((id) => byId.get(id));
       const orderedSet = new Set(orderedIds);
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
@@ -1718,6 +1721,7 @@ export default defineAction({
         }
         const operationChangedStructure = applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
+          strictReorder: isAgentCaller,
           sourceContentHashes,
         });
         structuralOperationApplied ||= operationChangedStructure;
@@ -2019,7 +2023,9 @@ export default defineAction({
       if (!meaningfulChange) {
         if (isAgentCaller) {
           throw new NoWriteError(
-            "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+            skippedSlideIds.size
+              ? `Nothing was written: add-slide skipped ${[...skippedSlideIds].join(", ")} because a slide with that ID already exists. Use a new slideId to add another slide.`
+              : "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }
         if (clientWrite) {
