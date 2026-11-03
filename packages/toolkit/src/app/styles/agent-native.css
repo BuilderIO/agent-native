@@ -1240,6 +1240,10 @@
   animation: agent-builder-setup-card-enter 220ms var(--ease-out-strong) both;
 }
 
+.agent-builder-setup-card--attached.animate-bounce-once {
+  animation: var(--animate-bounce-once);
+}
+
 @keyframes agent-builder-setup-card-enter {
   from {
     opacity: 0;
@@ -1365,6 +1369,10 @@
   min-width: 0;
   padding-top: 1.25rem;
   pointer-events: auto;
+}
+
+.agent-composer-setup-gated button:disabled {
+  pointer-events: none;
 }
 
 .agent-composer-area--attached-above .agent-composer-root {

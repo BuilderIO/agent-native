@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-02
+
+### Fixed
+
+- Dispatch now opens on the chat home with a smaller heading and more room above it, and the Connect AI card sits inside the composer edges.
+
+## 2026-10-30
+
+### Fixed
+
+- Builder team members can find their workspace from standalone Dispatch.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
 ## 2026-10-23
 
 ### Fixed

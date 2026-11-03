@@ -65,7 +65,7 @@ Clips also supports a personal vocabulary that biases transcription toward your 
 
 ## What should you check before you switch?
 
-Dictation in Clips runs through the desktop app, so check that it supports your operating system before you install. Clips is labeled alpha, so expect rough edges. Try it for a few days on real prompts, then compare it with what you use now.
+Dictation in Clips runs through the desktop app, so check that it supports your operating system before you install. Clips is in beta, so expect rough edges. Try it for a few days on real prompts, then compare it with what you use now.
 
 ## Frequently asked questions
 
@@ -87,4 +87,4 @@ Yes. Every dictation is kept in a searchable history, with the transcript and a 
 
 ### Is Clips free?
 
-Yes. Clips is free and open source. It's labeled alpha, so expect rough edges.
+Yes. Clips is free and open source. It's in beta, so expect rough edges.
