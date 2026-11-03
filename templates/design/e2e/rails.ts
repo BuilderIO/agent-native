@@ -44,6 +44,19 @@ function isAwarenessSequenceReset(response: {
   );
 }
 
+// Chromium's resource-load console line carries no URL in its text, only in its location.
+function isAwarenessResourceConflict(message: {
+  text(): string;
+  location(): { url: string };
+}) {
+  return (
+    message.text().includes("the server responded with a status of 409") &&
+    /\/_agent-native\/collab\/[^/]+\/awareness$/.test(
+      new URL(message.location().url || "http://invalid.test/").pathname,
+    )
+  );
+}
+
 export class App {
   private readonly failures: Failure[] = [];
   private readonly allowed: { pattern: RegExp; reason: string }[] = [];
@@ -129,7 +142,8 @@ export class App {
       if (
         this.recording &&
         message.type() === "error" &&
-        !isSandboxedFrameAutomationNoise(message.text())
+        !isSandboxedFrameAutomationNoise(message.text()) &&
+        !isAwarenessResourceConflict(message)
       ) {
         this.failures.push({ kind: "console.error", detail: message.text() });
       }
