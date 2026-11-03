@@ -5,7 +5,7 @@ title: How to create a software prototype
 seo_title: How to create a software prototype, step by step
 og_line: One question, one flow, five testers
 meta_description: "Create a prototype of your app or feature that answers a real question: pick one flow, sketch it, build clickable screens and test them with five people."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F05ef032865914baaab1e0a8a2f3838c4
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0731a67d012142c78357e70e12e3c625
 published: 2026-11-03
 updated: 2026-11-03
 author:
