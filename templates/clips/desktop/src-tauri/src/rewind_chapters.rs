@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 use crate::config::RewindCaptureMode;
 use crate::screen_memory::{ScreenMemoryEvent, ScreenMemorySegmentMetadata};

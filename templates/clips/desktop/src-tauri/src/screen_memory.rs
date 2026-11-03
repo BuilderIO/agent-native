@@ -5589,13 +5589,19 @@ command = "keep"
         drop(gate.begin_clear().unwrap());
 
         assert!(gate.lock_unless_cleared(before_clear).unwrap().is_none());
-        assert!(gate.lock_unless_cleared(gate.generation()).unwrap().is_some());
+        assert!(gate
+            .lock_unless_cleared(gate.generation())
+            .unwrap()
+            .is_some());
     }
 
     #[test]
     fn clear_history_waits_for_a_segment_that_is_already_finalizing() {
         let gate = Arc::new(HistoryClearGate::default());
-        let finalizing = gate.lock_unless_cleared(gate.generation()).unwrap().unwrap();
+        let finalizing = gate
+            .lock_unless_cleared(gate.generation())
+            .unwrap()
+            .unwrap();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         let clear_gate = gate.clone();
         let clear = std::thread::spawn(move || {
@@ -5666,12 +5672,7 @@ command = "keep"
         .unwrap();
 
         assert!(deleted);
-        assert!(runtime
-            .lock()
-            .unwrap()
-            .segment_reservations
-            .pins
-            .is_empty());
+        assert!(runtime.lock().unwrap().segment_reservations.pins.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5682,16 +5683,15 @@ command = "keep"
         std::fs::remove_file(&media_path).unwrap();
         let runtime = reservation_runtime();
 
-        assert!(reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err());
+        assert!(
+            reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err()
+        );
         std::fs::remove_file(&metadata_path).unwrap();
-        assert!(reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err());
+        assert!(
+            reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err()
+        );
 
-        assert!(runtime
-            .lock()
-            .unwrap()
-            .segment_reservations
-            .pins
-            .is_empty());
+        assert!(runtime.lock().unwrap().segment_reservations.pins.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5699,8 +5699,9 @@ command = "keep"
     fn a_failed_deletion_releases_its_claim_and_reports_the_failure() {
         let runtime = reservation_runtime();
 
-        let result =
-            delete_unless_reserved(&runtime, "segment-stuck", || Err::<(), _>("locked".to_string()));
+        let result = delete_unless_reserved(&runtime, "segment-stuck", || {
+            Err::<(), _>("locked".to_string())
+        });
 
         assert_eq!(result, Err("locked".to_string()));
         assert!(runtime
