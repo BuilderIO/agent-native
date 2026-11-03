@@ -31,7 +31,6 @@ import {
   decryptSecretValue,
   getSecretEncryptionKey,
 } from "../secrets/crypto.js";
-import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -195,13 +194,12 @@ function storageUnavailable(
 
 /**
  * The Builder connection behind storage is dead (revoked or expired grant,
- * rejected key, unreadable saved secret). Retrying cannot help; only the user
+ * rejected key). Retrying cannot help; only the user
  * reconnecting Builder can.
  */
 export function isBuilderReconnectRequiredError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current; depth++) {
-    if (current instanceof AppSecretDecryptionError) return true;
     const code = (current as { errorCode?: unknown }).errorCode;
     if (
       code === "builder_oauth_reauthorization_required" ||
