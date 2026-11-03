@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: Comment créer une présentation de QBR
 seo_title: Comment créer une présentation de QBR (avec exemples de diapositives)
-og_line: Avec un plan de diapositives et un deck d'exemple
+og_line: Les résultats du T3 face aux objectifs du client
 meta_description: "Créez une présentation de revue trimestrielle d'activité (QBR) à laquelle votre client peut se fier : tirez chaque chiffre de sa source, comparez-le à son objectif, puis construisez les diapositives."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F379e66cdbe6d4ee1bf84878090830dbb
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -41,7 +41,7 @@ faqs:
   - q: À quoi ressemble l'ordre du jour d'une QBR ?
     a: "Pour une QBR d'une heure, essayez cette répartition. Consacrez 5 minutes à la décision du jour et 25 au tableau de bord et aux diapositives sur les objectifs et la valeur. Donnez ensuite 20 minutes aux objectifs et aux demandes du prochain trimestre, et 10 aux responsables et aux dates. Adaptez la répartition, mais limitez le bilan à la moitié de la réunion au maximum."
   - q: À quelle fréquence organiser une QBR ?
-    a: "Chaque trimestre, comme son nom l'indique, pour les comptes assez importants pour justifier la réunion. Les comptes plus petits peuvent avoir une revue plus courte deux fois par an, ou un compte rendu écrit à la place d'une réunion."
+    a: "Chaque trimestre, comme son nom l'indique, pour les comptes assez importants pour justifier la réunion. Les comptes plus petits peuvent avoir une revue plus courte deux fois par an, ou un compte rendu écrit à la place d'une réunion. Au sein de votre propre équipe, une revue hebdomadaire d'activité suit les indicateurs opérationnels et une revue mensuelle d'activité compare les résultats au plan."
   - q: Quelle est la différence entre une QBR et une EBR ?
     a: "Une EBR (Executive Business Review) est une revue stratégique avec la direction du client, organisée une ou deux fois par an. Elle porte sur les résultats, la stratégie et le renouvellement, avec moins de détails sur le produit qu'une QBR. Une QBR a lieu chaque trimestre, passe en revue chaque objectif et réunit généralement les interlocuteurs opérationnels en plus du sponsor."
   - q: "Qu'est-ce qu'une revue trimestrielle d'activité ?"
@@ -198,7 +198,7 @@ Pour une QBR d'une heure, essayez cette répartition. Consacrez 5 minutes à la 
 
 ### À quelle fréquence organiser une QBR ?
 
-Chaque trimestre, comme son nom l'indique, pour les comptes assez importants pour justifier la réunion. Les comptes plus petits peuvent avoir une revue plus courte deux fois par an, ou un compte rendu écrit à la place d'une réunion.
+Chaque trimestre, comme son nom l'indique, pour les comptes assez importants pour justifier la réunion. Les comptes plus petits peuvent avoir une revue plus courte deux fois par an, ou un compte rendu écrit à la place d'une réunion. Au sein de votre propre équipe, une [revue hebdomadaire d'activité](https://www.agent-native.com/articles/weekly-business-review/) suit les indicateurs opérationnels et une [revue mensuelle d'activité](https://www.agent-native.com/articles/monthly-business-review/) compare les résultats au plan.
 
 ### Quelle est la différence entre une QBR et une EBR ?
 

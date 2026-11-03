@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: 如何製作 QBR 簡報
 seo_title: 如何製作 QBR 簡報（附範例投影片）
-og_line: 附投影片大綱與範例簡報
+og_line: 對照客戶目標的 Q3 成果
 meta_description: "為季度業務檢討（QBR）做出客戶信得過的簡報：從來源逐一取出每個數字，和對應的目標並列，再做投影片。"
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F379e66cdbe6d4ee1bf84878090830dbb
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -41,7 +41,7 @@ faqs:
   - q: QBR 的議程該怎麼安排？
     a: "一小時的 QBR 可以這樣分配：5 分鐘說明今天要做的決定，25 分鐘談計分卡、各目標與價值投影片，20 分鐘討論下一季的目標與請求，10 分鐘確認負責人與日期。比例可以調整，但回顧的部分不要超過會議的一半。"
   - q: QBR 多久開一次？
-    a: "顧名思義，每季一次，適用於規模大到值得專門開會的客戶。規模較小的客戶，可以每半年做一次簡短的回顧，或改用書面摘要取代會議。"
+    a: "顧名思義，每季一次，適用於規模大到值得專門開會的客戶。規模較小的客戶，可以每半年做一次簡短的回顧，或改用書面摘要取代會議。在自己的團隊內部，每週業務檢討追蹤營運指標，每月業務檢討則對照計畫檢視成果。"
   - q: QBR 和 EBR 有什麼不同？
     a: "EBR（executive business review，高階主管業務檢討）是與客戶高階主管進行的策略性檢討，每年一到兩次。內容著重成果、策略與續約，產品細節比 QBR 少。QBR 每季一次，會逐一檢視每個目標，與會者除了贊助主管，通常還有日常窗口。"
   - q: "什麼是季度業務檢討？"
@@ -198,7 +198,7 @@ QBR 簡報以上一季約定的目標為主軸：一張計分卡、每個目標�
 
 ### QBR 多久開一次？
 
-顧名思義，每季一次，適用於規模大到值得專門開會的客戶。規模較小的客戶，可以每半年做一次簡短的回顧，或改用書面摘要取代會議。
+顧名思義，每季一次，適用於規模大到值得專門開會的客戶。規模較小的客戶，可以每半年做一次簡短的回顧，或改用書面摘要取代會議。在自己的團隊內部，[每週業務檢討](https://www.agent-native.com/articles/weekly-business-review/)追蹤營運指標，[每月業務檢討](https://www.agent-native.com/articles/monthly-business-review/)則對照計畫檢視成果。
 
 ### QBR 和 EBR 有什麼不同？
 

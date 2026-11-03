@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: So erstellen Sie eine QBR-Präsentation
 seo_title: QBR-Präsentation erstellen (mit Beispielfolien)
-og_line: Mit Folien-Gliederung und Beispiel-Deck
+og_line: Q3-Ergebnisse gemessen an den Zielen des Kunden
 meta_description: "Erstellen Sie eine Präsentation für Ihr Quarterly Business Review (QBR), der Ihr Kunde vertraut: Holen Sie jede Zahl aus ihrer Quelle, stellen Sie sie ihrem Ziel gegenüber und bauen Sie erst dann die Folien."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F379e66cdbe6d4ee1bf84878090830dbb
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -41,7 +41,7 @@ faqs:
   - q: Wie sieht eine QBR-Agenda aus?
     a: "Für ein einstündiges QBR bietet sich diese Aufteilung an: 5 Minuten für die Entscheidung des Tages und 25 für die Scorecard, die Ziel- und die Nutzenfolien. Dann 20 für die Ziele und Anliegen des nächsten Quartals und 10 für Verantwortliche und Termine. Passen Sie die Aufteilung an, aber halten Sie den Rückblick bei höchstens der Hälfte des Meetings."
   - q: Wie oft sollte ein QBR stattfinden?
-    a: "Vierteljährlich, wie der Name sagt, bei Kunden, die groß genug für dieses Meeting sind. Kleinere Kunden bekommen zweimal im Jahr ein kürzeres Review oder statt eines Meetings eine schriftliche Zusammenfassung."
+    a: "Vierteljährlich, wie der Name sagt, bei Kunden, die groß genug für dieses Meeting sind. Kleinere Kunden bekommen zweimal im Jahr ein kürzeres Review oder statt eines Meetings eine schriftliche Zusammenfassung. Innerhalb Ihres eigenen Teams verfolgt ein Weekly Business Review die operativen Kennzahlen, und ein Monthly Business Review gleicht die Ergebnisse mit dem Plan ab."
   - q: Was ist der Unterschied zwischen einem QBR und einem EBR?
     a: "Ein EBR (Executive Business Review) ist ein strategisches Review mit der Geschäftsleitung des Kunden, das ein- oder zweimal im Jahr stattfindet. Es geht um Ergebnisse, Strategie und die Vertragsverlängerung, mit weniger Produktdetails als ein QBR. Ein QBR findet jedes Quartal statt, geht jedes Ziel durch und bezieht neben dem Sponsor meist auch die Ansprechpartner aus dem Tagesgeschäft ein."
   - q: "Was ist ein Quarterly Business Review?"
@@ -198,7 +198,7 @@ Für ein einstündiges QBR bietet sich diese Aufteilung an: 5 Minuten für die E
 
 ### Wie oft sollte ein QBR stattfinden?
 
-Vierteljährlich, wie der Name sagt, bei Kunden, die groß genug für dieses Meeting sind. Kleinere Kunden bekommen zweimal im Jahr ein kürzeres Review oder statt eines Meetings eine schriftliche Zusammenfassung.
+Vierteljährlich, wie der Name sagt, bei Kunden, die groß genug für dieses Meeting sind. Kleinere Kunden bekommen zweimal im Jahr ein kürzeres Review oder statt eines Meetings eine schriftliche Zusammenfassung. Innerhalb Ihres eigenen Teams verfolgt ein [Weekly Business Review](https://www.agent-native.com/articles/weekly-business-review/) die operativen Kennzahlen, und ein [Monthly Business Review](https://www.agent-native.com/articles/monthly-business-review/) gleicht die Ergebnisse mit dem Plan ab.
 
 ### Was ist der Unterschied zwischen einem QBR und einem EBR?
 

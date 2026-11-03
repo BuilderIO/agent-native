@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: Como fazer uma apresentação de QBR
 seo_title: Como fazer uma apresentação de QBR (com slides de exemplo)
-og_line: Com um roteiro de slides e uma apresentação de exemplo
+og_line: Resultados do Q3 comparados com as metas do cliente
 meta_description: "Faça uma apresentação para a sua revisão trimestral de negócios (QBR) em que seu cliente possa confiar: tire cada número da fonte, coloque-o ao lado da meta e só depois monte os slides."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F379e66cdbe6d4ee1bf84878090830dbb
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -41,7 +41,7 @@ faqs:
   - q: Como é a pauta de uma QBR?
     a: "Para uma QBR de uma hora, experimente esta divisão. Use 5 minutos para a decisão de hoje e 25 para os slides de placar, de metas e de valor. Depois, 20 para as metas e pedidos do próximo trimestre e 10 para responsáveis e prazos. Ajuste a divisão, mas mantenha a retrospectiva em metade da reunião ou menos."
   - q: Com que frequência fazer uma QBR?
-    a: "A cada trimestre, como o nome diz, para contas grandes o bastante para justificar a reunião. Contas menores podem ter uma revisão mais curta duas vezes por ano, ou um resumo por escrito no lugar da reunião."
+    a: "A cada trimestre, como o nome diz, para contas grandes o bastante para justificar a reunião. Contas menores podem ter uma revisão mais curta duas vezes por ano, ou um resumo por escrito no lugar da reunião. Dentro da sua própria equipe, uma revisão semanal de negócios acompanha as métricas operacionais e uma revisão mensal de negócios compara os resultados com o plano."
   - q: Qual é a diferença entre uma QBR e uma EBR?
     a: "Uma EBR (executive business review), ou revisão executiva de negócios, é uma revisão estratégica com os executivos do cliente, feita uma ou duas vezes por ano. Ela trata de resultados, estratégia e renovação, com menos detalhes de produto do que uma QBR. A QBR acontece todo trimestre, passa por cada meta e costuma incluir os contatos do dia a dia, além do patrocinador."
   - q: "O que é uma revisão trimestral de negócios?"
@@ -198,7 +198,7 @@ Para uma QBR de uma hora, experimente esta divisão. Use 5 minutos para a decis�
 
 ### Com que frequência fazer uma QBR?
 
-A cada trimestre, como o nome diz, para contas grandes o bastante para justificar a reunião. Contas menores podem ter uma revisão mais curta duas vezes por ano, ou um resumo por escrito no lugar da reunião.
+A cada trimestre, como o nome diz, para contas grandes o bastante para justificar a reunião. Contas menores podem ter uma revisão mais curta duas vezes por ano, ou um resumo por escrito no lugar da reunião. Dentro da sua própria equipe, uma [revisão semanal de negócios](https://www.agent-native.com/articles/weekly-business-review/) acompanha as métricas operacionais e uma [revisão mensal de negócios](https://www.agent-native.com/articles/monthly-business-review/) compara os resultados com o plano.
 
 ### Qual é a diferença entre uma QBR e uma EBR?
 

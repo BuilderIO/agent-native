@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: 如何制作 QBR 演示文稿
 seo_title: 如何制作 QBR 演示文稿（附示例幻灯片）
-og_line: 附幻灯片大纲和示例演示文稿
+og_line: 对照客户目标看 Q3 成果
 meta_description: "为季度业务回顾（QBR）制作一份客户信得过的演示文稿：从数据来源逐一取出每个数字，与对应目标放在一起，再做幻灯片。"
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F379e66cdbe6d4ee1bf84878090830dbb
 published: 2026-10-28
 updated: 2026-10-28
 author:
@@ -41,7 +41,7 @@ faqs:
   - q: QBR 的议程怎么安排？
     a: "一小时的 QBR 可以这样分配：5 分钟讲今天要做的决定，25 分钟讲记分卡、各目标和价值幻灯片，20 分钟讨论下季度的目标和请求，10 分钟确定负责人和日期。比例可以调整，但回顾部分不要超过会议的一半。"
   - q: QBR 应该多久开一次？
-    a: "顾名思义，每季度一次，适用于规模大到值得专门开会的客户。较小的客户可以每半年做一次简短的回顾，或者用一份书面总结代替会议。"
+    a: "顾名思义，每季度一次，适用于规模大到值得专门开会的客户。较小的客户可以每半年做一次简短的回顾，或者用一份书面总结代替会议。在你自己的团队内部，每周业务回顾跟踪运营指标，每月业务回顾对照计划检查结果。"
   - q: QBR 和 EBR 有什么区别？
     a: "EBR（executive business review，高管业务回顾）是与客户高管进行的战略回顾，每年一到两次。它关注成果、战略和续约，产品细节比 QBR 少。QBR 每季度一次，会逐一过每个目标，参会的通常除了发起人，还有日常对接人。"
   - q: "什么是季度业务回顾？"
@@ -198,7 +198,7 @@ QBR 演示文稿围绕上季度约定的目标展开：一张记分卡、每个�
 
 ### QBR 应该多久开一次？
 
-顾名思义，每季度一次，适用于规模大到值得专门开会的客户。较小的客户可以每半年做一次简短的回顾，或者用一份书面总结代替会议。
+顾名思义，每季度一次，适用于规模大到值得专门开会的客户。较小的客户可以每半年做一次简短的回顾，或者用一份书面总结代替会议。在你自己的团队内部，[每周业务回顾](https://www.agent-native.com/articles/weekly-business-review/)跟踪运营指标，[每月业务回顾](https://www.agent-native.com/articles/monthly-business-review/)对照计划检查结果。
 
 ### QBR 和 EBR 有什么区别？
 
