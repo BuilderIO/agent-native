@@ -597,9 +597,8 @@ describe("estimate-dashboard-cost saved-ID entry point", () => {
       const result = await runSaved({ dashboardId: "d1", runsPerMonth });
       expect(result.runsPerMonth).toBe(expected);
       expect(result.runsPerMonthBasis).toBe(basis);
-      expect(result.total.usdPerMonth).toBe(
-        expected === 0 ? 0 : expect.any(Number),
-      );
+      if (expected === 0) expect(result.total.usdPerMonth).toBe(0);
+      else expect(result.total.usdPerMonth).toBeGreaterThan(0);
     },
   );
 });
