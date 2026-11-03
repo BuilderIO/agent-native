@@ -251,7 +251,7 @@ export function TrashFilters({
             ) : null}
           </PopoverContent>
         </Popover>
-        <Tooltip open={showSpaceHint ? undefined : false}>
+        <Tooltip {...(showSpaceHint ? {} : { open: false })}>
           <TooltipTrigger asChild>
             <span
               className="ms-auto shrink-0"
