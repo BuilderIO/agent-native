@@ -271,6 +271,21 @@ export default defineAction({
         (await readEarlierAudioRemovedAt(tx, meeting.recordingId)) !==
         earlierAudioRemovedAt
       ) {
+        // Still holding this claim means it was taken after the removal cleared
+        // the meeting, where it would block the removal's own rebuild.
+        await tx
+          .update(schema.meetings)
+          .set({
+            transcriptStatus: "ready",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.meetings.id, args.meetingId),
+              eq(schema.meetings.transcriptStatus, "pending"),
+              eq(schema.meetings.updatedAt, claimUpdatedAt),
+            ),
+          );
         return true;
       }
 

@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 interface MeetingWithEarlierAudio {
-  earlierAudioMinutes?: number;
+  earlierAudioMinutes?: number | null;
   actionItems?: unknown[];
   transcript?: { segmentsJson?: unknown } | null;
   meeting?: { actualEnd?: string | null } | null;
@@ -63,13 +63,23 @@ export function EarlierAudioNotice({
   canRemove,
   onRemove,
 }: {
-  minutes: number;
+  minutes: number | null | undefined;
   canRemove: boolean;
   onRemove: () => void;
 }) {
   const t = useT();
   const [confirming, setConfirming] = useState(false);
-  if (minutes <= 0) return null;
+  if (minutes === null) {
+    return (
+      <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-accent/20 px-3 py-2">
+        <IconHistory className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 text-sm">
+          {t("meetingDetail.earlierAudioUnreadable")}
+        </span>
+      </div>
+    );
+  }
+  if (!minutes) return null;
 
   return (
     <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">

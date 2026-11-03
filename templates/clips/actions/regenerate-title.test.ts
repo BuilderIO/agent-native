@@ -284,6 +284,30 @@ describe("regenerate-title fallback refinement", () => {
       },
     );
 
+    it("queues no full-video request carrying text read before the removal", async () => {
+      const { readIncludeFullVideoInAi } =
+        await import("./lib/clips-ai-prefs.js");
+      vi.mocked(readIncludeFullVideoInAi).mockResolvedValueOnce(true);
+      mockSelectRows.queue = [
+        () => {
+          mockRemoval.at = removedAt;
+          return [{ id: "rec_1", ...untitled, description: "" }];
+        },
+        [
+          {
+            status: "ready",
+            fullText: "What remains.",
+            segmentsJson: "[]",
+            earlierAudioRemovedAt: removedAt,
+          },
+        ],
+      ];
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+    });
+
     it("drops a title whose current title was read just before the removal", async () => {
       mockSelectRows.queue = [
         () => {

@@ -43,7 +43,7 @@ import {
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
-import { earlierAudioMinutes } from "../shared/earlier-audio.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
@@ -463,8 +463,8 @@ async function fetchMeetingDetail(meetingId: string) {
     })),
     recording,
     transcriptSnippet,
-    earlierAudioMinutes: earlierAudioMinutes(
-      parseTranscriptSegments(linked.transcript?.segmentsJson),
+    earlierAudioMinutes: storedEarlierAudioMinutes(
+      linked.transcript?.segmentsJson,
     ),
   };
 }

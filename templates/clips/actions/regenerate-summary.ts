@@ -164,6 +164,18 @@ export default defineAction({
       }),
     };
 
+    if (
+      (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
+      earlierAudioRemovedAt
+    ) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_changed",
+        recordingId: args.recordingId,
+      };
+    }
+
     await queueAiRequest({
       recordingId: args.recordingId,
       kind: "regenerate-summary",

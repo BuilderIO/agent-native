@@ -32,7 +32,7 @@ describe("EarlierAudioNotice", () => {
   });
 
   const render = (props: {
-    minutes: number;
+    minutes: number | null;
     canRemove?: boolean;
     onRemove?: () => void;
   }) =>
@@ -55,6 +55,12 @@ describe("EarlierAudioNotice", () => {
   it("shows nothing without earlier audio", async () => {
     await render({ minutes: 0 });
     expect(host.innerHTML).toBe("");
+  });
+
+  it("says when the transcript can't be read, with nothing to remove", async () => {
+    await render({ minutes: null });
+    expect(host.textContent).toContain("meetingDetail.earlierAudioUnreadable");
+    expect(buttonNamed("meetingDetail.remove")).toEqual([]);
   });
 
   it("offers Remove only to someone who can edit", async () => {

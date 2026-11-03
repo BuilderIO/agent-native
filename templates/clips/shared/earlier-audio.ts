@@ -1,3 +1,8 @@
+import {
+  parseSegmentsArray,
+  parseTranscriptSegments,
+} from "./transcript-segments";
+
 type EarlierAudioEntry = {
   startMs: number;
   endMs: number;
@@ -21,6 +26,15 @@ export function earlierAudioMinutes(
     Math.max(...recovered.map((entry) => entry.endMs)) -
     Math.min(...recovered.map((entry) => entry.startMs));
   return Math.max(1, Math.round(spanMs / 60_000));
+}
+
+/** Null when stored segments can't be parsed, which isn't holding none. */
+export function storedEarlierAudioMinutes(
+  segmentsJson: string | null | undefined,
+): number | null {
+  if (!segmentsJson) return 0;
+  if (!parseSegmentsArray(segmentsJson)) return null;
+  return earlierAudioMinutes(parseTranscriptSegments(segmentsJson));
 }
 
 export function withoutEarlierAudio<T extends EarlierAudioEntry>(

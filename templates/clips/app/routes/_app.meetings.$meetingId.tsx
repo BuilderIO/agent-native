@@ -477,7 +477,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
-    earlierAudioMinutes?: number;
+    earlierAudioMinutes?: number | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
     reason?: "unavailable";
   };
@@ -951,6 +951,8 @@ export default function MeetingDetailRoute() {
         },
         onError: (err: unknown) => {
           qc.setQueryData(queryKey, previous);
+          // A timeout can land after the server committed the removal.
+          void qc.invalidateQueries({ queryKey });
           toast.error(
             actionErrorMessage(err) ??
               t("meetingDetail.couldNotRemoveEarlierAudio"),
@@ -1295,7 +1297,7 @@ export default function MeetingDetailRoute() {
       )}
 
       <EarlierAudioNotice
-        minutes={data?.earlierAudioMinutes ?? 0}
+        minutes={data?.earlierAudioMinutes}
         canRemove={canEdit}
         onRemove={handleRemoveEarlierAudio}
       />

@@ -573,9 +573,10 @@ const messages = {
     getDesktopApp: "Get desktop app",
     earlierAudioAdded_one: "Added {{count}} minute from before you started",
     earlierAudioAdded_other: "Added {{count}} minutes from before you started",
+    earlierAudioUnreadable: "Couldn't check this transcript for earlier audio",
     removeEarlierAudioTitle: "Remove earlier audio?",
     removeEarlierAudioDescription:
-      "This takes it out of the transcript and rebuilds the summary and action items, plus the Clip's generated title and description.",
+      "This takes it out of the transcript and rebuilds the summary, action items, and Clip description, even if you wrote that description yourself. A generated title is rebuilt too; one you chose stays.",
     couldNotRemoveEarlierAudio: "Couldn't remove earlier audio",
     generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",

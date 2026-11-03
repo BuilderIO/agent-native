@@ -13,7 +13,7 @@ const MIN_WORDS_BEFORE_PUNCTUATION_BREAK = 3;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_CAPTION_MS = 900;
 
-function parseSegmentsArray(raw: string | null | undefined) {
+export function parseSegmentsArray(raw: string | null | undefined) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw ?? "");

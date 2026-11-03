@@ -86,6 +86,14 @@ describe("get-meeting earlierAudioMinutes", () => {
     await expect(minutes()).resolves.toBe(5);
   });
 
+  it("says when the transcript can't be read instead of reporting none", async () => {
+    mocks.transcript = { segmentsJson: "not json" };
+
+    const result = await getMeeting.run({ id: "meeting-1" });
+
+    expect(result).toHaveProperty("earlierAudioMinutes", null);
+  });
+
   it("reports none when there's no earlier audio or no transcript", async () => {
     await expect(minutes()).resolves.toBe(0);
 

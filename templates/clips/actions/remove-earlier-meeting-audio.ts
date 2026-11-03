@@ -240,9 +240,6 @@ export default defineAction({
         (err: unknown) => logDispatchFailure(recordingId, err),
       );
     }
-    if (!meeting.actualEnd) {
-      return { meetingId, removedSegments, notes: "live" };
-    }
 
     // The job covers other meetings on this recording and retries this one if
     // the run below dies. The delay lets that run claim the meeting first.
@@ -252,6 +249,9 @@ export default defineAction({
         kind: "meeting-finalize",
         delayMs: 30_000,
       }).catch((err: unknown) => logDispatchFailure(recordingId, err));
+    }
+    if (!meeting.actualEnd) {
+      return { meetingId, removedSegments, notes: "live" };
     }
     try {
       const result = await finalizeMeeting.run({ meetingId, force: true });

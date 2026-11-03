@@ -202,6 +202,31 @@ describe("regenerate-summary", () => {
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
+  it("queues no full-video request carrying text read before a removal", async () => {
+    const { readIncludeFullVideoInAi } =
+      await import("./lib/clips-ai-prefs.js");
+    vi.mocked(readIncludeFullVideoInAi).mockResolvedValueOnce(true);
+    mockSelectRows.queue = [
+      () => {
+        mockRemoval.at = removedAt;
+        return [
+          { id: "rec_1", title: "Title from removed audio", description: "" },
+        ];
+      },
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: false, reason: "transcript_changed" });
+  });
+
   it("writes a summary built after an earlier removal", async () => {
     mockRemoval.at = removedAt;
     mockSelectRows.queue = [

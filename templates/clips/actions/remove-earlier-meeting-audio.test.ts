@@ -258,12 +258,30 @@ describe("remove-earlier-meeting-audio", () => {
     mocks.rows.meetings[0].actualEnd = null;
     mocks.rows.recordings = [{ status: "uploading", titleSource: "default" }];
     mocks.clearedMeetings = [];
+    mocks.listEnded.mockResolvedValue([]);
 
     await expect(run()).resolves.toMatchObject({ notes: "live" });
 
     expect(mocks.finalize).not.toHaveBeenCalled();
     expect(mocks.deleted).toEqual([]);
     expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds an ended meeting on the recording when this one is still running", async () => {
+    mocks.rows.meetings[0].actualEnd = null;
+    mocks.rows.recordings = [{ status: "uploading", titleSource: "default" }];
+    mocks.clearedMeetings = [{ id: "meeting-2" }];
+    mocks.listEnded.mockResolvedValue([{ id: "meeting-2" }]);
+
+    await expect(run()).resolves.toMatchObject({ notes: "live" });
+
+    expect(mocks.finalize).not.toHaveBeenCalled();
+    expect(mocks.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "recording-1",
+        kind: "meeting-finalize",
+      }),
+    );
   });
 
   it("reports an empty transcript instead of asking for notes from nothing", async () => {

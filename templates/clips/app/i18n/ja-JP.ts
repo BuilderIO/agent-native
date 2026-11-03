@@ -648,9 +648,11 @@ const messages = {
     getDesktopApp: "デスクトップアプリを入手",
     earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
     earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    earlierAudioUnreadable:
+      "この文字起こしに開始前の音声が含まれているか確認できませんでした",
     removeEarlierAudioTitle: "開始前の音声を削除しますか?",
     removeEarlierAudioDescription:
-      "文字起こしから削除し、要約とアクションアイテム、クリップの自動生成タイトルと説明を作り直します。",
+      "文字起こしから削除し、要約、アクションアイテム、クリップの説明を作り直します。説明をご自身で書いた場合も作り直されます。自動生成タイトルも作り直されますが、ご自身で選んだタイトルはそのまま残ります。",
     couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",

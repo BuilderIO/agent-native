@@ -273,6 +273,14 @@ describe("view-screen meeting", () => {
     expect(screen.meeting.earlierAudioMinutes).toBe(5);
   });
 
+  it("says when the transcript can't be read instead of reporting none", async () => {
+    context.meetingSegmentsJson = "not json";
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBeNull();
+  });
+
   it("reports none for notes without it", async () => {
     context.meetingSegmentsJson = JSON.stringify([
       { startMs: 0, endMs: 1000, text: "The meeting itself" },

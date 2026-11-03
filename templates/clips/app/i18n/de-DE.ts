@@ -669,9 +669,11 @@ const messages = {
     earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
     earlierAudioAdded_other:
       "{{count}} Minuten von vor deinem Start hinzugefügt",
+    earlierAudioUnreadable:
+      "Dieses Transkript konnte nicht auf früheren Ton geprüft werden",
     removeEarlierAudioTitle: "Früheren Ton entfernen?",
     removeEarlierAudioDescription:
-      "Er wird aus dem Transkript entfernt, und Zusammenfassung und Aufgaben sowie der generierte Titel und die Beschreibung des Clips werden neu erstellt.",
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung, Aufgaben und Clip-Beschreibung werden neu erstellt, auch wenn Sie die Beschreibung selbst geschrieben haben. Ein generierter Titel wird ebenfalls neu erstellt, ein von Ihnen gewählter bleibt erhalten.",
     couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",

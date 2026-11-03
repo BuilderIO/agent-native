@@ -639,9 +639,11 @@ const messages = {
     getDesktopApp: "데스크톱 앱 받기",
     earlierAudioAdded_one: "시작 전 {{count}}분이 추가됨",
     earlierAudioAdded_other: "시작 전 {{count}}분이 추가됨",
+    earlierAudioUnreadable:
+      "이 스크립트에 시작 전 오디오가 포함되어 있는지 확인할 수 없습니다",
     removeEarlierAudioTitle: "시작 전 오디오를 삭제하시겠습니까?",
     removeEarlierAudioDescription:
-      "스크립트에서 삭제하고 요약과 작업 항목, 클립의 자동 생성 제목과 설명을 다시 만듭니다.",
+      "스크립트에서 삭제하고 요약, 작업 항목, 클립 설명을 다시 만듭니다. 설명을 직접 작성한 경우에도 다시 만들어집니다. 자동 생성 제목도 다시 만들어지지만 직접 선택한 제목은 유지됩니다.",
     couldNotRemoveEarlierAudio: "시작 전 오디오를 삭제할 수 없습니다",
     generateNotesFailed: "요약을 생성할 수 없습니다. 다시 시도해 보세요.",
     attendee_one: "{{count}} 참석자",

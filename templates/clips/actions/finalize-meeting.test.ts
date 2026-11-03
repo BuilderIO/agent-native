@@ -213,6 +213,23 @@ describe("finalize-meeting", () => {
       );
     });
 
+    it("gives up its claim so the removal's rebuild isn't blocked", async () => {
+      await summarize();
+      const { db, updates } = createFinalizingDb([
+        null,
+        "2026-11-03T10:00:00.000Z",
+      ]);
+      mockGetDb.mockReturnValue(db);
+
+      await runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+        finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+      );
+
+      expect(updates[updates.length - 1]).toMatchObject({
+        transcriptStatus: "ready",
+      });
+    });
+
     it("writes the summary when nothing was removed", async () => {
       await summarize();
       const { db, updates } = createFinalizingDb([null, null]);

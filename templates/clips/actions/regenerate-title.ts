@@ -207,6 +207,14 @@ export default defineAction({
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
     if (includeFullVideoInAi) {
+      if (await earlierAudioRemovedSinceRead()) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "title_changed",
+          recordingId: args.recordingId,
+        };
+      }
       const queuedRequest = await queueTitleRegenerationRequest({
         recordingId: args.recordingId,
         currentTitle: rec.title,
