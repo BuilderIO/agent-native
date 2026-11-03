@@ -3,9 +3,9 @@ slug: monthly-business-review
 type: how-to-guide
 title: How to run a monthly business review
 seo_title: How to run a monthly business review (with an example)
-og_line: With a scorecard and an example deck
+og_line: Set up once, rerun twelve times
 meta_description: "Run a monthly business review (MBR) you can repeat every month: set up the scorecard once, compare each month with plan, and build each deck from last month's."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fba8ec18ad9254775999a028e72918545
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9d2d6bb75480429ca2fe4ec38650b6d7
 published: 2026-11-03
 updated: 2026-11-03
 author:
