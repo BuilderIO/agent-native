@@ -598,6 +598,42 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("treats a 403 rateLimitExceeded batch part with no quota wording as a cooldown", async () => {
+    const boundary = "batch_test";
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/http",
+      "Content-ID: <response-part-0>",
+      "",
+      "HTTP/1.1 403 Forbidden",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        error: {
+          message: "Too many concurrent requests for user",
+          errors: [{ reason: "rateLimitExceeded" }],
+        },
+      }),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: {
+            "content-type": `multipart/mixed; boundary=${boundary}`,
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      gmailBatchGetMessages("quota-token-b", ["msg-1"], "metadata"),
+    ).rejects.toThrow(/briefly busy/);
+  });
+
   it("splits large Gmail batches by quota cost instead of sending one burst", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const requestBody = String(init?.body || "");

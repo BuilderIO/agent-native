@@ -726,7 +726,15 @@ async function gmailBatchGet(
   buildPath: (id: string) => string,
   lane: GmailQuotaLane,
   signal?: AbortSignal,
-): Promise<Array<{ id: string; data: any; error?: string }>> {
+): Promise<
+  Array<{
+    id: string;
+    data: any;
+    error?: string;
+    status?: number;
+    errorBody?: any;
+  }>
+> {
   signal?.throwIfAborted();
   if (ids.length === 0) return [];
 
@@ -736,7 +744,13 @@ async function gmailBatchGet(
     for (let i = 0; i < ids.length; i += maxIdsPerBatch) {
       chunks.push(ids.slice(i, i + maxIdsPerBatch));
     }
-    const results: Array<{ id: string; data: any; error?: string }> = [];
+    const results: Array<{
+      id: string;
+      data: any;
+      error?: string;
+      status?: number;
+      errorBody?: any;
+    }> = [];
     for (const chunk of chunks) {
       const part = await gmailBatchGet(
         accessToken,
@@ -816,7 +830,11 @@ async function gmailBatchGet(
   }
 
   const parsed = parseBatchResponse(respText, respBoundary, ids);
-  const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
+  const quotaPart = parsed.find(
+    (part) =>
+      isQuotaErrorText(part.error) ||
+      (part.status !== undefined && isQuotaError(part.status, part.errorBody)),
+  );
   if (quotaPart) {
     const cooldownMs = await tripGmailQuotaCooldown(
       accessToken,
@@ -837,7 +855,15 @@ export async function gmailBatchGetMessages(
   format?: "full" | "metadata" | "minimal",
   lane: GmailQuotaLane = "interactive",
   signal?: AbortSignal,
-): Promise<Array<{ id: string; data: any; error?: string }>> {
+): Promise<
+  Array<{
+    id: string;
+    data: any;
+    error?: string;
+    status?: number;
+    errorBody?: any;
+  }>
+> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
     accessToken,
@@ -855,7 +881,15 @@ export async function gmailBatchGetThreads(
   format?: "full" | "metadata" | "minimal",
   metadataHeaders?: string[],
   lane: GmailQuotaLane = "interactive",
-): Promise<Array<{ id: string; data: any; error?: string }>> {
+): Promise<
+  Array<{
+    id: string;
+    data: any;
+    error?: string;
+    status?: number;
+    errorBody?: any;
+  }>
+> {
   const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
@@ -870,10 +904,20 @@ function parseBatchResponse(
   text: string,
   boundary: string,
   ids: string[],
-): Array<{ id: string; data: any; error?: string }> {
-  const results: Array<{ id: string; data: any; error?: string }> = ids.map(
-    (id) => ({ id, data: null, error: "No response part" }),
-  );
+): Array<{
+  id: string;
+  data: any;
+  error?: string;
+  status?: number;
+  errorBody?: any;
+}> {
+  const results: Array<{
+    id: string;
+    data: any;
+    error?: string;
+    status?: number;
+    errorBody?: any;
+  }> = ids.map((id) => ({ id, data: null, error: "No response part" }));
 
   const marker = `--${boundary}`;
   const rawParts = text.split(marker);
@@ -941,6 +985,8 @@ function parseBatchResponse(
         id: ids[slot],
         data: null,
         error: `HTTP ${status}: ${msg}`,
+        status,
+        errorBody: parsed,
       };
     }
   }

@@ -1071,9 +1071,12 @@ async function captureGmailCandidates(
       );
       for (const result of batch) {
         if (result.error || !result.data) {
-          throw new Error(
+          const failure = new Error(
             result.error || "Gmail did not return thread metadata.",
           );
+          if (result.status !== undefined && result.status >= 500)
+            Object.assign(failure, { retryable: true });
+          throw failure;
         }
         const messages = Array.isArray(result.data.messages)
           ? result.data.messages
