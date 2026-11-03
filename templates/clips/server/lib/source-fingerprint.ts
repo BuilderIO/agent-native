@@ -33,7 +33,7 @@ export async function findUploadedSourceRecording(
     )
     .orderBy(desc(schema.recordings.createdAt))
     .limit(1);
-  return rows.at(0) ?? null;
+  return rows.length > 0 ? rows[0] : null;
 }
 
 /**
