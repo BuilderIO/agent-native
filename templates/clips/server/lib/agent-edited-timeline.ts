@@ -24,6 +24,8 @@ export interface AgentEditedTimeline {
   toSourceMs: (editedMs: number) => number;
   fromSourceMs: (sourceMs: number) => number;
   isVisibleSourceMs: (sourceMs: number) => boolean;
+  /** The latest visible source time at or before the given one, or null when a cut reaches back to 0. */
+  lastVisibleSourceMs: (sourceMs: number) => number | null;
   /** Edited times at which a cut begins; a continuous range cannot cross one. */
   cutBoundariesMs: number[];
   mapSegments: (segments: AgentTranscriptSegment[]) => AgentTranscriptSegment[];
@@ -54,6 +56,7 @@ export function buildAgentEditedTimeline(
       toSourceMs: (ms) => ms,
       fromSourceMs: (ms) => ms,
       isVisibleSourceMs: () => true,
+      lastVisibleSourceMs: (ms) => ms,
       cutBoundariesMs: [],
       mapSegments: (segments) => segments,
       mapChapters: (chapters) => chapters,
@@ -66,6 +69,13 @@ export function buildAgentEditedTimeline(
     toSourceMs: (ms) => editedToOriginal(ms, edits),
     fromSourceMs,
     isVisibleSourceMs: (ms) => !isExcluded(ms, edits),
+    lastVisibleSourceMs: (ms) => {
+      const cut = getExcludedRanges(edits).find(
+        (range) => ms >= range.startMs && ms < range.endMs,
+      );
+      if (!cut) return ms;
+      return cut.startMs > 0 ? cut.startMs - 1 : null;
+    },
     cutBoundariesMs: getExcludedRanges(edits).map((range) =>
       fromSourceMs(range.startMs),
     ),
