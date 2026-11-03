@@ -443,6 +443,7 @@ function runBuildStep(
       });
       const err = report.error;
       void captureOptionalSentryException(err, {
+        fingerprint: ["build-step", opts.label, signal ? "signal" : "failed"],
         tags: {
           buildStep: opts.label,
           ...(template ? { template } : {}),
