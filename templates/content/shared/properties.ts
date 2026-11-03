@@ -494,6 +494,32 @@ function normalizeDatePropertyPart(value: string, includeTime: boolean) {
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
+// The apps a URL property can link into besides the web. Named one by one, so a
+// link on a shared page can't reach whatever protocol handler a machine has
+// installed. A t3-thread link only opens an existing thread in T3 Code.
+const URL_PROPERTY_APP_PROTOCOLS = new Set(["t3-thread:"]);
+
+function urlProtocol(value: string) {
+  try {
+    return new URL(value.trim()).protocol;
+    // coercion-ok: null is "not a URL", and callers treat it as absent.
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a URL property's value links into an app rather than a web page. */
+export function isAppLinkUrl(value: string) {
+  const protocol = urlProtocol(value);
+  return protocol !== null && URL_PROPERTY_APP_PROTOCOLS.has(protocol);
+}
+
+/** Whether a URL property can hold this value: a web address or a named app link. */
+export function isUrlPropertyValue(value: string) {
+  const protocol = urlProtocol(value);
+  return protocol === "http:" || protocol === "https:" || isAppLinkUrl(value);
+}
+
 export function normalizePropertyValue(
   type: DocumentPropertyType,
   value: unknown,
