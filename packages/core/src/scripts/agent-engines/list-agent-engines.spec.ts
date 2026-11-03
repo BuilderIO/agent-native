@@ -70,6 +70,7 @@ describe("list-agent-engines", () => {
     defaultSetting = { value: null, source: "none" };
     defaultAuthority = { allowed: true };
     vi.doMock("../../agent/default-agent-engine.js", () => ({
+      isDefaultAgentEngineScopeResolved: vi.fn(() => true),
       readDefaultAgentEngineSettingDetailed: vi.fn(async () => defaultSetting),
       resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
     }));
@@ -108,6 +109,7 @@ describe("list-agent-engines", () => {
 
   it("lists engines and reports an unresolved default when org scope is unknown", async () => {
     vi.doMock("../../agent/default-agent-engine.js", () => ({
+      isDefaultAgentEngineScopeResolved: vi.fn(() => false),
       readDefaultAgentEngineSettingDetailed: vi.fn(async () => {
         throw new Error("Organization scope could not be resolved.");
       }),
