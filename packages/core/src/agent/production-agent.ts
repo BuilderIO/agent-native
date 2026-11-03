@@ -33,6 +33,7 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
+  actionCallReadOnly,
   actionChangeResource,
   classifyActionCall,
 } from "../action-call-classification.js";
@@ -7264,8 +7265,16 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A valid `false` sets a value; only null, "", [] and {} can clear one.
-      if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
+      // A valid `false` sets a value; only null, "", [] and {} can clear one. An
+      // empty equal to the schema's own default changes nothing either.
+      if (
+        entry !== false &&
+        schemaAcceptsToolValue(propertySchema, entry) &&
+        !(
+          propertySchema.default !== undefined &&
+          JSON.stringify(propertySchema.default) === JSON.stringify(entry)
+        )
+      )
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(
@@ -7319,6 +7328,7 @@ function repairToolCallInput(
   const placeholders = normalizeOptionalToolPlaceholders(
     entry.tool.parameters,
     input,
+    entry,
   );
   if (placeholders.error) return placeholders;
   const json = coerceStringifiedJsonToolValues(
@@ -7431,6 +7441,7 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
+  entry: Pick<ActionEntry, "readOnly" | "planMode">,
 ): ToolInputRepair {
   if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
@@ -7438,7 +7449,13 @@ function normalizeOptionalToolPlaceholders(
   if (Array.isArray(input)) return { input, changed: false };
   const emptyValues = { valid: false, invalid: false };
   const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
-  if (emptyValues.valid && emptyValues.invalid) {
+  // A read cannot clear stored data, so an empty value beside a placeholder is
+  // never ambiguous there.
+  if (
+    emptyValues.valid &&
+    emptyValues.invalid &&
+    actionCallReadOnly(entry, result.value) !== true
+  ) {
     return {
       input,
       changed: false,

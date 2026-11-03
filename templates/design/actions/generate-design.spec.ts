@@ -332,6 +332,10 @@ describe("generate-design action tool schema", () => {
       string,
       {
         type?: string | readonly string[];
+        anyOf?: Array<{
+          type?: string;
+          items?: { properties?: Record<string, { enum?: string[] }> };
+        }>;
         description?: string;
         items?: { properties?: Record<string, { enum?: string[] }> };
       }
@@ -341,12 +345,25 @@ describe("generate-design action tool schema", () => {
 
   it("shows the model the real shape of every structured field", () => {
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
-    for (const field of ["files", "tweaks", "canvasFrames", "reuseLabels"]) {
-      expect(parameters.properties[field]?.type, field).toBe("array");
+    // oracle-change: optional fields are now `anyOf [T, null]`, so their array type sits under anyOf[0].
+    for (const field of ["tweaks", "canvasFrames", "reuseLabels"]) {
+      expect(parameters.properties[field]?.anyOf?.[0]?.type, field).toBe(
+        "array",
+      );
+      expect(parameters.properties[field]?.anyOf?.[1]?.type, field).toBe(
+        "null",
+      );
     }
-    expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
-      ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
-    );
+    expect(parameters.properties.files?.type).toBe("array");
+    expect(
+      parameters.properties.tweaks?.anyOf?.[0]?.items?.properties?.type?.enum,
+    ).toEqual([
+      "color-swatch",
+      "color-swatches",
+      "segment",
+      "slider",
+      "toggle",
+    ]);
     expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
       "null",
     );
@@ -411,9 +428,38 @@ describe("generate-design action tool schema", () => {
     });
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data.designSystemId).toBeNull();
+    // oracle-change: null is "not provided" now; unlinking a design system moved to update-design.
+    expect(parsed.data.designSystemId).toBeUndefined();
     expect(parsed.data.files).toEqual(validInput().files);
     expect(parsed.data.tweaks).toHaveLength(1);
+  });
+
+  it("accepts null on every optional field and treats it as not provided", () => {
+    const required = new Set(parameters.required ?? []);
+    for (const [key, property] of Object.entries(parameters.properties)) {
+      if (required.has(key)) continue;
+      expect(
+        property.anyOf?.some((branch) => branch.type === "null"),
+        key,
+      ).toBe(true);
+    }
+    const padded = {
+      ...validInput(),
+      files: [{ ...validInput().files[0], fileType: null }],
+      designSystemId: null,
+      projectType: null,
+      tweaks: null,
+      canvasFrames: null,
+      contextPackId: null,
+      contextModeOverride: null,
+      reuseLabels: null,
+      primaryViewport: null,
+      devices: null,
+    };
+    const sparse = (action as any).schema.safeParse(validInput());
+    const parsed = (action as any).schema.safeParse(padded);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual(sparse.data);
   });
 
   it("names the field when a JSON string does not parse", async () => {
@@ -3117,6 +3163,67 @@ describe("generate-design: rejected input in the agent loop", () => {
     ).toBe(false);
     expect(mocks.seededCollabText.size).toBe(1);
   });
+
+  it.each([
+    {
+      designSystemId: null,
+      projectType: "prototype",
+      tweaks: [],
+      canvasFrames: null,
+      contextPackId: null,
+      reuseLabels: null,
+      primaryViewport: "desktop",
+      devices: ["desktop", "mobile"],
+    },
+    {
+      designSystemId: null,
+      tweaks: [],
+      canvasFrames: [],
+      contextPackId: null,
+      contextModeOverride: "off",
+      reuseLabels: [],
+      primaryViewport: null,
+      devices: null,
+    },
+  ])(
+    "saves a call whose unused optional fields are null or empty: %j",
+    async (padding) => {
+      const { runAgentLoop } = await import("@agent-native/core/server");
+      const events: Array<Record<string, unknown>> = [];
+      await runAgentLoop({
+        engine: scriptedEngine([
+          {
+            designId: "design-1",
+            prompt: "Make a design",
+            files: [
+              {
+                filename: "index.html",
+                fileType: "html",
+                content: "<main>Hi</main>",
+              },
+            ],
+            ...padding,
+          },
+        ]) as never,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Make a design" }] },
+        ],
+        actions: { "generate-design": action as never },
+        send: (event) => {
+          events.push(event as unknown as Record<string, unknown>);
+        },
+        signal: new AbortController().signal,
+      });
+      const done = events.filter((event) => event.type === "tool_done");
+      expect(done).toHaveLength(1);
+      expect(done[0]).toMatchObject({ completedSideEffect: true });
+      expect(done[0]?.errorClass).toBeUndefined();
+      expect(mocks.seededCollabText.size).toBe(1);
+    },
+  );
 
   it("lets a corrected call run after a filename path rejection", async () => {
     const { runAgentLoop } = await import("@agent-native/core/server");

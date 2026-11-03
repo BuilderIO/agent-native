@@ -33,6 +33,94 @@ describe("apply-visual-edit schema", () => {
     ).toBe(true);
   });
 
+  it("treats null on unused source, target, and flag fields as not provided", () => {
+    const sparse = {
+      source: { kind: "design-file", designId: "d1" },
+      intent: {
+        kind: "style" as const,
+        target: { selector: "p" },
+        property: "display",
+        value: "none",
+      },
+      activeFrameWidthPx: 390,
+    };
+    const padded = {
+      source: {
+        kind: null,
+        designId: "d1",
+        fileId: null,
+        filename: null,
+        path: null,
+        url: null,
+        connectionId: null,
+        revision: null,
+        html: null,
+      },
+      intent: {
+        ...sparse.intent,
+        target: { nodeId: null, selector: "p", sourceAnchor: null },
+      },
+      activeFrameWidthPx: 390,
+      includeContent: null,
+      persist: null,
+    };
+    const parsed = action.schema.safeParse(padded);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual(action.schema.safeParse(sparse).data);
+
+    const properties = (
+      action.tool.parameters as {
+        properties: Record<string, { properties?: Record<string, unknown> }>;
+      }
+    ).properties;
+    for (const key of ["path", "url", "revision", "includeContent"]) {
+      const field =
+        key === "includeContent"
+          ? properties[key]
+          : properties.source?.properties?.[key];
+      expect(JSON.stringify(field), key).toContain('"null"');
+    }
+  });
+
+  it("treats null on unused intent fields as not provided", () => {
+    const source = { kind: "design-file", designId: "d1" };
+    const target = { selector: "p" };
+    for (const [padded, sparse] of [
+      [
+        {
+          kind: "style",
+          target,
+          property: "display",
+          value: "none",
+          operation: null,
+        },
+        { kind: "style", target, property: "display", value: "none" },
+      ],
+      [
+        {
+          kind: "class",
+          target,
+          operation: "add",
+          className: "hidden",
+          classNames: null,
+          from: null,
+          to: null,
+        },
+        { kind: "class", target, operation: "add", className: "hidden" },
+      ],
+      [
+        { kind: "textContent", target, value: "Hi", html: null },
+        { kind: "textContent", target, value: "Hi" },
+      ],
+    ] as const) {
+      const parsed = action.schema.safeParse({ source, intent: padded });
+      expect(parsed.success, JSON.stringify(padded)).toBe(true);
+      expect(parsed.data).toEqual(
+        action.schema.safeParse({ source, intent: sparse }).data,
+      );
+    }
+  });
+
   it("accepts optional activeBreakpoint param", () => {
     const base = {
       source: { kind: "design-file", designId: "d1" },
