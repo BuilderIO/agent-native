@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { sql } from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/pg-core";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -1130,6 +1131,31 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
+  // A select chain embedded as a subquery only needs its SQL, which a
+  // connection-less QueryBuilder of the same dialect can build. Anything else
+  // (inserts, relational queries, ...) cannot be answered offline.
+  function replayChainOffline(
+    chain: Array<{ prop: string | symbol; args?: any[] }>,
+  ): any {
+    const first = chain[0]?.prop;
+    if (
+      first !== "select" &&
+      first !== "selectDistinct" &&
+      first !== "selectDistinctOn" &&
+      first !== "$with" &&
+      first !== "with"
+    ) {
+      return undefined;
+    }
+    let result: any = new QueryBuilder();
+    for (const step of chain) {
+      const val = result[step.prop];
+      result =
+        typeof val === "function" ? val.apply(result, step.args ?? []) : val;
+    }
+    return result;
+  }
+
   function createLazyProxy(
     ready: Promise<any>,
     chain: Array<{ prop: string | symbol; args?: any[] }>,
@@ -1150,12 +1176,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           return (promise as any)[prop].bind(promise);
         }
         if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+          const replayed = replayChainOffline(chain);
+          const member = replayed?.[prop];
+          if (typeof member === "function") return member.bind(replayed);
+          // Drizzle calls shouldOmitSQLParens optionally; absent on selects.
+          if (replayed && prop === "shouldOmitSQLParens") return undefined;
           throw new Error(
             "getDb(): accessed an unresolved query chain synchronously " +
-              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
-              "value instead of being awaited first — e.g. a subquery passed " +
-              "straight into another expression. Await the chain before " +
-              "using its result.",
+              `(reading '${String(prop)}'). Only select-style query chains ` +
+              "can be embedded as a subquery before the database is ready; " +
+              "await this chain before using its result.",
           );
         }
         return createLazyProxy(ready, [...chain, { prop }]);
