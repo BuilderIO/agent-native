@@ -593,13 +593,18 @@ const ZOOM_SCREEN_ROUNDS = 3;
 
 /**
  * Finds restricted Zoom transcript lines so one sensitive remark does not
- * discard the meeting. It only proposes a reduced transcript: the unchanged
- * whole-capture pipeline must still allow it before anything is stored.
- * Returns null when nothing can be withheld line by line.
+ * discard the meeting. It only proposes a transcript for the unchanged
+ * whole-capture pipeline, together with Jev's verdict on exactly that text so
+ * the pipeline cannot re-ask and get a different answer. When lines cannot be
+ * separated, it returns the last rejected text and verdict.
  */
 async function withholdRestrictedZoomLines(
   input: CaptureSanitizationInput,
-): Promise<{ content: string; withheldPassages: number } | null> {
+): Promise<{
+  content: string;
+  withheldPassages: number;
+  jev?: JevClassificationOutcome;
+}> {
   const lines = input.content.split(/\r?\n/);
   const turns = lines.flatMap((text, index) =>
     text.trim() ? [{ index, text }] : [],
@@ -640,6 +645,14 @@ async function withholdRestrictedZoomLines(
     }
   };
 
+  let judged:
+    | { content: string; outcome: JevClassificationOutcome }
+    | undefined;
+  const giveUp = () => ({
+    content: judged?.content ?? input.content,
+    withheldPassages: 0,
+    ...(judged ? { jev: judged.outcome } : {}),
+  });
   const prefersJev = resolveClassifierPreference(input.settings) === "jev";
   screenTurns(prefersJev ? "credentials" : "all");
   if (prefersJev) {
@@ -666,10 +679,11 @@ async function withholdRestrictedZoomLines(
     };
 
     for (let round = 0; ; round += 1) {
-      if (!retained().length) return null;
-      const whole = await classify(input.title, render().content);
-      // An exhausted budget stores nothing: the whole-capture gate decides.
-      if (!whole) return null;
+      if (!retained().length) return giveUp();
+      const content = render().content;
+      const whole = await classify(input.title, content);
+      if (!whole) return giveUp();
+      judged = { content, outcome: whole };
       const decision = whole.decision;
       if (!decision || decision.disposition === "allowed") break;
       if (
@@ -678,7 +692,7 @@ async function withholdRestrictedZoomLines(
         (decision.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >=
           JEV_BLOCK_PROBABILITY
       )
-        return null;
+        return giveUp();
       const isRestricted = async (range: Turn[]) => {
         const outcome = await classify(
           NEUTRAL_EXCERPT_TITLE,
@@ -704,7 +718,7 @@ async function withholdRestrictedZoomLines(
             }),
           );
           for (const result of results) {
-            if (!result) return null;
+            if (!result) return giveUp();
             if (result.range.length === 1) result.range.forEach(withhold);
             // Restricted only in combination: withhold the smallest such range.
             else if (!result.restricted.length) result.range.forEach(withhold);
@@ -716,31 +730,32 @@ async function withholdRestrictedZoomLines(
     }
   }
 
-  if (!withheld.size || !retained().length) return null;
-  return render();
+  if (!retained().length) return giveUp();
+  return { ...render(), ...(judged ? { jev: judged.outcome } : {}) };
 }
 
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
-  const partial =
+  const screened =
     input.source.provider === "zoom" && input.kind === "transcript"
       ? await withholdRestrictedZoomLines(input)
-      : null;
+      : undefined;
   const result = await sanitizeWholeCapture(
-    partial ? { ...input, content: partial.content } : input,
+    screened ? { ...input, content: screened.content } : input,
+    screened?.jev,
   );
+  const withheldNow = screened?.withheldPassages ?? 0;
   const prior =
     input.source.provider === "zoom" && input.metadata
       ? readWithheldZoomPassages(input.metadata)
       : undefined;
   if (
     result.decision?.disposition !== "allowed" ||
-    (!partial && prior === undefined)
+    (!withheldNow && prior === undefined)
   )
     return result;
-  const withheldPassages =
-    prior === null ? null : (prior ?? 0) + (partial?.withheldPassages ?? 0);
+  const withheldPassages = prior === null ? null : (prior ?? 0) + withheldNow;
   const metadata: Record<string, unknown> = {
     ...result.metadata,
     zoomPassageQuarantine: { version: 1, withheldPassages },
@@ -752,6 +767,7 @@ export async function sanitizeCaptureForStorage(
 
 async function sanitizeWholeCapture(
   input: CaptureSanitizationInput,
+  judged?: JevClassificationOutcome,
 ): Promise<CaptureSanitizationResult> {
   const metadata = input.metadata ?? {};
   const { metadata: sanitizedMetadata, strippedKeys } =
@@ -767,14 +783,19 @@ async function sanitizeWholeCapture(
   let classifierOutageFallback = false;
   const jev: JevClassificationOutcome = decision
     ? { configured: false }
-    : await classifyWithJev({
+    : (judged ??
+      (await classifyWithJev({
         title: input.title,
         content: input.content,
-        capturedAt: input.capturedAt,
         settings: input.settings,
         ownerEmail: input.source.ownerEmail,
-        orgId: input.source.orgId,
-      });
+        ...(input.capturedAt === undefined
+          ? {}
+          : { capturedAt: input.capturedAt }),
+        ...(input.source.orgId === undefined
+          ? {}
+          : { orgId: input.source.orgId }),
+      })));
   if (jev.failureReason) {
     throw new BrainClassifierUnavailableError(jev.failureReason);
   }

@@ -753,6 +753,21 @@ describe("Zoom restricted-line withholding", () => {
     expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
   });
 
+  it("never re-asks Jev after line screening gives up on a rejection", async () => {
+    let calls = 0;
+    const reject = judge(() => true, true);
+    const allow = judge(() => false);
+    mocks.classifyWithJev.mockImplementation(async (input) =>
+      ++calls === 1 ? reject(input) : allow(input),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "[Speaker 2] MEDICAL_LEAVE details"))),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(calls).toBe(1);
+  });
+
   it("surfaces a Jev outage during line screening instead of storing", async () => {
     let calls = 0;
     mocks.classifyWithJev.mockImplementation(async (input) =>
