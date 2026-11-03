@@ -34,7 +34,7 @@ it("focuses confirm, and counts as open until focus has gone back", async () => 
       root.render(
         <CommentConfirmDialog
           open={open}
-          onCancel={() => render(false)}
+          onCancel={() => {}}
           title="Delete comment?"
           description="It's deleted for everyone."
           cancelLabel="Cancel"

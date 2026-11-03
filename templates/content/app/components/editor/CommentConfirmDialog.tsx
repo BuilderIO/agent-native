@@ -34,7 +34,7 @@ export function CommentConfirmDialog({
   /** Escape, a click outside, or the cancel button; not while busy. */
   onCancel: () => void;
   title: ReactNode;
-  description: ReactNode;
+  description?: ReactNode;
   cancelLabel: ReactNode;
   confirmLabel: ReactNode;
   onConfirm: () => void;
@@ -70,6 +70,7 @@ export function CommentConfirmDialog({
           hideClose
           overlayClassName="z-[340]"
           className="z-[350] max-w-sm gap-0 rounded-lg p-5"
+          {...(description ? {} : { "aria-describedby": undefined })}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             setReturningFocus(true);
@@ -85,9 +86,11 @@ export function CommentConfirmDialog({
             <DialogTitle className="text-base leading-tight tracking-tight">
               {title}
             </DialogTitle>
-            <DialogDescription className="leading-normal [text-wrap:pretty]">
-              {description}
-            </DialogDescription>
+            {description ? (
+              <DialogDescription className="leading-normal [text-wrap:pretty]">
+                {description}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
           <DialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
             <DialogClose asChild>
