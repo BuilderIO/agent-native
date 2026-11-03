@@ -21,6 +21,30 @@ function stubUi(apiBaseUrl?: string) {
   return assign;
 }
 
+function stubFramedUi(popup: Window | null) {
+  const assign = vi.fn();
+  const open = vi.fn(() => popup);
+  vi.stubGlobal("window", {
+    top: {},
+    self: {},
+    location: {
+      pathname: "/settings",
+      search: "",
+      hash: "",
+      origin: "https://app.example.com",
+      href: "https://app.example.com/settings",
+      assign,
+    },
+    open,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    setInterval: vi.fn(() => 1),
+    clearInterval: vi.fn(),
+    __AGENT_NATIVE_CONFIG__: {},
+  });
+  return { assign, open };
+}
+
 function startUrl(href: string): URL {
   return new URL(href, "https://app.example.com");
 }
@@ -115,6 +139,28 @@ describe("workspaceProviderOAuthUrl", () => {
     startWorkspaceProviderOAuth("google_calendar", { appId: "calendar" });
     expect(assign).toHaveBeenCalledWith(
       workspaceProviderOAuthUrl("google_calendar", { appId: "calendar" }),
+    );
+  });
+
+  it("leaves the frame for a popup when embedded so providers do not refuse the frame", () => {
+    const { assign, open } = stubFramedUi({ closed: false } as Window);
+    startWorkspaceProviderOAuth("notion", { appId: "content-2" });
+    expect(assign).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(1);
+    const url = new URL(open.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/_agent-native/connections/oauth/notion/start");
+    expect(url.searchParams.get("appId")).toBe("content-2");
+    expect(url.searchParams.get("return")).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection",
+    );
+  });
+
+  it("navigates in place when a popup is blocked even while embedded", () => {
+    const { assign, open } = stubFramedUi(null);
+    startWorkspaceProviderOAuth("notion", { appId: "content-2" });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(assign).toHaveBeenCalledWith(
+      workspaceProviderOAuthUrl("notion", { appId: "content-2" }),
     );
   });
 });
