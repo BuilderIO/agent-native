@@ -16,10 +16,12 @@ the build's JavaScript and CSS.
   language changes the network can still answer in the old one, and the worker keeps what it was given until the
   next navigation brings the right one. The server renders that HTML for
   anonymous visitors only, with `Cache-Control: public` (the `guard:ssr-cache-shell` check keeps it that way), so
-  the copy holds no account data. The worker also refuses any HTML marked `private`, `no-store` or `no-cache`, or
-  varying on cookies, and fetches the copy it keeps without cookies. When the server starts answering a route that
-  way (SSR caching turned off, say), the worker deletes that route's kept shells, and no download that started
-  before that answer can bring one back.
+  the copy holds no account data. The worker also refuses any HTML not marked `public`, marked `private`,
+  `no-store` or `no-cache`, or varying on cookies. The copies it fetches itself (on a first visit, or to switch
+  builds) go without cookies. A navigation's own answer, which the browser sent with the visitor's cookies, is kept
+  only when it passes that same check, the one that lets Netlify's CDN hand it to every visitor. When the server
+  starts answering a route that way (SSR caching turned off, say), the worker deletes that route's kept shells, and
+  no download that started before that answer can bring one back.
 - The build's hashed files under `/assets/`: every file the shell boots (the React Router manifest, the client
   entry, every route module), cached before that build's shell is used, then, once a page has loaded, the rest of
   the current build, lazy chunks included. Chrome answers `/assets/*` straight from this cache without running the
