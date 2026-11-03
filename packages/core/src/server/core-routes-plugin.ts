@@ -6577,7 +6577,7 @@ export function createCoreRoutesPlugin(
             if (isBuilderReconnectRequiredError(error)) {
               return {
                 error:
-                  "Your Builder.io connection expired, so the file could not be saved. Reconnect Builder in Settings → Integrations → Builder, then try again.",
+                  "Your Builder.io connection needs to be reconnected. Reconnect Builder in Settings → Integrations → Builder, then try again.",
                 errorCode: "builder_oauth_reauthorization_required",
               };
             }

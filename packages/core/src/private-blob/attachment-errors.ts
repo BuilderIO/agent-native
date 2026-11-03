@@ -85,7 +85,7 @@ function describeStorageUnavailable(
       case "misconfigured":
         return "File storage is configured incorrectly on this deployment.";
       case "builder_reconnect_required":
-        return "Your Builder.io connection expired, so the file could not be saved. Reconnect Builder in Settings → Integrations → Builder, then try again.";
+        return "Your Builder.io connection needs to be reconnected. Reconnect Builder in Settings → Integrations → Builder, then try again.";
       case "provider_unavailable":
         return "File storage isn't responding right now. Try again in a moment.";
     }
