@@ -77,9 +77,12 @@ function draftWrittenOnPage(
 
 export function PageDraftRecovery({
   document,
+  loading,
   children,
 }: {
   document: Document;
+  /** Drawn instead of the page skeleton while the page's drafts are checked. */
+  loading?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -873,30 +876,34 @@ export function PageDraftRecovery({
     journalState === "promoting"
   )
     return (
-      <DocumentEditorSkeleton
-        title={document.title}
-        iconRow={readPageIconRowHint(document.id)}
-        shape={readDocumentShapeHint(document)}
-        stalledLoad={
-          widgetBridgeActive
-            ? {
-                stage: t("editor.widgetDraftCheckStage"),
-                action: "get-preview-document-draft",
-              }
-            : undefined
-        }
-      />
+      loading ?? (
+        <DocumentEditorSkeleton
+          title={document.title}
+          iconRow={readPageIconRowHint(document.id)}
+          shape={readDocumentShapeHint(document)}
+          stalledLoad={
+            widgetBridgeActive
+              ? {
+                  stage: t("editor.widgetDraftCheckStage"),
+                  action: "get-preview-document-draft",
+                }
+              : undefined
+          }
+        />
+      )
     );
   if (!draft || draftOpenElsewhere) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
   if (!failure)
     return (
-      <DocumentEditorSkeleton
-        title={document.title}
-        iconRow={readPageIconRowHint(document.id)}
-        shape={readDocumentShapeHint(document)}
-      />
+      loading ?? (
+        <DocumentEditorSkeleton
+          title={document.title}
+          iconRow={readPageIconRowHint(document.id)}
+          shape={readDocumentShapeHint(document)}
+        />
+      )
     );
   if (bodyWritesThroughLiveCopy)
     return (

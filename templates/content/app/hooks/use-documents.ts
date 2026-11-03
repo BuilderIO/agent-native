@@ -785,6 +785,8 @@ export function restoreQuerySnapshots(
   }
 }
 
+const DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS = 5_000;
+
 export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
@@ -806,6 +808,31 @@ export function seedDatabaseItemDocumentCaches(
       { updatedAt: 0 },
     );
   }
+}
+
+// A row's panel starts its reads ahead of the switch, so a read that lands in
+// time lets the switch go straight to the finished page.
+export function startDatabaseItemPreviewReads(
+  queryClient: QueryClient,
+  item: ContentDatabaseItem,
+  databaseDocumentId: string,
+) {
+  seedDatabaseItemDocumentCaches(queryClient, item);
+  startPageOpenDocumentReads(queryClient, item.document.id, {
+    databaseId: item.databaseId,
+    databaseDocumentId,
+  });
+  void queryClient.prefetchQuery({
+    queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+    queryFn: ({ signal }) =>
+      callAction<DocumentPropertiesResponse>(
+        "list-document-properties",
+        { documentId: item.document.id, databaseId: item.databaseId },
+        { method: "GET", signal },
+      ),
+    staleTime: DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS,
+    retry: false,
+  });
 }
 
 export function useDocuments(options?: { enabled?: boolean }) {

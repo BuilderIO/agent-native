@@ -206,6 +206,12 @@ interface DocumentPropertiesProps {
   /** The view isn't read yet, so the Properties don't draw out of order. */
   rowViewPending?: boolean;
   canEdit: boolean;
+  /**
+   * Draw the rows an editor of the collection gets until the row's own read
+   * answers, and on through a wait for canEdit once it grants them, so they
+   * don't arrive later and push the page down.
+   */
+  schemaRowsExpected?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1000,11 +1006,15 @@ export function DocumentProperties({
   rowView,
   rowViewPending = false,
   canEdit,
+  schemaRowsExpected = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, dataUpdatedAt } = useDocumentProperties(
+    documentId,
+    databaseId,
+  );
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
@@ -1021,6 +1031,10 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
+  const showSchemaRows =
+    canManageSchema ||
+    (schemaRowsExpected &&
+      (!dataUpdatedAt || (loaded && data.canManageSchema === true)));
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1063,7 +1077,7 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && canManageSchema && hiddenProperties.length > 0 ? (
+      {loaded && showSchemaRows && databaseId && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}
@@ -1074,7 +1088,7 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && canManageSchema && databaseId ? (
+      {loaded && showSchemaRows && databaseId ? (
         <AddProperty
           databaseDocumentId={databaseDocumentId ?? documentId}
           documentId={documentId}

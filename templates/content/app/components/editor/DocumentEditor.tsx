@@ -248,6 +248,10 @@ import {
   type DatabaseRowView,
   databaseRowPropertyOrder,
 } from "./database/row-view-layout";
+import {
+  DatabaseItemPreviewPlaceholder,
+  type DatabaseItemPreviewRow,
+} from "./DatabaseItemPreviewPlaceholder";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
@@ -531,6 +535,8 @@ export interface PageEditorSurfaceProps extends DocumentEditorProps {
   host: "page" | "preview";
   /** The view showing the row panel, which lays out its Properties. */
   rowView?: DatabaseRowView | null;
+  /** The row whose panel holds this surface, drawn until its page is read. */
+  previewRow?: DatabaseItemPreviewRow;
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle?: boolean;
@@ -1581,6 +1587,7 @@ export function PageEditorSurface({
   viewId,
   rowViewId,
   rowView,
+  previewRow,
   foreground = false,
   host,
   onSessionChange,
@@ -1787,6 +1794,20 @@ export function PageEditorSurface({
     );
   }
 
+  const previewPlaceholder = previewRow ? (
+    <DatabaseItemPreviewPlaceholder
+      row={previewRow}
+      documentId={documentId}
+      databaseId={databaseId ?? null}
+      databaseDocumentId={databaseDocumentId ?? null}
+      rowView={rowView}
+    />
+  ) : null;
+
+  if (previewPlaceholder && (!document || loadState.view === "skeleton")) {
+    return previewPlaceholder;
+  }
+
   if (!document || loadState.view === "skeleton") {
     return (
       <DocumentEditorSkeleton
@@ -1830,6 +1851,7 @@ export function PageEditorSurface({
         viewId={viewId}
         rowViewId={rowViewId}
         rowView={rowView}
+        schemaRowsExpected={previewRow?.collectionEditable}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -1847,6 +1869,7 @@ export function PageEditorSurface({
         databaseDocumentId,
       })}
       document={document}
+      loading={previewPlaceholder}
     >
       {editor}
     </PageDraftRecovery>
@@ -2206,6 +2229,7 @@ interface DocumentEditorBodyProps {
   viewId?: string | null;
   rowViewId?: string | null;
   rowView?: DatabaseRowView | null;
+  schemaRowsExpected?: boolean;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -2886,6 +2910,7 @@ function PageEditorSessionBody({
   viewId,
   rowViewId,
   rowView: panelRowView,
+  schemaRowsExpected,
   host,
   onSessionChange,
   onDelete,
@@ -10544,6 +10569,14 @@ function PageEditorSessionBody({
                         rowView={rowView}
                         rowViewPending={addressRowView.pending}
                         canEdit={editorCanEdit}
+                        // Edit rights on the row's page wait on its live copy,
+                        // which has no say over the collection's Properties.
+                        schemaRowsExpected={
+                          schemaRowsExpected &&
+                          canEdit &&
+                          !isGitHubSourceDocument &&
+                          !collabInitializationFailed
+                        }
                         popoversPortalled={false}
                       />
                     </PropertyCommentsContext.Provider>

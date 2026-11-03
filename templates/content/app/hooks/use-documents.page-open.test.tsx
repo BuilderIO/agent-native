@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { Document } from "@shared/api";
+import type { ContentDatabaseItem, Document } from "@shared/api";
 import {
   QueryClient,
   QueryClientProvider,
@@ -87,6 +87,7 @@ import { contentSyncInvalidatePredicate } from "./use-db-sync";
 import {
   documentQueryKey,
   ensurePreviewDocumentDraftRead,
+  startDatabaseItemPreviewReads,
   startPageOpenCompanionReads,
   startPageOpenDocumentReads,
   useContentNavigationContext,
@@ -351,6 +352,37 @@ describe("page open document reads", () => {
         },
       ]),
     );
+  });
+
+  it("starts a row's page and Property reads ahead of its panel, once", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    expect(server.calls).toEqual(
+      expect.arrayContaining([
+        {
+          name: "get-document",
+          params: expect.objectContaining({
+            id: "row-1",
+            databaseId: "database",
+            databaseDocumentId: "database-page",
+          }),
+        },
+        {
+          name: "list-document-properties",
+          params: { documentId: "row-1", databaseId: "database" },
+        },
+      ]),
+    );
+    expect(reads("get-document")).toBe(1);
   });
 
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {
