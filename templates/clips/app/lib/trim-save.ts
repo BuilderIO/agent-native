@@ -1,6 +1,8 @@
 import {
   isSameRecord,
+  isSaveConflict,
   rebaseOntoSaved,
+  SaveOverlapError,
   saveWithMerge,
   type SavedRecord,
   type SaveWithMergeOptions,
@@ -41,4 +43,18 @@ export async function saveNewestTrims({
     identifyTrims(local.current),
     result.value,
   );
+}
+
+/**
+ * What to tell the person when a trim save fails, or null when the conflict
+ * prompt already has. A conflict that outlasted every merge carries
+ * instructions written for agents, so it gets the plain message instead.
+ */
+export function trimSaveFailureMessage(
+  error: unknown,
+  fallback: string,
+): string | null {
+  if (error instanceof SaveOverlapError) return null;
+  if (isSaveConflict(error)) return fallback;
+  return (error instanceof Error && error.message) || fallback;
 }

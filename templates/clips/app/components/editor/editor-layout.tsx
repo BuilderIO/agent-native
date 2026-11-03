@@ -8,10 +8,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  SaveOverlapError,
-  type SavedRecord,
-} from "@agent-native/core/save-conflict";
+import type { SavedRecord } from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import { parseStoredChapters } from "@shared/stored-chapters";
@@ -99,7 +96,7 @@ import {
   type EditsJson,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
-import { saveNewestTrims } from "@/lib/trim-save";
+import { saveNewestTrims, trimSaveFailureMessage } from "@/lib/trim-save";
 import { cn } from "@/lib/utils";
 import {
   extractFilmstripThumbnails,
@@ -937,10 +934,11 @@ export function EditorLayout({
         return true;
       } catch (err: any) {
         if (historyEntry) discardHistory(historyEntry);
-        // The conflict prompt has already said this one wasn't saved.
-        if (!(err instanceof SaveOverlapError)) {
-          toast.error(err?.message ?? t("editorLayout.editFailed"));
-        }
+        const message = trimSaveFailureMessage(
+          err,
+          t("editorLayout.editFailed"),
+        );
+        if (message) toast.error(message);
         return false;
       } finally {
         finishEditSave("trims", saveGeneration, succeeded);

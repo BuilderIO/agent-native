@@ -1,12 +1,13 @@
 import {
   SAVE_CONFLICT_ERROR_CODE,
+  SaveOverlapError,
   saveRevisionOf,
   type SavedRecord,
 } from "@agent-native/core/save-conflict";
 import { describe, expect, it, vi } from "vitest";
 
 import type { TrimRange } from "./timestamp-mapping";
-import { saveNewestTrims } from "./trim-save";
+import { saveNewestTrims, trimSaveFailureMessage } from "./trim-save";
 
 const cut = (id: string, endMs = 2000): TrimRange => ({
   id,
@@ -103,5 +104,39 @@ describe("saveNewestTrims", () => {
     );
     expect(local.current).toEqual([cut("mine")]);
     expect(saved.current.value).toEqual([]);
+  });
+});
+
+describe("trimSaveFailureMessage", () => {
+  it("shows the plain message for a conflict, not the agent instructions", () => {
+    const conflict = Object.assign(
+      new Error("Redo your edit on details.current"),
+      {
+        errorCode: SAVE_CONFLICT_ERROR_CODE,
+        details: { current: [], currentRevision: "r1" },
+      },
+    );
+    expect(trimSaveFailureMessage(conflict, "Could not save that edit")).toBe(
+      "Could not save that edit",
+    );
+  });
+
+  it("says nothing when the conflict prompt already has", () => {
+    const overlap = new SaveOverlapError({
+      fields: ["trims"],
+      base: [],
+      mine: [],
+      theirs: [],
+      keepMine: [],
+      useTheirs: [],
+    });
+    expect(trimSaveFailureMessage(overlap, "fallback")).toBeNull();
+  });
+
+  it("passes other failures through", () => {
+    expect(trimSaveFailureMessage(new Error("offline"), "fallback")).toBe(
+      "offline",
+    );
+    expect(trimSaveFailureMessage(undefined, "fallback")).toBe("fallback");
   });
 });
