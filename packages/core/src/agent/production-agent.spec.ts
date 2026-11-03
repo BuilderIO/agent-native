@@ -6441,6 +6441,7 @@ describe("createProductionAgentHandler", () => {
       serializeDurableDispatchPayload({
         message: submissionPayload.text,
         threadId,
+        agentKitMessageId: messageId,
         submissionPayload,
         attachments: [clientAttachment],
       }),
@@ -6483,6 +6484,18 @@ describe("createProductionAgentHandler", () => {
         turnId: "turn-worker-sanitized-attachment",
       },
     };
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
     const preUpload = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockImplementation(async ({ attachments }) => ({
@@ -6509,6 +6522,10 @@ describe("createProductionAgentHandler", () => {
       });
     } finally {
       preUpload.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
     }
   });
 
