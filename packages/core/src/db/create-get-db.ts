@@ -1135,8 +1135,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   // connection-less QueryBuilder of the same dialect can build. Anything else
   // (inserts, relational queries, ...) cannot be answered offline.
   function replayChainOffline(
-    chain: Array<{ prop: string | symbol; args?: any[] }>,
-  ): any {
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+  ): Record<string | symbol, unknown> | undefined {
     const first = chain[0]?.prop;
     if (
       first !== "select" &&
@@ -1145,14 +1145,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     ) {
       return undefined;
     }
-    let result: any = new QueryBuilder();
+    let result: unknown = new QueryBuilder();
     for (const step of chain) {
+      if (step.prop === "execute") return undefined;
       if (result == null || !(step.prop in Object(result))) return undefined;
-      const val = result[step.prop];
+      const target = result as Record<string | symbol, unknown>;
+      const val = target[step.prop];
       result =
-        typeof val === "function" ? val.apply(result, step.args ?? []) : val;
+        typeof val === "function" ? val.apply(target, step.args ?? []) : val;
     }
-    return result;
+    return result as Record<string | symbol, unknown> | undefined;
   }
 
   function createLazyProxy(
