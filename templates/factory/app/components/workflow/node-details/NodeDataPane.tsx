@@ -52,10 +52,14 @@ export function DataPane({
   return (
     <section
       aria-label={title}
-      className={cn("flex min-h-0 min-w-70 flex-1 basis-0 flex-col", className)}
+      className={cn(
+        "@container/pane flex min-h-0 min-w-60 flex-1 basis-0 flex-col",
+        className,
+      )}
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border ps-4 pe-2">
-        <h3 className="min-w-0 truncate text-xs uppercase tracking-wide text-muted-foreground">
+      <header className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border py-0.5 ps-4 pe-2">
+        {/* The column's own width decides: its view switch always fits, so a narrow column gives up the title (the section keeps it as its name), and a mark too long to sit beside the switch drops to a line of its own. */}
+        <h3 className="min-w-0 truncate text-xs uppercase tracking-wide text-muted-foreground @max-[19rem]/pane:sr-only">
           {title}
         </h3>
         {mark}

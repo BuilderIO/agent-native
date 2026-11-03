@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { UnreadableSecretError } from "../lib/unreadable-secret.js";
 import type { Clock, ThreadReplyRequest } from "../workflow/adapter.js";
 import type { GuardedActionCall, GuardedActionResult } from "./inbox.js";
 import {
@@ -409,6 +410,25 @@ describe("reading replies on a Slack thread", () => {
       // A failed lookup is asked again rather than remembered.
       await flaky.threads.readReplies(request({ acceptFrom }));
       expect(flaky.lookups).toHaveLength(2);
+    });
+
+    it("does not call a lookup retryable when the saved Slack token cannot be decrypted, and names the key", async () => {
+      const unreadable = reader(() => output([{ ts: AFTER_1 }]), {
+        "a@example.test": new UnreadableSecretError("SLACK_BOT_TOKEN"),
+      });
+
+      const result = await unreadable.threads.readReplies(
+        request({ acceptFrom: { emails: ["a@example.test"] } }),
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        code: "provider_error",
+        retryable: false,
+      });
+      expect(result.ok === false && result.message).toContain(
+        "SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it",
+      );
     });
   });
 
