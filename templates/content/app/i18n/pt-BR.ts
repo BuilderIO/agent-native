@@ -1827,6 +1827,16 @@ const overrides = {
     discardEditDescription: "Seu comentário vai continuar como estava.",
     discard: "Descartar",
     keepEditing: "Continuar editando",
+    deleteComment: "Excluir comentário",
+    deleteThread: "Excluir conversa",
+    deleteCommentQuestion: "Excluir comentário?",
+    deleteCommentDescription:
+      "Ele será excluído para todos, e isso não pode ser desfeito.",
+    deleteThreadQuestion: "Excluir conversa?",
+    deleteThreadDescription:
+      "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito.",
+    delete: "Excluir",
+    deleting: "Excluindo…",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

@@ -1840,6 +1840,16 @@ const overrides = {
     discardEditDescription: "Votre commentaire restera tel quel.",
     discard: "Abandonner",
     keepEditing: "Continuer à modifier",
+    deleteComment: "Supprimer le commentaire",
+    deleteThread: "Supprimer le fil",
+    deleteCommentQuestion: "Supprimer le commentaire ?",
+    deleteCommentDescription:
+      "Il sera supprimé pour tout le monde. Cette action est irréversible.",
+    deleteThreadQuestion: "Supprimer le fil ?",
+    deleteThreadDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
+    delete: "Supprimer",
+    deleting: "Suppression…",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

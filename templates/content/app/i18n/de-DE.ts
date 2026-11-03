@@ -1835,6 +1835,16 @@ const overrides = {
     discardEditDescription: "Ihr Kommentar bleibt unverändert.",
     discard: "Verwerfen",
     keepEditing: "Weiter bearbeiten",
+    deleteComment: "Kommentar löschen",
+    deleteThread: "Thread löschen",
+    deleteCommentQuestion: "Kommentar löschen?",
+    deleteCommentDescription:
+      "Er wird für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadQuestion: "Thread löschen?",
+    deleteThreadDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    delete: "Löschen",
+    deleting: "Wird gelöscht…",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",

@@ -1801,6 +1801,16 @@ const enUS = {
     discardEditDescription: "Your comment will stay as it was.",
     discard: "Discard",
     keepEditing: "Keep editing",
+    deleteComment: "Delete comment",
+    deleteThread: "Delete thread",
+    deleteCommentQuestion: "Delete comment?",
+    deleteCommentDescription:
+      "It's deleted for everyone, and this can't be undone.",
+    deleteThreadQuestion: "Delete thread?",
+    deleteThreadDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone.",
+    delete: "Delete",
+    deleting: "Deleting…",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",

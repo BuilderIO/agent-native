@@ -12,10 +12,12 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   useCreateComment,
+  useDeleteComment,
   useEditComment,
   useReactToComment,
   type Comment,
@@ -28,6 +30,7 @@ import {
 } from "./agent-identity";
 import { draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
+import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import type { CommentIdentity } from "./CommentIdentity";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
@@ -96,6 +99,7 @@ export function CommentEntry({
   replyAction,
   footer,
   body,
+  canDeleteThread = false,
   onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
@@ -103,6 +107,11 @@ export function CommentEntry({
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
+  /**
+   * On a thread's first comment, whether its author may delete the thread:
+   * no one else has written in it and nothing is working on it.
+   */
+  canDeleteThread?: boolean;
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -120,6 +129,7 @@ export function CommentEntry({
   const t = useT();
   const timestamp = useCommentTimestamp();
   const edit = useEditComment();
+  const remove = useDeleteComment();
   const react = useReactToComment();
   const create = useCreateComment({ email: currentUserEmail });
   const [checking, setChecking] = useState(false);
@@ -129,6 +139,7 @@ export function CommentEntry({
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
@@ -170,6 +181,23 @@ export function CommentEntry({
     !pending &&
     comment.mutation?.kind !== "create" &&
     body === undefined;
+  // A thread's first comment deletes the thread. Notion sync would bring a
+  // synced comment back, so those are deleted in Notion.
+  const deletesThread = !comment.parent_id;
+  const canDelete =
+    canEdit &&
+    !comment.notion_comment_id &&
+    (!deletesThread || canDeleteThread);
+  const confirmDelete = async () => {
+    try {
+      await remove.mutateAsync({ id: comment.id, documentId });
+      setConfirmingDelete(false);
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
   const checkSaved = async () => {
     if (!comment.mutation?.ambiguous || checking) return;
     const submitted = sourceDraft.getSubmittedDraft(
@@ -352,9 +380,47 @@ export function CommentEntry({
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuGroup>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => setConfirmingDelete(true)}
+              >
+                {t(
+                  deletesThread
+                    ? "comments.deleteThread"
+                    : "comments.deleteComment",
+                )}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     ) : null;
+  const deleteDialog = canDelete ? (
+    <CommentConfirmDialog
+      open={confirmingDelete}
+      onCancel={() => setConfirmingDelete(false)}
+      title={t(
+        deletesThread
+          ? "comments.deleteThreadQuestion"
+          : "comments.deleteCommentQuestion",
+      )}
+      description={t(
+        deletesThread
+          ? "comments.deleteThreadDescription"
+          : "comments.deleteCommentDescription",
+      )}
+      cancelLabel={t("comments.cancel")}
+      confirmLabel={
+        remove.isPending ? t("comments.deleting") : t("comments.delete")
+      }
+      onConfirm={() => void confirmDelete()}
+      busy={remove.isPending}
+      onClosed={() => menuRef.current?.focus()}
+    />
+  ) : null;
   const time = timestamp(comment.created_at);
   const saveStatus = (
     <>
@@ -434,6 +500,7 @@ export function CommentEntry({
           <>
             {feedLayout ? null : addReaction}
             {menu}
+            {deleteDialog}
             {headerActions}
           </>
         ) : null

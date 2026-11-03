@@ -1791,6 +1791,16 @@ const overrides = {
     discardEditDescription: "コメントは元のまま残ります。",
     discard: "破棄",
     keepEditing: "編集を続ける",
+    deleteComment: "コメントを削除",
+    deleteThread: "スレッドを削除",
+    deleteCommentQuestion: "コメントを削除しますか？",
+    deleteCommentDescription:
+      "全員に対して削除され、元に戻すことはできません。",
+    deleteThreadQuestion: "スレッドを削除しますか？",
+    deleteThreadDescription:
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。",
+    delete: "削除",
+    deleting: "削除中…",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

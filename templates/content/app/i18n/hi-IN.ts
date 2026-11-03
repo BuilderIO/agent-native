@@ -1751,6 +1751,16 @@ const overrides = {
     discardEditDescription: "आपकी टिप्पणी पहले जैसी रहेगी।",
     discard: "छोड़ें",
     keepEditing: "संपादन जारी रखें",
+    deleteComment: "टिप्पणी हटाएँ",
+    deleteThread: "थ्रेड हटाएँ",
+    deleteCommentQuestion: "टिप्पणी हटाएँ?",
+    deleteCommentDescription:
+      "यह सभी के लिए हट जाएगी, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadQuestion: "थ्रेड हटाएँ?",
+    deleteThreadDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता।",
+    delete: "हटाएँ",
+    deleting: "हटाया जा रहा है…",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",
