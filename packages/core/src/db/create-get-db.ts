@@ -1141,14 +1141,13 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (
       first !== "select" &&
       first !== "selectDistinct" &&
-      first !== "selectDistinctOn" &&
-      first !== "$with" &&
-      first !== "with"
+      first !== "selectDistinctOn"
     ) {
       return undefined;
     }
     let result: any = new QueryBuilder();
     for (const step of chain) {
+      if (result == null || !(step.prop in Object(result))) return undefined;
       const val = result[step.prop];
       result =
         typeof val === "function" ? val.apply(result, step.args ?? []) : val;
