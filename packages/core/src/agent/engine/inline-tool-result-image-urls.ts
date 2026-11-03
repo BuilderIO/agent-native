@@ -59,15 +59,16 @@ async function fetchAsInlineImage(
       { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
       { httpsOnly: true },
     );
-    if (!response.ok) return null;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
     const bytes = await readCapped(response);
     if (!bytes) return null;
     const data = bytes.toString("base64");
     const verdict = reconcileImageBytes({ base64: data, declared: "image" });
     if (verdict.kind !== "ok") return null;
-    const inlined = { data, mediaType: verdict.mediaType };
-    cacheInlined(url, inlined);
-    return inlined;
+    return { data, mediaType: verdict.mediaType };
   } catch {
     // coercion-ok: an unfetchable image is dropped and flagged in the tool
     // result text, which beats a request the provider rejects outright.
@@ -105,41 +106,61 @@ export async function inlineToolResultImageUrls(
   }
   if (urls.size === 0) return messages;
 
-  // Newest images first: older history screenshots are dropped once the
+  // Newest images first: older history screenshots are omitted once the
   // per-request count or byte budget is spent.
-  const newestFirst = [...urls].reverse().slice(0, MAX_IMAGES_PER_REQUEST);
-  const fetched = await fetchAll(newestFirst);
-  const inlined = new Map<string, EngineToolResultImagePart | null>();
+  const candidates = [...urls].reverse().slice(0, MAX_IMAGES_PER_REQUEST);
+  const fetched = await fetchAll(candidates);
   let budget = MAX_REQUEST_IMAGE_BYTES;
-  for (const url of newestFirst) {
-    const image = fetched.get(url);
-    const size = image?.data?.length ?? 0;
-    if (image && size <= budget) {
-      budget -= size;
-      inlined.set(url, image);
-    }
-  }
+  let remainingImages = MAX_IMAGES_PER_REQUEST;
 
-  return messages.map((message) => ({
-    ...message,
-    content: message.content.map((part) => {
-      if (part.type !== "tool-result" || !part.images?.length) return part;
-      let dropped = 0;
-      const images = part.images.flatMap((image) => {
-        if (!image.url) return [image];
-        const resolved = inlined.get(image.url);
-        if (!resolved) {
-          dropped++;
-          return [];
-        }
-        return [
-          { ...resolved, ...(image.label ? { label: image.label } : {}) },
-        ];
-      });
-      const content = dropped
-        ? `${part.content}\n[${dropped} image${dropped === 1 ? "" : "s"} from this tool result could not be loaded and ${dropped === 1 ? "is" : "are"} omitted]`
-        : part.content;
-      return { ...part, images, content };
-    }),
-  })) as EngineMessage[];
+  const mapped = [...messages]
+    .reverse()
+    .map((message) => ({
+      ...message,
+      content: [...message.content]
+        .reverse()
+        .map((part) => {
+          if (part.type !== "tool-result" || !part.images?.length) return part;
+          let failed = 0;
+          let omitted = 0;
+          const images = [...part.images].reverse().flatMap((image) => {
+            if (!image.url) {
+              budget -= image.data?.length ?? 0;
+              return [image];
+            }
+            const resolved = fetched.get(image.url);
+            if (resolved === undefined) {
+              omitted++;
+              return [];
+            }
+            const size = resolved?.data?.length ?? 0;
+            if (!resolved) {
+              failed++;
+              return [];
+            }
+            if (remainingImages <= 0 || size > budget) {
+              omitted++;
+              return [];
+            }
+            remainingImages--;
+            budget -= size;
+            cacheInlined(image.url, resolved);
+            return [
+              { ...resolved, ...(image.label ? { label: image.label } : {}) },
+            ];
+          });
+          images.reverse();
+          const notes = [
+            failed ? `${failed} could not be loaded` : "",
+            omitted ? `${omitted} omitted to keep the request small` : "",
+          ].filter(Boolean);
+          const content = notes.length
+            ? `${part.content}\n[Tool result images: ${notes.join("; ")}]`
+            : part.content;
+          return { ...part, images, content };
+        })
+        .reverse(),
+    }))
+    .reverse();
+  return mapped as EngineMessage[];
 }
