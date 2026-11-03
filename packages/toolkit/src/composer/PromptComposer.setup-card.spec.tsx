@@ -126,6 +126,28 @@ describe("PromptComposer with no AI connected", () => {
     expect(card()?.dataset.bounce).toBe("1");
   });
 
+  it("points clicks anywhere in the field at the setup card, including disabled controls", async () => {
+    await render({ readiness: "missing", configured: false });
+    const frame = container.querySelector<HTMLElement>(
+      '[data-agent-composer-slot="area"]',
+    )!;
+    const disabledButton =
+      frame.querySelector<HTMLButtonElement>("button:disabled")!;
+    expect(disabledButton).not.toBeNull();
+
+    await act(async () => {
+      disabledButton.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(card()?.dataset.bounce).toBe("1");
+
+    await act(async () => {
+      frame.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(card()?.dataset.bounce).toBe("2");
+  });
+
   it("keeps the prompt open once readiness says AI is configured", async () => {
     await render({ readiness: "configured", configured: false });
 

@@ -1019,9 +1019,9 @@ function PromptComposerInner({
     disabled || (missingApiKey && setupCardVisible),
   );
   const handleDisabledComposerClick = useCallback(() => {
-    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
+    if (setupCardVisible) setSetupBouncePulse((pulse) => pulse + 1);
     onDisabledClick?.();
-  }, [missingApiKey, onDisabledClick]);
+  }, [setupCardVisible, onDisabledClick]);
   const validateEngineBeforeSubmit = useCallback(async () => {
     if (!engineStatusChecksEnabled) return "configured" as const;
     try {
@@ -1169,7 +1169,17 @@ function PromptComposerInner({
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
         noticeOutlet={noticeOutlet}
-        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
+        onPointerDownCapture={
+          setupCardVisible ? handleDisabledComposerClick : undefined
+        }
+        onClick={
+          composerDisabled
+            ? (event) => {
+                if (!setupCardVisible || event.detail === 0)
+                  handleDisabledComposerClick();
+              }
+            : undefined
+        }
       >
         {engineState === "unavailable" && !engineNoticeDismissed ? (
           <ComposerNotice
