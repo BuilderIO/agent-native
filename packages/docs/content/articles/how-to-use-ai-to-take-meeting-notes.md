@@ -104,4 +104,4 @@ Minutes are a formal record of what was decided, often kept for governance. Note
 
 ### Is Clips free?
 
-Yes. Clips is free and open source. It's labeled alpha, so expect rough edges.
+Yes. Clips is free and open source. It's in beta, so expect rough edges.

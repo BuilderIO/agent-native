@@ -170,6 +170,18 @@ describe("create-recording schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("accepts only a lowercase hex SHA-256 as the source fingerprint", () => {
+    expect(
+      createRecordingSchema.safeParse({ sourceHeadSha256: "0f".repeat(32) })
+        .success,
+    ).toBe(true);
+    for (const value of ["0F".repeat(32), "0f".repeat(31), "not-a-hash"]) {
+      expect(
+        createRecordingSchema.safeParse({ sourceHeadSha256: value }).success,
+      ).toBe(false);
+    }
+  });
+
   it("normalizes the recorder platform", () => {
     const parsed = createRecordingSchema.parse({
       recordingPlatform: " Desktop ",
