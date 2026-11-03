@@ -1,4 +1,9 @@
+import {
+  saveRevisionOf,
+  SaveOverlapError,
+} from "@agent-native/core/save-conflict";
 import type { ComposeState } from "@shared/types";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,8 +15,12 @@ import {
   enqueueDraftSave,
   filterRemovedDrafts,
   getDraftSaveMetadataUpdate,
+  mergeComposeDrafts,
   newestUnseenPopoutDraftId,
+  saveDraftMerging,
   saveDraftToEmailsBestEffort,
+  saveNewestDraft,
+  setDraftOverlapResolver,
   type DraftSaveResult,
   type DraftSaveQueueResult,
 } from "./use-compose-state";
@@ -31,6 +40,330 @@ function draft(id: string, inline = false): ComposeState {
     inline,
   };
 }
+
+describe("saveDraftMerging", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setDraftOverlapResolver(undefined);
+  });
+
+  function respondWith(
+    ...responses: Array<{ status: number; body: unknown }>
+  ): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn();
+    for (const { status, body } of responses) {
+      fetchMock.mockResolvedValueOnce({
+        ok: status < 400,
+        status,
+        json: async () => body,
+      });
+    }
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const stored = (value: ComposeState) => ({
+    status: 200,
+    body: { value, revision: saveRevisionOf(value) },
+  });
+  const conflict = (current: ComposeState | null) => ({
+    status: 409,
+    body: {
+      error: "changed",
+      errorCode: "save_conflict",
+      details: {
+        current,
+        currentRevision: current && saveRevisionOf(current),
+      },
+    },
+  });
+  const sentBody = (fetchMock: ReturnType<typeof vi.fn>, call: number) =>
+    JSON.parse(fetchMock.mock.calls[call]?.[1].body);
+
+  /** Gives this draft id a known saved state, as a read or an earlier save does. */
+  async function savedAs(value: ComposeState) {
+    respondWith(stored(value));
+    await saveDraftMerging(value);
+    vi.unstubAllGlobals();
+  }
+
+  it("checks the first save of a new draft against nothing being there", async () => {
+    const mine = { ...draft("merge-new"), body: "Hello" };
+    const fetchMock = respondWith(stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/_agent-native/application-state/compose/merge-new",
+    );
+    expect(fetchMock.mock.calls[0]?.[1].method).toBe("PATCH");
+    expect(sentBody(fetchMock, 0)).toEqual({
+      expectedRevision: null,
+      next: mine,
+    });
+  });
+
+  it("merges another writer's change to a different field without asking", async () => {
+    const base = { ...draft("merge-other"), subject: "Base", body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const theirs = { ...base, subject: "Theirs" };
+    const merged = { ...base, subject: "Theirs", body: "Mine" };
+    const resolver = vi.fn();
+    setDraftOverlapResolver(resolver);
+    const fetchMock = respondWith(conflict(theirs), stored(merged));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(merged);
+
+    expect(sentBody(fetchMock, 0).expectedRevision).toBe(saveRevisionOf(base));
+    expect(sentBody(fetchMock, 1)).toEqual({
+      expectedRevision: saveRevisionOf(theirs),
+      next: merged,
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("asks when both changed the same field", async () => {
+    const base = { ...draft("merge-same"), body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const theirs = { ...base, body: "Theirs" };
+    const resolver = vi.fn(async (overlap) => overlap.keepMine);
+    setDraftOverlapResolver(resolver);
+    const fetchMock = respondWith(conflict(theirs), stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver.mock.calls[0]?.[0]).toMatchObject({
+      fields: ["body"],
+      theirs,
+      mine,
+    });
+    expect(sentBody(fetchMock, 1).expectedRevision).toBe(
+      saveRevisionOf(theirs),
+    );
+  });
+
+  it("fails loudly rather than overwriting when nothing can ask", async () => {
+    const base = { ...draft("merge-noprompt"), body: "Base" };
+    await savedAs(base);
+    const fetchMock = respondWith(conflict({ ...base, body: "Theirs" }));
+
+    await expect(
+      saveDraftMerging({ ...base, body: "Mine" }),
+    ).rejects.toBeInstanceOf(SaveOverlapError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a draft again if it was deleted elsewhere while still open", async () => {
+    const base = { ...draft("merge-deleted"), body: "Base" };
+    await savedAs(base);
+    const mine = { ...base, body: "Mine" };
+    const fetchMock = respondWith(conflict(null), stored(mine));
+
+    await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
+
+    expect(sentBody(fetchMock, 1).expectedRevision).toBeNull();
+  });
+
+  it("reports anything else as the failure it is", async () => {
+    const mine = { ...draft("merge-error"), body: "Mine" };
+    respondWith({ status: 500, body: { error: "nope" } });
+
+    await expect(saveDraftMerging(mine)).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe("saveNewestDraft", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setDraftOverlapResolver(undefined);
+  });
+
+  /** A server holding `stored`, refusing any save that isn't current. */
+  function server(initial: ComposeState) {
+    const state = { stored: initial };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const { expectedRevision, next } = JSON.parse(init.body);
+        const currentRevision = saveRevisionOf(state.stored);
+        if (expectedRevision !== currentRevision) {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              errorCode: "save_conflict",
+              details: { current: state.stored, currentRevision },
+            }),
+          };
+        }
+        state.stored = next;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ value: next, revision: saveRevisionOf(next) }),
+        };
+      }),
+    );
+    return state;
+  }
+
+  function cacheHolding(value: ComposeState) {
+    const qc = new QueryClient();
+    qc.setQueryData(["compose-drafts"], [value]);
+    return {
+      qc,
+      cached: () =>
+        qc.getQueryData<ComposeState[]>([
+          "compose-drafts",
+        ])?.[0] as ComposeState,
+      edit: (change: Partial<ComposeState>) =>
+        qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+          (old ?? []).map((one) => ({ ...one, ...change })),
+        ),
+    };
+  }
+
+  /** Teaches the module this draft's saved base through a first plain save. */
+  async function seen(value: ComposeState) {
+    server(value);
+    await saveDraftMerging(value);
+  }
+
+  it("keeps another writer's change through an edit queued behind the merge", async () => {
+    const base = { ...draft("queued-merge"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, body: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "First" });
+    const first = cached();
+    edit({ subject: "Second" });
+    const second = cached();
+    await saveNewestDraft(qc, first);
+    await saveNewestDraft(qc, second);
+
+    expect(state.stored).toMatchObject({ subject: "Second", body: "Theirs" });
+    expect(cached()).toMatchObject({ subject: "Second", body: "Theirs" });
+  });
+
+  it("keeps edits made while the save ran on top of what came back", async () => {
+    const base = { ...draft("edit-while-saving"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, body: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "First" });
+    const running = saveNewestDraft(qc, cached());
+    edit({ subject: "Typed meanwhile" });
+    await running;
+
+    expect(state.stored).toMatchObject({ subject: "First", body: "Theirs" });
+    expect(cached()).toMatchObject({
+      subject: "Typed meanwhile",
+      body: "Theirs",
+    });
+  });
+
+  it("doesn't undo the choice made on the save ahead of it", async () => {
+    const base = { ...draft("queued-choice"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, subject: "Theirs" });
+    setDraftOverlapResolver(async (overlap) => overlap.useTheirs);
+    const { qc, cached, edit } = cacheHolding(base);
+
+    edit({ subject: "Mine" });
+    const first = cached();
+    const running = saveNewestDraft(qc, first);
+    edit({ body: "Next edit" });
+    const second = cached();
+    await running;
+    await saveNewestDraft(qc, second);
+
+    expect(state.stored).toMatchObject({
+      subject: "Theirs",
+      body: "Next edit",
+    });
+  });
+
+  it("asks whichever prompt is mounted when the overlap arrives", async () => {
+    const base = { ...draft("late-prompt"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, subject: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+    const leaving = vi.fn(async () => {
+      throw new Error("That prompt is gone");
+    });
+    setDraftOverlapResolver(leaving);
+
+    edit({ subject: "Mine" });
+    const running = saveNewestDraft(qc, cached());
+    setDraftOverlapResolver(async (overlap) => overlap.keepMine);
+    await running;
+
+    expect(leaving).not.toHaveBeenCalled();
+    expect(state.stored).toMatchObject({ subject: "Mine" });
+  });
+
+  it("saves the queued copy when the draft has left the cache", async () => {
+    const base = { ...draft("closed"), subject: "A" };
+    await seen(base);
+    const state = server(base);
+    const qc = new QueryClient();
+
+    await saveNewestDraft(qc, { ...base, subject: "Closed with this" });
+
+    expect(state.stored).toMatchObject({ subject: "Closed with this" });
+  });
+});
+
+describe("mergeComposeDrafts", () => {
+  it("never asks about which mailbox draft backs the compose draft", () => {
+    const base = draft("meta");
+    const result = mergeComposeDrafts(
+      base,
+      {
+        ...base,
+        body: "Mine",
+        savedDraftId: "mine-gmail",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "mine@example.com",
+      },
+      {
+        ...base,
+        savedDraftId: "their-gmail",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "theirs@example.com",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      merged: {
+        body: "Mine",
+        savedDraftId: "their-gmail",
+        savedDraftAccountEmail: "theirs@example.com",
+      },
+    });
+  });
+
+  it("keeps my mailbox draft when the other writer has none", () => {
+    const base = draft("meta-mine");
+    const result = mergeComposeDrafts(
+      base,
+      { ...base, savedDraftId: "mine-gmail" },
+      { ...base, subject: "Theirs" },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      merged: { subject: "Theirs", savedDraftId: "mine-gmail" },
+    });
+  });
+});
 
 describe("newestUnseenPopoutDraftId", () => {
   it("focuses the newest server-added popout draft", () => {

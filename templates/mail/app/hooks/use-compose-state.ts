@@ -1,9 +1,24 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  isSaveConflict,
+  mergeRecords,
+  rebaseOntoSaved,
+  saveRevisionOf,
+  SaveOverlapError,
+  saveWithMerge,
+  type SavedRecord,
+  type SaveOverlap,
+} from "@agent-native/core/save-conflict";
 import { appendSignatureToBody } from "@shared/signature";
 import type { Alias, ComposeState, UserSettings } from "@shared/types";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
@@ -43,6 +58,159 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(`Request failed (${res.status})`);
   }
   return res.json();
+}
+
+/** Sends one draft save, checked against the revision it started from. */
+async function saveComposeDraftIfCurrent(
+  draft: ComposeState,
+  expectedRevision: string | null,
+): Promise<SavedRecord<ComposeState>> {
+  const res = await fetch(
+    agentNativePath(`/_agent-native/application-state/compose/${draft.id}`),
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
+      body: JSON.stringify({ expectedRevision, next: draft }),
+    },
+  );
+  if (res.ok) return res.json();
+  if (res.status !== 409) {
+    throw Object.assign(new Error(`Request failed (${res.status})`), {
+      status: res.status,
+    });
+  }
+  const conflict = await res.json();
+  throw Object.assign(new Error(conflict.error), {
+    status: 409,
+    errorCode: conflict.errorCode,
+    details: conflict.details,
+  });
+}
+
+const SAVED_DRAFT_METADATA = [
+  "savedDraftId",
+  "savedDraftBackend",
+  "savedDraftAccountEmail",
+] as const;
+
+/**
+ * Merges a draft, field by field. Which mailbox draft backs it isn't something a
+ * person can choose between, so the stored one wins without asking.
+ */
+export function mergeComposeDrafts(
+  base: ComposeState,
+  mine: ComposeState,
+  theirs: ComposeState,
+) {
+  const adopted = { ...mine };
+  if (theirs.savedDraftId) {
+    for (const key of SAVED_DRAFT_METADATA) {
+      (adopted as Record<string, unknown>)[key] = theirs[key];
+    }
+  }
+  return mergeRecords(base, adopted, theirs);
+}
+
+// Shared by every hook instance: a refetch started through one has to see edits
+// made through another, and the base of an edit doesn't depend on which saved it.
+const dirtyDrafts: Record<string, boolean> = {};
+const draftVersions: Record<string, number> = {};
+const savedDrafts = new Map<string, ComposeState>();
+const pendingDraftMutations = new Map<string, Promise<unknown>>();
+let resolveDraftOverlap:
+  | ((
+      overlap: SaveOverlap<ComposeState>,
+      finished: Promise<boolean>,
+    ) => Promise<ComposeState>)
+  | undefined;
+
+/**
+ * A refetch can't replace a draft with unsaved edits or with writes still queued:
+ * each queued write sends the local copy as it stands when its turn comes.
+ */
+function holdsLocalDraft(id: string): boolean {
+  return Boolean(dirtyDrafts[id]) || pendingDraftMutations.has(id);
+}
+
+/** Tells the person a draft write failed, unless the prompt already has. */
+function reportDraftWriteFailed(id: string, error: unknown): void {
+  if (error instanceof SaveOverlapError && resolveDraftOverlap) return;
+  window.dispatchEvent(
+    new CustomEvent(DRAFT_SAVE_FAILED_EVENT, { detail: { draftId: id } }),
+  );
+}
+
+/** Lets the one mounted conflict prompt answer overlaps for every instance. */
+export function setDraftOverlapResolver(
+  resolver: typeof resolveDraftOverlap,
+): void {
+  resolveDraftOverlap = resolver;
+}
+
+/** What to put in an agent prompt so its update checks the draft it was shown. */
+export function draftRevisionPromptArg(id: string): string {
+  const known = savedDrafts.get(id);
+  return known ? `, expectedRevision "${saveRevisionOf(known)}"` : "";
+}
+
+/**
+ * Saves a draft on top of whatever another tab or the agent stored first, and
+ * returns what's stored now.
+ */
+export async function saveDraftMerging(
+  mine: ComposeState,
+): Promise<ComposeState> {
+  const known = savedDrafts.get(mine.id);
+  const saved = await saveWithMerge<ComposeState>({
+    base: known
+      ? { value: known, revision: saveRevisionOf(known) }
+      : { value: { id: mine.id } as ComposeState, revision: null },
+    mine,
+    merge: mergeComposeDrafts,
+    // Whichever prompt is mounted when the overlap arrives, not when this started.
+    resolveOverlap: (overlap, finished) => {
+      if (!resolveDraftOverlap) throw new SaveOverlapError(overlap);
+      return resolveDraftOverlap(overlap, finished);
+    },
+    save: async ({ value, revision }) => {
+      try {
+        return await saveComposeDraftIfCurrent(value, revision);
+      } catch (error) {
+        // Deleted elsewhere while this window still holds the text: store it again.
+        if (isSaveConflict(error) && error.details.current === null) {
+          return saveComposeDraftIfCurrent(value, null);
+        }
+        throw error;
+      }
+    },
+  });
+  savedDrafts.set(mine.id, saved.value);
+  return saved.value;
+}
+
+/**
+ * Saves a queued draft as it stands now, not as it stood when queued: a save
+ * ahead of it may have merged another writer's change into the cache, and the
+ * older snapshot would write over that. Edits made while it runs stay.
+ */
+export async function saveNewestDraft(
+  qc: QueryClient,
+  queued: ComposeState,
+): Promise<ComposeState> {
+  const mine =
+    qc
+      .getQueryData<ComposeState[]>(["compose-drafts"])
+      ?.find((draft) => draft.id === queued.id) ?? queued;
+  const saved = await saveDraftMerging(mine);
+  qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+    (old ?? []).map((draft) =>
+      draft.id === mine.id ? rebaseOntoSaved(mine, draft, saved) : draft,
+    ),
+  );
+  return saved;
 }
 
 function hasDraftContent(draft: ComposeState): boolean {
@@ -322,8 +490,8 @@ export function useComposeState() {
   const [stagedSendIds, setStagedSendIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const dirtyRef = useRef<Record<string, boolean>>({});
-  const versionRef = useRef<Record<string, number>>({});
+  const dirtyRef = useRef(dirtyDrafts);
+  const versionRef = useRef(draftVersions);
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
@@ -331,7 +499,7 @@ export function useComposeState() {
   const pendingDraftSavesRef = useRef(
     new Map<string, Promise<DraftSaveQueueResult>>(),
   );
-  const pendingDraftMutationsRef = useRef(new Map<string, Promise<unknown>>());
+  const pendingDraftMutationsRef = useRef(pendingDraftMutations);
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
@@ -379,6 +547,11 @@ export function useComposeState() {
         result ?? [],
         removedDraftIdsRef.current,
       );
+      for (const serverDraft of serverDrafts) {
+        if (!holdsLocalDraft(serverDraft.id)) {
+          savedDrafts.set(serverDraft.id, serverDraft);
+        }
+      }
       const localDrafts = filterRemovedDrafts(
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [],
         removedDraftIdsRef.current,
@@ -387,14 +560,14 @@ export function useComposeState() {
 
       const merged = serverDrafts.map((serverDraft) => {
         const localDraft = localDrafts.find((d) => d.id === serverDraft.id);
-        return localDraft && dirtyRef.current[serverDraft.id]
+        return localDraft && holdsLocalDraft(serverDraft.id)
           ? localDraft
           : serverDraft;
       });
 
       for (const localDraft of localDrafts) {
         if (
-          dirtyRef.current[localDraft.id] &&
+          holdsLocalDraft(localDraft.id) &&
           removedDraftIdsRef.current[localDraft.id] === undefined &&
           !merged.some((d) => d.id === localDraft.id)
         ) {
@@ -451,11 +624,7 @@ export function useComposeState() {
   const activeDraft = drafts.find((d) => d.id === resolvedActiveId) ?? null;
 
   const putMutation = useMutation({
-    mutationFn: (state: ComposeState) =>
-      apiFetch(`/_agent-native/application-state/compose/${state.id}`, {
-        method: "PUT",
-        body: JSON.stringify(state),
-      }),
+    mutationFn: (state: ComposeState) => saveNewestDraft(qc, state),
   });
 
   const deleteMutation = useMutation({
@@ -519,11 +688,7 @@ export function useComposeState() {
 
       void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
         putMutation.mutateAsync(draft),
-      ).catch(() =>
-        window.dispatchEvent(
-          new CustomEvent(DRAFT_SAVE_FAILED_EVENT, { detail: { draftId: id } }),
-        ),
-      );
+      ).catch((error) => reportDraftWriteFailed(id, error));
 
       return id;
     },
@@ -564,13 +729,7 @@ export function useComposeState() {
         );
         void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
           putMutation.mutateAsync(updatedDraft),
-        ).catch(() =>
-          window.dispatchEvent(
-            new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
-              detail: { draftId: id },
-            }),
-          ),
-        );
+        ).catch((error) => reportDraftWriteFailed(id, error));
       });
     },
     [qc, putMutation, reportDraftSaveResult, saveDraft],
@@ -602,12 +761,7 @@ export function useComposeState() {
                 dirtyRef.current[id] = false;
               }
             },
-            () =>
-              window.dispatchEvent(
-                new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
-                  detail: { draftId: id },
-                }),
-              ),
+            (error) => reportDraftWriteFailed(id, error),
           );
         }
       }, 300);
