@@ -268,14 +268,14 @@ const messages = {
       "Videos removed from Clips: {{count}}. Storage usage update needs a retry.",
     mediaCleanupFinalizing: "Storage usage update needs a retry",
     mediaCleanupFinalizingHelp:
-      "The file-removal checks finished, but your storage usage hasn't been updated. Retry asks Clips to update it again.",
+      "File-removal checks finished, but this video may still count toward your storage limit. Retry usage update to update your storage total.",
     mediaCleanupListLabel: "Media removal",
     mediaCleanupPending: "Deletion checks in progress",
     mediaCleanupPendingHelp:
-      "Clips continues checking in the background. You can leave this page.",
+      "Clips continues checking in the background. You can leave this page and check Trash for updates.",
     mediaCleanupBlocked: "Couldn't confirm video file deletion",
     mediaCleanupBlockedHelp:
-      "The video is no longer in Clips. Its stored files may still exist. Retry asks Clips to try removing them again.",
+      "Stored video files may still exist. Retry removal starts another attempt. You can leave this page and check Trash for the result.",
     mediaCleanupReconnect:
       "Reconnect storage to remove media files from deleted recordings",
     mediaCleanupRetained:

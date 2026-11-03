@@ -310,13 +310,14 @@ const messages = {
       "已從 Clips 移除的影片：{{count}}。需要重試儲存空間用量更新。",
     mediaCleanupFinalizing: "需要重試儲存空間用量更新",
     mediaCleanupFinalizingHelp:
-      "檔案移除檢查已完成，但你的儲存空間用量尚未更新。重試會讓 Clips 再次嘗試更新。",
+      "檔案移除檢查已結束，但此影片可能仍計入你的儲存限額。重試更新用量以更新儲存總量。",
     mediaCleanupListLabel: "媒體移除",
     mediaCleanupPending: "正在進行刪除檢查",
-    mediaCleanupPendingHelp: "Clips 會在背景繼續檢查。你可以離開此頁面。",
+    mediaCleanupPendingHelp:
+      "Clips 會繼續在背景檢查。你可以離開此頁面，稍後在垃圾桶查看更新。",
     mediaCleanupBlocked: "無法確認影片檔案是否已刪除",
     mediaCleanupBlockedHelp:
-      "這部影片已不在 Clips 中。其儲存的檔案可能仍然存在。重試會讓 Clips 再次嘗試移除這些檔案。",
+      "儲存的影片檔案可能仍然存在。重試移除會發起另一次嘗試。你可以離開此頁面，在垃圾桶查看結果。",
     mediaCleanupReconnect: "請重新連線儲存空間以移除已刪除錄製的媒體檔案",
     mediaCleanupRetained: "已刪除錄製的共用媒體檔案在其他錄製使用期間會保留",
     mediaCleanupHelp: "更多資訊",

@@ -339,15 +339,15 @@ const messages = {
     mediaCleanupFinalizing:
       "La mise à jour de l’utilisation du stockage doit être relancée",
     mediaCleanupFinalizingHelp:
-      "Les vérifications de suppression des fichiers sont terminées, mais votre utilisation du stockage n’a pas été mise à jour. Relancer demande à Clips de la mettre à jour à nouveau.",
+      "Les vérifications de suppression des fichiers sont terminées, mais cette vidéo peut encore compter dans votre limite de stockage. Réessayez la mise à jour de l’utilisation pour actualiser votre total de stockage.",
     mediaCleanupListLabel: "Suppression des fichiers multimédias",
     mediaCleanupPending: "Vérifications de suppression en cours",
     mediaCleanupPendingHelp:
-      "Clips poursuit les vérifications en arrière-plan. Vous pouvez quitter cette page.",
+      "Clips poursuit les vérifications en arrière-plan. Vous pouvez quitter cette page et consulter les mises à jour dans la corbeille.",
     mediaCleanupBlocked:
       "Impossible de confirmer la suppression des fichiers vidéo",
     mediaCleanupBlockedHelp:
-      "La vidéo n’est plus dans Clips. Ses fichiers stockés existent peut-être encore. Relancer demande à Clips d’essayer à nouveau de les supprimer.",
+      "Les fichiers vidéo stockés peuvent encore exister. Réessayer la suppression lance une nouvelle tentative. Vous pouvez quitter cette page et consulter le résultat dans la corbeille.",
     mediaCleanupReconnect:
       "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
     mediaCleanupRetained:

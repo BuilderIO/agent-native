@@ -92,11 +92,11 @@ const RETAINED_TITLE =
 const RETRY_REMOVAL = "Retry removal";
 const RETRY_USAGE = "Retry usage update";
 const PENDING_HELP =
-  "Clips continues checking in the background. You can leave this page.";
+  "Clips continues checking in the background. You can leave this page and check Trash for updates.";
 const UNCONFIRMED_HELP =
-  "The video is no longer in Clips. Its stored files may still exist. Retry asks Clips to try removing them again.";
+  "Stored video files may still exist. Retry removal starts another attempt. You can leave this page and check Trash for the result.";
 const USAGE_HELP =
-  "The file-removal checks finished, but your storage usage hasn't been updated. Retry asks Clips to update it again.";
+  "File-removal checks finished, but this video may still count toward your storage limit. Retry usage update to update your storage total.";
 
 describe("MediaCleanupStatus", () => {
   let container: HTMLDivElement;

@@ -333,14 +333,14 @@ const messages = {
       "Clips から削除した動画：{{count}} 件。ストレージ使用量の更新を再試行する必要があります。",
     mediaCleanupFinalizing: "ストレージ使用量の更新を再試行する必要があります",
     mediaCleanupFinalizingHelp:
-      "ファイル削除の確認は完了しましたが、ストレージ使用量はまだ更新されていません。再試行すると、Clips がもう一度更新を試みます。",
+      "ファイル削除の確認は終わりましたが、この動画がまだストレージ上限に算入されている可能性があります。使用量の更新を再試行して、ストレージ合計を更新してください。",
     mediaCleanupListLabel: "メディアの削除",
     mediaCleanupPending: "削除の確認を実行中",
     mediaCleanupPendingHelp:
-      "Clips はバックグラウンドで確認を続けます。このページを離れてもかまいません。",
+      "Clips はバックグラウンドで確認を続けます。このページを離れて、ゴミ箱で更新を確認できます。",
     mediaCleanupBlocked: "動画ファイルの削除を確認できませんでした",
     mediaCleanupBlockedHelp:
-      "この動画はもう Clips にありません。保存されたファイルはまだ残っている可能性があります。再試行すると、Clips がもう一度削除を試みます。",
+      "保存された動画ファイルが残っている可能性があります。「削除を再試行」で再度試行します。このページを離れて、ゴミ箱で結果を確認できます。",
     mediaCleanupReconnect:
       "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
     mediaCleanupRetained:

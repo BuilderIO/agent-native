@@ -328,14 +328,14 @@ const messages = {
       "Clips에서 제거한 동영상: {{count}}개. 스토리지 사용량 업데이트를 다시 시도해야 합니다.",
     mediaCleanupFinalizing: "스토리지 사용량 업데이트를 다시 시도해야 함",
     mediaCleanupFinalizingHelp:
-      "파일 제거 확인은 끝났지만 스토리지 사용량은 아직 업데이트되지 않았습니다. 다시 시도하면 Clips가 업데이트를 다시 시도합니다.",
+      "파일 제거 확인은 끝났지만 이 동영상이 아직 저장 용량 한도에 포함될 수 있습니다. 사용량 업데이트를 재시도하여 저장 용량 합계를 업데이트하세요.",
     mediaCleanupListLabel: "미디어 제거",
     mediaCleanupPending: "삭제 확인 진행 중",
     mediaCleanupPendingHelp:
-      "Clips가 백그라운드에서 계속 확인합니다. 이 페이지를 나가도 됩니다.",
+      "Clips가 백그라운드에서 확인을 계속합니다. 이 페이지를 나가도 되며 휴지통에서 업데이트를 확인할 수 있습니다.",
     mediaCleanupBlocked: "동영상 파일 삭제를 확인할 수 없음",
     mediaCleanupBlockedHelp:
-      "이 동영상은 더 이상 Clips에 없습니다. 저장된 파일은 아직 남아 있을 수 있습니다. 다시 시도하면 Clips가 파일 제거를 다시 시도합니다.",
+      "저장된 동영상 파일이 아직 남아 있을 수 있습니다. 제거 재시도를 누르면 다시 시도합니다. 이 페이지를 나가도 되며 휴지통에서 결과를 확인할 수 있습니다.",
     mediaCleanupReconnect:
       "삭제된 녹화의 미디어 파일을 제거하려면 스토리지를 다시 연결하세요",
     mediaCleanupRetained:

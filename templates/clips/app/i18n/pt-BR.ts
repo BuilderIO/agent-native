@@ -337,15 +337,15 @@ const messages = {
     mediaCleanupFinalizing:
       "A atualização do uso de armazenamento precisa ser repetida",
     mediaCleanupFinalizingHelp:
-      "As verificações de remoção de arquivos terminaram, mas seu uso de armazenamento ainda não foi atualizado. Ao tentar novamente, o Clips tentará atualizá-lo outra vez.",
+      "As verificações de remoção dos arquivos terminaram, mas este vídeo ainda pode contar para seu limite de armazenamento. Tente atualizar o uso novamente para atualizar seu total de armazenamento.",
     mediaCleanupListLabel: "Remoção de mídia",
     mediaCleanupPending: "Verificações de exclusão em andamento",
     mediaCleanupPendingHelp:
-      "O Clips continua verificando em segundo plano. Você pode sair desta página.",
+      "O Clips continua verificando em segundo plano. Você pode sair desta página e conferir as atualizações na Lixeira.",
     mediaCleanupBlocked:
       "Não foi possível confirmar a exclusão dos arquivos de vídeo",
     mediaCleanupBlockedHelp:
-      "O vídeo não está mais no Clips. Os arquivos armazenados dele ainda podem existir. Ao tentar novamente, o Clips tentará removê-los outra vez.",
+      "Os arquivos de vídeo armazenados ainda podem existir. Tentar remover novamente inicia outra tentativa. Você pode sair desta página e conferir o resultado na Lixeira.",
     mediaCleanupReconnect:
       "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
     mediaCleanupRetained:

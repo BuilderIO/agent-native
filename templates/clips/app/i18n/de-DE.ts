@@ -341,15 +341,15 @@ const messages = {
     mediaCleanupFinalizing:
       "Aktualisierung der Speichernutzung muss wiederholt werden",
     mediaCleanupFinalizingHelp:
-      "Die Prüfungen zum Entfernen der Dateien sind abgeschlossen, aber deine Speichernutzung wurde noch nicht aktualisiert. Bei einem erneuten Versuch versucht Clips noch einmal, sie zu aktualisieren.",
+      "Die Prüfungen zur Dateientfernung sind abgeschlossen, aber dieses Video kann noch auf dein Speicherlimit angerechnet werden. Versuche die Aktualisierung der Nutzung erneut, um deinen Speicherstand zu aktualisieren.",
     mediaCleanupListLabel: "Entfernen von Mediendateien",
     mediaCleanupPending: "Löschprüfungen laufen",
     mediaCleanupPendingHelp:
-      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen.",
+      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen und im Papierkorb nach Updates sehen.",
     mediaCleanupBlocked:
       "Löschung der Videodateien konnte nicht bestätigt werden",
     mediaCleanupBlockedHelp:
-      "Das Video ist nicht mehr in Clips. Seine gespeicherten Dateien sind möglicherweise noch vorhanden. Bei einem erneuten Versuch versucht Clips noch einmal, sie zu entfernen.",
+      "Gespeicherte Videodateien können noch vorhanden sein. Entfernung erneut versuchen startet einen weiteren Versuch. Du kannst diese Seite verlassen und das Ergebnis im Papierkorb prüfen.",
     mediaCleanupReconnect:
       "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
     mediaCleanupRetained:
