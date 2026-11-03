@@ -395,6 +395,9 @@ function CommentDraftStore({
   >((key, operationId, retry) => {
     const submitted = submittedDrafts.get(operationId);
     if (!submitted) return false;
+    // A stored draft posted without an edit has changed nothing else this
+    // session, and storage only writes after a change.
+    if (retry) setDraftMutationVersion((version) => version + 1);
     if (draftsRef.current.has(key)) {
       // The newer draft stays, but takes the latest uncertain submission with
       // it: typing that comment again must reuse its key, not save a copy.
