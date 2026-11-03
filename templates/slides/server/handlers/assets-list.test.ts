@@ -313,7 +313,7 @@ describe("listAssets", () => {
     expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
   });
 
-  it("removes the stored file before the row", async () => {
+  it("removes the stored file for an owned asset", async () => {
     await deleteAsset({} as never);
 
     expect(deleteUploadedFile).toHaveBeenCalledWith("s3", {
