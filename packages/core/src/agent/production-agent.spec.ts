@@ -6520,6 +6520,8 @@ describe("createProductionAgentHandler", () => {
       expect(result).not.toMatchObject({
         code: "submission_payload_attachment_indexes_mismatch",
       });
+      expect(claimBackgroundRun).toHaveBeenCalledTimes(1);
+      expect(preUpload).toHaveBeenCalled();
     } finally {
       preUpload.mockRestore();
       claimBackgroundRun.mockRestore();
