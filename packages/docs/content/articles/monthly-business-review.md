@@ -6,8 +6,8 @@ seo_title: How to run a monthly business review (with an example)
 og_line: October's scorecard against plan
 meta_description: "Run a monthly business review (MBR) you can repeat every month: set up the scorecard once, compare each month with plan, and build each deck from last month's."
 og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdc5ad352c5594287b9c72ac60119c084
-published: 2026-11-03
-updated: 2026-11-03
+published: 2026-11-02
+updated: 2026-11-02
 author:
   name: Vishwas Gopinath
   url: https://x.com/CodevolutionWeb
