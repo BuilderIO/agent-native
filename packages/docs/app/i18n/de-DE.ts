@@ -1,7 +1,7 @@
 import enUS from "./en-US";
 
 const deDE = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Wann",
     howOften: "Wie oft",
     filterRole: "Rolle",
@@ -24,7 +24,6 @@ const deDE = {
     whereItBreaks: "Wo es scheitert",
     updatedDate: "Aktualisiert am {{date}}",
     publishedDate: "Veröffentlicht am {{date}}",
-    allArticles: "Alle Artikel",
     useCases: "Anwendungsfälle",
     useCasesDescription: "Seiten für wiederkehrende Aufgaben, nach App",
     useCasesTitle:
@@ -33,13 +32,14 @@ const deDE = {
       "Wähle die Arbeit, die du immer wieder erledigst, oder stöbere in den {{articles}} nach Vorlagen und Anleitungen.",
     articles: "Artikel",
     articlesIntro:
-      "Praktische Antworten zu wiederkehrender Arbeit mit KI-Agenten. Schritt-für-Schritt-Anleitungen für einzelne Aufgaben findest du in den {{useCases}}.",
-    useCasesLink: "Anwendungsfällen",
+      "Anleitungen und Erklärungen für wiederkehrende Arbeit mit KI-Agenten.",
     articleCount_one: "{{count}} Artikel",
     articleCount_other: "{{count}} Artikel",
-    moreOnTopic: "Mehr zu {{topic}}",
-    faqs: "Häufige Fragen",
     copyPage: "Seite kopieren",
+    enlargeImage: "Bild vergrößern",
+    closeImage: "Bild schließen",
+    copyPrompt: "Prompt kopieren",
+    promptHint: "Füge den Prompt in das Eingabefeld von {{app}} ein.",
     copyLink: "Link kopieren",
     copied: "Kopiert",
     copyFailed: "Kopieren fehlgeschlagen. Bitte erneut versuchen.",
@@ -47,11 +47,9 @@ const deDE = {
     readTime_one: "{{count}} Min. Lesezeit",
     readTime_other: "{{count}} Min. Lesezeit",
     partOf: "Teil von:",
-    relatedResources: "Verwandte Ressourcen",
     moreArticles: "Weitere {{category}}-Artikel",
     genericMore: "Weitere Artikel",
     showMore: "Weitere Artikel anzeigen",
-    allTopics: "Alle Themen",
     topics: {
       clips:
         "Bildschirmaufnahmen, Meetings und Diktate, die dein KI-Agent nutzen kann",
