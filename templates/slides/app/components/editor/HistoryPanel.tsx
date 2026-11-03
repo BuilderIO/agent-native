@@ -175,7 +175,7 @@ export default function HistoryPanel({
         return;
       }
     }
-    let applied: boolean;
+    let applied: boolean | undefined;
     try {
       ({ applied } = await restoreVersion.mutateAsync({
         deckId,

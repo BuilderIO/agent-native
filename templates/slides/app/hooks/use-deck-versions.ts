@@ -37,7 +37,7 @@ export function useRestoreDeckVersion() {
       restoredVersionId: string;
       updatedAt: string;
       url: string;
-      applied: boolean;
+      applied?: boolean;
     },
     { deckId: string; versionId: string }
   >("restore-deck-version");
