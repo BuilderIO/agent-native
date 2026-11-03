@@ -5,7 +5,9 @@ import type { EngineMessage, EngineToolResultImagePart } from "./types.js";
 const MAX_INLINE_IMAGE_BYTES = 5_000_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const FETCH_CONCURRENCY = 4;
-const CACHE_MAX_ENTRIES = 32;
+const CACHE_MAX_BYTES = 32_000_000;
+const MAX_IMAGES_PER_REQUEST = 8;
+const MAX_REQUEST_IMAGE_BYTES = 20_000_000;
 
 // Bytes of successfully inlined images, so history screenshots are not
 // re-downloaded on every dispatch. Failures are never cached.
@@ -14,15 +16,19 @@ const inlineCache = new Map<string, EngineToolResultImagePart>();
 function cacheInlined(url: string, image: EngineToolResultImagePart) {
   inlineCache.delete(url);
   inlineCache.set(url, image);
-  if (inlineCache.size > CACHE_MAX_ENTRIES) {
-    const oldest = inlineCache.keys().next().value;
-    if (oldest !== undefined) inlineCache.delete(oldest);
+  let retained = 0;
+  for (const entry of inlineCache.values()) retained += entry.data?.length ?? 0;
+  for (const key of inlineCache.keys()) {
+    if (retained <= CACHE_MAX_BYTES) break;
+    retained -= inlineCache.get(key)?.data?.length ?? 0;
+    inlineCache.delete(key);
   }
 }
 
 async function readCapped(response: Response): Promise<Buffer | null> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_INLINE_IMAGE_BYTES) {
+    await response.body?.cancel();
     return null;
   }
   if (!response.body) return null;
@@ -73,8 +79,7 @@ async function fetchAll(urls: string[]) {
   const results = new Map<string, EngineToolResultImagePart | null>();
   let next = 0;
   const worker = async () => {
-    while (next < urls.length) {
-      const url = urls[next++];
+    for (let url = urls[next++]; url; url = urls[next++]) {
       results.set(url, await fetchAsInlineImage(url));
     }
   };
@@ -100,7 +105,20 @@ export async function inlineToolResultImageUrls(
   }
   if (urls.size === 0) return messages;
 
-  const inlined = await fetchAll([...urls]);
+  // Newest images first: older history screenshots are dropped once the
+  // per-request count or byte budget is spent.
+  const newestFirst = [...urls].reverse().slice(0, MAX_IMAGES_PER_REQUEST);
+  const fetched = await fetchAll(newestFirst);
+  const inlined = new Map<string, EngineToolResultImagePart | null>();
+  let budget = MAX_REQUEST_IMAGE_BYTES;
+  for (const url of newestFirst) {
+    const image = fetched.get(url);
+    const size = image?.data?.length ?? 0;
+    if (image && size <= budget) {
+      budget -= size;
+      inlined.set(url, image);
+    }
+  }
 
   return messages.map((message) => ({
     ...message,
