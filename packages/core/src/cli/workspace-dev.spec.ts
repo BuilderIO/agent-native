@@ -1331,4 +1331,9 @@ describe("pnpmSpawnTarget", () => {
     expect(args).toEqual([]);
     expect(shell).toBe(true);
   });
+
+  it("doubles trailing backslashes so they cannot escape the closing quote", () => {
+    const [command] = pnpmSpawnTarget(["C:\\My Apps\\"], "win32");
+    expect(command).toBe('pnpm "C:\\My Apps\\\\"');
+  });
 });
