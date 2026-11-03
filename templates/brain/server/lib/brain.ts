@@ -1,5 +1,4 @@
 import { readAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import {
   deletePrivateBlob,
   putPrivateBlob,
@@ -7,7 +6,6 @@ import {
 } from "@agent-native/core/private-blob";
 import {
   resourceDeleteByPath,
-  resourceDeleteWithDb,
   resourcePut,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
@@ -52,9 +50,9 @@ import {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  ensureCaptureAudience,
   ensureEvidenceIntersectionAudience,
   listAccessibleAudienceIds,
-  withCaptureAudience,
 } from "./audiences.js";
 import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
 import {
@@ -63,8 +61,6 @@ import {
 } from "./ingest-queue.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
-  parseCaptureMetadata,
-  withheldZoomPassageCount,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -759,7 +755,7 @@ export async function createCapture(values: {
   const db = getDb();
   const now = nowIso();
   const id = values.id ?? nanoid();
-  const existingRows = values.externalId
+  const [existing] = values.externalId
     ? await db
         .select()
         .from(schema.brainRawCaptures)
@@ -771,7 +767,6 @@ export async function createCapture(values: {
         )
         .limit(1)
     : [];
-  const existing = existingRows.length ? existingRows[0] : undefined;
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
@@ -783,21 +778,11 @@ export async function createCapture(values: {
     source.provider as BrainSourceProvider,
     values.metadata,
   );
-  const storedMetadata =
-    existing && existing.content === values.content
-      ? parseCaptureMetadata(existing.metadataJson)
-      : undefined;
   const sanitized = await sanitizeCaptureForStorage({
     kind: values.kind,
     title: values.title,
     content: values.content,
     metadata,
-    storedZoomPassageQuarantine:
-      storedMetadata === undefined
-        ? undefined
-        : storedMetadata === null
-          ? null
-          : storedMetadata.zoomPassageQuarantine,
     capturedAt: values.capturedAt,
     source: {
       id: source.id,
@@ -847,11 +832,7 @@ export async function createCapture(values: {
       existing.capturedAt !== nextCapturedAt),
   );
   const derivedInputChanged =
-    !existing ||
-    existing.sensitivityDisposition !== "allowed" ||
-    contentChanged ||
-    metadataChanged ||
-    indexedMetadataChanged;
+    !existing || contentChanged || metadataChanged || indexedMetadataChanged;
   const nextStatus =
     values.status ??
     (derivedInputChanged ? "queued" : (existing?.status ?? "queued"));
@@ -916,6 +897,15 @@ export async function createCapture(values: {
     });
     throw new BrainCaptureBlockedError(racedDeletionReceipt);
   }
+  const audience = await ensureCaptureAudience({
+    captureId,
+    source,
+    kind: values.audience?.kind,
+    memberEmails:
+      values.audience?.memberEmails ??
+      (source.visibility === "org" ? undefined : [source.ownerEmail]),
+    upstreamRefHash: values.audience?.upstreamRefHash,
+  });
   const finalizationClauses = [eq(schema.brainRawCaptures.id, captureId)];
   if (values.externalId) {
     const locatorHmac = await upstreamDeletionLocatorHmac(
@@ -940,106 +930,24 @@ export async function createCapture(values: {
       ),
     );
   }
-  const afterCommit: Array<() => void | Promise<void>> = [];
-  const policyVersion = sanitized.decision.policyVersion;
-  const finalized = await withCaptureAudience(
-    {
-      captureId,
-      source,
-      ...(values.audience ? { kind: values.audience.kind } : {}),
-      ...(values.audience?.memberEmails
-        ? { memberEmails: values.audience.memberEmails }
-        : source.visibility === "org"
-          ? {}
-          : { memberEmails: [source.ownerEmail] }),
-      ...(values.audience?.upstreamRefHash === undefined
-        ? {}
-        : { upstreamRefHash: values.audience.upstreamRefHash }),
-    },
-    async (audience, tx) => {
-      const invalidationReason = derivedInputChanged
-        ? "content-changed"
-        : existing.audienceAclHash !== audience.aclHash
-          ? "access-changed"
-          : existing.sensitivityPolicyVersion !== policyVersion
-            ? "sensitivity-changed"
-            : null;
-      const finalized = await tx
-        .update(schema.brainRawCaptures)
-        .set({
-          title: sanitized.title,
-          kind: values.kind,
-          content: sanitized.content,
-          contentHash: nextContentHash,
-          metadataJson: nextMetadataJson,
-          capturedAt: nextCapturedAt,
-          status: nextStatus,
-          distilledAt: nextDistilledAt,
-          sensitivityDisposition: "allowed",
-          sensitivityPolicyVersion: policyVersion,
-          audienceAclHash: audience.aclHash,
-          updatedAt: now,
-        })
-        .where(and(...finalizationClauses))
-        .returning({ id: schema.brainRawCaptures.id });
-      if (!finalized.length) return false;
-      if (existing?.contentHash && derivedInputChanged) {
-        await invalidateDerivedForCapture(captureId, tx, { afterCommit });
-      }
-      if (sanitized.withheldDecision) {
-        await recordBlockedCapture(
-          {
-            id,
-            existing: null,
-            retainedCaptureId: captureId,
-            source,
-            values,
-            decision: {
-              ...sanitized.withheldDecision,
-              disposition: "suppressed",
-            },
-            retentionHours: settings.quarantineRetentionHours ?? 72,
-          },
-          tx,
-        );
-      }
-      if (invalidationReason) {
-        await enqueueCaptureInvalidation(
-          {
-            captureId,
-            sourceId: source.id,
-            reason: invalidationReason,
-            ...(existing
-              ? {
-                  previous: {
-                    ...(existing.contentHash == null
-                      ? {}
-                      : { contentHash: existing.contentHash }),
-                    ...(existing.sensitivityPolicyVersion == null
-                      ? {}
-                      : {
-                          sensitivityPolicyVersion:
-                            existing.sensitivityPolicyVersion,
-                        }),
-                    ...(existing.audienceAclHash == null
-                      ? {}
-                      : { aclHash: existing.audienceAclHash }),
-                  },
-                }
-              : {}),
-            next: {
-              contentHash: nextContentHash,
-              sensitivityPolicyVersion: policyVersion,
-              aclHash: audience.aclHash,
-            },
-          },
-          tx,
-        );
-      }
-      return true;
-    },
-  );
-  if (!finalized && values.externalId) {
+  const finalized = (await db
+    .update(schema.brainRawCaptures)
+    .set({
+      title: sanitized.title,
+      kind: values.kind,
+      content: sanitized.content,
+      contentHash: nextContentHash,
+      metadataJson: nextMetadataJson,
+      capturedAt: nextCapturedAt,
+      status: nextStatus,
+      distilledAt: nextDistilledAt,
+      sensitivityDisposition: "allowed",
+      sensitivityPolicyVersion: sanitized.decision.policyVersion,
+      audienceAclHash: audience.aclHash,
+      updatedAt: now,
+    })
+    .where(and(...finalizationClauses))) as { rowsAffected: number };
+  if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
       .where(eq(schema.brainCaptureAudiences.captureId, captureId));
@@ -1055,12 +963,46 @@ export async function createCapture(values: {
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  for (const notify of afterCommit) await notify();
+  if (existing?.contentHash && derivedInputChanged) {
+    await invalidateDerivedForCapture(captureId);
+  }
   const [capture] = await db
     .select()
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
+  const invalidationReason = derivedInputChanged
+    ? "content-changed"
+    : existing.audienceAclHash !== audience.aclHash
+      ? "access-changed"
+      : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
+        ? "sensitivity-changed"
+        : null;
+  if (!invalidationReason) return capture;
+  try {
+    await enqueueCaptureInvalidation({
+      captureId,
+      sourceId: source.id,
+      reason: invalidationReason,
+      previous: existing
+        ? {
+            contentHash: existing.contentHash ?? undefined,
+            sensitivityPolicyVersion:
+              existing.sensitivityPolicyVersion ?? undefined,
+            aclHash: existing.audienceAclHash ?? undefined,
+          }
+        : undefined,
+      next: {
+        contentHash: nextContentHash,
+        sensitivityPolicyVersion: sanitized.decision.policyVersion,
+        aclHash: audience.aclHash,
+      },
+    });
+  } catch (error) {
+    const { unindexBrainCapture } = await import("./search-index.js");
+    await unindexBrainCapture(captureId);
+    throw error;
+  }
   return capture;
 }
 
@@ -1243,10 +1185,7 @@ async function deleteQuarantineHandle(value: string | null | undefined) {
 export async function invalidateDerivedForCapture(
   captureId: string,
   db = getDb(),
-  options: {
-    deletePublishedResources?: boolean;
-    afterCommit?: Array<() => void | Promise<void>>;
-  } = {},
+  options: { deletePublishedResources?: boolean } = {},
 ) {
   const needle = `%${captureId}%`;
   const knowledge = await db
@@ -1264,23 +1203,7 @@ export async function invalidateDerivedForCapture(
   if (options.deletePublishedResources !== false) {
     for (const row of knowledge) {
       if (row.publishedResourcePath) {
-        if (options.afterCommit) {
-          // Core scopes getDbExec to the active Drizzle transaction.
-          const exec = getDbExec();
-          const { rows } = await exec.execute({
-            sql: "SELECT id FROM resources WHERE owner = ? AND path = ?",
-            args: [SHARED_OWNER, row.publishedResourcePath],
-          });
-          for (const resource of rows) {
-            const deletion = await resourceDeleteWithDb(
-              exec,
-              resource.id as string,
-            );
-            options.afterCommit.push(deletion.notifyAfterCommit);
-          }
-        } else {
-          await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
-        }
+        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
       }
     }
   }
@@ -1333,19 +1256,16 @@ export async function invalidateDerivedForCapture(
   }
 }
 
-export async function recordBlockedCapture(
-  input: {
-    id: string;
-    existing: typeof schema.brainRawCaptures.$inferSelect | null;
-    source: typeof schema.brainSources.$inferSelect;
-    values: Parameters<typeof createCapture>[0];
-    decision: BrainSensitivityDecision;
-    classifierFailureReason?: string;
-    retainedCaptureId?: string;
-    retentionHours: number;
-  },
-  db = getDb(),
-): Promise<BrainSensitivityReceipt> {
+export async function recordBlockedCapture(input: {
+  id: string;
+  existing: typeof schema.brainRawCaptures.$inferSelect | null;
+  source: typeof schema.brainSources.$inferSelect;
+  values: Parameters<typeof createCapture>[0];
+  decision: BrainSensitivityDecision;
+  classifierFailureReason?: string;
+  retentionHours: number;
+}): Promise<BrainSensitivityReceipt> {
+  const db = getDb();
   const now = nowIso();
   const locatorHmac = await sha256Hex(
     `${input.source.id}\0${input.values.externalId ?? (await contentHash(input.values.content))}`,
@@ -1370,13 +1290,7 @@ export async function recordBlockedCapture(
   let disposition: "suppressed" | "quarantined" =
     input.decision.disposition === "suppressed" ? "suppressed" : "quarantined";
   let quarantineBlobHandle: string | null = null;
-  const retentionExpiresAt = new Date(
-    Date.parse(now) +
-      Math.max(1, Math.min(168, input.retentionHours)) * 60 * 60 * 1000,
-  ).toISOString();
-  let expiresAt: string | null = input.retainedCaptureId
-    ? retentionExpiresAt
-    : null;
+  let expiresAt: string | null = null;
   if (
     disposition === "quarantined" &&
     privateQuarantineProvider(input.source.provider as BrainSourceProvider)
@@ -1390,7 +1304,10 @@ export async function recordBlockedCapture(
     });
     if (handle) {
       quarantineBlobHandle = stableJson(handle);
-      expiresAt = retentionExpiresAt;
+      expiresAt = new Date(
+        Date.parse(now) +
+          Math.max(1, Math.min(168, input.retentionHours)) * 60 * 60 * 1000,
+      ).toISOString();
     } else {
       disposition = "suppressed";
     }
@@ -1401,7 +1318,7 @@ export async function recordBlockedCapture(
     .values({
       id: eventId,
       sourceId: input.source.id,
-      captureId: input.retainedCaptureId ?? input.existing?.id ?? null,
+      captureId: input.existing?.id ?? null,
       locatorHmac,
       disposition,
       categoriesJson: stableJson(input.decision.categories),
@@ -1423,7 +1340,7 @@ export async function recordBlockedCapture(
         schema.brainSensitivityEvents.policyVersion,
       ],
       set: {
-        captureId: input.retainedCaptureId ?? input.existing?.id ?? null,
+        captureId: input.existing?.id ?? null,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
         decisionScoresJson: input.decision.categoryScores
@@ -1483,10 +1400,7 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
     .from(schema.brainSensitivityEvents)
     .where(
       and(
-        inArray(schema.brainSensitivityEvents.disposition, [
-          "quarantined",
-          "suppressed",
-        ]),
+        eq(schema.brainSensitivityEvents.disposition, "quarantined"),
         lte(schema.brainSensitivityEvents.expiresAt, at),
       ),
     );
@@ -1526,11 +1440,13 @@ export async function validateEvidence(
         `Evidence quote is not an exact substring of capture ${item.captureId}`,
       );
     }
-    const metadata = parseCaptureMetadata(access.capture.metadataJson);
-    const sourceUrl =
-      withheldZoomPassageCount(metadata, access.source.provider) !== 0
-        ? null
-        : sourceUrlFromMetadataRecord(metadata ?? {});
+    const metadata = parseJson<Record<string, unknown>>(
+      access.capture.metadataJson,
+      {},
+    );
+    const sourceUrl = safeCitationUrl(
+      item.sourceUrl ?? item.url ?? metadata.sourceUrl,
+    );
     const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,

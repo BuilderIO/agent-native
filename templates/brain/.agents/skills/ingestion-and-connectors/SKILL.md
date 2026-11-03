@@ -113,28 +113,21 @@ Captures use the organization audience. There are no Zoom webhooks. Only
 meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
 read local recordings, live captions, or AI Companion transcripts.
 
-A complete, confident Jev category rejection can retain safe Zoom passages:
-whole transcript lines are grouped into passages of up to 2,000 characters,
-screened with neighboring passages, and rejected passages plus their neighbors
-are withheld. The combined retained text must pass Jev again. `[…]` marks gaps;
-`metadata.zoomPassageQuarantine` records total/withheld passage counts, and
-Zoom capture inventory, search, and detail return `withheldPassages` (null means
-the metadata or receipt is unreadable and the count is unknown, not zero).
-Non-Zoom captures do not receive this Zoom warning. Re-sanitizing stored
-excerpts preserves this receipt and writes linked suppression events when new
-passages are withheld. Configured sanitization also filters partial and stored
-excerpts; receipts never grant an exemption. New partial excerpts are filtered
-before their final combined Jev screen. Disclose that these sources are incomplete; never
-reconstruct omitted text. Partial captures omit full-recording links, including
-HTTP and scheme-less URLs, and retain no withheld text or private quarantine
-blob. Their audit events are linked, time-bounded suppression receipts, not
-active quarantine-review items. Credentials detected by deterministic screening
-or Jev, workspace-rule rejection, uncertain/incomplete screening, oversized
-turns, or more than 48 passages keep whole-meeting blocking. Exhausting the
-two-minute extra-screening budget errors and retries without replacing an
-existing capture. Classifier outages also error and retry. This applies
-to newly processed occurrences; old occurrences outside the incremental scan
-window are not automatically recovered.
+A restricted remark does not discard a Zoom transcript. Brain withholds the
+restricted transcript lines, plus one neighbouring line on each side, and keeps
+the rest: deterministic credential lines are dropped directly, and when Jev
+rejects the transcript, Brain bisects it with Jev down to the restricted lines.
+Each withheld run becomes `[…]`. The remaining transcript must still pass the
+normal whole-capture screen, so anything restricted only as a whole meeting (a
+sensitive title, a workspace rule, a transcript over Jev's length limit, or a
+screen that exceeds its call or time budget) is still quarantined whole.
+Withheld text is never stored, and partial captures drop the full-recording
+link. `metadata.zoomPassageQuarantine.withheldPassages` counts the gaps and is
+returned as `withheldPassages` by `get-capture`, `list-captures`, and capture
+search results (`null` means the count is unknown, not zero). Disclose that
+such captures are incomplete and never reconstruct omitted text. A meeting that
+was quarantined whole is re-screened when a sync downloads it again; one outside
+the incremental scan window is not recovered automatically.
 
 ## Blessed FAQ And Docs Publishers
 

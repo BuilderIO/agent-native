@@ -4,7 +4,6 @@ import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
   BrainClassifierUnavailableError,
   buildSanitizerSystemPrompt,
-  CLASSIFIER_TRANSIENT_RETRY_MS,
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
 import { jevSensitivityDecision } from "./jev-classifier.js";
@@ -56,490 +55,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
-});
-
-describe("Zoom passage quarantine", () => {
-  const transcript = Array.from(
-    { length: 36 },
-    (_, index) =>
-      `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "PRIVATE_HEALTH_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
-  ).join("\n");
-  const zoomInput = {
-    ...baseInput,
-    title: "Weekly update",
-    source: { ...baseInput.source, provider: "zoom" as const },
-    settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "jev" as const },
-    metadata: {
-      zoomMeetingId: "22222222222",
-      sourceUrl: "https://zoom.us/rec/share/example",
-      transcript: "PRIVATE_HEALTH_DETAIL",
-    },
-    content: transcript,
-  };
-  const classification = (
-    content: string,
-    sensitive = content.includes("PRIVATE_HEALTH_DETAIL"),
-  ) => ({
-    configured: true,
-    truncated: false,
-    decision: jevSensitivityDecision(
-      { "health-accommodation": sensitive ? 0.95 : 0.01 },
-      {
-        judgedContent: content,
-        capturedAt: baseInput.capturedAt,
-        truncated: false,
-      },
-    ),
-  });
-
-  const recordingUrls = [
-    "https://zoom.us/rec/share/example",
-    "http://zoom.us/rec/share/example",
-    "//zoom.us/rec/share/example",
-    "zoom.us/rec/share/example",
-    "company.zoom.us/rec/play/example",
-    "HTTP://COMPANY.ZOOM.US/rec/share/example",
-    "//company.zoom.us/rec/play/example",
-  ];
-  const recordingCases = recordingUrls.flatMap((url) =>
-    [true, false].map((sanitizeBeforeStorage) => ({
-      url,
-      sanitizeBeforeStorage,
-    })),
-  );
-
-  it.each(recordingCases)(
-    "retains safe passages without $url with sanitization $sanitizeBeforeStorage",
-    async ({ url, sanitizeBeforeStorage }) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content),
-      );
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        title: `Weekly update ${url}`,
-        content: `${transcript}\n${url}`,
-        metadata: { ...zoomInput.metadata, sanitizeBeforeStorage },
-      });
-      expect(result.decision?.disposition).toBe("allowed");
-      expect(result.title.toLowerCase()).not.toContain("zoom.us/rec");
-      expect(result.content.toLowerCase()).not.toContain("zoom.us/rec");
-      expect(result.content).toContain("PUBLIC_UPDATE_0");
-      expect(result.content).toContain("PUBLIC_UPDATE_35");
-      expect(result.content).toContain("[…]");
-      expect(JSON.stringify(result)).not.toContain("PRIVATE_HEALTH_DETAIL");
-      expect(result.metadata.sourceUrl).toBeUndefined();
-      expect(result.metadata.zoomPassageQuarantine).toMatchObject({
-        version: 1,
-      });
-      expect(result.withheldDecision?.disposition).toBe("quarantined");
-      expect(result.withheldDecision?.safeContent).toBe("");
-      const finalInput =
-        mocks.classifyWithJev.mock.calls[
-          mocks.classifyWithJev.mock.calls.length - 1
-        ]?.[0];
-      expect(finalInput.content).toBe(result.content);
-    },
-  );
-
-  it.each(recordingCases)(
-    "scrubs $url from stored excerpt titles and content with sanitization $sanitizeBeforeStorage",
-    async ({ url, sanitizeBeforeStorage }) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        title: `Weekly update ${url}`,
-        content: `Product roadmap is on track. ${url}\n[…]`,
-        metadata: { ...zoomInput.metadata, sanitizeBeforeStorage },
-        storedZoomPassageQuarantine: receipt,
-      });
-      expect(result.decision?.disposition).toBe("allowed");
-      expect(result.title.toLowerCase()).not.toContain("zoom.us/rec");
-      const redactedLink = /^https?:/i.test(url) ? "[link]" : "[…]";
-      expect(result.content).toBe(
-        `Product roadmap is on track. ${redactedLink}\n[…]`,
-      );
-      expect(result.metadata.zoomPassageQuarantine).toEqual(receipt);
-    },
-  );
-
-  it.each(["zoom", "slack"] as const)(
-    "preserves recording links for complete %s captures without a receipt",
-    async (provider) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const title = "Weekly update company.zoom.us/rec/share/example";
-      const content =
-        "Product roadmap is on track. company.zoom.us/rec/share/example";
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        source: { ...zoomInput.source, provider },
-        title,
-        content,
-        metadata: { sanitizeBeforeStorage: false },
-      });
-      expect(result.decision?.disposition).toBe("allowed");
-      expect(result.title).toBe(title);
-      expect(result.content).toBe(content);
-      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
-    },
-  );
-
-  it.each([false, true])(
-    "marks each filtered run in a Zoom excerpt with a prior receipt %s",
-    async (storedExcerpt) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content),
-      );
-      const retainedLines = [
-        "Product API is ready.",
-        "Nice to see you.",
-        "Have a great day.",
-        "Product roadmap ships Monday.",
-        "My family vacation was great.",
-        "Product launch is Tuesday.",
-      ].join("\n");
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content: storedExcerpt
-          ? retainedLines
-          : `${retainedLines}\n${transcript}`,
-        metadata: { sanitizeBeforeStorage: true },
-        ...(storedExcerpt
-          ? {
-              storedZoomPassageQuarantine: {
-                version: 1,
-                totalPassages: 12,
-                withheldPassages: 5,
-              },
-            }
-          : {}),
-      });
-      expect(result.decision?.disposition).toBe("allowed");
-      expect(result.content).toContain(
-        "Product API is ready.\n[…]\nProduct roadmap ships Monday.\n[…]\nProduct launch is Tuesday.",
-      );
-      expect(result.content).not.toContain("Nice to see you");
-      expect(result.content).not.toContain("family vacation");
-      expect(result.metadata.zoomPassageQuarantine).toBeDefined();
-      if (!storedExcerpt) {
-        const finalInput =
-          mocks.classifyWithJev.mock.calls[
-            mocks.classifyWithJev.mock.calls.length - 1
-          ]?.[0];
-        expect(finalInput.content).toBe(result.content);
-      }
-    },
-  );
-
-  it.each(["slack", "granola"] as const)(
-    "keeps whole-capture quarantine for %s",
-    async (provider) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content),
-      );
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        source: { ...zoomInput.source, provider },
-      });
-      expect(result.decision?.disposition).toBe("quarantined");
-      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it.each(["truncated", "workspace-rule", "uncertain", "too-large"])(
-    "keeps whole-meeting quarantine when separation is unsafe: %s",
-    async (reason) => {
-      const outcome = classification(transcript);
-      if (reason === "truncated") outcome.truncated = true;
-      if (reason === "workspace-rule")
-        outcome.decision.categoryScores = { "workspace-rule": 0.9 };
-      if (reason === "uncertain") outcome.decision.confidenceBand = "uncertain";
-      mocks.classifyWithJev.mockResolvedValue(outcome);
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content: reason === "too-large" ? transcript.repeat(100) : transcript,
-      });
-      expect(result.decision?.disposition).toBe("quarantined");
-      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it("throws on a passage screening outage without returning any partial capture", async () => {
-    mocks.classifyWithJev
-      .mockResolvedValueOnce(classification(transcript))
-      .mockResolvedValue({ configured: true, failureReason: "jev-timeout" });
-    await expect(sanitizeCaptureForStorage(zoomInput)).rejects.toBeInstanceOf(
-      BrainClassifierUnavailableError,
-    );
-  });
-
-  it("quarantines the whole meeting if the retained passages fail the final combined screen", async () => {
-    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-      classification(
-        content,
-        content.includes("PRIVATE_HEALTH_DETAIL") || content.includes("[…]"),
-      ),
-    );
-    const result = await sanitizeCaptureForStorage(zoomInput);
-    expect(result.decision?.disposition).toBe("quarantined");
-    expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
-    expect(result.content).not.toContain("PUBLIC_UPDATE_0");
-  });
-
-  it("withholds a sensitive exchange spanning two passage boundaries and its neighboring context", async () => {
-    const content = Array.from(
-      { length: 18 },
-      (_, index) =>
-        `[Speaker 00:${String(index).padStart(2, "0")}:00] ${index === 8 ? "CONTEXT_START" : index === 9 ? "CONTEXT_END" : `UPDATE_${index}`} ${"Product plans remain on track. ".repeat(40).trim()}`,
-    ).join("\n");
-    mocks.classifyWithJev.mockImplementation(async ({ content: body }) =>
-      classification(
-        body,
-        body.includes("CONTEXT_START") && body.includes("CONTEXT_END"),
-      ),
-    );
-    const result = await sanitizeCaptureForStorage({ ...zoomInput, content });
-    expect(result.decision?.disposition).toBe("allowed");
-    expect(result.content).toContain("UPDATE_0");
-    expect(result.content).toContain("UPDATE_17");
-    expect(result.content).not.toMatch(
-      /CONTEXT_START|CONTEXT_END|UPDATE_7\b|UPDATE_10\b/,
-    );
-  });
-
-  it("keeps the whole meeting quarantined when every passage is sensitive", async () => {
-    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-      classification(content, true),
-    );
-    const result = await sanitizeCaptureForStorage(zoomInput);
-    expect(result.decision?.disposition).toBe("quarantined");
-    expect(result.withheldDecision).toBeUndefined();
-  });
-
-  it.each(["before-request", "after-request"])(
-    "retries passage screening when its budget expires %s",
-    async (phase) => {
-      let now = 0;
-      let clockReads = 0;
-      const clock = vi.spyOn(Date, "now").mockImplementation(() => {
-        clockReads += 1;
-        return phase === "before-request" && clockReads > 1 ? 120_000 : now;
-      });
-      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
-        if (content !== transcript) now = 120_000;
-        return classification(content);
-      });
-      try {
-        await expect(
-          sanitizeCaptureForStorage(zoomInput),
-        ).rejects.toMatchObject({
-          reason: "jev-timeout",
-          retryAfterMs: CLASSIFIER_TRANSIENT_RETRY_MS,
-        });
-        expect(mocks.classifyWithJev).toHaveBeenCalledTimes(
-          phase === "before-request" ? 1 : 2,
-        );
-      } finally {
-        clock.mockRestore();
-      }
-    },
-  );
-
-  it("preserves the incompleteness receipt when screening a stored excerpt", async () => {
-    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-      classification(content),
-    );
-    const original = await sanitizeCaptureForStorage(zoomInput);
-    const repeated = await sanitizeCaptureForStorage({
-      ...zoomInput,
-      title: original.title,
-      content: original.content,
-      metadata: original.metadata,
-      storedZoomPassageQuarantine: original.metadata.zoomPassageQuarantine,
-    });
-    expect(repeated.decision?.disposition).toBe("allowed");
-    expect(repeated.metadata.zoomPassageQuarantine).toEqual(
-      original.metadata.zoomPassageQuarantine,
-    );
-    expect(repeated.metadata.sourceUrl).toBeUndefined();
-  });
-
-  it.each([
-    null,
-    "invalid",
-    {},
-    { version: 1, totalPassages: 2, withheldPassages: 3 },
-    { version: 1, totalPassages: 49, withheldPassages: 1 },
-    { version: 2, totalPassages: 4, withheldPassages: 1 },
-  ])(
-    "preserves unknown incompleteness for malformed receipt %j",
-    async (receipt) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content: "Product roadmap update. […]",
-        metadata: zoomInput.metadata,
-        storedZoomPassageQuarantine: receipt,
-      });
-      expect(result.metadata.zoomPassageQuarantine).toEqual({
-        version: 1,
-        totalPassages: null,
-        withheldPassages: null,
-      });
-      expect(result.metadata.sourceUrl).toBeUndefined();
-    },
-  );
-
-  it.each(["whole", "passage"])(
-    "keeps the whole meeting blocked when Jev detects credentials in the %s screen",
-    async (stage) => {
-      let calls = 0;
-      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
-        calls += 1;
-        if (stage === "passage" && calls === 1) return classification(content);
-        return {
-          configured: true,
-          truncated: false,
-          decision: jevSensitivityDecision(
-            { "secret-credential": 0.95 },
-            {
-              judgedContent: content,
-              capturedAt: baseInput.capturedAt,
-              truncated: false,
-            },
-          ),
-        };
-      });
-      const result = await sanitizeCaptureForStorage(zoomInput);
-      expect(result.decision?.disposition).toBe("quarantined");
-      expect(result.withheldDecision).toBeUndefined();
-      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
-      expect(result.content).not.toContain("PUBLIC_UPDATE_0");
-      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(
-        stage === "whole" ? 1 : 2,
-      );
-    },
-  );
-
-  it.each([null, {}, { version: 1, totalPassages: 12, withheldPassages: 5 }])(
-    "does not trust caller receipt %j to bypass configured sanitization",
-    async (receipt) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content: "Product roadmap is on track.\nFamily picnic on Saturday.",
-        metadata: {
-          sanitizeBeforeStorage: true,
-          zoomPassageQuarantine: receipt,
-        },
-      });
-      expect(result.decision?.disposition).toBe("allowed");
-      expect(result.content).toBe("Product roadmap is on track.");
-      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
-    },
-  );
-
-  it.each([null, {}, "invalid"])(
-    "does not exempt unreadable stored receipt %j from configured sanitization",
-    async (receipt) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content: "Product roadmap is on track.\nFamily picnic on Saturday.",
-        metadata: { sanitizeBeforeStorage: true },
-        storedZoomPassageQuarantine: receipt,
-      });
-      expect(result.content).toBe("Product roadmap is on track.\n[…]");
-      expect(result.metadata.zoomPassageQuarantine).toMatchObject({
-        withheldPassages: null,
-      });
-    },
-  );
-
-  it.each(["legacy", "generated"])(
-    "honors configured sanitization for %s stored excerpt receipts",
-    async (provenance) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-        classification(content, false),
-      );
-      const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
-      const result = await sanitizeCaptureForStorage({
-        ...zoomInput,
-        content:
-          "Product roadmap is on track.\nFamily picnic on Saturday.\n[…]",
-        metadata: {
-          sanitizeBeforeStorage: true,
-          ...(provenance === "generated"
-            ? { captureSanitization: { method: "jev" } }
-            : {}),
-        },
-        storedZoomPassageQuarantine: receipt,
-      });
-      expect(result.content).toBe("Product roadmap is on track.\n[…]");
-      expect(result.metadata.zoomPassageQuarantine).toEqual(receipt);
-    },
-  );
-
-  it("applies configured filtering before the final partial screen and preserves gap markers", async () => {
-    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-      classification(content),
-    );
-    const result = await sanitizeCaptureForStorage({
-      ...zoomInput,
-      content: `${transcript}\nProduct plans for family vacation.`,
-      metadata: { ...zoomInput.metadata, sanitizeBeforeStorage: true },
-    });
-    expect(result.decision?.disposition).toBe("allowed");
-    expect(result.content).toContain("PUBLIC_UPDATE_0");
-    expect(result.content).toContain("[…]");
-    expect(result.content).not.toContain("family vacation");
-    const finalCall =
-      mocks.classifyWithJev.mock.calls[
-        mocks.classifyWithJev.mock.calls.length - 1
-      ]?.[0];
-    expect(finalCall.content).toBe(result.content);
-  });
-
-  it.each(["workspace-rule", "categoryless"])(
-    "keeps the whole meeting blocked for a passage-only %s rejection",
-    async (reason) => {
-      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
-        const outcome = classification(content);
-        if (content !== transcript) {
-          outcome.decision.disposition = "quarantined";
-          outcome.decision.confidenceBand = "high";
-          if (reason === "workspace-rule")
-            outcome.decision.categoryScores = { "workspace-rule": 0.9 };
-          else outcome.decision.categories = [];
-        }
-        return outcome;
-      });
-      const result = await sanitizeCaptureForStorage(zoomInput);
-      expect(result.decision?.disposition).toBe("quarantined");
-      expect(result.withheldDecision).toBeUndefined();
-      expect(result.content).not.toContain("PUBLIC_UPDATE_0");
-      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(2);
-    },
-  );
-
-  it("does not carve up credential-bearing Zoom transcripts", async () => {
-    const result = await sanitizeCaptureForStorage({
-      ...zoomInput,
-      content: `${transcript}\npassword: not-a-real-value`,
-    });
-    expect(result.decision?.disposition).toBe("suppressed");
-    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
-  });
 });
 
 describe("capture sanitization", () => {
@@ -863,7 +378,6 @@ describe("capture sanitization", () => {
       content: "Deploy notes. password: not-a-real-secret",
     });
 
-    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
     expect(result.decision?.disposition).toBe("suppressed");
     expect(result.decision?.categories).toEqual(["secret-credential"]);
     expect(result.content).not.toContain("not-a-real-secret");
@@ -876,7 +390,6 @@ describe("capture sanitization", () => {
       content: "We're investigating the checkout outage from this morning.",
     });
 
-    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
     expect(result.decision?.disposition).toBe("suppressed");
     expect(result.decision?.categories).toEqual(["investigation"]);
   });
@@ -1029,5 +542,280 @@ describe("capture sanitization", () => {
 
     expect(screen.categories).toContain("layoff-reorg");
     expect(decision?.disposition).toBe("suppressed");
+  });
+});
+
+describe("Zoom restricted-line withholding", () => {
+  const turns = Array.from(
+    { length: 40 },
+    (_, index) =>
+      `[Speaker ${index % 3} 00:${String(index).padStart(2, "0")}:00] Roadmap update ${index} - the API launch is on track.`,
+  );
+  const transcript = (lines: string[]) =>
+    `Weekly sync\nDate: 2026-05-20T15:00:00Z\n\nTranscript\n${lines.join("\n")}`;
+  const withLine = (index: number, text: string, lines = turns) =>
+    lines.map((line, at) => (at === index ? text : line));
+  const zoomInput = (content: string, extra: Record<string, unknown> = {}) => ({
+    ...baseInput,
+    title: "Weekly sync",
+    source: { ...baseInput.source, provider: "zoom" as const },
+    settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "jev" as const },
+    metadata: { sourceUrl: "https://zoom.us/rec/share/example" },
+    content,
+    ...extra,
+  });
+  const judge =
+    (isRestricted: (text: string) => boolean, workspaceRule = false) =>
+    async ({ title, content }: { title: string; content: string }) => ({
+      configured: true,
+      decision: jevSensitivityDecision(
+        {
+          "health-accommodation": isRestricted(`${title}\n${content}`)
+            ? 0.95
+            : 0.01,
+          ...(workspaceRule ? { "workspace-rule": 0.9 } : {}),
+        },
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
+    });
+  const mentions = (needle: string) => (text: string) => text.includes(needle);
+
+  it.each([false, true])(
+    "keeps every other turn when one turn is restricted (sanitizeBeforeStorage %s)",
+    async (sanitizeBeforeStorage) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const lines = withLine(20, "[Speaker 2 00:20:00] MEDICAL_LEAVE details");
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(lines), {
+          metadata: {
+            sourceUrl: "https://zoom.us/rec/share/example",
+            sanitizeBeforeStorage,
+          },
+        }),
+      );
+
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain("MEDICAL_LEAVE");
+      // The restricted turn and one turn either side are withheld as one gap.
+      for (const index of [19, 20, 21])
+        expect(result.content).not.toContain(`update ${index} -`);
+      for (const index of [0, 18, 22, 39])
+        expect(result.content).toContain(`update ${index} -`);
+      expect(result.content.split("[…]")).toHaveLength(2);
+      expect(result.metadata.zoomPassageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: 1,
+      });
+      expect(result.metadata.sourceUrl).toBeUndefined();
+      expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(20);
+    },
+  );
+
+  it("withholds separate restricted turns as separate passages", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(
+      30,
+      "[Speaker 0 00:30:00] MEDICAL_LEAVE follow-up",
+      withLine(5, "[Speaker 2 00:05:00] MEDICAL_LEAVE request"),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content).toContain("update 17 -");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 2,
+    });
+  });
+
+  it("drops a credential turn instead of suppressing the meeting", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(() => false));
+    const lines = withLine(
+      10,
+      "[Speaker 1 00:10:00] password: hunter2-staging",
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("hunter2");
+    expect(result.content).toContain("update 25 -");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+  });
+
+  it("drops keyword-restricted turns in deterministic-only mode", async () => {
+    const lines = withLine(
+      12,
+      "[Speaker 0 00:12:00] Her salary increase is approved.",
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), {
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic" as const,
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("salary");
+    expect(result.content).toContain("update 30 -");
+  });
+
+  it.each([
+    {
+      name: "a restricted title",
+      title: "MEDICAL_LEAVE planning",
+      restricted: mentions("MEDICAL_LEAVE"),
+      workspaceRule: false,
+    },
+    {
+      name: "turns restricted only together",
+      title: "Weekly sync",
+      restricted: (text: string) =>
+        text.includes("update 3 -") && text.includes("update 36 -"),
+      workspaceRule: false,
+    },
+    {
+      name: "a workspace rule",
+      title: "Weekly sync",
+      restricted: mentions("update 7 -"),
+      workspaceRule: true,
+    },
+  ])(
+    "quarantines the whole meeting for $name",
+    async ({ title, restricted, workspaceRule }) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(restricted, workspaceRule),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(turns), { title }),
+      );
+      expect(result.decision?.disposition).not.toBe("allowed");
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+      expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(10);
+    },
+  );
+
+  it("quarantines the whole meeting when line screening exceeds its call budget", async () => {
+    const lines = Array.from(
+      { length: 300 },
+      (_, index) =>
+        `[Speaker 0] ${index % 7 === 0 ? "MEDICAL_LEAVE" : "Roadmap"} note ${index}`,
+    );
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(mocks.classifyWithJev.mock.calls.length).toBeLessThanOrEqual(168);
+  });
+
+  it("keeps a realistic meeting with several scattered restricted turns", async () => {
+    const restrictedAt = [90, 260, 410, 555, 720];
+    const lines = Array.from({ length: 800 }, (_, index) =>
+      restrictedAt.includes(index)
+        ? `[Speaker 1] MEDICAL_LEAVE detail ${index}`
+        : `[Speaker 0] Roadmap note ${index}`,
+    );
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content).toContain("Roadmap note 400");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 5,
+    });
+    expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(160);
+  });
+
+  it("lets the whole-capture screen overrule a withheld excerpt", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(20, "[Speaker 2] MEDICAL_LEAVE details");
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), { title: "Sync password: hunter2-staging" }),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("Roadmap");
+    expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+  });
+
+  it("surfaces a Jev outage during line screening instead of storing", async () => {
+    let calls = 0;
+    mocks.classifyWithJev.mockImplementation(async (input) =>
+      ++calls === 3
+        ? { configured: true, failureReason: "jev-timeout" }
+        : judge(mentions("MEDICAL_LEAVE"))(input),
+    );
+    const lines = withLine(20, "[Speaker 2] MEDICAL_LEAVE details");
+    await expect(
+      sanitizeCaptureForStorage(zoomInput(transcript(lines))),
+    ).rejects.toBeInstanceOf(BrainClassifierUnavailableError);
+  });
+
+  it.each([
+    { stored: { version: 1, withheldPassages: 2 }, expected: 2 },
+    { stored: { version: 1, withheldPassages: "two" }, expected: null },
+  ])(
+    "keeps a stored receipt when re-sanitizing an excerpt ($expected)",
+    async ({ stored, expected }) => {
+      mocks.classifyWithJev.mockImplementation(judge(() => false));
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(4, "[…]")), {
+          metadata: { zoomPassageQuarantine: stored },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.metadata.zoomPassageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: expected,
+      });
+    },
+  );
+
+  it("merges a new gap with an adjacent stored gap without double counting", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(
+      6,
+      "[Speaker 1] MEDICAL_LEAVE details",
+      withLine(4, "[…]"),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), {
+        metadata: {
+          zoomPassageQuarantine: { version: 1, withheldPassages: 2 },
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content.split("[…]")).toHaveLength(2);
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 2,
+    });
+  });
+
+  it("still quarantines a whole non-Zoom transcript", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "granola" as const },
+      }),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
   });
 });

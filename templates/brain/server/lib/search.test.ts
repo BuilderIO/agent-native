@@ -1,5 +1,3 @@
-import { ok } from "node:assert/strict";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testString = (value: unknown) =>
@@ -16,9 +14,7 @@ type Condition =
   | { op: "eq"; col: Column; val: unknown }
   | { op: "inArray"; col: Column; vals: unknown[] }
   | { op: "like"; col: Column; val: unknown }
-  | { op: "captureSourceAccessible" }
-  | { op: "captureAudienceAccessible"; audienceIds: unknown[] }
-  | { op: "isNull"; col: Column };
+  | { op: "captureSourceAccessible" };
 
 interface Column {
   table: string;
@@ -79,7 +75,6 @@ const mocks = vi.hoisted(() => {
       "id",
       "sourceId",
       "captureId",
-      "audienceId",
       "kind",
       "title",
       "body",
@@ -133,19 +128,10 @@ const mocks = vi.hoisted(() => {
 
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
-    if (condition.op === "access") return row.accessible !== false;
+    if (condition.op === "access") return true;
     if (condition.op === "captureSourceAccessible") {
-      return rows.sources.some(
-        (source) => source.id === row.sourceId && source.accessible !== false,
-      );
+      return rows.sources.some((source) => source.id === row.sourceId);
     }
-    if (condition.op === "captureAudienceAccessible") {
-      return (
-        Array.isArray(row.audienceIds) &&
-        row.audienceIds.some((id) => condition.audienceIds.includes(id))
-      );
-    }
-    if (condition.op === "isNull") return row[condition.col.name] === null;
     if (condition.op === "and") {
       return condition.conditions.every((item) => matches(row, item));
     }
@@ -246,22 +232,7 @@ vi.mock("drizzle-orm", () => ({
     if (text.startsWith("lower(")) {
       return { op: "like", col: values[0] as Column, val: values[1] };
     }
-    if (
-      text.includes("exists") &&
-      values[0] === mocks.schema.brainCaptureAudiences
-    ) {
-      const audienceCondition = values[3] as Extract<
-        Condition,
-        { op: "inArray" }
-      >;
-      return {
-        op: "captureAudienceAccessible",
-        audienceIds: audienceCondition.vals,
-      };
-    }
     if (text.includes("exists")) return { op: "captureSourceAccessible" };
-    if (text.includes("IS NULL"))
-      return { op: "isNull", col: values[0] as Column };
     return { op: "access" };
   },
 }));
@@ -464,7 +435,6 @@ function resetRows() {
       id: "knowledge-freemium-current",
       sourceId: "source-slack",
       captureId: "capture-freemium-current",
-      audienceId: "aud_org",
       kind: "decision",
       title: "Freemium signup retired for enterprise-led growth",
       body: "The team retired the self-serve freemium path because activation stayed under 6% while support load blocked enterprise onboarding. The new motion emphasizes sales-led pilots with named implementation owners.",
@@ -499,7 +469,6 @@ function resetRows() {
     },
   );
   for (const capture of mocks.rows.captures) {
-    capture.audienceIds = ["aud_org"];
     capture.sensitivityDisposition = "allowed";
     capture.sensitivityPolicyVersion = "1";
     capture.audienceAclHash = "acl-hash";
@@ -766,482 +735,13 @@ describe("Brain universal search regressions", () => {
   });
 });
 
-describe("Brain knowledge citation completeness", () => {
-  const sourceUrl = "https://zoom.example.test/rec/share/cited";
-
-  function seedCitedCapture(
-    provider = "zoom",
-    metadataJson = JSON.stringify({ sourceUrl }),
-  ) {
-    mocks.rows.sources.push({
-      ...mocks.rows.sources[0],
-      id: "source-cited",
-      provider,
-    });
-    const capture: Row = {
-      ...mocks.rows.captures[0],
-      id: "capture-cited",
-      sourceId: "source-cited",
-      metadataJson,
-    };
-    mocks.rows.captures.push(capture);
-    const knowledge = mocks.rows.knowledge[1];
-    ok(knowledge);
-    knowledge.evidenceJson = JSON.stringify([
-      { captureId: capture.id, sourceUrl },
-    ]);
-    return { capture, knowledge };
-  }
-
-  async function searchKnowledge() {
-    const results = await searchEverythingRows({
-      query: "freemium",
-      type: "knowledge",
-    });
-    expect(results).toHaveLength(1);
-    return results[0];
-  }
-
-  it.each([
-    {
-      name: "valid Zoom receipt",
-      metadataJson: JSON.stringify({
-        sourceUrl,
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-      withheldPassages: 5,
-    },
-    {
-      name: "absent Zoom receipt",
-      metadataJson: JSON.stringify({ sourceUrl }),
-      withheldPassages: 0,
-    },
-    {
-      name: "invalid Zoom JSON",
-      metadataJson: "not JSON",
-      withheldPassages: null,
-    },
-    {
-      name: "malformed Zoom receipt",
-      metadataJson: JSON.stringify({ zoomPassageQuarantine: { version: 1 } }),
-      withheldPassages: null,
-    },
-    {
-      name: "Slack metadata with Zoom receipt",
-      provider: "slack",
-      metadataJson: JSON.stringify({
-        sourceUrl,
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-      withheldPassages: 0,
-    },
-    {
-      name: "generic malformed metadata",
-      provider: "generic",
-      metadataJson: "not JSON",
-      withheldPassages: 0,
-    },
-  ])(
-    "uses the displayed cited capture for $name",
-    async ({ provider = "zoom", metadataJson, withheldPassages }) => {
-      seedCitedCapture(provider, metadataJson);
-      const result = await searchKnowledge();
-      const expectedUrl =
-        withheldPassages === 0 && metadataJson !== "not JSON"
-          ? sourceUrl
-          : null;
-      expect(result).toMatchObject({
-        citation: {
-          captureId: "capture-cited",
-          sourceUrl: expectedUrl,
-        },
-        sourceUrl: expectedUrl,
-        withheldPassages,
-      });
-    },
-  );
-
-  it.each(["missing", "source", "sensitivity", "audience"])(
-    "does not expose completeness or a historical URL for %s-inaccessible evidence",
-    async (restriction) => {
-      const { capture, knowledge } = seedCitedCapture(
-        "zoom",
-        JSON.stringify({
-          zoomPassageQuarantine: {
-            version: 1,
-            totalPassages: 12,
-            withheldPassages: 5,
-          },
-        }),
-      );
-      knowledge.evidenceJson = JSON.stringify([
-        {
-          captureId: capture.id,
-          captureTitle: "Private cited meeting title",
-          quote: "Private cited meeting excerpt",
-        },
-      ]);
-      const knowledgeSource = mocks.rows.sources[0];
-      ok(knowledgeSource);
-      knowledgeSource.provider = "zoom";
-      if (restriction === "missing") mocks.rows.captures.pop();
-      if (restriction === "source") {
-        const source = mocks.rows.sources[mocks.rows.sources.length - 1];
-        ok(source);
-        source.accessible = false;
-      }
-      if (restriction === "sensitivity")
-        capture.sensitivityDisposition = "quarantined";
-      if (restriction === "audience") capture.audienceIds = ["aud_private"];
-      const result = await searchKnowledge();
-      ok(result);
-      expect(result).toMatchObject({
-        withheldPassages: null,
-        sourceUrl: null,
-        citation: { captureId: "capture-cited", sourceUrl: null },
-      });
-      expect(result.citation).not.toHaveProperty("captureTitle");
-      expect(result.citation).not.toHaveProperty("quote");
-    },
-  );
-
-  it.each(["sourceUrl", "url", "permalink", "absent"])(
-    "binds an arbitrary evidence URL to the accessible Slack capture's %s metadata",
-    async (key) => {
-      const canonicalUrl = "https://slack.example.test/archives/C1/p1";
-      seedCitedCapture(
-        "slack",
-        JSON.stringify(key === "absent" ? {} : { [key]: canonicalUrl }),
-      );
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: 0,
-        sourceUrl: key === "absent" ? null : canonicalUrl,
-        citation: {
-          captureId: "capture-cited",
-          sourceUrl: key === "absent" ? null : canonicalUrl,
-        },
-      });
-    },
-  );
-
-  it.each([
-    "not JSON",
-    '{"captureId":',
-    "{}",
-    "null",
-    '"evidence"',
-    "[null]",
-    "[1]",
-    '["evidence"]',
-    "[[]]",
-    '[{"captureId":42}]',
-    '[{"sourceId":false}]',
-    '[{"captureTitle":[]}]',
-    '[{"quote":{}}]',
-    '[{"sourceUrl":null}]',
-    '[{"url":42}]',
-    '[{"captureId":"capture-cited"},null]',
-  ])(
-    "keeps unreadable evidence %s unknown despite a complete Zoom row",
-    async (evidenceJson) => {
-      const { knowledge } = seedCitedCapture(
-        "zoom",
-        JSON.stringify({ sourceUrl }),
-      );
-      knowledge.captureId = "capture-cited";
-      knowledge.evidenceJson = evidenceJson;
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: null,
-        sourceUrl: null,
-        citation: null,
-      });
-    },
-  );
-
-  it("falls back to the row capture when evidence is missing", async () => {
-    const { knowledge } = seedCitedCapture(
-      "zoom",
-      JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-    );
-    knowledge.captureId = "capture-cited";
-    knowledge.evidenceJson = "[]";
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 5,
-      sourceUrl: null,
-      citation: null,
-    });
-  });
-
-  it.each(["manual", "zoom"])(
-    "handles missing capture provenance with a URL for %s knowledge",
-    async (provider) => {
-      const knowledge = mocks.rows.knowledge[1];
-      const source = mocks.rows.sources[0];
-      ok(knowledge);
-      ok(source);
-      source.provider = provider;
-      knowledge.captureId = null;
-      knowledge.evidenceJson = JSON.stringify([{ sourceUrl }]);
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: null,
-        sourceUrl: null,
-        citation: { sourceUrl: null },
-      });
-      knowledge.evidenceJson = "[]";
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: provider === "zoom" ? null : 0,
-      });
-    },
-  );
-
-  it.each(["zoom", "slack", "unknown"])(
-    "does not authorize URL-only %s evidence with an unrelated complete Slack row capture",
-    async (provider) => {
-      const { knowledge } = seedCitedCapture(provider);
-      knowledge.evidenceJson = JSON.stringify([
-        {
-          sourceId: provider === "unknown" ? "source-unknown" : "source-cited",
-          sourceUrl,
-        },
-      ]);
-      const expected = {
-        withheldPassages: provider === "slack" ? 0 : null,
-        sourceUrl: null,
-        citation: { sourceUrl: null },
-      };
-      expect(await searchKnowledge()).toMatchObject(expected);
-      knowledge.evidenceJson = JSON.stringify([
-        { sourceId: "source-slack" },
-        {
-          sourceId: provider === "unknown" ? "source-unknown" : "source-cited",
-          sourceUrl,
-        },
-      ]);
-      expect(await searchKnowledge()).toMatchObject(expected);
-    },
-  );
-
-  it.each(["missing", "unknown", "inaccessible"])(
-    "keeps secondary evidence with a %s source unknown on Slack knowledge",
-    async (restriction) => {
-      const knowledge = mocks.rows.knowledge[1];
-      ok(knowledge);
-      if (restriction === "inaccessible") {
-        mocks.rows.sources.push({
-          ...mocks.rows.sources[0],
-          id: "source-unreadable",
-          accessible: false,
-          provider: "slack",
-        });
-      }
-      knowledge.evidenceJson = JSON.stringify([
-        {
-          captureId: knowledge.captureId,
-          sourceId: knowledge.sourceId,
-          sourceUrl,
-        },
-        {
-          captureId: "capture-unreadable",
-          sourceId:
-            restriction === "missing"
-              ? undefined
-              : restriction === "unknown"
-                ? "source-unknown"
-                : "source-unreadable",
-        },
-      ]);
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: null,
-        sourceUrl: null,
-        citation: { sourceUrl: null },
-      });
-    },
-  );
-
-  it("uses the primary non-Zoom row source when its capture is inaccessible", async () => {
-    const knowledge = mocks.rows.knowledge[1];
-    ok(knowledge);
-    mocks.rows.captures.shift();
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 0,
-      sourceUrl: null,
-      citation: { sourceUrl: null },
-    });
-  });
-
-  it("includes partial secondary citations even when a complete URL citation is displayed", async () => {
-    const { capture, knowledge } = seedCitedCapture();
-    const partial = {
-      ...capture,
-      id: "capture-partial-secondary",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-    };
-    mocks.rows.captures.push(partial);
-    knowledge.evidenceJson = JSON.stringify([
-      { captureId: partial.id, sourceId: "source-cited" },
-      { captureId: capture.id, sourceId: "source-cited", sourceUrl },
-    ]);
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 5,
-      sourceUrl: null,
-      citation: { captureId: capture.id, sourceUrl: null },
-    });
-    knowledge.captureId = partial.id;
-    knowledge.evidenceJson = JSON.stringify([
-      { captureId: capture.id, sourceUrl },
-    ]);
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 5,
-      sourceUrl: null,
-    });
-  });
-
-  it("deduplicates capture counts and gives an unknown secondary precedence over their sum", async () => {
-    const { capture, knowledge } = seedCitedCapture(
-      "zoom",
-      JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-    );
-    const secondary = {
-      ...capture,
-      id: "capture-secondary",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 3,
-        },
-      }),
-    };
-    mocks.rows.captures.push(secondary);
-    knowledge.captureId = capture.id;
-    knowledge.evidenceJson = JSON.stringify([
-      { captureId: capture.id, sourceUrl },
-      { captureId: secondary.id, sourceId: "source-cited" },
-      { captureId: capture.id },
-      { captureId: secondary.id },
-    ]);
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 8,
-      sourceUrl: null,
-    });
-    secondary.metadataJson = "not JSON";
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: null,
-      sourceUrl: null,
-    });
-    mocks.rows.captures.pop();
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: null,
-      sourceUrl: null,
-    });
-  });
-
-  it.each(["sensitivity", "audience", "missing"])(
-    "suppresses URLs without a Zoom warning for %s-inaccessible non-Zoom citations",
-    async (restriction) => {
-      const { capture, knowledge } = seedCitedCapture("slack");
-      const knowledgeSource = mocks.rows.sources[0];
-      ok(knowledgeSource);
-      knowledgeSource.provider = "zoom";
-      knowledge.evidenceJson = JSON.stringify([
-        { captureId: capture.id, sourceId: "source-cited", sourceUrl },
-      ]);
-      if (restriction === "sensitivity")
-        capture.sensitivityDisposition = "quarantined";
-      if (restriction === "audience") capture.audienceIds = ["aud_private"];
-      if (restriction === "missing") mocks.rows.captures.pop();
-      expect(await searchKnowledge()).toMatchObject({
-        withheldPassages: 0,
-        sourceUrl: null,
-        citation: { sourceUrl: null },
-      });
-    },
-  );
-
-  it("uses cited providers in mixed evidence and keeps unknown Zoom provenance unknown", async () => {
-    const { capture, knowledge } = seedCitedCapture(
-      "zoom",
-      JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-    );
-    knowledge.evidenceJson = JSON.stringify([
-      {
-        captureId: "capture-freemium-current",
-        sourceId: "source-slack",
-        sourceUrl,
-      },
-      { captureId: capture.id, sourceId: "source-cited" },
-    ]);
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: 5,
-      sourceUrl: null,
-    });
-    const knowledgeSource = mocks.rows.sources[0];
-    ok(knowledgeSource);
-    knowledgeSource.provider = "zoom";
-    knowledge.evidenceJson = JSON.stringify([
-      { captureId: capture.id, sourceUrl },
-      { captureId: "capture-unknown", sourceId: "source-unknown" },
-    ]);
-    expect(await searchKnowledge()).toMatchObject({
-      withheldPassages: null,
-      sourceUrl: null,
-    });
-    expect(JSON.stringify(await searchKnowledge())).not.toContain(
-      "zoomPassageQuarantine",
-    );
-  });
-
-  it("reports zero for manual knowledge with no capture", async () => {
-    const knowledge = mocks.rows.knowledge[1];
-    const source = mocks.rows.sources[0];
-    ok(knowledge);
-    ok(source);
-    source.provider = "manual";
-    knowledge.captureId = null;
-    knowledge.evidenceJson = "[]";
-    expect(await searchKnowledge()).toMatchObject({ withheldPassages: 0 });
-  });
-});
-
 describe("Brain semantic capture hits", () => {
   const capturedAt = "2026-07-20T09:30:00.000Z";
 
   function seedSemanticCapture(input: {
     id: string;
     sourceId: string;
-    metadata: Record<string, unknown> | string | null;
+    metadata: Record<string, unknown>;
   }) {
     mocks.rows.captures.push({
       id: input.id,
@@ -1251,15 +751,11 @@ describe("Brain semantic capture hits", () => {
       kind: "message",
       content: "Shorten enterprise onboarding latency. Ping ava@example.com.",
       contentHash: `hash-${input.id}`,
-      metadataJson:
-        typeof input.metadata === "string" || input.metadata === null
-          ? input.metadata
-          : JSON.stringify(input.metadata),
+      metadataJson: JSON.stringify(input.metadata),
       capturedAt,
       importedBy: "owner@example.test",
       status: "distilled",
       distilledAt: capturedAt,
-      audienceIds: ["aud_org"],
       sensitivityDisposition: "allowed",
       sensitivityPolicyVersion: "1",
       audienceAclHash: "acl-hash",
@@ -1317,129 +813,6 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).toContain("Shorten enterprise onboarding latency");
     expect(rows[0]?.content).not.toContain("ava@example.com");
   });
-
-  it.each([
-    {
-      name: "valid receipt",
-      metadata: {
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      },
-      withheldPassages: 5,
-    },
-    { name: "absent receipt", metadata: {}, withheldPassages: 0 },
-    {
-      name: "Slack invalid JSON",
-      provider: "slack",
-      metadata: "not JSON",
-      withheldPassages: 0,
-    },
-    {
-      name: "manual missing metadata",
-      provider: "manual",
-      metadata: null,
-      withheldPassages: 0,
-    },
-    {
-      name: "generic malformed receipt",
-      provider: "generic",
-      metadata: { zoomPassageQuarantine: null },
-      withheldPassages: 0,
-    },
-    { name: "missing metadata", metadata: null, withheldPassages: null },
-    { name: "invalid JSON", metadata: "not JSON", withheldPassages: null },
-    {
-      name: "truncated JSON",
-      metadata: '{"zoomPassageQuarantine":',
-      withheldPassages: null,
-    },
-    { name: "JSON null", metadata: "null", withheldPassages: null },
-    { name: "JSON array", metadata: "[]", withheldPassages: null },
-    { name: "JSON string", metadata: '"metadata"', withheldPassages: null },
-    {
-      name: "null receipt",
-      metadata: { zoomPassageQuarantine: null },
-      withheldPassages: null,
-    },
-    {
-      name: "incomplete receipt",
-      metadata: { zoomPassageQuarantine: { version: 1 } },
-      withheldPassages: null,
-    },
-    {
-      name: "unsupported receipt version",
-      metadata: {
-        zoomPassageQuarantine: {
-          version: 2,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      },
-      withheldPassages: null,
-    },
-    {
-      name: "withheld count exceeds total",
-      metadata: {
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 4,
-          withheldPassages: 5,
-        },
-      },
-      withheldPassages: null,
-    },
-    {
-      name: "total exceeds passage limit",
-      metadata: {
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 49,
-          withheldPassages: 5,
-        },
-      },
-      withheldPassages: null,
-    },
-  ])(
-    "reports provider-scoped withheld passages for $name in semantic and keyword capture results",
-    async ({ metadata, withheldPassages, provider = "zoom" }) => {
-      mocks.rows.sources.push({
-        ...mocks.rows.sources[0],
-        id: "source-completeness",
-        provider,
-      });
-      seedSemanticCapture({
-        id: "capture-partial-zoom",
-        sourceId: "source-completeness",
-        metadata,
-      });
-      const semantic = await searchEverythingWithLanes({
-        query: "reduce customer waiting",
-        type: "capture",
-      });
-      expect(semantic.rows).toHaveLength(1);
-      expect(semantic.rows[0]).toMatchObject({
-        id: "capture-partial-zoom",
-        withheldPassages,
-      });
-      mocks.hybridSearchArtifacts.mockResolvedValue({
-        results: [],
-        lanes: OK_LANES,
-      });
-      const keyword = await searchEverythingWithLanes({
-        query: "enterprise onboarding",
-        type: "capture",
-      });
-      expect(
-        keyword.rows.find((row) => row.id === "capture-partial-zoom"),
-      ).toMatchObject({
-        id: "capture-partial-zoom",
-        withheldPassages,
-      });
-    },
-  );
 
   it("uses the Zoom meeting topic as the semantic hit location", async () => {
     mocks.rows.sources.push({

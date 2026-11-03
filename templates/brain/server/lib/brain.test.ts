@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { ok } from "node:assert/strict";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -249,9 +248,6 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
-      if (sql === "SELECT id FROM resources WHERE owner = ? AND path = ?") {
-        return { rows: [{ id: args[1] }], rowsAffected: 0 };
-      }
       if (sql.includes("FROM org_members")) {
         const [orgId, email] = args as string[];
         const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
@@ -454,9 +450,7 @@ const mocks = vi.hoisted(() => {
           value: captureIds.size,
         }));
       }
-      return isCountSelection
-        ? [{ value: values.length }]
-        : structuredClone(values);
+      return isCountSelection ? [{ value: values.length }] : values;
     };
     const queryResult = (values: Row[]) => ({
       then: (
@@ -588,19 +582,15 @@ const mocks = vi.hoisted(() => {
 
   const update = vi.fn((tableRef: Row) => ({
     set: vi.fn((fields: Row) => ({
-      where: vi.fn((condition: Condition) => {
-        const apply = () => {
-          const updated = tableRows(tableRef).filter((row) =>
-            matches(row, condition),
-          );
-          for (const row of updated) Object.assign(row, fields);
-          return updated;
-        };
-        return {
-          then: (resolve: (value: { rowsAffected: number }) => unknown) =>
-            Promise.resolve({ rowsAffected: apply().length }).then(resolve),
-          returning: async () => apply().map((row) => ({ id: row.id })),
-        };
+      where: vi.fn(async (condition: Condition) => {
+        let rowsAffected = 0;
+        for (const row of tableRows(tableRef)) {
+          if (matches(row, condition)) {
+            Object.assign(row, fields);
+            rowsAffected += 1;
+          }
+        }
+        return { rowsAffected };
       }),
     })),
   }));
@@ -629,24 +619,8 @@ const mocks = vi.hoisted(() => {
   };
   const db = {
     ...dbBase,
-    transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
-      const before = Object.values(rows).map((table) => ({
-        table,
-        entries: table.map((row) => ({ row, values: structuredClone(row) })),
-      }));
-      try {
-        return await callback(dbBase);
-      } catch (error) {
-        for (const { table, entries } of before) {
-          for (const { row, values } of entries) {
-            for (const key of Object.keys(row)) delete row[key];
-            Object.assign(row, values);
-          }
-          table.splice(0, table.length, ...entries.map(({ row }) => row));
-        }
-        throw error;
-      }
-    },
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback(dbBase),
   };
 
   return {
@@ -824,22 +798,6 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
-  withCaptureAudience: async (
-    input: { captureId: string },
-    run: (
-      assignment: { audienceId: string; aclHash: string; kind: string },
-      tx: unknown,
-    ) => Promise<unknown>,
-  ) =>
-    mocks.db.transaction(async (tx) => {
-      const { ensureCaptureAudience } = await import("./audiences.js");
-      return run(
-        await ensureCaptureAudience(
-          input as Parameters<typeof ensureCaptureAudience>[0],
-        ),
-        tx,
-      );
-    }),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -887,12 +845,6 @@ vi.mock("@agent-native/core/resources/store", () => ({
     mocks.resourceWrites.push({ owner, path, deleted: true });
     return true;
   }),
-  resourceDeleteWithDb: vi.fn(async (_db: unknown, id: string) => ({
-    value: true,
-    notifyAfterCommit: () => {
-      mocks.resourceWrites.push({ owner: "shared", path: id, deleted: true });
-    },
-  })),
   resourcePut: vi.fn(
     async (
       owner: string,
@@ -945,8 +897,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
-import { putPrivateBlob } from "@agent-native/core/private-blob";
-import { resourceDeleteWithDb } from "@agent-native/core/resources/store";
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -955,10 +905,8 @@ import enqueueDistillationAction from "../../actions/enqueue-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
-import listProposalsAction from "../../actions/list-proposals.js";
 import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
-import resanitizeCapturesAction from "../../actions/resanitize-captures.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 import {
@@ -970,7 +918,6 @@ import {
   applyRedactions,
   buildBrainAgentGuidance,
   createCapture,
-  expireSensitivityQuarantines,
   previewKnowledgeCanonicalResource,
   recordBlockedCapture,
   retireUpstreamDeletedCapture,
@@ -999,36 +946,6 @@ import {
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
 import { enqueueCaptureInvalidation } from "./ingest-queue.js";
-import * as jevClassifier from "./jev-classifier.js";
-
-function zoomPassageFixture() {
-  const content = Array.from(
-    { length: 36 },
-    (_, index) =>
-      `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
-  ).join("\n");
-  const classifier = vi
-    .spyOn(jevClassifier, "classifyWithJev")
-    .mockImplementation(async (input) => ({
-      configured: true,
-      truncated: false,
-      decision: jevClassifier.jevSensitivityDecision(
-        {
-          "health-accommodation": input.content.includes(
-            "WITHHELD_PRIVATE_DETAIL",
-          )
-            ? 0.95
-            : 0.01,
-        },
-        {
-          judgedContent: input.content,
-          capturedAt: "2026-10-28T10:00:00Z",
-          truncated: false,
-        },
-      ),
-    }));
-  return { content, classifier };
-}
 
 function resetMocks() {
   vi.clearAllMocks();
@@ -1238,86 +1155,6 @@ describe("Brain knowledge quality gates", () => {
     });
     expect(evidence[0]).not.toHaveProperty("url");
   });
-
-  it.each([
-    {
-      provider: "zoom",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 5,
-          withheldPassages: 2,
-        },
-      }),
-      retained: false,
-    },
-    { provider: "zoom", metadataJson: "not JSON", retained: false },
-    {
-      provider: "zoom",
-      metadataJson: JSON.stringify({ zoomPassageQuarantine: {} }),
-      retained: false,
-    },
-    {
-      provider: "zoom",
-      metadataJson: '{"sourceUrl":"https://example.test/canonical"}',
-      retained: true,
-    },
-    {
-      provider: "manual",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {},
-        sourceUrl: "https://example.test/canonical",
-      }),
-      retained: true,
-    },
-  ])(
-    "scopes explicit evidence links to complete captures ($provider, $metadataJson)",
-    async ({ provider, metadataJson, retained }) => {
-      seedSource({ provider });
-      seedCapture({ metadataJson });
-      const evidence = await validateEvidence([
-        {
-          captureId: "capture-1",
-          quote: "Decision: ship the beta on May 20.",
-          sourceUrl: "https://example.test/rec/share/full-recording",
-        },
-      ]);
-      if (retained)
-        expect(evidence[0]).toHaveProperty(
-          "sourceUrl",
-          "https://example.test/canonical",
-        );
-      else expect(evidence[0]).not.toHaveProperty("sourceUrl");
-    },
-  );
-
-  it.each(["sourceUrl", "url"] as const)(
-    "ignores caller %s overrides when validating evidence",
-    async (field) => {
-      seedSource({ provider: "slack" });
-      seedCapture({
-        metadataJson: JSON.stringify({
-          sourceUrl: "https://example.slack.com/archives/C123/p1",
-        }),
-      });
-      const input = {
-        captureId: "capture-1",
-        quote: "Decision: ship the beta on May 20.",
-        [field]: "https://zoom.us/rec/share/unrelated",
-      };
-      expect(await validateEvidence([input])).toEqual([
-        expect.objectContaining({
-          sourceUrl: "https://example.slack.com/archives/C123/p1",
-        }),
-      ]);
-      const capture = mocks.rows.captures[0];
-      ok(capture);
-      capture.metadataJson = "{}";
-      expect((await validateEvidence([input]))[0]).not.toHaveProperty(
-        "sourceUrl",
-      );
-    },
-  );
 
   it("does not validate direct Granola note URLs as citations", async () => {
     seedSource({ id: "granola-source", provider: "granola" });
@@ -1718,62 +1555,6 @@ describe("Brain knowledge quality gates", () => {
     expect(String(capture.contentHash)).toHaveLength(64);
   });
 
-  it.each([false, true])(
-    "retries indexing after enqueue failure (existing: %s)",
-    async (existing) => {
-      seedSource();
-      const enqueue = vi.mocked(enqueueCaptureInvalidation);
-      const input = {
-        sourceId: "source-1",
-        externalId: "capture-enqueue-failure",
-        title: "Planning note",
-        kind: "note" as const,
-        content: "Decision: ship the beta on May 20.",
-      };
-      try {
-        if (existing)
-          await createCapture({
-            ...input,
-            content: "Decision: ship the beta on May 19.",
-          });
-        const priorAudiences = structuredClone(mocks.rows.captureAudiences);
-        mocks.audienceHook.value = async (captureId) => {
-          mocks.rows.captureAudiences.push({
-            id: "broadened-audience",
-            captureId,
-            audienceId: "aud_broader",
-            aclHash: "broader-acl",
-          });
-        };
-        enqueue.mockClear();
-        const error = new Error("Queue insert failed");
-        enqueue.mockRejectedValueOnce(error);
-
-        await expect(createCapture(input)).rejects.toBe(error);
-        expect(mocks.rows.captureAudiences).toEqual(priorAudiences);
-        mocks.audienceHook.value = null;
-        const failed = mocks.rows.captures[0];
-        ok(failed);
-        expect(failed.sensitivityDisposition).toBe(
-          existing ? "allowed" : "pending",
-        );
-        if (existing)
-          expect(failed.content).toBe("Decision: ship the beta on May 19.");
-        const retry = await createCapture(input);
-        expect(retry).toMatchObject({
-          id: failed.id,
-          sensitivityDisposition: "allowed",
-        });
-        expect(mocks.rows.captures).toHaveLength(1);
-        expect(enqueue).toHaveBeenCalledTimes(2);
-        await createCapture(input);
-        expect(enqueue).toHaveBeenCalledTimes(2);
-      } finally {
-        enqueue.mockReset();
-      }
-    },
-  );
-
   it("does not requeue an unchanged allowed capture", async () => {
     seedSource();
     const enqueue = vi.mocked(enqueueCaptureInvalidation);
@@ -1798,7 +1579,6 @@ describe("Brain knowledge quality gates", () => {
         reason: "content-changed",
         next: expect.any(Object),
       }),
-      expect.objectContaining({ insert: mocks.db.insert }),
     );
     expect(unchanged).toMatchObject({
       status: "distilled",
@@ -1861,787 +1641,6 @@ describe("Brain knowledge quality gates", () => {
     ).toMatchObject({
       sourceUrl: "https://docs.example.test/new",
     });
-  });
-
-  it.each([
-    {
-      label: "default retention replacing whole quarantine",
-      retentionHours: undefined,
-      priorQuarantine: true,
-    },
-    {
-      label: "configured retention",
-      retentionHours: 24,
-      priorQuarantine: false,
-    },
-  ])(
-    "stores only safe Zoom excerpts and a suppressed receipt across resyncs ($label)",
-    async ({ retentionHours, priorQuarantine }) => {
-      const source = seedSource({ provider: "zoom" });
-      Object.assign(mocks.settings, {
-        privacyClassifier: "jev",
-        ...(retentionHours === undefined
-          ? {}
-          : { quarantineRetentionHours: retentionHours }),
-      });
-      const { content, classifier } = zoomPassageFixture();
-      try {
-        const input = {
-          sourceId: "source-1",
-          externalId: "zoom:partial-meeting",
-          title: "Weekly update",
-          kind: "transcript" as const,
-          content,
-        };
-        let priorEventId: string | undefined;
-        if (priorQuarantine) {
-          const blocked = await recordBlockedCapture({
-            id: "whole-quarantined-capture",
-            existing: null,
-            source: source as never,
-            values: input,
-            decision: jevClassifier.jevSensitivityDecision(
-              { "health-accommodation": 0.95 },
-              {
-                judgedContent: content,
-                capturedAt: "2026-10-28T10:00:00Z",
-                truncated: false,
-              },
-            ),
-            retentionHours: 72,
-          });
-          priorEventId = blocked.id;
-          expect(blocked.disposition).toBe("quarantined");
-          const queue = await listProposalsAction.run({
-            status: "quarantine",
-            limit: 50,
-          });
-          expect(queue.proposals.map((proposal) => proposal.id)).toEqual([
-            blocked.id,
-          ]);
-        }
-        const capture = await createCapture(input);
-        ok(capture);
-        const receipt = JSON.parse(
-          String(capture.metadataJson),
-        ).zoomPassageQuarantine;
-        await createCapture(input);
-        const reprocessed = await createCapture({
-          ...input,
-          content: String(capture.content),
-          metadata: JSON.parse(String(capture.metadataJson)),
-        });
-        ok(reprocessed);
-        expect(
-          JSON.parse(String(reprocessed.metadataJson)).zoomPassageQuarantine,
-        ).toEqual(receipt);
-        expect(mocks.rows.captures).toHaveLength(1);
-        expect(capture).toMatchObject({ sensitivityDisposition: "allowed" });
-        expect(capture).toHaveProperty(
-          "content",
-          expect.stringContaining("PUBLIC_UPDATE_0"),
-        );
-        expect(capture).toHaveProperty(
-          "content",
-          expect.stringContaining("PUBLIC_UPDATE_35"),
-        );
-        expect(capture).toHaveProperty(
-          "content",
-          expect.stringContaining("[…]"),
-        );
-        expect(JSON.stringify(mocks.rows)).not.toContain(
-          "WITHHELD_PRIVATE_DETAIL",
-        );
-        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
-        const event = mocks.rows.sensitivityEvents[0];
-        ok(event);
-        expect(event).toMatchObject({
-          disposition: "suppressed",
-          captureId: capture.id,
-          quarantineBlobHandle: null,
-          expiresAt: expect.any(String),
-        });
-        if (priorQuarantine) expect(event.id).toBe(priorEventId);
-        expect(
-          Date.parse(String(event.expiresAt)) -
-            Date.parse(String(event.updatedAt)),
-        ).toBe((retentionHours ?? 72) * 60 * 60 * 1000);
-        expect(putPrivateBlob).not.toHaveBeenCalled();
-        expect(
-          await listProposalsAction.run({ status: "quarantine", limit: 50 }),
-        ).toEqual({
-          count: 0,
-          proposals: [],
-        });
-        const listed = await listCapturesAction.run(
-          {
-            sourceId: "source-1",
-            includeArchivedSources: false,
-            includePreview: true,
-            previewLength: 220,
-            limit: 25,
-          },
-          {} as never,
-        );
-        expect(listed.captures[0]?.withheldPassages).toBeGreaterThan(0);
-        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-        const retainedCaptures = structuredClone(mocks.rows.captures);
-        const retainedAudiences = structuredClone(mocks.rows.captureAudiences);
-        const deadline = String(event.expiresAt);
-        expect(
-          await expireSensitivityQuarantines(
-            new Date(Date.parse(deadline) - 1).toISOString(),
-          ),
-        ).toBe(0);
-        expect(event.disposition).toBe("suppressed");
-        expect(await expireSensitivityQuarantines(deadline)).toBe(1);
-        expect(event).toMatchObject({
-          disposition: "expired",
-          captureId: capture.id,
-          quarantineBlobHandle: null,
-          expiresAt: null,
-        });
-        expect(await expireSensitivityQuarantines(deadline)).toBe(0);
-        expect(mocks.rows.captures).toEqual(retainedCaptures);
-        expect(mocks.rows.captureAudiences).toEqual(retainedAudiences);
-        const afterExpiry = await listCapturesAction.run({
-          sourceId: "source-1",
-          limit: 25,
-        });
-        expect(afterExpiry.captures).toEqual([
-          expect.objectContaining({
-            id: capture.id,
-            withheldPassages: listed.captures[0]?.withheldPassages,
-          }),
-        ]);
-      } finally {
-        classifier.mockRestore();
-      }
-    },
-  );
-
-  it("rolls back partial Zoom finalization on audit failure and repairs it on retry", async () => {
-    seedSource({ provider: "zoom" });
-    Object.assign(mocks.settings, { privacyClassifier: "jev" });
-    const { content, classifier } = zoomPassageFixture();
-    const insert = mocks.db.insert.getMockImplementation();
-    ok(insert);
-    const auditError = new Error("Sensitivity audit insert failed");
-    let enqueueCallsAtAudit: unknown[][] = [];
-    let auditAttempts = 0;
-    mocks.db.insert.mockImplementation((table) => {
-      if (table === mocks.schema.brainSensitivityEvents) {
-        auditAttempts += 1;
-        enqueueCallsAtAudit = structuredClone(
-          vi.mocked(enqueueCaptureInvalidation).mock.calls,
-        );
-        mocks.db.insert.mockImplementation(insert);
-        throw auditError;
-      }
-      return insert(table);
-    });
-
-    try {
-      const input = {
-        sourceId: "source-1",
-        externalId: "zoom:audit-failure-meeting",
-        title: "Weekly update",
-        kind: "transcript" as const,
-        content,
-      };
-      await expect(createCapture(input)).rejects.toBe(auditError);
-
-      expect(auditAttempts).toBe(1);
-      expect(mocks.rows.captures).toHaveLength(1);
-      const capture = mocks.rows.captures[0];
-      ok(capture);
-      expect(capture).toMatchObject({ sensitivityDisposition: "pending" });
-      expect(capture.content).toContain("PUBLIC_UPDATE_0");
-      expect(capture.content).toContain("PUBLIC_UPDATE_35");
-      expect(capture.content).toContain("[…]");
-      expect(capture.contentHash).toBe(
-        await sha256Hex(String(capture.content)),
-      );
-      expect(
-        JSON.parse(String(capture.metadataJson)).zoomPassageQuarantine
-          .withheldPassages,
-      ).toBeGreaterThan(0);
-      expect(JSON.stringify(mocks.rows)).not.toContain(
-        "WITHHELD_PRIVATE_DETAIL",
-      );
-      expect(mocks.rows.sensitivityEvents).toHaveLength(0);
-      expect(enqueueCallsAtAudit).toEqual([]);
-      expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
-      const finalizedCapture = structuredClone(capture);
-
-      const retried = await createCapture(input);
-
-      expect(retried).toMatchObject({
-        id: capture.id,
-        sensitivityDisposition: "allowed",
-        content: finalizedCapture.content,
-        contentHash: finalizedCapture.contentHash,
-      });
-      ok(retried);
-      const finalizedMetadata = JSON.parse(
-        String(finalizedCapture.metadataJson),
-      );
-      expect(JSON.parse(String(retried.metadataJson))).toEqual({
-        ...finalizedMetadata,
-        captureSanitization: {
-          ...finalizedMetadata.captureSanitization,
-          sanitizedAt: expect.any(String),
-        },
-      });
-      expect(mocks.rows.captures).toHaveLength(1);
-      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-      expect(mocks.rows.sensitivityEvents).toEqual([
-        expect.objectContaining({
-          captureId: capture.id,
-          disposition: "suppressed",
-          quarantineBlobHandle: null,
-          expiresAt: expect.any(String),
-        }),
-      ]);
-      expect(JSON.stringify(mocks.rows)).not.toContain(
-        "WITHHELD_PRIVATE_DETAIL",
-      );
-      expect(putPrivateBlob).not.toHaveBeenCalled();
-    } finally {
-      mocks.db.insert.mockImplementation(insert);
-      classifier.mockRestore();
-    }
-  });
-
-  it("rolls back resanitization on audit failure so retry retains its linked receipt", async () => {
-    seedSource({ provider: "zoom" });
-    Object.assign(mocks.settings, { privacyClassifier: "jev" });
-    const { content, classifier } = zoomPassageFixture();
-    const insert = mocks.db.insert.getMockImplementation();
-    ok(insert);
-    const auditError = new Error("Sensitivity audit insert failed");
-    let enqueueCallsAtAudit: unknown[][] = [];
-    let auditAttempts = 0;
-    mocks.db.insert.mockImplementation((table) => {
-      if (table === mocks.schema.brainSensitivityEvents) {
-        auditAttempts += 1;
-        enqueueCallsAtAudit = structuredClone(
-          vi.mocked(enqueueCaptureInvalidation).mock.calls,
-        );
-        mocks.db.insert.mockImplementation(insert);
-        throw auditError;
-      }
-      return insert(table);
-    });
-
-    try {
-      seedCapture({
-        externalId: "zoom:resanitize-audit-failure-meeting",
-        title: "Weekly update",
-        kind: "transcript",
-        content,
-        contentHash: await sha256Hex(content),
-        status: "distilled",
-      });
-
-      await expect(
-        resanitizeCapturesAction.run({ sourceId: "source-1", dryRun: false }),
-      ).rejects.toBe(auditError);
-
-      expect(auditAttempts).toBe(1);
-      expect(mocks.rows.captures).toHaveLength(1);
-      const capture = mocks.rows.captures[0];
-      ok(capture);
-      expect(capture).toMatchObject({
-        id: "capture-1",
-        sensitivityDisposition: "allowed",
-        status: "distilled",
-      });
-      expect(capture.content).toBe(content);
-      expect(capture.contentHash).toBe(await sha256Hex(content));
-      expect(mocks.rows.sensitivityEvents).toHaveLength(0);
-      expect(enqueueCallsAtAudit).toEqual([]);
-      expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
-
-      await resanitizeCapturesAction.run({
-        sourceId: "source-1",
-        dryRun: false,
-      });
-
-      const retried = mocks.rows.captures[0];
-      ok(retried);
-      expect(retried.content).toContain("PUBLIC_UPDATE_0");
-      expect(retried.content).toContain("PUBLIC_UPDATE_35");
-      expect(retried.content).toContain("[…]");
-      expect(JSON.stringify(mocks.rows)).not.toContain(
-        "WITHHELD_PRIVATE_DETAIL",
-      );
-      expect(mocks.rows.sensitivityEvents).toEqual([
-        expect.objectContaining({
-          captureId: "capture-1",
-          disposition: "suppressed",
-          quarantineBlobHandle: null,
-          expiresAt: expect.any(String),
-        }),
-      ]);
-      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-      expect(putPrivateBlob).not.toHaveBeenCalled();
-    } finally {
-      mocks.db.insert.mockImplementation(insert);
-      classifier.mockRestore();
-    }
-  });
-
-  it("rolls back the excerpt and receipt when resanitization enqueue fails", async () => {
-    seedSource({ provider: "zoom" });
-    Object.assign(mocks.settings, { privacyClassifier: "jev" });
-    const { content, classifier } = zoomPassageFixture();
-    seedCapture({
-      externalId: "zoom:resanitize-queue-failure",
-      kind: "transcript",
-      content,
-      contentHash: await sha256Hex(content),
-    });
-    const error = new Error("Queue insert failed");
-    vi.mocked(enqueueCaptureInvalidation).mockRejectedValueOnce(error);
-    try {
-      await expect(
-        resanitizeCapturesAction.run({ sourceId: "source-1", dryRun: false }),
-      ).rejects.toBe(error);
-      expect(mocks.rows.captures[0]).toMatchObject({
-        content,
-        sensitivityDisposition: "allowed",
-      });
-      expect(mocks.rows.sensitivityEvents).toHaveLength(0);
-      await resanitizeCapturesAction.run({
-        sourceId: "source-1",
-        dryRun: false,
-      });
-      expect(mocks.rows.sensitivityEvents).toEqual([
-        expect.objectContaining({
-          captureId: "capture-1",
-          disposition: "suppressed",
-        }),
-      ]);
-      expect(JSON.stringify(mocks.rows)).not.toContain(
-        "WITHHELD_PRIVATE_DETAIL",
-      );
-    } finally {
-      classifier.mockRestore();
-    }
-  });
-
-  it.each([
-    {
-      label: "malformed nested receipt",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 4,
-          withheldPassages: 5,
-        },
-      }),
-      withheldPassages: null,
-    },
-    {
-      label: "valid receipt",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-      withheldPassages: 5,
-    },
-    { label: "missing metadata", metadataJson: null, withheldPassages: null },
-    { label: "invalid JSON", metadataJson: "{invalid", withheldPassages: null },
-    {
-      label: "Slack invalid JSON",
-      provider: "slack",
-      metadataJson: "{invalid",
-      withheldPassages: 0,
-    },
-    {
-      label: "manual missing metadata",
-      provider: "manual",
-      metadataJson: null,
-      withheldPassages: 0,
-    },
-    {
-      label: "generic malformed receipt",
-      provider: "generic",
-      metadataJson: '{"zoomPassageQuarantine":null}',
-      withheldPassages: 0,
-    },
-    { label: "JSON null", metadataJson: "null", withheldPassages: null },
-    { label: "JSON array", metadataJson: "[]", withheldPassages: null },
-    {
-      label: "JSON string",
-      metadataJson: '"metadata"',
-      withheldPassages: null,
-    },
-    { label: "JSON number", metadataJson: "42", withheldPassages: null },
-    { label: "JSON boolean", metadataJson: "true", withheldPassages: null },
-    { label: "empty object", metadataJson: "{}", withheldPassages: 0 },
-  ])(
-    "returns provider-scoped completeness for $label in listing and both detail modes",
-    async ({ metadataJson, withheldPassages, provider = "zoom" }) => {
-      seedSource({ provider });
-      seedCapture({ kind: "transcript", metadataJson });
-
-      const listed = await listCapturesAction.run(
-        {
-          sourceId: "source-1",
-          includeArchivedSources: false,
-          includePreview: true,
-          previewLength: 220,
-          limit: 25,
-        },
-        {} as never,
-      );
-
-      expect(listed.captures).toHaveLength(1);
-      expect(listed.captures[0]).toMatchObject({
-        id: "capture-1",
-        withheldPassages,
-      });
-      for (const includeRawContent of [false, true]) {
-        const detail = await getCaptureAction.run({
-          id: "capture-1",
-          includeRawContent,
-        });
-        expect(detail.capture).toMatchObject({
-          id: "capture-1",
-          withheldPassages,
-          rawContentIncluded: includeRawContent,
-        });
-      }
-    },
-  );
-
-  it.each([
-    { mode: "ingest", failure: "published-resource" },
-    { mode: "ingest", failure: "proposal-redaction" },
-    { mode: "resanitize", failure: "published-resource" },
-    { mode: "resanitize", failure: "proposal-redaction" },
-  ])(
-    "retries derived invalidation before committing a partial capture ($mode, $failure)",
-    async ({ mode, failure }) => {
-      seedSource({ provider: "zoom" });
-      Object.assign(mocks.settings, { privacyClassifier: "jev" });
-      const { content, classifier } = zoomPassageFixture();
-      const capture = seedCapture({
-        externalId: "zoom:invalidation-retry",
-        title: "Weekly update",
-        kind: "transcript",
-        content,
-        contentHash: await sha256Hex(content),
-      });
-      mocks.rows.knowledge.push({
-        id: "derived-knowledge",
-        captureId: "capture-1",
-        evidenceJson: "[]",
-        status: "published",
-        body: "WITHHELD_PRIVATE_DETAIL",
-        publishedResourcePath: "/brain/derived-knowledge.md",
-      });
-      mocks.rows.proposals.push({
-        id: "derived-proposal",
-        captureId: "capture-1",
-        evidenceJson: "[]",
-        status: "pending",
-        body: "WITHHELD_PRIVATE_DETAIL",
-      });
-      const error = new Error("Derived invalidation failed");
-      const update = mocks.db.update.getMockImplementation();
-      ok(update);
-      if (failure === "published-resource")
-        vi.mocked(resourceDeleteWithDb).mockRejectedValueOnce(error);
-      else
-        mocks.db.update.mockImplementation((table) => {
-          if (table === mocks.schema.brainProposals) {
-            mocks.db.update.mockImplementation(update);
-            throw error;
-          }
-          return update(table);
-        });
-      const run = () =>
-        mode === "ingest"
-          ? createCapture({
-              sourceId: "source-1",
-              externalId: "zoom:invalidation-retry",
-              title: "Weekly update",
-              kind: "transcript",
-              content,
-            })
-          : resanitizeCapturesAction.run({
-              sourceId: "source-1",
-              dryRun: false,
-              allowCitationDrift: true,
-            });
-      try {
-        await expect(run()).rejects.toBe(error);
-        expect(capture.content).toBe(content);
-        expect(capture.contentHash).toBe(await sha256Hex(content));
-        expect(mocks.rows.sensitivityEvents).toHaveLength(0);
-        expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
-        await run();
-        expect(mocks.rows.knowledge[0]).toMatchObject({
-          status: "redacted",
-          body: "",
-          publishedResourcePath: null,
-        });
-        expect(mocks.rows.proposals[0]).toMatchObject({
-          status: "rejected",
-          body: "",
-        });
-        expect(capture.content).toContain("[…]");
-        expect(JSON.stringify(mocks.rows)).not.toContain(
-          "WITHHELD_PRIVATE_DETAIL",
-        );
-        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
-        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-      } finally {
-        mocks.db.update.mockImplementation(update);
-        classifier.mockRestore();
-      }
-    },
-  );
-
-  it.each(["update", "dry run", "cited capture"] as const)(
-    "resanitizes whole allowed Zoom transcripts with safe passage retention (%s)",
-    async (mode) => {
-      seedSource({ provider: "zoom" });
-      Object.assign(mocks.settings, {
-        privacyClassifier: "jev",
-        quarantineRetentionHours: 24,
-      });
-      const { content, classifier } = zoomPassageFixture();
-      try {
-        seedCapture({
-          externalId: "zoom:whole-meeting",
-          title: "Weekly update",
-          kind: "transcript",
-          content,
-          contentHash: await sha256Hex(content),
-          status: "distilled",
-        });
-        if (mode === "cited capture") {
-          mocks.rows.knowledge.push({
-            id: "knowledge-citing-zoom",
-            captureId: null,
-            evidenceJson: JSON.stringify([
-              { captureId: "capture-1", quote: "PUBLIC_UPDATE_0" },
-            ]),
-          });
-        }
-        const before = structuredClone(mocks.rows);
-        const result = await resanitizeCapturesAction.run({
-          sourceId: "source-1",
-          dryRun: mode === "dry run",
-        });
-
-        expect(result).toMatchObject({
-          requested: 1,
-          updated: mode === "update" ? 1 : 0,
-          dryRun: mode === "dry run",
-        });
-        expect(result.results).toHaveLength(1);
-        expect(result.results[0]).toMatchObject({
-          id: "capture-1",
-          skipped: mode === "cited capture",
-          ...(mode === "cited capture"
-            ? {
-                skipReason: "cited-derived-data",
-                dependentKnowledgeIds: ["knowledge-citing-zoom"],
-              }
-            : {}),
-        });
-        if (mode !== "update") {
-          expect(mocks.rows).toEqual(before);
-          expect(mocks.db.update).not.toHaveBeenCalled();
-          expect(mocks.db.insert).not.toHaveBeenCalled();
-          expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
-          return;
-        }
-
-        expect(mocks.rows.captures).toHaveLength(1);
-        const capture = mocks.rows.captures[0];
-        ok(capture);
-        expect(capture).toMatchObject({
-          id: "capture-1",
-          sensitivityDisposition: "allowed",
-          status: "distilled",
-        });
-        expect(capture.content).toContain("PUBLIC_UPDATE_0");
-        expect(capture.content).toContain("PUBLIC_UPDATE_35");
-        expect(capture.content).toContain("[…]");
-        expect(capture.contentHash).toBe(
-          await sha256Hex(String(capture.content)),
-        );
-        const metadata = JSON.parse(String(capture.metadataJson));
-        expect(metadata.zoomPassageQuarantine.withheldPassages).toBeGreaterThan(
-          0,
-        );
-        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
-        const event = mocks.rows.sensitivityEvents[0];
-        ok(event);
-        expect(event).toMatchObject({
-          captureId: "capture-1",
-          disposition: "suppressed",
-          quarantineBlobHandle: null,
-          expiresAt: expect.any(String),
-        });
-        expect(
-          Date.parse(String(event.expiresAt)) -
-            Date.parse(String(event.updatedAt)),
-        ).toBe(24 * 60 * 60 * 1000);
-        expect(JSON.stringify(mocks.rows)).not.toContain(
-          "WITHHELD_PRIVATE_DETAIL",
-        );
-        expect(putPrivateBlob).not.toHaveBeenCalled();
-        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-      } finally {
-        classifier.mockRestore();
-      }
-    },
-  );
-
-  it.each(["source", "metadata"] as const)(
-    "does not let legacy stored Zoom receipts bypass %s-configured sanitization on unchanged content",
-    async (configuration) => {
-      seedSource({
-        provider: "zoom",
-        configJson: JSON.stringify(
-          configuration === "source" ? { sanitizeBeforeStorage: true } : {},
-        ),
-      });
-      Object.assign(mocks.settings, { privacyClassifier: "jev" });
-      const { classifier } = zoomPassageFixture();
-      try {
-        const content =
-          "Product roadmap is on track.\nFamily picnic on Saturday.\n[…]";
-        const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
-        const metadata = {
-          zoomPassageQuarantine: receipt,
-          ...(configuration === "metadata"
-            ? { sanitizeBeforeStorage: true }
-            : {}),
-        };
-        seedCapture({
-          externalId: "zoom:legacy-partial-meeting",
-          kind: "transcript",
-          content,
-          contentHash: await sha256Hex(content),
-          metadataJson: JSON.stringify(metadata),
-        });
-
-        const capture = await createCapture({
-          sourceId: "source-1",
-          externalId: "zoom:legacy-partial-meeting",
-          title: "Planning note",
-          kind: "transcript",
-          content,
-          metadata,
-        });
-
-        expect(mocks.rows.captures).toHaveLength(1);
-        ok(capture);
-        expect(capture).toMatchObject({
-          id: "capture-1",
-          content: "Product roadmap is on track.\n[…]",
-          sensitivityDisposition: "allowed",
-        });
-        expect(
-          JSON.parse(String(capture.metadataJson)).zoomPassageQuarantine,
-        ).toEqual(receipt);
-        expect(JSON.stringify(mocks.rows.captures)).not.toContain(
-          "Family picnic",
-        );
-        expect(capture.contentHash).toBe(
-          await sha256Hex(String(capture.content)),
-        );
-      } finally {
-        classifier.mockRestore();
-      }
-    },
-  );
-
-  it("preserves an existing partial Zoom capture when passage screening times out", async () => {
-    seedSource({ provider: "zoom" });
-    Object.assign(mocks.settings, { privacyClassifier: "jev" });
-    const existing = seedCapture({
-      externalId: "zoom:partial-meeting",
-      title: "Weekly update",
-      kind: "transcript",
-      content: "The product roadmap is on track.\n[…]",
-      status: "distilled",
-      distilledAt: "2026-10-28T10:00:00.000Z",
-      metadataJson: JSON.stringify({
-        provider: "zoom",
-        syncRunId: "run-1",
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 12,
-          withheldPassages: 5,
-        },
-      }),
-    });
-    const before = structuredClone(existing);
-    const content = Array.from(
-      { length: 12 },
-      (_, index) =>
-        `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 6 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
-    ).join("\n");
-    let now = Date.now();
-    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const classifier = vi
-      .spyOn(jevClassifier, "classifyWithJev")
-      .mockImplementation(async (input) => {
-        if (input.content !== content) now += 120_000;
-        return {
-          configured: true,
-          truncated: false,
-          decision: jevClassifier.jevSensitivityDecision(
-            {
-              "health-accommodation": input.content.includes(
-                "WITHHELD_PRIVATE_DETAIL",
-              )
-                ? 0.95
-                : 0.01,
-            },
-            {
-              judgedContent: input.content,
-              capturedAt: "2026-10-28T10:00:00Z",
-              truncated: false,
-            },
-          ),
-        };
-      });
-    try {
-      await expect(
-        createCapture({
-          sourceId: "source-1",
-          externalId: "zoom:partial-meeting",
-          title: "Weekly update",
-          kind: "transcript",
-          content,
-          metadata: { provider: "zoom", syncRunId: "run-2" },
-        }),
-      ).rejects.toMatchObject({
-        name: "BrainClassifierUnavailableError",
-        reason: "jev-timeout",
-        retryAfterMs: 600_000,
-      });
-      expect(classifier).toHaveBeenCalledTimes(2);
-      expect(mocks.rows.captures).toEqual([before]);
-      expect(mocks.rows.sensitivityEvents).toEqual([]);
-      expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
-    } finally {
-      classifier.mockRestore();
-      clock.mockRestore();
-    }
   });
 
   it("persists and updates classifier failure reasons on blocked events", async () => {
@@ -2839,7 +1838,6 @@ describe("Brain knowledge quality gates", () => {
           contentHash: await sha256Hex(input.content),
         }),
       }),
-      expect.objectContaining({ insert: mocks.db.insert }),
     );
   });
 

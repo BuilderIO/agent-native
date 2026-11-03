@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { withCaptureAudience } from "../server/lib/audiences.js";
+import { ensureCaptureAudience } from "../server/lib/audiences.js";
 import {
   contentHash,
   getAccessibleCapture,
@@ -17,7 +17,6 @@ import {
 } from "../server/lib/brain.js";
 import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
-import { parseCaptureMetadata } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
 import { idSchema, stringArrayCliSchema } from "./_schemas.js";
@@ -166,18 +165,14 @@ export default defineAction({
       const hasDerivedRefs =
         derivedRefs.knowledgeIds.length > 0 ||
         derivedRefs.proposalIds.length > 0;
-      const metadata = parseCaptureMetadata(row.capture.metadataJson);
       const sanitized = await sanitizeCaptureForStorage({
         kind: row.capture.kind as BrainCaptureKind,
         title: row.capture.title,
         content: row.capture.content,
-        metadata: metadata ?? {},
-        storedZoomPassageQuarantine:
-          row.source.provider === "zoom"
-            ? metadata === null
-              ? null
-              : metadata.zoomPassageQuarantine
-            : undefined,
+        metadata: parseJson<Record<string, unknown>>(
+          row.capture.metadataJson,
+          {},
+        ),
         capturedAt: row.capture.capturedAt,
         source: {
           id: row.source.id,
@@ -260,132 +255,75 @@ export default defineAction({
       }
       if (!args.dryRun) {
         const nextContentHash = await contentHash(sanitized.content);
-        const afterCommit: Array<() => void | Promise<void>> = [];
-        const persist = async (
-          tx: ReturnType<typeof getDb>,
-          aclHash: string | null,
-        ) => {
-          await tx
-            .update(schema.brainRawCaptures)
-            .set({
-              title: sanitized.title,
-              content:
-                sanitized.decision?.disposition === "allowed"
-                  ? sanitized.content
-                  : "",
-              contentHash:
-                sanitized.decision?.disposition === "allowed"
-                  ? nextContentHash
-                  : await contentHash(""),
-              metadataJson: stableJson(sanitized.metadata),
-              sensitivityDisposition:
-                sanitized.decision?.disposition === "allowed"
-                  ? "allowed"
-                  : "pending",
-              sensitivityPolicyVersion:
-                sanitized.decision?.policyVersion ?? null,
-              audienceAclHash:
-                sanitized.decision?.disposition === "allowed" ? aclHash : null,
-              status:
-                sanitized.decision?.disposition === "allowed"
-                  ? row.capture.status
-                  : "ignored",
-              updatedAt: nowIso(),
-            })
-            .where(eq(schema.brainRawCaptures.id, row.capture.id));
-          if (
-            hasDerivedRefs &&
-            (sanitized.decision?.disposition !== "allowed" ||
-              row.capture.contentHash !== nextContentHash)
-          ) {
-            await invalidateDerivedForCapture(row.capture.id, tx, {
-              afterCommit,
-            });
-          }
-          if (sanitized.withheldDecision) {
-            await recordBlockedCapture(
-              {
-                id: row.capture.id,
-                existing: null,
-                retainedCaptureId: row.capture.id,
-                source: row.source,
-                values: {
-                  id: row.capture.id,
-                  sourceId: row.capture.sourceId,
-                  externalId: row.capture.externalId,
-                  title: row.capture.title,
-                  kind: row.capture.kind as BrainCaptureKind,
-                  content: row.capture.content,
-                  capturedAt: row.capture.capturedAt,
-                },
-                decision: {
-                  ...sanitized.withheldDecision,
-                  disposition: "suppressed",
-                },
-                retentionHours: settings.quarantineRetentionHours ?? 72,
-              },
-              tx,
-            );
-          }
-          await enqueueCaptureInvalidation(
-            {
-              captureId: row.capture.id,
-              sourceId: row.capture.sourceId,
-              reason:
-                sanitized.decision?.disposition === "allowed"
-                  ? "content-changed"
-                  : "sensitivity-changed",
-              previous: {
-                ...(row.capture.contentHash == null
-                  ? {}
-                  : { contentHash: row.capture.contentHash }),
-                ...(row.capture.sensitivityPolicyVersion == null
-                  ? {}
-                  : {
-                      sensitivityPolicyVersion:
-                        row.capture.sensitivityPolicyVersion,
-                    }),
-                ...(row.capture.audienceAclHash == null
-                  ? {}
-                  : { aclHash: row.capture.audienceAclHash }),
-              },
-              ...(sanitized.decision?.disposition === "allowed" && aclHash
-                ? {
-                    next: {
-                      contentHash: nextContentHash,
-                      sensitivityPolicyVersion:
-                        sanitized.decision.policyVersion,
-                      aclHash,
-                    },
-                  }
-                : {}),
-            },
-            tx,
-          );
-        };
-        if (
-          !row.capture.audienceAclHash &&
-          sanitized.decision?.disposition === "allowed"
-        ) {
-          await withCaptureAudience(
-            {
+        let aclHash = row.capture.audienceAclHash;
+        if (!aclHash && sanitized.decision?.disposition === "allowed") {
+          aclHash = (
+            await ensureCaptureAudience({
               captureId: row.capture.id,
               source: row.source,
-              ...(row.source.visibility === "org"
-                ? {}
-                : { memberEmails: [row.source.ownerEmail] }),
-            },
-            (assignment, tx) => persist(tx, assignment.aclHash),
-          );
-        } else {
-          await db.transaction((tx) =>
-            persist(
-              tx as unknown as ReturnType<typeof getDb>,
-              row.capture.audienceAclHash,
-            ),
-          );
+              memberEmails:
+                row.source.visibility === "org"
+                  ? undefined
+                  : [row.source.ownerEmail],
+            })
+          ).aclHash;
         }
-        for (const notify of afterCommit) await notify();
+        await db
+          .update(schema.brainRawCaptures)
+          .set({
+            title: sanitized.title,
+            content:
+              sanitized.decision?.disposition === "allowed"
+                ? sanitized.content
+                : "",
+            contentHash:
+              sanitized.decision?.disposition === "allowed"
+                ? nextContentHash
+                : await contentHash(""),
+            metadataJson: stableJson(sanitized.metadata),
+            sensitivityDisposition:
+              sanitized.decision?.disposition === "allowed"
+                ? "allowed"
+                : "pending",
+            sensitivityPolicyVersion: sanitized.decision?.policyVersion ?? null,
+            audienceAclHash:
+              sanitized.decision?.disposition === "allowed" ? aclHash : null,
+            status:
+              sanitized.decision?.disposition === "allowed"
+                ? row.capture.status
+                : "ignored",
+            updatedAt: nowIso(),
+          })
+          .where(eq(schema.brainRawCaptures.id, row.capture.id));
+        if (
+          hasDerivedRefs &&
+          (sanitized.decision?.disposition !== "allowed" ||
+            row.capture.contentHash !== nextContentHash)
+        ) {
+          await invalidateDerivedForCapture(row.capture.id);
+        }
+        await enqueueCaptureInvalidation({
+          captureId: row.capture.id,
+          sourceId: row.capture.sourceId,
+          reason:
+            sanitized.decision?.disposition === "allowed"
+              ? "content-changed"
+              : "sensitivity-changed",
+          previous: {
+            contentHash: row.capture.contentHash ?? undefined,
+            sensitivityPolicyVersion:
+              row.capture.sensitivityPolicyVersion ?? undefined,
+            aclHash: row.capture.audienceAclHash ?? undefined,
+          },
+          next:
+            sanitized.decision?.disposition === "allowed" && aclHash
+              ? {
+                  contentHash: nextContentHash,
+                  sensitivityPolicyVersion: sanitized.decision.policyVersion,
+                  aclHash,
+                }
+              : undefined,
+        });
       }
       results.push({
         id: row.capture.id,

@@ -10,6 +10,7 @@ import type {
 import {
   classifyWithJev,
   isTransientJevFailure,
+  JEV_BLOCK_PROBABILITY,
   jevFailureHttpStatus,
   resolveClassifierPreference,
   type JevClassificationOutcome,
@@ -17,7 +18,7 @@ import {
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   BRAIN_WORKSPACE_RULE_SCORE_KEY,
-  readZoomPassageQuarantine,
+  readWithheldZoomPassages,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
@@ -76,7 +77,6 @@ export interface CaptureSanitizationInput {
   title: string;
   content: string;
   metadata?: Record<string, unknown>;
-  storedZoomPassageQuarantine?: unknown;
   capturedAt?: string;
   source: {
     id: string;
@@ -95,7 +95,6 @@ export interface CaptureSanitizationResult {
   metadata: Record<string, unknown>;
   classifierFailureReason?: string;
   decision?: BrainSensitivityDecision;
-  withheldDecision?: BrainSensitivityDecision;
 }
 
 export const CLASSIFIER_TRANSIENT_RETRY_MS = 10 * 60 * 1000;
@@ -224,37 +223,33 @@ function deterministicSanitizeContent(
   content: string,
   options: { dropTranscriptLines?: boolean; preserveGaps?: boolean } = {},
 ): string {
-  const source = options.preserveGaps
-    ? content
-    : preferredDeterministicSection(content);
+  const source = preferredDeterministicSection(content);
   const hasSummarySection = source !== content;
+  const isGap = (line: string) =>
+    options.preserveGaps === true && line === WITHHELD_MARKER;
   const retained = source
     .split(/\r?\n/g)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
-      if (options.preserveGaps && line === "[…]") return line;
-      const keep =
-        !/^chat with meeting transcript:/i.test(line) &&
-        (!(hasSummarySection || options.dropTranscriptLines) ||
-          !looksLikeRawTranscriptLine(line)) &&
-        !isRecruitingSensitiveLine(line) &&
-        COMPANY_SIGNAL.test(line) &&
-        !PERSONAL_SIGNAL.test(line);
-      return keep
-        ? sanitizeSensitiveText(neutralizeSpeakerLabel(line))
-        : options.preserveGaps
-          ? "[…]"
-          : "";
-    })
-    .filter(Boolean)
+    .filter(
+      (line) =>
+        isGap(line) ||
+        (!/^chat with meeting transcript:/i.test(line) &&
+          (!(hasSummarySection || options.dropTranscriptLines) ||
+            !looksLikeRawTranscriptLine(line)) &&
+          !isRecruitingSensitiveLine(line) &&
+          COMPANY_SIGNAL.test(line) &&
+          !PERSONAL_SIGNAL.test(line)),
+    )
+    .map((line) =>
+      isGap(line) ? line : sanitizeSensitiveText(neutralizeSpeakerLabel(line)),
+    )
     .filter(
       (line, index, lines) =>
-        line !== "[…]" || index === 0 || lines[index - 1] !== "[…]",
+        line && !(isGap(line) && lines[index - 1] === line),
     );
 
-  if (retained.length === 0 || retained.every((line) => line === "[…]"))
-    return DEFAULT_SANITIZATION_OUTPUT;
+  if (retained.every(isGap)) return DEFAULT_SANITIZATION_OUTPUT;
   return retained.join("\n").slice(0, 80_000).trim();
 }
 
@@ -317,8 +312,7 @@ function sanitizeMetadata(metadata: Record<string, unknown>): {
   const strippedKeys: string[] = [];
 
   for (const [key, value] of Object.entries(metadata)) {
-    if (key === "sanitizeBeforeStorage" || key === "zoomPassageQuarantine")
-      continue;
+    if (key === "sanitizeBeforeStorage") continue;
     if (RAW_METADATA_KEYS.has(key) || PERSONAL_METADATA_KEYS.has(key)) {
       strippedKeys.push(key);
       Object.assign(next, summarizeDroppedMetadata(key, value));
@@ -590,137 +584,173 @@ const deterministicPreScreen = (
   unlessAllowed(fallbackSensitivityDecision(input.title, capturedAt, scope)) ??
   deterministicQuarantineDecision(input.content, capturedAt, scope);
 
-const ZOOM_PASSAGE_MAX_CHARS = 2_000;
-const ZOOM_PASSAGE_LIMIT = 48;
-const ZOOM_PASSAGE_SCREENING_MS = 120_000;
+const WITHHELD_MARKER = "[…]";
+const NEUTRAL_EXCERPT_TITLE = "Zoom transcript excerpt";
+const ZOOM_SCREEN_CALL_LIMIT = 160;
+const ZOOM_SCREEN_CONCURRENCY = 8;
+const ZOOM_SCREEN_DEADLINE_MS = 120_000;
+const ZOOM_SCREEN_ROUNDS = 3;
 
-function scrubZoomRecordingUrls(text: string): string {
-  return text.replace(
-    /(?<![\w.-])(?:(?:https?:)?\/\/)?(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi,
-    "[…]",
-  );
-}
-
-function zoomPassages(content: string): string[] | null {
-  if (content.length > ZOOM_PASSAGE_MAX_CHARS * ZOOM_PASSAGE_LIMIT) return null;
-  const passages: string[] = [];
-  let lines: string[] = [];
-  for (const line of content.split(/\r?\n/)) {
-    if (line.length > ZOOM_PASSAGE_MAX_CHARS) return null;
-    if (
-      lines.length &&
-      [...lines, line].join("\n").length > ZOOM_PASSAGE_MAX_CHARS
-    ) {
-      passages.push(lines.join("\n"));
-      lines = [];
-      if (passages.length >= ZOOM_PASSAGE_LIMIT) return null;
-    }
-    lines.push(line);
-  }
-  if (lines.length) passages.push(lines.join("\n"));
-  return passages;
-}
-
-async function retainSafeZoomPassages(
+/**
+ * Finds restricted Zoom transcript lines so one sensitive remark does not
+ * discard the meeting. It only proposes a reduced transcript: the unchanged
+ * whole-capture pipeline must still allow it before anything is stored.
+ * Returns null when nothing can be withheld line by line.
+ */
+async function withholdRestrictedZoomLines(
   input: CaptureSanitizationInput,
-  whole: JevClassificationOutcome,
-): Promise<{
-  decision: BrainSensitivityDecision;
-  totalPassages: number;
-  withheldPassages: number;
-} | null> {
-  const original = whole.decision;
-  if (
-    input.source.provider !== "zoom" ||
-    input.kind !== "transcript" ||
-    !whole.configured ||
-    whole.truncated !== false ||
-    original?.classifier !== "jev" ||
-    original.disposition !== "quarantined" ||
-    original.confidenceBand === "uncertain" ||
-    !original.categories.length ||
-    original.categories.includes("secret-credential") ||
-    (original.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >= 0.6
-  )
-    return null;
-  const passages = zoomPassages(input.content);
-  if (!passages || passages.length < 2) return null;
-  const deadline = Date.now() + ZOOM_PASSAGE_SCREENING_MS;
-  const classify = async (content: string) => {
-    if (Date.now() >= deadline)
-      throw new BrainClassifierUnavailableError("jev-timeout");
-    const outcome = await classifyWithJev({
-      title: input.title,
-      content,
-      capturedAt: input.capturedAt ?? new Date(0).toISOString(),
-      settings: input.settings,
-      ownerEmail: input.source.ownerEmail,
-      ...(input.source.orgId === undefined
-        ? {}
-        : { orgId: input.source.orgId }),
-    });
-    if (outcome.failureReason)
-      throw new BrainClassifierUnavailableError(outcome.failureReason);
-    if (Date.now() >= deadline)
-      throw new BrainClassifierUnavailableError("jev-timeout");
-    if (
-      !outcome.configured ||
-      outcome.truncated !== false ||
-      outcome.decision?.classifier !== "jev"
-    )
-      return null;
-    return outcome.decision;
-  };
-  const rejected = new Set<number>();
-  for (let index = 0; index < passages.length; index += 1) {
-    const decision = await classify(
-      passages.slice(Math.max(0, index - 1), index + 2).join("\n"),
-    );
-    if (
-      !decision ||
-      decision.confidenceBand === "uncertain" ||
-      decision.categories.includes("secret-credential") ||
-      (decision.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >= 0.6 ||
-      (decision.disposition !== "allowed" && !decision.categories.length)
-    )
-      return null;
-    if (decision.disposition !== "allowed") rejected.add(index);
-  }
-  if (!rejected.size) return null;
+): Promise<{ content: string; withheldPassages: number } | null> {
+  const lines = input.content.split(/\r?\n/);
+  const turns = lines.flatMap((text, index) =>
+    text.trim() ? [{ index, text }] : [],
+  );
+  type Turn = (typeof turns)[number];
   const withheld = new Set<number>();
-  for (const index of rejected) {
-    // Adjacent text can reveal the meaning of a withheld passage even without its words.
-    for (
-      let neighbor = Math.max(0, index - 1);
-      neighbor <= Math.min(passages.length - 1, index + 1);
-      neighbor += 1
-    )
-      withheld.add(neighbor);
-  }
-  if (withheld.size === passages.length) return null;
-  const retained: string[] = [];
-  for (const [index, passage] of passages.entries()) {
-    if (!withheld.has(index)) retained.push(passage);
-    else if (index === 0 || !withheld.has(index - 1)) retained.push("[…]");
-  }
-  const retainedContent = scrubZoomRecordingUrls(retained.join("\n"));
-  const filteredContent = shouldSanitizeCaptureBeforeStorage(input)
-    ? deterministicSanitizeContent(retainedContent, {
-        dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
-        preserveGaps: true,
-      })
-    : retainedContent;
-  if (filteredContent === DEFAULT_SANITIZATION_OUTPUT) return null;
-  const decision = await classify(filteredContent);
-  if (decision?.disposition !== "allowed") return null;
-  return {
-    decision,
-    totalPassages: passages.length,
-    withheldPassages: withheld.size,
+  const withhold = (turn: Turn) => {
+    // A neighbouring turn often names who or what the restricted turn is about.
+    const position = turns.indexOf(turn);
+    for (const neighbor of turns.slice(Math.max(0, position - 1), position + 2))
+      withheld.add(neighbor.index);
   };
+  const retained = () => turns.filter((turn) => !withheld.has(turn.index));
+  const gaps = (text: string[]) =>
+    text.filter((line) => line.trim() === WITHHELD_MARKER).length;
+  const render = () => {
+    const out: string[] = [];
+    for (const [index, line] of lines.entries()) {
+      const afterGap = out[out.length - 1] === WITHHELD_MARKER;
+      // Gaps from an earlier pass merge with new ones rather than doubling up.
+      if (withheld.has(index) || line.trim() === WITHHELD_MARKER) {
+        if (!afterGap) out.push(WITHHELD_MARKER);
+      } else if (line.trim() || !afterGap) {
+        out.push(line);
+      }
+    }
+    return {
+      content: out.join("\n"),
+      withheldPassages: gaps(out) - gaps(lines),
+    };
+  };
+  const screenTurns = (scope: DeterministicScreenScope) => {
+    for (const turn of retained()) {
+      if (
+        screenSensitivityDeterministically(turn.text, scope).categories.length
+      )
+        withhold(turn);
+    }
+  };
+
+  const prefersJev = resolveClassifierPreference(input.settings) === "jev";
+  screenTurns(prefersJev ? "credentials" : "all");
+  if (prefersJev) {
+    let calls = 0;
+    const deadline = Date.now() + ZOOM_SCREEN_DEADLINE_MS;
+    const classify = async (title: string, content: string) => {
+      calls += 1;
+      if (calls > ZOOM_SCREEN_CALL_LIMIT || Date.now() > deadline) return null;
+      const outcome = await classifyWithJev({
+        title,
+        content,
+        settings: input.settings,
+        ownerEmail: input.source.ownerEmail,
+        ...(input.capturedAt === undefined
+          ? {}
+          : { capturedAt: input.capturedAt }),
+        ...(input.source.orgId === undefined
+          ? {}
+          : { orgId: input.source.orgId }),
+      });
+      if (outcome.failureReason)
+        throw new BrainClassifierUnavailableError(outcome.failureReason);
+      return outcome;
+    };
+
+    for (let round = 0; ; round += 1) {
+      if (!retained().length) return null;
+      const whole = await classify(input.title, render().content);
+      // An exhausted budget stores nothing: the whole-capture gate decides.
+      if (!whole) return null;
+      const decision = whole.decision;
+      if (!decision || decision.disposition === "allowed") break;
+      if (
+        round === ZOOM_SCREEN_ROUNDS ||
+        // Workspace rules describe whole meetings, so they are never split.
+        (decision.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >=
+          JEV_BLOCK_PROBABILITY
+      )
+        return null;
+      const isRestricted = async (range: Turn[]) => {
+        const outcome = await classify(
+          NEUTRAL_EXCERPT_TITLE,
+          range.map((turn) => turn.text).join("\n"),
+        );
+        return outcome && outcome.decision?.disposition !== "allowed";
+      };
+      // Every range in a level is known to be restricted; bisect it to turns.
+      for (let level = [retained()]; level.length; ) {
+        const next: Turn[][] = [];
+        for (let at = 0; at < level.length; at += ZOOM_SCREEN_CONCURRENCY) {
+          const results = await Promise.all(
+            level.slice(at, at + ZOOM_SCREEN_CONCURRENCY).map(async (range) => {
+              if (range.length === 1) return { range, restricted: [] };
+              const middle = Math.ceil(range.length / 2);
+              const halves = [range.slice(0, middle), range.slice(middle)];
+              const verdicts = await Promise.all(halves.map(isRestricted));
+              if (verdicts.includes(null)) return null;
+              return {
+                range,
+                restricted: halves.filter((_, half) => verdicts[half]),
+              };
+            }),
+          );
+          for (const result of results) {
+            if (!result) return null;
+            if (result.range.length === 1) result.range.forEach(withhold);
+            // Restricted only in combination: withhold the smallest such range.
+            else if (!result.restricted.length) result.range.forEach(withhold);
+            else next.push(...result.restricted);
+          }
+        }
+        level = next;
+      }
+    }
+  }
+
+  if (!withheld.size || !retained().length) return null;
+  return render();
 }
 
 export async function sanitizeCaptureForStorage(
+  input: CaptureSanitizationInput,
+): Promise<CaptureSanitizationResult> {
+  const partial =
+    input.source.provider === "zoom" && input.kind === "transcript"
+      ? await withholdRestrictedZoomLines(input)
+      : null;
+  const result = await sanitizeWholeCapture(
+    partial ? { ...input, content: partial.content } : input,
+  );
+  const prior =
+    input.source.provider === "zoom" && input.metadata
+      ? readWithheldZoomPassages(input.metadata)
+      : undefined;
+  if (
+    result.decision?.disposition !== "allowed" ||
+    (!partial && prior === undefined)
+  )
+    return result;
+  const withheldPassages =
+    prior === null ? null : (prior ?? 0) + (partial?.withheldPassages ?? 0);
+  const metadata: Record<string, unknown> = {
+    ...result.metadata,
+    zoomPassageQuarantine: { version: 1, withheldPassages },
+  };
+  // The full-recording link would expose exactly what the excerpt withholds.
+  delete metadata.sourceUrl;
+  return { ...result, metadata };
+}
+
+async function sanitizeWholeCapture(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const metadata = input.metadata ?? {};
@@ -799,58 +829,19 @@ export async function sanitizeCaptureForStorage(
     }
   }
 
-  const partial =
-    decision === jev.decision ? await retainSafeZoomPassages(input, jev) : null;
-  const withheldDecision = partial
-    ? { ...decision, safeContent: "", safeSegments: [] }
-    : undefined;
-  if (partial) decision = partial.decision;
-  const priorReceipt =
-    input.source.provider === "zoom"
-      ? readZoomPassageQuarantine({
-          zoomPassageQuarantine: input.storedZoomPassageQuarantine,
-        })
-      : undefined;
-  const receipt = partial
-    ? {
-        version: 1,
-        totalPassages: priorReceipt ? null : partial.totalPassages,
-        withheldPassages: priorReceipt ? null : partial.withheldPassages,
-      }
-    : priorReceipt;
-  const partialMetadata = receipt ? { zoomPassageQuarantine: receipt } : {};
-  if (receipt) {
-    // A link to the full recording would bypass the excerpt's privacy boundary.
-    for (const key of Object.keys(sanitizedMetadata)) {
-      if (
-        ![
-          "provider",
-          "connector",
-          "zoomMeetingId",
-          "zoomMeetingUuid",
-          "syncRunId",
-        ].includes(key)
-      )
-        delete sanitizedMetadata[key];
-    }
-  }
-  const safeContent = receipt
-    ? scrubZoomRecordingUrls(decision.safeContent)
-    : decision.safeContent;
-  const title =
-    decision.disposition === "allowed"
-      ? sanitizationRequested
-        ? safeTranscriptTitle(input)
-        : input.title
-      : safeTranscriptTitle(input);
   const sanitizedContent =
     decision.disposition === "allowed"
-      ? sanitizationRequested && !partial
-        ? deterministicSanitizeContent(sanitizeSensitiveText(safeContent), {
-            dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
-            preserveGaps: Boolean(receipt),
-          })
-        : sanitizeSensitiveText(safeContent)
+      ? sanitizationRequested
+        ? deterministicSanitizeContent(
+            sanitizeSensitiveText(decision.safeContent),
+            {
+              dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
+              preserveGaps:
+                input.source.provider === "zoom" &&
+                input.content.includes(WITHHELD_MARKER),
+            },
+          )
+        : sanitizeSensitiveText(decision.safeContent)
       : QUARANTINED_CAPTURE_OUTPUT;
   const safeSegmentMetadata =
     decision.disposition === "allowed" && input.source.provider === "slack"
@@ -863,16 +854,16 @@ export async function sanitizeCaptureForStorage(
         }
       : {};
   return {
-    title: receipt
-      ? sanitizeSensitiveText(scrubZoomRecordingUrls(title))
-      : decision.disposition === "allowed"
-        ? sanitizeSensitiveText(title)
-        : title,
+    title:
+      decision.disposition === "allowed"
+        ? sanitizeSensitiveText(
+            sanitizationRequested ? safeTranscriptTitle(input) : input.title,
+          )
+        : safeTranscriptTitle(input),
     content: sanitizedContent,
     metadata: {
       ...sanitizedMetadata,
       ...safeSegmentMetadata,
-      ...partialMetadata,
       captureSanitization: {
         sanitizedBeforeStorage: true,
         rawContentRetained: false,
@@ -895,6 +886,5 @@ export async function sanitizeCaptureForStorage(
       },
     },
     decision,
-    withheldDecision,
   };
 }

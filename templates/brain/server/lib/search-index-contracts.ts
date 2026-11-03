@@ -2,13 +2,10 @@ import { z } from "zod";
 
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
 
-const zoomPassageQuarantineSchema = z
-  .object({
-    version: z.literal(1),
-    totalPassages: z.number().int().positive().max(48),
-    withheldPassages: z.number().int().positive(),
-  })
-  .refine((receipt) => receipt.withheldPassages <= receipt.totalPassages);
+const zoomPassageQuarantineSchema = z.object({
+  version: z.literal(1),
+  withheldPassages: z.number().int().positive().nullable(),
+});
 
 export function parseCaptureMetadata(
   raw: string | null,
@@ -27,14 +24,15 @@ export function parseCaptureMetadata(
   }
 }
 
-export function readZoomPassageQuarantine(metadata: Record<string, unknown>) {
+/** `undefined`: no receipt; `null`: a receipt whose count is unknown. */
+export function readWithheldZoomPassages(
+  metadata: Record<string, unknown>,
+): number | null | undefined {
   if (metadata.zoomPassageQuarantine === undefined) return undefined;
   const receipt = zoomPassageQuarantineSchema.safeParse(
     metadata.zoomPassageQuarantine,
   );
-  return receipt.success
-    ? receipt.data
-    : { version: 1 as const, totalPassages: null, withheldPassages: null };
+  return receipt.success ? receipt.data.withheldPassages : null;
 }
 
 export function withheldZoomPassageCount(
@@ -43,8 +41,8 @@ export function withheldZoomPassageCount(
 ): number | null {
   if (provider !== "zoom") return 0;
   if (metadata === null) return null;
-  const receipt = readZoomPassageQuarantine(metadata);
-  return receipt === undefined ? 0 : receipt.withheldPassages;
+  const withheld = readWithheldZoomPassages(metadata);
+  return withheld === undefined ? 0 : withheld;
 }
 
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";

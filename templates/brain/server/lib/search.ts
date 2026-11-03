@@ -8,11 +8,11 @@ import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
-import { z } from "zod";
 
+import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
-import { parseJson, sourceUrlFromMetadataRecord } from "./brain.js";
+import { parseJson, safeCitationUrl } from "./brain.js";
 import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
@@ -365,41 +365,28 @@ export function scoreSearchText(
 export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
-  return sourceUrlFromMetadataRecord(metadata);
+  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
+    const value = safeCitationUrl(metadata[key]);
+    if (value) return value;
+  }
+  return null;
 }
 
-const searchEvidenceSchema = z.array(
-  z.object({
-    sourceId: z.string().optional(),
-    captureId: z.string().optional(),
-    captureTitle: z.string().optional(),
-    title: z.string().optional(),
-    quote: z.string().optional(),
-    sourceUrl: z.string().optional(),
-    url: z.string().optional(),
-    note: z.string().optional(),
-    timestampMs: z.number().optional(),
-  }),
-);
-
-type SearchEvidence = z.infer<typeof searchEvidenceSchema>;
-
-function parseSearchEvidence(evidenceJson: string): SearchEvidence | null {
-  const result = searchEvidenceSchema.safeParse(
-    parseJson<unknown>(evidenceJson, null),
-  );
-  return result.success ? result.data : null;
-}
-
-function firstCitation(evidence: SearchEvidence | null) {
+function firstCitation(evidenceJson: string) {
+  const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
   return (
-    evidence?.find((item) => item.sourceUrl ?? item.url) ??
-    evidence?.[0] ??
-    null
+    evidence.find((item) => item.sourceUrl ?? item.url) ?? evidence[0] ?? null
   );
 }
 
 const CAPTURE_CONTENT_LIMIT = 4000;
+
+function captureMetadata(metadataJson: string | null): Record<string, unknown> {
+  const parsed = parseJson<unknown>(metadataJson, {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
   if (typeof metadata.channelName === "string") {
@@ -486,118 +473,11 @@ async function searchKnowledgeResults(
     )
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(limit);
-  const citedRows = rows.map((row) => {
-    const evidence = parseSearchEvidence(row.evidenceJson);
-    const citation = firstCitation(evidence);
-    const captureIds = Array.from(
-      new Set(
-        [
-          row.captureId,
-          ...(evidence?.map((item) => item.captureId) ?? []),
-        ].filter((id): id is string => Boolean(id)),
-      ),
-    );
-    return { row, citation, evidence, captureIds };
-  });
-  const captureIds = Array.from(
-    new Set(citedRows.flatMap(({ captureIds }) => captureIds)),
-  );
-  const captures =
-    captureIds.length && audienceIds.length
-      ? await getDb()
-          .select({
-            id: schema.brainRawCaptures.id,
-            sourceId: schema.brainRawCaptures.sourceId,
-            metadataJson: schema.brainRawCaptures.metadataJson,
-          })
-          .from(schema.brainRawCaptures)
-          .where(
-            and(
-              inArray(schema.brainRawCaptures.id, captureIds),
-              sql`exists (
-                select 1 from ${schema.brainSources}
-                where ${schema.brainSources.id} = ${schema.brainRawCaptures.sourceId}
-                  and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
-              )`,
-              eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
-              sql`exists (
-                select 1 from ${schema.brainCaptureAudiences}
-                where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
-                  and ${inArray(schema.brainCaptureAudiences.audienceId, audienceIds)}
-              )`,
-            ),
-          )
-      : [];
-  const capturesById = new Map(
-    captures.map((capture) => [capture.id, capture]),
-  );
-  const sources = await accessibleSourceMap([
-    ...rows.map((row) => row.sourceId),
-    ...captures.map((capture) => capture.sourceId),
-    ...citedRows.flatMap(
-      ({ evidence }) => evidence?.map((item) => item.sourceId ?? null) ?? [],
-    ),
-  ]);
-  return citedRows.map(({ row, citation, evidence, captureIds }) => {
+  const sources = await accessibleSourceMap(rows.map((row) => row.sourceId));
+  return rows.map((row) => {
     const source = sources.get(row.sourceId ?? "");
-    const provenance: Array<{
-      captureId: string | null;
-      citedEvidence: SearchEvidence;
-    }> = captureIds.map((captureId) => ({
-      captureId,
-      citedEvidence:
-        evidence?.filter((item) => item.captureId === captureId) ?? [],
-    }));
-    provenance.push(
-      ...(evidence
-        ?.filter((item) => !item.captureId)
-        .map((item) => ({ captureId: null, citedEvidence: [item] })) ?? []),
-    );
-    if (!provenance.length) {
-      provenance.push({ captureId: null, citedEvidence: [] });
-    }
-    const counts = provenance.map(({ captureId, citedEvidence }) => {
-      const capture = capturesById.get(captureId ?? "");
-      const citedSource = capture
-        ? sources.get(capture.sourceId)
-        : citedEvidence
-            .map((item) => sources.get(item.sourceId ?? ""))
-            .find((item) => item !== undefined);
-      const provider =
-        citedSource?.provider ??
-        ((captureId !== null && captureId === row.captureId) ||
-        evidence?.length === 0
-          ? source?.provider
-          : undefined);
-      if (provider && provider !== "zoom") return 0;
-      return capture && citedSource
-        ? withheldZoomPassageCount(
-            parseCaptureMetadata(capture.metadataJson),
-            citedSource.provider,
-          )
-        : null;
-    });
-    const withheldPassages =
-      evidence === null
-        ? null
-        : counts.reduce<number | null>(
-            (total, count) =>
-              total === null || count === null ? null : total + count,
-            0,
-          );
-    const displayedCapture = capturesById.get(
-      (citation ? citation.captureId : row.captureId) ?? "",
-    );
-    const displayedMetadata = displayedCapture
-      ? parseCaptureMetadata(displayedCapture.metadataJson)
-      : null;
-    const sourceUrl =
-      withheldPassages === 0 &&
-      displayedCapture &&
-      displayedMetadata &&
-      sources.has(displayedCapture.sourceId)
-        ? sourceUrlFromMetadataRecord(displayedMetadata)
-        : null;
+    const citation = firstCitation(row.evidenceJson);
+    const sourceUrl = safeCitationUrl(citation?.sourceUrl ?? citation?.url);
     const summary = cleanText(row.summary) || buildSnippet(row.body, terms);
     const score =
       scoreSearchText(
@@ -628,22 +508,19 @@ async function searchKnowledgeResults(
       sourceUrl,
       citation: citation
         ? {
-            ...(citation.captureId !== undefined
-              ? { captureId: citation.captureId }
-              : {}),
-            ...(displayedCapture && citation.captureTitle !== undefined
-              ? { captureTitle: redactSensitiveText(citation.captureTitle) }
-              : {}),
-            ...(displayedCapture && citation.quote !== undefined
-              ? { quote: redactSensitiveText(citation.quote) }
-              : {}),
+            captureId: citation.captureId,
+            captureTitle: citation.captureTitle
+              ? redactSensitiveText(citation.captureTitle)
+              : citation.captureTitle,
+            quote: citation.quote
+              ? redactSensitiveText(citation.quote)
+              : citation.quote,
             sourceUrl,
           }
         : null,
       confidence: row.confidence,
       updatedAt: row.updatedAt,
       score,
-      withheldPassages,
     };
   });
 }
@@ -687,9 +564,8 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const parsedMetadata = parseCaptureMetadata(row.metadataJson);
-    const metadata = parsedMetadata ?? {};
-    const sourceUrl = sourceUrlFromMetadataRecord(metadata);
+    const metadata = captureMetadata(row.metadataJson);
+    const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
       {
@@ -726,7 +602,7 @@ async function searchCaptureResults(
         location: captureLocation(metadata),
         content: captureContent(row.content),
         withheldPassages: withheldZoomPassageCount(
-          parsedMetadata,
+          parseCaptureMetadata(row.metadataJson),
           source.provider,
         ),
       },
@@ -758,7 +634,7 @@ async function searchSourceResults(
     .limit(limit);
   return rows.map((row) => {
     const metadata = parseJson<Record<string, unknown>>(row.configJson, {});
-    const sourceUrl = sourceUrlFromMetadataRecord(metadata);
+    const sourceUrl = sourceUrlFromMetadata(metadata);
     return {
       type: "source" as const,
       id: row.id,
@@ -902,9 +778,8 @@ export async function searchEverythingWithLanes(args: {
             const source = sources.get(artifact.sourceId);
             const detail = details.get(artifact.captureId);
             if (!source || !detail) return [];
-            const parsedMetadata = parseCaptureMetadata(detail.metadataJson);
-            const metadata = parsedMetadata ?? {};
-            const sourceUrl = sourceUrlFromMetadataRecord(metadata);
+            const metadata = captureMetadata(detail.metadataJson);
+            const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
             );
@@ -936,7 +811,7 @@ export async function searchEverythingWithLanes(args: {
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
                 withheldPassages: withheldZoomPassageCount(
-                  parsedMetadata,
+                  parseCaptureMetadata(detail.metadataJson),
                   source.provider,
                 ),
               },

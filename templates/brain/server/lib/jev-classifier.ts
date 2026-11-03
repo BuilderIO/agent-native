@@ -23,7 +23,7 @@ const MAX_TITLE_CHARS = 1_000;
 const JEV_TIMEOUT_MS = 15_000;
 const JEV_RETRY_DELAYS_MS = [1_000, 3_000];
 
-const JEV_BLOCK_PROBABILITY = 0.6;
+export const JEV_BLOCK_PROBABILITY = 0.6;
 const JEV_HIGH_CONFIDENCE_PROBABILITY = 0.85;
 
 const SCORE_CACHE_LIMIT = 500;
@@ -89,7 +89,6 @@ export interface JevClassificationOutcome {
   decision?: BrainSensitivityDecision;
   failureReason?: JevFailureReason;
   authSource?: JevAuthSource;
-  truncated?: boolean;
 }
 
 export type JevAuthSource = "stored-key" | "builder-gateway";
@@ -611,7 +610,6 @@ export async function runJevClassification(
   return {
     configured: true,
     authSource: auth.source,
-    truncated,
     decision: jevSensitivityDecision(scores, {
       judgedContent: judgedBody,
       capturedAt: input.capturedAt ?? new Date(0).toISOString(),
