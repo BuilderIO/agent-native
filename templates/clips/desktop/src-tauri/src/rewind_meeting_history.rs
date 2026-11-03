@@ -1,4 +1,3 @@
-
 use crate::capture_graph::{CaptureConsumer, CaptureSource};
 use crate::config::RewindCaptureMode;
 use crate::screen_memory::{self, ScreenMemoryRuntimeState, ScreenMemorySegmentMetadata};
