@@ -28,6 +28,7 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { endsInHtmlComment } from "../shared/og-description.js";
 import {
   parseSearchQuery,
   type SearchQueryTerm,
@@ -62,7 +63,7 @@ function previewSnippet(
         snippetNeedle: string | null;
         matchPosition: number | null;
         contentLength: number | null;
-        startsInComment: boolean | null;
+        beforeOpenMarker: string | null;
       }
     | undefined,
 ): string {
@@ -74,7 +75,7 @@ function previewSnippet(
     clippedEnd:
       windowStart - 1 + Array.from(window).length <
       (Number(preview?.contentLength) || 0),
-    startsInComment: Boolean(preview?.startsInComment),
+    startsInComment: endsInHtmlComment(preview?.beforeOpenMarker ?? ""),
     matchOffset: position > 0 ? position - windowStart : undefined,
   });
 }
@@ -353,14 +354,17 @@ export default defineAction({
     const matchWindow = selectedBodyPosition
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    // Whether the window starts inside an HTML comment: the page before it,
-    // read backwards, reaches a `<!--` before any `-->`.
+    // The page before the window, only when that text, read backwards, reaches
+    // a `<!--` before any `-->`. The window can only start inside a comment
+    // then, and the marker may still be code, which takes Markdown to tell.
     const beforeWindow = selectedBodyPosition
-      ? sql<string>`reverse(substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1)))`
+      ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
       : undefined;
-    const startsInComment = beforeWindow
-      ? sql<boolean>`coalesce(strpos(${beforeWindow}, '--!<') > 0 and (strpos(${beforeWindow}, '>--') = 0 or strpos(${beforeWindow}, '--!<') < strpos(${beforeWindow}, '>--')), false)`
-      : sql<boolean>`false`;
+    const beforeOpenMarker = beforeWindow
+      ? sql<
+          string | null
+        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then ${beforeWindow} end`
+      : sql<string | null>`null`;
     const ranking =
       !indexedSearch && parsedQuery?.groups.length
         ? documentSearchRanking(
@@ -434,7 +438,7 @@ export default defineAction({
               ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
               : sql<string>`''`,
             contentLength: sql<number>`length(${normalizedContent})`,
-            startsInComment,
+            beforeOpenMarker,
           })
           .from(schema.documents)
           .where(

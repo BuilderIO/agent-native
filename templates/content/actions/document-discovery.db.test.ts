@@ -335,6 +335,49 @@ describe("bounded document discovery", () => {
     expect(result.documents[0]?.snippet).toBe("...Public closing words.");
   });
 
+  it("keeps a snippet whose page mentions a comment marker in code first", async () => {
+    const filler = "filler ".repeat(120);
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-marker-span",
+          ownerEmail: OWNER,
+          title: "Marker in a span",
+          content: `Write \`<!--\` to open one. ${filler}spanned-okapi-roadmap stays here.`,
+        },
+        {
+          id: "search-marker-fence",
+          ownerEmail: OWNER,
+          title: "Marker in a fence",
+          content: `~~~html\n<!-- an example\n~~~\n\n${filler}fenced-okapi-roadmap stays here.`,
+        },
+        {
+          id: "search-marker-and-comment",
+          ownerEmail: OWNER,
+          title: "Marker, then a real comment",
+          content: `Write \`<!--\` to open one. <!-- ${filler}commented-okapi-roadmap internal --> Public closing words.`,
+        },
+      ]);
+
+    const snippetFor = async (query: string) => {
+      const result = await asUser(OWNER, () =>
+        searchDocuments.run({ query, limit: 10, offset: 0 }),
+      );
+      return result.documents[0]?.snippet;
+    };
+
+    expect(await snippetFor("spanned-okapi-roadmap")).toContain(
+      "spanned-okapi-roadmap stays here.",
+    );
+    expect(await snippetFor("fenced-okapi-roadmap")).toContain(
+      "fenced-okapi-roadmap stays here.",
+    );
+    expect(await snippetFor("commented-okapi-roadmap")).toBe(
+      "...Public closing words.",
+    );
+  });
+
   it("prefers snippet context containing more positive terms", async () => {
     await getDb()
       .insert(schema.documents)

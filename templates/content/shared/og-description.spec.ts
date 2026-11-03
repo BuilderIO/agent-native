@@ -4,6 +4,7 @@ import {
   buildDocumentExcerpt,
   buildListRowExcerpt,
   buildPublicDocumentDescription,
+  endsInHtmlComment,
   stripMarkdownForPreview,
 } from "./og-description";
 
@@ -72,6 +73,65 @@ Quarterly Launch Plan
     expect(text).toContain("Write <!-- to open a comment.");
     expect(text).toContain("a note");
     expect(text).toContain("Then close it.");
+
+    // Any fence counts, and one that holds an unclosed marker hides nothing.
+    for (const sample of [
+      "~~~html\n<!-- a note\n~~~\n\nThen close it.",
+      "````\n```\n<!-- a note\n```\n````\n\nThen close it.",
+      "Write ``<!--`` to open it. Then close it.",
+      "Write ``a ` <!-- b`` to open it. Then close it.",
+    ]) {
+      expect(stripMarkdownForPreview(sample)).toContain("Then close it.");
+    }
+    expect(
+      stripMarkdownForPreview("```<!-- a note -->``` Then close it."),
+    ).toContain("a note");
+  });
+
+  it("removes a comment after a backtick that isn't code", () => {
+    for (const sample of [
+      "Use ` as a marker. <!-- hidden --> Then ``two`` here.",
+      "Escape \\` first. <!-- hidden --> Then ` here.",
+      "One ` here.\n\nThen <!-- hidden --> ` there.",
+      "```js``` then <!-- hidden --> text.\n\nMore here.",
+    ]) {
+      const text = stripMarkdownForPreview(sample);
+      expect(text).not.toContain("hidden");
+      expect(text).toMatch(/(here|there|More here)\.$/);
+    }
+  });
+
+  it("tells whether markdown stops inside a comment", () => {
+    for (const [markdown, expected] of [
+      ["Text <!-- open", true],
+      ["Text <!-- closed --> more", false],
+      ["Text <!-- closed --> and <!-- open", true],
+      ["Text with no comment", false],
+      ["Write `<!--` first", false],
+      ["~~~\n<!--\n~~~\n\nAfter", false],
+      ["```\n<!-- still in code", false],
+      ["Use ` then <!-- open", true],
+      ["`<!--` then <!-- open", true],
+    ] as const) {
+      expect(endsInHtmlComment(markdown)).toBe(expected);
+    }
+  });
+
+  it("keeps a comment that spans paragraphs out of descriptions", () => {
+    const content = "<!-- first\n\nsecond -->\n\nPublic text.";
+    expect(buildPublicDocumentDescription({ content })).toBe("Public text.");
+    expect(buildDocumentExcerpt({ content })).toBe("Public text.");
+    expect(
+      buildDocumentExcerpt({
+        content: "Public text.\n\n<!-- first\n\nsecond",
+        truncated: true,
+      }),
+    ).toBe("Public text...");
+    expect(
+      buildPublicDocumentDescription({
+        content: "~~~\n<!--\n~~~\n\nPublic text.",
+      }),
+    ).toBe("Public text.");
   });
 
   it("removes a link address with parentheses in it", () => {
