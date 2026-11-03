@@ -236,6 +236,50 @@ describe("client status requests", () => {
     });
   });
 
+  it("serves the cached status after a script wraps window.fetch", async () => {
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({ chatEligible: false }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await fetchAgentEngineStatus();
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, init),
+    );
+
+    await expect(fetchAgentEngineStatus()).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps separate cache entries for different explicit fetchers", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const firstFetch = vi.fn(async () => jsonResponse({ chatEligible: true }));
+    const secondFetch = vi.fn(async () =>
+      jsonResponse({ chatEligible: false }),
+    );
+
+    await expect(
+      fetchAgentEngineStatus({
+        url: statusUrl,
+        fetch: firstFetch as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ state: "available", value: { chatEligible: true } });
+    await expect(
+      fetchAgentEngineStatus({
+        url: statusUrl,
+        fetch: secondFetch as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({ state: "available", value: { chatEligible: false } });
+
+    expect(firstFetch).toHaveBeenCalledOnce();
+    expect(secondFetch).toHaveBeenCalledOnce();
+  });
+
   it("deduplicates equivalent status request scopes and invalidates every URL scope", async () => {
     const statusUrl =
       "https://shared.example.test/_agent-native/agent-engine/status";

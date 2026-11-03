@@ -2871,8 +2871,21 @@ function drainPendingDeckOps(
           );
         } else {
           pendingOpsQueue.delete(deckId);
+          immediateFlushRequests.delete(deckId);
         }
-        const handlers = [...persistedResultHandlers, ...pendingHandlers];
+        const handlers = [
+          ...persistedResultHandlers,
+          ...pendingHandlers,
+        ].flatMap(({ handler, slideWriteSequences }) => {
+          const liveSequences = new Map(
+            [...slideWriteSequences].filter(
+              ([slideId]) => !deletedSlideIds.has(slideId),
+            ),
+          );
+          return liveSequences.size > 0
+            ? [{ handler, slideWriteSequences: liveSequences }]
+            : [];
+        });
         if (handlers.length > 0) {
           pendingPersistedResultHandlers.set(deckId, handlers);
         } else {

@@ -112,6 +112,8 @@ type RequestDesignAccessResult = {
 };
 
 const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
+// Each refetch re-renders the live canvas; the ghost refetches on its own when its call lands.
+const GENERATION_REFETCH_INTERVAL_MS = 3000;
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -715,10 +717,10 @@ export function useEditorGenerationAndAccess({
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
         ? pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : 30_000
         : pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : false,
     },
   );
