@@ -88,12 +88,11 @@ export default defineAction({
       .record(z.string(), z.string())
       .optional()
       .describe("Saved dashboard filter values; omit for defaults."),
-    runsPerMonth: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(100_000)
-      .optional()
+    runsPerMonth: z
+      .preprocess(
+        (value) => (value === null || value === "" ? undefined : value),
+        z.coerce.number().int().min(0).max(100_000).optional(),
+      )
       .describe(
         "Override scheduled runs per month; otherwise use accessible email schedules.",
       ),

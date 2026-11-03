@@ -575,4 +575,31 @@ describe("estimate-dashboard-cost saved-ID entry point", () => {
     ]);
     expect(result.summary).toContain("none could be priced");
   });
+  it.each([
+    [undefined, 30, "1 enabled daily email report in your org"],
+    [null, 30, "1 enabled daily email report in your org"],
+    ["", 30, "1 enabled daily email report in your org"],
+    [0, 0, "caller"],
+    [12, 12, "caller"],
+  ])(
+    "uses saved schedules for an unset run count %s and preserves explicit overrides",
+    async (runsPerMonth, expected, basis) => {
+      mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+      mocks.countReports.mockResolvedValueOnce(1);
+      mocks.resolvePanels.mockReturnValueOnce([
+        {
+          panelId: "small",
+          title: "Small",
+          source: "bigquery",
+          query: "saved",
+        },
+      ]);
+      const result = await runSaved({ dashboardId: "d1", runsPerMonth });
+      expect(result.runsPerMonth).toBe(expected);
+      expect(result.runsPerMonthBasis).toBe(basis);
+      expect(result.total.usdPerMonth).toBe(
+        expected === 0 ? 0 : expect.any(Number),
+      );
+    },
+  );
 });
