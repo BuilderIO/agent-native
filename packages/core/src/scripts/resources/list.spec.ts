@@ -63,6 +63,8 @@ describe("resource-list pagination", () => {
 
   it("tells text readers how to fetch the next page", async () => {
     await run(["--limit", "10"]);
-    expect(output.join("\n")).toContain("Next page: --scope all --offset 10 --limit 10");
+    expect(output.join("\n")).toContain(
+      "Next page: --scope all --offset 10 --limit 10",
+    );
   });
 });
