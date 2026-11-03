@@ -153,6 +153,10 @@ export default function AssetLibraryPanel({
         toast.error(t("raw.assetDeleteFailed"));
         return;
       }
+      const body: { storageDeleted: boolean } = await res.json();
+      if (!body.storageDeleted) {
+        toast.warning(t("raw.assetDeleteStorageRemains"));
+      }
       setAssets((prev) => prev.filter((a) => a.id !== id));
     } catch {
       toast.error(t("raw.assetDeleteFailed"));

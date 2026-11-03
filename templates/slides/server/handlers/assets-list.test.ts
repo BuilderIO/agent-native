@@ -208,6 +208,18 @@ describe("listAssets", () => {
         provider: "s3",
         providerObjectId: null,
       },
+      {
+        id: "unrecorded-image",
+        url: "https://cdn.example.com/unrecorded.png",
+        filename: "unrecorded.png",
+        size: 111,
+        createdAt: "2026-10-05T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        type: "image/png",
+        provider: null,
+        providerObjectId: null,
+      },
     ];
     state.auth.mockReset();
     state.auth.mockResolvedValue({
@@ -260,6 +272,14 @@ describe("listAssets", () => {
         type: "image/png",
         size: 654,
         createdAt: "2026-10-06T00:00:00.000Z",
+      },
+      {
+        id: "unrecorded-image",
+        url: "https://cdn.example.com/unrecorded.png",
+        filename: "unrecorded.png",
+        type: "image/png",
+        size: 111,
+        createdAt: "2026-10-05T00:00:00.000Z",
       },
     ]);
   });
@@ -346,6 +366,16 @@ describe("listAssets", () => {
     expect(result).toEqual({ error: expect.any(String) });
     expect(deleteUploadedFile).not.toHaveBeenCalled();
     expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
+  });
+
+  it("removes a row whose provider was never recorded and says the file remains", async () => {
+    state.routerParam.mockReturnValue("unrecorded-image");
+
+    const result = await deleteAsset({} as never);
+
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true, storageDeleted: false });
+    expect(state.rows.some((row) => row.id === "unrecorded-image")).toBe(false);
   });
 
   it("keeps the row and reports failure when the stored file cannot be deleted", async () => {

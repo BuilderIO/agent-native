@@ -122,6 +122,8 @@ const messages = {
     noAssetsYet: "No assets yet.",
     assetUploadFailed: "Some uploads failed",
     assetDeleteFailed: "Failed to delete asset",
+    assetDeleteStorageRemains:
+      "Removed from the library, but the stored file could not be deleted",
     contentMarkdown: "Content (Markdown)",
     speakerNotes: "Speaker Notes",
     speakerNotesForSlide: "Speaker Notes — Slide {{index}} / {{count}}",

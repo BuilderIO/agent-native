@@ -2264,23 +2264,26 @@ export const deleteAsset = defineEventHandler(async (event) => {
     return { error: "Asset belongs to another user" };
   }
 
+  // A null provider means the upload never recorded where the file lives, so the
+  // library entry is removed and the caller is told the file itself remains.
   const provider = asset.provider;
-  const deleted = provider
-    ? await runWithRequestContext(
-        {
-          userEmail: session.email,
-          ...(session.orgId ? { orgId: session.orgId } : {}),
-        },
-        () =>
-          deleteUploadedFile(provider, {
-            ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
-            url: asset.url,
-          }),
-      )
-    : false;
-  if (!deleted) {
-    setResponseStatus(event, 502);
-    return { error: "Could not delete the stored file" };
+  let storageDeleted = false;
+  if (provider) {
+    storageDeleted = await runWithRequestContext(
+      {
+        userEmail: session.email,
+        ...(session.orgId ? { orgId: session.orgId } : {}),
+      },
+      () =>
+        deleteUploadedFile(provider, {
+          ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
+          url: asset.url,
+        }),
+    );
+    if (!storageDeleted) {
+      setResponseStatus(event, 502);
+      return { error: "Could not delete the stored file" };
+    }
   }
 
   await db
@@ -2292,5 +2295,5 @@ export const deleteAsset = defineEventHandler(async (event) => {
         imageAssetWorkspaceScope(session.orgId),
       ),
     );
-  return { success: true };
+  return { success: true, storageDeleted };
 });

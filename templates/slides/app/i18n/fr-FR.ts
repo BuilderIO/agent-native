@@ -123,6 +123,8 @@ const messages = {
     noAssetsYet: "Aucun asset pour le moment.",
     assetUploadFailed: "Certains envois ont échoué",
     assetDeleteFailed: "Échec de la suppression de l'asset",
+    assetDeleteStorageRemains:
+      "Retiré de la bibliothèque, mais le fichier stocké n'a pas pu être supprimé",
     contentMarkdown: "Contenu (Markdown)",
     speakerNotes: "Notes du présentateur",
     speakerNotesForSlide:

@@ -120,6 +120,8 @@ const messages = {
     noAssetsYet: "لا توجد أصول بعد.",
     assetUploadFailed: "فشل بعض التحميلات",
     assetDeleteFailed: "فشل حذف الأصل",
+    assetDeleteStorageRemains:
+      "تمت إزالته من المكتبة، لكن تعذر حذف الملف المخزّن",
     contentMarkdown: "المحتوى (Markdown)",
     speakerNotes: "ملاحظات المتحدث",
     speakerNotesForSlide: "ملاحظات المتحدث — الشريحة {{index}} / {{count}}",
