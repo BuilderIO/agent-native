@@ -120,6 +120,26 @@ describe("route chunk recovery bootstrap", () => {
     expect(stopImmediatePropagation).toHaveBeenCalledOnce();
   });
 
+  it("clears the navigating marker when the recovery navigation throws", () => {
+    const { assign, onError, windowState } = installBootstrap();
+    assign.mockImplementation(() => {
+      throw new Error("blocked");
+    });
+
+    expect(() =>
+      onError({
+        target: {
+          getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+          hasAttribute: () => false,
+          rel: "modulepreload",
+          tagName: "LINK",
+        },
+        stopImmediatePropagation: vi.fn(),
+      }),
+    ).toThrow("blocked");
+    expect(windowState[STALE_CHUNK_NAVIGATING_AT_KEY]).toBeUndefined();
+  });
+
   it("replaces legacy arbitrary recovery markers with the fixed recovery path", () => {
     const { assign, onError } = installBootstrap(
       `https://example.test/apps?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary`,
