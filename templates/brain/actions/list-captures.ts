@@ -172,7 +172,10 @@ export default defineAction({
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadataRecord(metadata ?? {}),
-            withheldPassages: withheldZoomPassageCount(metadata),
+            withheldPassages: withheldZoomPassageCount(
+              metadata,
+              source.provider,
+            ),
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

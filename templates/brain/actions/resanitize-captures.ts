@@ -300,6 +300,28 @@ export default defineAction({
             updatedAt: nowIso(),
           })
           .where(eq(schema.brainRawCaptures.id, row.capture.id));
+        if (sanitized.withheldDecision) {
+          await recordBlockedCapture({
+            id: row.capture.id,
+            existing: null,
+            retainedCaptureId: row.capture.id,
+            source: row.source,
+            values: {
+              id: row.capture.id,
+              sourceId: row.capture.sourceId,
+              externalId: row.capture.externalId,
+              title: row.capture.title,
+              kind: row.capture.kind as BrainCaptureKind,
+              content: row.capture.content,
+              capturedAt: row.capture.capturedAt,
+            },
+            decision: {
+              ...sanitized.withheldDecision,
+              disposition: "suppressed",
+            },
+            retentionHours: settings.quarantineRetentionHours ?? 72,
+          });
+        }
         if (
           hasDerivedRefs &&
           (sanitized.decision?.disposition !== "allowed" ||

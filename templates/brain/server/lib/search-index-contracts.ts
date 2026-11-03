@@ -39,7 +39,9 @@ export function readZoomPassageQuarantine(metadata: Record<string, unknown>) {
 
 export function withheldZoomPassageCount(
   metadata: Record<string, unknown> | null,
+  provider: string,
 ): number | null {
+  if (provider !== "zoom") return 0;
   if (metadata === null) return null;
   const receipt = readZoomPassageQuarantine(metadata);
   return receipt === undefined ? 0 : receipt.withheldPassages;

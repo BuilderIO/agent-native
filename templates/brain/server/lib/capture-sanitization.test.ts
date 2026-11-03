@@ -355,22 +355,71 @@ describe("Zoom passage quarantine", () => {
     },
   );
 
-  it("preserves trusted stored excerpts without stripping their transcript lines", async () => {
+  it.each(["legacy", "generated"])(
+    "honors configured sanitization for %s stored excerpt receipts",
+    async (provenance) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content:
+          "Product roadmap is on track.\nFamily picnic on Saturday.\n[…]",
+        metadata: {
+          sanitizeBeforeStorage: true,
+          ...(provenance === "generated"
+            ? { captureSanitization: { method: "jev" } }
+            : {}),
+        },
+        storedZoomPassageQuarantine: receipt,
+      });
+      expect(result.content).toBe("Product roadmap is on track.\n[…]");
+      expect(result.metadata.zoomPassageQuarantine).toEqual(receipt);
+    },
+  );
+
+  it("applies configured filtering before the final partial screen and preserves gap markers", async () => {
     mocks.classifyWithJev.mockImplementation(async ({ content }) =>
       classification(content),
     );
-    const original = await sanitizeCaptureForStorage(zoomInput);
     const result = await sanitizeCaptureForStorage({
       ...zoomInput,
-      content: original.content,
-      metadata: { ...original.metadata, sanitizeBeforeStorage: true },
-      storedZoomPassageQuarantine: original.metadata.zoomPassageQuarantine,
+      content: `${transcript}\nProduct plans for family vacation.`,
+      metadata: { ...zoomInput.metadata, sanitizeBeforeStorage: true },
     });
-    expect(result.content).toBe(original.content);
-    expect(result.metadata.zoomPassageQuarantine).toEqual(
-      original.metadata.zoomPassageQuarantine,
-    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("PUBLIC_UPDATE_0");
+    expect(result.content).toContain("[…]");
+    expect(result.content).not.toContain("family vacation");
+    const finalCall =
+      mocks.classifyWithJev.mock.calls[
+        mocks.classifyWithJev.mock.calls.length - 1
+      ]?.[0];
+    expect(finalCall.content).toBe(result.content);
   });
+
+  it.each(["workspace-rule", "categoryless"])(
+    "keeps the whole meeting blocked for a passage-only %s rejection",
+    async (reason) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
+        const outcome = classification(content);
+        if (content !== transcript) {
+          outcome.decision.disposition = "quarantined";
+          outcome.decision.confidenceBand = "high";
+          if (reason === "workspace-rule")
+            outcome.decision.categoryScores = { "workspace-rule": 0.9 };
+          else outcome.decision.categories = [];
+        }
+        return outcome;
+      });
+      const result = await sanitizeCaptureForStorage(zoomInput);
+      expect(result.decision?.disposition).toBe("quarantined");
+      expect(result.withheldDecision).toBeUndefined();
+      expect(result.content).not.toContain("PUBLIC_UPDATE_0");
+      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("does not carve up credential-bearing Zoom transcripts", async () => {
     const result = await sanitizeCaptureForStorage({

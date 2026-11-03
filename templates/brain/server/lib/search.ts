@@ -595,7 +595,10 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(parsedMetadata),
+        withheldPassages: withheldZoomPassageCount(
+          parsedMetadata,
+          source.provider,
+        ),
       },
     ];
   });
@@ -802,7 +805,10 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(parsedMetadata),
+                withheldPassages: withheldZoomPassageCount(
+                  parsedMetadata,
+                  source.provider,
+                ),
               },
             ];
           });

@@ -830,6 +830,24 @@ describe("Brain semantic capture hits", () => {
       withheldPassages: 5,
     },
     { name: "absent receipt", metadata: {}, withheldPassages: 0 },
+    {
+      name: "Slack invalid JSON",
+      provider: "slack",
+      metadata: "not JSON",
+      withheldPassages: 0,
+    },
+    {
+      name: "manual missing metadata",
+      provider: "manual",
+      metadata: null,
+      withheldPassages: 0,
+    },
+    {
+      name: "generic malformed receipt",
+      provider: "generic",
+      metadata: { zoomPassageQuarantine: null },
+      withheldPassages: 0,
+    },
     { name: "missing metadata", metadata: null, withheldPassages: null },
     { name: "invalid JSON", metadata: "not JSON", withheldPassages: null },
     {
@@ -884,11 +902,16 @@ describe("Brain semantic capture hits", () => {
       withheldPassages: null,
     },
   ])(
-    "reports withheld Zoom passages for $name in semantic and keyword capture results",
-    async ({ metadata, withheldPassages }) => {
+    "reports provider-scoped withheld passages for $name in semantic and keyword capture results",
+    async ({ metadata, withheldPassages, provider = "zoom" }) => {
+      mocks.rows.sources.push({
+        ...mocks.rows.sources[0],
+        id: "source-completeness",
+        provider,
+      });
       seedSemanticCapture({
         id: "capture-partial-zoom",
-        sourceId: "source-slack",
+        sourceId: "source-completeness",
         metadata,
       });
       const semantic = await searchEverythingWithLanes({

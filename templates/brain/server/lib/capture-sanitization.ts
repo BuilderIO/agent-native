@@ -222,7 +222,7 @@ function isRecruitingSensitiveLine(line: string): boolean {
 
 function deterministicSanitizeContent(
   content: string,
-  options: { dropTranscriptLines?: boolean } = {},
+  options: { dropTranscriptLines?: boolean; preserveGaps?: boolean } = {},
 ): string {
   const source = preferredDeterministicSection(content);
   const hasSummarySection = source !== content;
@@ -233,15 +233,25 @@ function deterministicSanitizeContent(
     .filter((line) => !/^chat with meeting transcript:/i.test(line))
     .filter(
       (line) =>
+        (options.preserveGaps && line === "[…]") ||
         !(hasSummarySection || options.dropTranscriptLines) ||
         !looksLikeRawTranscriptLine(line),
     )
     .filter((line) => !isRecruitingSensitiveLine(line))
-    .filter((line) => COMPANY_SIGNAL.test(line) && !PERSONAL_SIGNAL.test(line))
-    .map((line) => sanitizeSensitiveText(neutralizeSpeakerLabel(line)))
+    .filter(
+      (line) =>
+        (options.preserveGaps && line === "[…]") ||
+        (COMPANY_SIGNAL.test(line) && !PERSONAL_SIGNAL.test(line)),
+    )
+    .map((line) =>
+      options.preserveGaps && line === "[…]"
+        ? line
+        : sanitizeSensitiveText(neutralizeSpeakerLabel(line)),
+    )
     .filter(Boolean);
 
-  if (retained.length === 0) return DEFAULT_SANITIZATION_OUTPUT;
+  if (retained.length === 0 || retained.every((line) => line === "[…]"))
+    return DEFAULT_SANITIZATION_OUTPUT;
   return retained.join("\n").slice(0, 80_000).trim();
 }
 
@@ -659,7 +669,9 @@ async function retainSafeZoomPassages(
     if (
       !decision ||
       decision.confidenceBand === "uncertain" ||
-      decision.categories.includes("secret-credential")
+      decision.categories.includes("secret-credential") ||
+      (decision.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >= 0.6 ||
+      (decision.disposition !== "allowed" && !decision.categories.length)
     )
       return null;
     if (decision.disposition !== "allowed") rejected.add(index);
@@ -687,7 +699,14 @@ async function retainSafeZoomPassages(
       /(?<![\w.-])(?:(?:https?:)?\/\/)?(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi,
       "[…]",
     );
-  const decision = await classify(retainedContent);
+  const filteredContent = shouldSanitizeCaptureBeforeStorage(input)
+    ? deterministicSanitizeContent(retainedContent, {
+        dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
+        preserveGaps: true,
+      })
+    : retainedContent;
+  if (filteredContent === DEFAULT_SANITIZATION_OUTPUT) return null;
+  const decision = await classify(filteredContent);
   if (decision?.disposition !== "allowed") return null;
   return {
     decision,
@@ -787,8 +806,6 @@ export async function sanitizeCaptureForStorage(
           zoomPassageQuarantine: input.storedZoomPassageQuarantine,
         })
       : undefined;
-  const storedExcerpt =
-    priorReceipt !== undefined && priorReceipt.withheldPassages !== null;
   const receipt = partial
     ? {
         version: 1,
@@ -814,11 +831,12 @@ export async function sanitizeCaptureForStorage(
   }
   const sanitizedContent =
     decision.disposition === "allowed"
-      ? sanitizationRequested && !partial && !storedExcerpt
+      ? sanitizationRequested && !partial
         ? deterministicSanitizeContent(
             sanitizeSensitiveText(decision.safeContent),
             {
               dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
+              preserveGaps: Boolean(receipt),
             },
           )
         : sanitizeSensitiveText(decision.safeContent)

@@ -118,10 +118,13 @@ whole transcript lines are grouped into passages of up to 2,000 characters,
 screened with neighboring passages, and rejected passages plus their neighbors
 are withheld. The combined retained text must pass Jev again. `[…]` marks gaps;
 `metadata.zoomPassageQuarantine` records total/withheld passage counts, and
-capture inventory/search return `withheldPassages` (null means the metadata or
-receipt is unreadable and the count is unknown, not zero). Re-sanitizing stored
-excerpts preserves this receipt; caller-provided receipts do not bypass
-configured sanitization. Disclose that these sources are incomplete; never
+Zoom capture inventory, search, and detail return `withheldPassages` (null means
+the metadata or receipt is unreadable and the count is unknown, not zero).
+Non-Zoom captures do not receive this Zoom warning. Re-sanitizing stored
+excerpts preserves this receipt and writes linked suppression events when new
+passages are withheld. Configured sanitization also filters partial and stored
+excerpts; receipts never grant an exemption. New partial excerpts are filtered
+before their final combined Jev screen. Disclose that these sources are incomplete; never
 reconstruct omitted text. Partial captures omit full-recording links, including
 HTTP and scheme-less URLs, and retain no withheld text or private quarantine
 blob. Their audit events are linked, time-bounded suppression receipts, not

@@ -910,6 +910,7 @@ import listCapturesAction from "../../actions/list-captures.js";
 import listProposalsAction from "../../actions/list-proposals.js";
 import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
+import resanitizeCapturesAction from "../../actions/resanitize-captures.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 import {
@@ -951,6 +952,35 @@ import {
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
 import { enqueueCaptureInvalidation } from "./ingest-queue.js";
 import * as jevClassifier from "./jev-classifier.js";
+
+function zoomPassageFixture() {
+  const content = Array.from(
+    { length: 36 },
+    (_, index) =>
+      `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
+  ).join("\n");
+  const classifier = vi
+    .spyOn(jevClassifier, "classifyWithJev")
+    .mockImplementation(async (input) => ({
+      configured: true,
+      truncated: false,
+      decision: jevClassifier.jevSensitivityDecision(
+        {
+          "health-accommodation": input.content.includes(
+            "WITHHELD_PRIVATE_DETAIL",
+          )
+            ? 0.95
+            : 0.01,
+        },
+        {
+          judgedContent: input.content,
+          capturedAt: "2026-10-28T10:00:00Z",
+          truncated: false,
+        },
+      ),
+    }));
+  return { content, classifier };
+}
 
 function resetMocks() {
   vi.clearAllMocks();
@@ -1669,31 +1699,7 @@ describe("Brain knowledge quality gates", () => {
           ? {}
           : { quarantineRetentionHours: retentionHours }),
       });
-      const content = Array.from(
-        { length: 36 },
-        (_, index) =>
-          `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
-      ).join("\n");
-      const classifier = vi
-        .spyOn(jevClassifier, "classifyWithJev")
-        .mockImplementation(async (input) => ({
-          configured: true,
-          truncated: false,
-          decision: jevClassifier.jevSensitivityDecision(
-            {
-              "health-accommodation": input.content.includes(
-                "WITHHELD_PRIVATE_DETAIL",
-              )
-                ? 0.95
-                : 0.01,
-            },
-            {
-              judgedContent: input.content,
-              capturedAt: "2026-10-28T10:00:00Z",
-              truncated: false,
-            },
-          ),
-        }));
+      const { content, classifier } = zoomPassageFixture();
       try {
         const input = {
           sourceId: "source-1",
@@ -1841,7 +1847,37 @@ describe("Brain knowledge quality gates", () => {
       }),
       withheldPassages: null,
     },
+    {
+      label: "valid receipt",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+      withheldPassages: 5,
+    },
+    { label: "missing metadata", metadataJson: null, withheldPassages: null },
     { label: "invalid JSON", metadataJson: "{invalid", withheldPassages: null },
+    {
+      label: "Slack invalid JSON",
+      provider: "slack",
+      metadataJson: "{invalid",
+      withheldPassages: 0,
+    },
+    {
+      label: "manual missing metadata",
+      provider: "manual",
+      metadataJson: null,
+      withheldPassages: 0,
+    },
+    {
+      label: "generic malformed receipt",
+      provider: "generic",
+      metadataJson: '{"zoomPassageQuarantine":null}',
+      withheldPassages: 0,
+    },
     { label: "JSON null", metadataJson: "null", withheldPassages: null },
     { label: "JSON array", metadataJson: "[]", withheldPassages: null },
     {
@@ -1853,9 +1889,9 @@ describe("Brain knowledge quality gates", () => {
     { label: "JSON boolean", metadataJson: "true", withheldPassages: null },
     { label: "empty object", metadataJson: "{}", withheldPassages: 0 },
   ])(
-    "lists Zoom completeness without coercing $label to a clean receipt",
-    async ({ metadataJson, withheldPassages }) => {
-      seedSource({ provider: "zoom" });
+    "returns provider-scoped completeness for $label in listing and both detail modes",
+    async ({ metadataJson, withheldPassages, provider = "zoom" }) => {
+      seedSource({ provider });
       seedCapture({ kind: "transcript", metadataJson });
 
       const listed = await listCapturesAction.run(
@@ -1874,6 +1910,176 @@ describe("Brain knowledge quality gates", () => {
         id: "capture-1",
         withheldPassages,
       });
+      for (const includeRawContent of [false, true]) {
+        const detail = await getCaptureAction.run({
+          id: "capture-1",
+          includeRawContent,
+        });
+        expect(detail.capture).toMatchObject({
+          id: "capture-1",
+          withheldPassages,
+          rawContentIncluded: includeRawContent,
+        });
+      }
+    },
+  );
+
+  it.each(["update", "dry run", "cited capture"] as const)(
+    "resanitizes whole allowed Zoom transcripts with safe passage retention (%s)",
+    async (mode) => {
+      seedSource({ provider: "zoom" });
+      Object.assign(mocks.settings, {
+        privacyClassifier: "jev",
+        quarantineRetentionHours: 24,
+      });
+      const { content, classifier } = zoomPassageFixture();
+      try {
+        seedCapture({
+          externalId: "zoom:whole-meeting",
+          title: "Weekly update",
+          kind: "transcript",
+          content,
+          contentHash: await sha256Hex(content),
+          status: "distilled",
+        });
+        if (mode === "cited capture") {
+          mocks.rows.knowledge.push({
+            id: "knowledge-citing-zoom",
+            captureId: null,
+            evidenceJson: JSON.stringify([
+              { captureId: "capture-1", quote: "PUBLIC_UPDATE_0" },
+            ]),
+          });
+        }
+        const before = structuredClone(mocks.rows);
+        const result = await resanitizeCapturesAction.run({
+          sourceId: "source-1",
+          dryRun: mode === "dry run",
+        });
+
+        expect(result).toMatchObject({
+          requested: 1,
+          updated: mode === "update" ? 1 : 0,
+          dryRun: mode === "dry run",
+        });
+        expect(result.results).toHaveLength(1);
+        expect(result.results[0]).toMatchObject({
+          id: "capture-1",
+          skipped: mode === "cited capture",
+          ...(mode === "cited capture"
+            ? {
+                skipReason: "cited-derived-data",
+                dependentKnowledgeIds: ["knowledge-citing-zoom"],
+              }
+            : {}),
+        });
+        if (mode !== "update") {
+          expect(mocks.rows).toEqual(before);
+          expect(mocks.db.update).not.toHaveBeenCalled();
+          expect(mocks.db.insert).not.toHaveBeenCalled();
+          expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
+          return;
+        }
+
+        expect(mocks.rows.captures).toHaveLength(1);
+        const capture = mocks.rows.captures[0];
+        ok(capture);
+        expect(capture).toMatchObject({
+          id: "capture-1",
+          sensitivityDisposition: "allowed",
+          status: "distilled",
+        });
+        expect(capture.content).toContain("PUBLIC_UPDATE_0");
+        expect(capture.content).toContain("PUBLIC_UPDATE_35");
+        expect(capture.content).toContain("[…]");
+        expect(capture.contentHash).toBe(
+          await sha256Hex(String(capture.content)),
+        );
+        const metadata = JSON.parse(String(capture.metadataJson));
+        expect(metadata.zoomPassageQuarantine.withheldPassages).toBeGreaterThan(
+          0,
+        );
+        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
+        const event = mocks.rows.sensitivityEvents[0];
+        ok(event);
+        expect(event).toMatchObject({
+          captureId: "capture-1",
+          disposition: "suppressed",
+          quarantineBlobHandle: null,
+          expiresAt: expect.any(String),
+        });
+        expect(
+          Date.parse(String(event.expiresAt)) -
+            Date.parse(String(event.updatedAt)),
+        ).toBe(24 * 60 * 60 * 1000);
+        expect(JSON.stringify(mocks.rows)).not.toContain(
+          "WITHHELD_PRIVATE_DETAIL",
+        );
+        expect(putPrivateBlob).not.toHaveBeenCalled();
+        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+      } finally {
+        classifier.mockRestore();
+      }
+    },
+  );
+
+  it.each(["source", "metadata"] as const)(
+    "does not let legacy stored Zoom receipts bypass %s-configured sanitization on unchanged content",
+    async (configuration) => {
+      seedSource({
+        provider: "zoom",
+        configJson: JSON.stringify(
+          configuration === "source" ? { sanitizeBeforeStorage: true } : {},
+        ),
+      });
+      Object.assign(mocks.settings, { privacyClassifier: "jev" });
+      const { classifier } = zoomPassageFixture();
+      try {
+        const content =
+          "Product roadmap is on track.\nFamily picnic on Saturday.\n[…]";
+        const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
+        const metadata = {
+          zoomPassageQuarantine: receipt,
+          ...(configuration === "metadata"
+            ? { sanitizeBeforeStorage: true }
+            : {}),
+        };
+        seedCapture({
+          externalId: "zoom:legacy-partial-meeting",
+          kind: "transcript",
+          content,
+          contentHash: await sha256Hex(content),
+          metadataJson: JSON.stringify(metadata),
+        });
+
+        const capture = await createCapture({
+          sourceId: "source-1",
+          externalId: "zoom:legacy-partial-meeting",
+          title: "Planning note",
+          kind: "transcript",
+          content,
+          metadata,
+        });
+
+        expect(mocks.rows.captures).toHaveLength(1);
+        ok(capture);
+        expect(capture).toMatchObject({
+          id: "capture-1",
+          content: "Product roadmap is on track.\n[…]",
+          sensitivityDisposition: "allowed",
+        });
+        expect(
+          JSON.parse(String(capture.metadataJson)).zoomPassageQuarantine,
+        ).toEqual(receipt);
+        expect(JSON.stringify(mocks.rows.captures)).not.toContain(
+          "Family picnic",
+        );
+        expect(capture.contentHash).toBe(
+          await sha256Hex(String(capture.content)),
+        );
+      } finally {
+        classifier.mockRestore();
+      }
     },
   );
 
