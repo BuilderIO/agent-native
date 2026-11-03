@@ -533,6 +533,12 @@ function buildClientCompatibilityVersion(): string {
   );
 }
 
+// A value written into the head script. A "<" in it is escaped, so no value
+// can close the script element or open a comment in it.
+function scriptValue(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 /**
  * `basePath` is the mount the server renders under, the prefix the router
  * strips: a load opens a page when its path, less that prefix, is exactly
@@ -554,13 +560,13 @@ export function startupPageReadScript(
   // An API on another origin is read through the backend wrapper, with that
   // origin's cookies and a transport of its own, so a read sent from here
   // could never be the app's: the script leaves it to the app.
-  return `(function(){try{if(window.top!==window)return;if(new URL(${JSON.stringify(
+  return `(function(){try{if(window.top!==window)return;if(new URL(${scriptValue(
     actionUrl,
-  )},location.href).origin!==location.origin)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
+  )},location.href).origin!==location.origin)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${scriptValue(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${scriptValue(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${scriptValue(
     STARTUP_PAGE_READ_GLOBAL,
   )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),transport:${fetchTransportScript(
     "fetch",
-  )},answer:fetch(${JSON.stringify(
+  )},answer:fetch(${scriptValue(
     actionUrl,
   )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
 }

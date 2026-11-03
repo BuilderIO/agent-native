@@ -211,6 +211,24 @@ describe("the load's page read from the document head", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("writes its values so none can close the script element", () => {
+    // The action URL and base path come from the deployment's config.
+    const script = startupPageReadScript(
+      "/x</script><script>/_agent-native/actions/get-document",
+      "/y</script><!--",
+    );
+    expect(script.toLowerCase()).not.toContain("</script");
+    expect(script).not.toContain("<!--");
+
+    // Escaped, each still reads as itself.
+    const actionUrl = "/x</script>/_agent-native/actions/get-document";
+    openLoad("/page/doc-1");
+    new Function(startupPageReadScript(actionUrl))();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url.startsWith(`${actionUrl}?`)).toBe(true);
+  });
+
   it("is not sent for another route whose path ends like a page's", () => {
     openLoad("/settings/page/doc-1");
     runHeadScript();
