@@ -209,6 +209,7 @@ export default function HistoryPanel({
       toast.error(t("history.restoreFailed"), {
         description: t("history.restoreFailedDescription"),
       });
+      return;
     }
     handleClose(false);
   };
