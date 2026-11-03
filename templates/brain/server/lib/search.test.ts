@@ -1,3 +1,5 @@
+import { ok } from "node:assert/strict";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testString = (value: unknown) =>
@@ -14,7 +16,9 @@ type Condition =
   | { op: "eq"; col: Column; val: unknown }
   | { op: "inArray"; col: Column; vals: unknown[] }
   | { op: "like"; col: Column; val: unknown }
-  | { op: "captureSourceAccessible" };
+  | { op: "captureSourceAccessible" }
+  | { op: "captureAudienceAccessible"; audienceIds: unknown[] }
+  | { op: "isNull"; col: Column };
 
 interface Column {
   table: string;
@@ -75,6 +79,7 @@ const mocks = vi.hoisted(() => {
       "id",
       "sourceId",
       "captureId",
+      "audienceId",
       "kind",
       "title",
       "body",
@@ -128,10 +133,19 @@ const mocks = vi.hoisted(() => {
 
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
-    if (condition.op === "access") return true;
+    if (condition.op === "access") return row.accessible !== false;
     if (condition.op === "captureSourceAccessible") {
-      return rows.sources.some((source) => source.id === row.sourceId);
+      return rows.sources.some(
+        (source) => source.id === row.sourceId && source.accessible !== false,
+      );
     }
+    if (condition.op === "captureAudienceAccessible") {
+      return (
+        Array.isArray(row.audienceIds) &&
+        row.audienceIds.some((id) => condition.audienceIds.includes(id))
+      );
+    }
+    if (condition.op === "isNull") return row[condition.col.name] === null;
     if (condition.op === "and") {
       return condition.conditions.every((item) => matches(row, item));
     }
@@ -232,7 +246,22 @@ vi.mock("drizzle-orm", () => ({
     if (text.startsWith("lower(")) {
       return { op: "like", col: values[0] as Column, val: values[1] };
     }
+    if (
+      text.includes("exists") &&
+      values[0] === mocks.schema.brainCaptureAudiences
+    ) {
+      const audienceCondition = values[3] as Extract<
+        Condition,
+        { op: "inArray" }
+      >;
+      return {
+        op: "captureAudienceAccessible",
+        audienceIds: audienceCondition.vals,
+      };
+    }
     if (text.includes("exists")) return { op: "captureSourceAccessible" };
+    if (text.includes("IS NULL"))
+      return { op: "isNull", col: values[0] as Column };
     return { op: "access" };
   },
 }));
@@ -435,6 +464,7 @@ function resetRows() {
       id: "knowledge-freemium-current",
       sourceId: "source-slack",
       captureId: "capture-freemium-current",
+      audienceId: "aud_org",
       kind: "decision",
       title: "Freemium signup retired for enterprise-led growth",
       body: "The team retired the self-serve freemium path because activation stayed under 6% while support load blocked enterprise onboarding. The new motion emphasizes sales-led pilots with named implementation owners.",
@@ -469,6 +499,7 @@ function resetRows() {
     },
   );
   for (const capture of mocks.rows.captures) {
+    capture.audienceIds = ["aud_org"];
     capture.sensitivityDisposition = "allowed";
     capture.sensitivityPolicyVersion = "1";
     capture.audienceAclHash = "acl-hash";
@@ -735,6 +766,155 @@ describe("Brain universal search regressions", () => {
   });
 });
 
+describe("Brain knowledge citation completeness", () => {
+  const sourceUrl = "https://zoom.example.test/rec/share/cited";
+
+  function seedCitedCapture(provider = "zoom", metadataJson = "{}") {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-cited",
+      provider,
+    });
+    const capture: Row = {
+      ...mocks.rows.captures[0],
+      id: "capture-cited",
+      sourceId: "source-cited",
+      metadataJson,
+    };
+    mocks.rows.captures.push(capture);
+    const knowledge = mocks.rows.knowledge[1];
+    ok(knowledge);
+    knowledge.evidenceJson = JSON.stringify([
+      { captureId: capture.id, sourceUrl },
+    ]);
+    return { capture, knowledge };
+  }
+
+  async function searchKnowledge() {
+    const results = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+    });
+    expect(results).toHaveLength(1);
+    return results[0];
+  }
+
+  it.each([
+    {
+      name: "valid Zoom receipt",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+      withheldPassages: 5,
+    },
+    { name: "absent Zoom receipt", metadataJson: "{}", withheldPassages: 0 },
+    {
+      name: "invalid Zoom JSON",
+      metadataJson: "not JSON",
+      withheldPassages: null,
+    },
+    {
+      name: "malformed Zoom receipt",
+      metadataJson: JSON.stringify({ zoomPassageQuarantine: { version: 1 } }),
+      withheldPassages: null,
+    },
+    {
+      name: "Slack metadata with Zoom receipt",
+      provider: "slack",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+      withheldPassages: 0,
+    },
+    {
+      name: "generic malformed metadata",
+      provider: "generic",
+      metadataJson: "not JSON",
+      withheldPassages: 0,
+    },
+  ])(
+    "uses the displayed cited capture for $name",
+    async ({ provider = "zoom", metadataJson, withheldPassages }) => {
+      seedCitedCapture(provider, metadataJson);
+      const result = await searchKnowledge();
+      expect(result).toMatchObject({
+        citation: {
+          captureId: "capture-cited",
+          sourceUrl: withheldPassages === 0 ? sourceUrl : null,
+        },
+        sourceUrl: withheldPassages === 0 ? sourceUrl : null,
+        withheldPassages,
+      });
+    },
+  );
+
+  it.each(["missing", "source", "sensitivity", "audience"])(
+    "does not expose completeness or a historical URL for %s-inaccessible evidence",
+    async (restriction) => {
+      const { capture } = seedCitedCapture(
+        "zoom",
+        JSON.stringify({
+          zoomPassageQuarantine: {
+            version: 1,
+            totalPassages: 12,
+            withheldPassages: 5,
+          },
+        }),
+      );
+      if (restriction === "missing") mocks.rows.captures.pop();
+      if (restriction === "source") {
+        const source = mocks.rows.sources[mocks.rows.sources.length - 1];
+        ok(source);
+        source.accessible = false;
+      }
+      if (restriction === "sensitivity")
+        capture.sensitivityDisposition = "quarantined";
+      if (restriction === "audience") capture.audienceIds = ["aud_private"];
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: null,
+        sourceUrl: null,
+        citation: { captureId: "capture-cited", sourceUrl: null },
+      });
+    },
+  );
+
+  it("falls back to the row capture when evidence is missing", async () => {
+    const { knowledge } = seedCitedCapture(
+      "zoom",
+      JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+    );
+    knowledge.captureId = "capture-cited";
+    knowledge.evidenceJson = "[]";
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 5,
+      sourceUrl: null,
+      citation: null,
+    });
+  });
+
+  it("reports zero for knowledge with no capture", async () => {
+    const knowledge = mocks.rows.knowledge[1];
+    ok(knowledge);
+    knowledge.captureId = null;
+    knowledge.evidenceJson = "[]";
+    expect(await searchKnowledge()).toMatchObject({ withheldPassages: 0 });
+  });
+});
+
 describe("Brain semantic capture hits", () => {
   const capturedAt = "2026-07-20T09:30:00.000Z";
 
@@ -759,6 +939,7 @@ describe("Brain semantic capture hits", () => {
       importedBy: "owner@example.test",
       status: "distilled",
       distilledAt: capturedAt,
+      audienceIds: ["aud_org"],
       sensitivityDisposition: "allowed",
       sensitivityPolicyVersion: "1",
       audienceAclHash: "acl-hash",

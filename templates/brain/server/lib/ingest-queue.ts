@@ -7,16 +7,18 @@ import type {
   BrainIngestOperation,
 } from "./search-index-contracts.js";
 
-export async function enqueueBrainOperation(input: {
-  operation: BrainIngestOperation;
-  dedupeKey: string;
-  sourceId?: string | null;
-  captureId?: string | null;
-  priority?: number;
-  runAfter?: string | null;
-  payload?: Record<string, unknown>;
-}) {
-  const db = getDb();
+export async function enqueueBrainOperation(
+  input: {
+    operation: BrainIngestOperation;
+    dedupeKey: string;
+    sourceId?: string | null;
+    captureId?: string | null;
+    priority?: number;
+    runAfter?: string | null;
+    payload?: Record<string, unknown>;
+  },
+  db = getDb(),
+) {
   const now = nowIso();
   const id = nanoid();
   await db
@@ -70,20 +72,24 @@ export async function enqueueBrainOperation(input: {
 
 export async function enqueueCaptureInvalidation(
   invalidation: BrainCaptureInvalidation,
+  db = getDb(),
 ) {
   const version =
     invalidation.next?.contentHash ??
     invalidation.previous?.contentHash ??
     "deleted";
   const operation = invalidation.next ? "search-index" : "search-unindex";
-  return enqueueBrainOperation({
-    operation,
-    dedupeKey: `${operation}:${invalidation.captureId}:${version}`,
-    sourceId: invalidation.sourceId,
-    captureId: invalidation.captureId,
-    priority: operation === "search-unindex" ? 10 : 40,
-    payload: { invalidation },
-  });
+  return enqueueBrainOperation(
+    {
+      operation,
+      dedupeKey: `${operation}:${invalidation.captureId}:${version}`,
+      sourceId: invalidation.sourceId,
+      captureId: invalidation.captureId,
+      priority: operation === "search-unindex" ? 10 : 40,
+      payload: { invalidation },
+    },
+    db,
+  );
 }
 
 export async function markBrainOperationDone(id: string, leaseToken: string) {

@@ -46,11 +46,36 @@ vi.mock("./brain.js", () => ({
   stableJson: (value: unknown) => JSON.stringify(value),
 }));
 
-import { enqueueBrainOperation } from "./ingest-queue.js";
+import { getDb } from "../db/index.js";
+import {
+  enqueueBrainOperation,
+  enqueueCaptureInvalidation,
+} from "./ingest-queue.js";
 
 describe("enqueueBrainOperation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("forwards the capture transaction through both enqueue helpers", async () => {
+    const transaction = getDb();
+    const insert = vi.spyOn(transaction, "insert");
+    const select = vi.spyOn(transaction, "select");
+    await enqueueCaptureInvalidation(
+      {
+        captureId: "capture-1",
+        sourceId: "source-1",
+        reason: "content-changed",
+        next: {
+          contentHash: "content-hash",
+          sensitivityPolicyVersion: "2",
+          aclHash: "acl-hash",
+        },
+      },
+      transaction,
+    );
+    expect(insert).toHaveBeenCalledWith(mocks.schema.brainIngestQueue);
+    expect(select).toHaveBeenCalledTimes(1);
   });
 
   it("resets retry state when a completed or failed operation is requeued", async () => {

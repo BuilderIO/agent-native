@@ -372,11 +372,10 @@ export function sourceUrlFromMetadata(
   return null;
 }
 
-function firstCitation(evidenceJson: string) {
+function firstCitation(evidenceJson: string): BrainEvidence | null {
   const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
-  return (
-    evidence.find((item) => item.sourceUrl ?? item.url) ?? evidence[0] ?? null
-  );
+  const first = evidence.find((_item, index) => index === 0);
+  return evidence.find((item) => item.sourceUrl ?? item.url) ?? first ?? null;
 }
 
 const CAPTURE_CONTENT_LIMIT = 4000;
@@ -466,11 +465,66 @@ async function searchKnowledgeResults(
     )
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(limit);
-  const sources = await accessibleSourceMap(rows.map((row) => row.sourceId));
-  return rows.map((row) => {
-    const source = sources.get(row.sourceId ?? "");
+  const citedRows = rows.map((row) => {
     const citation = firstCitation(row.evidenceJson);
-    const sourceUrl = safeCitationUrl(citation?.sourceUrl ?? citation?.url);
+    return { row, citation, captureId: citation?.captureId ?? row.captureId };
+  });
+  const captureIds = Array.from(
+    new Set(
+      citedRows
+        .map(({ captureId }) => captureId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const captures =
+    captureIds.length && audienceIds.length
+      ? await getDb()
+          .select({
+            id: schema.brainRawCaptures.id,
+            sourceId: schema.brainRawCaptures.sourceId,
+            metadataJson: schema.brainRawCaptures.metadataJson,
+          })
+          .from(schema.brainRawCaptures)
+          .where(
+            and(
+              inArray(schema.brainRawCaptures.id, captureIds),
+              sql`exists (
+                select 1 from ${schema.brainSources}
+                where ${schema.brainSources.id} = ${schema.brainRawCaptures.sourceId}
+                  and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+              )`,
+              eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+              sql`exists (
+                select 1 from ${schema.brainCaptureAudiences}
+                where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
+                  and ${inArray(schema.brainCaptureAudiences.audienceId, audienceIds)}
+              )`,
+            ),
+          )
+      : [];
+  const capturesById = new Map(
+    captures.map((capture) => [capture.id, capture]),
+  );
+  const sources = await accessibleSourceMap([
+    ...rows.map((row) => row.sourceId),
+    ...captures.map((capture) => capture.sourceId),
+  ]);
+  return citedRows.map(({ row, citation, captureId }) => {
+    const source = sources.get(row.sourceId ?? "");
+    const capture = capturesById.get(captureId ?? "");
+    const citedSource = capture ? sources.get(capture.sourceId) : undefined;
+    const withheldPassages = !captureId
+      ? 0
+      : capture && citedSource
+        ? withheldZoomPassageCount(
+            parseCaptureMetadata(capture.metadataJson),
+            citedSource.provider,
+          )
+        : null;
+    const sourceUrl =
+      withheldPassages !== 0
+        ? null
+        : safeCitationUrl(citation?.sourceUrl ?? citation?.url);
     const summary = cleanText(row.summary) || buildSnippet(row.body, terms);
     const score =
       scoreSearchText(
@@ -514,6 +568,7 @@ async function searchKnowledgeResults(
       confidence: row.confidence,
       updatedAt: row.updatedAt,
       score,
+      withheldPassages,
     };
   });
 }

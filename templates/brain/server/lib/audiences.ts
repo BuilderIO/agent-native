@@ -89,17 +89,26 @@ async function flushAudienceInvalidations(
 export async function ensureCaptureAudience(
   input: CaptureAudienceInput,
 ): Promise<BrainAudienceAssignment> {
+  return withCaptureAudience(input, async (assignment) => assignment);
+}
+
+export async function withCaptureAudience<T>(
+  input: CaptureAudienceInput,
+  run: (assignment: BrainAudienceAssignment, db: BrainDb) => Promise<T>,
+): Promise<T> {
   const db = getDb();
   const invalidations: DeferredAudienceInvalidation[] = [];
-  const assignment = await db.transaction((tx) =>
-    ensureCaptureAudienceMutation(
+  const result = await db.transaction(async (tx) => {
+    const transaction = tx as unknown as BrainDb;
+    const assignment = await ensureCaptureAudienceMutation(
       input,
-      tx as unknown as BrainDb,
+      transaction,
       invalidations,
-    ),
-  );
+    );
+    return run(assignment, transaction);
+  });
   await flushAudienceInvalidations(invalidations);
-  return assignment;
+  return result;
 }
 
 async function ensureCaptureAudienceMutation(

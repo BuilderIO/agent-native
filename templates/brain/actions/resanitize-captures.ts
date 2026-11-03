@@ -273,83 +273,102 @@ export default defineAction({
             })
           ).aclHash;
         }
-        await db
-          .update(schema.brainRawCaptures)
-          .set({
-            title: sanitized.title,
-            content:
-              sanitized.decision?.disposition === "allowed"
-                ? sanitized.content
-                : "",
-            contentHash:
-              sanitized.decision?.disposition === "allowed"
-                ? nextContentHash
-                : await contentHash(""),
-            metadataJson: stableJson(sanitized.metadata),
-            sensitivityDisposition:
-              sanitized.decision?.disposition === "allowed"
-                ? "allowed"
-                : "pending",
-            sensitivityPolicyVersion: sanitized.decision?.policyVersion ?? null,
-            audienceAclHash:
-              sanitized.decision?.disposition === "allowed" ? aclHash : null,
-            status:
-              sanitized.decision?.disposition === "allowed"
-                ? row.capture.status
-                : "ignored",
-            updatedAt: nowIso(),
-          })
-          .where(eq(schema.brainRawCaptures.id, row.capture.id));
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.brainRawCaptures)
+            .set({
+              title: sanitized.title,
+              content:
+                sanitized.decision?.disposition === "allowed"
+                  ? sanitized.content
+                  : "",
+              contentHash:
+                sanitized.decision?.disposition === "allowed"
+                  ? nextContentHash
+                  : await contentHash(""),
+              metadataJson: stableJson(sanitized.metadata),
+              sensitivityDisposition:
+                sanitized.decision?.disposition === "allowed"
+                  ? "allowed"
+                  : "pending",
+              sensitivityPolicyVersion:
+                sanitized.decision?.policyVersion ?? null,
+              audienceAclHash:
+                sanitized.decision?.disposition === "allowed" ? aclHash : null,
+              status:
+                sanitized.decision?.disposition === "allowed"
+                  ? row.capture.status
+                  : "ignored",
+              updatedAt: nowIso(),
+            })
+            .where(eq(schema.brainRawCaptures.id, row.capture.id));
+          if (sanitized.withheldDecision) {
+            await recordBlockedCapture(
+              {
+                id: row.capture.id,
+                existing: null,
+                retainedCaptureId: row.capture.id,
+                source: row.source,
+                values: {
+                  id: row.capture.id,
+                  sourceId: row.capture.sourceId,
+                  externalId: row.capture.externalId,
+                  title: row.capture.title,
+                  kind: row.capture.kind as BrainCaptureKind,
+                  content: row.capture.content,
+                  capturedAt: row.capture.capturedAt,
+                },
+                decision: {
+                  ...sanitized.withheldDecision,
+                  disposition: "suppressed",
+                },
+                retentionHours: settings.quarantineRetentionHours ?? 72,
+              },
+              tx as unknown as ReturnType<typeof getDb>,
+            );
+          }
+          await enqueueCaptureInvalidation(
+            {
+              captureId: row.capture.id,
+              sourceId: row.capture.sourceId,
+              reason:
+                sanitized.decision?.disposition === "allowed"
+                  ? "content-changed"
+                  : "sensitivity-changed",
+              previous: {
+                ...(row.capture.contentHash == null
+                  ? {}
+                  : { contentHash: row.capture.contentHash }),
+                ...(row.capture.sensitivityPolicyVersion == null
+                  ? {}
+                  : {
+                      sensitivityPolicyVersion:
+                        row.capture.sensitivityPolicyVersion,
+                    }),
+                ...(row.capture.audienceAclHash == null
+                  ? {}
+                  : { aclHash: row.capture.audienceAclHash }),
+              },
+              ...(sanitized.decision?.disposition === "allowed" && aclHash
+                ? {
+                    next: {
+                      contentHash: nextContentHash,
+                      sensitivityPolicyVersion:
+                        sanitized.decision.policyVersion,
+                      aclHash,
+                    },
+                  }
+                : {}),
+            },
+            tx as unknown as ReturnType<typeof getDb>,
+          );
+        });
         if (
           hasDerivedRefs &&
           (sanitized.decision?.disposition !== "allowed" ||
             row.capture.contentHash !== nextContentHash)
         ) {
           await invalidateDerivedForCapture(row.capture.id);
-        }
-        await enqueueCaptureInvalidation({
-          captureId: row.capture.id,
-          sourceId: row.capture.sourceId,
-          reason:
-            sanitized.decision?.disposition === "allowed"
-              ? "content-changed"
-              : "sensitivity-changed",
-          previous: {
-            contentHash: row.capture.contentHash ?? undefined,
-            sensitivityPolicyVersion:
-              row.capture.sensitivityPolicyVersion ?? undefined,
-            aclHash: row.capture.audienceAclHash ?? undefined,
-          },
-          next:
-            sanitized.decision?.disposition === "allowed" && aclHash
-              ? {
-                  contentHash: nextContentHash,
-                  sensitivityPolicyVersion: sanitized.decision.policyVersion,
-                  aclHash,
-                }
-              : undefined,
-        });
-        if (sanitized.withheldDecision) {
-          await recordBlockedCapture({
-            id: row.capture.id,
-            existing: null,
-            retainedCaptureId: row.capture.id,
-            source: row.source,
-            values: {
-              id: row.capture.id,
-              sourceId: row.capture.sourceId,
-              externalId: row.capture.externalId,
-              title: row.capture.title,
-              kind: row.capture.kind as BrainCaptureKind,
-              content: row.capture.content,
-              capturedAt: row.capture.capturedAt,
-            },
-            decision: {
-              ...sanitized.withheldDecision,
-              disposition: "suppressed",
-            },
-            retentionHours: settings.quarantineRetentionHours ?? 72,
-          });
         }
       }
       results.push({
