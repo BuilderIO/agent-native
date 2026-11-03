@@ -149,6 +149,8 @@ describe("saveDraftToEmailsBestEffort", () => {
           id: "team",
           name: "Team",
           emails: ["a@example.com", "b@example.com"],
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
         },
       ],
     );
