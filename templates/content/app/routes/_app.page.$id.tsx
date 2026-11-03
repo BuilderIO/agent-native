@@ -23,6 +23,7 @@ export default function DocumentPage() {
   const databaseId = searchParams.get("databaseId");
   const databaseDocumentId = searchParams.get("databaseDocumentId");
   const viewId = searchParams.get("viewId");
+  const rowViewId = searchParams.get("fromViewId");
 
   return id ? (
     <DocumentEditor
@@ -31,6 +32,7 @@ export default function DocumentPage() {
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      rowViewId={rowViewId}
     />
   ) : (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">
