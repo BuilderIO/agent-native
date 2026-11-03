@@ -40,14 +40,17 @@ export function pnpmSpawnTarget(
   platform: NodeJS.Platform = process.platform,
 ): [string, string[], boolean] {
   if (platform !== "win32") return ["pnpm", args, false];
-  const quoted = args.map((arg) =>
-    /[\s"&|<>^()%!]/.test(arg)
-      ? `"${arg
-          .replace(/(\\*)$/, "$1$1")
-          .replace(/"/g, '""')
-          .replace(/%/g, '"^%"')}"`
-      : arg,
-  );
+  const quoted = args.map((arg) => {
+    // cmd.exe has no reliable way to escape these inside a quoted argument.
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run pnpm on Windows: path contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
   return [["pnpm", ...quoted].join(" "), [], true];
 }
 

@@ -1322,14 +1322,21 @@ describe("pnpmSpawnTarget", () => {
     expect(pnpmSpawnTarget(["a b"], "linux")).toEqual(["pnpm", ["a b"], false]);
   });
 
-  it("quotes spaces and keeps percent signs from expanding on Windows", () => {
+  it("quotes args with spaces on Windows", () => {
     const [command, args, shell] = pnpmSpawnTarget(
-      ["--dir", "C:\\My Apps\\%TEMP%\\x"],
+      ["--dir", "C:\\My Apps\\x"],
       "win32",
     );
-    expect(command).toBe('pnpm --dir "C:\\My Apps\\"^%"TEMP"^%"\\x"');
+    expect(command).toBe('pnpm --dir "C:\\My Apps\\x"');
     expect(args).toEqual([]);
     expect(shell).toBe(true);
+  });
+
+  it("refuses Windows args containing percent signs or quotes", () => {
+    expect(() => pnpmSpawnTarget(["C:\\%TEMP%\\x"], "win32")).toThrow(
+      /path contains/,
+    );
+    expect(() => pnpmSpawnTarget(['a"b'], "win32")).toThrow(/path contains/);
   });
 
   it("doubles trailing backslashes so they cannot escape the closing quote", () => {
