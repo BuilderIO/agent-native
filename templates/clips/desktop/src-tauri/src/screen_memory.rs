@@ -4188,7 +4188,12 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
             live_segment_ids.insert(segment_id);
         }
     }
-    remove_orphaned_segment_files(&screen_memory_dir(app)?, cutoff.into(), &live_segment_ids)?;
+    remove_orphaned_segment_files(
+        &state.inner,
+        &screen_memory_dir(app)?,
+        cutoff.into(),
+        &live_segment_ids,
+    )?;
     prune_events(app, cutoff)?;
     refresh_rewind_chapters(app)?;
     Ok(())
@@ -4207,7 +4212,6 @@ fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
                 .map(|suspended| &suspended.active),
         )
         .map(|active| sanitize_segment_id(&active.id))
-        .chain(runtime.segment_reservations.pins.keys().cloned())
         .collect())
 }
 
@@ -4216,6 +4220,7 @@ fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
 // last write. Only segment files match: the event log, chapters, egress log and agent
 // handoffs keep their own lifecycles.
 fn remove_orphaned_segment_files(
+    runtime: &Mutex<ScreenMemoryRuntime>,
     dir: &Path,
     cutoff: std::time::SystemTime,
     live_segment_ids: &BTreeSet<String>,
@@ -4234,7 +4239,7 @@ fn remove_orphaned_segment_files(
             continue;
         }
         if last_written_before(entry.metadata(), cutoff)? {
-            remove_file_if_exists(&entry.path())?;
+            delete_unless_reserved(runtime, segment_id, || remove_file_if_exists(&entry.path()))?;
         }
     }
     Ok(())
@@ -5160,8 +5165,13 @@ command = "keep"
         write_aged(&handoffs.join("request.mp4"), 9 * HOUR);
         let live = BTreeSet::from(["segment-3-0".to_string()]);
 
-        remove_orphaned_segment_files(&dir, std::time::SystemTime::now() - 8 * HOUR, &live)
-            .unwrap();
+        remove_orphaned_segment_files(
+            &reservation_runtime(),
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &live,
+        )
+        .unwrap();
 
         assert!(expired.iter().all(|name| !dir.join(name).exists()));
         assert!(kept.iter().all(|name| dir.join(name).exists()));
@@ -5180,6 +5190,7 @@ command = "keep"
         }
 
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &current,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5445,6 +5456,7 @@ command = "keep"
         prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &dir,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5458,6 +5470,7 @@ command = "keep"
             .set_modified(std::time::SystemTime::now() - 9 * HOUR)
             .unwrap();
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &dir,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5680,6 +5693,42 @@ command = "keep"
 
     fn reservation_runtime() -> Mutex<ScreenMemoryRuntime> {
         Mutex::new(ScreenMemoryRuntime::default())
+    }
+
+    #[test]
+    fn orphan_cleanup_keeps_a_file_reserved_since_the_metadata_pass_until_release() {
+        let dir = retention_fixture_dir("orphan-reserved");
+        write_aged(&dir.join("segment-1-0.mov"), 25 * HOUR);
+        write_aged(&dir.join("segment-2-0.mov"), 25 * HOUR);
+        let runtime = reservation_runtime();
+        runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .reserve("segment-1-0", "clip")
+            .unwrap();
+        let sweep = || {
+            remove_orphaned_segment_files(
+                &runtime,
+                &dir,
+                std::time::SystemTime::now() - 8 * HOUR,
+                &BTreeSet::new(),
+            )
+            .unwrap()
+        };
+
+        sweep();
+        assert!(dir.join("segment-1-0.mov").exists());
+        assert!(!dir.join("segment-2-0.mov").exists());
+
+        runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .release("segment-1-0", "clip");
+        sweep();
+        assert!(!dir.join("segment-1-0.mov").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
