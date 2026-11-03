@@ -316,7 +316,9 @@ get-deck again for that slide with compact=false and verify the requested
 text, ordering, relationships, counts, and style scope. If the readback is wrong,
 rebase against its returned hash and correct it; if any action returns an
 error, that change is not complete and must not be reported as done. Set
-format=true on update-slide when readable line breaks should be persisted. Use
+format=true on update-slide only with fullContent when readable line breaks
+should be persisted; with edits it formats the stored HTML before matching, so
+leave it off unless every find was quoted from a format=true read. Use
 fullContent only for an intentional full rewrite. Pass compact=true when you
 only need a lightweight check of that slide. Content writes return immediately
 after persistence with layoutFit.status=pending, the resulting content hash,
