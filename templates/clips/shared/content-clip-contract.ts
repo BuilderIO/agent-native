@@ -16,7 +16,9 @@
 //
 // An `upload` token names no recording: Clips makes the recording when the
 // upload starts. It may carry `client_ip`, the uploader's address as Content's
-// edge saw it, which Clips' free storage counts per network.
+// edge saw it, which Clips' free storage counts per network. A `publicRead`
+// token may carry `visitor_key`, an opaque key for the signed-out reader's
+// network that Clips counts their reads under.
 //
 // No org domain and no `preferGlobalSecret`: either would let core sign with
 // another secret. That gives an HS256 token whose `iss` is Content's app URL,
@@ -54,7 +56,18 @@ export const CONTENT_CLIP_CLAIMS = {
   viewerName: "name",
   /** Optional, on an upload token: the uploader's IP address. */
   clientIp: "client_ip",
+  /**
+   * Optional, on a public-read token: an opaque key for the signed-out
+   * reader's network, which Clips counts their reads under. Content keys it
+   * with a secret Clips doesn't hold, so it names no one. A token without one,
+   * as Content signed before keys, counts with every keyless reader of that
+   * Clip on that page.
+   */
+  visitorKey: "visitor_key",
 } as const;
+
+/** The shape of a `visitorKey`; Content signs 32 base64url characters. */
+export const CONTENT_CLIP_VISITOR_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** Longest token lifetime the routes accept; Content mints one-minute tokens. */
 export const CONTENT_CLIP_MAX_TOKEN_SECONDS = 5 * 60;

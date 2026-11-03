@@ -50,6 +50,7 @@ import {
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_RECORDING_TITLE_CHARS,
   CONTENT_CLIP_SCOPES,
+  CONTENT_CLIP_VISITOR_KEY,
   type ContentClipScope,
 } from "../../shared/content-clip-contract.js";
 import { recordingEmbedProvider } from "../../shared/embed-provider.js";
@@ -90,6 +91,8 @@ interface ContentClipPeer {
   /** Null for a signed-out reader of a public document. */
   viewerEmail: string | null;
   viewerName: string | null;
+  /** A signed-out reader's opaque network key, when Content signed one. */
+  visitorKey: string | null;
 }
 
 interface OpenedClip {
@@ -183,6 +186,8 @@ export interface VerifiedContentPeer {
   /** Null for a signed-out reader of a public document. */
   viewerEmail: string | null;
   viewerName: string | null;
+  /** A signed-out reader's opaque network key, when Content signed one. */
+  visitorKey: string | null;
   claims: Record<string, unknown>;
 }
 
@@ -259,6 +264,17 @@ export async function verifyContentPeerToken(
     viewerEmail && typeof name === "string"
       ? name.trim().slice(0, MAX_VIEWER_NAME_CHARS) || null
       : null;
+  // Absent on a token from a Content that signs no keys: that reader counts
+  // with every other keyless one.
+  const visitorKey = claims[CONTENT_CLIP_CLAIMS.visitorKey] ?? null;
+  if (
+    visitorKey !== null &&
+    (!isPublicReader ||
+      typeof visitorKey !== "string" ||
+      !CONTENT_CLIP_VISITOR_KEY.test(visitorKey))
+  ) {
+    return unauthorized();
+  }
 
   return {
     contentApp,
@@ -266,6 +282,7 @@ export async function verifyContentPeerToken(
     scope: claims.scope as ContentClipScope,
     viewerEmail,
     viewerName,
+    visitorKey,
     claims,
   };
 }
@@ -280,8 +297,15 @@ async function verifyPeer(
   if (peer.claims[CONTENT_CLIP_CLAIMS.recordingId] !== recordingId) {
     return unauthorized();
   }
-  const { contentApp, documentId, viewerEmail, viewerName } = peer;
-  return { contentApp, documentId, recordingId, viewerEmail, viewerName };
+  const { contentApp, documentId, viewerEmail, viewerName, visitorKey } = peer;
+  return {
+    contentApp,
+    documentId,
+    recordingId,
+    viewerEmail,
+    viewerName,
+    visitorKey,
+  };
 }
 
 function pruneExpired(buckets: Map<string, RateBucket>, now: number): void {
@@ -297,7 +321,10 @@ function clipKey(peer: ContentClipPeer, kind: RateKind): string {
     kind,
     peer.contentApp,
     peer.documentId,
-    peer.viewerEmail ?? CONTENT_CLIP_PUBLIC_READER,
+    peer.viewerEmail ??
+      (peer.visitorKey
+        ? `visitor:${peer.visitorKey}`
+        : CONTENT_CLIP_PUBLIC_READER),
     peer.recordingId,
   ].join("\n");
 }
