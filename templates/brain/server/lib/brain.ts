@@ -1,4 +1,5 @@
 import { readAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import {
   deletePrivateBlob,
   putPrivateBlob,
@@ -6,6 +7,7 @@ import {
 } from "@agent-native/core/private-blob";
 import {
   resourceDeleteByPath,
+  resourceDeleteWithDb,
   resourcePut,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
@@ -938,9 +940,7 @@ export async function createCapture(values: {
       ),
     );
   }
-  if (existing?.contentHash && derivedInputChanged) {
-    await invalidateDerivedForCapture(captureId);
-  }
+  const afterCommit: Array<() => void | Promise<void>> = [];
   const policyVersion = sanitized.decision.policyVersion;
   const finalized = await withCaptureAudience(
     {
@@ -983,6 +983,9 @@ export async function createCapture(values: {
         .where(and(...finalizationClauses))
         .returning({ id: schema.brainRawCaptures.id });
       if (!finalized.length) return false;
+      if (existing?.contentHash && derivedInputChanged) {
+        await invalidateDerivedForCapture(captureId, tx, { afterCommit });
+      }
       if (sanitized.withheldDecision) {
         await recordBlockedCapture(
           {
@@ -1052,6 +1055,7 @@ export async function createCapture(values: {
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
+  for (const notify of afterCommit) await notify();
   const [capture] = await db
     .select()
     .from(schema.brainRawCaptures)
@@ -1239,7 +1243,10 @@ async function deleteQuarantineHandle(value: string | null | undefined) {
 export async function invalidateDerivedForCapture(
   captureId: string,
   db = getDb(),
-  options: { deletePublishedResources?: boolean } = {},
+  options: {
+    deletePublishedResources?: boolean;
+    afterCommit?: Array<() => void | Promise<void>>;
+  } = {},
 ) {
   const needle = `%${captureId}%`;
   const knowledge = await db
@@ -1257,7 +1264,23 @@ export async function invalidateDerivedForCapture(
   if (options.deletePublishedResources !== false) {
     for (const row of knowledge) {
       if (row.publishedResourcePath) {
-        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+        if (options.afterCommit) {
+          // Core scopes getDbExec to the active Drizzle transaction.
+          const exec = getDbExec();
+          const { rows } = await exec.execute({
+            sql: "SELECT id FROM resources WHERE owner = ? AND path = ?",
+            args: [SHARED_OWNER, row.publishedResourcePath],
+          });
+          for (const resource of rows) {
+            const deletion = await resourceDeleteWithDb(
+              exec,
+              resource.id as string,
+            );
+            options.afterCommit.push(deletion.notifyAfterCommit);
+          }
+        } else {
+          await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
+        }
       }
     }
   }
@@ -1507,7 +1530,7 @@ export async function validateEvidence(
     const sourceUrl =
       withheldZoomPassageCount(metadata, access.source.provider) !== 0
         ? null
-        : safeCitationUrl(item.sourceUrl ?? item.url ?? metadata?.sourceUrl);
+        : sourceUrlFromMetadataRecord(metadata ?? {});
     const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,

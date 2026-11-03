@@ -273,13 +273,7 @@ export default defineAction({
             })
           ).aclHash;
         }
-        if (
-          hasDerivedRefs &&
-          (sanitized.decision?.disposition !== "allowed" ||
-            row.capture.contentHash !== nextContentHash)
-        ) {
-          await invalidateDerivedForCapture(row.capture.id);
-        }
+        const afterCommit: Array<() => void | Promise<void>> = [];
         await db.transaction(async (tx) => {
           await tx
             .update(schema.brainRawCaptures)
@@ -309,6 +303,17 @@ export default defineAction({
               updatedAt: nowIso(),
             })
             .where(eq(schema.brainRawCaptures.id, row.capture.id));
+          if (
+            hasDerivedRefs &&
+            (sanitized.decision?.disposition !== "allowed" ||
+              row.capture.contentHash !== nextContentHash)
+          ) {
+            await invalidateDerivedForCapture(
+              row.capture.id,
+              tx as unknown as ReturnType<typeof getDb>,
+              { afterCommit },
+            );
+          }
           if (sanitized.withheldDecision) {
             await recordBlockedCapture(
               {
@@ -370,6 +375,7 @@ export default defineAction({
             tx as unknown as ReturnType<typeof getDb>,
           );
         });
+        for (const notify of afterCommit) await notify();
       }
       results.push({
         id: row.capture.id,

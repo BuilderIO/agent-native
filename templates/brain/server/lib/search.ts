@@ -8,11 +8,11 @@ import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { z } from "zod";
 
-import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
-import { parseJson, safeCitationUrl } from "./brain.js";
+import { parseJson, sourceUrlFromMetadataRecord } from "./brain.js";
 import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
@@ -365,17 +365,38 @@ export function scoreSearchText(
 export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
-  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = safeCitationUrl(metadata[key]);
-    if (value) return value;
-  }
-  return null;
+  return sourceUrlFromMetadataRecord(metadata);
 }
 
-function firstCitation(evidenceJson: string): BrainEvidence | null {
-  const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
-  const first = evidence.find((_item, index) => index === 0);
-  return evidence.find((item) => item.sourceUrl ?? item.url) ?? first ?? null;
+const searchEvidenceSchema = z.array(
+  z.object({
+    sourceId: z.string().optional(),
+    captureId: z.string().optional(),
+    captureTitle: z.string().optional(),
+    title: z.string().optional(),
+    quote: z.string().optional(),
+    sourceUrl: z.string().optional(),
+    url: z.string().optional(),
+    note: z.string().optional(),
+    timestampMs: z.number().optional(),
+  }),
+);
+
+type SearchEvidence = z.infer<typeof searchEvidenceSchema>;
+
+function parseSearchEvidence(evidenceJson: string): SearchEvidence | null {
+  const result = searchEvidenceSchema.safeParse(
+    parseJson<unknown>(evidenceJson, null),
+  );
+  return result.success ? result.data : null;
+}
+
+function firstCitation(evidence: SearchEvidence | null) {
+  return (
+    evidence?.find((item) => item.sourceUrl ?? item.url) ??
+    evidence?.[0] ??
+    null
+  );
 }
 
 const CAPTURE_CONTENT_LIMIT = 4000;
@@ -466,16 +487,14 @@ async function searchKnowledgeResults(
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(limit);
   const citedRows = rows.map((row) => {
-    const evidence = parseJson<Array<Partial<BrainEvidence>>>(
-      row.evidenceJson,
-      [],
-    );
-    const citation = firstCitation(row.evidenceJson);
+    const evidence = parseSearchEvidence(row.evidenceJson);
+    const citation = firstCitation(evidence);
     const captureIds = Array.from(
       new Set(
-        [row.captureId, ...evidence.map((item) => item.captureId)].filter(
-          (id): id is string => Boolean(id),
-        ),
+        [
+          row.captureId,
+          ...(evidence?.map((item) => item.captureId) ?? []),
+        ].filter((id): id is string => Boolean(id)),
       ),
     );
     return { row, citation, evidence, captureIds };
@@ -515,23 +534,24 @@ async function searchKnowledgeResults(
   const sources = await accessibleSourceMap([
     ...rows.map((row) => row.sourceId),
     ...captures.map((capture) => capture.sourceId),
-    ...citedRows.flatMap(({ evidence }) =>
-      evidence.map((item) => item.sourceId ?? null),
+    ...citedRows.flatMap(
+      ({ evidence }) => evidence?.map((item) => item.sourceId ?? null) ?? [],
     ),
   ]);
   return citedRows.map(({ row, citation, evidence, captureIds }) => {
     const source = sources.get(row.sourceId ?? "");
     const provenance: Array<{
       captureId: string | null;
-      citedEvidence: Array<Partial<BrainEvidence>>;
+      citedEvidence: SearchEvidence;
     }> = captureIds.map((captureId) => ({
       captureId,
-      citedEvidence: evidence.filter((item) => item.captureId === captureId),
+      citedEvidence:
+        evidence?.filter((item) => item.captureId === captureId) ?? [],
     }));
     provenance.push(
-      ...evidence
-        .filter((item) => !item.captureId)
-        .map((item) => ({ captureId: null, citedEvidence: [item] })),
+      ...(evidence
+        ?.filter((item) => !item.captureId)
+        .map((item) => ({ captureId: null, citedEvidence: [item] })) ?? []),
     );
     if (!provenance.length) {
       provenance.push({ captureId: null, citedEvidence: [] });
@@ -545,7 +565,8 @@ async function searchKnowledgeResults(
             .find((item) => item !== undefined);
       const provider =
         citedSource?.provider ??
-        ((captureId !== null && captureId === row.captureId) || !evidence.length
+        ((captureId !== null && captureId === row.captureId) ||
+        evidence?.length === 0
           ? source?.provider
           : undefined);
       if (provider && provider !== "zoom") return 0;
@@ -556,19 +577,26 @@ async function searchKnowledgeResults(
           )
         : null;
     });
-    const withheldPassages = counts.reduce<number | null>(
-      (total, count) =>
-        total === null || count === null ? null : total + count,
-      0,
-    );
+    const withheldPassages =
+      evidence === null
+        ? null
+        : counts.reduce<number | null>(
+            (total, count) =>
+              total === null || count === null ? null : total + count,
+            0,
+          );
     const displayedCapture = capturesById.get(
       (citation ? citation.captureId : row.captureId) ?? "",
     );
+    const displayedMetadata = displayedCapture
+      ? parseCaptureMetadata(displayedCapture.metadataJson)
+      : null;
     const sourceUrl =
       withheldPassages === 0 &&
       displayedCapture &&
+      displayedMetadata &&
       sources.has(displayedCapture.sourceId)
-        ? safeCitationUrl(citation?.sourceUrl ?? citation?.url)
+        ? sourceUrlFromMetadataRecord(displayedMetadata)
         : null;
     const summary = cleanText(row.summary) || buildSnippet(row.body, terms);
     const score =
@@ -600,13 +628,15 @@ async function searchKnowledgeResults(
       sourceUrl,
       citation: citation
         ? {
-            captureId: citation.captureId,
-            captureTitle: citation.captureTitle
-              ? redactSensitiveText(citation.captureTitle)
-              : citation.captureTitle,
-            quote: citation.quote
-              ? redactSensitiveText(citation.quote)
-              : citation.quote,
+            ...(citation.captureId !== undefined
+              ? { captureId: citation.captureId }
+              : {}),
+            ...(citation.captureTitle !== undefined
+              ? { captureTitle: redactSensitiveText(citation.captureTitle) }
+              : {}),
+            ...(citation.quote !== undefined
+              ? { quote: redactSensitiveText(citation.quote) }
+              : {}),
             sourceUrl,
           }
         : null,
@@ -659,7 +689,7 @@ async function searchCaptureResults(
     if (!source) return [];
     const parsedMetadata = parseCaptureMetadata(row.metadataJson);
     const metadata = parsedMetadata ?? {};
-    const sourceUrl = sourceUrlFromMetadata(metadata);
+    const sourceUrl = sourceUrlFromMetadataRecord(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
       {
@@ -728,7 +758,7 @@ async function searchSourceResults(
     .limit(limit);
   return rows.map((row) => {
     const metadata = parseJson<Record<string, unknown>>(row.configJson, {});
-    const sourceUrl = sourceUrlFromMetadata(metadata);
+    const sourceUrl = sourceUrlFromMetadataRecord(metadata);
     return {
       type: "source" as const,
       id: row.id,
@@ -874,7 +904,7 @@ export async function searchEverythingWithLanes(args: {
             if (!source || !detail) return [];
             const parsedMetadata = parseCaptureMetadata(detail.metadataJson);
             const metadata = parsedMetadata ?? {};
-            const sourceUrl = sourceUrlFromMetadata(metadata);
+            const sourceUrl = sourceUrlFromMetadataRecord(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
             );

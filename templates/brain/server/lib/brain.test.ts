@@ -249,6 +249,9 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      if (sql === "SELECT id FROM resources WHERE owner = ? AND path = ?") {
+        return { rows: [{ id: args[1] }], rowsAffected: 0 };
+      }
       if (sql.includes("FROM org_members")) {
         const [orgId, email] = args as string[];
         const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
@@ -451,7 +454,9 @@ const mocks = vi.hoisted(() => {
           value: captureIds.size,
         }));
       }
-      return isCountSelection ? [{ value: values.length }] : values;
+      return isCountSelection
+        ? [{ value: values.length }]
+        : structuredClone(values);
     };
     const queryResult = (values: Row[]) => ({
       then: (
@@ -882,6 +887,12 @@ vi.mock("@agent-native/core/resources/store", () => ({
     mocks.resourceWrites.push({ owner, path, deleted: true });
     return true;
   }),
+  resourceDeleteWithDb: vi.fn(async (_db: unknown, id: string) => ({
+    value: true,
+    notifyAfterCommit: () => {
+      mocks.resourceWrites.push({ owner: "shared", path: id, deleted: true });
+    },
+  })),
   resourcePut: vi.fn(
     async (
       owner: string,
@@ -935,7 +946,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
-import { resourceDeleteByPath } from "@agent-native/core/resources/store";
+import { resourceDeleteWithDb } from "@agent-native/core/resources/store";
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -1246,10 +1257,17 @@ describe("Brain knowledge quality gates", () => {
       metadataJson: JSON.stringify({ zoomPassageQuarantine: {} }),
       retained: false,
     },
-    { provider: "zoom", metadataJson: "{}", retained: true },
+    {
+      provider: "zoom",
+      metadataJson: '{"sourceUrl":"https://example.test/canonical"}',
+      retained: true,
+    },
     {
       provider: "manual",
-      metadataJson: JSON.stringify({ zoomPassageQuarantine: {} }),
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {},
+        sourceUrl: "https://example.test/canonical",
+      }),
       retained: true,
     },
   ])(
@@ -1264,8 +1282,40 @@ describe("Brain knowledge quality gates", () => {
           sourceUrl: "https://example.test/rec/share/full-recording",
         },
       ]);
-      if (retained) expect(evidence[0]).toHaveProperty("sourceUrl");
+      if (retained)
+        expect(evidence[0]).toHaveProperty(
+          "sourceUrl",
+          "https://example.test/canonical",
+        );
       else expect(evidence[0]).not.toHaveProperty("sourceUrl");
+    },
+  );
+
+  it.each(["sourceUrl", "url"] as const)(
+    "ignores caller %s overrides when validating evidence",
+    async (field) => {
+      seedSource({ provider: "slack" });
+      seedCapture({
+        metadataJson: JSON.stringify({
+          sourceUrl: "https://example.slack.com/archives/C123/p1",
+        }),
+      });
+      const input = {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+        [field]: "https://zoom.us/rec/share/unrelated",
+      };
+      expect(await validateEvidence([input])).toEqual([
+        expect.objectContaining({
+          sourceUrl: "https://example.slack.com/archives/C123/p1",
+        }),
+      ]);
+      const capture = mocks.rows.captures[0];
+      ok(capture);
+      capture.metadataJson = "{}";
+      expect((await validateEvidence([input]))[0]).not.toHaveProperty(
+        "sourceUrl",
+      );
     },
   );
 
@@ -2307,7 +2357,7 @@ describe("Brain knowledge quality gates", () => {
       const update = mocks.db.update.getMockImplementation();
       ok(update);
       if (failure === "published-resource")
-        vi.mocked(resourceDeleteByPath).mockRejectedValueOnce(error);
+        vi.mocked(resourceDeleteWithDb).mockRejectedValueOnce(error);
       else
         mocks.db.update.mockImplementation((table) => {
           if (table === mocks.schema.brainProposals) {

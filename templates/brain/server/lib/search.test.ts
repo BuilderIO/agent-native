@@ -769,7 +769,10 @@ describe("Brain universal search regressions", () => {
 describe("Brain knowledge citation completeness", () => {
   const sourceUrl = "https://zoom.example.test/rec/share/cited";
 
-  function seedCitedCapture(provider = "zoom", metadataJson = "{}") {
+  function seedCitedCapture(
+    provider = "zoom",
+    metadataJson = JSON.stringify({ sourceUrl }),
+  ) {
     mocks.rows.sources.push({
       ...mocks.rows.sources[0],
       id: "source-cited",
@@ -803,6 +806,7 @@ describe("Brain knowledge citation completeness", () => {
     {
       name: "valid Zoom receipt",
       metadataJson: JSON.stringify({
+        sourceUrl,
         zoomPassageQuarantine: {
           version: 1,
           totalPassages: 12,
@@ -811,7 +815,11 @@ describe("Brain knowledge citation completeness", () => {
       }),
       withheldPassages: 5,
     },
-    { name: "absent Zoom receipt", metadataJson: "{}", withheldPassages: 0 },
+    {
+      name: "absent Zoom receipt",
+      metadataJson: JSON.stringify({ sourceUrl }),
+      withheldPassages: 0,
+    },
     {
       name: "invalid Zoom JSON",
       metadataJson: "not JSON",
@@ -826,6 +834,7 @@ describe("Brain knowledge citation completeness", () => {
       name: "Slack metadata with Zoom receipt",
       provider: "slack",
       metadataJson: JSON.stringify({
+        sourceUrl,
         zoomPassageQuarantine: {
           version: 1,
           totalPassages: 12,
@@ -845,12 +854,16 @@ describe("Brain knowledge citation completeness", () => {
     async ({ provider = "zoom", metadataJson, withheldPassages }) => {
       seedCitedCapture(provider, metadataJson);
       const result = await searchKnowledge();
+      const expectedUrl =
+        withheldPassages === 0 && metadataJson !== "not JSON"
+          ? sourceUrl
+          : null;
       expect(result).toMatchObject({
         citation: {
           captureId: "capture-cited",
-          sourceUrl: withheldPassages === 0 ? sourceUrl : null,
+          sourceUrl: expectedUrl,
         },
-        sourceUrl: withheldPassages === 0 ? sourceUrl : null,
+        sourceUrl: expectedUrl,
         withheldPassages,
       });
     },
@@ -885,6 +898,59 @@ describe("Brain knowledge citation completeness", () => {
         withheldPassages: null,
         sourceUrl: null,
         citation: { captureId: "capture-cited", sourceUrl: null },
+      });
+    },
+  );
+
+  it.each(["sourceUrl", "url", "permalink", "absent"])(
+    "binds an arbitrary evidence URL to the accessible Slack capture's %s metadata",
+    async (key) => {
+      const canonicalUrl = "https://slack.example.test/archives/C1/p1";
+      seedCitedCapture(
+        "slack",
+        JSON.stringify(key === "absent" ? {} : { [key]: canonicalUrl }),
+      );
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: 0,
+        sourceUrl: key === "absent" ? null : canonicalUrl,
+        citation: {
+          captureId: "capture-cited",
+          sourceUrl: key === "absent" ? null : canonicalUrl,
+        },
+      });
+    },
+  );
+
+  it.each([
+    "not JSON",
+    '{"captureId":',
+    "{}",
+    "null",
+    '"evidence"',
+    "[null]",
+    "[1]",
+    '["evidence"]',
+    "[[]]",
+    '[{"captureId":42}]',
+    '[{"sourceId":false}]',
+    '[{"captureTitle":[]}]',
+    '[{"quote":{}}]',
+    '[{"sourceUrl":null}]',
+    '[{"url":42}]',
+    '[{"captureId":"capture-cited"},null]',
+  ])(
+    "keeps unreadable evidence %s unknown despite a complete Zoom row",
+    async (evidenceJson) => {
+      const { knowledge } = seedCitedCapture(
+        "zoom",
+        JSON.stringify({ sourceUrl }),
+      );
+      knowledge.captureId = "capture-cited";
+      knowledge.evidenceJson = evidenceJson;
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: null,
+        sourceUrl: null,
+        citation: null,
       });
     },
   );
