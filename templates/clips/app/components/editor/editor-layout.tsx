@@ -846,13 +846,15 @@ export function EditorLayout({
     value: [],
     revision: null,
   });
+  // A refetch that lands mid-save is skipped here, so saveStatus brings the
+  // sync back once the last save finishes.
   useEffect(() => {
     if (!recording || editSaveLedgerRef.current.pending > 0) return;
     savedTrimsRef.current = {
       value: edits.trims,
       revision: recording.trimsRevision ?? null,
     };
-  }, [edits.trims, recording]);
+  }, [edits.trims, recording, saveStatus]);
   const localTrimsRef = useRef<TrimRange[] | null>(null);
   const commitEditsRef = useRef<
     (next: EditsJson, options?: { record?: boolean }) => Promise<boolean>
