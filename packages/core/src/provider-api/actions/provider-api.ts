@@ -2,7 +2,6 @@ import { z, type ZodTypeAny } from "zod";
 
 import {
   defineAction,
-  noteExternalWrite,
   type ActionHttpConfig,
   type ActionRunContext,
 } from "../../action.js";
@@ -412,10 +411,6 @@ export function createProviderApiRequestAction<
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
       assertAgentProviderRequestAllowed(args);
-      // The request leaves the process, where nothing else can see it write.
-      if (!readsProviderOnly(args) || args.saveToFile) {
-        noteExternalWrite("provider-api");
-      }
       if (args.stageAs) {
         if (!options.appId) {
           throw new Error(

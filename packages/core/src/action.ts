@@ -19,6 +19,7 @@ import {
   noteObservedWrite,
   runOutsideActionInvocation,
   takeVouchedEvidence,
+  withoutWriteObservation,
   type ActionExecutionFrame,
   type ActionExecutionRun,
   type ActionExecutionState,
@@ -65,6 +66,7 @@ import {
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { observeOutboundWrites } from "./server/outbound-write-observation.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -94,7 +96,7 @@ export type {
   ActionReceiptProvenance,
   CommitActionOptions,
 } from "./action-receipt.js";
-export { ACTION_EXECUTION_KEY };
+export { ACTION_EXECUTION_KEY, withoutWriteObservation };
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -489,10 +491,11 @@ function readableFailure(error: unknown): unknown {
 
 /**
  * Record that the running action call wrote somewhere the framework cannot
- * watch, such as a provider API or object storage, so that a later failure of
- * the call is not read as one that saved nothing. Call it before the write is
- * sent. It only adds evidence: nothing it records can be cleared, and outside
- * an action call it does nothing. Database writes need no call.
+ * watch, such as a socket, a file or a vendor SDK that does not use `fetch`, so
+ * that a later failure of the call is not read as one that saved nothing. Call
+ * it before the write is sent. It only adds evidence: nothing it records can be
+ * cleared, and outside an action call it does nothing. Database writes and
+ * `fetch` requests that are not GET, HEAD or OPTIONS need no call.
  */
 export function noteExternalWrite(channel: string): void {
   noteObservedWrite(channel);
@@ -2525,6 +2528,7 @@ function wrapRunWithExecutionBoundary(
 ): ActionExecutionRun {
   const boundaryRun: ActionExecutionRun = async (args, ctx) => {
     if (!actionExecutionStorage) return run(args, ctx);
+    observeOutboundWrites();
     const parent = actionExecutionStorage.getStore();
     const frame: ActionExecutionFrame =
       parent?.frame?.boundaryPending &&
@@ -2576,6 +2580,7 @@ export async function runActionWithExecutionOutcome(
   // A mutable async stack cannot safely attribute overlapping invocations,
   // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
+  observeOutboundWrites();
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]

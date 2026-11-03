@@ -2,7 +2,8 @@
  * The execution frame each action invocation runs in, and the evidence a
  * dispatcher vouched for that one invocation. Not in the package exports: the
  * action entry exposes no frame-evidence helpers but `noteExternalWrite`, which
- * can only add observed-write evidence, and request input or
+ * can only add observed-write evidence, and `withoutWriteObservation`, which
+ * can only keep a write from being counted. Request input or
  * `ActionRunContext` fields never become evidence. Trusted server dispatcher
  * APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and
  * attribution. Nothing here imports `action.ts` at runtime, so `action.ts` and
@@ -170,10 +171,13 @@ export function noteObservedWrite(channel: string): void {
 }
 
 /**
- * Run the framework's own bookkeeping, such as an audit row or a change
- * marker, without it counting as a write of the call it runs inside. Scoped to
- * that call's frame, so an action it runs still records its own writes. Never
- * wrap code that saves what the call exists to save: a retry would repeat it.
+ * Run the framework's own bookkeeping, such as an audit row, a change marker or
+ * an analytics event, without it counting as a write of the call it runs
+ * inside. Scoped to that call's frame, so an action it runs still records its
+ * own writes. Use it only for bookkeeping, or for a write a retry provably
+ * cannot repeat, such as one keyed by a deterministic id or a dedup key. Never
+ * wrap a write the call exists to make: a failure after it would read as
+ * having saved nothing, and the agent would repeat it.
  */
 export function withoutWriteObservation<T>(fn: () => T): T {
   const frame = actionExecutionStorage?.getStore()?.frame;

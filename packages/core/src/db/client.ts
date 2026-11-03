@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -2011,9 +2012,11 @@ async function createDbExecInternal(
         );
         return results[1];
       };
+      // The statement was counted by its text before this runs; the POST that
+      // carries a read is the driver's transport, not a write.
       const result = await withDbTimeout(
         "query",
-        run,
+        () => withoutWriteObservation(run),
         timeoutMs,
         () => controller.abort(),
         { sql: rawSql },
