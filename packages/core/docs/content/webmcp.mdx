@@ -123,7 +123,7 @@ browser session. Agents should list tools immediately before each mutation and
 pass the descriptor returned by that listing. They should not call an internal
 action `run()` function, hand-build an authenticated HTTP request, or use the
 visible developer console as the transport. Pass the schema-shaped object
-directly: Chrome 155+ rejects JSON-stringified input.
+directly: native Chrome 155+ rejects JSON-stringified input. The MCP-B polyfill still expects JSON text (`JSON.stringify(input)`) when `document.modelContext.__isWebMCPPolyfill` is true, and `an.call` handles both.
 
 <!-- i18n-copy-ignore: localized WebMCP pages are short summaries without this raw-call detail. -->
 
