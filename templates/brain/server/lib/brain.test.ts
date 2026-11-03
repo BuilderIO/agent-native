@@ -1835,6 +1835,184 @@ describe("Brain knowledge quality gates", () => {
     },
   );
 
+  it("enqueues a partial Zoom capture before an audit failure and repairs its receipt on retry", async () => {
+    seedSource({ provider: "zoom" });
+    Object.assign(mocks.settings, { privacyClassifier: "jev" });
+    const { content, classifier } = zoomPassageFixture();
+    const insert = mocks.db.insert.getMockImplementation();
+    ok(insert);
+    const auditError = new Error("Sensitivity audit insert failed");
+    let enqueueCallsAtAudit: unknown[][] = [];
+    let auditAttempts = 0;
+    mocks.db.insert.mockImplementation((table) => {
+      if (table === mocks.schema.brainSensitivityEvents) {
+        auditAttempts += 1;
+        enqueueCallsAtAudit = structuredClone(
+          vi.mocked(enqueueCaptureInvalidation).mock.calls,
+        );
+        mocks.db.insert.mockImplementation(insert);
+        throw auditError;
+      }
+      return insert(table);
+    });
+
+    try {
+      const input = {
+        sourceId: "source-1",
+        externalId: "zoom:audit-failure-meeting",
+        title: "Weekly update",
+        kind: "transcript" as const,
+        content,
+      };
+      await expect(createCapture(input)).rejects.toBe(auditError);
+
+      expect(auditAttempts).toBe(1);
+      expect(mocks.rows.captures).toHaveLength(1);
+      const capture = mocks.rows.captures[0];
+      ok(capture);
+      expect(capture).toMatchObject({ sensitivityDisposition: "allowed" });
+      expect(capture.content).toContain("PUBLIC_UPDATE_0");
+      expect(capture.content).toContain("PUBLIC_UPDATE_35");
+      expect(capture.content).toContain("[…]");
+      expect(capture.contentHash).toBe(
+        await sha256Hex(String(capture.content)),
+      );
+      expect(
+        JSON.parse(String(capture.metadataJson)).zoomPassageQuarantine
+          .withheldPassages,
+      ).toBeGreaterThan(0);
+      expect(JSON.stringify(mocks.rows)).not.toContain(
+        "WITHHELD_PRIVATE_DETAIL",
+      );
+      expect(mocks.rows.sensitivityEvents).toHaveLength(0);
+      expect(enqueueCallsAtAudit).toEqual([
+        [
+          expect.objectContaining({
+            captureId: capture.id,
+            sourceId: "source-1",
+            reason: "content-changed",
+            next: expect.objectContaining({ contentHash: capture.contentHash }),
+          }),
+        ],
+      ]);
+      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+      const finalizedCapture = structuredClone(capture);
+
+      const retried = await createCapture(input);
+
+      expect(retried).toMatchObject({
+        id: capture.id,
+        sensitivityDisposition: "allowed",
+        content: finalizedCapture.content,
+        contentHash: finalizedCapture.contentHash,
+      });
+      ok(retried);
+      const finalizedMetadata = JSON.parse(
+        String(finalizedCapture.metadataJson),
+      );
+      expect(JSON.parse(String(retried.metadataJson))).toEqual({
+        ...finalizedMetadata,
+        captureSanitization: {
+          ...finalizedMetadata.captureSanitization,
+          sanitizedAt: expect.any(String),
+        },
+      });
+      expect(mocks.rows.captures).toHaveLength(1);
+      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+      expect(mocks.rows.sensitivityEvents).toEqual([
+        expect.objectContaining({
+          captureId: capture.id,
+          disposition: "suppressed",
+          quarantineBlobHandle: null,
+          expiresAt: expect.any(String),
+        }),
+      ]);
+      expect(JSON.stringify(mocks.rows)).not.toContain(
+        "WITHHELD_PRIVATE_DETAIL",
+      );
+      expect(putPrivateBlob).not.toHaveBeenCalled();
+    } finally {
+      mocks.db.insert.mockImplementation(insert);
+      classifier.mockRestore();
+    }
+  });
+
+  it("enqueues a resanitized partial Zoom capture before propagating an audit failure", async () => {
+    seedSource({ provider: "zoom" });
+    Object.assign(mocks.settings, { privacyClassifier: "jev" });
+    const { content, classifier } = zoomPassageFixture();
+    const insert = mocks.db.insert.getMockImplementation();
+    ok(insert);
+    const auditError = new Error("Sensitivity audit insert failed");
+    let enqueueCallsAtAudit: unknown[][] = [];
+    let auditAttempts = 0;
+    mocks.db.insert.mockImplementation((table) => {
+      if (table === mocks.schema.brainSensitivityEvents) {
+        auditAttempts += 1;
+        enqueueCallsAtAudit = structuredClone(
+          vi.mocked(enqueueCaptureInvalidation).mock.calls,
+        );
+        mocks.db.insert.mockImplementation(insert);
+        throw auditError;
+      }
+      return insert(table);
+    });
+
+    try {
+      seedCapture({
+        externalId: "zoom:resanitize-audit-failure-meeting",
+        title: "Weekly update",
+        kind: "transcript",
+        content,
+        contentHash: await sha256Hex(content),
+        status: "distilled",
+      });
+
+      await expect(
+        resanitizeCapturesAction.run({ sourceId: "source-1", dryRun: false }),
+      ).rejects.toBe(auditError);
+
+      expect(auditAttempts).toBe(1);
+      expect(mocks.rows.captures).toHaveLength(1);
+      const capture = mocks.rows.captures[0];
+      ok(capture);
+      expect(capture).toMatchObject({
+        id: "capture-1",
+        sensitivityDisposition: "allowed",
+        status: "distilled",
+      });
+      expect(capture.content).toContain("PUBLIC_UPDATE_0");
+      expect(capture.content).toContain("PUBLIC_UPDATE_35");
+      expect(capture.content).toContain("[…]");
+      expect(capture.contentHash).toBe(
+        await sha256Hex(String(capture.content)),
+      );
+      expect(
+        JSON.parse(String(capture.metadataJson)).zoomPassageQuarantine
+          .withheldPassages,
+      ).toBeGreaterThan(0);
+      expect(JSON.stringify(mocks.rows)).not.toContain(
+        "WITHHELD_PRIVATE_DETAIL",
+      );
+      expect(mocks.rows.sensitivityEvents).toHaveLength(0);
+      expect(enqueueCallsAtAudit).toEqual([
+        [
+          expect.objectContaining({
+            captureId: "capture-1",
+            sourceId: "source-1",
+            reason: "content-changed",
+            next: expect.objectContaining({ contentHash: capture.contentHash }),
+          }),
+        ],
+      ]);
+      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+      expect(putPrivateBlob).not.toHaveBeenCalled();
+    } finally {
+      mocks.db.insert.mockImplementation(insert);
+      classifier.mockRestore();
+    }
+  });
+
   it.each([
     {
       label: "malformed nested receipt",

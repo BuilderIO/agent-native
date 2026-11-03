@@ -975,17 +975,6 @@ export async function createCapture(values: {
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  if (sanitized.withheldDecision) {
-    await recordBlockedCapture({
-      id,
-      existing: null,
-      retainedCaptureId: captureId,
-      source,
-      values,
-      decision: { ...sanitized.withheldDecision, disposition: "suppressed" },
-      retentionHours: settings.quarantineRetentionHours ?? 72,
-    });
-  }
   if (existing?.contentHash && derivedInputChanged) {
     await invalidateDerivedForCapture(captureId);
   }
@@ -1001,30 +990,51 @@ export async function createCapture(values: {
       : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
         ? "sensitivity-changed"
         : null;
-  if (!invalidationReason) return capture;
   try {
-    await enqueueCaptureInvalidation({
-      captureId,
-      sourceId: source.id,
-      reason: invalidationReason,
-      previous: existing
-        ? {
-            contentHash: existing.contentHash ?? undefined,
-            sensitivityPolicyVersion:
-              existing.sensitivityPolicyVersion ?? undefined,
-            aclHash: existing.audienceAclHash ?? undefined,
-          }
-        : undefined,
-      next: {
-        contentHash: nextContentHash,
-        sensitivityPolicyVersion: sanitized.decision.policyVersion,
-        aclHash: audience.aclHash,
-      },
-    });
+    if (invalidationReason)
+      await enqueueCaptureInvalidation({
+        captureId,
+        sourceId: source.id,
+        reason: invalidationReason,
+        ...(existing
+          ? {
+              previous: {
+                ...(existing.contentHash == null
+                  ? {}
+                  : { contentHash: existing.contentHash }),
+                ...(existing.sensitivityPolicyVersion == null
+                  ? {}
+                  : {
+                      sensitivityPolicyVersion:
+                        existing.sensitivityPolicyVersion,
+                    }),
+                ...(existing.audienceAclHash == null
+                  ? {}
+                  : { aclHash: existing.audienceAclHash }),
+              },
+            }
+          : {}),
+        next: {
+          contentHash: nextContentHash,
+          sensitivityPolicyVersion: sanitized.decision.policyVersion,
+          aclHash: audience.aclHash,
+        },
+      });
   } catch (error) {
     const { unindexBrainCapture } = await import("./search-index.js");
     await unindexBrainCapture(captureId);
     throw error;
+  }
+  if (sanitized.withheldDecision) {
+    await recordBlockedCapture({
+      id,
+      existing: null,
+      retainedCaptureId: captureId,
+      source,
+      values,
+      decision: { ...sanitized.withheldDecision, disposition: "suppressed" },
+      retentionHours: settings.quarantineRetentionHours ?? 72,
+    });
   }
   return capture;
 }
