@@ -190,7 +190,7 @@ A WBR, or weekly business review, is a recurring meeting about the same set of m
 
 ### What is the difference between a WBR and an MBR?
 
-A WBR looks at last week's numbers to catch problems early and act on them. A monthly business review (MBR) zooms out to trends, goals and the metric list itself. Teams that run both use the same metrics for each. For a customer-facing quarterly review, see [how to make a QBR presentation](https://www.agent-native.com/articles/qbr-presentation/).
+A WBR looks at last week's numbers to catch problems early and act on them. A [monthly business review (MBR)](https://www.agent-native.com/articles/monthly-business-review/) zooms out to trends, goals and the metric list itself. Teams that run both use the same metrics for each. For a customer-facing quarterly review, see [how to make a QBR presentation](https://www.agent-native.com/articles/qbr-presentation/).
 
 ### What metrics should a weekly business review include?
 
