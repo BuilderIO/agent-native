@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fail } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -8,6 +9,7 @@ import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
+  isUrlPropertyValue,
   normalizePropertyValue,
   serializePropertyOptions,
 } from "../shared/properties.js";
@@ -375,15 +377,13 @@ export function normalizeMigrationValue(
   if (definition.type === "url") {
     if (typeof normalized !== "string")
       throw new Error(`URL property ${definition.name} must be a string.`);
-    try {
-      const url = new URL(normalized);
-      if (url.protocol !== "http:" && url.protocol !== "https:")
-        throw new Error();
-    } catch {
-      throw new Error(
-        `URL property ${definition.name} must be an http/https URL.`,
+    if (!isUrlPropertyValue(normalized))
+      fail(
+        `URL property ${definition.name} must be an http/https URL or a t3-thread link.`,
+        { errorCode: "invalid_url_property_value", statusCode: 422 },
       );
-    }
+    // Stored trimmed, as row writes require.
+    return normalized.trim();
   }
   if (definition.type === "date" && normalized === null)
     throw new Error(`Date property ${definition.name} cannot be null.`);

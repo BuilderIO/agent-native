@@ -6181,7 +6181,7 @@ function AgentKitComposerSurface({
             // into the queue behind it.
             (isSubmissionInFlight && !submissionHoldsTurn)
           }
-          onDisabledClick={
+          onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
               : () => {

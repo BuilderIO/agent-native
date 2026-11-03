@@ -4485,7 +4485,12 @@ export function createAgentChatPlugin(
         if (!threadId) return;
         const ownerEmail =
           getRequestRunContext()?.owner ?? getRequestUserEmail();
-        if (!ownerEmail) return;
+        if (!ownerEmail) {
+          console.warn(
+            `[agent-chat] prompt not saved for run ${details.runId}: no owner on the request (thread ${threadId}, turn ${details.turnId})`,
+          );
+          return;
+        }
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;

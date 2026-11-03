@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconBook2,
   IconCircleCheck,
   IconDatabase,
@@ -378,6 +379,9 @@ function SearchResultRow({
           <h3 className="mt-3 text-base font-semibold leading-6 text-foreground">
             {result.title || t("searchPage.untitledResult")}
           </h3>
+          <IncompleteTranscriptWarning
+            withheldPassages={result.withheldPassages}
+          />
           <p className="mt-2 line-clamp-3 max-w-4xl text-sm leading-6 text-muted-foreground">
             {body}
           </p>
@@ -482,6 +486,9 @@ function SearchResultDetails({
           <SheetTitle className="text-start text-xl leading-7">
             {result.title || t("searchPage.untitledResult")}
           </SheetTitle>
+          <IncompleteTranscriptWarning
+            withheldPassages={result.withheldPassages}
+          />
           <SheetDescription className="text-start leading-6">
             {body}
           </SheetDescription>
@@ -595,6 +602,24 @@ function SearchResultDetails({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function IncompleteTranscriptWarning({
+  withheldPassages,
+}: {
+  withheldPassages: number | null | undefined;
+}) {
+  const t = useT();
+  if (withheldPassages === undefined || withheldPassages === 0) return null;
+  return (
+    <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive">
+      <IconAlertTriangle
+        aria-hidden="true"
+        className="mt-0.5 size-3.5 shrink-0"
+      />
+      {t("common.incompleteTranscript", { count: withheldPassages ?? "?" })}
+    </p>
   );
 }
 
@@ -759,6 +784,7 @@ function normalizeResult(
     confidence: result.confidence,
     updatedAt: result.updatedAt,
     score: result.score,
+    withheldPassages: result.withheldPassages,
   };
 }
 
