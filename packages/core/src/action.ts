@@ -2005,6 +2005,16 @@ export function stripUnsupportedSchemaKeywords<T>(
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
   }
+  // OpenAI rejects an array with no `items` ("array schema missing items"),
+  // which is how `z.tuple` emits, with `prefixItems` alone. Beside
+  // `prefixItems`, `items` only covers elements past the tuple, so the
+  // tuple's own positions keep their schemas.
+  const types = Array.isArray(obj.type) ? obj.type : [obj.type];
+  if (obj.items === undefined && types.includes("array")) {
+    const items: Record<string, unknown> = {};
+    writeJsonValue(items);
+    obj.items = items;
+  }
   if (obj.type === undefined) typeEnumeratedValues(obj);
   withStringOnlyEnum(obj);
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {

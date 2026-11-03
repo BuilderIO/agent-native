@@ -47,6 +47,7 @@ export {
   callActionBlob,
   callActionWithRetry,
   currentActionQueryCacheBinding,
+  prepareUiActionCapability,
   recordActionQueryBrowserPersist,
   tryCallActionKeepalive,
   useActionQuery,

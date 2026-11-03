@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const arSA = {
-  campaign: {
+  siteContent: {
     recipeWhen: "متى",
     howOften: "معدل التكرار",
     filterRole: "الدور",
@@ -23,7 +23,6 @@ const arSA = {
     whereItBreaks: "أوجه القصور",
     updatedDate: "آخر تحديث: {{date}}",
     publishedDate: "تاريخ النشر: {{date}}",
-    allArticles: "جميع المقالات",
     useCases: "حالات الاستخدام",
     useCasesDescription: "صفحات للمهام المتكررة، حسب التطبيق",
     useCasesTitle:
@@ -31,18 +30,18 @@ const arSA = {
     useCasesIntro:
       "اختر العمل الذي تنفذه مرارًا وتكرارًا، أو تصفّح {{articles}} للعثور على القوالب والأدلة الإرشادية.",
     articles: "المقالات",
-    articlesIntro:
-      "إجابات عملية حول العمل المتكرر مع وكلاء الذكاء الاصطناعي. للاطلاع على صفحات تشرح مهمة واحدة خطوة بخطوة، تصفّح {{useCases}}.",
-    useCasesLink: "حالات الاستخدام",
+    articlesIntro: "أدلة وشروحات للعمل المتكرر مع وكلاء الذكاء الاصطناعي.",
     articleCount_zero: "{{count}} مقالات",
     articleCount_one: "{{count}} مقال",
     articleCount_two: "{{count}} مقالان",
     articleCount_few: "{{count}} مقالات",
     articleCount_many: "{{count}} مقالًا",
     articleCount_other: "{{count}} مقال",
-    moreOnTopic: "المزيد حول {{topic}}",
-    faqs: "الأسئلة الشائعة",
     copyPage: "نسخ الصفحة",
+    enlargeImage: "تكبير الصورة",
+    closeImage: "إغلاق الصورة",
+    copyPrompt: "نسخ الموجّه",
+    promptHint: "الصق الموجّه في مربع الإدخال في {{app}}.",
     copyLink: "نسخ الرابط",
     copied: "تم النسخ",
     copyFailed: "تعذّر النسخ. حاول مرة أخرى.",
@@ -54,11 +53,9 @@ const arSA = {
     readTime_many: "{{count}} دقيقة للقراءة",
     readTime_other: "{{count}} دقيقة للقراءة",
     partOf: "جزء من:",
-    relatedResources: "موارد ذات صلة",
     moreArticles: "المزيد من مقالات {{category}}",
     genericMore: "المزيد من المقالات",
     showMore: "عرض المزيد من المقالات",
-    allTopics: "جميع المواضيع",
     topics: {
       clips:
         "تسجيلات الشاشة والاجتماعات والإملاء التي يمكن لوكيل الذكاء الاصطناعي استخدامها",

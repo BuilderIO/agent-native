@@ -5670,7 +5670,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           {feedbackCapability.visible
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
-                return (
+                const renderFeedbackButton = (
+                  toggle?: () => void,
+                  open?: boolean,
+                  contentId?: string,
+                ) => (
                   <MessageActionButton
                     key={value}
                     label={
@@ -5695,14 +5699,32 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                     className="size-6"
                     data-message-action={`feedback-${value}`}
                     aria-pressed={chosen}
+                    aria-haspopup={toggle ? "dialog" : undefined}
+                    aria-expanded={toggle ? open : undefined}
+                    aria-controls={toggle && open ? contentId : undefined}
                     disabled={
                       !feedbackCapability.enabled || feedbackAction.pending
                     }
                     {...(feedbackCapability.reason === undefined
                       ? {}
                       : { title: feedbackCapability.reason })}
-                    onPress={() => void rateResponse(value)}
+                    onPress={() => {
+                      toggle?.();
+                      // raw-sql-ok: This submits a UI feedback rating, not SQL.
+                      void rateResponse(value);
+                    }}
                   />
+                );
+                return value === "negative" && slots.feedbackNote ? (
+                  <slots.feedbackNote
+                    key={value}
+                    threadId={threadId}
+                    {...(runId ? { runId } : {})}
+                    {...(messageSeq >= 0 ? { messageSeq } : {})}
+                    renderTrigger={renderFeedbackButton}
+                  />
+                ) : (
+                  renderFeedbackButton()
                 );
               })
             : null}
@@ -6210,6 +6232,7 @@ export interface AgentKitComposerProps extends Omit<
     | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
+    | "onSetupCardClick"
     | "initialText"
     | "initialTextKey"
     | "layoutVariant"
@@ -6315,6 +6338,7 @@ export function AgentKitComposer({
   isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
+  onSetupCardClick,
   placeholder,
   initialText,
   initialTextKey,
@@ -7036,6 +7060,7 @@ export function AgentKitComposer({
             disabled,
             isReferenceTarget,
             onDisabledClick,
+            onSetupCardClick,
             onConnectProvider,
             onConnectLocalRuntime,
             imageModelMenu,

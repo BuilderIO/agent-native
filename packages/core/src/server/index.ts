@@ -796,7 +796,9 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
+  type BuilderOAuthRequestAccessState,
 } from "./builder-oauth.js";
 export {
   assertBuilderDesignSystemCodeIndexingAllowed,
@@ -888,6 +890,7 @@ export {
 } from "./builder-branch-files.js";
 export {
   ensureFusionContainer,
+  isFusionDevServerServing,
   sendFusionBranchMessage,
   pushFusionBranch,
   reserveFusionHostingSlug,

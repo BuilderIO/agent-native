@@ -13,6 +13,7 @@ import {
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 import {
   announceSessionInvalidated,
+  notifySessionIdentityPublished,
   recordSessionIdentity,
   SESSION_INVALIDATION_STORAGE_KEY,
 } from "./session-identity.js";
@@ -218,6 +219,11 @@ function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
   recordSessionIdentity(identity);
+  notifySessionIdentityPublished(
+    session
+      ? [identity, authUserId ?? "", session.orgId ?? ""].join("\n")
+      : null,
+  );
   if (
     trackedSessionIdentity !== identity ||
     trackedSessionAuthUserId !== authUserId

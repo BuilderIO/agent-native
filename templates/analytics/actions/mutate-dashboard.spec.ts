@@ -1065,6 +1065,41 @@ describe("mutate-dashboard", () => {
       expect(mocks.upsertDashboard).not.toHaveBeenCalled();
     });
 
+    it("rejects a record template with a list variable, naming the pattern to use, and writes nothing", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: lineConfig(),
+      });
+
+      const attempt = mutateDashboard.run(
+        {
+          dashboardId: "traffic",
+          operations: [
+            {
+              op: "updatePanel",
+              panelId: "a",
+              patch: {
+                config: {
+                  drilldown: {
+                    sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+                  },
+                },
+              },
+            },
+          ],
+        },
+        agent,
+      );
+
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "invalid_panel_config",
+        message: expect.stringContaining(
+          "In first-party SQL: ('{{appFilter}}' IN ('', 'all') OR STRPOS(",
+        ),
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
     it("rejects renderer options placed at the panel level", async () => {
       mocks.getDashboard.mockResolvedValue({
         kind: "sql",
