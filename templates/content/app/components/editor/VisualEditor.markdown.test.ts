@@ -1926,11 +1926,12 @@ describe("live suggestion presentation", () => {
   ])("draws a draft: $label", ({ before, after, expected }) => {
     const operation = markdownSuggestionOperation(before, after);
     if (!operation) throw new Error("expected a suggestion operation");
-    const [presentation] = suggestionPresentations(
+    const presentation = suggestionPresentations(
       { id: "new-line", status: "pending", operations: [operation] },
       before,
-    );
-    const [anchor] = draftSuggestionAnchors([operation], after);
+    ).find(Boolean);
+    const anchor = draftSuggestionAnchors([operation], after).find(Boolean);
+    if (!presentation || !anchor) throw new Error("expected a drawn draft");
     const editor = createSuggestionEditor(after);
     try {
       expect(
