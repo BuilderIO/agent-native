@@ -2382,6 +2382,8 @@ export interface ResolvedSecretDetail {
   cause?: unknown;
   source?: ResolvedSecretSource;
   scopeId?: string;
+  /** A personal run's org fallback answered, which ranks after the deploy env. */
+  personalRunOrgFallback?: true;
 }
 
 async function readOrgScopedSecret(
@@ -2639,7 +2641,7 @@ export async function resolveSecretDetailed(
     if (fallbackOrgId && !lookupFailed && (!envFallback || isEndpointLookup)) {
       try {
         const fromOrg = await readOrgScopedSecret(key, fallbackOrgId, email);
-        if (fromOrg) return fromOrg;
+        if (fromOrg) return { ...fromOrg, personalRunOrgFallback: true };
       } catch (err) {
         return { value: null, lookupFailed: true, cause: err };
       }
