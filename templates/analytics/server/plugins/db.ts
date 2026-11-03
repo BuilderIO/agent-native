@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
@@ -1892,6 +1893,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       started_at TEXT NOT NULL
     )`,
       },
+    },
+    {
+      version: 183,
+      name: "analytics-bigquery-job-usage",
+      sql: BIGQUERY_USAGE_MIGRATION_SQL,
     },
   ],
   { table: "analytics_migrations" },

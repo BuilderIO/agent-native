@@ -11,7 +11,7 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { sql } from "drizzle-orm";
-import { boolean, check, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, primaryKey, varchar } from "drizzle-orm/pg-core";
 
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
@@ -1217,5 +1217,42 @@ export const analyticsContentCollectionRuns = table(
     tenantStepStartedIdx: index(
       "analytics_content_collection_runs_step_idx",
     ).on(t.tenantKey, t.step, t.startedAt),
+  }),
+);
+
+/** Observed warehouse jobs, not invoice totals. Unknown byte counts stay null. */
+export const analyticsBigqueryUsage = table(
+  "analytics_bigquery_usage",
+  {
+    projectId: text("project_id").notNull(),
+    jobId: text("job_id").notNull(),
+    location: text("location"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    credentialScope: text("credential_scope").notNull(),
+    workload: text("workload").notNull(),
+    dashboardId: text("dashboard_id"),
+    panelId: text("panel_id"),
+    queryHash: text("query_hash").notNull(),
+    startedAt: text("started_at").notNull(),
+    observedAt: text("observed_at").notNull(),
+    submissionState: text("submission_state").notNull(),
+    usageStatus: text("usage_status").notNull(),
+    providerState: text("provider_state"),
+    outcome: text("outcome"),
+    bytesProcessed: text("bytes_processed"),
+    bytesBilled: text("bytes_billed"),
+    providerCacheHit: boolean("provider_cache_hit"),
+  },
+  (t) => ({
+    jobKey: primaryKey({ columns: [t.projectId, t.jobId] }),
+    orgStarted: index("analytics_bigquery_usage_org_started_idx").on(
+      t.orgId,
+      t.startedAt,
+    ),
+    ownerStarted: index("analytics_bigquery_usage_owner_started_idx").on(
+      t.ownerEmail,
+      t.startedAt,
+    ),
   }),
 );

@@ -18,6 +18,14 @@ registerDataProgramsShareable();
 
 registerIdentityColumns([
   {
+    table: "analytics_bigquery_usage",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Warehouse job provenance remains with the organization for cost accounting.",
+  },
+  {
     table: "bi_migration_external_dashboards",
     column: "original_migrator_email",
     emailChange: "rekey",

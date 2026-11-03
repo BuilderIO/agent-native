@@ -4,6 +4,10 @@ import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboar
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
+  withBigQueryUsageAttribution,
+  type BigQueryUsageAttribution,
+} from "./bigquery-usage";
+import {
   normalizeDashboardPanelQuery,
   type DashboardPanelSource,
 } from "./dashboard-panel-query";
@@ -96,20 +100,25 @@ export async function runResolvedPanel(args: {
   timeoutMs: number;
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  usageAttribution?: BigQueryUsageAttribution;
 }): Promise<ReportPanelData> {
   const { source, query, ctx, timeoutMs, signal, forceRefresh } = args;
   const startedAt = Date.now();
   try {
     const result = await withTimeout(
-      resolveAnalyticsPanelSource(
-        {
-          source,
-          query,
-          timeoutMs,
-          ...(forceRefresh ? { forceRefresh: true } : {}),
-          ...(signal ? { signal } : {}),
-        },
-        ctx,
+      withBigQueryUsageAttribution(
+        args.usageAttribution ?? { workload: "panel-verification" },
+        () =>
+          resolveAnalyticsPanelSource(
+            {
+              source,
+              query,
+              timeoutMs,
+              ...(forceRefresh ? { forceRefresh: true } : {}),
+              ...(signal ? { signal } : {}),
+            },
+            ctx,
+          ),
       ),
       timeoutMs,
       `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,

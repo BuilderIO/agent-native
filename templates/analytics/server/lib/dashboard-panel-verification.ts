@@ -684,6 +684,7 @@ async function verifyOne(
     timeoutMs: remainingMs(),
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
+    usageAttribution: { workload: "panel-verification", panelId },
   });
   if (opts.signal?.aborted) throw cancelled();
   if (data.status === "missing-credential") {

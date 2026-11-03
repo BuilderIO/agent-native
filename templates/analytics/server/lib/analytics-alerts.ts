@@ -22,6 +22,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { withBigQueryUsageAttribution } from "./bigquery-usage";
 import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
 import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
 
@@ -1176,17 +1177,19 @@ export async function evaluateBigQueryAnalyticsAlertBatch(
 ): Promise<Map<string, AnalyticsAlertBatchResult>> {
   const query = buildBigQueryAnalyticsAlertBatchQuery(rules, now);
   const first = rules[0]!;
-  const result = await runWithRequestContext(
-    {
-      userEmail: first.ownerEmail,
-      ...(first.orgId !== null ? { orgId: first.orgId } : {}),
-    },
-    () =>
-      queryFirstPartyAnalytics(
-        query,
-        { userEmail: first.ownerEmail, orgId: first.orgId },
-        ALERT_QUERY_OPTIONS,
-      ),
+  const result = await withBigQueryUsageAttribution({ workload: "alert" }, () =>
+    runWithRequestContext(
+      {
+        userEmail: first.ownerEmail,
+        ...(first.orgId !== null ? { orgId: first.orgId } : {}),
+      },
+      () =>
+        queryFirstPartyAnalytics(
+          query,
+          { userEmail: first.ownerEmail, orgId: first.orgId },
+          ALERT_QUERY_OPTIONS,
+        ),
+    ),
   );
   if (result.truncated || result.rows.length !== 1) {
     throw new Error(
@@ -1538,37 +1541,39 @@ async function loadCandidateEvents(
     orgId: rule.orgId,
   });
   if (backend.sink === "bigquery") {
-    return runWithRequestContext(
-      {
-        userEmail: rule.ownerEmail,
-        ...(rule.orgId ? { orgId: rule.orgId } : {}),
-      },
-      async () => {
-        const rows: AnalyticsAlertEventRow[] = [];
-        let cursor: { timestamp: string; id: string } | undefined;
-        while (true) {
-          const result = await queryFirstPartyAnalytics(
-            buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
-            { userEmail: rule.ownerEmail, orgId: rule.orgId },
-            ALERT_QUERY_OPTIONS,
-          );
-          if (result.truncated) {
-            throw new Error(
-              `BigQuery alert evaluation for rule ${rule.id} returned a transport-truncated page; refusing to evaluate partial data`,
+    return withBigQueryUsageAttribution({ workload: "alert" }, () =>
+      runWithRequestContext(
+        {
+          userEmail: rule.ownerEmail,
+          ...(rule.orgId ? { orgId: rule.orgId } : {}),
+        },
+        async () => {
+          const rows: AnalyticsAlertEventRow[] = [];
+          let cursor: { timestamp: string; id: string } | undefined;
+          while (true) {
+            const result = await queryFirstPartyAnalytics(
+              buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
+              { userEmail: rule.ownerEmail, orgId: rule.orgId },
+              ALERT_QUERY_OPTIONS,
             );
+            if (result.truncated) {
+              throw new Error(
+                `BigQuery alert evaluation for rule ${rule.id} returned a transport-truncated page; refusing to evaluate partial data`,
+              );
+            }
+            const page = result.rows.map(normalizeBigQueryAlertEventRow);
+            rows.push(...page);
+            if (!page.length) break;
+            if (page.length < BIGQUERY_ALERT_PAGE_SIZE) break;
+            const lastRaw = result.rows[result.rows.length - 1]!;
+            cursor = {
+              timestamp: requiredBigQueryAlertString(lastRaw, "timestamp"),
+              id: requiredBigQueryAlertString(lastRaw, "id"),
+            };
           }
-          const page = result.rows.map(normalizeBigQueryAlertEventRow);
-          rows.push(...page);
-          if (!page.length) break;
-          if (page.length < BIGQUERY_ALERT_PAGE_SIZE) break;
-          const lastRaw = result.rows[result.rows.length - 1]!;
-          cursor = {
-            timestamp: requiredBigQueryAlertString(lastRaw, "timestamp"),
-            id: requiredBigQueryAlertString(lastRaw, "id"),
-          };
-        }
-        return rows;
-      },
+          return rows;
+        },
+      ),
     );
   }
 

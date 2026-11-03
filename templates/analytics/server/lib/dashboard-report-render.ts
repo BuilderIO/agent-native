@@ -175,6 +175,7 @@ async function fetchOnePanel(
   vars: Record<string, string>,
   ctx: { userEmail: string; orgId: string | null },
   timeoutMs: number,
+  dashboardId: string,
 ): Promise<ReportPanelData> {
   const source = panel.source as DashboardPanelSource;
   let query: string;
@@ -183,7 +184,17 @@ async function fetchOnePanel(
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-  return runResolvedPanel({ source, query, ctx, timeoutMs });
+  return runResolvedPanel({
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    usageAttribution: {
+      workload: "dashboard-report",
+      dashboardId,
+      panelId: panel.id,
+    },
+  });
 }
 
 export async function fetchReportPanelData(args: {
@@ -253,6 +264,7 @@ export async function fetchReportPanelData(args: {
             vars,
             ctx,
             Math.min(perPanelTimeoutMs, remaining),
+            args.snapshot.dashboardId,
           ),
         );
       }

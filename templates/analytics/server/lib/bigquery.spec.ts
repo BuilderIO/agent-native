@@ -1,6 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { BigQueryJobUsage } from "./bigquery-usage";
+
 const execute = vi.fn();
+const usageWrites = vi.hoisted(() => [] as BigQueryJobUsage[]);
+const persistUsage = vi.hoisted(() =>
+  vi.fn(async (usage: BigQueryJobUsage) => {
+    usageWrites.push(structuredClone(usage));
+    return true;
+  }),
+);
+const observeUsage = vi.hoisted(() =>
+  vi.fn(async (usage: BigQueryJobUsage) => usage),
+);
+vi.mock("./bigquery-usage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./bigquery-usage")>()),
+  persistBigQueryJobUsage: persistUsage,
+  observeBigQueryJobUsage: observeUsage,
+}));
 const resolveCredential = vi.fn();
 const getBigQueryAccessToken = vi.fn();
 const getCredentialContext = vi.hoisted(() => vi.fn());
@@ -276,6 +293,9 @@ function pauseNextL2Read(): { started: Promise<void>; release: () => void } {
 
 describe("runQuery cancellation", () => {
   beforeEach(() => {
+    usageWrites.length = 0;
+    persistUsage.mockClear();
+    observeUsage.mockClear();
     execute.mockReset();
     useCacheDatabase();
     getCredentialContext.mockReset();
@@ -335,6 +355,13 @@ describe("runQuery cancellation", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
+    expect(usageWrites).toHaveLength(2);
+    expect(usageWrites[1]).toMatchObject({
+      submissionState: "accepted",
+      outcome: null,
+      bytesBilled: null,
+    });
+    expect(observeUsage).toHaveBeenCalledOnce();
   });
 
   it("stops waiting when the configured event table credential lookup stalls", async () => {
@@ -449,6 +476,13 @@ describe("runQuery cancellation", () => {
       }),
     ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(usageWrites).toHaveLength(2);
+    expect(usageWrites[1]).toMatchObject({
+      submissionState: "rejected",
+      outcome: null,
+      bytesBilled: null,
+    });
+    expect(usageWrites[0].jobId).toBe(usageWrites[1].jobId);
   });
 
   it("keeps the submit deadline active while reading the response body", async () => {
@@ -2386,5 +2420,48 @@ describe("runQuery cancellation", () => {
     await runQuery(sql);
 
     expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it("records one job across polling and no new job on an app cache read", async () => {
+    persistUsage.mockClear();
+    observeUsage.mockClear();
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({ jobComplete: false }),
+      jsonResponse({
+        jobComplete: true,
+        totalRows: "0",
+        totalBytesProcessed: "123",
+        cacheHit: false,
+        schema: { fields: [] },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await runQuery("SELECT 987654 AS ledger_cache_test");
+    const records = usageWrites;
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      projectId: "test-project",
+      submissionState: "attempted",
+      usageStatus: "pending",
+    });
+    expect(persistUsage.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[0],
+    );
+    expect(records[0].jobId).toBe(records[1].jobId);
+    expect(records[1]).toMatchObject({
+      bytesProcessed: "123",
+      providerCacheHit: false,
+      ownerEmail: expect.any(String),
+    });
+    expect(records[1]).not.toHaveProperty("query");
+    expect(records[1]).toHaveProperty("queryHash");
+    persistUsage.mockClear();
+    observeUsage.mockClear();
+    expect((await runQuery("SELECT 987654 AS ledger_cache_test")).cached).toBe(
+      true,
+    );
+    expect(persistUsage).not.toHaveBeenCalled();
+    expect(observeUsage).not.toHaveBeenCalled();
   });
 });

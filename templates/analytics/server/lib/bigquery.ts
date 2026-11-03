@@ -5,6 +5,12 @@ import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SourceGenerationResult } from "../../shared/source-generation.js";
+import {
+  newBigQueryJobUsage,
+  persistBigQueryJobUsage,
+  observeBigQueryJobUsage,
+  type BigQueryJobUsage,
+} from "./bigquery-usage";
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -1418,6 +1424,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
   }
 
+  let usage: BigQueryJobUsage | null = null;
   let jobId: string | null = null;
   let jobLocation: string | undefined;
   let jobCreatedAfter = 0;
@@ -1429,6 +1436,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     assertDateUnchanged();
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
+    usage = newBigQueryJobUsage(
+      projectId,
+      jobId,
+      cacheableSql,
+      requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
+    );
+    await persistBigQueryJobUsage(usage);
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
     const submissionTimeoutController = new AbortController();
     const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
@@ -1464,6 +1478,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       });
 
       if (!res.ok) {
+        usage.submissionState = "rejected";
         const text = await res.text();
         if (isMaximumBytesBilledError(res.status, text)) {
           jobId = null;
@@ -1504,6 +1519,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
     jobLocation = insertedJob.jobReference?.location;
     jobSubmissionResponseReceived = true;
+    usage.submissionState = "accepted";
+    usage.location = jobLocation;
 
     const locationQuery = jobLocation
       ? `?location=${encodeURIComponent(jobLocation)}`
@@ -1579,6 +1596,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
 
     const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
     const bytesProcessed = queryBytesProcessed(data.totalBytesProcessed);
+    usage.bytesProcessed =
+      typeof data.totalBytesProcessed === "string" &&
+      /^\d+$/.test(data.totalBytesProcessed)
+        ? data.totalBytesProcessed
+        : null;
+    usage.providerCacheHit =
+      typeof data.cacheHit === "boolean" ? data.cacheHit : null;
 
     const reportedTotal = Number.parseInt(data.totalRows ?? "", 10);
     const hasReportedTotal =
@@ -1669,5 +1693,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       await releaseCacheQuery(cacheKey, cacheFence);
     }
     throw error;
+  } finally {
+    if (usage && token) {
+      usage.location = jobLocation;
+      if (usage.submissionState === "attempted")
+        usage.submissionState = "unknown";
+      const observed = await observeBigQueryJobUsage(usage, token);
+      await persistBigQueryJobUsage(observed);
+    }
   }
 }
