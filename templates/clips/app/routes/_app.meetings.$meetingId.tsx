@@ -37,6 +37,10 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import {
+  EarlierAudioNotice,
+  withEarlierAudioRemoved,
+} from "@/components/meetings/earlier-audio-notice";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
 import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
 import {
@@ -472,6 +476,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
+    earlierAudioMinutes?: number;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
     reason?: "unavailable";
   };
@@ -505,6 +510,11 @@ export default function MeetingDetailRoute() {
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
+  const removeEarlierAudio = useActionMutation<
+    { notes: string },
+    { meetingId: string }
+  >("remove-earlier-meeting-audio");
+  const generatingNotes = finalize.isPending || removeEarlierAudio.isPending;
 
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -915,6 +925,41 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
+  const handleRemoveEarlierAudio = () => {
+    if (!meeting) return;
+    const queryKey = ["action", "get-meeting", { id: meetingId }];
+    const previous = qc.getQueryData<GetMeetingResp>(queryKey);
+    // The cleared notes would otherwise start a finalize that races the removal.
+    autoFinalizedRef.current = true;
+    void qc.cancelQueries({ queryKey });
+    qc.setQueryData<GetMeetingResp | undefined>(
+      queryKey,
+      (prev) => prev && withEarlierAudioRemoved(prev),
+    );
+    removeEarlierAudio.mutate(
+      { meetingId: meeting.id },
+      {
+        onSuccess: (result) => {
+          if (result.notes !== "failed") return;
+          toast.error(t("meetingDetail.generateNotesFailed"), {
+            action: {
+              label: t("meetingDetail.retry"),
+              onClick: handleFinalize,
+            },
+          });
+        },
+        onError: (err: unknown) => {
+          qc.setQueryData(queryKey, previous);
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotRemoveEarlierAudio"),
+          );
+        },
+      },
+    );
+  };
+
   const handleDeleteMeeting = () => {
     if (!meeting) return;
     deleteMeeting.mutate(
@@ -1120,7 +1165,7 @@ export default function MeetingDetailRoute() {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {!canEdit ? null : finalize.isPending ? (
+          {!canEdit ? null : generatingNotes ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               {t("meetingDetail.generatingNotesInline")}
@@ -1245,6 +1290,12 @@ export default function MeetingDetailRoute() {
         </div>
       )}
 
+      <EarlierAudioNotice
+        minutes={data?.earlierAudioMinutes ?? 0}
+        canRemove={canEdit}
+        onRemove={handleRemoveEarlierAudio}
+      />
+
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
@@ -1297,7 +1348,7 @@ export default function MeetingDetailRoute() {
               {t("meetingDetail.summary")}
             </div>
             <div className="flex items-center gap-2">
-              {finalize.isPending && (
+              {generatingNotes && (
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <IconLoader2 className="h-3 w-3 animate-spin" />
                   {t("meetingDetail.working")}
@@ -1311,7 +1362,7 @@ export default function MeetingDetailRoute() {
                       variant="ghost"
                       className="h-7 w-7 cursor-pointer"
                       aria-label={t("meetingDetail.regenerateNotes")}
-                      disabled={finalize.isPending}
+                      disabled={generatingNotes}
                       onClick={handleFinalize}
                     >
                       <IconRefresh className="h-3.5 w-3.5" />

@@ -596,6 +596,12 @@ const messages = {
     desktopHint:
       "要开始记录，请从菜单栏打开 Clips Desktop 并选择 Start Meeting Notes，或在提醒出现时点击 Start notes。Clips 会捕获麦克风和系统音频，并在这里写入文字记录。",
     getDesktopApp: "获取桌面应用程序",
+    earlierAudioAdded_one: "已添加开始前的 {{count}} 分钟",
+    earlierAudioAdded_other: "已添加开始前的 {{count}} 分钟",
+    removeEarlierAudioTitle: "移除开始前的音频吗？",
+    removeEarlierAudioDescription:
+      "这会将其从转录中移除，并重新生成摘要、待办事项，以及片段自动生成的标题和描述。",
+    couldNotRemoveEarlierAudio: "无法移除开始前的音频",
     generateNotesFailed: "无法生成摘要。再试一次。",
     attendee_one: "{{count}} 与会者",
     attendee_other: "{{count}} 与会者",

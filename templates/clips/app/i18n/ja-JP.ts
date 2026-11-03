@@ -646,6 +646,12 @@ const messages = {
     desktopHint:
       "メモを開始するには、メニューバーから Clips Desktop を開いて Start Meeting Notes を選ぶか、リマインダーが表示されたら Start notes をクリックします。Clips はマイクとシステム音声を取り込み、ここに文字起こしを書き込みます。",
     getDesktopApp: "デスクトップアプリを入手",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか?",
+    removeEarlierAudioDescription:
+      "文字起こしから削除し、要約とアクションアイテム、クリップの自動生成タイトルと説明を作り直します。",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",
     attendee_one: "{{count}} 出席者",

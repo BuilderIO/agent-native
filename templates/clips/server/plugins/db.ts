@@ -1404,6 +1404,11 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recordings_source_head_idx
         ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
     },
+    {
+      version: 101,
+      name: "recording-transcript-earlier-audio-removed-at",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

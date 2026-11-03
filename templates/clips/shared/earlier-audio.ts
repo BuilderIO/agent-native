@@ -1,0 +1,48 @@
+type EarlierAudioEntry = {
+  startMs: number;
+  endMs: number;
+  recovered?: unknown;
+};
+
+function isEarlierAudio(entry: EarlierAudioEntry): boolean {
+  return entry.recovered === true;
+}
+
+/**
+ * How many minutes of audio recovered from before the user started recording
+ * a transcript holds. Zero means it holds none.
+ */
+export function earlierAudioMinutes(
+  entries: readonly EarlierAudioEntry[],
+): number {
+  const recovered = entries.filter(isEarlierAudio);
+  if (recovered.length === 0) return 0;
+  const spanMs =
+    Math.max(...recovered.map((entry) => entry.endMs)) -
+    Math.min(...recovered.map((entry) => entry.startMs));
+  return Math.max(1, Math.round(spanMs / 60_000));
+}
+
+export function withoutEarlierAudio<T extends EarlierAudioEntry>(
+  entries: readonly T[],
+): T[] {
+  return entries.filter((entry) => !isEarlierAudio(entry));
+}
+
+/** The `Me:` / `Them:` text live capture saves alongside its segments. */
+export function speakerLabeledText(
+  entries: ReadonlyArray<{ text?: unknown; source?: unknown }>,
+): string {
+  const turns: Array<{ speaker: string; text: string }> = [];
+  for (const entry of entries) {
+    if (typeof entry.text !== "string" || !entry.text.trim()) continue;
+    const speaker = entry.source === "system" ? "Them" : "Me";
+    const last = turns.length - 1;
+    if (last >= 0 && turns[last].speaker === speaker) {
+      turns[last].text += ` ${entry.text}`;
+    } else {
+      turns.push({ speaker, text: entry.text });
+    }
+  }
+  return turns.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n\n");
+}

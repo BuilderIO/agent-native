@@ -624,6 +624,12 @@ const messages = {
     desktopHint:
       "नोट्स शुरू करने के लिए, मेनू बार से Clips Desktop खोलें और Start Meeting Notes चुनें, या रिमाइंडर आने पर Start notes पर क्लिक करें। Clips माइक्रोफ़ोन और सिस्टम ऑडियो कैप्चर करके यहां ट्रांसक्रिप्ट लिखता है।",
     getDesktopApp: "डेस्कटॉप ऐप प्राप्त करें",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएँ?",
+    removeEarlierAudioDescription:
+      "इससे यह ट्रांसक्रिप्ट से हट जाएगा और सारांश व एक्शन आइटम, साथ ही क्लिप का जनरेट किया गया शीर्षक और विवरण दोबारा बनेंगे।",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो नहीं हटाया जा सका",
     generateNotesFailed: "सारांश जनरेट नहीं किया जा सका. पुनः प्रयास करें।",
     attendee_one: "{{count}} सहभागी",
     attendee_other: "{{count}} उपस्थितगण",

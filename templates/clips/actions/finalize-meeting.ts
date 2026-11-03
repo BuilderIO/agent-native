@@ -15,7 +15,10 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export function skippedFinalizeResult(
   meetingId: string,
-  reason: "no-transcript" | "transcript-pending" = "no-transcript",
+  reason:
+    | "no-transcript"
+    | "transcript-pending"
+    | "transcript-changed" = "no-transcript",
 ) {
   return {
     meetingId,
@@ -62,6 +65,21 @@ export default defineAction({
       .where(eq(schema.meetings.id, args.meetingId))
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
+
+    const readEarlierAudioRemovedAt = async (
+      reader: Pick<typeof db, "select">,
+    ) => {
+      if (!meeting.recordingId) return null;
+      const rows = await reader
+        .select({
+          removedAt: schema.recordingTranscripts.earlierAudioRemovedAt,
+        })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
+        .limit(1);
+      return rows.length ? rows[0].removedAt : null;
+    };
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(db);
 
     const linked = await loadMeetingRecordingContent(
       meeting,
@@ -248,7 +266,20 @@ export default defineAction({
     const actionItems = result.actionItems ?? [];
 
     let persistedActionItems = actionItems;
-    await db.transaction(async (tx) => {
+    const transcriptChanged = await db.transaction(async (tx) => {
+      // The removal rewrites this row, so holding it means the stamp read next
+      // is either final or this write lands first and gets cleared by it.
+      await tx
+        .select({ id: schema.meetings.id })
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, args.meetingId))
+        .for("update");
+      // A summary of audio removed since the read above must not land, even
+      // over the newer claim the removal's own rebuild holds.
+      if ((await readEarlierAudioRemovedAt(tx)) !== earlierAudioRemovedAt) {
+        return true;
+      }
+
       const finalNow = new Date().toISOString();
       const written = await tx
         .update(schema.meetings)
@@ -315,6 +346,9 @@ export default defineAction({
         );
       }
     });
+    if (transcriptChanged) {
+      return skippedFinalizeResult(args.meetingId, "transcript-changed");
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

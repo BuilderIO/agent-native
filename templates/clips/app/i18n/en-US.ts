@@ -571,6 +571,12 @@ const messages = {
     desktopHint:
       "To start notes, open Clips Desktop from the menu bar and choose Start Meeting Notes, or click Start notes when the reminder appears. Clips captures mic + system audio and writes the transcript here.",
     getDesktopApp: "Get desktop app",
+    earlierAudioAdded_one: "Added {{count}} minute from before you started",
+    earlierAudioAdded_other: "Added {{count}} minutes from before you started",
+    removeEarlierAudioTitle: "Remove earlier audio?",
+    removeEarlierAudioDescription:
+      "This takes it out of the transcript and rebuilds the summary and action items, plus the Clip's generated title and description.",
+    couldNotRemoveEarlierAudio: "Couldn't remove earlier audio",
     generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",
     attendee_other: "{{count}} attendees",

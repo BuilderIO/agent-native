@@ -666,6 +666,13 @@ const messages = {
     desktopHint:
       "Um Notizen zu starten, öffnen Sie Clips Desktop über die Menüleiste und wählen Sie Start Meeting Notes, oder klicken Sie auf Start notes, wenn die Erinnerung erscheint. Clips erfasst Mikrofon und Systemaudio und schreibt das Transkript hier.",
     getDesktopApp: "Holen Sie sich die Desktop-App",
+    earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
+    earlierAudioAdded_other:
+      "{{count}} Minuten von vor deinem Start hinzugefügt",
+    removeEarlierAudioTitle: "Früheren Ton entfernen?",
+    removeEarlierAudioDescription:
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung und Aufgaben sowie der generierte Titel und die Beschreibung des Clips werden neu erstellt.",
+    couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",
     attendee_one: "{{count}}-Teilnehmer",
