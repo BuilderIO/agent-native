@@ -856,7 +856,8 @@ const messages = {
     restoreFailedDescription: "このデッキのバージョンを復元できませんでした。",
     alreadyAtVersion: "すでにこのバージョンです",
     restoreReloadFailed: "デッキを更新できませんでした",
-    restoreReloadFailedDescription: "バージョンはサーバーで復元されました。ページを再読み込みして確認してください。",
+    restoreReloadFailedDescription:
+      "バージョンはサーバーで復元されました。ページを再読み込みして確認してください。",
     backToSavedVersions: "履歴に戻る",
     savedVersions: "履歴",
     description: "デッキの履歴を表示して、以前のスナップショットを復元します。",
