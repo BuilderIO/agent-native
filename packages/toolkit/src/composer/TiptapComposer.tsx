@@ -343,7 +343,9 @@ function isVoicePreviewIntact(
   },
   anchor: number,
   previewText: string,
+  selectionFrom: number,
 ): boolean {
+  if (!previewText) return anchor >= 1 && selectionFrom === anchor;
   const documentSize = doc.content.size;
   const end = anchor + previewText.length;
   return isVoicePreviewRangeValid({
@@ -4567,23 +4569,40 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
+  // Preview text left in the draft after the user edited it; the session
+  // transcript is cumulative, so it must not be inserted again.
+  const detachedVoiceTextRef = useRef("");
+
+  const detachStaleVoicePreview = useCallback(
+    (ed: NonNullable<typeof editor>) => {
+      const anchor = voiceAnchorRef.current;
+      if (anchor == null) return;
+      const previewText = prevVoiceInsertRef.current;
+      if (
+        isVoicePreviewIntact(
+          ed.state.doc,
+          anchor,
+          previewText,
+          ed.state.selection.from,
+        )
+      ) {
+        return;
+      }
+      if (previewText) {
+        detachedVoiceTextRef.current += previewText;
+      }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
+    },
+    [],
+  );
 
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
 
-      if (
-        voiceAnchorRef.current != null &&
-        !isVoicePreviewIntact(
-          ed.state.doc,
-          voiceAnchorRef.current,
-          prevVoiceInsertRef.current,
-        )
-      ) {
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
-      }
+      detachStaleVoicePreview(ed);
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -4598,7 +4617,12 @@ function TiptapComposerSurface({
 
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
-      const newText = finalText + interimText;
+      const fullText = finalText + interimText;
+      const detached = detachedVoiceTextRef.current;
+      const newText =
+        detached && fullText.startsWith(detached)
+          ? fullText.slice(detached.length)
+          : fullText;
 
       if (newText === prevVoiceInsertRef.current) return;
 
@@ -4609,26 +4633,22 @@ function TiptapComposerSurface({
 
       prevVoiceInsertRef.current = newText;
     },
-    [editor],
+    [editor, detachStaleVoicePreview],
   );
 
   const insertTranscript = useCallback(
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
-      const formattedText = formatVoiceTranscriptForComposer(text);
+      const detached = detachedVoiceTextRef.current;
+      detachedVoiceTextRef.current = "";
+      const fullFormatted = formatVoiceTranscriptForComposer(text);
+      const formattedText =
+        detached && fullFormatted.startsWith(detached)
+          ? fullFormatted.slice(detached.length).trimStart()
+          : fullFormatted;
 
-      if (
-        voiceAnchorRef.current != null &&
-        !isVoicePreviewIntact(
-          ed.state.doc,
-          voiceAnchorRef.current,
-          prevVoiceInsertRef.current,
-        )
-      ) {
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
-      }
+      detachStaleVoicePreview(ed);
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
@@ -4657,7 +4677,7 @@ function TiptapComposerSurface({
           .run();
       }
     },
-    [editor],
+    [editor, detachStaleVoicePreview],
   );
 
   const buildVoiceContextPack = useCallback(():
@@ -4774,6 +4794,7 @@ function TiptapComposerSurface({
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
     }
+    if (voice.state === "idle") detachedVoiceTextRef.current = "";
   }, [voice.state, editor]);
 
   const voiceChatActiveRef = useRef(false);
@@ -6300,6 +6321,7 @@ function TiptapComposerSurface({
     if (draftKeyChanged) {
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
+      detachedVoiceTextRef.current = "";
       voiceCancelRef.current();
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
