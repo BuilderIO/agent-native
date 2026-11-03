@@ -223,11 +223,11 @@ export default defineAction({
             ...capabilities,
             canOperate:
               capabilities.canOperate &&
-              (jobBelongsToApp(meta, ctx?.appId) ||
+              (jobBelongsToApp(meta, ctx.appId) ||
                 isRecoveredFactoryJob(
                   meta,
                   resource.path,
-                  ctx?.appId,
+                  ctx.appId,
                   resource.owner,
                 )),
           },
