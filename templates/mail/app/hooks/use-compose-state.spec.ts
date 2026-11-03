@@ -128,6 +128,38 @@ describe("saveDraftToEmailsBestEffort", () => {
     });
   });
 
+  it("saves alias recipients as the addresses they stand for", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ draftId: "local-1", backend: "local" }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveDraftToEmailsBestEffort(
+      {
+        ...draft("compose-1"),
+        to: "alias:team, solo@example.com",
+        cc: "alias:team",
+        body: "Hi",
+      },
+      [
+        {
+          id: "team",
+          name: "Team",
+          emails: ["a@example.com", "b@example.com"],
+        },
+      ],
+    );
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      to: "a@example.com, b@example.com, solo@example.com",
+      cc: "a@example.com, b@example.com",
+    });
+  });
+
   it("does not accept a save response without backend/account metadata", async () => {
     vi.stubGlobal(
       "fetch",
