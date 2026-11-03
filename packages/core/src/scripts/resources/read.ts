@@ -250,9 +250,10 @@ export function formatResourceTextRange(
   maxResultChars: number,
 ): string {
   const { content } = resource;
+  const mimeType = resource.mimeType.toLowerCase();
   if (
-    !resource.mimeType.startsWith("text/") &&
-    resource.mimeType !== "application/json" &&
+    !mimeType.startsWith("text/") &&
+    mimeType !== "application/json" &&
     !isLocalWorkspaceResourceId(resource.id)
   ) {
     if (content.length > maxResultChars) {

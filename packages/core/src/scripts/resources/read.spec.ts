@@ -654,6 +654,24 @@ describe("Resource text ranges", () => {
     ).toThrow(ActionContractError);
   });
 
+  it.each(
+    [
+      "text/plain",
+      "TEXT/PLAIN",
+      "Text/Plain; charset=UTF-8",
+      "application/json",
+      "APPLICATION/JSON",
+      "Application/JSON",
+    ].flatMap((mimeType) => [50, 1000].map((length) => ({ mimeType, length }))),
+  )("ranges inline $mimeType ($length characters)", ({ mimeType, length }) => {
+    const doc = Object.freeze(
+      resource(JSON.stringify("x".repeat(length - 2)), { mimeType }),
+    );
+    expect(formatResourceTextRange(doc, { offset: 0, limit: 20 }, 150)).toBe(
+      `"${"x".repeat(19)}\n\n...[Returned 20 characters; ${length === 50 ? "50" : "1,000"} total; next offset 20]`,
+    );
+  });
+
   it.each(["text/plain", "text/markdown", "text/xml", "application/json"])(
     "preserves literal URL text for %s",
     (mimeType) => {
@@ -700,8 +718,8 @@ describe("Resource text ranges", () => {
 
   it.each([
     ["application/pdf", "https://example.test/report.pdf"],
-    ["application/json; charset=utf-8", '{"reference":"stored-file"}'],
-    ["Application/JSON", '{"value": 1}'],
+    ["application/json; charset=utf-8", "https://example.test/data.json"],
+    ["Application/JSON; charset=UTF-8", "https://example.test/data.json"],
     ["application/yaml", "key: stored value\n"],
     ["application/xml", "<root>😀</root>"],
     ["application/octet-stream", "opaque-reference:123"],
