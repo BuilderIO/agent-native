@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const esES = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Cuándo",
     howOften: "Con qué frecuencia",
     filterRole: "Rol",

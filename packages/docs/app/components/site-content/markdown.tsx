@@ -12,8 +12,8 @@ import {
   DialogTrigger,
 } from "../ui/dialog";
 import { CodeBlock } from "../website-redesign/ds/code-block";
-import { campaignHref, safeHref, type Article } from "./public-content";
-import { CampaignCallout, CopyControl } from "./shared";
+import { siteContentHref, safeHref, type Article } from "./public-content";
+import { SiteContentCallout, CopyControl } from "./shared";
 
 export function sanitizedMarkdown(body: string): string {
   const source = body.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
@@ -109,7 +109,7 @@ function inline(tokens: Token[] | undefined, locale: unknown): ReactNode {
         node = !href ? (
           label
         ) : href.startsWith("/") && !href.startsWith("//") ? (
-          <Link to={campaignHref(href, locale)}>{label}</Link>
+          <Link to={siteContentHref(href, locale)}>{label}</Link>
         ) : (
           <a href={href}>{label}</a>
         );
@@ -439,7 +439,7 @@ function ArticleImage({ image }: { image: Article["images"][number] }) {
             className="article-image relative block aspect-video w-full cursor-zoom-in overflow-hidden rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-0"
           >
             <ThemedImage dark={dark} light={light} alt={image.alt} />
-            <span className="sr-only">{t("campaign.enlargeImage")}</span>
+            <span className="sr-only">{t("siteContent.enlargeImage")}</span>
           </button>
         </DialogTrigger>
         <DialogContent
@@ -453,7 +453,7 @@ function ArticleImage({ image }: { image: Article["images"][number] }) {
               className="relative block aspect-video w-full cursor-zoom-out overflow-hidden rounded-[var(--b-radius)] bg-[var(--b-bg-raised)] p-0"
             >
               <ThemedImage dark={dark} light={light} alt={image.alt} />
-              <span className="sr-only">{t("campaign.closeImage")}</span>
+              <span className="sr-only">{t("siteContent.closeImage")}</span>
             </button>
           </DialogClose>
         </DialogContent>
@@ -478,14 +478,14 @@ export function ArticleBody({ article }: { article: Article }) {
       stepsAfter(sections, i).length >= 3,
   );
   return (
-    <div className="campaign-article-content">
+    <div className="site-content-article-content">
       <div className="docs-content min-w-0 max-w-none break-words">
         <MarkdownBlocks
           tokens={parsed.before.slice(0, split)}
           article={article}
           headingIds={ids}
         />
-        <CampaignCallout item={article} location="inline" />
+        <SiteContentCallout item={article} location="inline" />
         <MarkdownBlocks
           tokens={sections}
           article={article}
@@ -494,7 +494,7 @@ export function ArticleBody({ article }: { article: Article }) {
         />
       </div>
       {parsed.faqTitle && parsed.faqs.length ? (
-        <div className="campaign-article-faq not-prose my-12">
+        <div className="site-content-article-faq not-prose my-12">
           <TemplateLandingFaq
             layout="stacked"
             eyebrow={null}

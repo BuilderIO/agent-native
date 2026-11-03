@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const jaJP = {
-  campaign: {
+  siteContent: {
     recipeWhen: "いつ",
     howOften: "頻度",
     filterRole: "役割",

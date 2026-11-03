@@ -2,7 +2,7 @@ import { redirect } from "react-router";
 
 import { docsLocaleFromSegment } from "../components/docs-locale";
 
-export function redirectLocalizedCampaign(
+export function redirectLocalizedSiteContent(
   request: Request,
   locale: unknown,
   pathname: string,
@@ -10,7 +10,7 @@ export function redirectLocalizedCampaign(
   if (!docsLocaleFromSegment(locale)) throw new Response(null, { status: 404 });
   if (!pathname.startsWith("/") || pathname.startsWith("//")) {
     throw new Error(
-      "Localized campaign redirects require a root-relative path",
+      "Localized site content redirects require a root-relative path",
     );
   }
   return redirect(`${pathname}${new URL(request.url).search}`, 301);

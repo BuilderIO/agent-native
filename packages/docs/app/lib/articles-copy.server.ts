@@ -25,11 +25,11 @@ const CATALOGS = {
   "zh-TW": zhTW,
 } satisfies Record<
   DocsLocale,
-  { campaign: { articles: string; articlesIntro: string } }
+  { siteContent: { articles: string; articlesIntro: string } }
 >;
 
 /** The articles grid's <title> and description in the page's language, read on the server. */
 export function articlesListCopy(locale: DocsLocale) {
-  const { articles, articlesIntro } = CATALOGS[locale].campaign;
+  const { articles, articlesIntro } = CATALOGS[locale].siteContent;
   return { title: articles, description: articlesIntro };
 }

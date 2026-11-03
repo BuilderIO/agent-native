@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { docsI18nCatalog, loadDocsMessages } from "../../i18n";
-import { CampaignDate } from "./shared";
+import { SiteContentDate } from "./shared";
 
 function Probe({ keyName, count }: { keyName: string; count: number }) {
   const t = useT();
@@ -28,7 +28,7 @@ async function render(locale: LocaleCode, node: React.ReactNode) {
   );
 }
 
-describe("campaign plural messages", () => {
+describe("site content plural messages", () => {
   it.each([
     [0, "0 مقالات", "0 دقيقة للقراءة"],
     [1, "1 مقال", "1 دقيقة للقراءة"],
@@ -40,13 +40,13 @@ describe("campaign plural messages", () => {
     expect(
       await render(
         "ar-SA",
-        <Probe keyName="campaign.articleCount" count={count} />,
+        <Probe keyName="siteContent.articleCount" count={count} />,
       ),
     ).toBe(articles);
     expect(
       await render(
         "ar-SA",
-        <Probe keyName="campaign.readTime" count={count} />,
+        <Probe keyName="siteContent.readTime" count={count} />,
       ),
     ).toBe(readTime);
   });
@@ -58,13 +58,13 @@ describe("campaign plural messages", () => {
     expect(
       await render(
         "en-US",
-        <Probe keyName="campaign.articleCount" count={count} />,
+        <Probe keyName="siteContent.articleCount" count={count} />,
       ),
     ).toBe(articles);
     expect(
       await render(
         "en-US",
-        <Probe keyName="campaign.readTime" count={count} />,
+        <Probe keyName="siteContent.readTime" count={count} />,
       ),
     ).toBe(readTime);
   });
@@ -78,13 +78,13 @@ describe("campaign plural messages", () => {
     expect(
       await render(
         locale,
-        <Probe keyName="campaign.articleCount" count={count} />,
+        <Probe keyName="siteContent.articleCount" count={count} />,
       ),
     ).toBe(expected);
   });
 });
 
-describe("CampaignDate kind", () => {
+describe("SiteContentDate kind", () => {
   it.each([
     [undefined, "Updated January 2, 2026"],
     ["updated", "Updated January 2, 2026"],
@@ -92,7 +92,7 @@ describe("CampaignDate kind", () => {
   ] as const)("renders %s", async (kind, text) => {
     const html = await render(
       "en-US",
-      <CampaignDate date="2026-01-02" kind={kind} />,
+      <SiteContentDate date="2026-01-02" kind={kind} />,
     );
     expect(html).toContain('dateTime="2026-01-02"');
     expect(html).toContain(text);

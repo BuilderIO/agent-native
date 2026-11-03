@@ -1,15 +1,15 @@
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
-import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { ArticlesList } from "../components/campaign/articles";
+import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import {
   DEFAULT_DOCS_LOCALE,
   docsLocaleFromSegment,
   sitePathForLocale,
 } from "../components/docs-locale";
+import { ArticlesList } from "../components/site-content/articles";
 import { articlesListCopy } from "../lib/articles-copy.server";
-import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
+import { siteContentMeta, localeAlternates } from "../lib/site-content-seo";
 import { articlesPageData } from "./articles._index";
 
 // Serves page 2 onward of the grid in the route's language; the localized
@@ -20,7 +20,7 @@ export function loader({ params }: LoaderFunctionArgs) {
   const page = Number(params.page);
   if (page === 1)
     throw redirect(sitePathForLocale(ARTICLES_BASE, params.locale), 301);
-  const { articles } = loadCampaignContent();
+  const { articles } = loadSiteContent();
   const start = (page - 1) * ARTICLES_PAGE_SIZE;
   if (!Number.isSafeInteger(page) || start >= articles.length)
     throw new Response(null, { status: 404 });
@@ -42,7 +42,7 @@ export const meta = ({
   const content = data ?? loaderData;
   return content
     ? [
-        ...campaignMeta(
+        ...siteContentMeta(
           content.copy.title,
           content.copy.description,
           `${ARTICLES_BASE}/page/${content.page}`,

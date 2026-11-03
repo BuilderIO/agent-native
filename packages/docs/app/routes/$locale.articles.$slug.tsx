@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
 
-import { ARTICLES_BASE } from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
+import { ARTICLES_BASE } from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import { docsLocaleFromSegment } from "../components/docs-locale";
 import { articleDataFor, loader as englishLoader } from "./articles.$slug";
-import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
+import { redirectLocalizedSiteContent } from "./localized-site-content-redirect";
 
 export { default, meta } from "./articles.$slug";
 
@@ -13,7 +13,7 @@ export { default, meta } from "./articles.$slug";
 // 404.
 export function loader(args: LoaderFunctionArgs) {
   const { params, request } = args;
-  const content = loadCampaignContent();
+  const content = loadSiteContent();
   const entry = content.articles.find(
     (article) => article.slug === params.slug,
   );
@@ -22,7 +22,7 @@ export function loader(args: LoaderFunctionArgs) {
   const translation = locale ? entry.translations[locale] : undefined;
   if (locale && translation)
     return articleDataFor(content, entry, translation, locale);
-  return redirectLocalizedCampaign(
+  return redirectLocalizedSiteContent(
     request,
     params.locale,
     `${ARTICLES_BASE}/${params.slug}/`,

@@ -3,25 +3,25 @@ import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import {
   ARTICLES_BASE,
   type ArticleEntry,
-  type CampaignContent,
+  type SiteContent,
   type PublicArticle,
-} from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { ArticlePage } from "../components/campaign/articles";
-import {
-  articleCards,
-  newestArticles,
-  publicArticle,
-} from "../components/campaign/public-content";
+} from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import {
   DEFAULT_DOCS_LOCALE,
   sitePathForLocale,
   type DocsLocale,
 } from "../components/docs-locale";
-import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
+import { ArticlePage } from "../components/site-content/articles";
+import {
+  articleCards,
+  newestArticles,
+  publicArticle,
+} from "../components/site-content/public-content";
+import { siteContentMeta, localeAlternates } from "../lib/site-content-seo";
 
 export function loader({ params }: LoaderFunctionArgs) {
-  const content = loadCampaignContent();
+  const content = loadSiteContent();
   const item = content.articles.find((article) => article.slug === params.slug);
   if (!item) throw new Response(null, { status: 404 });
   return articleDataFor(content, item, item, DEFAULT_DOCS_LOCALE);
@@ -29,7 +29,7 @@ export function loader({ params }: LoaderFunctionArgs) {
 
 /** An article in one language, and every language it exists in. */
 export function articleDataFor(
-  content: CampaignContent,
+  content: SiteContent,
   entry: ArticleEntry,
   article: PublicArticle,
   locale: DocsLocale,
@@ -70,7 +70,7 @@ export const meta = ({
   const content = data ?? loaderData;
   return content
     ? [
-        ...campaignMeta(
+        ...siteContentMeta(
           content.article.seo_title,
           content.article.meta_description,
           `${ARTICLES_BASE}/${content.article.slug}`,

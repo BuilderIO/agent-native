@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const koKR = {
-  campaign: {
+  siteContent: {
     recipeWhen: "언제",
     howOften: "빈도",
     filterRole: "역할",
@@ -29,8 +29,7 @@ const koKR = {
     useCasesIntro:
       "반복해서 하는 업무를 선택하거나 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
     articles: "글",
-    articlesIntro:
-      "AI 에이전트와 함께하는 반복 업무를 위한 가이드와 해설.",
+    articlesIntro: "AI 에이전트와 함께하는 반복 업무를 위한 가이드와 해설.",
     articleCount_other: "글 {{count}}개",
     copyPage: "페이지 복사",
     enlargeImage: "이미지 확대",

@@ -1,5 +1,5 @@
 const enUS = {
-  campaign: {
+  siteContent: {
     recipeWhen: "When",
     howOften: "How often",
     filterRole: "Role",
@@ -28,8 +28,7 @@ const enUS = {
     useCasesIntro:
       "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
     articles: "Articles",
-    articlesIntro:
-      "Guides and explainers for recurring work with AI agents.",
+    articlesIntro: "Guides and explainers for recurring work with AI agents.",
     articleCount_one: "{{count}} article",
     articleCount_other: "{{count}} articles",
     copyPage: "Copy page",
@@ -2812,11 +2811,11 @@ type PluralKey =
   `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
 
 /** Locales supply only the plural categories their language uses. */
-export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
-  campaign: {
-    [K in keyof typeof enUS.campaign as K extends PluralKey
+export type PluralLocaleMessages = Omit<typeof enUS, "siteContent"> & {
+  siteContent: {
+    [K in keyof typeof enUS.siteContent as K extends PluralKey
       ? never
-      : K]: (typeof enUS.campaign)[K];
+      : K]: (typeof enUS.siteContent)[K];
   } & Record<PluralKey, string>;
 };
 

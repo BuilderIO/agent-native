@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const arSA = {
-  campaign: {
+  siteContent: {
     recipeWhen: "متى",
     howOften: "معدل التكرار",
     filterRole: "الدور",
@@ -30,8 +30,7 @@ const arSA = {
     useCasesIntro:
       "اختر العمل الذي تنفذه مرارًا وتكرارًا، أو تصفّح {{articles}} للعثور على القوالب والأدلة الإرشادية.",
     articles: "المقالات",
-    articlesIntro:
-      "أدلة وشروحات للعمل المتكرر مع وكلاء الذكاء الاصطناعي.",
+    articlesIntro: "أدلة وشروحات للعمل المتكرر مع وكلاء الذكاء الاصطناعي.",
     articleCount_zero: "{{count}} مقالات",
     articleCount_one: "{{count}} مقال",
     articleCount_two: "{{count}} مقالان",

@@ -31,7 +31,7 @@ const text = z
   .refine((value) => value.trim().length > 0, "Expected nonempty text");
 const slug = text.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const app = z.enum([...categories, "content"]);
-export function isSafeCampaignUrl(value: string): boolean {
+export function isSafeSiteContentUrl(value: string): boolean {
   if (/[\s\\\u0000-\u001f\u007f]/.test(value)) return false;
   if (value.startsWith("/") && !value.startsWith("//")) return true;
   try {
@@ -47,7 +47,7 @@ export function isSafeCampaignUrl(value: string): boolean {
   }
 }
 const safeUrl = text.refine(
-  isSafeCampaignUrl,
+  isSafeSiteContentUrl,
   "Expected a safe HTTP(S) or root-relative URL",
 );
 const appUrl = safeUrl.refine(
@@ -82,11 +82,18 @@ const role = z.enum([
   "finance",
   "everyone",
 ]);
-// An article as the content factory writes it (its how-to-guide skill's references/site-template.md).
+// An article: Markdown with this frontmatter in content/articles/<slug>.md.
+export const ARTICLE_TYPES = [
+  "how-to-guide",
+  "beginners-guide",
+  "definition",
+  "listicle",
+  "pillar-page",
+] as const;
 const articleImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
 const articleSchema = z.object({
   slug,
-  type: z.enum(["how-to-guide"]),
+  type: z.enum(ARTICLE_TYPES),
   title: text,
   seo_title: text,
   og_line: text,
@@ -118,7 +125,7 @@ const articleSchema = z.object({
 });
 
 const themedImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
-// Use-case pages, written by Content Factory.
+// A use-case page: content/use-cases/<slug>.yaml.
 const useCaseSchema = z.object({
   slug,
   app,
@@ -196,11 +203,11 @@ export type PublicArticle = z.infer<typeof articleSchema>;
 export type ArticleEntry = PublicArticle & {
   translations: Partial<Record<string, PublicArticle>>;
 };
-export type CampaignContent = {
+export type SiteContent = {
   useCases: UseCaseEntry[];
   articles: ArticleEntry[];
 };
-export type CampaignSources = {
+export type SiteContentSources = {
   useCases: Record<string, string>;
   /** content/use-cases/<locale>/<slug>.yaml: translations of the pages. */
   useCaseTranslations?: Record<string, string>;
@@ -242,9 +249,9 @@ function parseFiles<T extends { slug: string }>(
                 .join("; ")
             : error instanceof Error && /^slug must match/.test(error.message)
               ? error.message
-              : "Unable to parse campaign content";
+              : "Unable to parse site content";
         throw new Error(
-          `[campaign-content] ${filename}: invalid content (${message})`,
+          `[site-content] ${filename}: invalid content (${message})`,
         );
       }
     });
@@ -274,15 +281,13 @@ function attachTranslations<T extends { slug: string }>(
       matchKey(entry) !== matchKey(translation)
     )
       throw new Error(
-        `[campaign-content] ${file}: invalid content (a translation must sit in a site locale folder and match ${rule})`,
+        `[site-content] ${file}: invalid content (a translation must sit in a site locale folder and match ${rule})`,
       );
     entry.translations[locale] = translation;
   });
 }
 
-export function parseCampaignContent(
-  sources: CampaignSources,
-): CampaignContent {
+export function parseSiteContent(sources: SiteContentSources): SiteContent {
   const useCases = parseFiles(sources.useCases, useCaseSchema, false).map(
     (page): UseCaseEntry => ({ ...page, translations: {} }),
   );

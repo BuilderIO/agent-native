@@ -1,7 +1,4 @@
-import type {
-  ArticleEntry,
-  PublicArticle,
-} from "../../../lib/campaign-content";
+import type { ArticleEntry, PublicArticle } from "../../../lib/site-content";
 import { sitePathForLocale } from "../docs-locale";
 
 export type Article = PublicArticle;
@@ -59,7 +56,7 @@ export function articleCards(articles: ArticleEntry[], locale: string) {
   return { articles: cards, translatedSlugs };
 }
 
-export function campaignHref(href: string, locale: unknown): string {
+export function siteContentHref(href: string, locale: unknown): string {
   if (!href.startsWith("/") || href.startsWith("//")) return href;
   const suffixIndex = href.search(/[?#]/);
   const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);

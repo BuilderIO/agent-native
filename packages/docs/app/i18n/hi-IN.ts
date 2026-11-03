@@ -1,7 +1,7 @@
 import enUS from "./en-US";
 
 const hiIN = {
-  campaign: {
+  siteContent: {
     recipeWhen: "कब",
     howOften: "कितनी बार",
     filterRole: "भूमिका",
@@ -30,8 +30,7 @@ const hiIN = {
     useCasesIntro:
       "वह काम चुनें जो आप बार-बार करते हैं, या टेम्पलेट और उपयोग संबंधी गाइड के लिए {{articles}} देखें।",
     articles: "लेख",
-    articlesIntro:
-      "AI एजेंट के साथ बार-बार होने वाले काम के लिए गाइड और व्याख्याएं।",
+    articlesIntro: "AI एजेंट के साथ बार-बार होने वाले काम के लिए गाइड और व्याख्याएं।",
     articleCount_one: "{{count}} लेख",
     articleCount_other: "{{count}} लेख",
     copyPage: "पेज कॉपी करें",

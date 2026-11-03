@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseCampaignContent, type CampaignContent } from "./campaign-content";
+import { parseSiteContent, type SiteContent } from "./site-content";
 
-export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
+export function loadSiteContentFromDisk(rootDir: string): SiteContent {
   function readSources(
     directory: string,
     extension: string,
@@ -20,7 +20,7 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
           }),
       );
     } catch (cause) {
-      throw new Error(`Unable to enumerate/read campaign content in ${dir}`, {
+      throw new Error(`Unable to enumerate/read site content in ${dir}`, {
         cause,
       });
     }
@@ -34,12 +34,12 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
         .filter((entry) => entry.isDirectory())
         .map((entry) => path.join(directory, entry.name));
     } catch (cause) {
-      throw new Error(`Unable to enumerate/read campaign content in ${dir}`, {
+      throw new Error(`Unable to enumerate/read site content in ${dir}`, {
         cause,
       });
     }
   }
-  return parseCampaignContent({
+  return parseSiteContent({
     useCases: readSources("use-cases", ".yaml"),
     useCaseTranslations: Object.assign(
       {},

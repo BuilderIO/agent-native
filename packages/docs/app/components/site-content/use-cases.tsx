@@ -8,7 +8,7 @@ import {
   USE_CASES_BASE,
   CATEGORY_NAMES,
   type UseCase,
-} from "../../../lib/campaign-content";
+} from "../../../lib/site-content";
 import { sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { ContentCard } from "../website-redesign/ds/content-card";
@@ -16,15 +16,15 @@ import { FormSelect } from "../website-redesign/ds/form-select";
 import { SectionHeader } from "../website-redesign/ds/section-header";
 
 const roleFilters = [
-  ["", "campaign.filterAll"],
-  ["engineering", "campaign.filterEngineering"],
-  ["product", "campaign.filterProduct"],
-  ["design", "campaign.filterDesign"],
-  ["marketing", "campaign.filterMarketing"],
-  ["revops", "campaign.filterRevops"],
-  ["sales", "campaign.filterSales"],
-  ["founders", "campaign.filterFounders"],
-  ["finance", "campaign.filterFinance"],
+  ["", "siteContent.filterAll"],
+  ["engineering", "siteContent.filterEngineering"],
+  ["product", "siteContent.filterProduct"],
+  ["design", "siteContent.filterDesign"],
+  ["marketing", "siteContent.filterMarketing"],
+  ["revops", "siteContent.filterRevops"],
+  ["sales", "siteContent.filterSales"],
+  ["founders", "siteContent.filterFounders"],
+  ["finance", "siteContent.filterFinance"],
 ] as const;
 
 // A card on the index: the page's headline and the hero's opening.
@@ -62,24 +62,24 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
     trackEvent("index_filter", { role: nextRole });
   }
   const apps = [...new Set(items.map((item) => item.app))];
-  const [beforeArticles, afterArticles] = t("campaign.useCasesIntro", {
+  const [beforeArticles, afterArticles] = t("siteContent.useCasesIntro", {
     articles: "<articles>",
   }).split("<articles>");
   return (
-    <TemplateLandingShell className="builder-brand-tokens campaign-page pb-16">
-      <div className="campaign-section border-x border-[var(--docs-border)]">
+    <TemplateLandingShell className="builder-brand-tokens site-content-page pb-16">
+      <div className="site-content-section border-x border-[var(--docs-border)]">
         <SectionHeader
-          eyebrow={t("campaign.useCases")}
+          eyebrow={t("siteContent.useCases")}
           as="h1"
-          heading={t("campaign.useCasesTitle")}
+          heading={t("siteContent.useCasesTitle")}
           subheading={
             <>
               {beforeArticles}
               <Link
                 to={sitePathForLocale(ARTICLES_BASE, locale)}
-                className="campaign-inline-link text-[var(--docs-accent)]"
+                className="site-content-inline-link text-[var(--docs-accent)]"
               >
-                {t("campaign.articlesLink")}
+                {t("siteContent.articlesLink")}
               </Link>
               {afterArticles}
             </>
@@ -87,7 +87,7 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
         />
         <div className="mt-6 flex min-w-0 flex-wrap gap-6">
           <FormSelect
-            label={t("campaign.filterRole")}
+            label={t("siteContent.filterRole")}
             options={roleFilters.map(([value, key]) => ({
               value,
               label: t(key),
@@ -100,14 +100,14 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
       {hydrated && !items.some(matches) ? (
         <div className="space-y-3 border-x border-b border-[var(--docs-border)] p-6 sm:p-8">
           <p className="m-0" role="status">
-            {t("campaign.filterEmpty")}
+            {t("siteContent.filterEmpty")}
           </p>
           <Link
             to={`?${clearParams.toString()}`}
-            className="campaign-inline-link text-[var(--docs-accent)]"
+            className="site-content-inline-link text-[var(--docs-accent)]"
             onClick={() => trackEvent("index_filter", { role: "" })}
           >
-            {t("campaign.filterClear")}
+            {t("siteContent.filterClear")}
           </Link>
         </div>
       ) : null}
@@ -117,7 +117,7 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
           hidden={!items.some((item) => item.app === app && matches(item))}
           className="border border-[var(--docs-border)]"
         >
-          <div className="campaign-section">
+          <div className="site-content-section">
             <SectionHeader heading={CATEGORY_NAMES[app]} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">

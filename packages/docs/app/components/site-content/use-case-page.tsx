@@ -21,14 +21,14 @@ import { Link } from "react-router";
 import {
   CATEGORY_NAMES,
   type UseCase as Page,
-} from "../../../lib/campaign-content";
+} from "../../../lib/site-content";
 import { BuilderImage } from "../builder-image";
 import { firstPartyAppUrl } from "../deployment-links";
 import { AppStatusBadge } from "../website-redesign/ds/app-status-badge";
 import { ContentCard } from "../website-redesign/ds/content-card";
 import { FaqAccordion } from "../website-redesign/ds/faq-accordion";
 import { GridInner, PageSection } from "../website-redesign/page-grid";
-import { campaignHref } from "./public-content";
+import { siteContentHref } from "./public-content";
 import { JsonLd, faqSchema } from "./shared";
 
 const SITE_ORIGIN = "https://www.agent-native.com";
@@ -93,7 +93,7 @@ function InlineText({ text }: { text: string }) {
       href.startsWith("/") ? (
         <Link
           key={match.index}
-          to={campaignHref(href, locale)}
+          to={siteContentHref(href, locale)}
           className={LINK_CLASS}
         >
           {label}
@@ -374,7 +374,7 @@ export function UseCasePage({ page }: { page: Page }) {
                     key={card.url}
                     title={card.title}
                     body={card.body}
-                    href={campaignHref(sitePath(card.url), locale)}
+                    href={siteContentHref(sitePath(card.url), locale)}
                   />
                 ))}
               </div>

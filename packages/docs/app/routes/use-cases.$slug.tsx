@@ -5,12 +5,12 @@ import {
   USE_CASES_BASE,
   type UseCase,
   type UseCaseEntry,
-} from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { UseCasePage } from "../components/campaign/use-case-page";
-import { movedUseCaseSlug } from "../components/campaign/use-case-redirects";
+} from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import { DEFAULT_DOCS_LOCALE } from "../components/docs-locale";
-import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
+import { UseCasePage } from "../components/site-content/use-case-page";
+import { movedUseCaseSlug } from "../components/site-content/use-case-redirects";
+import { siteContentMeta, localeAlternates } from "../lib/site-content-seo";
 
 /** A use-case page in one language, and every language it exists in. */
 export function pageDataFor(entry: UseCaseEntry, page: UseCase) {
@@ -25,7 +25,7 @@ export function loader({ params }: LoaderFunctionArgs) {
   if (moved) {
     return withSsrHtmlContentType(redirect(`${USE_CASES_BASE}/${moved}/`, 301));
   }
-  const content = loadCampaignContent();
+  const content = loadSiteContent();
   const item = content.useCases.find((item) => item.slug === params.slug);
   if (!item) throw new Response(null, { status: 404 });
   const { translations: _translations, ...page } = item;
@@ -45,7 +45,7 @@ export const meta = ({
   const content = data ?? loaderData;
   if (!content) return [];
   return [
-    ...campaignMeta(
+    ...siteContentMeta(
       content.page.seo_title,
       content.page.meta_description,
       `${USE_CASES_BASE}/${content.page.slug}`,

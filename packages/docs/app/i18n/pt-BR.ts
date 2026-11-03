@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const ptBR = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Quando",
     howOften: "Com que frequência",
     filterRole: "Função",

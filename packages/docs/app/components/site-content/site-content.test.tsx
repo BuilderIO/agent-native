@@ -21,27 +21,27 @@ import {
   USE_CASES_BASE,
   type ArticleEntry,
   type UseCaseEntry,
-} from "../../../lib/campaign-content";
-import { loadCampaignContent } from "../../../lib/campaign-content.server";
+} from "../../../lib/site-content";
+import { loadSiteContent } from "../../../lib/site-content.server";
 import enUS from "../../i18n/en-US";
 import jaJP from "../../i18n/ja-JP";
 import { articlesListCopy } from "../../lib/articles-copy.server";
-import * as localizedCampaignRoute3 from "../../routes/$locale.articles.$slug";
-import * as localizedCampaignRoute2 from "../../routes/$locale.articles._index";
-import * as localizedCampaignRoute5 from "../../routes/$locale.articles.page.$page";
-import * as localizedCampaignRoute1 from "../../routes/$locale.use-cases.$slug";
-import * as localizedCampaignRoute0 from "../../routes/$locale.use-cases._index";
+import * as localizedSiteContentRoute3 from "../../routes/$locale.articles.$slug";
+import * as localizedSiteContentRoute2 from "../../routes/$locale.articles._index";
+import * as localizedSiteContentRoute5 from "../../routes/$locale.articles.page.$page";
+import * as localizedSiteContentRoute1 from "../../routes/$locale.use-cases.$slug";
+import * as localizedSiteContentRoute0 from "../../routes/$locale.use-cases._index";
 import {
   loader as articleLoader,
   meta as articleMeta,
 } from "../../routes/articles.$slug";
-import * as campaignRoute2 from "../../routes/articles._index";
+import * as siteContentRoute2 from "../../routes/articles._index";
 import { loader as articlesLoader } from "../../routes/articles._index";
-import * as campaignRoute5 from "../../routes/articles.page.$page";
+import * as siteContentRoute5 from "../../routes/articles.page.$page";
 import { loader as pageLoader } from "../../routes/articles.page.$page";
-import * as campaignRoute1 from "../../routes/use-cases.$slug";
+import * as siteContentRoute1 from "../../routes/use-cases.$slug";
 import { loader as useCaseLoader } from "../../routes/use-cases.$slug";
-import * as campaignRoute0 from "../../routes/use-cases._index";
+import * as siteContentRoute0 from "../../routes/use-cases._index";
 import CodeBlock from "../CodeBlock";
 import { DOCS_LOCALES, sitePathForLocale } from "../docs-locale";
 import { copyText } from "../website-redesign/ds/clipboard";
@@ -54,12 +54,12 @@ import {
   safeHref,
   type Article,
 } from "./public-content";
-import { CampaignCta, CampaignView, CopyControl } from "./shared";
+import { SiteContentCta, SiteContentView, CopyControl } from "./shared";
 import { UseCasesIndex, type UseCaseIndexItem } from "./use-cases";
 
 const articlesCopy = {
-  title: enUS.campaign.articles,
-  description: enUS.campaign.articlesIntro,
+  title: enUS.siteContent.articles,
+  description: enUS.siteContent.articlesIntro,
 };
 
 const currentLocale = vi.hoisted(() => ({ locale: "en-US" }));
@@ -106,8 +106,8 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("../website-redesign/ds/clipboard", () => ({ copyText: vi.fn() }));
-vi.mock("../../../lib/campaign-content.server", () => ({
-  loadCampaignContent: vi.fn(),
+vi.mock("../../../lib/site-content.server", () => ({
+  loadSiteContent: vi.fn(),
 }));
 
 const image = {
@@ -222,7 +222,7 @@ function LocationProbe() {
     </output>
   );
 }
-function renderCampaign(node: React.ReactNode, entry = "/") {
+function renderSiteContent(node: React.ReactNode, entry = "/") {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <SnackbarProvider>{node}</SnackbarProvider>
@@ -246,8 +246,8 @@ function schemas(document: Document): Record<string, unknown>[] {
 }
 // oracle-change: the original use-case template (old/new way, recipes, angles, stories, next jobs) was removed; its page, loader projection and frequency tag tests went with it, and every use-case page now renders through use-case-page.tsx.
 // oracle-change: the articles index intro no longer links to the use cases (the user's copy decision, 2026-10-28), so the intro and navigation tests no longer expect that link.
-// oracle-change: articles were rebuilt as how-to guides (how-to-guide skill's references/site-template.md); topic and category pages, related resources, app screenshots and the 12-card list were removed, so their tests went with them and the new layout is tested below.
-describe("public campaign frontend", () => {
+// oracle-change: articles were rebuilt on one layout for every article type; topic and category pages, related resources, app screenshots and the 12-card list were removed, so their tests went with them and the new layout is tested below.
+describe("public site content frontend", () => {
   it.each(DOCS_LOCALES)(
     "SSR renders a single intro paragraph with only articles linked for %s",
     (locale) => {
@@ -260,7 +260,7 @@ describe("public campaign frontend", () => {
         "Pick the job you do again and again, or browse the articles for templates and how-tos.",
       );
       expect(intro.textContent).toBe(
-        enUS.campaign.useCasesIntro.replace("{{articles}}", "articles"),
+        enUS.siteContent.useCasesIntro.replace("{{articles}}", "articles"),
       );
       expect(header.parentElement?.querySelectorAll(":scope > p")).toHaveLength(
         0,
@@ -271,7 +271,7 @@ describe("public campaign frontend", () => {
       expect(link.getAttribute("href")).toBe(
         sitePathForLocale(ARTICLES_BASE, locale),
       );
-      expect(link.classList.contains("campaign-inline-link")).toBe(true);
+      expect(link.classList.contains("site-content-inline-link")).toBe(true);
     },
   );
 
@@ -315,7 +315,7 @@ describe("public campaign frontend", () => {
     };
     window.history.replaceState(null, "", "/articles/test-article/");
     vi.mocked(copyText).mockResolvedValue(true);
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <ArticlePage article={item} useCase={null} more={[]} />,
     );
     expect(view.getAllByRole("heading", { level: 1 })).toHaveLength(1);
@@ -341,7 +341,7 @@ describe("public campaign frontend", () => {
     expect(copyText).toHaveBeenCalledExactlyOnceWith(
       `${window.location.origin}/articles/test-article/#test-heading`,
     );
-    expect(view.getByText(enUS.campaign.copied)).toBeDefined();
+    expect(view.getByText(enUS.siteContent.copied)).toBeDefined();
   });
 
   it("renders the author's name as text when the author URL is unsafe", () => {
@@ -365,14 +365,14 @@ describe("public campaign frontend", () => {
     "keeps standalone page CopyControl feedback for copy success %s",
     async (success) => {
       vi.mocked(copyText).mockResolvedValue(success);
-      const view = renderCampaign(<CopyControl text="Test page markdown" />);
+      const view = renderSiteContent(<CopyControl text="Test page markdown" />);
       await act(async () => {
         fireEvent.click(view.getByRole("button", { name: "Copy page" }));
       });
       expect(copyText).toHaveBeenCalledExactlyOnceWith("Test page markdown");
       expect(
         view.getByText(
-          success ? enUS.campaign.copied : enUS.campaign.copyFailed,
+          success ? enUS.siteContent.copied : enUS.siteContent.copyFailed,
         ),
       ).toBeDefined();
     },
@@ -508,7 +508,7 @@ describe("public campaign frontend", () => {
     ];
     expect(newestArticles(fixtures).map((item) => item.slug)).toEqual(expected);
     expect(fixtures.map((item) => item.slug)).toEqual(sourceOrder);
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [useCase],
       articles: fixtures,
     });
@@ -540,7 +540,7 @@ describe("public campaign frontend", () => {
       slug: `test-${index}`,
       updated: `2026-01-${String(index + 1).padStart(2, "0")}`,
     }));
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [useCase],
       articles,
     });
@@ -576,10 +576,10 @@ describe("public campaign frontend", () => {
           `a[href="${sitePathForLocale(`${ARTICLES_BASE}/page/2`)}"]`,
         )
         ?.textContent.trim(),
-    ).toBe(enUS.campaign.showMore);
+    ).toBe(enUS.siteContent.showMore);
     expect(
       dom(markup(<ArticlesList {...third} />)).body.textContent,
-    ).not.toContain(enUS.campaign.showMore);
+    ).not.toContain(enUS.siteContent.showMore);
   });
 
   it("permanently redirects page 1 to the locale-aware articles index", () => {
@@ -606,7 +606,7 @@ describe("public campaign frontend", () => {
       { ...article, slug: "middle", updated: "2026-08-01" },
       { ...article, slug: "next", updated: "2026-07-01" },
     ];
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [],
       articles: fixtures,
     });
@@ -700,7 +700,7 @@ describe("public campaign frontend", () => {
     });
   });
 
-  it("uses router tracking parameters and emits only allowed campaign fields", () => {
+  it("uses router tracking parameters and emits only allowed tracking fields", () => {
     window.history.replaceState(
       null,
       "",
@@ -708,10 +708,10 @@ describe("public campaign frontend", () => {
     );
     const entry =
       "/?utm_source=test&utm_content=existing&audience=PRIVATE&internal=PRIVATE";
-    const articleView = renderCampaign(
+    const articleView = renderSiteContent(
       <>
-        <CampaignView item={article} />
-        <CampaignCta item={article} location="inline" />
+        <SiteContentView item={article} />
+        <SiteContentCta item={article} location="inline" />
       </>,
       entry,
     );
@@ -758,7 +758,7 @@ describe("public campaign frontend", () => {
       slug: "test-other",
       updated: "2026-01-02",
     };
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [privateCase],
       articles: [privateArticle, other],
     });
@@ -848,7 +848,7 @@ describe("public campaign frontend", () => {
     expect(document.querySelectorAll("script:not([type])")).toHaveLength(0);
     expect(document.querySelector("button button")).toBeNull();
     const faq = must(
-      document.querySelector(".campaign-article-faq section"),
+      document.querySelector(".site-content-article-faq section"),
       "the FAQ section",
     );
     const faqHeading = must(faq.querySelector("h2"), "the FAQ heading");
@@ -888,7 +888,7 @@ describe("public campaign frontend", () => {
         />,
       ),
     );
-    expect(document.querySelector(".campaign-article-faq")).toBeNull();
+    expect(document.querySelector(".site-content-article-faq")).toBeNull();
     expect(
       document.querySelector("h2#frequently-asked-questions"),
     ).not.toBeNull();
@@ -919,7 +919,7 @@ describe("public campaign frontend", () => {
     expect(document.querySelectorAll("table")).toHaveLength(2);
     for (const cell of document.querySelectorAll("th, td")) {
       expect(
-        cell.closest(".campaign-article-content .docs-content"),
+        cell.closest(".site-content-article-content .docs-content"),
       ).not.toBeNull();
     }
     expect(document.querySelectorAll("thead th")).toHaveLength(4);
@@ -928,7 +928,7 @@ describe("public campaign frontend", () => {
 
   it("shows a listed screenshot in both themes and opens it in a dialog when clicked", async () => {
     const unlisted = "https://example.com/unlisted.png";
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <ArticlePage
         article={{
           ...article,
@@ -969,7 +969,7 @@ describe("public campaign frontend", () => {
 
     fireEvent.click(
       view.getByRole("button", {
-        name: new RegExp(enUS.campaign.enlargeImage),
+        name: new RegExp(enUS.siteContent.enlargeImage),
       }),
     );
     const dialog = await view.findByRole("dialog", { name: articleImage.alt });
@@ -978,13 +978,15 @@ describe("public campaign frontend", () => {
       light: articleImage.light,
     });
     fireEvent.click(
-      view.getByRole("button", { name: new RegExp(enUS.campaign.closeImage) }),
+      view.getByRole("button", {
+        name: new RegExp(enUS.siteContent.closeImage),
+      }),
     );
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
 
     fireEvent.click(
       view.getByRole("button", {
-        name: new RegExp(enUS.campaign.enlargeImage),
+        name: new RegExp(enUS.siteContent.enlargeImage),
       }),
     );
     await view.findByRole("dialog");
@@ -996,11 +998,11 @@ describe("public campaign frontend", () => {
 
   it("places the callout after the intro and its image, and repeats it in the closing band", async () => {
     vi.mocked(copyText).mockResolvedValue(true);
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <ArticlePage article={article} useCase={null} more={[]} />,
     );
     const inline = must(
-      view.container.querySelector(".campaign-callout-inline"),
+      view.container.querySelector(".site-content-callout-inline"),
       "the inline callout",
     );
     expect(inline.previousElementSibling?.tagName).toBe("FIGURE");
@@ -1013,13 +1015,13 @@ describe("public campaign frontend", () => {
       "the closing band",
     );
     const closing = must(
-      band.querySelector(".campaign-callout-band"),
+      band.querySelector(".site-content-callout-band"),
       "the band callout",
     );
     expect(closing.querySelector("h2")?.textContent).toBe(cta.heading);
-    expect(inline.querySelector(".campaign-callout-heading")?.textContent).toBe(
-      cta.heading,
-    );
+    expect(
+      inline.querySelector(".site-content-callout-heading")?.textContent,
+    ).toBe(cta.heading);
     for (const callout of [inline, closing]) {
       const link = must(callout.querySelector("a"), "the callout button");
       expect(link.textContent).toBe(cta.label);
@@ -1031,7 +1033,7 @@ describe("public campaign frontend", () => {
       );
     }
     const copies = view.getAllByRole("button", {
-      name: enUS.campaign.copyPrompt,
+      name: enUS.siteContent.copyPrompt,
     });
     expect(copies).toHaveLength(2);
     const copy = must(copies[0], "a Copy prompt button");
@@ -1040,7 +1042,7 @@ describe("public campaign frontend", () => {
       fireEvent.click(copy);
     });
     expect(copyText).toHaveBeenCalledExactlyOnceWith(cta.prompt);
-    expect(view.getByText(enUS.campaign.copied)).toBeDefined();
+    expect(view.getByText(enUS.siteContent.copied)).toBeDefined();
     expect(trackEvent).toHaveBeenCalledWith("article_prompt_copy", {
       slug: article.slug,
       app: article.app,
@@ -1050,18 +1052,18 @@ describe("public campaign frontend", () => {
 
   it("does not track a prompt copy that failed", async () => {
     vi.mocked(copyText).mockResolvedValue(false);
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <ArticlePage article={article} useCase={null} more={[]} />,
     );
     await act(async () => {
       fireEvent.click(
         must(
-          view.getAllByRole("button", { name: enUS.campaign.copyPrompt })[0],
+          view.getAllByRole("button", { name: enUS.siteContent.copyPrompt })[0],
           "a Copy prompt button",
         ),
       );
     });
-    expect(view.getByText(enUS.campaign.copyFailed)).toBeDefined();
+    expect(view.getByText(enUS.siteContent.copyFailed)).toBeDefined();
     expect(trackEvent).not.toHaveBeenCalledWith(
       "article_prompt_copy",
       expect.objectContaining({ slug: article.slug }),
@@ -1079,8 +1081,10 @@ describe("public campaign frontend", () => {
       const document = dom(
         markup(<ArticlePage article={item} useCase={null} more={[]} />),
       );
-      expect(document.querySelector(".campaign-callout")).toBeNull();
-      expect(document.body.textContent).not.toContain(enUS.campaign.copyPrompt);
+      expect(document.querySelector(".site-content-callout")).toBeNull();
+      expect(document.body.textContent).not.toContain(
+        enUS.siteContent.copyPrompt,
+      );
       expect(
         document.querySelector('a[href^="https://example.com/app"]'),
       ).toBeNull();
@@ -1098,9 +1102,11 @@ describe("public campaign frontend", () => {
         />,
       ),
     );
-    expect(document.querySelectorAll(".campaign-callout")).toHaveLength(2);
-    expect(document.body.textContent).not.toContain(enUS.campaign.copyPrompt);
-    expect(document.querySelector(".campaign-callout-hint")).toBeNull();
+    expect(document.querySelectorAll(".site-content-callout")).toHaveLength(2);
+    expect(document.body.textContent).not.toContain(
+      enUS.siteContent.copyPrompt,
+    );
+    expect(document.querySelector(".site-content-callout-hint")).toBeNull();
   });
 
   it("badges numbered ### steps and lists the steps of the first section with three or more", () => {
@@ -1126,7 +1132,7 @@ describe("public campaign frontend", () => {
       "### Test question?",
       "Test answer.",
     ].join("\n\n");
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <ArticlePage
         article={{ ...article, body, faqs: [] }}
         useCase={null}
@@ -1219,10 +1225,10 @@ describe("public campaign frontend", () => {
       );
       expect(header.querySelectorAll("h1 ~ p")).toHaveLength(1);
       const intro = must(header.querySelector("h1 + p"), "the index intro");
-      expect(intro.textContent).toBe(enUS.campaign.articlesIntro);
+      expect(intro.textContent).toBe(enUS.siteContent.articlesIntro);
       expect(intro.querySelectorAll("a")).toHaveLength(0);
       expect(header.textContent).toBe(
-        `${enUS.campaign.articles}${intro.textContent}`,
+        `${enUS.siteContent.articles}${intro.textContent}`,
       );
       expect(header.parentElement?.querySelectorAll(":scope > p")).toHaveLength(
         0,
@@ -1232,7 +1238,7 @@ describe("public campaign frontend", () => {
   );
 
   it.each(DOCS_LOCALES)(
-    "preserves %s in every campaign navigation surface without translating editorial content",
+    "preserves %s in every site content navigation surface without translating editorial content",
     (locale) => {
       currentLocale.locale = locale;
       const related = { ...article, slug: "test-related" };
@@ -1346,7 +1352,7 @@ describe("public campaign frontend", () => {
         }),
       );
       const onCopySuccess = vi.fn();
-      const view = renderCampaign(
+      const view = renderSiteContent(
         <CodeBlock code={prompt} lang="text" onCopySuccess={onCopySuccess} />,
       );
       fireEvent.click(view.getByRole("button", { name: "Copy code" }));
@@ -1400,14 +1406,14 @@ describe("public campaign frontend", () => {
     },
     { ...indexItem, slug: "untagged", title: "Untagged" },
   ];
-  const visibleCardTitles = (view: ReturnType<typeof renderCampaign>) =>
+  const visibleCardTitles = (view: ReturnType<typeof renderSiteContent>) =>
     view.getAllByRole("link").flatMap((link) => {
       const title = link.querySelector("h3")?.textContent;
       return title ? [title] : [];
     });
 
   it("filters by role, includes everyone, and updates the URL and filter events", () => {
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <UseCasesIndex items={filterItems} />,
       "/use-cases?role=engineering&utm_source=keep",
     );
@@ -1446,19 +1452,21 @@ describe("public campaign frontend", () => {
     const items = filterItems.filter(
       (item) => !item.roles?.includes("everyone"),
     );
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <UseCasesIndex items={items} />,
       "/use-cases?role=finance&utm_source=keep",
     );
     expect(visibleCardTitles(view)).toEqual([]);
-    expect(view.getByText(enUS.campaign.filterEmpty).getAttribute("role")).toBe(
-      "status",
-    );
-    const clear = view.getByRole("link", { name: enUS.campaign.filterClear });
+    expect(
+      view.getByText(enUS.siteContent.filterEmpty).getAttribute("role"),
+    ).toBe("status");
+    const clear = view.getByRole("link", {
+      name: enUS.siteContent.filterClear,
+    });
     expect(clear.getAttribute("href")).toBe("/use-cases?utm_source=keep");
     fireEvent.click(clear);
     await waitFor(() =>
-      expect(view.queryByText(enUS.campaign.filterEmpty)).toBeNull(),
+      expect(view.queryByText(enUS.siteContent.filterEmpty)).toBeNull(),
     );
     expect(visibleCardTitles(view)).toEqual([
       "Engineering weekly",
@@ -1476,7 +1484,7 @@ describe("public campaign frontend", () => {
   });
 
   it("treats an unknown role, and the retired frequency parameter, as unfiltered", () => {
-    const view = renderCampaign(
+    const view = renderSiteContent(
       <UseCasesIndex items={filterItems} />,
       "/use-cases?role=unknown&often=weekly",
     );
@@ -1494,11 +1502,11 @@ describe("public campaign frontend", () => {
 
   it("renders every real article with its listed screenshots and frontmatter FAQs on the page", async () => {
     const actual = await vi.importActual<
-      typeof import("../../../lib/campaign-content.server")
-    >("../../../lib/campaign-content.server");
-    const content = actual.loadCampaignContent();
+      typeof import("../../../lib/site-content.server")
+    >("../../../lib/site-content.server");
+    const content = actual.loadSiteContent();
     expect(content.articles.length).toBeGreaterThan(0);
-    vi.mocked(loadCampaignContent).mockReturnValue(content);
+    vi.mocked(loadSiteContent).mockReturnValue(content);
     for (const item of content.articles) {
       const data = articleLoader(args({ slug: item.slug }));
       if (item.use_case)
@@ -1517,7 +1525,7 @@ describe("public campaign frontend", () => {
       ).toEqual(item.images.map((i) => i.light));
       // The FAQPage schema must match the questions the page shows.
       expect(
-        [...document.querySelectorAll(".campaign-article-faq h3")].map(
+        [...document.querySelectorAll(".site-content-article-faq h3")].map(
           (node) => node.textContent,
         ),
         item.slug,
@@ -1526,7 +1534,7 @@ describe("public campaign frontend", () => {
     }
   });
 
-  it("redirects localized campaign aliases to their English canonical pages", () => {
+  it("redirects localized site content aliases to their English canonical pages", () => {
     const articles = Array.from(
       { length: ARTICLES_PAGE_SIZE + 1 },
       (_, index) => ({
@@ -1534,31 +1542,31 @@ describe("public campaign frontend", () => {
         slug: `test-article-${index}`,
       }),
     );
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [useCase],
       articles,
     });
 
     const aliases = [
-      [localizedCampaignRoute0.loader, { locale: "fr-fr" }, "/use-cases/"],
+      [localizedSiteContentRoute0.loader, { locale: "fr-fr" }, "/use-cases/"],
       [
-        localizedCampaignRoute1.loader,
+        localizedSiteContentRoute1.loader,
         { locale: "fr-fr", slug: useCase.slug },
         `${USE_CASES_BASE}/${useCase.slug}/`,
       ],
-      [localizedCampaignRoute2.loader, { locale: "fr-fr" }, "/articles/"],
+      [localizedSiteContentRoute2.loader, { locale: "fr-fr" }, "/articles/"],
       [
-        localizedCampaignRoute3.loader,
+        localizedSiteContentRoute3.loader,
         { locale: "fr-fr", slug: articles[0]!.slug },
         `${ARTICLES_BASE}/${articles[0]!.slug}/`,
       ],
       [
-        localizedCampaignRoute5.loader,
+        localizedSiteContentRoute5.loader,
         { locale: "fr-fr", page: "1" },
         "/articles/",
       ],
       [
-        localizedCampaignRoute5.loader,
+        localizedSiteContentRoute5.loader,
         { locale: "fr-fr", page: "2" },
         "/articles/page/2/",
       ],
@@ -1573,14 +1581,14 @@ describe("public campaign frontend", () => {
     }
     // Localized use-case pages and articles render when a translation exists (below).
     for (const alias of [
-      localizedCampaignRoute1,
-      localizedCampaignRoute2,
-      localizedCampaignRoute3,
-      localizedCampaignRoute5,
+      localizedSiteContentRoute1,
+      localizedSiteContentRoute2,
+      localizedSiteContentRoute3,
+      localizedSiteContentRoute5,
     ]) {
       expect(Object.keys(alias).sort()).toEqual(["default", "loader", "meta"]);
     }
-    expect(Object.keys(localizedCampaignRoute0)).toEqual(["loader"]);
+    expect(Object.keys(localizedSiteContentRoute0)).toEqual(["loader"]);
   });
 
   it("serves a translated use-case page and redirects languages it lacks", () => {
@@ -1591,7 +1599,7 @@ describe("public campaign frontend", () => {
       app: "slides" as const,
       title: "Auf Deutsch",
     };
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [
         {
           ...german,
@@ -1601,7 +1609,7 @@ describe("public campaign frontend", () => {
       ],
       articles: [],
     });
-    const translated = localizedCampaignRoute1.loader(
+    const translated = localizedSiteContentRoute1.loader(
       args({ locale: "de-de", slug: "translated-page" }),
     ) as { page: { title: string }; locales: string[] };
     expect(translated.page.title).toBe("Auf Deutsch");
@@ -1613,7 +1621,7 @@ describe("public campaign frontend", () => {
     expect(() => useCaseLoader(args({ slug: "missing-use-case" }))).toThrow(
       expect.objectContaining({ status: 404 }),
     );
-    const untranslated = localizedCampaignRoute1.loader(
+    const untranslated = localizedSiteContentRoute1.loader(
       args({ locale: "fr-fr", slug: "translated-page" }),
     ) as Response;
     expect(untranslated.status).toBe(301);
@@ -1641,11 +1649,11 @@ describe("public campaign frontend", () => {
       slug: "test-english-only",
       updated: "2025-01-01",
     };
-    vi.mocked(loadCampaignContent).mockReturnValue({
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [useCase],
       articles: [translated, englishOnly],
     });
-    const data = localizedCampaignRoute3.loader(
+    const data = localizedSiteContentRoute3.loader(
       args({ locale: "de-de", slug: article.slug }),
     );
     if (data instanceof Response) throw new Error("Expected article data");
@@ -1667,7 +1675,7 @@ describe("public campaign frontend", () => {
       hrefLang,
       href,
     }));
-    const metadata = localizedCampaignRoute3.meta({
+    const metadata = localizedSiteContentRoute3.meta({
       loaderData: data,
       params: { locale: "de-de" },
     });
@@ -1695,9 +1703,9 @@ describe("public campaign frontend", () => {
       "Zahlen sammeln",
     );
     expect(page.querySelectorAll(".article-step-list li")).toHaveLength(3);
-    expect(page.querySelector(".campaign-article-faq")?.textContent).toContain(
-      "Warum testen?",
-    );
+    expect(
+      page.querySelector(".site-content-article-faq")?.textContent,
+    ).toContain("Warum testen?");
     expect(
       page.querySelector('a[href="/articles/test-english-only/"]'),
     ).not.toBeNull();
@@ -1715,7 +1723,7 @@ describe("public campaign frontend", () => {
         "/articles/test-english-only/",
       ],
     ] as const) {
-      const response = localizedCampaignRoute3.loader(args(params));
+      const response = localizedSiteContentRoute3.loader(args(params));
       if (!(response instanceof Response)) throw new Error("Expected redirect");
       expect(response.status).toBe(301);
       expect(response.headers.get("Location")).toBe(
@@ -1723,7 +1731,7 @@ describe("public campaign frontend", () => {
       );
     }
 
-    const index = localizedCampaignRoute2.loader(args({ locale: "de-de" }));
+    const index = localizedSiteContentRoute2.loader(args({ locale: "de-de" }));
     if (index instanceof Response) throw new Error("Expected index data");
     expect(
       index.articles.map((item) => [item.title, item.og_image, item.updated]),
@@ -1740,7 +1748,7 @@ describe("public campaign frontend", () => {
     ])
       expect(grid.querySelector(`a[href="${href}"]`), href).not.toBeNull();
     expect(
-      localizedCampaignRoute2.meta({
+      localizedSiteContentRoute2.meta({
         loaderData: index,
         params: { locale: "de-de" },
       }),
@@ -1750,7 +1758,7 @@ describe("public campaign frontend", () => {
       hrefLang: "de-DE",
       href: `${site}/de-de/articles/`,
     });
-    const untranslatedIndex = localizedCampaignRoute2.loader(
+    const untranslatedIndex = localizedSiteContentRoute2.loader(
       args({ locale: "fr-fr" }),
     );
     if (!(untranslatedIndex instanceof Response))
@@ -1807,25 +1815,25 @@ describe("public campaign frontend", () => {
       ).not.toBeNull();
   });
 
-  it("returns 404 for invalid localized campaign routes or locale tags", () => {
-    vi.mocked(loadCampaignContent).mockReturnValue({
+  it("returns 404 for invalid localized site content routes or locale tags", () => {
+    vi.mocked(loadSiteContent).mockReturnValue({
       useCases: [useCase],
       articles: [article],
     });
     const cases = [
       () =>
-        localizedCampaignRoute1.loader(
+        localizedSiteContentRoute1.loader(
           args({ locale: "fr-fr", slug: "missing-use-case" }),
         ),
       () =>
-        localizedCampaignRoute3.loader(
+        localizedSiteContentRoute3.loader(
           args({ locale: "fr-fr", slug: "missing-article" }),
         ),
       () =>
-        localizedCampaignRoute5.loader(args({ locale: "fr-fr", page: "0" })),
+        localizedSiteContentRoute5.loader(args({ locale: "fr-fr", page: "0" })),
       () =>
-        localizedCampaignRoute5.loader(args({ locale: "fr-fr", page: "2" })),
-      () => localizedCampaignRoute0.loader(args({ locale: "xx-xx" })),
+        localizedSiteContentRoute5.loader(args({ locale: "fr-fr", page: "2" })),
+      () => localizedSiteContentRoute0.loader(args({ locale: "xx-xx" })),
     ];
     for (const load of cases)
       expect(load).toThrow(expect.objectContaining({ status: 404 }));
@@ -1833,10 +1841,10 @@ describe("public campaign frontend", () => {
 
   it("resolves catalog placeholders in index meta descriptions", () => {
     const descriptions = [
-      campaignRoute0.meta(),
-      campaignRoute2.meta({
+      siteContentRoute0.meta(),
+      siteContentRoute2.meta({
         loaderData: {
-          ...campaignRoute2.articlesPageData([], 1, "en-US"),
+          ...siteContentRoute2.articlesPageData([], 1, "en-US"),
           copy: articlesListCopy("en-US"),
         },
       }),
@@ -1849,41 +1857,41 @@ describe("public campaign frontend", () => {
         content:
           "Pick the job you do again and again, or browse the articles for templates and how-tos.",
       },
-      { name: "description", content: enUS.campaign.articlesIntro },
+      { name: "description", content: enUS.siteContent.articlesIntro },
     ]);
   });
 
   it("titles and describes a localized articles grid in its own language", () => {
-    const meta = campaignRoute2.meta({
+    const meta = siteContentRoute2.meta({
       params: { locale: "ja-jp" },
       loaderData: {
-        ...campaignRoute2.articlesPageData([], 1, "ja-JP"),
+        ...siteContentRoute2.articlesPageData([], 1, "ja-JP"),
         copy: articlesListCopy("ja-JP"),
       },
     });
     expect(meta).toContainEqual({
-      title: `${jaJP.campaign.articles} | Agent-Native`,
+      title: `${jaJP.siteContent.articles} | Agent-Native`,
     });
     expect(meta).toContainEqual({
       name: "description",
-      content: jaJP.campaign.articlesIntro,
+      content: jaJP.siteContent.articlesIntro,
     });
-    expect(jaJP.campaign.articles).not.toBe(enUS.campaign.articles);
+    expect(jaJP.siteContent.articles).not.toBe(enUS.siteContent.articles);
   });
 
   it("uses locale-aware canonicals on indexes, use cases and pagination, with existing unknown-locale fallback", () => {
     const params = { locale: "fr-fr" };
     const cases = [
-      [campaignRoute0.meta({ params }), `${USE_CASES_BASE}/`],
+      [siteContentRoute0.meta({ params }), `${USE_CASES_BASE}/`],
       [
-        campaignRoute1.meta({
+        siteContentRoute1.meta({
           params,
           loaderData: { page: useCase, locales: ["en-US"] },
         }),
         `${USE_CASES_BASE}/${useCase.slug}/`,
       ],
       [
-        campaignRoute2.meta({
+        siteContentRoute2.meta({
           params,
           loaderData: {
             copy: articlesCopy,
@@ -1897,7 +1905,7 @@ describe("public campaign frontend", () => {
         `${ARTICLES_BASE}/`,
       ],
       [
-        campaignRoute5.meta({
+        siteContentRoute5.meta({
           params,
           loaderData: {
             copy: articlesCopy,
@@ -1917,8 +1925,8 @@ describe("public campaign frontend", () => {
         rel: "canonical",
         href: `https://www.agent-native.com/fr-fr${path}`,
       });
-    expect(campaignRoute0.meta({ params: { locale: "unknown" } })).toEqual(
-      campaignRoute0.meta(),
+    expect(siteContentRoute0.meta({ params: { locale: "unknown" } })).toEqual(
+      siteContentRoute0.meta(),
     );
   });
 

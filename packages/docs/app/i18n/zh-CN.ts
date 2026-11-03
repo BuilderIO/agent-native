@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const zhCN = {
-  campaign: {
+  siteContent: {
     recipeWhen: "何时使用",
     howOften: "使用频率",
     filterRole: "角色",
@@ -29,8 +29,7 @@ const zhCN = {
     useCasesIntro:
       "选择你反复执行的工作，或浏览{{articles}}，查找模板和操作指南。",
     articles: "文章",
-    articlesIntro:
-      "借助 AI 智能体完成重复性工作的指南和讲解。",
+    articlesIntro: "借助 AI 智能体完成重复性工作的指南和讲解。",
     articleCount_other: "{{count}} 篇文章",
     copyPage: "复制页面",
     enlargeImage: "放大图片",

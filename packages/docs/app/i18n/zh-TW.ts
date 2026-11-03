@@ -1,5 +1,5 @@
 const messages = {
-  campaign: {
+  siteContent: {
     recipeWhen: "何時使用",
     howOften: "使用頻率",
     filterRole: "角色",
@@ -27,8 +27,7 @@ const messages = {
     useCasesIntro:
       "選擇你反覆執行的工作，或瀏覽{{articles}}，尋找範本和操作指南。",
     articles: "文章",
-    articlesIntro:
-      "借助 AI 代理完成重複性工作的指南與說明。",
+    articlesIntro: "借助 AI 代理完成重複性工作的指南與說明。",
     articleCount_other: "{{count}} 篇文章",
     copyPage: "複製頁面",
     enlargeImage: "放大圖片",

@@ -15,20 +15,20 @@ import {
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
+import {
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../lib/docs-source";
 import {
   ARTICLES_BASE,
   ARTICLES_PAGE_SIZE,
   USE_CASES_BASE,
   articleMarkdown,
   translatedArticleLocales,
-  type CampaignContent,
-} from "../lib/campaign-content";
-import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
-import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
-import {
-  docSourceSlugFromFilename,
-  preferMdxDocSourceFiles,
-} from "../lib/docs-source";
+  type SiteContent,
+} from "../lib/site-content";
+import { loadSiteContentFromDisk } from "../lib/site-content-node";
 import { communityApps } from "./components/community-apps";
 import {
   DOCS_LOCALES,
@@ -193,7 +193,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
     .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
 }
 
-export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
+export function buildSiteContentPages(content: SiteContent): AgentWebPage[] {
   const { useCases, articles } = content;
   const latestDate = (dates: string[]): Date | undefined => {
     const latest = dates.sort().at(-1);
@@ -593,7 +593,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "# Agent Skills\n\nInstall app-backed skills your coding agent runs as slash commands. `/visual-plan` opens structured visual plans before you build; `/visual-recap` turns a PR diff into a high-altitude review. Install with `npx @agent-native/core@latest skills add visual-plan`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
-    ...buildCampaignPages(loadCampaignContentFromDisk(rootDir)),
+    ...buildSiteContentPages(loadSiteContentFromDisk(rootDir)),
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,

@@ -4,14 +4,14 @@ import { IconCopy, IconLink } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
-import { buildCampaignCtaUrl } from "../../lib/campaign-links";
+import { buildSiteContentCtaUrl } from "../../lib/site-content-links";
 import { TemplateFinalCta } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
 import { copyText } from "../website-redesign/ds/clipboard";
 import { useSnackbar } from "../website-redesign/ds/snackbar";
 import { safeHref, type Article } from "./public-content";
 
-export function CampaignView({ item }: { item: Article }) {
+export function SiteContentView({ item }: { item: Article }) {
   const { slug, type, app, use_case } = item;
   useEffect(() => {
     trackEvent("article_view", { slug, type, app, use_case });
@@ -19,7 +19,7 @@ export function CampaignView({ item }: { item: Article }) {
   return null;
 }
 
-export function CampaignCta({
+export function SiteContentCta({
   item,
   location,
 }: {
@@ -29,13 +29,13 @@ export function CampaignCta({
   const [searchParams] = useSearchParams();
   if (!item.cta) return null;
   const href = safeHref(
-    buildCampaignCtaUrl(
+    buildSiteContentCtaUrl(
       item.cta.url,
       `article-${item.slug}`,
       searchParams.toString(),
     ),
   );
-  if (!href) throw new Error("Campaign CTA requires a safe destination");
+  if (!href) throw new Error("SiteContent CTA requires a safe destination");
   return (
     <Button
       href={href}
@@ -56,7 +56,7 @@ export function CampaignCta({
 }
 
 // The guide's app: its heading, the button to open it, and a prompt to paste into its agent.
-export function CampaignCallout({
+export function SiteContentCallout({
   item,
   location,
 }: {
@@ -69,17 +69,19 @@ export function CampaignCallout({
   const { heading, prompt } = item.cta;
   const Heading = location === "band" ? "h2" : "p";
   return (
-    <div className={`campaign-callout campaign-callout-${location}`}>
-      <Heading className="campaign-callout-heading">{heading}</Heading>
+    <div className={`site-content-callout site-content-callout-${location}`}>
+      <Heading className="site-content-callout-heading">{heading}</Heading>
       <div className="flex flex-wrap items-center gap-3">
-        <CampaignCta item={item} location={location} />
+        <SiteContentCta item={item} location={location} />
         {prompt ? (
           <Button
             variant="secondary"
             icon={null}
             onClick={() => {
               void copyText(prompt).then((copied) => {
-                notify(t(copied ? "campaign.copied" : "campaign.copyFailed"));
+                notify(
+                  t(copied ? "siteContent.copied" : "siteContent.copyFailed"),
+                );
                 if (copied)
                   trackEvent("article_prompt_copy", {
                     slug: item.slug,
@@ -90,25 +92,25 @@ export function CampaignCallout({
             }}
           >
             <IconCopy size={16} aria-hidden="true" />
-            {t("campaign.copyPrompt")}
+            {t("siteContent.copyPrompt")}
           </Button>
         ) : null}
       </div>
       {prompt ? (
-        <p className="campaign-callout-hint">
-          {t("campaign.promptHint", { app: item.app })}
+        <p className="site-content-callout-hint">
+          {t("siteContent.promptHint", { app: item.app })}
         </p>
       ) : null}
     </div>
   );
 }
 
-export function CampaignBand({ item }: { item: Article }) {
+export function SiteContentBand({ item }: { item: Article }) {
   if (!item.cta?.heading || !item.app) return null;
   return (
-    <TemplateFinalCta contentClassName="campaign-section">
+    <TemplateFinalCta contentClassName="site-content-section">
       <div className="mx-auto w-full max-w-[760px]">
-        <CampaignCallout item={item} location="band" />
+        <SiteContentCallout item={item} location="band" />
       </div>
     </TemplateFinalCta>
   );
@@ -140,7 +142,7 @@ export function faqSchema(items: { q: string; a: string }[]) {
   };
 }
 
-export function CampaignDate({
+export function SiteContentDate({
   date,
   kind = "updated",
   month = "long",
@@ -156,8 +158,8 @@ export function CampaignDate({
     <time dateTime={date}>
       {t(
         kind === "published"
-          ? "campaign.publishedDate"
-          : "campaign.updatedDate",
+          ? "siteContent.publishedDate"
+          : "siteContent.updatedDate",
         {
           date: format.formatDate(new Date(date), {
             year: "numeric",
@@ -185,13 +187,15 @@ export function CopyControl({
     <Button
       variant="tertiary"
       icon={null}
-      aria-label={heading ? t("campaign.copyLink") : t("campaign.copyPage")}
+      aria-label={
+        heading ? t("siteContent.copyLink") : t("siteContent.copyPage")
+      }
       onClick={async () => {
         const value = heading
           ? `${window.location.origin}${window.location.pathname}#${text}`
           : text;
         const copied = await copyText(value);
-        notify(t(copied ? "campaign.copied" : "campaign.copyFailed"));
+        notify(t(copied ? "siteContent.copied" : "siteContent.copyFailed"));
       }}
       className={
         heading
@@ -200,7 +204,7 @@ export function CopyControl({
       }
     >
       <Icon size={16} aria-hidden="true" />
-      {heading ? null : t("campaign.copyPage")}
+      {heading ? null : t("siteContent.copyPage")}
     </Button>
   );
 }

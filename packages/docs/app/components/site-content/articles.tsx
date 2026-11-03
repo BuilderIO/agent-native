@@ -1,7 +1,7 @@
 import { useT, useLocale } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
-import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
+import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/site-content";
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
@@ -9,9 +9,9 @@ import { SectionHeader } from "../website-redesign/ds/section-header";
 import { ArticleBody, sanitizedMarkdown } from "./markdown";
 import { safeHref, type Article } from "./public-content";
 import {
-  CampaignBand,
-  CampaignDate,
-  CampaignView,
+  SiteContentBand,
+  SiteContentDate,
+  SiteContentView,
   JsonLd,
   faqSchema,
 } from "./shared";
@@ -61,13 +61,15 @@ function ArticleCard({
         ) : null}
       </div>
       <div className="flex flex-1 flex-col gap-3 p-6 transition-colors group-hover:bg-[var(--b-bg-raised)]">
-        <Heading className="campaign-card-title m-0">{article.title}</Heading>
+        <Heading className="site-content-card-title m-0">
+          {article.title}
+        </Heading>
         <p className="m-0 line-clamp-2 text-sm text-[var(--fg-secondary)]">
           {article.meta_description}
         </p>
         <p className="m-0 mt-auto pt-2 text-sm text-[var(--fg-secondary)]">
           {article.author.name} ·{" "}
-          <CampaignDate date={article.updated} month="short" />
+          <SiteContentDate date={article.updated} month="short" />
         </p>
       </div>
     </Link>
@@ -89,7 +91,7 @@ export function ArticlesList({
   const t = useT();
   const { locale } = useLocale();
   return (
-    <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page pb-16">
+    <TemplateLandingShell className="builder-brand-tokens site-content-page site-content-articles-page pb-16">
       <JsonLd
         value={{
           "@context": "https://schema.org",
@@ -98,7 +100,7 @@ export function ArticlesList({
             {
               "@type": "ListItem",
               position: 1,
-              name: t("campaign.articles"),
+              name: t("siteContent.articles"),
               item: `${SITE}${sitePathForLocale(ARTICLES_BASE, locale)}`,
             },
           ],
@@ -116,11 +118,11 @@ export function ArticlesList({
           })),
         }}
       />
-      <div className="campaign-section border-x border-[var(--docs-border)]">
+      <div className="site-content-section border-x border-[var(--docs-border)]">
         <SectionHeader
           as="h1"
-          heading={t("campaign.articles")}
-          subheading={t("campaign.articlesIntro")}
+          heading={t("siteContent.articles")}
+          subheading={t("siteContent.articlesIntro")}
         />
       </div>
       <section className="template-section-flush border border-[var(--docs-border)]">
@@ -143,7 +145,7 @@ export function ArticlesList({
               locale,
             )}
           >
-            {t("campaign.showMore")}
+            {t("siteContent.showMore")}
           </Button>
         </div>
       ) : null}
@@ -176,8 +178,8 @@ export function ArticlePage({
   // The page itself only renders in a language it is translated into.
   const url = `${SITE}${articlePath(article.slug, locale, true)}`;
   return (
-    <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page">
-      <CampaignView item={article} />
+    <TemplateLandingShell className="builder-brand-tokens site-content-page site-content-articles-page">
+      <SiteContentView item={article} />
       <JsonLd
         value={{
           "@context": "https://schema.org",
@@ -209,7 +211,7 @@ export function ArticlePage({
             {
               "@type": "ListItem",
               position: 1,
-              name: t("campaign.articles"),
+              name: t("siteContent.articles"),
               item: `${SITE}${sitePathForLocale(ARTICLES_BASE, locale)}`,
             },
             {
@@ -221,14 +223,14 @@ export function ArticlePage({
           ],
         }}
       />
-      <div className="campaign-section border-x border-[var(--docs-border)]">
+      <div className="site-content-section border-x border-[var(--docs-border)]">
         <div className="mx-auto max-w-[760px]">
           <nav
-            aria-label={t("campaign.breadcrumb")}
+            aria-label={t("siteContent.breadcrumb")}
             className="mb-8 flex flex-wrap items-center gap-2 text-sm text-[var(--fg-secondary)]"
           >
             <Link to={sitePathForLocale(ARTICLES_BASE, locale)}>
-              {t("campaign.articles")}
+              {t("siteContent.articles")}
             </Link>
           </nav>
           <h1 className="m-0 text-3xl font-medium leading-tight tracking-tight sm:text-5xl">
@@ -250,7 +252,7 @@ export function ArticlePage({
                   <a
                     href={authorHref}
                     rel="author"
-                    className="campaign-inline-link"
+                    className="site-content-inline-link"
                   >
                     {author.name}
                   </a>
@@ -265,28 +267,28 @@ export function ArticlePage({
               ) : null}
             </div>
             <span className="text-sm text-[var(--fg-secondary)]">
-              <CampaignDate date={article.published} kind="published" />
+              <SiteContentDate date={article.published} kind="published" />
               {article.updated !== article.published ? (
                 <>
                   {" · "}
-                  <CampaignDate date={article.updated} />
+                  <SiteContentDate date={article.updated} />
                 </>
               ) : null}
             </span>
             <span className="text-sm text-[var(--fg-secondary)]">
-              {t("campaign.readTime", { count: minutes })}
+              {t("siteContent.readTime", { count: minutes })}
             </span>
           </div>
           <ArticleBody article={article} />
           {useCase ? (
             <p className="my-12 text-[var(--fg-secondary)]">
-              {t("campaign.partOf")}{" "}
+              {t("siteContent.partOf")}{" "}
               <Link
                 to={sitePathForLocale(
                   `${USE_CASES_BASE}/${useCase.slug}`,
                   locale,
                 )}
-                className="campaign-inline-link text-[var(--docs-accent)]"
+                className="site-content-inline-link text-[var(--docs-accent)]"
               >
                 {useCase.title}
               </Link>
@@ -296,8 +298,8 @@ export function ArticlePage({
       </div>
       {more.length ? (
         <section className="template-section-flush border border-[var(--docs-border)]">
-          <div className="campaign-section">
-            <SectionHeader heading={t("campaign.genericMore")} />
+          <div className="site-content-section">
+            <SectionHeader heading={t("siteContent.genericMore")} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
             {more.map((item) => (
@@ -311,7 +313,7 @@ export function ArticlePage({
           </div>
         </section>
       ) : null}
-      <CampaignBand item={article} />
+      <SiteContentBand item={article} />
     </TemplateLandingShell>
   );
 }

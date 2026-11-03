@@ -11,13 +11,13 @@ import {
   USE_CASES_BASE,
   articleMarkdown,
   type ArticleEntry,
-} from "../lib/campaign-content";
-import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
+} from "../lib/site-content";
+import { loadSiteContentFromDisk } from "../lib/site-content-node";
 import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
 import {
   SITE_URL,
   buildAgentWebPages,
-  buildCampaignPages,
+  buildSiteContentPages,
   buildPrerenderPaths,
   buildSitemapXml,
   sitemapPlugin,
@@ -77,11 +77,11 @@ describe("docs agent web generation", () => {
   );
 
   // oracle-change: article topic pages were removed with the articles rebuild; these tests now check the article pages and that no topic or category page is published.
-  it("generates untranslated campaign pages and markdown mirrors only at English canonical paths", () => {
-    const content = loadCampaignContentFromDisk(rootDir);
+  it("generates untranslated site content pages and markdown mirrors only at English canonical paths", () => {
+    const content = loadSiteContentFromDisk(rootDir);
     const article = content.articles[0];
     if (!article) throw new Error("Expected at least one article");
-    const campaignPages = buildCampaignPages({
+    const siteContentPages = buildSiteContentPages({
       ...content,
       articles: Array.from({ length: ARTICLES_PAGE_SIZE + 1 }, (_, index) => ({
         ...article,
@@ -89,7 +89,7 @@ describe("docs agent web generation", () => {
         translations: {},
       })),
     });
-    const paths = campaignPages.map((page) => page.path);
+    const paths = siteContentPages.map((page) => page.path);
     for (const path of [
       `${USE_CASES_BASE}/`,
       `${ARTICLES_BASE}/`,
@@ -100,20 +100,20 @@ describe("docs agent web generation", () => {
       for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
         expect(paths).not.toContain(sitePathForLocale(path, locale));
     }
-    const index = campaignPages.find(
+    const index = siteContentPages.find(
       (page) => page.path === `${ARTICLES_BASE}/`,
     )!;
     expect(index.markdown).toContain(`](${ARTICLES_BASE}/test-0/)`);
     expect(index.markdown).not.toContain(
       `](${ARTICLES_BASE}/test-${ARTICLES_PAGE_SIZE}/)`,
     );
-    const second = campaignPages.find(
+    const second = siteContentPages.find(
       (page) => page.path === `${ARTICLES_BASE}/page/2/`,
     )!;
     expect(second.markdown).toContain(
       `](${ARTICLES_BASE}/test-${ARTICLES_PAGE_SIZE}/)`,
     );
-    const detail = campaignPages.find(
+    const detail = siteContentPages.find(
       (page) => page.path === `${ARTICLES_BASE}/test-0/`,
     )!;
     expect(detail.title).toBe(article.title);
@@ -121,17 +121,17 @@ describe("docs agent web generation", () => {
     expect(detail.markdownPath).toBe(`${ARTICLES_BASE}/test-0.md`);
     expect(paths.some((path) => /\/(topic|category)\//.test(path))).toBe(false);
     expect(new Set(paths).size).toBe(paths.length);
-    const mirrors = campaignPages.flatMap((page) =>
+    const mirrors = siteContentPages.flatMap((page) =>
       page.markdownPath ? [page.markdownPath] : [],
     );
     expect(new Set(mirrors).size).toBe(mirrors.length);
   });
 
   it("publishes every real article page with its Markdown mirror, and no topic pages, localized only where translated", () => {
-    const content = loadCampaignContentFromDisk(rootDir);
+    const content = loadSiteContentFromDisk(rootDir);
     expect(content.articles.length).toBeGreaterThan(0);
-    const campaignPages = buildCampaignPages(content);
-    const index = campaignPages.find(
+    const siteContentPages = buildSiteContentPages(content);
+    const index = siteContentPages.find(
       (page) => page.path === `${ARTICLES_BASE}/`,
     )!;
     expect(index.markdown?.match(/^- \[/gm)).toHaveLength(
@@ -141,7 +141,7 @@ describe("docs agent web generation", () => {
       expect(index.markdown).toContain(
         `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
       );
-      const detail = campaignPages.find(
+      const detail = siteContentPages.find(
         (page) => page.path === `${ARTICLES_BASE}/${article.slug}/`,
       )!;
       expect(detail).toEqual({
@@ -162,7 +162,7 @@ describe("docs agent web generation", () => {
       ),
     );
     for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
-      for (const page of campaignPages.filter(
+      for (const page of siteContentPages.filter(
         (page) =>
           page.path.startsWith(`/${locale.toLowerCase()}/`) &&
           !page.path.includes("/use-cases/"),
@@ -174,12 +174,12 @@ describe("docs agent web generation", () => {
           page.path,
         ).toBe(true);
     expect(
-      campaignPages.some((page) => /\/(topic|category)\//.test(page.path)),
+      siteContentPages.some((page) => /\/(topic|category)\//.test(page.path)),
     ).toBe(false);
   });
 
   it("publishes only the articles index when no articles are present", () => {
-    const pages = buildCampaignPages({
+    const pages = buildSiteContentPages({
       useCases: [],
       articles: [],
     });
@@ -195,7 +195,7 @@ describe("docs agent web generation", () => {
   });
 
   it("lists translated articles, their Markdown mirrors and localized grids only for languages that have them", () => {
-    const original = loadCampaignContentFromDisk(rootDir).articles[0];
+    const original = loadSiteContentFromDisk(rootDir).articles[0];
     if (!original) throw new Error("Expected at least one article");
     const { translations: _translations, ...english } = original;
     const german = {
@@ -212,7 +212,7 @@ describe("docs agent web generation", () => {
       },
       { ...original, slug: "test-english-only", translations: {} },
     ];
-    const pages = buildCampaignPages({ useCases: [], articles });
+    const pages = buildSiteContentPages({ useCases: [], articles });
     const translated = pages.find(
       (page) => page.path === "/de-de/articles/test-translated/",
     );
@@ -245,7 +245,7 @@ describe("docs agent web generation", () => {
   });
 
   it("dates article sitemap entries by their updated date and the index by the newest one", () => {
-    const original = loadCampaignContentFromDisk(rootDir).articles[0];
+    const original = loadSiteContentFromDisk(rootDir).articles[0];
     if (!original) throw new Error("Expected at least one article");
     const articles: ArticleEntry[] = [
       {
@@ -261,7 +261,7 @@ describe("docs agent web generation", () => {
         updated: "2026-08-01",
       },
     ];
-    const pages = buildCampaignPages({
+    const pages = buildSiteContentPages({
       useCases: [],
       articles,
     });
@@ -278,13 +278,13 @@ describe("docs agent web generation", () => {
   });
 
   it(
-    "prerenders every published canonical campaign sitemap page",
+    "prerenders every published canonical site content sitemap page",
     () => {
       const prerenderPaths = new Set(buildPrerenderPaths());
-      const campaignPages = buildCampaignPages(
-        loadCampaignContentFromDisk(rootDir),
+      const siteContentPages = buildSiteContentPages(
+        loadSiteContentFromDisk(rootDir),
       );
-      for (const page of campaignPages)
+      for (const page of siteContentPages)
         expect(prerenderPaths.has(page.path)).toBe(true);
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
@@ -370,7 +370,7 @@ describe("docs agent web generation", () => {
     });
 
     it("lists each article in the English sitemap, and in a language's sitemap only when it's translated", () => {
-      const { articles } = loadCampaignContentFromDisk(rootDir);
+      const { articles } = loadSiteContentFromDisk(rootDir);
       const paths = [
         `${ARTICLES_BASE}/`,
         ...articles.map((article) => `${ARTICLES_BASE}/${article.slug}/`),
@@ -407,7 +407,7 @@ describe("docs agent web generation", () => {
     });
 
     it("publishes article sitemap entries and English Markdown twins without topic pages or deleted articles", () => {
-      const { articles } = loadCampaignContentFromDisk(rootDir);
+      const { articles } = loadSiteContentFromDisk(rootDir);
       // A sample of the articles removed in the rebuild, and their topic pages.
       const removed = [
         "what-is-an-agent-native-app",

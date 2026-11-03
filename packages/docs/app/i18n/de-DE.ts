@@ -1,7 +1,7 @@
 import enUS from "./en-US";
 
 const deDE = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Wann",
     howOften: "Wie oft",
     filterRole: "Rolle",

@@ -5,16 +5,17 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildCampaignCtaUrl } from "../app/lib/campaign-links";
-import { campaignMeta } from "../app/lib/campaign-seo";
-import { buildCampaignPages } from "../app/vite-sitemap-plugin";
+import { buildSiteContentCtaUrl } from "../app/lib/site-content-links";
+import { siteContentMeta } from "../app/lib/site-content-seo";
+import { buildSiteContentPages } from "../app/vite-sitemap-plugin";
 import {
+  ARTICLE_TYPES,
   ARTICLES_PAGE_SIZE,
   articleMarkdown,
-  parseCampaignContent,
-} from "../lib/campaign-content";
-import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
-import { loadCampaignContent } from "../lib/campaign-content.server";
+  parseSiteContent,
+} from "../lib/site-content";
+import { loadSiteContentFromDisk } from "../lib/site-content-node";
+import { loadSiteContent } from "../lib/site-content.server";
 
 const image = {
   dark: "https://example.com/dark.png",
@@ -79,7 +80,7 @@ const roles = [
   "finance",
   "everyone",
 ];
-// A how-to guide as the content factory's prepare step writes it.
+// A complete how-to guide article.
 const article = {
   slug: "sample",
   type: "how-to-guide",
@@ -121,7 +122,7 @@ function sources(
 }
 function articleError(value: unknown): string {
   try {
-    parseCampaignContent(
+    parseSiteContent(
       sources(undefined, {
         "sample.md": markdown(value),
         "valid.md": markdown({ ...article, slug: "valid" }),
@@ -136,16 +137,16 @@ function articleError(value: unknown): string {
 afterEach(() => vi.restoreAllMocks());
 
 // oracle-change: articles were rebuilt as how-to guides; the topic, category, apps, screenshot and related-resource fields were removed from the schema, so their tests went with them and the new schema is tested here.
-describe("campaign content", () => {
+describe("site content", () => {
   it("strips private and unknown fields recursively, including Markdown mirrors", () => {
-    const content = parseCampaignContent(sources());
+    const content = parseSiteContent(sources());
     expect(content.useCases).toHaveLength(1);
     expect(content.articles).toHaveLength(1);
     expect(JSON.stringify(content)).not.toContain("PRIVATE");
     expect(articleMarkdown(content.articles[0])).toBe(
       "# Sample\n\n\nPublic article body.\n",
     );
-    expect(JSON.stringify(buildCampaignPages(content))).not.toContain(
+    expect(JSON.stringify(buildSiteContentPages(content))).not.toContain(
       "PRIVATE",
     );
   });
@@ -153,10 +154,8 @@ describe("campaign content", () => {
   // oracle-change: the original use-case schema (todays_stack, recipes, angles, frequency, stories, job_id matching) was removed with its template; roles is the only one of its fields the new page schema keeps.
   it("accepts absent roles without inventing a default, and every configured role", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(parseCampaignContent(sources()).useCases[0]).not.toHaveProperty(
-      "roles",
-    );
-    const content = parseCampaignContent(
+    expect(parseSiteContent(sources()).useCases[0]).not.toHaveProperty("roles");
+    const content = parseSiteContent(
       sources({ "sample.yaml": yaml({ ...useCase, roles }) }),
     );
     expect(content.useCases[0].roles).toEqual(roles);
@@ -169,7 +168,7 @@ describe("campaign content", () => {
     (value) => {
       let message = "";
       try {
-        parseCampaignContent(
+        parseSiteContent(
           sources(
             {
               "sample.yaml": yaml({ ...useCase, roles: value }),
@@ -188,7 +187,7 @@ describe("campaign content", () => {
 
   it("accepts Content as a use-case app and article app without creating an app category page", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const content = parseCampaignContent(
+    const content = parseSiteContent(
       sources(
         { "sample.yaml": yaml({ ...useCase, app: "content" }) },
         { "sample.md": markdown({ ...article, app: "Content" }) },
@@ -197,13 +196,13 @@ describe("campaign content", () => {
     expect(content.useCases[0].app).toBe("content");
     expect(content.articles[0].app).toBe("Content");
     expect(error).not.toHaveBeenCalled();
-    const paths = buildCampaignPages(content).map((page) => page.path);
+    const paths = buildSiteContentPages(content).map((page) => page.path);
     expect(paths).toContain("/use-cases/sample/");
     expect(paths.some((path) => /\/(category|topic)\//.test(path))).toBe(false);
   });
 
   it("keeps every field of a full guide, including nested author, cta, images and faqs", () => {
-    const [parsed] = parseCampaignContent(sources()).articles;
+    const [parsed] = parseSiteContent(sources()).articles;
     expect(parsed).toEqual({
       slug: "sample",
       type: "how-to-guide",
@@ -237,7 +236,7 @@ describe("campaign content", () => {
   it("accepts a guide with no app, call to action, use case or optional author fields without inventing them", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { app: _app, cta: _cta, use_case: _useCase, ...standalone } = article;
-    const [parsed] = parseCampaignContent(
+    const [parsed] = parseSiteContent(
       sources(
         {},
         {
@@ -258,8 +257,21 @@ describe("campaign content", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "how-to-guide",
+    "beginners-guide",
+    "definition",
+    "listicle",
+    "pillar-page",
+  ])("accepts the %s article type", (type) => {
+    const [parsed] = parseSiteContent(
+      sources({}, { "sample.md": markdown({ ...article, type }) }),
+    ).articles;
+    expect(parsed.type).toBe(type);
+  });
+
   it("accepts a call to action without a callout heading or prompt", () => {
-    const [parsed] = parseCampaignContent(
+    const [parsed] = parseSiteContent(
       sources(undefined, {
         "sample.md": markdown({
           ...article,
@@ -309,7 +321,7 @@ describe("campaign content", () => {
   );
 
   it("drops the old article format's fields instead of carrying them forward", () => {
-    const [parsed] = parseCampaignContent(
+    const [parsed] = parseSiteContent(
       sources(undefined, {
         "sample.md": markdown({
           ...article,
@@ -334,7 +346,7 @@ describe("campaign content", () => {
   });
 
   it("sorts articles newest first by updated date, then by slug", () => {
-    const content = parseCampaignContent(
+    const content = parseSiteContent(
       sources(
         {},
         {
@@ -380,7 +392,7 @@ describe("campaign content", () => {
       screenshot_url: { internal: "PRIVATE-SCREENSHOT" },
       screenshot_brief: null,
     };
-    const content = parseCampaignContent(
+    const content = parseSiteContent(
       sources(
         { "sample.yaml": yaml({ ...useCase, ...removed, title: " Sample " }) },
         { "sample.md": markdown({ ...article, ...removed }) },
@@ -402,8 +414,8 @@ describe("campaign content", () => {
   it("validates every use case and article through bundled and disk loaders without warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const bundled = loadCampaignContent();
-    const disk = loadCampaignContentFromDisk(
+    const bundled = loadSiteContent();
+    const disk = loadSiteContentFromDisk(
       fileURLToPath(new URL("..", import.meta.url)),
     );
     expect(bundled.useCases.map((page) => page.slug).sort()).toEqual([
@@ -427,7 +439,7 @@ describe("campaign content", () => {
       "qbr-presentation",
     );
     for (const item of bundled.articles) {
-      expect(item.type, item.slug).toBe("how-to-guide");
+      expect(ARTICLE_TYPES, item.slug).toContain(item.type);
       if (item.use_case)
         expect(
           bundled.useCases.map((page) => page.slug),
@@ -452,11 +464,10 @@ describe("campaign content", () => {
       .map(([key, value]) => `${key}: ${yaml(value)}`)
       .join("\n")}`;
     expect(
-      parseCampaignContent(sources({ "sample.yaml": dated })).useCases[0]
-        .updated,
+      parseSiteContent(sources({ "sample.yaml": dated })).useCases[0].updated,
     ).toBe("2026-09-01");
     expect(() =>
-      parseCampaignContent(
+      parseSiteContent(
         sources({ "sample.yaml": yaml({ ...useCase, updated: "2026-02-30" }) }),
       ),
     ).toThrow(/sample\.yaml: invalid content \(updated/);
@@ -464,7 +475,7 @@ describe("campaign content", () => {
       .filter(([key]) => !["published", "updated"].includes(key))
       .map(([key, value]) => `${key}: ${yaml(value)}`)
       .join("\n")}\npublished: 2026-09-02\nupdated: 2026-10-28\n---\n\nBody.`;
-    const [parsed] = parseCampaignContent(
+    const [parsed] = parseSiteContent(
       sources(undefined, { "sample.md": articleYaml }),
     ).articles;
     expect([parsed.published, parsed.updated]).toEqual([
@@ -475,29 +486,25 @@ describe("campaign content", () => {
 
   it("throws on invalid files, filename mismatches and unsafe URLs without leaking input", () => {
     expect(() =>
-      parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })),
+      parseSiteContent(sources({ "wrong.yaml": yaml(useCase) })),
     ).toThrow("wrong.yaml: invalid content (slug must match filename wrong)");
     expect(() =>
-      parseCampaignContent(
-        sources(undefined, { "wrong.md": markdown(article) }),
-      ),
+      parseSiteContent(sources(undefined, { "wrong.md": markdown(article) })),
     ).toThrow("wrong.md: invalid content (slug must match filename wrong)");
     expect(() =>
-      parseCampaignContent(
+      parseSiteContent(
         sources({ "sample.yaml": "title: PRIVATE-SECRET\n[broken" }),
       ),
-    ).toThrow(
-      "sample.yaml: invalid content (Unable to parse campaign content)",
-    );
+    ).toThrow("sample.yaml: invalid content (Unable to parse site content)");
     try {
-      parseCampaignContent(
+      parseSiteContent(
         sources({ "sample.yaml": "title: PRIVATE-SECRET\n[broken" }),
       );
     } catch (error) {
       expect((error as Error).message).not.toContain("PRIVATE-SECRET");
     }
     expect(() =>
-      parseCampaignContent(
+      parseSiteContent(
         sources({
           "sample.yaml": yaml({
             ...useCase,
@@ -514,11 +521,11 @@ describe("campaign content", () => {
   it("allows an absent matching use case and valid content without screenshot warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const content = parseCampaignContent(
+    const content = parseSiteContent(
       sources({}, { "sample.md": markdown(article) }),
     );
     expect(content.articles).toHaveLength(1);
-    const complete = parseCampaignContent(sources());
+    const complete = parseSiteContent(sources());
     expect(complete.useCases).toHaveLength(1);
     expect(complete.articles).toHaveLength(1);
     expect(warn).not.toHaveBeenCalled();
@@ -526,16 +533,16 @@ describe("campaign content", () => {
   });
 
   it("throws on unreadable/missing source directories rather than reporting empty content", () => {
-    expect(() =>
-      loadCampaignContentFromDisk("/missing-campaign-content"),
-    ).toThrow("Unable to enumerate/read");
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "campaign-content-"));
+    expect(() => loadSiteContentFromDisk("/missing-site-content")).toThrow(
+      "Unable to enumerate/read",
+    );
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-"));
     try {
       fs.mkdirSync(path.join(root, "content", "use-cases"), {
         recursive: true,
       });
       fs.mkdirSync(path.join(root, "content", "articles"));
-      expect(loadCampaignContentFromDisk(root)).toEqual({
+      expect(loadSiteContentFromDisk(root)).toEqual({
         useCases: [],
         articles: [],
       });
@@ -543,7 +550,7 @@ describe("campaign content", () => {
         path.join(root, "content", "use-cases", "sample.yaml"),
         yaml(useCase),
       );
-      expect(loadCampaignContentFromDisk(root).useCases).toHaveLength(1);
+      expect(loadSiteContentFromDisk(root).useCases).toHaveLength(1);
       fs.mkdirSync(path.join(root, "content", "articles", "de-DE"));
       fs.writeFileSync(
         path.join(root, "content", "articles", "sample.md"),
@@ -554,13 +561,12 @@ describe("campaign content", () => {
         markdown({ ...article, title: "Beispiel" }),
       );
       expect(
-        loadCampaignContentFromDisk(root).articles[0]?.translations["de-DE"]
-          ?.title,
+        loadSiteContentFromDisk(root).articles[0]?.translations["de-DE"]?.title,
       ).toBe("Beispiel");
       const read = vi.spyOn(fs, "readFileSync").mockImplementation(() => {
         throw new Error("Unreadable");
       });
-      expect(() => loadCampaignContentFromDisk(root)).toThrow(
+      expect(() => loadSiteContentFromDisk(root)).toThrow(
         "Unable to enumerate/read",
       );
       read.mockRestore();
@@ -571,7 +577,7 @@ describe("campaign content", () => {
 
   it("attaches article translations from site locale folders and rejects mismatches", () => {
     const german = { ...article, title: "Beispiel", updated: "2026-09-03" };
-    const content = parseCampaignContent({
+    const content = parseSiteContent({
       ...sources(),
       articleTranslations: {
         "articles/de-DE/sample.md": markdown(german, "Deutscher Text."),
@@ -597,7 +603,7 @@ describe("campaign content", () => {
     ] as const)
       expect(
         () =>
-          parseCampaignContent({
+          parseSiteContent({
             ...sources(),
             articleTranslations: { [file]: markdown(value) },
           }),
@@ -606,7 +612,7 @@ describe("campaign content", () => {
         `${file}: invalid content (a translation must sit in a site locale folder and match an English article's slug, type and app)`,
       );
     expect(() =>
-      parseCampaignContent({
+      parseSiteContent({
         ...sources(),
         articleTranslations: {
           "articles/de-DE/sample.md": markdown({ ...german, type: "guide" }),
@@ -617,12 +623,12 @@ describe("campaign content", () => {
 
   it("paginates the index at nine, with supplied dates, safe article mirrors and no topic pages", () => {
     expect(ARTICLES_PAGE_SIZE).toBe(9);
-    const content = parseCampaignContent(sources());
+    const content = parseSiteContent(sources());
     content.articles = Array.from({ length: 10 }, (_, index) => ({
       ...content.articles[0],
       slug: `article-${index}`,
     }));
-    const pages = buildCampaignPages(content);
+    const pages = buildSiteContentPages(content);
     const paths = pages.map((page) => page.path);
     expect(paths).toEqual(
       expect.arrayContaining([
@@ -652,10 +658,10 @@ describe("campaign content", () => {
   });
 });
 
-describe("campaign CTA and SEO", () => {
+describe("site content CTA and SEO", () => {
   it("preserves duplicate incoming tracking values, destination state and hash, and sets the job", () => {
     const url = new URL(
-      buildCampaignCtaUrl(
+      buildSiteContentCtaUrl(
         "https://example.com/?existing=1&utm_source=old&job=old#open",
         "new-job",
         "?utm_source=a&utm_source=b&utm_content=custom&gclid=1&gclid=2&msclkid=m&fbclid=f&angle=engineering&ignored=no&job=attacker",
@@ -676,28 +682,34 @@ describe("campaign CTA and SEO", () => {
   it("overrides destination utm_content unless the visitor supplies it, preserving empty and duplicate values", () => {
     expect(
       new URL(
-        buildCampaignCtaUrl("https://example.com/", "job", ""),
+        buildSiteContentCtaUrl("https://example.com/", "job", ""),
       ).searchParams.get("utm_content"),
     ).toBe("job");
     expect(
       new URL(
-        buildCampaignCtaUrl("https://example.com/?utm_content=dest", "job", ""),
+        buildSiteContentCtaUrl(
+          "https://example.com/?utm_content=dest",
+          "job",
+          "",
+        ),
       ).searchParams.get("utm_content"),
     ).toBe("job");
     expect(
       new URL(
-        buildCampaignCtaUrl(
+        buildSiteContentCtaUrl(
           "https://example.com/",
           "job",
           "?utm_content=&utm_content=second",
         ),
       ).searchParams.getAll("utm_content"),
     ).toEqual(["", "second"]);
-    expect(() => buildCampaignCtaUrl("javascript:evil()", "job", "")).toThrow();
+    expect(() =>
+      buildSiteContentCtaUrl("javascript:evil()", "job", ""),
+    ).toThrow();
   });
 
   it("uses www canonical origin and the existing title-aware OG endpoint", () => {
-    const meta = campaignMeta(
+    const meta = siteContentMeta(
       "Sample",
       "Description",
       "/articles/sample/",
@@ -729,12 +741,12 @@ describe("campaign CTA and SEO", () => {
         : undefined,
     ).toBe("Sample");
     expect(() =>
-      campaignMeta("Title", "Description", "//evil.example"),
+      siteContentMeta("Title", "Description", "//evil.example"),
     ).toThrow();
   });
 
   it("uses a supplied share image for og:image instead of the title endpoint", () => {
-    const meta = campaignMeta(
+    const meta = siteContentMeta(
       "Sample",
       "Description",
       "/articles/sample/",

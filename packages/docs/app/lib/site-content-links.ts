@@ -1,4 +1,4 @@
-export function buildCampaignCtaUrl(
+export function buildSiteContentCtaUrl(
   appUrl: string,
   jobId: string,
   incomingSearch: string,
@@ -9,7 +9,7 @@ export function buildCampaignCtaUrl(
     url.username ||
     url.password
   ) {
-    throw new Error("Campaign CTA requires a safe HTTP(S) app URL");
+    throw new Error("SiteContent CTA requires a safe HTTP(S) app URL");
   }
   const incoming = new URLSearchParams(incomingSearch);
   const trackingKeys = new Set(

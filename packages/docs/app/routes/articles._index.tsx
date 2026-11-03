@@ -5,19 +5,19 @@ import {
   ARTICLES_PAGE_SIZE,
   translatedArticleLocales,
   type ArticleEntry,
-} from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { ArticlesList } from "../components/campaign/articles";
-import {
-  articleCards,
-  newestArticles,
-} from "../components/campaign/public-content";
+} from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import {
   DEFAULT_DOCS_LOCALE,
   type DocsLocale,
 } from "../components/docs-locale";
+import { ArticlesList } from "../components/site-content/articles";
+import {
+  articleCards,
+  newestArticles,
+} from "../components/site-content/public-content";
 import { articlesListCopy } from "../lib/articles-copy.server";
-import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
+import { siteContentMeta, localeAlternates } from "../lib/site-content-seo";
 
 /**
  * One page of the articles grid in one language. Every language with a
@@ -59,7 +59,7 @@ export const meta = ({
   const content = data ?? loaderData;
   return content
     ? [
-        ...campaignMeta(
+        ...siteContentMeta(
           content.copy.title,
           content.copy.description,
           ARTICLES_BASE,
@@ -72,7 +72,7 @@ export const meta = ({
 };
 export function loader(): ArticlesPageData {
   return {
-    ...articlesPageData(loadCampaignContent().articles, 1, DEFAULT_DOCS_LOCALE),
+    ...articlesPageData(loadSiteContent().articles, 1, DEFAULT_DOCS_LOCALE),
     copy: articlesListCopy(DEFAULT_DOCS_LOCALE),
   };
 }

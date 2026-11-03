@@ -1,10 +1,10 @@
 import {
-  parseCampaignContent,
-  type CampaignContent,
-  type CampaignSources,
-} from "./campaign-content";
+  parseSiteContent,
+  type SiteContent,
+  type SiteContentSources,
+} from "./site-content";
 
-const bundledSources: CampaignSources = {
+const bundledSources: SiteContentSources = {
   useCases: import.meta.glob<string>("../content/use-cases/*.yaml", {
     query: "?raw",
     import: "default",
@@ -26,6 +26,6 @@ const bundledSources: CampaignSources = {
   }),
 };
 
-export function loadCampaignContent(): CampaignContent {
-  return parseCampaignContent(bundledSources);
+export function loadSiteContent(): SiteContent {
+  return parseSiteContent(bundledSources);
 }
