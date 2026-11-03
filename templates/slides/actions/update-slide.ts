@@ -538,7 +538,7 @@ export default defineAction({
         if (isAgentCaller) delete slide.layoutWarningDismissed;
       }
 
-      if (notes !== undefined && notes !== slide.notes) {
+      if (!notFound && notes !== undefined && notes !== slide.notes) {
         slide.notes = notes;
         applied = true;
       }

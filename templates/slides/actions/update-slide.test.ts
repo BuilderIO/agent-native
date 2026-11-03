@@ -232,6 +232,22 @@ describe("update-slide silent success", () => {
     const saved = JSON.parse(String(lastUpdateSet?.data));
     expect(saved.slides[0].notes).toBe("Only notes");
   });
+
+  it("writes nothing when a find miss would also save notes", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-1",
+          find: "absent text",
+          replace: "x",
+          notes: "Say this",
+        } as any,
+        { caller: "mcp" },
+      ),
+    ).rejects.toThrow(/text not found/);
+    expect(lastUpdateSet).toBeUndefined();
+  });
 });
 
 describe("update-slide", () => {
