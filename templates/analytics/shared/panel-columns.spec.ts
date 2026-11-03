@@ -28,3 +28,14 @@ describe("panel columns", () => {
     ).not.toThrow();
   });
 });
+
+describe("panel columns strictness", () => {
+  it("rejects duplicate keys", () => {
+    expect(isValidPanelColumns([{ key: "a" }, { key: "a" }])).toBe(false);
+  });
+  it("reader drops columns with malformed properties", () => {
+    expect(
+      readPanelColumns([{ key: "a", label: {} } as never, { key: "b" }]),
+    ).toEqual([{ key: "b" }]);
+  });
+});

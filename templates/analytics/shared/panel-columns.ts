@@ -43,7 +43,9 @@ function isValidColumn(column: unknown): boolean {
 }
 
 export function isValidPanelColumns(value: unknown): boolean {
-  return Array.isArray(value) && value.every(isValidColumn);
+  if (!Array.isArray(value) || !value.every(isValidColumn)) return false;
+  const keys = value.map((column) => (column as { key: string }).key);
+  return new Set(keys).size === keys.length;
 }
 
 /** Renderer read of `config.columns`: a stored non-array renders as unconfigured instead of throwing. */
@@ -51,7 +53,5 @@ export function readPanelColumns<T extends { key: string }>(
   value: T[] | undefined,
 ): T[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  return value.filter(
-    (column) => isRecord(column) && typeof column.key === "string",
-  );
+  return value.filter(isValidColumn);
 }
