@@ -4108,7 +4108,8 @@ const PATTERNS = [
   {
     key: "hard-delete",
     label: "Had to ask for a delete to be soft or undoable",
-    fixedBy: ".agents/skills/soft-delete + guard:no-new-hard-delete (2026-10-29)",
+    fixedBy:
+      ".agents/skills/soft-delete + guard:no-new-hard-delete (2026-10-29)",
     re: /\bsoft[- ]?delet|\bhard[- ]?delet|can'?t undo (the |that |a )?delet|undo (the |that |a )?delet|deleted? (it|them|everything) (permanently|forever)\b/i,
   },
   {

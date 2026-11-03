@@ -9,9 +9,9 @@ import {
   assertAccess,
   resolveAccess,
   resolveAccessStatus,
-  TrashedResourceError,
 } from "./access.js";
 import getResourceAccessStatus from "./actions/get-resource-access-status.js";
+import { TrashedResourceError } from "./index.js";
 import { registerShareableResource } from "./registry.js";
 import { createSharesTable } from "./schema.js";
 
