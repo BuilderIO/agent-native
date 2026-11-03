@@ -425,7 +425,7 @@ function runBuildStep(
         extra: report.extra,
       });
       reportToSentryAndExit(exitCode, err, {
-        fingerprint: ["build-step", opts.label, signal ? "signal" : "failed"],
+        fingerprint: report.fingerprint,
         tags: report.tags,
         extra: report.extra,
       });
