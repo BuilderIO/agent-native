@@ -39,7 +39,7 @@ describe("TimestampedCommentBar inside the player", () => {
       ),
     );
 
-    const bar = container.querySelector("[data-player-ui]")!;
-    expect(bar.classList.contains("select-text")).toBe(true);
+    const bar = container.querySelector("[data-player-ui]");
+    expect(bar?.classList.contains("select-text")).toBe(true);
   });
 });
