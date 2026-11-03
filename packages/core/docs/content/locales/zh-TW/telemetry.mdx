@@ -86,6 +86,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 `error` 是[當機報告](#crash-reports)中介紹的簡短訊息提示。
 
+### 專案活動 {#project-activity}
+
+這些事件顯示執行過 `create` 的機器中，有多少繼續啟動了開發伺服器並完成了正式環境建置，以及它們來自哪些範本。
+
+| 事件                  | 時機                                                                                                          | 屬性                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` 完成、被取消或失敗時。                                                                               | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | 開發伺服器在一次 `dev` 執行中首次開始監聽時。重新啟動不會再次傳送；在工作區中，只有最先啟動的應用程式會傳送。 | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` 或 `deploy` 完成或失敗時。                                                                            | `outcome`, `preset`, `failedStep`                   |
+
+| 屬性           | 含義                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` 或 `failed`。`create` 還可能傳送 `cancelled`。                                                                                                                             |
+| `templates`    | 所選範本，以逗號分隔。Agent-Native 自己的範本按名稱傳送。社群範本以 `community` 傳送，其他名稱以 `unknown` 傳送，因此絕不會傳送 URL。                                                  |
+| `projectKind`  | `create` 建立的內容：`workspace`、`standalone`、`headless` 或 `workspace-add`（新增到工作區的應用程式）。                                                                              |
+| `failedStep`   | 失敗的執行停在哪一步。`create`：`choose`、`scaffold` 或 `finish`。`build`：`doctor`、`react-router-build`、`vite-build` 或 `deploy-build`。`deploy`：`prepare`、`build` 或 `package`。 |
+| `workspace`    | `dev` 是否在工作區中執行。                                                                                                                                                             |
+| `appCount`     | 工作區中的應用程式數量；不在工作區中時為 1。                                                                                                                                           |
+| `readySeconds` | 從 `dev` 啟動到伺服器開始監聽的秒數。                                                                                                                                                  |
+| `preset`       | 建置面向的託管平台：`aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node` 或 `vercel`。其他預設以 `other` 傳送。                                                  |
+
+`deploy` 只建置應用程式並印出發佈它的命令，因此 `completed` 表示建置已完成，而不是有內容已上線。這兩個完成事件在命令結束時透過一個短暫執行的輔助程序發出，結束最多等待它 1.5 秒。在 `create` 的提示處按 Ctrl+C 計為 `cancelled`。用 Ctrl+C 停止 `build` 或 `deploy` 時，不會傳送完成事件。
+
 ### 安裝技能 {#installing-skills}
 
 這些事件跟隨 `skills add` 和 `npx @agent-native/skills`，讓我們看到安裝在哪裡中斷。Agent-Native 自己目錄中的技能按名稱傳送。來自其他來源的技能，例如本機資訊清單或其他存放庫，以 `custom` 傳送。

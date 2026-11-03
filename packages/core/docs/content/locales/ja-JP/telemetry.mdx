@@ -86,6 +86,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 `error` は[クラッシュレポート](#crash-reports)で説明している短いメッセージのヒントです。
 
+### プロジェクトのアクティビティ {#project-activity}
+
+これらのイベントは、`create` を実行したマシンのうちどれだけが開発サーバーの起動と本番ビルドの完了まで進んだか、またどのテンプレートから進んだかを示します。
+
+| イベント              | タイミング                                                                                                                             | プロパティ                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` の完了、キャンセル、または失敗時。                                                                                            | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | `dev` の実行で開発サーバーが初めて待ち受けを開始した時。再起動では再送されず、ワークスペースでは最初に起動したアプリだけが送信します。 | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` または `deploy` の完了または失敗時。                                                                                           | `outcome`, `preset`, `failedStep`                   |
+
+| プロパティ     | 内容                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` または `failed`。`create` は `cancelled` も送信することがあります。                                                                                                                                     |
+| `templates`    | 選択したテンプレート (カンマ区切り)。Agent-Native 独自のテンプレートは名前で送信されます。コミュニティテンプレートは `community`、その他の名前は `unknown` として送信されるため、URL が送信されることはありません。 |
+| `projectKind`  | `create` が作成したもの: `workspace`、`standalone`、`headless`、または `workspace-add` (ワークスペースに追加したアプリ)。                                                                                           |
+| `failedStep`   | 失敗した実行が止まった場所。`create`: `choose`、`scaffold`、`finish`。`build`: `doctor`、`react-router-build`、`vite-build`、`deploy-build`。`deploy`: `prepare`、`build`、`package`。                              |
+| `workspace`    | `dev` がワークスペース内で実行されているかどうか。                                                                                                                                                                  |
+| `appCount`     | ワークスペース内のアプリの数。ワークスペース外では 1。                                                                                                                                                              |
+| `readySeconds` | `dev` の開始からサーバーが待ち受けを開始するまでの秒数。                                                                                                                                                            |
+| `preset`       | ビルドの対象ホスト: `aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node`、`vercel`。その他のプリセットは `other` として送信されます。                                                         |
+
+`deploy` はアプリをビルドして公開用のコマンドを表示するだけなので、`completed` はビルドの完了を意味し、何かが公開されたことは意味しません。2 つの完了イベントはコマンドの終了時に、短時間だけ動く補助プロセスを通じて送信され、終了処理はそれを最大 1.5 秒待ちます。`create` のプロンプトでの Ctrl+C は `cancelled` として扱われます。Ctrl+C で `build` や `deploy` を止めた場合、完了イベントは送信されません。
+
 ### スキルのインストール {#installing-skills}
 
 これらのイベントは `skills add` と `npx @agent-native/skills` の流れを追い、インストールがどこで止まるかを確認するためのものです。Agent-Native 独自のカタログにあるスキルは名前で送信されます。ローカルマニフェストや別のリポジトリなど、それ以外のスキルは `custom` として送信されます。

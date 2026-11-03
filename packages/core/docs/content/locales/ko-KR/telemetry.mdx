@@ -86,6 +86,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 `error`는 [크래시 보고서](#crash-reports)에 설명된 짧은 메시지 힌트입니다.
 
+### 프로젝트 활동 {#project-activity}
+
+이 이벤트는 `create`를 실행한 머신 중 얼마나 많은 머신이 개발 서버를 시작하고 프로덕션 빌드를 마쳤는지, 어떤 템플릿으로 그렇게 했는지 보여 줍니다.
+
+| 이벤트                | 시점                                                                                                                                        | 속성                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create`가 완료되거나 취소되거나 실패할 때.                                                                                                 | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | `dev` 실행에서 개발 서버가 처음으로 수신을 시작할 때. 재시작하면 다시 전송되지 않으며, 워크스페이스에서는 가장 먼저 시작한 앱만 전송합니다. | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` 또는 `deploy`가 완료되거나 실패할 때.                                                                                               | `outcome`, `preset`, `failedStep`                   |
+
+| 속성           | 설명                                                                                                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` 또는 `failed`. `create`는 `cancelled`도 보낼 수 있습니다.                                                                                                                          |
+| `templates`    | 선택한 템플릿(쉼표로 구분). Agent-Native 자체 템플릿은 이름으로 전송됩니다. 커뮤니티 템플릿은 `community`로, 그 밖의 이름은 `unknown`으로 전송되므로 URL은 절대 전송되지 않습니다.             |
+| `projectKind`  | `create`가 만든 것: `workspace`, `standalone`, `headless` 또는 `workspace-add`(워크스페이스에 추가한 앱).                                                                                      |
+| `failedStep`   | 실패한 실행이 멈춘 위치. `create`: `choose`, `scaffold` 또는 `finish`. `build`: `doctor`, `react-router-build`, `vite-build` 또는 `deploy-build`. `deploy`: `prepare`, `build` 또는 `package`. |
+| `workspace`    | `dev`가 워크스페이스에서 실행 중인지 여부.                                                                                                                                                     |
+| `appCount`     | 워크스페이스의 앱 수. 워크스페이스 밖에서는 1.                                                                                                                                                 |
+| `readySeconds` | `dev` 시작부터 서버가 수신을 시작할 때까지의 초.                                                                                                                                               |
+| `preset`       | 빌드가 대상으로 하는 호스트: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` 또는 `vercel`. 그 밖의 프리셋은 `other`로 전송됩니다.                                  |
+
+`deploy`는 앱을 빌드하고 게시 명령을 출력하므로, `completed`는 빌드가 끝났다는 뜻이지 무언가가 게시되었다는 뜻이 아닙니다. 두 완료 이벤트는 명령이 종료될 때 잠시 실행되는 보조 프로세스를 통해 전송되며, 종료는 이를 최대 1.5초까지 기다립니다. `create` 프롬프트에서 누른 Ctrl+C는 `cancelled`로 처리됩니다. Ctrl+C로 `build`나 `deploy`를 중지하면 완료 이벤트가 전송되지 않습니다.
+
 ### 스킬 설치 {#installing-skills}
 
 이 이벤트는 `skills add`와 `npx @agent-native/skills`의 흐름을 따라가 설치가 어디에서 멈추는지 확인합니다. Agent-Native 자체 카탈로그의 스킬은 이름으로 전송됩니다. 로컬 매니페스트나 다른 저장소 등 그 밖의 스킬은 `custom`으로 전송됩니다.

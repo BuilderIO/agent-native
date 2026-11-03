@@ -4630,6 +4630,9 @@ function deferCliTelemetry(target: CliTelemetry): {
         if (committed) target.track(...args);
         else trackCalls.push(args);
       },
+      trackAtExit(...args) {
+        if (committed) target.trackAtExit(...args);
+      },
       captureException(...args) {
         if (committed) target.captureException(...args);
         else exceptionCalls.push(args);

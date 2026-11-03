@@ -13,6 +13,12 @@ import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import {
+  noteCreateCancelled,
+  noteCreateProject,
+  noteCreateStep,
+  type CreateProjectKind,
+} from "./activation-telemetry.js";
 import type { CreateStartKind } from "./create-tui.js";
 import {
   createAgentSymlink,
@@ -219,6 +225,21 @@ export interface CreateAppOptions {
   ) => Promise<string>;
 }
 
+// A community template is reported by that word alone, never its URL.
+function noteCreateTemplates(
+  templates: string[],
+  kind?: CreateProjectKind,
+): void {
+  noteCreateProject(
+    templates.map((template) =>
+      isCommunityTemplateSelection(template)
+        ? COMMUNITY_OPTION.name
+        : normalizeTemplateName(template),
+    ),
+    kind,
+  );
+}
+
 export async function runCreateCommand(
   name?: string,
   opts?: CreateAppOptions,
@@ -230,6 +251,7 @@ export async function runCreateCommand(
 
   const workspace = detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
     parsed.find((template) => isCommunityTemplateSelection(template)) ??
     (parsed.includes(COMMUNITY_OPTION.name)
@@ -328,6 +350,7 @@ export async function runCreateCommand(
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
+    noteCreateCancelled();
     return;
   }
 
@@ -371,6 +394,7 @@ export async function runCreateCommand(
   });
   if (!answers) {
     console.log("Cancelled. No files were created.");
+    noteCreateCancelled();
     return;
   }
 
@@ -662,6 +686,7 @@ async function createWorkspaceInteractive(
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
+  noteCreateTemplates(templates, "workspace");
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
@@ -669,6 +694,7 @@ async function createWorkspaceInteractive(
   for (const template of templates) {
     showCommunityTemplateTrustNote(template, clack);
   }
+  noteCreateStep("scaffold");
   s.start(`Scaffolding workspace "${name}"...`);
   const appNames = new Set<string>();
   const scaffoldedApps: string[] = [];
@@ -766,6 +792,7 @@ async function createWorkspaceInteractive(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to scaffold workspace.");
@@ -774,6 +801,7 @@ async function createWorkspaceInteractive(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
 
   const installSteps = hasPnpm()
@@ -927,6 +955,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
+    noteCreateTemplates([tpl], "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,
@@ -961,6 +990,7 @@ export async function addAppToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const t of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -989,6 +1019,7 @@ async function addSelectedAppsToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const template of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -1037,6 +1068,7 @@ async function scaffoldOneAppIntoWorkspace(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(templateName, clack);
+  noteCreateStep("scaffold");
   s.start(
     `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
   );
@@ -1109,6 +1141,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
+      noteCreateCancelled();
       return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -1160,9 +1193,14 @@ async function createStandaloneApp(
   if (template === COMMUNITY_OPTION.name) {
     template = await promptCommunityTemplate(clack);
   }
+  noteCreateTemplates(
+    [template],
+    template === "headless" ? "headless" : "standalone",
+  );
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  noteCreateStep("scaffold");
   const includedAppName =
     template === "headless"
       ? "Headless"
@@ -1203,6 +1241,7 @@ async function createStandaloneApp(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to create app.");
@@ -1211,6 +1250,7 @@ async function createStandaloneApp(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
   const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
   const changeDirectory = opts?.inPlace ? "." : name;

@@ -12,9 +12,22 @@ import {
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  CREATE_FINISHED_EVENT,
+  createFinishedProperties,
+  DEPLOY_FINISHED_EVENT,
+  deployFinishedProperties,
+  noteCreateReturned,
+  reportAtExit,
+  startDevReadyReport,
+} from "./activation-telemetry.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import { cliSpawnOptions, runDevServer } from "./process.js";
+import {
+  cliSpawnOptions,
+  runDevServer,
+  WORKSPACE_DEPLOY_BUILD_ENV,
+} from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
@@ -372,11 +385,15 @@ function inferFirstPartyTemplate(cwd: string): string | undefined {
   return template;
 }
 
+// What `build` was doing when it ended, for its finished event.
+let buildStep = "doctor";
+
 function runBuildStep(
   cmd: string,
   cmdArgs: string[],
   opts: { label: string; env?: NodeJS.ProcessEnv; shell?: boolean },
 ): Promise<void> {
+  buildStep = opts.label;
   return new Promise<void>((resolve) => {
     const child = spawn(cmd, cmdArgs, {
       stdio: ["inherit", "pipe", "pipe"],
@@ -432,23 +449,39 @@ function runBuildStep(
   });
 }
 
+function runWorkspaceDevCommand(): void {
+  let appCount = 0;
+  const env = startDevReadyReport(cliTelemetry, {
+    workspace: true,
+    appCount: () => appCount,
+  });
+  import("./workspace-dev.js")
+    .then((m) => m.runWorkspaceDev({ args, env }))
+    .then((workspace) => {
+      appCount = workspace.apps.length;
+    })
+    .catch((err) => {
+      console.error(err?.message ?? err);
+      process.exit(1);
+    });
+}
+
 if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
     if (isWorkspaceRoot()) {
-      import("./workspace-dev.js")
-        .then((m) => m.runWorkspaceDev({ args }))
-        .catch((err) => {
-          console.error(err?.message ?? err);
-          process.exit(1);
-        });
+      runWorkspaceDevCommand();
       break;
     }
+    const devEnv = startDevReadyReport(cliTelemetry, {
+      workspace: false,
+      appCount: () => 1,
+    });
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -457,7 +490,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
@@ -470,8 +503,8 @@ switch (command) {
         `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
       );
     const env = {
-      ...process.env,
-      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+      ...devEnv,
+      NITRO_DEV_RUNNER: devEnv.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
     runDevServer(
@@ -486,16 +519,19 @@ switch (command) {
   }
 
   case "workspace-dev": {
-    import("./workspace-dev.js")
-      .then((m) => m.runWorkspaceDev({ args }))
-      .catch((err) => {
-        console.error(err?.message ?? err);
-        process.exit(1);
-      });
+    runWorkspaceDevCommand();
     break;
   }
 
   case "build": {
+    if (!process.env[WORKSPACE_DEPLOY_BUILD_ENV]) {
+      reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+        deployFinishedProperties(exitCode, {
+          step: buildStep,
+          preset: resolveAgentNativeNitroPreset(),
+        }),
+      );
+    }
     (async () => {
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
@@ -697,6 +733,7 @@ switch (command) {
       console.log(CREATE_HELP);
       break;
     }
+    reportAtExit(cliTelemetry, CREATE_FINISHED_EVENT, createFinishedProperties);
     const parsed = parseScaffoldArgs(args);
     import("./create.js")
       .then((m) =>
@@ -705,6 +742,7 @@ switch (command) {
           standalone: parsed.standalone,
         }),
       )
+      .then(noteCreateReturned)
       .catch(handleScaffoldImportError);
     break;
   }
@@ -976,8 +1014,17 @@ switch (command) {
   }
 
   case "deploy": {
+    const deployRun: { step: string; preset?: string } = { step: "prepare" };
+    reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+      deployFinishedProperties(exitCode, deployRun),
+    );
     import("../deploy/workspace-deploy.js")
-      .then((m) => m.runWorkspaceDeploy({ args }))
+      .then((m) =>
+        m.runWorkspaceDeploy({
+          args,
+          onProgress: (progress) => Object.assign(deployRun, progress),
+        }),
+      )
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
         process.exit(1);
