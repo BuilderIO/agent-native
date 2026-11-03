@@ -1011,7 +1011,7 @@ export function DocumentProperties({
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, dataUpdatedAt } = useDocumentProperties(
+  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
     documentId,
     databaseId,
   );
@@ -1034,7 +1034,8 @@ export function DocumentProperties({
   const showSchemaRows =
     canManageSchema ||
     (schemaRowsExpected &&
-      (!dataUpdatedAt || (loaded && data.canManageSchema === true)));
+      ((!dataUpdatedAt && !isError) ||
+        (loaded && data.canManageSchema === true)));
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1077,25 +1078,28 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && showSchemaRows && databaseId && hiddenProperties.length > 0 ? (
-        <HiddenPropertiesMenu
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          properties={hiddenProperties}
-          popoverContainer={popoverContainer}
-          t={t}
-        />
-      ) : null}
-
       {loaded && showSchemaRows && databaseId ? (
-        <AddProperty
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          popoversPortalled={popoversPortalled}
-          popoverContainer={popoverContainer}
-        />
+        // Rows drawn on expectation hold their place, and can't be used until
+        // this viewer's rights are confirmed.
+        <div className="contents" inert={!canManageSchema || undefined}>
+          {hiddenProperties.length > 0 ? (
+            <HiddenPropertiesMenu
+              databaseDocumentId={databaseDocumentId ?? documentId}
+              documentId={documentId}
+              databaseId={databaseId}
+              properties={hiddenProperties}
+              popoverContainer={popoverContainer}
+              t={t}
+            />
+          ) : null}
+          <AddProperty
+            databaseDocumentId={databaseDocumentId ?? documentId}
+            documentId={documentId}
+            databaseId={databaseId}
+            popoversPortalled={popoversPortalled}
+            popoverContainer={popoverContainer}
+          />
+        </div>
       ) : null}
     </div>
   );

@@ -1155,6 +1155,13 @@ function DatabaseTable({
   const previewSessionRef = useRef<PageEditorSession | null>(null);
   const previewTransitionRef = useRef(false);
   const queuedPreviewTransitionRef = useRef<(() => void) | null>(null);
+  const previewTransitionsEndedRef = useRef(false);
+  useEffect(() => {
+    previewTransitionsEndedRef.current = false;
+    return () => {
+      previewTransitionsEndedRef.current = true;
+    };
+  }, []);
   const [previewTransitionPending, setPreviewTransitionPending] =
     useState(false);
   const handlePreviewSessionChange = useCallback(
@@ -1184,6 +1191,8 @@ function DatabaseTable({
         setPreviewTransitionPending(false);
         const queued = queuedPreviewTransitionRef.current;
         queuedPreviewTransitionRef.current = null;
+        // Someone who left the collection while it saved has gone elsewhere.
+        if (previewTransitionsEndedRef.current) return;
         (queued ?? action)();
       })
       .catch((error: unknown) => {
@@ -1198,8 +1207,17 @@ function DatabaseTable({
         });
       });
   }
+  // Choosing the row already showing takes back a choice waiting on the save.
+  function keepPreviewedRow() {
+    if (previewTransitionRef.current) {
+      queuedPreviewTransitionRef.current = () => {};
+    }
+  }
   function setPreviewDocumentId(id: string | null) {
-    if (id === previewDocumentId) return;
+    if (id === previewDocumentId) {
+      keepPreviewedRow();
+      return;
+    }
     runPreviewTransition(() => {
       previewSessionRef.current = null;
       setPreviewCommentIntent(null);
@@ -2097,6 +2115,7 @@ function DatabaseTable({
         ...(propertyId ? { propertyId } : {}),
       };
       if (item.document.id === previewDocumentId) {
+        keepPreviewedRow();
         setPreviewCommentIntent(intent);
         return;
       }

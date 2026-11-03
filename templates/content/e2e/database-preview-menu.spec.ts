@@ -1,4 +1,10 @@
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIResponse,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import { postAction, presentUiCapability } from "./helpers";
 
@@ -964,6 +970,118 @@ test("a row's title saves the preview's edits before it switches", async ({
     });
     expect(String(persisted.content)).toContain(marker);
   } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+// Leaves a title edit in the panel saving until the returned release is called.
+async function holdPreviewSave(page: Page, preview: Locator, title: string) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let saving = false;
+  await page.route(
+    "**/_agent-native/actions/update-document**",
+    async (route) => {
+      saving = true;
+      await held;
+      await route.fallback();
+    },
+  );
+  await preview.getByLabel("Document title").fill(title);
+  return { release, saveStarted: () => expect.poll(() => saving).toBe(true) };
+}
+
+test("choosing the row on show takes back a switch waiting on its save", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const editedTitle = `${rowA.title} edited`;
+    const save = await holdPreviewSave(page, preview, editedTitle);
+    release = save.release;
+    await page
+      .getByRole("button", { name: `Open ${rowB.title} preview` })
+      .click();
+    await save.saveStarted();
+    await page
+      .locator(`button[data-database-row-open="${rowA.documentId}"]`)
+      .click();
+    release();
+
+    await expect
+      .poll(async () => {
+        const saved = await readAction(page, "get-document", {
+          id: rowA.documentId,
+          databaseId: fixture!.databaseId,
+          databaseDocumentId: fixture!.databaseDocumentId,
+        });
+        return saved.title;
+      })
+      .toBe(editedTitle);
+    await page.waitForTimeout(500);
+    await expect(preview.getByLabel("Document title")).toHaveValue(editedTitle);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a switch waiting on its save doesn't follow someone who left the collection", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 1);
+    const [rowA] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const editedTitle = `${rowA.title} edited`;
+    const save = await holdPreviewSave(page, preview, editedTitle);
+    release = save.release;
+    await preview
+      .getByRole("button", { name: "Open page", exact: true })
+      .click();
+    await save.saveStarted();
+    await page.getByRole("link", { name: "Trash" }).click();
+    await expect(page).toHaveURL(/\/trash/);
+    release();
+
+    await expect
+      .poll(async () => {
+        const saved = await readAction(page, "get-document", {
+          id: rowA.documentId,
+          databaseId: fixture!.databaseId,
+          databaseDocumentId: fixture!.databaseDocumentId,
+        });
+        return saved.title;
+      })
+      .toBe(editedTitle);
+    await page.waitForTimeout(500);
+    await expect(page).toHaveURL(/\/trash/);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
     if (fixture) await cleanupDatabaseFixture(page, fixture);
   }
 });
