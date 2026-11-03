@@ -15,61 +15,63 @@ const costOutput = {
   overPerRunThreshold: z.boolean(),
   overPerMonthThreshold: z.boolean(),
 };
-const dashboardCostOutput = z.strictObject({
-  target: z.literal("dashboard"),
-  dashboardId: z.string(),
-  filterState: z.enum(["defaults", "overridden"]),
-  runsPerMonth: z.number().nonnegative().nullable(),
-  runsPerMonthBasis: z.string(),
-  total: z.strictObject({
-    ...costOutput,
-    partial: z.boolean(),
-    scope: z.enum(["panel", "dashboard"]),
-  }),
-  panels: z.array(
-    z.discriminatedUnion("status", [
-      z.strictObject({
-        ...panelIdentity,
-        ...costOutput,
-        status: z.literal("estimated"),
-        estimatedGiB: z.number().nonnegative(),
-        runsPerMonth: z.number().nonnegative().nullable(),
-      }),
-      z.strictObject({
-        ...panelIdentity,
-        status: z.literal("not_bigquery"),
-        reason: z.string(),
-      }),
-      z.strictObject({
-        ...panelIdentity,
-        status: z.literal("not_estimated"),
-        reason: z.string(),
-      }),
-      z.strictObject({
-        ...panelIdentity,
-        status: z.literal("failed"),
-        failure: z.enum([
-          "not_connected",
-          "invalid_sql",
-          "timeout",
-          "no_estimate",
-        ]),
-        error: z.string(),
-      }),
-    ]),
-  ),
-  omittedPanelIds: z.array(z.string()).optional(),
-  pricing: z.strictObject({
-    model: z.literal("on-demand"),
-    usdPerTiB: z.number().positive(),
-    thresholds: z.strictObject({
-      perRunUsd: z.number().nonnegative(),
-      perMonthUsd: z.number().nonnegative(),
+const dashboardCostOutput = z
+  .object({
+    target: z.literal("dashboard"),
+    dashboardId: z.string(),
+    filterState: z.enum(["defaults", "overridden"]),
+    runsPerMonth: z.number().nonnegative().nullable(),
+    runsPerMonthBasis: z.string(),
+    total: z.strictObject({
+      ...costOutput,
+      partial: z.boolean(),
+      scope: z.enum(["panel", "dashboard"]),
     }),
-  }),
-  caveats: z.array(z.string()),
-  summary: z.string(),
-});
+    panels: z.array(
+      z.discriminatedUnion("status", [
+        z.strictObject({
+          ...panelIdentity,
+          ...costOutput,
+          status: z.literal("estimated"),
+          estimatedGiB: z.number().nonnegative(),
+          runsPerMonth: z.number().nonnegative().nullable(),
+        }),
+        z.strictObject({
+          ...panelIdentity,
+          status: z.literal("not_bigquery"),
+          reason: z.string(),
+        }),
+        z.strictObject({
+          ...panelIdentity,
+          status: z.literal("not_estimated"),
+          reason: z.string(),
+        }),
+        z.strictObject({
+          ...panelIdentity,
+          status: z.literal("failed"),
+          failure: z.enum([
+            "not_connected",
+            "invalid_sql",
+            "timeout",
+            "no_estimate",
+          ]),
+          error: z.string(),
+        }),
+      ]),
+    ),
+    omittedPanelIds: z.array(z.string()).optional(),
+    pricing: z.strictObject({
+      model: z.literal("on-demand"),
+      usdPerTiB: z.number().positive(),
+      thresholds: z.strictObject({
+        perRunUsd: z.number().nonnegative(),
+        perMonthUsd: z.number().nonnegative(),
+      }),
+    }),
+    caveats: z.array(z.string()),
+    summary: z.string(),
+  })
+  .strict();
 
 export default defineAction({
   description:
