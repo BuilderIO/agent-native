@@ -4422,11 +4422,34 @@ function createAuthGuardFn(
     if (session) {
       const method = getMethod(event);
       if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
+        // A fresh authenticated loopback dev request can reach this guard before
+        // any org exists: the org initializer is a client-mount step
+        // (client/org/hooks `useOrg` -> `/_agent-native/org/me`), not a boot
+        // barrier, so the unchanged app-access check would deny every
+        // authenticated app request. Under the open + auto-create policy,
+        // initialize the default org here so the check sees it. Closed,
+        // non-loopback, non-dev and explicit-personal-scope requests are
+        // untouched, and an initialization failure stays denied.
+        let effectiveOrgId = session.orgId;
+        if (
+          effectiveOrgId === undefined &&
+          session.emailVerified === true &&
+          !hasExplicitPersonalOrgScope(event) &&
+          isDevEnvironment() &&
+          !isHostedPreviewRequest(event) &&
+          isLoopbackRequest(event) &&
+          getAppConfig().access.orgCreation === "open" &&
+          getAppConfig().access.autoCreateDefaultOrg
+        ) {
+          const { getOrgContext } = await import("../org/context.js");
+          const org = await getOrgContext(event).catch(() => null);
+          if (org?.orgId) effectiveOrgId = org.orgId;
+        }
         let workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
           path: p,
           method,
           email: session.email,
-          ...(session.orgId === undefined ? {} : { orgId: session.orgId }),
+          ...(effectiveOrgId === undefined ? {} : { orgId: effectiveOrgId }),
         });
         if (
           workspaceAppAccess === false &&
