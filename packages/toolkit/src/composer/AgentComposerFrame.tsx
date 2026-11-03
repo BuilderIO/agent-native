@@ -20,7 +20,7 @@ export interface AgentComposerFrameProps {
   rootStyle?: React.CSSProperties;
   layoutVariant?: AgentComposerLayoutVariant;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
-  onPointerDownCapture?: React.PointerEventHandler<HTMLDivElement>;
+  onClickCapture?: React.MouseEventHandler<HTMLDivElement>;
   /** Collect the surrounding ComposerNoticeScope's notices above this input. */
   noticeOutlet?: boolean;
 }
@@ -36,7 +36,7 @@ export function AgentComposerFrame({
   rootStyle,
   layoutVariant = "default",
   onClick,
-  onPointerDownCapture,
+  onClickCapture,
   noticeOutlet = false,
 }: AgentComposerFrameProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -154,7 +154,7 @@ export function AgentComposerFrame({
       )}
       style={style}
       onClick={onClick}
-      onPointerDownCapture={onPointerDownCapture}
+      onClickCapture={onClickCapture}
     >
       {/* Notices portal in here; React renders nothing else inside it. */}
       <div

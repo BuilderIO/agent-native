@@ -1371,6 +1371,10 @@
   pointer-events: auto;
 }
 
+.agent-composer-setup-gated button:disabled {
+  pointer-events: none;
+}
+
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
   z-index: 3;
