@@ -4411,7 +4411,6 @@ function SuggestionThreadView({
     includeResolved: true,
   });
   const reply = useReplyReviewComment();
-  const uncertainReply = useRef<UncertainSubmission | null>(null);
   const expanded = expandRequested;
   const { text: draft, mentions } = replyDrafts.get(suggestion.threadId);
   const root = comments.data?.comments.find(
@@ -4543,10 +4542,10 @@ function SuggestionThreadView({
             body: draft.trim(),
             mentions: replyMentions,
           });
-          const retryId =
-            uncertainReply.current?.payload === payload
-              ? uncertainReply.current.operationId
-              : undefined;
+          const retryId = replyDrafts.retryOperationId(
+            suggestion.threadId,
+            payload,
+          );
           const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
           reply.mutate(
@@ -4559,18 +4558,14 @@ function SuggestionThreadView({
               mentions: replyMentions,
             },
             {
-              onSuccess: () => {
-                uncertainReply.current = null;
-              },
               onError: (error) => {
-                uncertainReply.current = uncertainAfterFailure(
-                  error,
-                  retryId !== undefined,
-                  { payload, operationId: clientOperationId },
-                );
                 replyDrafts.restoreSubmittedDraft(
                   suggestion.threadId,
                   clientOperationId,
+                  uncertainAfterFailure(error, retryId !== undefined, {
+                    payload,
+                    operationId: clientOperationId,
+                  }),
                 );
               },
               onSettled: () => {
