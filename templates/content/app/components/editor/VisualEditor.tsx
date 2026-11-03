@@ -23,6 +23,7 @@ import {
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
+import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
@@ -1824,6 +1825,7 @@ interface VisualEditorProps {
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   notionPageId?: string | null;
   onHistoryControllerChange?: (
     controller: VisualEditorHistoryController | null,
@@ -2176,6 +2178,7 @@ interface VisualEditorExtensionOptions {
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
   emptyBlockPlaceholder?: string;
@@ -2823,6 +2826,7 @@ export function createVisualEditorExtensions({
   isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
@@ -2915,6 +2919,7 @@ export function createVisualEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
         isEdit: isLocalEditorEdit,
+        resolvePageLink: resolveNotionPageLink,
       }),
       ...notionFidelityExtensions,
       RegistryBlockNode,
@@ -3299,6 +3304,7 @@ export function VisualEditor({
   showCommentIndicators = true,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
@@ -3617,6 +3623,7 @@ export function VisualEditor({
         isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
+        resolveNotionPageLink,
         localFilePath,
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
@@ -3665,6 +3672,7 @@ export function VisualEditor({
       isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
+      resolveNotionPageLink,
       localFilePath,
       referenceDepth,
       t,
