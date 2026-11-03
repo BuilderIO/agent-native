@@ -490,7 +490,11 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
           <IconAlertTriangle className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            {t("transcriptPanel.partialTranscript")}
+            {builderCreditsPaused || needsSetup
+              ? t("transcriptPanel.transcriptUnavailable", {
+                  reason: friendlyTranscriptFailure(failureReason, t),
+                })
+              : t("transcriptPanel.partialTranscript")}
           </span>
           {onRetry ? (
             <Button
