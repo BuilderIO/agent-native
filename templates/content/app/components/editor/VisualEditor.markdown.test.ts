@@ -1904,6 +1904,45 @@ describe("live suggestion presentation", () => {
       draftEditor.destroy();
     }
   });
+  it.each([
+    {
+      label: "a code line's break gets a highlight, with no uneditable marker",
+      before: "```js\none\ntwo\n```",
+      after: "```js\none\n\ntwo\n```",
+      expected: { kind: "mark", editableText: true, lineBreak: true },
+    },
+    {
+      label: "typed text on a new code line is highlighted as text",
+      before: "```js\none\ntwo\n```",
+      after: "```js\none\nadded\ntwo\n```",
+      expected: { kind: "mark", editableText: true, lineBreak: false },
+    },
+    {
+      label: "a paragraph split keeps its marker",
+      before: "Onetwo",
+      after: "One\ntwo",
+      expected: { kind: "insert" },
+    },
+  ])("draws a draft: $label", ({ before, after, expected }) => {
+    const operation = markdownSuggestionOperation(before, after)!;
+    const [presentation] = suggestionPresentations(
+      { id: "new-line", status: "pending", operations: [operation] },
+      before,
+    );
+    const [anchor] = draftSuggestionAnchors([operation], after);
+    const editor = createSuggestionEditor(after);
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          ...presentation!,
+          anchor: anchor!,
+          presentation: "draft",
+        }),
+      ).toMatchObject(expected);
+    } finally {
+      editor.destroy();
+    }
+  });
   it("keeps a committed group's combined text visible until canonical readback", () => {
     const before = "Before and After";
     const readback = " AddedBefore and Extra After";

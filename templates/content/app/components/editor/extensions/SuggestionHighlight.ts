@@ -50,6 +50,8 @@ export interface SuggestionHighlightSpec {
   frozen?: boolean;
   /** The author's own unsaved suggestion, which follows their typing. */
   draft?: boolean;
+  /** A marked range of only line breaks, which shows a "↵" as it has no ink. */
+  lineBreak?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -86,6 +88,13 @@ function clampRange(from: number, to: number, size: number): Range | null {
 
 function clampPosition(position: number, size: number): number {
   return Math.max(0, Math.min(position, size));
+}
+
+// Chrome has no caret spot between a line break and an uneditable element, so
+// typing there lands before the break, on the line above. A widget at the start
+// of a code line goes before the caret, which keeps typing on its own line.
+function widgetSide(doc: ProseMirrorNode, position: number): -1 | 1 {
+  return doc.resolve(position).nodeBefore?.text?.endsWith("\n") ? -1 : 1;
 }
 
 function classes(base: string, active: boolean): string {
@@ -720,24 +729,23 @@ function buildDecorations(
         );
       }
       if (spec.kind !== "delete") {
+        const position = clampPosition(range ? range.to : spec.from, size);
+        const side = widgetSide(doc, position);
         decorations.push(
-          Decoration.widget(
-            clampPosition(range ? range.to : spec.from, size),
-            insertionWidget(spec, false),
-            {
-              key: JSON.stringify([
-                spec.suggestionId,
-                "settling",
-                range?.from ?? spec.from,
-                range?.to ?? spec.from,
-                spec.insertedText,
-                spec.insertedPresentation?.from,
-                spec.insertedPresentation?.to,
-              ]),
-              marks: [],
-              side: 1,
-            },
-          ),
+          Decoration.widget(position, insertionWidget(spec, false), {
+            key: JSON.stringify([
+              spec.suggestionId,
+              "settling",
+              range?.from ?? spec.from,
+              range?.to ?? spec.from,
+              spec.insertedText,
+              spec.insertedPresentation?.from,
+              spec.insertedPresentation?.to,
+              side,
+            ]),
+            marks: [],
+            side,
+          }),
         );
       }
       continue;
@@ -758,7 +766,10 @@ function buildDecorations(
       decorations.push(
         Decoration.inline(range.from, range.to, {
           ...attrs,
-          class: classes("suggestion-change suggestion-proposed-text", active),
+          class: classes(
+            `suggestion-change suggestion-proposed-text${spec.lineBreak ? " suggestion-line-break" : ""}`,
+            active,
+          ),
         }),
       );
     }
@@ -779,25 +790,28 @@ function buildDecorations(
         size,
       );
       if (lineParts) decorations.push(...lineParts);
-      else
+      else {
+        const side = widgetSide(doc, anchor);
         decorations.push(
           Decoration.widget(
             anchor,
             insertionWidget(spec, active, undefined, anchor),
             {
               // ProseMirror reuses a widget's element while its key holds, so
-              // the key covers everything the element shows.
+              // the key covers everything the element shows and where it sits.
               key: `${spec.suggestionId}:inserted:${anchor}:${JSON.stringify([
                 spec.insertedText,
                 active,
                 !!spec.editableBoundary,
+                side,
               ])}`,
               marks: [],
-              side: 1,
+              side,
               ...attrs,
             },
           ),
         );
+      }
     }
     const deletedLines =
       spec.deletedText &&
@@ -807,24 +821,23 @@ function buildDecorations(
       lineDecorations(doc, spec, active, deletedLines, true, attrs);
     if (deletedLineParts) decorations.push(...deletedLineParts);
     else if (spec.deletedText) {
+      const position = clampPosition(spec.from, size);
+      const side = widgetSide(doc, position);
       decorations.push(
-        Decoration.widget(
-          clampPosition(spec.from, size),
-          deletionWidget(spec, active),
-          {
-            key: JSON.stringify([
-              spec.suggestionId,
-              "deleted",
-              clampPosition(spec.from, size),
-              spec.deletedText,
-              active,
-              !!spec.editableBoundary,
-            ]),
-            marks: [],
-            side: 1,
-            ...attrs,
-          },
-        ),
+        Decoration.widget(position, deletionWidget(spec, active), {
+          key: JSON.stringify([
+            spec.suggestionId,
+            "deleted",
+            position,
+            spec.deletedText,
+            active,
+            !!spec.editableBoundary,
+            side,
+          ]),
+          marks: [],
+          side,
+          ...attrs,
+        }),
       );
     }
   }
