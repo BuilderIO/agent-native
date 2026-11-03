@@ -985,12 +985,13 @@ export function outsideChangesFor(
   // Content placed in the wrapper above the edited block rides along with it.
   const ridesWithAnchoredWrapper = (change: StyleDelta) => {
     const record = beforeRecords.get(change.key);
-    if (!record || !before.editedRect || change.prop !== "y") return false;
+    const editedRect = before.editedRect;
+    if (!record || !editedRect || change.prop !== "y") return false;
     const shift = Number(change.b) - Number(change.a);
     return [...anchoredWrapperGrowth].some(
       ([key, wrapper]) =>
         key !== change.key &&
-        record.rect.y + record.rect.height <= before.editedRect.y + 1 &&
+        record.rect.y + record.rect.height <= editedRect.y + 1 &&
         record.rect.x >= wrapper.rect.x - 1 &&
         record.rect.y >= wrapper.rect.y - 1 &&
         record.rect.x + record.rect.width <=
