@@ -2761,20 +2761,19 @@ export async function actionCallIntent(
       : undefined;
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
+    const coerced = coerceGatewayStringifiedArgs(input, entry.tool?.parameters);
+    const repaired = getStrictToolInputValidator(entry)
+      ? { input: coerced, error: undefined }
+      : normalizeOptionalToolPlaceholders(
+          entry.tool?.parameters,
+          coerced,
+          entry,
+          { nullOnly: true },
+        );
+    if (repaired.error) throw repaired.error;
+    args = repaired.input;
     if (schema) {
-      const repaired = getStrictToolInputValidator(entry)
-        ? { input, error: undefined }
-        : normalizeOptionalToolPlaceholders(
-            entry.tool?.parameters,
-            input,
-            entry,
-          );
-      if (repaired.error) throw repaired.error;
-      args = await validateActionArgs(
-        schema,
-        repaired.input,
-        entry.tool?.parameters,
-      );
+      args = await validateActionArgs(schema, args, entry.tool?.parameters);
     }
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.

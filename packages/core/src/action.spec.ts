@@ -2708,6 +2708,54 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       });
     });
 
+    it("refuses a padded call whose dynamic plan-mode effect defaults to a write", async () => {
+      const publish = defineAction({
+        description: "dynamic",
+        schema: z.object({
+          mode: z.enum(["read", "write"]).default("write"),
+          tags: z.array(z.string()).optional(),
+          title: z.string().optional(),
+        }),
+        planMode: {
+          effect: (args) => (args.mode === "read" ? "read" : "write"),
+        },
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(publish, {
+        title: null,
+        tags: [],
+      });
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
+      });
+    });
+
+    it("sees an empty value that a stringified argument carries", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        tags: "[]",
+      });
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
+      });
+    });
+
+    it("rejects a wrong-typed empty value instead of dropping it", async () => {
+      const setStatus = defineAction({
+        description: "status",
+        schema: z.object({
+          id: z.string(),
+          status: z.enum(["open", "done"]).optional(),
+        }),
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(setStatus, { id: "a", status: "" });
+      expect(intent.valid).toBe(false);
+    });
+
     it("runs the same padded call when it is read-only", async () => {
       const search = defineAction({
         description: "search",

@@ -1,6 +1,6 @@
 import Ajv, { type ValidateFunction } from "ajv";
 
-import { actionCallReadOnly } from "../action-call-classification.js";
+import type { actionCallReadOnly } from "../action-call-classification.js";
 import type { AgentNativeJsonSchema } from "./types.js";
 
 type RawJsonSchema = AgentNativeJsonSchema;
@@ -120,7 +120,7 @@ function resolveObjectSchemaBranch(
 function stripOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean },
+  emptyValues: { valid: boolean; invalid: boolean; nullOnly: boolean },
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -170,6 +170,7 @@ function stripOptionalToolPlaceholders(
     }
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
       if (schemaRejectsToolValue(propertySchema, entry)) {
+        if (emptyValues.nullOnly && entry !== null) continue;
         emptyValues.invalid = true;
         placeholders.push(key);
         continue;
@@ -224,19 +225,20 @@ export function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
   entry: Parameters<typeof actionCallReadOnly>[0],
+  { nullOnly = false }: { nullOnly?: boolean } = {},
 ): ToolInputRepair {
   if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false };
+  const emptyValues = { valid: false, invalid: false, nullOnly };
   const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
-  // A read cannot clear stored data, so an empty value beside a placeholder is
-  // never ambiguous there.
+  // Only a declared read is exempt: a dynamic plan-mode effect classifies the
+  // raw input, which defaults can turn into a write.
   if (
     emptyValues.valid &&
     emptyValues.invalid &&
-    actionCallReadOnly(entry, result.value) !== true
+    !(entry.readOnly === true && entry.planMode === undefined)
   ) {
     return {
       input,

@@ -492,7 +492,7 @@ const designSystemIdField = z
   .string()
   .optional()
   .describe(
-    "Optional design system ID used for generation. Omit to keep the current link; unlink with update-design.",
+    "Optional design system ID used for generation. Omit to keep the current link.",
   );
 
 const projectTypeField = z
