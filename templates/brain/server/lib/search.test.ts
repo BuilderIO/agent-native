@@ -814,10 +814,9 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).not.toContain("ava@example.com");
   });
 
-  it("reports withheld Zoom passages in both semantic and keyword capture results", async () => {
-    seedSemanticCapture({
-      id: "capture-partial-zoom",
-      sourceId: "source-slack",
+  it.each([
+    {
+      name: "valid receipt",
       metadata: {
         zoomPassageQuarantine: {
           version: 1,
@@ -825,28 +824,85 @@ describe("Brain semantic capture hits", () => {
           withheldPassages: 5,
         },
       },
-    });
-    const semantic = await searchEverythingWithLanes({
-      query: "reduce customer waiting",
-      type: "capture",
-    });
-    expect(semantic.rows[0]).toMatchObject({
-      id: "capture-partial-zoom",
       withheldPassages: 5,
-    });
-    mocks.hybridSearchArtifacts.mockResolvedValue({
-      results: [],
-      lanes: OK_LANES,
-    });
-    const keyword = await searchEverythingWithLanes({
-      query: "enterprise onboarding",
-      type: "capture",
-    });
-    expect(keyword.rows[0]).toMatchObject({
-      id: "capture-partial-zoom",
-      withheldPassages: 5,
-    });
-  });
+    },
+    { name: "absent receipt", metadata: {}, withheldPassages: 0 },
+    {
+      name: "null receipt",
+      metadata: { zoomPassageQuarantine: null },
+      withheldPassages: null,
+    },
+    {
+      name: "incomplete receipt",
+      metadata: { zoomPassageQuarantine: { version: 1 } },
+      withheldPassages: null,
+    },
+    {
+      name: "unsupported receipt version",
+      metadata: {
+        zoomPassageQuarantine: {
+          version: 2,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      },
+      withheldPassages: null,
+    },
+    {
+      name: "withheld count exceeds total",
+      metadata: {
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 4,
+          withheldPassages: 5,
+        },
+      },
+      withheldPassages: null,
+    },
+    {
+      name: "total exceeds passage limit",
+      metadata: {
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 49,
+          withheldPassages: 5,
+        },
+      },
+      withheldPassages: null,
+    },
+  ])(
+    "reports withheld Zoom passages for $name in semantic and keyword capture results",
+    async ({ metadata, withheldPassages }) => {
+      seedSemanticCapture({
+        id: "capture-partial-zoom",
+        sourceId: "source-slack",
+        metadata,
+      });
+      const semantic = await searchEverythingWithLanes({
+        query: "reduce customer waiting",
+        type: "capture",
+      });
+      expect(semantic.rows).toHaveLength(1);
+      expect(semantic.rows[0]).toMatchObject({
+        id: "capture-partial-zoom",
+        withheldPassages,
+      });
+      mocks.hybridSearchArtifacts.mockResolvedValue({
+        results: [],
+        lanes: OK_LANES,
+      });
+      const keyword = await searchEverythingWithLanes({
+        query: "enterprise onboarding",
+        type: "capture",
+      });
+      expect(
+        keyword.rows.find((row) => row.id === "capture-partial-zoom"),
+      ).toMatchObject({
+        id: "capture-partial-zoom",
+        withheldPassages,
+      });
+    },
+  );
 
   it("uses the Zoom meeting topic as the semantic hit location", async () => {
     mocks.rows.sources.push({

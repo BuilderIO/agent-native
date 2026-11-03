@@ -2,19 +2,29 @@ import { z } from "zod";
 
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
 
-const zoomPassageQuarantineSchema = z.object({
-  version: z.literal(1),
-  totalPassages: z.number().int().positive(),
-  withheldPassages: z.number().int().positive(),
-});
+const zoomPassageQuarantineSchema = z
+  .object({
+    version: z.literal(1),
+    totalPassages: z.number().int().positive().max(48),
+    withheldPassages: z.number().int().positive(),
+  })
+  .refine((receipt) => receipt.withheldPassages <= receipt.totalPassages);
+
+export function readZoomPassageQuarantine(metadata: Record<string, unknown>) {
+  if (metadata.zoomPassageQuarantine === undefined) return undefined;
+  const receipt = zoomPassageQuarantineSchema.safeParse(
+    metadata.zoomPassageQuarantine,
+  );
+  return receipt.success
+    ? receipt.data
+    : { version: 1 as const, totalPassages: null, withheldPassages: null };
+}
 
 export function withheldZoomPassageCount(
   metadata: Record<string, unknown>,
-): number {
-  return metadata.zoomPassageQuarantine === undefined
-    ? 0
-    : zoomPassageQuarantineSchema.parse(metadata.zoomPassageQuarantine)
-        .withheldPassages;
+): number | null {
+  const receipt = readZoomPassageQuarantine(metadata);
+  return receipt === undefined ? 0 : receipt.withheldPassages;
 }
 
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";

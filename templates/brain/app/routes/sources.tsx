@@ -2866,14 +2866,15 @@ export default function SourcesRoute() {
                             <p className="mt-2 truncate text-sm font-medium">
                               {capture.title}
                             </p>
-                            {(capture.withheldPassages ?? 0) > 0 ? (
+                            {capture.withheldPassages === null ||
+                            (capture.withheldPassages ?? 0) > 0 ? (
                               <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive">
                                 <IconAlertTriangle
                                   aria-hidden="true"
                                   className="mt-0.5 size-3.5 shrink-0"
                                 />
                                 {t("common.incompleteTranscript", {
-                                  count: capture.withheldPassages,
+                                  count: capture.withheldPassages ?? "?",
                                 })}
                               </p>
                             ) : null}

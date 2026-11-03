@@ -52,7 +52,7 @@ export interface UniversalSearchResult {
   capturedAt?: string | null;
   location?: string | null;
   content?: string | null;
-  withheldPassages?: number;
+  withheldPassages?: number | null;
 }
 
 export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";

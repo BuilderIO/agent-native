@@ -4,6 +4,7 @@ import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
   BrainClassifierUnavailableError,
   buildSanitizerSystemPrompt,
+  CLASSIFIER_TRANSIENT_RETRY_MS,
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
 import { jevSensitivityDecision } from "./jev-classifier.js";
@@ -201,22 +202,79 @@ describe("Zoom passage quarantine", () => {
     expect(result.withheldDecision).toBeUndefined();
   });
 
-  it("stops extra passage screening at its time budget without retaining an unchecked remainder", async () => {
-    let now = 0;
-    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
-    mocks.classifyWithJev.mockImplementation(async ({ content }) => {
-      if (content !== transcript) now = 120_000;
-      return classification(content);
+  it.each(["before-request", "after-request"])(
+    "retries passage screening when its budget expires %s",
+    async (phase) => {
+      let now = 0;
+      let clockReads = 0;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => {
+        clockReads += 1;
+        return phase === "before-request" && clockReads > 1 ? 120_000 : now;
+      });
+      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
+        if (content !== transcript) now = 120_000;
+        return classification(content);
+      });
+      try {
+        await expect(
+          sanitizeCaptureForStorage(zoomInput),
+        ).rejects.toMatchObject({
+          reason: "jev-timeout",
+          retryAfterMs: CLASSIFIER_TRANSIENT_RETRY_MS,
+        });
+        expect(mocks.classifyWithJev).toHaveBeenCalledTimes(
+          phase === "before-request" ? 1 : 2,
+        );
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it("preserves the incompleteness receipt when screening a stored excerpt", async () => {
+    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+      classification(content),
+    );
+    const original = await sanitizeCaptureForStorage(zoomInput);
+    const repeated = await sanitizeCaptureForStorage({
+      ...zoomInput,
+      title: original.title,
+      content: original.content,
+      metadata: original.metadata,
     });
-    try {
-      const result = await sanitizeCaptureForStorage(zoomInput);
-      expect(result.decision?.disposition).toBe("quarantined");
-      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
-      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(2);
-    } finally {
-      clock.mockRestore();
-    }
+    expect(repeated.decision?.disposition).toBe("allowed");
+    expect(repeated.metadata.zoomPassageQuarantine).toEqual(
+      original.metadata.zoomPassageQuarantine,
+    );
+    expect(repeated.metadata.sourceUrl).toBeUndefined();
   });
+
+  it.each([
+    null,
+    "invalid",
+    {},
+    { version: 1, totalPassages: 2, withheldPassages: 3 },
+    { version: 1, totalPassages: 49, withheldPassages: 1 },
+    { version: 2, totalPassages: 4, withheldPassages: 1 },
+  ])(
+    "preserves unknown incompleteness for malformed receipt %j",
+    async (receipt) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content: "Product roadmap update. […]",
+        metadata: { ...zoomInput.metadata, zoomPassageQuarantine: receipt },
+      });
+      expect(result.metadata.zoomPassageQuarantine).toEqual({
+        version: 1,
+        totalPassages: null,
+        withheldPassages: null,
+      });
+      expect(result.metadata.sourceUrl).toBeUndefined();
+    },
+  );
 
   it("does not carve up credential-bearing Zoom transcripts", async () => {
     const result = await sanitizeCaptureForStorage({

@@ -118,12 +118,15 @@ whole transcript lines are grouped into passages of up to 2,000 characters,
 screened with neighboring passages, and rejected passages plus their neighbors
 are withheld. The combined retained text must pass Jev again. `[…]` marks gaps;
 `metadata.zoomPassageQuarantine` records total/withheld passage counts, and
-capture inventory/search return `withheldPassages`. Disclose that these sources
-are incomplete; never reconstruct omitted text. Partial captures omit links to
+capture inventory/search return `withheldPassages` (null means the receipt is
+unreadable and the count is unknown, not zero). Re-sanitizing stored excerpts
+preserves this receipt. Disclose that these sources are incomplete; never
+reconstruct omitted text. Partial captures omit links to
 the full recording and retain no withheld text or private quarantine blob.
 Credentials, workspace-rule rejection, uncertain/incomplete screening, oversized
-turns, more than 48 passages, or a two-minute extra-screening budget keep
-whole-meeting blocking. Classifier outages still error and retry. This applies
+turns, or more than 48 passages keep whole-meeting blocking. Exhausting the
+two-minute extra-screening budget errors and retries without replacing an
+existing capture. Classifier outages also error and retry. This applies
 to newly processed occurrences; old occurrences outside the incremental scan
 window are not automatically recovered.
 

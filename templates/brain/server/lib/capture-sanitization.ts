@@ -17,6 +17,7 @@ import {
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   BRAIN_WORKSPACE_RULE_SCORE_KEY,
+  readZoomPassageQuarantine,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
@@ -624,7 +625,8 @@ async function retainSafeZoomPassages(
   if (!passages || passages.length < 2) return null;
   const deadline = Date.now() + ZOOM_PASSAGE_SCREENING_MS;
   const classify = async (content: string) => {
-    if (Date.now() >= deadline) return null;
+    if (Date.now() >= deadline)
+      throw new BrainClassifierUnavailableError("jev-timeout");
     const outcome = await classifyWithJev({
       title: input.title,
       content,
@@ -637,8 +639,9 @@ async function retainSafeZoomPassages(
     });
     if (outcome.failureReason)
       throw new BrainClassifierUnavailableError(outcome.failureReason);
+    if (Date.now() >= deadline)
+      throw new BrainClassifierUnavailableError("jev-timeout");
     if (
-      Date.now() >= deadline ||
       !outcome.configured ||
       outcome.truncated !== false ||
       outcome.decision?.classifier !== "jev"
@@ -768,16 +771,19 @@ export async function sanitizeCaptureForStorage(
     ? { ...decision, safeContent: "", safeSegments: [] }
     : undefined;
   if (partial) decision = partial.decision;
-  const partialMetadata = partial
+  const priorReceipt =
+    input.source.provider === "zoom"
+      ? readZoomPassageQuarantine(metadata)
+      : undefined;
+  const receipt = partial
     ? {
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: partial.totalPassages,
-          withheldPassages: partial.withheldPassages,
-        },
+        version: 1,
+        totalPassages: priorReceipt ? null : partial.totalPassages,
+        withheldPassages: priorReceipt ? null : partial.withheldPassages,
       }
-    : {};
-  if (partial) {
+    : priorReceipt;
+  const partialMetadata = receipt ? { zoomPassageQuarantine: receipt } : {};
+  if (receipt) {
     // A link to the full recording would bypass the excerpt's privacy boundary.
     for (const key of Object.keys(sanitizedMetadata)) {
       if (
@@ -794,7 +800,7 @@ export async function sanitizeCaptureForStorage(
   }
   const sanitizedContent =
     decision.disposition === "allowed"
-      ? sanitizationRequested && !partial
+      ? sanitizationRequested && !receipt
         ? deterministicSanitizeContent(
             sanitizeSensitiveText(decision.safeContent),
             {

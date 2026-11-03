@@ -380,7 +380,11 @@ function SearchResultRow({
             {result.title || t("searchPage.untitledResult")}
           </h3>
           <IncompleteTranscriptWarning
-            withheldPassages={result.withheldPassages ?? 0}
+            withheldPassages={
+              result.withheldPassages === undefined
+                ? 0
+                : result.withheldPassages
+            }
           />
           <p className="mt-2 line-clamp-3 max-w-4xl text-sm leading-6 text-muted-foreground">
             {body}
@@ -487,7 +491,11 @@ function SearchResultDetails({
             {result.title || t("searchPage.untitledResult")}
           </SheetTitle>
           <IncompleteTranscriptWarning
-            withheldPassages={result.withheldPassages ?? 0}
+            withheldPassages={
+              result.withheldPassages === undefined
+                ? 0
+                : result.withheldPassages
+            }
           />
           <SheetDescription className="text-start leading-6">
             {body}
@@ -608,10 +616,14 @@ function SearchResultDetails({
 function IncompleteTranscriptWarning({
   withheldPassages,
 }: {
-  withheldPassages?: number;
+  withheldPassages?: number | null;
 }) {
   const t = useT();
-  if (withheldPassages === undefined || withheldPassages <= 0) return null;
+  if (
+    withheldPassages === undefined ||
+    (withheldPassages !== null && withheldPassages <= 0)
+  )
+    return null;
 
   return (
     <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive">
@@ -619,7 +631,7 @@ function IncompleteTranscriptWarning({
         aria-hidden="true"
         className="mt-0.5 size-3.5 shrink-0"
       />
-      {t("common.incompleteTranscript", { count: withheldPassages })}
+      {t("common.incompleteTranscript", { count: withheldPassages ?? "?" })}
     </p>
   );
 }
