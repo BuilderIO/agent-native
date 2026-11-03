@@ -104,10 +104,5 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   timeoutMs: 55_000,
   run: async (args, context) =>
-    dashboardCostOutput.parse(
-      await estimateQueryCost.run(
-        estimateQueryCost.schema.parse(args),
-        context,
-      ),
-    ),
+    dashboardCostOutput.parse(await estimateQueryCost.run(args, context)),
 });
