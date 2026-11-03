@@ -1147,6 +1147,7 @@ describe("workspace dev helpers", () => {
 function testEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    WORKSPACE_DEFAULT_APP: "",
     WORKSPACE_HOST: "127.0.0.1",
     WORKSPACE_PORT: "0",
     WORKSPACE_APP_PORT_START: "19100",
