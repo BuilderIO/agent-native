@@ -3,9 +3,9 @@ slug: consulting-deck
 type: how-to-guide
 title: How to make a consulting deck
 seo_title: How to make a consulting deck (with a worked example)
-og_line: With a storyline, ghost deck and example slides
+og_line: Write the answer before the slides
 meta_description: "Make a consulting deck the way consultants do: write the answer and every slide title first, sketch a ghost deck, then prove each title with one chart."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1020a4a2ba9640d4ac3234d233161b7d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fef29ee0d631d4bcfbef3520f956f17b8
 published: 2026-11-03
 updated: 2026-11-03
 author:
