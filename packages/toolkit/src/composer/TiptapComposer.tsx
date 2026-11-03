@@ -4570,7 +4570,10 @@ function TiptapComposerSurface({
       if (!ch) continue;
       if (abandoned[matched] !== ch) return text;
       matched += 1;
-      if (matched === abandoned.length) return text.slice(i + 1).trimStart();
+      if (matched === abandoned.length) {
+        if (normalizeVoiceWords(text.charAt(i + 1))) return text;
+        return text.slice(i + 1).trimStart();
+      }
     }
     return "";
   };
