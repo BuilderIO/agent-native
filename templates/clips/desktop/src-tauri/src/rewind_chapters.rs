@@ -215,15 +215,6 @@ pub(crate) fn rebuild(
     write_atomic(&dir.join(CHAPTERS_FILE), &bytes)
 }
 
-pub(crate) fn clear(dir: &Path) -> Result<(), String> {
-    let path = dir.join(CHAPTERS_FILE);
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("chapter manifest remove failed: {e}")),
-    }
-}
-
 fn build(
     segments: Vec<ScreenMemorySegmentMetadata>,
     events: Vec<ScreenMemoryEvent>,
