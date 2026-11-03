@@ -557,8 +557,9 @@ function normalizedIso(
   zonelessTimezone?: string,
 ): string {
   const zoneless = ZONELESS_DATETIME_PATTERN.exec(value.trim());
-  if (zoneless && zonelessTimezone) {
-    return zonedDateTimeToUtcIso(zoneless[1], zoneless[2], zonelessTimezone);
+  const [, zonelessDate, zonelessTime] = zoneless ?? [];
+  if (zonelessDate && zonelessTime && zonelessTimezone) {
+    return zonedDateTimeToUtcIso(zonelessDate, zonelessTime, zonelessTimezone);
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -577,17 +578,24 @@ function normalizeWorkingLocationAllDayDate(value: string): string {
   return date;
 }
 
-export function normalizeCreateEventInput(args: {
-  title?: string;
-  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
-  start: string;
-  end: string;
-  startTimeZone?: string;
-  endTimeZone?: string;
-  allDay?: boolean;
-  fullDay?: boolean;
-  defaultTimezone?: string;
-}) {
+export function normalizeCreateEventInput(
+  args: {
+    title?: string | undefined;
+    eventType?:
+      | "default"
+      | "outOfOffice"
+      | "focusTime"
+      | "workingLocation"
+      | undefined;
+    start: string;
+    end: string;
+    startTimeZone?: string | undefined;
+    endTimeZone?: string | undefined;
+    allDay?: boolean | undefined;
+    fullDay?: boolean | undefined;
+  },
+  defaultTimezone?: string,
+) {
   if (args.fullDay === true && args.eventType !== "outOfOffice") {
     throw new Error("fullDay is only supported for out-of-office events.");
   }
@@ -658,7 +666,7 @@ export function normalizeCreateEventInput(args: {
     };
   }
 
-  const startZone = args.startTimeZone ?? args.defaultTimezone;
+  const startZone = args.startTimeZone ?? defaultTimezone;
   const endZone = args.endTimeZone ?? startZone;
   const start = normalizedIso(args.start, "start", startZone);
   const end = normalizedIso(args.end, "end", endZone);

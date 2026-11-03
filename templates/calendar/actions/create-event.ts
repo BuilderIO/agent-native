@@ -358,12 +358,10 @@ export default defineAction({
           value.trim(),
         ),
       );
-    const normalized = normalizeCreateEventInput({
-      ...args,
-      defaultTimezone: needsDefaultTimezone
-        ? await getCalendarTimezone(email)
-        : undefined,
-    });
+    const normalized = normalizeCreateEventInput(
+      args,
+      needsDefaultTimezone ? await getCalendarTimezone(email) : undefined,
+    );
     validateStatusEventTiming({
       eventType: args.eventType,
       allDay: normalized.allDay,
