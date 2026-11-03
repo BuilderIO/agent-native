@@ -288,8 +288,9 @@ Read the exact HTML and use an ordered edits batch that removes or replaces
 only the matching style declarations. Do not use fullContent, an unrelated
 layout repair, or unresolved placeholder markers such as __RIGHT_CARD__ as a
 shortcut or stand-in for content. For code-style or structural edits, request
-compact=false and format=true, then call update-slide with that slide's
-contentHash as baseContentHash and an ordered edits list. A request about
+compact=false without format and quote every find from that unformatted HTML
+(format=true rewrites spacing, so its text can miss), then call update-slide
+with that slide's contentHash as baseContentHash and an ordered edits list. A request about
 order, relative position, duplication, or consistency may have multiple
 representations in the HTML, such as a bullet list and a table; inspect the
 exact source and update every affected representation in one hash-guarded
