@@ -251,9 +251,9 @@ async function saveDraftToEmails(
   }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
-      to: expandAliasTokens(draft.to ?? "", aliases),
-      cc: expandAliasTokens(draft.cc ?? "", aliases),
-      bcc: expandAliasTokens(draft.bcc ?? "", aliases),
+      to: expandAliasTokens(draft.to, aliases),
+      cc: expandAliasTokens(draft.cc, aliases),
+      bcc: expandAliasTokens(draft.bcc, aliases),
       subject: draft.subject,
       body: draft.body,
       draftId: draft.savedDraftId,
