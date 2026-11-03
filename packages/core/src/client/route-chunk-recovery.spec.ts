@@ -1045,9 +1045,12 @@ describe("route chunk recovery", () => {
     });
 
     it("keeps suppressing through the full cooldown but not past it", () => {
-      const { fakeWindow } = createFakeWindow();
+      const { fakeWindow, fakeLocation } = createFakeWindow();
       expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
       expect(reloadForStaleChunk(fakeWindow, 11_000)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(reloadForStaleChunk(fakeWindow, 11_001)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
       expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
     });
 
