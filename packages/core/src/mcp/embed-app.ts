@@ -961,6 +961,7 @@ export function embedApp(
       }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
+        var pageFetch = fetch;
         window.fetch = function(input, init) {
           const raw = input instanceof Request ? input.url : String(input);
           const url = rewrittenUrl(raw, false);
@@ -975,10 +976,19 @@ export function embedApp(
           return originalFetch(url, nextInit);
         };
         // The requests it signs go out on a transport of their own, one per
-        // token, so the app shares no answer between them and the page's own.
+        // token. It signs only on the target's mount and with a token; its
+        // other requests still omit cookies, so they go out on another
+        // transport, never the signed one or the page's. Asked as each read
+        // is keyed and sent, so it follows the page between mounts. With no
+        // app origin, every request passes through unchanged.
         var signedTransport = null;
+        var unsignedTransport = {};
         window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
-          var token = activeConfig().token || "";
+          if (!appOrigin()) return pageFetch;
+          var token = activeConfig().token;
+          if (!token || authorizedTargetPath() === null) {
+            return unsignedTransport;
+          }
           if (!signedTransport || signedTransport.token !== token) {
             signedTransport = { token: token, transport: {} };
           }
