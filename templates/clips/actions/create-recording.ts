@@ -154,14 +154,14 @@ export default defineAction({
           statusCode: 409,
         });
       }
+      const { organizationId } = await requireOrganizationAccess(
+        args.organizationId,
+      );
       const uploaded = args.sourceHeadSha256
         ? await findUploadedSourceRecording(ownerEmail, args.sourceHeadSha256)
         : null;
       if (uploaded) return { uploaded } as const;
 
-      const { organizationId } = await requireOrganizationAccess(
-        args.organizationId,
-      );
       const visibility = await getDefaultRecordingVisibility(
         organizationId,
         actionContext?.userEmail ?? ownerEmail,

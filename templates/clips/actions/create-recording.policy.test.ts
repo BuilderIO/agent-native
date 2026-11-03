@@ -382,6 +382,37 @@ describe("create-recording policy", () => {
     expect(calls.findUploadedSource).not.toHaveBeenCalled();
   });
 
+  it("refuses a denied organization before returning a fingerprint match", async () => {
+    calls.requireOrgAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Organization not found or access denied"), {
+        statusCode: 403,
+      }),
+    );
+    calls.findUploadedSource.mockResolvedValueOnce({
+      id: "rec-uploaded",
+      organizationId: "org-2",
+      status: "ready",
+    });
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          organizationId: "org-denied",
+          sourceHeadSha256: "d".repeat(64),
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "organization_access_denied" });
+    expect(calls.findUploadedSource).not.toHaveBeenCalled();
+  });
+
   it("preserves an insert failure without publishing upload state", async () => {
     const error = new Error("recording insert failed");
     calls.insert.mockRejectedValueOnce(error);
