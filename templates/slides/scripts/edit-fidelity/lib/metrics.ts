@@ -654,11 +654,15 @@ export function outsideChangesFor(
     }
     const position = change.prop === "x" ? "x" : "y";
     const extent = change.prop === "x" ? "width" : "height";
+    // Records are rounded to whole pixels, so the unrounded edge keeps the
+    // one-pixel tolerance meaning one pixel: a centred reflow moves by half-pixels.
+    const beforeEdited = before.editedExactRect ?? before.editedRect;
+    const afterEdited = after.editedExactRect ?? after.editedRect;
     const expectedShift =
-      after.editedRect[position] +
-      after.editedRect[extent] -
-      before.editedRect[position] -
-      before.editedRect[extent];
+      afterEdited[position] +
+      afterEdited[extent] -
+      beforeEdited[position] -
+      beforeEdited[extent];
     const actualShift = Number(change.b) - Number(change.a);
     return (
       Math.abs(actualShift - expectedShift) <= 1 ||
@@ -898,6 +902,104 @@ export function outsideChangesFor(
     }
     return Math.abs(siblingShift - expectedShift) <= GEOMETRY_TOLERANCE;
   };
+  // An auto-height wrapper anchored by `bottom` and centred with translateY(-50%)
+  // grows with the block edited inside it: top moves up by its height change, and
+  // the centring transform and origin by half of it. The wrapper may grow less
+  // than the block, never more: the block's trailing margin can collapse into it.
+  const anchoredWrapperGrowth = (() => {
+    const blockGrowth =
+      before.editedRect && after.editedRect
+        ? after.editedRect.height - before.editedRect.height
+        : 0;
+    const followed = new Map<string, { rect: Rect; yShift: number }>();
+    if (!before.editedRect || !after.editedRect || Math.abs(blockGrowth) <= 1) {
+      return followed;
+    }
+    const contains = (outer: Rect, inner: Rect) =>
+      outer.x <= inner.x + 1 &&
+      outer.y <= inner.y + 1 &&
+      outer.x + outer.width >= inner.x + inner.width - 1 &&
+      outer.y + outer.height >= inner.y + inner.height - 1;
+    const px = (value: string | undefined) =>
+      value === undefined ? NaN : Number(PX_VALUE.exec(value)?.[1]);
+    const translateY = (value: string | undefined) => {
+      const match = /^matrix\(([^)]+)\)$/u.exec(value ?? "");
+      const parts = match?.[1]?.split(/,\s*/u).map(Number) ?? [];
+      return parts.length === 6 && parts.slice(0, 5).join() === "1,0,0,1,0"
+        ? Number(parts[5])
+        : NaN;
+    };
+    const originY = (value: string | undefined) => px(value?.split(/\s+/u)[1]);
+    const shifts = new Map<string, Map<string, [string, string]>>();
+    for (const change of [...outside.deltas, ...outside.geometry]) {
+      if (!("prop" in change) || typeof change.prop !== "string") continue;
+      const props = shifts.get(change.key) ?? new Map();
+      props.set(change.prop, [change.a, change.b]);
+      shifts.set(change.key, props);
+    }
+    const near = (actual: number, expected: number) =>
+      Math.abs(actual - expected) <= 1;
+    for (const [key, props] of shifts) {
+      const record = beforeRecords.get(key);
+      const top = props.get("top");
+      const transform = props.get("transform");
+      const origin = props.get("transform-origin");
+      const height = props.get("height");
+      const y = props.get("y");
+      if (
+        !record ||
+        !contains(record.rect, before.editedRect) ||
+        !top ||
+        !transform ||
+        !origin ||
+        !height ||
+        !y ||
+        [...props.keys()].some(
+          (prop) =>
+            !["top", "transform", "transform-origin", "height", "y"].includes(
+              prop,
+            ),
+        )
+      ) {
+        continue;
+      }
+      const growth = Number(height[1]) - Number(height[0]);
+      const centring = translateY(transform[1]) - translateY(transform[0]);
+      if (
+        Math.sign(growth) === Math.sign(blockGrowth) &&
+        Math.abs(growth) <= Math.abs(blockGrowth) + 1 &&
+        Math.abs(growth) >= Math.abs(blockGrowth) / 2 &&
+        near(px(top[1]) - px(top[0]), -growth) &&
+        near(centring, -growth / 2) &&
+        near(originY(origin[1]) - originY(origin[0]), growth / 2) &&
+        near(Number(y[1]) - Number(y[0]), -growth + centring)
+      ) {
+        followed.set(key, {
+          rect: record.rect,
+          yShift: Number(y[1]) - Number(y[0]),
+        });
+      }
+    }
+    return followed;
+  })();
+  // Content placed in the wrapper above the edited block rides along with it.
+  const ridesWithAnchoredWrapper = (change: StyleDelta) => {
+    const record = beforeRecords.get(change.key);
+    if (!record || !before.editedRect || change.prop !== "y") return false;
+    const shift = Number(change.b) - Number(change.a);
+    return [...anchoredWrapperGrowth].some(
+      ([key, wrapper]) =>
+        key !== change.key &&
+        record.rect.y + record.rect.height <= before.editedRect.y + 1 &&
+        record.rect.x >= wrapper.rect.x - 1 &&
+        record.rect.y >= wrapper.rect.y - 1 &&
+        record.rect.x + record.rect.width <=
+          wrapper.rect.x + wrapper.rect.width + 1 &&
+        record.rect.y + record.rect.height <=
+          wrapper.rect.y + wrapper.rect.height + 1 &&
+        Math.abs(shift - wrapper.yShift) <= 1,
+    );
+  };
   const copiedMarkers = copiedMarkerRecords();
   const normalizedOutside = {
     ...outside,
@@ -909,9 +1011,13 @@ export function outsideChangesFor(
     ),
   };
   const changes = [
-    ...outside.deltas,
+    ...outside.deltas.filter(
+      (change) => !anchoredWrapperGrowth.has(change.key),
+    ),
     ...outside.geometry.filter(
       (change) =>
+        !anchoredWrapperGrowth.has(change.key) &&
+        !ridesWithAnchoredWrapper(change) &&
         !followsNaturalReflow(change) &&
         !followsImportedTextObjectReflow(change),
     ),
