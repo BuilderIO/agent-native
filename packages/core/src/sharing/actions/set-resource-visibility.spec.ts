@@ -724,6 +724,33 @@ describe("set-resource-visibility on several resources", () => {
     });
   });
 
+  it("names a resource still attached to the organization after another request changed its visibility", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else makes doc-loose public, keeping the organization
+          // this batch attached.
+          await db
+            .update(docs)
+            .set({ visibility: "public" })
+            .where(eq(docs.id, "doc-loose"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-loose", orgId: null });
+    await insertDoc({ id: "doc-fails" });
+
+    await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
+      "storage refused Not every earlier change could be put back, so these are still attached to your organization: doc-loose.",
+    );
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "public", orgId },
+      "doc-fails": { visibility: "private", orgId },
+    });
+  });
+
   it("puts everything back when a resource is deleted after the checks", async () => {
     register({
       // Runs in the up-front checks, before any write.

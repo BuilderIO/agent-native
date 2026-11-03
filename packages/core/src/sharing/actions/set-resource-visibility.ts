@@ -221,8 +221,10 @@ export default defineAction({
         }
       }
     };
-    // Returns false when it leaves this call's visibility in place.
-    const restore = async (change: PreparedChange): Promise<boolean> => {
+    // Returns the part of this call's change it leaves in place, if any.
+    const restore = async (
+      change: PreparedChange,
+    ): Promise<"visibility" | "organization" | null> => {
       // Another request may have changed the resource since this call wrote
       // it; keep that newer value rather than putting back an older one.
       // Reading first narrows that window without closing it, since a
@@ -256,7 +258,10 @@ export default defineAction({
         );
       }
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
-      return !(ours && movedOrg);
+      if (ours) return movedOrg ? "visibility" : null;
+      // Another request changed the visibility, and the organization this
+      // call attached is still on the resource under that newer change.
+      return attachedOrg && !movedOrg ? "organization" : null;
     };
 
     const beforeExtensionTargets = new Map<
@@ -298,22 +303,36 @@ export default defineAction({
         }
       }
     } catch (error) {
-      const unrestored: string[] = [];
+      const stillVisible: string[] = [];
+      const stillAttached: string[] = [];
       for (const change of written.reverse()) {
         try {
-          if (!(await restore(change))) unrestored.push(change.resourceId);
+          const left = await restore(change);
+          if (left === "visibility") stillVisible.push(change.resourceId);
+          if (left === "organization") stillAttached.push(change.resourceId);
         } catch (restoreError) {
           console.error(
             `[sharing] Could not restore the visibility of ${args.resourceType} ${change.resourceId}:`,
             restoreError,
           );
-          unrestored.push(change.resourceId);
+          stillVisible.push(change.resourceId);
         }
       }
-      if (unrestored.length) {
+      if (stillVisible.length || stillAttached.length) {
         const reason = error instanceof Error ? error.message : String(error);
+        const left: string[] = [];
+        if (stillVisible.length) {
+          left.push(
+            `these still have visibility "${args.visibility}": ${stillVisible.join(", ")}`,
+          );
+        }
+        if (stillAttached.length) {
+          left.push(
+            `these are still attached to your organization: ${stillAttached.join(", ")}`,
+          );
+        }
         fail(
-          `${reason} Not every earlier change could be put back, so these still have visibility "${args.visibility}": ${unrestored.join(", ")}.`,
+          `${reason} Not every earlier change could be put back, so ${left.join("; and ")}.`,
           { errorCode: "visibility_rollback_incomplete", statusCode: 500 },
         );
       }
