@@ -61,9 +61,10 @@ describe("CommentComposer", () => {
     function renderCollapsible() {
       container = document.createElement("div");
       document.body.appendChild(container);
-      root = createRoot(container);
+      const composerRoot = createRoot(container);
+      root = composerRoot;
       act(() => {
-        root!.render(
+        composerRoot.render(
           createElement(CommentComposer, {
             value: "",
             onChange: vi.fn(),
