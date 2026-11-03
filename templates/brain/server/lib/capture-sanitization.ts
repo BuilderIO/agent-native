@@ -76,6 +76,7 @@ export interface CaptureSanitizationInput {
   title: string;
   content: string;
   metadata?: Record<string, unknown>;
+  storedZoomPassageQuarantine?: unknown;
   capturedAt?: string;
   source: {
     id: string;
@@ -618,6 +619,7 @@ async function retainSafeZoomPassages(
     original.disposition !== "quarantined" ||
     original.confidenceBand === "uncertain" ||
     !original.categories.length ||
+    original.categories.includes("secret-credential") ||
     (original.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >= 0.6
   )
     return null;
@@ -654,7 +656,12 @@ async function retainSafeZoomPassages(
     const decision = await classify(
       passages.slice(Math.max(0, index - 1), index + 2).join("\n"),
     );
-    if (!decision || decision.confidenceBand === "uncertain") return null;
+    if (
+      !decision ||
+      decision.confidenceBand === "uncertain" ||
+      decision.categories.includes("secret-credential")
+    )
+      return null;
     if (decision.disposition !== "allowed") rejected.add(index);
   }
   if (!rejected.size) return null;
@@ -676,7 +683,10 @@ async function retainSafeZoomPassages(
   }
   const retainedContent = retained
     .join("\n")
-    .replace(/https:\/\/(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi, "[…]");
+    .replace(
+      /(?<![\w.-])(?:(?:https?:)?\/\/)?(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi,
+      "[…]",
+    );
   const decision = await classify(retainedContent);
   if (decision?.disposition !== "allowed") return null;
   return {
@@ -773,8 +783,12 @@ export async function sanitizeCaptureForStorage(
   if (partial) decision = partial.decision;
   const priorReceipt =
     input.source.provider === "zoom"
-      ? readZoomPassageQuarantine(metadata)
+      ? readZoomPassageQuarantine({
+          zoomPassageQuarantine: input.storedZoomPassageQuarantine,
+        })
       : undefined;
+  const storedExcerpt =
+    priorReceipt !== undefined && priorReceipt.withheldPassages !== null;
   const receipt = partial
     ? {
         version: 1,
@@ -800,7 +814,7 @@ export async function sanitizeCaptureForStorage(
   }
   const sanitizedContent =
     decision.disposition === "allowed"
-      ? sanitizationRequested && !receipt
+      ? sanitizationRequested && !partial && !storedExcerpt
         ? deterministicSanitizeContent(
             sanitizeSensitiveText(decision.safeContent),
             {

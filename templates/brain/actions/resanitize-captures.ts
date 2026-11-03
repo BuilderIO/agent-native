@@ -17,6 +17,7 @@ import {
 } from "../server/lib/brain.js";
 import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
+import { parseCaptureMetadata } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
 import { idSchema, stringArrayCliSchema } from "./_schemas.js";
@@ -165,14 +166,18 @@ export default defineAction({
       const hasDerivedRefs =
         derivedRefs.knowledgeIds.length > 0 ||
         derivedRefs.proposalIds.length > 0;
+      const metadata = parseCaptureMetadata(row.capture.metadataJson);
       const sanitized = await sanitizeCaptureForStorage({
         kind: row.capture.kind as BrainCaptureKind,
         title: row.capture.title,
         content: row.capture.content,
-        metadata: parseJson<Record<string, unknown>>(
-          row.capture.metadataJson,
-          {},
-        ),
+        metadata: metadata ?? {},
+        storedZoomPassageQuarantine:
+          row.source.provider === "zoom"
+            ? metadata === null
+              ? null
+              : metadata.zoomPassageQuarantine
+            : undefined,
         capturedAt: row.capture.capturedAt,
         source: {
           id: row.source.id,

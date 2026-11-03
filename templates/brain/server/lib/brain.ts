@@ -61,6 +61,7 @@ import {
 } from "./ingest-queue.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
+  parseCaptureMetadata,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -755,7 +756,7 @@ export async function createCapture(values: {
   const db = getDb();
   const now = nowIso();
   const id = values.id ?? nanoid();
-  const [existing] = values.externalId
+  const existingRows = values.externalId
     ? await db
         .select()
         .from(schema.brainRawCaptures)
@@ -767,6 +768,7 @@ export async function createCapture(values: {
         )
         .limit(1)
     : [];
+  const existing = existingRows.length ? existingRows[0] : undefined;
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
@@ -778,11 +780,21 @@ export async function createCapture(values: {
     source.provider as BrainSourceProvider,
     values.metadata,
   );
+  const storedMetadata =
+    existing && existing.content === values.content
+      ? parseCaptureMetadata(existing.metadataJson)
+      : undefined;
   const sanitized = await sanitizeCaptureForStorage({
     kind: values.kind,
     title: values.title,
     content: values.content,
     metadata,
+    storedZoomPassageQuarantine:
+      storedMetadata === undefined
+        ? undefined
+        : storedMetadata === null
+          ? null
+          : storedMetadata.zoomPassageQuarantine,
     capturedAt: values.capturedAt,
     source: {
       id: source.id,
@@ -815,16 +827,6 @@ export async function createCapture(values: {
       retentionHours: settings.quarantineRetentionHours ?? 72,
     });
     throw new BrainCaptureBlockedError(receipt);
-  }
-  if (sanitized.withheldDecision) {
-    await recordBlockedCapture({
-      id,
-      existing: null,
-      source,
-      values,
-      decision: sanitized.withheldDecision,
-      retentionHours: settings.quarantineRetentionHours ?? 72,
-    });
   }
   const nextContentHash = await contentHash(sanitized.content);
   const nextMetadataJson = stableJson(sanitized.metadata);
@@ -972,6 +974,17 @@ export async function createCapture(values: {
     );
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
+  }
+  if (sanitized.withheldDecision) {
+    await recordBlockedCapture({
+      id,
+      existing: null,
+      retainedCaptureId: captureId,
+      source,
+      values,
+      decision: { ...sanitized.withheldDecision, disposition: "suppressed" },
+      retentionHours: settings.quarantineRetentionHours ?? 72,
+    });
   }
   if (existing?.contentHash && derivedInputChanged) {
     await invalidateDerivedForCapture(captureId);
@@ -1273,6 +1286,7 @@ export async function recordBlockedCapture(input: {
   values: Parameters<typeof createCapture>[0];
   decision: BrainSensitivityDecision;
   classifierFailureReason?: string;
+  retainedCaptureId?: string;
   retentionHours: number;
 }): Promise<BrainSensitivityReceipt> {
   const db = getDb();
@@ -1300,7 +1314,13 @@ export async function recordBlockedCapture(input: {
   let disposition: "suppressed" | "quarantined" =
     input.decision.disposition === "suppressed" ? "suppressed" : "quarantined";
   let quarantineBlobHandle: string | null = null;
-  let expiresAt: string | null = null;
+  const retentionExpiresAt = new Date(
+    Date.parse(now) +
+      Math.max(1, Math.min(168, input.retentionHours)) * 60 * 60 * 1000,
+  ).toISOString();
+  let expiresAt: string | null = input.retainedCaptureId
+    ? retentionExpiresAt
+    : null;
   if (
     disposition === "quarantined" &&
     privateQuarantineProvider(input.source.provider as BrainSourceProvider)
@@ -1314,10 +1334,7 @@ export async function recordBlockedCapture(input: {
     });
     if (handle) {
       quarantineBlobHandle = stableJson(handle);
-      expiresAt = new Date(
-        Date.parse(now) +
-          Math.max(1, Math.min(168, input.retentionHours)) * 60 * 60 * 1000,
-      ).toISOString();
+      expiresAt = retentionExpiresAt;
     } else {
       disposition = "suppressed";
     }
@@ -1328,7 +1345,7 @@ export async function recordBlockedCapture(input: {
     .values({
       id: eventId,
       sourceId: input.source.id,
-      captureId: input.existing?.id ?? null,
+      captureId: input.retainedCaptureId ?? input.existing?.id ?? null,
       locatorHmac,
       disposition,
       categoriesJson: stableJson(input.decision.categories),
@@ -1350,7 +1367,7 @@ export async function recordBlockedCapture(input: {
         schema.brainSensitivityEvents.policyVersion,
       ],
       set: {
-        captureId: input.existing?.id ?? null,
+        captureId: input.retainedCaptureId ?? input.existing?.id ?? null,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
         decisionScoresJson: input.decision.categoryScores
@@ -1410,7 +1427,10 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
     .from(schema.brainSensitivityEvents)
     .where(
       and(
-        eq(schema.brainSensitivityEvents.disposition, "quarantined"),
+        inArray(schema.brainSensitivityEvents.disposition, [
+          "quarantined",
+          "suppressed",
+        ]),
         lte(schema.brainSensitivityEvents.expiresAt, at),
       ),
     );

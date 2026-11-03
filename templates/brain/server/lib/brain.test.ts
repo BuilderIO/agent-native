@@ -898,6 +898,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -906,6 +907,7 @@ import enqueueDistillationAction from "../../actions/enqueue-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
+import listProposalsAction from "../../actions/list-proposals.js";
 import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
@@ -919,6 +921,7 @@ import {
   applyRedactions,
   buildBrainAgentGuidance,
   createCapture,
+  expireSensitivityQuarantines,
   previewKnowledgeCanonicalResource,
   recordBlockedCapture,
   retireUpstreamDeletedCapture,
@@ -1645,76 +1648,216 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
-  it("stores only safe Zoom excerpts and a metadata-only quarantine receipt across resyncs", async () => {
-    seedSource({ provider: "zoom" });
-    Object.assign(mocks.settings, { privacyClassifier: "jev" });
-    const content = Array.from(
-      { length: 36 },
-      (_, index) =>
-        `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
-    ).join("\n");
-    const classifier = vi
-      .spyOn(jevClassifier, "classifyWithJev")
-      .mockImplementation(async (input) => ({
-        configured: true,
-        truncated: false,
-        decision: jevClassifier.jevSensitivityDecision(
-          {
-            "health-accommodation": input.content.includes(
-              "WITHHELD_PRIVATE_DETAIL",
-            )
-              ? 0.95
-              : 0.01,
-          },
-          {
-            judgedContent: input.content,
-            capturedAt: "2026-10-28T10:00:00Z",
-            truncated: false,
-          },
-        ),
-      }));
-    try {
-      const input = {
-        sourceId: "source-1",
-        externalId: "zoom:partial-meeting",
-        title: "Weekly update",
-        kind: "transcript" as const,
-        content,
-      };
-      const capture = await createCapture(input);
-      ok(capture);
-      const receipt = JSON.parse(
-        String(capture.metadataJson),
-      ).zoomPassageQuarantine;
-      await createCapture(input);
-      const reprocessed = await createCapture({
-        ...input,
-        content: String(capture.content),
-        metadata: JSON.parse(String(capture.metadataJson)),
+  it.each([
+    {
+      label: "default retention replacing whole quarantine",
+      retentionHours: undefined,
+      priorQuarantine: true,
+    },
+    {
+      label: "configured retention",
+      retentionHours: 24,
+      priorQuarantine: false,
+    },
+  ])(
+    "stores only safe Zoom excerpts and a suppressed receipt across resyncs ($label)",
+    async ({ retentionHours, priorQuarantine }) => {
+      const source = seedSource({ provider: "zoom" });
+      Object.assign(mocks.settings, {
+        privacyClassifier: "jev",
+        ...(retentionHours === undefined
+          ? {}
+          : { quarantineRetentionHours: retentionHours }),
       });
-      ok(reprocessed);
-      expect(
-        JSON.parse(String(reprocessed.metadataJson)).zoomPassageQuarantine,
-      ).toEqual(receipt);
-      expect(mocks.rows.captures).toHaveLength(1);
-      expect(capture).toMatchObject({ sensitivityDisposition: "allowed" });
-      expect(capture).toHaveProperty(
-        "content",
-        expect.stringContaining("PUBLIC_UPDATE_0"),
-      );
-      expect(capture).toHaveProperty(
-        "content",
-        expect.stringContaining("PUBLIC_UPDATE_35"),
-      );
-      expect(capture).toHaveProperty("content", expect.stringContaining("[…]"));
-      expect(JSON.stringify(mocks.rows)).not.toContain(
-        "WITHHELD_PRIVATE_DETAIL",
-      );
-      expect(mocks.rows.sensitivityEvents).toHaveLength(1);
-      expect(mocks.rows.sensitivityEvents[0]).toMatchObject({
-        disposition: "quarantined",
-        quarantineBlobHandle: null,
-      });
+      const content = Array.from(
+        { length: 36 },
+        (_, index) =>
+          `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
+      ).join("\n");
+      const classifier = vi
+        .spyOn(jevClassifier, "classifyWithJev")
+        .mockImplementation(async (input) => ({
+          configured: true,
+          truncated: false,
+          decision: jevClassifier.jevSensitivityDecision(
+            {
+              "health-accommodation": input.content.includes(
+                "WITHHELD_PRIVATE_DETAIL",
+              )
+                ? 0.95
+                : 0.01,
+            },
+            {
+              judgedContent: input.content,
+              capturedAt: "2026-10-28T10:00:00Z",
+              truncated: false,
+            },
+          ),
+        }));
+      try {
+        const input = {
+          sourceId: "source-1",
+          externalId: "zoom:partial-meeting",
+          title: "Weekly update",
+          kind: "transcript" as const,
+          content,
+        };
+        let priorEventId: string | undefined;
+        if (priorQuarantine) {
+          const blocked = await recordBlockedCapture({
+            id: "whole-quarantined-capture",
+            existing: null,
+            source: source as never,
+            values: input,
+            decision: jevClassifier.jevSensitivityDecision(
+              { "health-accommodation": 0.95 },
+              {
+                judgedContent: content,
+                capturedAt: "2026-10-28T10:00:00Z",
+                truncated: false,
+              },
+            ),
+            retentionHours: 72,
+          });
+          priorEventId = blocked.id;
+          expect(blocked.disposition).toBe("quarantined");
+          const queue = await listProposalsAction.run({
+            status: "quarantine",
+            limit: 50,
+          });
+          expect(queue.proposals.map((proposal) => proposal.id)).toEqual([
+            blocked.id,
+          ]);
+        }
+        const capture = await createCapture(input);
+        ok(capture);
+        const receipt = JSON.parse(
+          String(capture.metadataJson),
+        ).zoomPassageQuarantine;
+        await createCapture(input);
+        const reprocessed = await createCapture({
+          ...input,
+          content: String(capture.content),
+          metadata: JSON.parse(String(capture.metadataJson)),
+        });
+        ok(reprocessed);
+        expect(
+          JSON.parse(String(reprocessed.metadataJson)).zoomPassageQuarantine,
+        ).toEqual(receipt);
+        expect(mocks.rows.captures).toHaveLength(1);
+        expect(capture).toMatchObject({ sensitivityDisposition: "allowed" });
+        expect(capture).toHaveProperty(
+          "content",
+          expect.stringContaining("PUBLIC_UPDATE_0"),
+        );
+        expect(capture).toHaveProperty(
+          "content",
+          expect.stringContaining("PUBLIC_UPDATE_35"),
+        );
+        expect(capture).toHaveProperty(
+          "content",
+          expect.stringContaining("[…]"),
+        );
+        expect(JSON.stringify(mocks.rows)).not.toContain(
+          "WITHHELD_PRIVATE_DETAIL",
+        );
+        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
+        const event = mocks.rows.sensitivityEvents[0];
+        ok(event);
+        expect(event).toMatchObject({
+          disposition: "suppressed",
+          captureId: capture.id,
+          quarantineBlobHandle: null,
+          expiresAt: expect.any(String),
+        });
+        if (priorQuarantine) expect(event.id).toBe(priorEventId);
+        expect(
+          Date.parse(String(event.expiresAt)) -
+            Date.parse(String(event.updatedAt)),
+        ).toBe((retentionHours ?? 72) * 60 * 60 * 1000);
+        expect(putPrivateBlob).not.toHaveBeenCalled();
+        expect(
+          await listProposalsAction.run({ status: "quarantine", limit: 50 }),
+        ).toEqual({
+          count: 0,
+          proposals: [],
+        });
+        const listed = await listCapturesAction.run(
+          {
+            sourceId: "source-1",
+            includeArchivedSources: false,
+            includePreview: true,
+            previewLength: 220,
+            limit: 25,
+          },
+          {} as never,
+        );
+        expect(listed.captures[0]?.withheldPassages).toBeGreaterThan(0);
+        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+        const retainedCaptures = structuredClone(mocks.rows.captures);
+        const retainedAudiences = structuredClone(mocks.rows.captureAudiences);
+        const deadline = String(event.expiresAt);
+        expect(
+          await expireSensitivityQuarantines(
+            new Date(Date.parse(deadline) - 1).toISOString(),
+          ),
+        ).toBe(0);
+        expect(event.disposition).toBe("suppressed");
+        expect(await expireSensitivityQuarantines(deadline)).toBe(1);
+        expect(event).toMatchObject({
+          disposition: "expired",
+          captureId: capture.id,
+          quarantineBlobHandle: null,
+          expiresAt: null,
+        });
+        expect(await expireSensitivityQuarantines(deadline)).toBe(0);
+        expect(mocks.rows.captures).toEqual(retainedCaptures);
+        expect(mocks.rows.captureAudiences).toEqual(retainedAudiences);
+        const afterExpiry = await listCapturesAction.run({
+          sourceId: "source-1",
+          limit: 25,
+        });
+        expect(afterExpiry.captures).toEqual([
+          expect.objectContaining({
+            id: capture.id,
+            withheldPassages: listed.captures[0]?.withheldPassages,
+          }),
+        ]);
+      } finally {
+        classifier.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    {
+      label: "malformed nested receipt",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 4,
+          withheldPassages: 5,
+        },
+      }),
+      withheldPassages: null,
+    },
+    { label: "invalid JSON", metadataJson: "{invalid", withheldPassages: null },
+    { label: "JSON null", metadataJson: "null", withheldPassages: null },
+    { label: "JSON array", metadataJson: "[]", withheldPassages: null },
+    {
+      label: "JSON string",
+      metadataJson: '"metadata"',
+      withheldPassages: null,
+    },
+    { label: "JSON number", metadataJson: "42", withheldPassages: null },
+    { label: "JSON boolean", metadataJson: "true", withheldPassages: null },
+    { label: "empty object", metadataJson: "{}", withheldPassages: 0 },
+  ])(
+    "lists Zoom completeness without coercing $label to a clean receipt",
+    async ({ metadataJson, withheldPassages }) => {
+      seedSource({ provider: "zoom" });
+      seedCapture({ kind: "transcript", metadataJson });
+
       const listed = await listCapturesAction.run(
         {
           sourceId: "source-1",
@@ -1725,43 +1868,14 @@ describe("Brain knowledge quality gates", () => {
         },
         {} as never,
       );
-      expect(listed.captures[0]?.withheldPassages).toBeGreaterThan(0);
-      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
-    } finally {
-      classifier.mockRestore();
-    }
-  });
 
-  it("lists a capture with a malformed Zoom receipt as unknown completeness", async () => {
-    seedSource({ provider: "zoom" });
-    seedCapture({
-      kind: "transcript",
-      metadataJson: JSON.stringify({
-        zoomPassageQuarantine: {
-          version: 1,
-          totalPassages: 4,
-          withheldPassages: 5,
-        },
-      }),
-    });
-
-    const listed = await listCapturesAction.run(
-      {
-        sourceId: "source-1",
-        includeArchivedSources: false,
-        includePreview: true,
-        previewLength: 220,
-        limit: 25,
-      },
-      {} as never,
-    );
-
-    expect(listed.captures).toHaveLength(1);
-    expect(listed.captures[0]).toMatchObject({
-      id: "capture-1",
-      withheldPassages: null,
-    });
-  });
+      expect(listed.captures).toHaveLength(1);
+      expect(listed.captures[0]).toMatchObject({
+        id: "capture-1",
+        withheldPassages,
+      });
+    },
+  );
 
   it("preserves an existing partial Zoom capture when passage screening times out", async () => {
     seedSource({ provider: "zoom" });

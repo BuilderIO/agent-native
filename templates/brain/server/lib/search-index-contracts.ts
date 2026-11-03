@@ -10,6 +10,22 @@ const zoomPassageQuarantineSchema = z
   })
   .refine((receipt) => receipt.withheldPassages <= receipt.totalPassages);
 
+export function parseCaptureMetadata(
+  raw: string | null,
+): Record<string, unknown> | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readZoomPassageQuarantine(metadata: Record<string, unknown>) {
   if (metadata.zoomPassageQuarantine === undefined) return undefined;
   const receipt = zoomPassageQuarantineSchema.safeParse(
@@ -21,8 +37,9 @@ export function readZoomPassageQuarantine(metadata: Record<string, unknown>) {
 }
 
 export function withheldZoomPassageCount(
-  metadata: Record<string, unknown>,
+  metadata: Record<string, unknown> | null,
 ): number | null {
+  if (metadata === null) return null;
   const receipt = readZoomPassageQuarantine(metadata);
   return receipt === undefined ? 0 : receipt.withheldPassages;
 }

@@ -17,7 +17,10 @@ import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
 } from "./hybrid-search.js";
-import { withheldZoomPassageCount } from "./search-index-contracts.js";
+import {
+  parseCaptureMetadata,
+  withheldZoomPassageCount,
+} from "./search-index-contracts.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -378,13 +381,6 @@ function firstCitation(evidenceJson: string) {
 
 const CAPTURE_CONTENT_LIMIT = 4000;
 
-function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  const parsed = parseJson<unknown>(metadataJson, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
-}
-
 function captureLocation(metadata: Record<string, unknown>): string | null {
   if (typeof metadata.channelName === "string") {
     return "#" + redactSensitiveText(metadata.channelName);
@@ -561,7 +557,8 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const metadata = captureMetadata(row.metadataJson);
+    const parsedMetadata = parseCaptureMetadata(row.metadataJson);
+    const metadata = parsedMetadata ?? {};
     const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
@@ -598,7 +595,7 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(metadata),
+        withheldPassages: withheldZoomPassageCount(parsedMetadata),
       },
     ];
   });
@@ -772,7 +769,8 @@ export async function searchEverythingWithLanes(args: {
             const source = sources.get(artifact.sourceId);
             const detail = details.get(artifact.captureId);
             if (!source || !detail) return [];
-            const metadata = captureMetadata(detail.metadataJson);
+            const parsedMetadata = parseCaptureMetadata(detail.metadataJson);
+            const metadata = parsedMetadata ?? {};
             const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
@@ -804,7 +802,7 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(metadata),
+                withheldPassages: withheldZoomPassageCount(parsedMetadata),
               },
             ];
           });

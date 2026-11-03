@@ -741,7 +741,7 @@ describe("Brain semantic capture hits", () => {
   function seedSemanticCapture(input: {
     id: string;
     sourceId: string;
-    metadata: Record<string, unknown>;
+    metadata: Record<string, unknown> | string | null;
   }) {
     mocks.rows.captures.push({
       id: input.id,
@@ -751,7 +751,10 @@ describe("Brain semantic capture hits", () => {
       kind: "message",
       content: "Shorten enterprise onboarding latency. Ping ava@example.com.",
       contentHash: `hash-${input.id}`,
-      metadataJson: JSON.stringify(input.metadata),
+      metadataJson:
+        typeof input.metadata === "string" || input.metadata === null
+          ? input.metadata
+          : JSON.stringify(input.metadata),
       capturedAt,
       importedBy: "owner@example.test",
       status: "distilled",
@@ -827,6 +830,16 @@ describe("Brain semantic capture hits", () => {
       withheldPassages: 5,
     },
     { name: "absent receipt", metadata: {}, withheldPassages: 0 },
+    { name: "missing metadata", metadata: null, withheldPassages: null },
+    { name: "invalid JSON", metadata: "not JSON", withheldPassages: null },
+    {
+      name: "truncated JSON",
+      metadata: '{"zoomPassageQuarantine":',
+      withheldPassages: null,
+    },
+    { name: "JSON null", metadata: "null", withheldPassages: null },
+    { name: "JSON array", metadata: "[]", withheldPassages: null },
+    { name: "JSON string", metadata: '"metadata"', withheldPassages: null },
     {
       name: "null receipt",
       metadata: { zoomPassageQuarantine: null },

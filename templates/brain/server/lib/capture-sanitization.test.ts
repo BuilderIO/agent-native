@@ -92,16 +92,23 @@ describe("Zoom passage quarantine", () => {
     ),
   });
 
-  it("retains screened Zoom passages with gaps without persisting withheld text or the full recording link", async () => {
+  it.each([
+    "https://zoom.us/rec/share/example",
+    "http://zoom.us/rec/share/example",
+    "//zoom.us/rec/share/example",
+    "zoom.us/rec/share/example",
+    "company.zoom.us/rec/play/example",
+    "HTTP://COMPANY.ZOOM.US/rec/share/example",
+  ])("retains safe passages without the recording link %s", async (url) => {
     mocks.classifyWithJev.mockImplementation(async ({ content }) =>
       classification(content),
     );
     const result = await sanitizeCaptureForStorage({
       ...zoomInput,
-      content: `${transcript}\nhttps://zoom.us/rec/share/example`,
+      content: `${transcript}\n${url}`,
     });
     expect(result.decision?.disposition).toBe("allowed");
-    expect(result.content).not.toContain("zoom.us/rec");
+    expect(result.content.toLowerCase()).not.toContain("zoom.us/rec");
     expect(result.content).toContain("PUBLIC_UPDATE_0");
     expect(result.content).toContain("PUBLIC_UPDATE_35");
     expect(result.content).toContain("[…]");
@@ -241,6 +248,7 @@ describe("Zoom passage quarantine", () => {
       title: original.title,
       content: original.content,
       metadata: original.metadata,
+      storedZoomPassageQuarantine: original.metadata.zoomPassageQuarantine,
     });
     expect(repeated.decision?.disposition).toBe("allowed");
     expect(repeated.metadata.zoomPassageQuarantine).toEqual(
@@ -265,7 +273,8 @@ describe("Zoom passage quarantine", () => {
       const result = await sanitizeCaptureForStorage({
         ...zoomInput,
         content: "Product roadmap update. […]",
-        metadata: { ...zoomInput.metadata, zoomPassageQuarantine: receipt },
+        metadata: zoomInput.metadata,
+        storedZoomPassageQuarantine: receipt,
       });
       expect(result.metadata.zoomPassageQuarantine).toEqual({
         version: 1,
@@ -275,6 +284,93 @@ describe("Zoom passage quarantine", () => {
       expect(result.metadata.sourceUrl).toBeUndefined();
     },
   );
+
+  it.each(["whole", "passage"])(
+    "keeps the whole meeting blocked when Jev detects credentials in the %s screen",
+    async (stage) => {
+      let calls = 0;
+      mocks.classifyWithJev.mockImplementation(async ({ content }) => {
+        calls += 1;
+        if (stage === "passage" && calls === 1) return classification(content);
+        return {
+          configured: true,
+          truncated: false,
+          decision: jevSensitivityDecision(
+            { "secret-credential": 0.95 },
+            {
+              judgedContent: content,
+              capturedAt: baseInput.capturedAt,
+              truncated: false,
+            },
+          ),
+        };
+      });
+      const result = await sanitizeCaptureForStorage(zoomInput);
+      expect(result.decision?.disposition).toBe("quarantined");
+      expect(result.withheldDecision).toBeUndefined();
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+      expect(result.content).not.toContain("PUBLIC_UPDATE_0");
+      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(
+        stage === "whole" ? 1 : 2,
+      );
+    },
+  );
+
+  it.each([null, {}, { version: 1, totalPassages: 12, withheldPassages: 5 }])(
+    "does not trust caller receipt %j to bypass configured sanitization",
+    async (receipt) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content: "Product roadmap is on track.\nFamily picnic on Saturday.",
+        metadata: {
+          sanitizeBeforeStorage: true,
+          zoomPassageQuarantine: receipt,
+        },
+      });
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).toBe("Product roadmap is on track.");
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+    },
+  );
+
+  it.each([null, {}, "invalid"])(
+    "does not exempt unreadable stored receipt %j from configured sanitization",
+    async (receipt) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content: "Product roadmap is on track.\nFamily picnic on Saturday.",
+        metadata: { sanitizeBeforeStorage: true },
+        storedZoomPassageQuarantine: receipt,
+      });
+      expect(result.content).toBe("Product roadmap is on track.");
+      expect(result.metadata.zoomPassageQuarantine).toMatchObject({
+        withheldPassages: null,
+      });
+    },
+  );
+
+  it("preserves trusted stored excerpts without stripping their transcript lines", async () => {
+    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+      classification(content),
+    );
+    const original = await sanitizeCaptureForStorage(zoomInput);
+    const result = await sanitizeCaptureForStorage({
+      ...zoomInput,
+      content: original.content,
+      metadata: { ...original.metadata, sanitizeBeforeStorage: true },
+      storedZoomPassageQuarantine: original.metadata.zoomPassageQuarantine,
+    });
+    expect(result.content).toBe(original.content);
+    expect(result.metadata.zoomPassageQuarantine).toEqual(
+      original.metadata.zoomPassageQuarantine,
+    );
+  });
 
   it("does not carve up credential-bearing Zoom transcripts", async () => {
     const result = await sanitizeCaptureForStorage({
