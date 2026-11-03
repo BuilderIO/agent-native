@@ -6,8 +6,8 @@ seo_title: How to write meeting minutes (with an example)
 og_line: Example minutes from a board meeting
 meta_description: "Write meeting minutes your group can approve: a template built from the agenda, how to record decisions, motions and action items, and a full example."
 og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a9a84268af94d35ac83418e95ccde2e
-published: 2026-11-03
-updated: 2026-11-03
+published: 2026-11-01
+updated: 2026-11-01
 author:
   name: Vishwas Gopinath
   url: https://x.com/CodevolutionWeb
