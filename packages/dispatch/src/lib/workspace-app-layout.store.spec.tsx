@@ -232,4 +232,30 @@ describe("useWorkspaceAppLayout", () => {
     expect(surface("home").dataset.error).toBe("");
     expect(appState.write).not.toHaveBeenCalled();
   });
+
+  it("keeps device pins over a malformed workspace layout, then replaces it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const device = { pinnedIds: ["mail"], orderedIds: [] };
+    localStorage.setItem(
+      CHAT_FIRST_APP_LAYOUT_STORAGE_KEY,
+      JSON.stringify(device),
+    );
+    appState.read.mockResolvedValue({ pinnedIds: "mail" });
+
+    await act(async () => {
+      root.render(<Surface name="home" appId="plan" />);
+    });
+
+    expect(surface("home").dataset.pinned).toBe("mail");
+    expect(
+      JSON.parse(localStorage.getItem(CHAT_FIRST_APP_LAYOUT_STORAGE_KEY)!),
+    ).toEqual(device);
+    expect(appState.write).not.toHaveBeenCalled();
+
+    await act(async () => surface("home").click());
+    expect(appState.write).toHaveBeenLastCalledWith(
+      WORKSPACE_APP_LAYOUT_STATE_KEY,
+      { pinnedIds: ["plan", "mail"], orderedIds: [] },
+    );
+  });
 });

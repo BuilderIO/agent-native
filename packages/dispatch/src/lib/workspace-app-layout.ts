@@ -259,14 +259,31 @@ function finishHydration(saved: ChatFirstAppLayoutPreference | null) {
   setSnapshot({ persistenceError: null });
 }
 
+function isSavedWorkspaceAppLayout(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    Array.isArray(candidate.pinnedIds) && Array.isArray(candidate.orderedIds)
+  );
+}
+
 function hydrateWorkspaceAppLayout() {
   if (hydration === "pending" || hydration === "done") return;
   hydration = "pending";
   void readClientAppState<unknown>(WORKSPACE_APP_LAYOUT_STATE_KEY).then(
-    (value) =>
-      finishHydration(
-        value === null ? null : normalizeWorkspaceAppLayout(value),
-      ),
+    (value) => {
+      if (value === null) return finishHydration(null);
+      // A malformed value is not "no pins": treat it as absent so the device
+      // pins survive, and the next save replaces it.
+      if (!isSavedWorkspaceAppLayout(value)) {
+        console.warn(
+          `[dispatch] ignoring malformed ${WORKSPACE_APP_LAYOUT_STATE_KEY}`,
+          value,
+        );
+        return finishHydration(null);
+      }
+      finishHydration(normalizeWorkspaceAppLayout(value));
+    },
     () => {
       hydration = "failed";
       // Only unsaved pins make a failed read worth reporting.
