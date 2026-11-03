@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const koKR = {
-  campaign: {
+  siteContent: {
     recipeWhen: "언제",
     howOften: "빈도",
     filterRole: "역할",
@@ -23,31 +23,28 @@ const koKR = {
     whereItBreaks: "한계점",
     updatedDate: "업데이트: {{date}}",
     publishedDate: "게시: {{date}}",
-    allArticles: "모든 글",
     useCases: "사용 사례",
     useCasesDescription: "앱별 반복 업무 페이지",
     useCasesTitle: "Agent-Native 앱과 AI 에이전트로 반복 업무 처리하기",
     useCasesIntro:
       "반복해서 하는 업무를 선택하거나 {{articles}}에서 템플릿과 사용 방법을 찾아보세요.",
     articles: "글",
-    articlesIntro:
-      "AI 에이전트와 함께하는 반복 업무에 대한 실용적인 답변입니다. 개별 업무를 단계별로 설명하는 페이지는 {{useCases}}에서 찾아보세요.",
-    useCasesLink: "사용 사례",
+    articlesIntro: "AI 에이전트와 함께하는 반복 업무를 위한 가이드와 해설.",
     articleCount_other: "글 {{count}}개",
-    moreOnTopic: "{{topic}} 관련 글 더 보기",
-    faqs: "자주 묻는 질문",
     copyPage: "페이지 복사",
+    enlargeImage: "이미지 확대",
+    closeImage: "이미지 닫기",
+    copyPrompt: "프롬프트 복사",
+    promptHint: "프롬프트를 {{app}}의 입력창에 붙여 넣으세요.",
     copyLink: "링크 복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다. 다시 시도하세요.",
     breadcrumb: "탐색 경로",
     readTime_other: "읽는 시간 {{count}}분",
     partOf: "관련 사용 사례:",
-    relatedResources: "관련 리소스",
     moreArticles: "{{category}} 글 더 보기",
     genericMore: "글 더 보기",
     showMore: "더 많은 글 표시",
-    allTopics: "모든 주제",
     topics: {
       clips: "AI 에이전트가 활용할 수 있는 화면 녹화, 회의 및 받아쓰기",
       design: "AI 에이전트와 만드는 대화형 프로토타입",
