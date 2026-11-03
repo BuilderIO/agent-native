@@ -1025,6 +1025,31 @@ export async function runWorkspaceDev(
         logMessage: `exited with code ${code}`,
       });
     });
+    // A failed spawn emits `error` and no `exit`: treat it as a failed start,
+    // or the install gate stays held and the app never retries.
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      if (!err.syscall?.startsWith("spawn") || app.process !== child) {
+        stderr.write(`${prefix} ${err.message}\n`);
+        return;
+      }
+      clearTimeout(stableTimer);
+      const wasInstalling = app.installing;
+      app.process = undefined;
+      app.installing = false;
+      app.ready = false;
+      app.readinessProbe = undefined;
+      if (installingApp === app) {
+        installingApp = undefined;
+        releaseAppsAwaitingInstall();
+      }
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: wasInstalling === true,
+        output: err.message,
+        logMessage: `failed to start: ${err.message}`,
+      });
+    });
   }
 
   function scheduleAppRestart(
@@ -1451,14 +1476,16 @@ export async function runWorkspaceDev(
           ? "dispatch"
           : defaultApp;
       const shouldRedirectRoot =
-        hasRequestedDefaultApp || appById.has("dispatch");
+        !pendingDefaultApp &&
+        (hasRequestedDefaultApp || appById.has("dispatch"));
       if (shouldRedirectRoot) {
         // Readiness probes ask for `/` without HTML and count the redirect as
         // "up" before the app can serve. Answer them from the default app,
-        // which waits until it serves. Not while a requested default app is
-        // still being scaffolded: that would boot dispatch instead.
+        // which waits until it serves. While a requested default app is still
+        // being scaffolded there is nothing to wait for, and redirecting to
+        // dispatch would boot it, so `/` lists the apps until it appears.
         const rootApp = appById.get(currentDefaultApp);
-        if (!wantsHtml(req) && rootApp && !pendingDefaultApp) {
+        if (!wantsHtml(req) && rootApp) {
           req.url = `/${rootApp.id}/${parsedUrl.search}`;
           proxyHttp(rootApp, req, res);
           return;

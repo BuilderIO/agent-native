@@ -868,6 +868,34 @@ describe("workspace dev startup", () => {
     ).toHaveLength(1);
   });
 
+  it("lets waiting apps go when the running install fails to spawn", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    makeApp(tmpDir, "todo", { installVite: false });
+    makeApp(tmpDir, "notes", { installVite: false });
+
+    await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
+    await fetch(`${url}/notes`, { headers: { accept: "text/html" } });
+    const installs = () =>
+      fake.calls().filter((call) => call.args.includes("install"));
+    expect(installs()).toHaveLength(1);
+
+    const spawnError = Object.assign(new Error("spawn pnpm ENOENT"), {
+      code: "ENOENT",
+      syscall: "spawn pnpm",
+    });
+    installs()[0].child.emit("error", spawnError);
+
+    expect(installs()).toHaveLength(2);
+  });
+
   it("boots a named default app as soon as it is scaffolded, without Dispatch", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -880,8 +908,13 @@ describe("workspace dev startup", () => {
     const { url } = await handle.ready;
     expect(fake.calls()).toHaveLength(0);
 
-    const root = await fetch(`${url}/`, { redirect: "manual" });
-    expect(root.status).toBe(302);
+    for (const accept of ["text/html", "*/*"]) {
+      const root = await fetch(`${url}/`, {
+        redirect: "manual",
+        headers: { accept },
+      });
+      expect(root.status).toBe(200);
+    }
     expect(fake.calls()).toHaveLength(0);
 
     makeApp(tmpDir, "todo", { installVite: false });
