@@ -32,7 +32,7 @@ export function withBigQueryUsageAttribution<T>(
 export type BigQueryJobUsage = {
   projectId: string;
   jobId: string;
-  location?: string;
+  location?: string | undefined;
   ownerEmail: string;
   orgId: string | null;
   credentialScope: string;
@@ -195,7 +195,7 @@ export async function observeBigQueryJobUsage(
     // Never attribute metadata for a different job or project to this row.
     if (
       data.jobReference?.projectId !== usage.projectId ||
-      data.jobReference?.jobId !== usage.jobId
+      data.jobReference.jobId !== usage.jobId
     )
       return result;
     result.location = data.jobReference.location ?? usage.location;

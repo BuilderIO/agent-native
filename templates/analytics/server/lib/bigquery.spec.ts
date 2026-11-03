@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BigQueryJobUsage } from "./bigquery-usage";
 
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected fixture observation");
+  return value;
+}
+
 const execute = vi.fn();
 const usageWrites = vi.hoisted(() => [] as BigQueryJobUsage[]);
 const persistUsage = vi.hoisted(() =>
@@ -369,7 +374,7 @@ describe("runQuery cancellation", () => {
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
     expect(usageWrites).toHaveLength(1);
-    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
       submissionState: "accepted",
       outcome: null,
       bytesBilled: null,
@@ -489,13 +494,15 @@ describe("runQuery cancellation", () => {
       }),
     ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(usageWrites).toHaveLength(2);
-    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
+    expect(usageWrites).toHaveLength(1);
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
       submissionState: "rejected",
       outcome: null,
       bytesBilled: null,
     });
-    expect(usageWrites[0].jobId).toBe(finalizeUsage.mock.calls[0][0].jobId);
+    expect(present(usageWrites[0]).jobId).toBe(
+      present(finalizeUsage.mock.calls[0])[0].jobId,
+    );
   });
 
   it("keeps the submit deadline active while reading the response body", async () => {
@@ -2459,10 +2466,12 @@ describe("runQuery cancellation", () => {
       usageStatus: "pending",
     });
     expect(persistUsage.mock.invocationCallOrder[0]).toBeLessThan(
-      fetchMock.mock.invocationCallOrder[0],
+      present(fetchMock.mock.invocationCallOrder[0]),
     );
-    expect(records[0].jobId).toBe(finalizeUsage.mock.calls[0][0].jobId);
-    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
+    expect(present(records[0]).jobId).toBe(
+      present(finalizeUsage.mock.calls[0])[0].jobId,
+    );
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
       bytesProcessed: "123",
       providerCacheHit: false,
       ownerEmail: expect.any(String),

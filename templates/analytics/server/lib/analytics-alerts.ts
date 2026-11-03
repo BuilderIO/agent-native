@@ -1550,13 +1550,13 @@ async function loadCandidateEvents(
         async () => {
           const rows: AnalyticsAlertEventRow[] = [];
           let cursor: { timestamp: string; id: string } | undefined;
-          while (true) {
+          for (;;) {
             const result = await queryFirstPartyAnalytics(
               buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
               { userEmail: rule.ownerEmail, orgId: rule.orgId },
               ALERT_QUERY_OPTIONS,
             );
-            if (result.truncated) {
+            if (result.truncated === true) {
               throw new Error(
                 `BigQuery alert evaluation for rule ${rule.id} returned a transport-truncated page; refusing to evaluate partial data`,
               );
@@ -1565,7 +1565,9 @@ async function loadCandidateEvents(
             rows.push(...page);
             if (!page.length) break;
             if (page.length < BIGQUERY_ALERT_PAGE_SIZE) break;
-            const lastRaw = result.rows[result.rows.length - 1]!;
+            const lastRaw = result.rows.slice(-1).pop();
+            if (lastRaw === undefined)
+              throw new Error("BigQuery alert page had no final row");
             cursor = {
               timestamp: requiredBigQueryAlertString(lastRaw, "timestamp"),
               id: requiredBigQueryAlertString(lastRaw, "id"),

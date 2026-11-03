@@ -2,17 +2,57 @@ import { createRequire } from "node:module";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected fixture observation");
+  return value;
+}
+
 const execute = vi.hoisted(() => vi.fn());
 const getRunContext = vi.hoisted(() =>
   vi.fn<() => { waitUntil: (work: Promise<unknown>) => void } | undefined>(),
 );
 const platformWaitUntil = vi.hoisted(() =>
-  vi.fn<() => ((work: Promise<unknown>) => void) | undefined>(),
+  vi.fn<
+    (request?: unknown) => ((work: Promise<unknown>) => void) | undefined
+  >(),
 );
 vi.mock("@agent-native/core/server", () => ({
   getRequestRunContext: getRunContext,
   platformWaitUntil,
+  getSession: async () => ({ email: "caller@example.test", orgId: "org-1" }),
+  getCredentialContext: () => null,
+  runWithRequestContext: async (
+    ctx: { run?: { waitUntil: (work: Promise<unknown>) => void } },
+    run: () => Promise<unknown>,
+  ) => {
+    getRunContext.mockReturnValue(ctx.run);
+    try {
+      return await run();
+    } finally {
+      getRunContext.mockReturnValue(undefined);
+    }
+  },
 }));
+vi.mock("@agent-native/core/org", () => ({
+  getOrgContext: async () => ({ orgId: "org-1" }),
+}));
+vi.mock("@agent-native/core/credentials", () => ({
+  resolveCredential: vi.fn(),
+  resolveCredentialDetailed: vi.fn(),
+  assertCredentialCanReachEndpoint: vi.fn(),
+  hasCredential: vi.fn(),
+  saveCredential: vi.fn(),
+  deleteCredential: vi.fn(),
+  deleteResolvedCredential: vi.fn(),
+}));
+vi.mock("h3", () => ({ setResponseStatus: vi.fn() }));
+import {
+  runWithRequestDbPoolScope,
+  getOrCreateRequestDbPool,
+} from "@agent-native/core/db/request-pool-context";
+import type { H3Event } from "h3";
+
+import { withRequestContextFromEvent } from "./credentials";
 beforeEach(() => {
   getRunContext.mockReset();
   platformWaitUntil.mockReset();
@@ -78,11 +118,11 @@ describe("warehouse job observations", () => {
       outcome: "succeeded",
       usageStatus: "complete",
     });
-    const url = new URL(String(fetch.mock.calls[0][0]));
+    const url = new URL(String(present(fetch.mock.calls[0])[0]));
     expect(url.pathname).toBe("/bigquery/v2/projects/test-project/jobs/job-1");
     expect(url.searchParams.get("location")).toBe("EU");
     expect(url.searchParams.get("fields")).toContain("totalBytesBilled");
-    expect(fetch.mock.calls[0][1]).not.toHaveProperty("body");
+    expect(present(fetch.mock.calls[0])[1]).not.toHaveProperty("body");
   });
 
   it("preserves a reported provider cache hit and explicit zero billed bytes", async () => {
@@ -415,5 +455,60 @@ describe("durable warehouse ledger", () => {
     expect(execute).toHaveBeenLastCalledWith(
       expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
     );
+  });
+  it("keeps the real HTTP request pool alive through deferred accounting", async () => {
+    const background: Promise<unknown>[] = [];
+    const request = Object.assign(
+      new Request("https://fixture.test/api/query"),
+      {
+        waitUntil: (work: Promise<unknown>) => {
+          background.push(work);
+        },
+      },
+    );
+    platformWaitUntil.mockImplementation((candidate) =>
+      candidate === request ? request.waitUntil.bind(request) : undefined,
+    );
+    let release = (_response: Response) => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    );
+    const pool = { end: vi.fn(async () => {}) };
+    execute.mockImplementation(async ({ sql, args }) => {
+      expect(getOrCreateRequestDbPool("usage-http-test", () => pool)).toBe(
+        pool,
+      );
+      return client.query(sql, args);
+    });
+    const usage = makeUsage();
+    const receipt = await runWithRequestDbPoolScope(true, request, () =>
+      withRequestContextFromEvent({ req: request } as H3Event, async () => {
+        await persistBigQueryJobUsage(usage);
+        return finalizeBigQueryJobUsage(usage, "fake", true);
+      }),
+    );
+    expect(receipt).toMatchObject({ status: "pending" });
+    expect(pool.end).not.toHaveBeenCalled();
+    release(
+      json(
+        metadata({
+          totalBytesProcessed: "123",
+          totalBytesBilled: "10485760",
+          cacheHit: false,
+        }),
+      ),
+    );
+    await Promise.all(background);
+    expect(pool.end).toHaveBeenCalledOnce();
+    expect(
+      (await client.query("SELECT usage_status FROM analytics_bigquery_usage"))
+        .rows[0],
+    ).toMatchObject({ usage_status: "complete" });
   });
 });

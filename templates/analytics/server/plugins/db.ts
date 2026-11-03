@@ -171,6 +171,13 @@ async function repairAnalyticsReplayLinkIndexes(): Promise<
   ]);
 }
 
+// raw-sql-ok: this one migration imports static app-owned DDL with no runtime values or interpolation.
+const BIGQUERY_JOB_USAGE_MIGRATION = {
+  version: 183,
+  name: "analytics-bigquery-job-usage",
+  sql: BIGQUERY_USAGE_MIGRATION_SQL,
+};
+
 export const runAnalyticsMigrations = runMigrations(
   [
     {
@@ -1894,11 +1901,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     )`,
       },
     },
-    {
-      version: 183,
-      name: "analytics-bigquery-job-usage",
-      sql: BIGQUERY_USAGE_MIGRATION_SQL,
-    },
+    BIGQUERY_JOB_USAGE_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );
