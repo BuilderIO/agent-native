@@ -138,6 +138,7 @@ export default defineAction({
       updatedAt: now,
       url: getDeckUrl(deckId),
       appUrl: getDeckUrl(deckId),
+      applied: true,
     };
   },
 });
