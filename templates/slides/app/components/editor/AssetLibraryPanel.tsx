@@ -13,6 +13,7 @@ interface Asset {
   id: string;
   url: string;
   filename: string;
+  type: string;
   size: number;
   createdAt: string;
 }
@@ -263,19 +264,29 @@ export default function AssetLibraryPanel({
                 key={asset.id}
                 className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
               >
-                <button
-                  onClick={
-                    onSelectAsset ? () => handleSelect(asset.url) : undefined
-                  }
-                  className={`w-full h-full ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-[#609FF8]/50" : "cursor-default"}`}
-                >
-                  <img
+                {asset.type.startsWith("video/") ? (
+                  <video
                     src={asset.url}
-                    alt={asset.filename}
+                    aria-label={asset.filename}
                     className="w-full h-full object-cover"
-                    loading="lazy"
+                    muted
+                    preload="metadata"
                   />
-                </button>
+                ) : (
+                  <button
+                    onClick={
+                      onSelectAsset ? () => handleSelect(asset.url) : undefined
+                    }
+                    className={`w-full h-full ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-[#609FF8]/50" : "cursor-default"}`}
+                  >
+                    <img
+                      src={asset.url}
+                      alt={asset.filename}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

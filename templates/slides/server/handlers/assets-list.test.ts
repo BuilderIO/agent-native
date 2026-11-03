@@ -216,7 +216,7 @@ describe("listAssets", () => {
     });
   });
 
-  it("lists owned workspace and legacy images without returning videos", async () => {
+  it("lists owned workspace and legacy images and videos", async () => {
     const result = await listAssets({} as never);
 
     expect(state.whereCondition).toEqual({
@@ -234,11 +234,6 @@ describe("listAssets", () => {
             { operator: "isNull", column: "orgId" },
           ],
         },
-        {
-          operator: "notLike",
-          column: "type",
-          pattern: "video/%",
-        },
       ],
     });
     expect(result).toEqual([
@@ -246,13 +241,23 @@ describe("listAssets", () => {
         id: "image-1",
         url: "https://cdn.example.com/slide.png",
         filename: "slide.png",
+        type: "image/png",
         size: 123,
+        createdAt: "2026-10-07T00:00:00.000Z",
+      },
+      {
+        id: "video-1",
+        url: "https://cdn.example.com/clip.mp4",
+        filename: "clip.mp4",
+        type: "video/mp4",
+        size: 456,
         createdAt: "2026-10-07T00:00:00.000Z",
       },
       {
         id: "legacy-image",
         url: "https://cdn.example.com/legacy.png",
         filename: "legacy.png",
+        type: "image/png",
         size: 654,
         createdAt: "2026-10-06T00:00:00.000Z",
       },
@@ -370,7 +375,6 @@ describe("listAssets", () => {
           value: "owner@example.com",
         },
         { operator: "isNull", column: "orgId" },
-        { operator: "notLike", column: "type", pattern: "video/%" },
       ],
     });
   });

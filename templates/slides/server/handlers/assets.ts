@@ -6,7 +6,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq, isNull, notLike, or } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -125,6 +125,7 @@ export interface ListedUploadedAsset {
   id: string;
   url: string;
   filename: string;
+  type: string;
   size: number;
   createdAt: string;
 }
@@ -2213,6 +2214,7 @@ export const listAssets = defineEventHandler(async (event) => {
       id: schema.uploadedAssets.id,
       url: schema.uploadedAssets.url,
       filename: schema.uploadedAssets.filename,
+      type: schema.uploadedAssets.type,
       size: schema.uploadedAssets.size,
       createdAt: schema.uploadedAssets.createdAt,
     })
@@ -2221,7 +2223,6 @@ export const listAssets = defineEventHandler(async (event) => {
       and(
         eq(schema.uploadedAssets.ownerEmail, session.email),
         imageAssetWorkspaceScope(session.orgId),
-        notLike(schema.uploadedAssets.type, "video/%"),
       ),
     )
     .orderBy(desc(schema.uploadedAssets.createdAt));
