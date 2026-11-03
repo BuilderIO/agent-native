@@ -155,6 +155,7 @@ import {
   permanentPreconditionRemedy,
   permanentPreconditionReason,
   normalizeToolErrorForBreaker,
+  executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
@@ -21178,6 +21179,60 @@ describe("runAgentLoop", () => {
         completedSideEffect: false,
       }),
     );
+  });
+
+  it("strips null placeholders beside a chosen false and runs the tool", async () => {
+    const optionSchema = z.object({
+      label: z.string().min(1),
+      color: z.string().optional(),
+      recommended: z.boolean().optional(),
+    });
+    const questionsSchema = z.object({
+      designId: z.string(),
+      questions: z.array(
+        z.object({
+          id: z.string().min(1),
+          options: z.array(optionSchema).optional(),
+          choices: z.array(optionSchema).optional(),
+          multiSelect: z.boolean().optional(),
+          min: z.number().optional(),
+        }),
+      ),
+    });
+    const run = vi.fn(async (input: z.infer<typeof questionsSchema>) => input);
+    const action = defineAction({
+      description: "Show questions",
+      schema: questionsSchema,
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "show-questions": action as unknown as ActionEntry },
+      name: "show-questions",
+      callId: "strict-mode-nulls",
+      input: {
+        designId: "design-1",
+        questions: [
+          {
+            id: "form_factor",
+            options: [{ label: "Website", color: null, recommended: false }],
+            choices: null,
+            multiSelect: false,
+            min: null,
+          },
+        ],
+      },
+    });
+    expect(result.status).toBe("completed");
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      designId: "design-1",
+      questions: [
+        {
+          id: "form_factor",
+          options: [{ label: "Website", recommended: false }],
+          multiSelect: false,
+        },
+      ],
+    });
   });
 
   it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {

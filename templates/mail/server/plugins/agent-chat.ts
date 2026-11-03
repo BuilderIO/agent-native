@@ -204,6 +204,8 @@ preference-only request. Only create or edit an email when the user separately
 asks for an email. If a request asks for both a preference change and an email,
 update the preference first, then read it again and apply it to the email.
 
+To edit an existing draft, send the \`revision\` from \`manage-draft\` or \`view-composer\` as \`expectedRevision\` on \`update\`. On \`save_conflict\` the person changed the draft and nothing was saved: redo your edit on \`details.current\` with \`details.currentRevision\`.
+
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
 - This is a NEW email \u2014 use manage-draft with --action=create and mode "compose", NOT "reply"
 - Look up the recipient's email from AGENTS.md contacts or ask the user

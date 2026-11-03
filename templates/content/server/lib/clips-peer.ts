@@ -37,10 +37,13 @@ import {
   type ContentClipScope,
 } from "../../shared/clips-peer-contract.js";
 
-/** Who Content vouches for. A public reader is never named to Clips. */
+/**
+ * Who Content vouches for. A public reader is never named to Clips: at most
+ * an opaque key for their network, null when Content's edge sent no address.
+ */
 export type ClipReader =
   | { kind: "signed-in"; email: string; name?: string | null }
-  | { kind: "public" };
+  | { kind: "public"; visitorKey: string | null };
 
 export type ClipsResult =
   | { ok: true; body: unknown }
@@ -169,6 +172,10 @@ export async function mintContentClipToken(
       : reader.email.trim().toLowerCase();
   const name =
     reader.kind === "signed-in" ? reader.name?.trim() || undefined : undefined;
+  const visitorKey =
+    reader.kind === "public" && reader.visitorKey
+      ? { [CONTENT_CLIP_CLAIMS.visitorKey]: reader.visitorKey }
+      : {};
   // An upload token names no recording: Clips makes one for it.
   const target =
     input.scope === CONTENT_CLIP_SCOPES.upload
@@ -185,6 +192,7 @@ export async function mintContentClipToken(
       scope: input.scope,
       [CONTENT_CLIP_CLAIMS.documentId]: input.documentId,
       ...target,
+      ...visitorKey,
       ...(name ? { [CONTENT_CLIP_CLAIMS.viewerName]: name } : {}),
     },
   });
