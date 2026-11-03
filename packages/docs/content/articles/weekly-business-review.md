@@ -3,9 +3,9 @@ slug: weekly-business-review
 type: how-to-guide
 title: How to run a weekly business review
 seo_title: How to run a weekly business review (WBR)
-og_line: Charts that refresh before Monday
+og_line: Signups this week against the goal
 meta_description: "Run a weekly business review: pick a short list of metrics, give each an owner, build charts that refresh on their own, and spend the hour on what moved."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa40b4c6167984f658b437aaef51bb185
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9daf6b49d52a4bd7934bea78f3283e3b
 published: 2026-11-03
 updated: 2026-11-03
 author:
