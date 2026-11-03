@@ -841,10 +841,9 @@ export function buildPublicAgentContext({
   );
   const agentSegments = timeline.mapSegments(sourceSegments);
   const chapters = timeline.mapChapters(sourceChapters);
-  const fullText =
-    timeline.hasCuts && agentSegments.length > 0
-      ? agentSegments.map((segment) => segment.text).join(" ")
-      : (transcript?.fullText ?? "");
+  const fullText = timeline.hasCuts
+    ? agentSegments.map((segment) => segment.text).join(" ")
+    : (transcript?.fullText ?? "");
   const requestUrl = getForwardedRequestURL(event);
   const api = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
@@ -1036,27 +1035,33 @@ export function buildPublicAgentContext({
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
-    comments: comments.map((comment) => ({
-      id: comment.id,
-      recordingId: comment.recordingId,
-      threadId: comment.threadId,
-      parentId: comment.parentId,
-      authorName: comment.authorName,
-      content: comment.content,
-      videoTimestampMs: timeline.fromSourceMs(comment.videoTimestampMs),
-      resolved: comment.resolved,
-      createdAt: comment.createdAt,
-      updatedAt: comment.updatedAt,
-    })),
+    comments: comments
+      .filter((comment) => timeline.isVisibleSourceMs(comment.videoTimestampMs))
+      .map((comment) => ({
+        id: comment.id,
+        recordingId: comment.recordingId,
+        threadId: comment.threadId,
+        parentId: comment.parentId,
+        authorName: comment.authorName,
+        content: comment.content,
+        videoTimestampMs: timeline.fromSourceMs(comment.videoTimestampMs),
+        resolved: comment.resolved,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+      })),
     commentCount,
     commentsTruncated,
-    reactions: reactions.map((reaction) => ({
-      id: reaction.id,
-      emoji: reaction.emoji,
-      videoTimestampMs: timeline.fromSourceMs(reaction.videoTimestampMs),
-      viewerName: reaction.viewerName,
-      createdAt: reaction.createdAt,
-    })),
+    reactions: reactions
+      .filter((reaction) =>
+        timeline.isVisibleSourceMs(reaction.videoTimestampMs),
+      )
+      .map((reaction) => ({
+        id: reaction.id,
+        emoji: reaction.emoji,
+        videoTimestampMs: timeline.fromSourceMs(reaction.videoTimestampMs),
+        viewerName: reaction.viewerName,
+        createdAt: reaction.createdAt,
+      })),
     reactionCount,
     reactionsTruncated,
     chapters,

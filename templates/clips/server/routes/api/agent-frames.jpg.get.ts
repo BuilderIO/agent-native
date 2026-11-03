@@ -221,7 +221,8 @@ export default defineEventHandler(async (event: H3Event) => {
         mediaPath: media.path,
         plan: plan.value,
         toSourcePlan,
-        replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
+        replan: (actualSourceMs) =>
+          planWithin(fps, timeline.fromSourceMs(actualSourceMs)),
       });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);

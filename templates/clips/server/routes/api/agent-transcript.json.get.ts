@@ -158,10 +158,9 @@ export default defineEventHandler(async (event: H3Event) => {
     recording.durationMs,
   );
   const agentSegments = timeline.mapSegments(sourceSegments);
-  const fullText =
-    timeline.hasCuts && agentSegments.length > 0
-      ? agentSegments.map((segment) => segment.text).join(" ")
-      : (transcript?.fullText ?? "");
+  const fullText = timeline.hasCuts
+    ? agentSegments.map((segment) => segment.text).join(" ")
+    : (transcript?.fullText ?? "");
   const api = buildAgentApiUrls(recording.id, {
     origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),

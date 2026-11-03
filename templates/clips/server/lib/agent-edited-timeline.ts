@@ -23,6 +23,7 @@ export interface AgentEditedTimeline {
   durationMs: number;
   toSourceMs: (editedMs: number) => number;
   fromSourceMs: (sourceMs: number) => number;
+  isVisibleSourceMs: (sourceMs: number) => boolean;
   /** Edited times at which a cut begins; a continuous range cannot cross one. */
   cutBoundariesMs: number[];
   mapSegments: (segments: AgentTranscriptSegment[]) => AgentTranscriptSegment[];
@@ -52,6 +53,7 @@ export function buildAgentEditedTimeline(
       durationMs: sourceDurationMs,
       toSourceMs: (ms) => ms,
       fromSourceMs: (ms) => ms,
+      isVisibleSourceMs: () => true,
       cutBoundariesMs: [],
       mapSegments: (segments) => segments,
       mapChapters: (chapters) => chapters,
@@ -63,6 +65,7 @@ export function buildAgentEditedTimeline(
     durationMs: effectiveDuration(sourceDurationMs, edits),
     toSourceMs: (ms) => editedToOriginal(ms, edits),
     fromSourceMs,
+    isVisibleSourceMs: (ms) => !isExcluded(ms, edits),
     cutBoundariesMs: getExcludedRanges(edits).map((range) =>
       fromSourceMs(range.startMs),
     ),
@@ -70,8 +73,7 @@ export function buildAgentEditedTimeline(
       segments
         .filter((segment) =>
           segment.endMs > segment.startMs
-            ? segment.endMs - segment.startMs >
-              cutOverlapMs(segment.startMs, segment.endMs, edits)
+            ? cutOverlapMs(segment.startMs, segment.endMs, edits) === 0
             : !isExcluded(segment.startMs, edits),
         )
         .map((segment) => {
