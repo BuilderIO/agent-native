@@ -193,6 +193,47 @@ beforeEach(() => {
   mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
+describe("update-slide silent success", () => {
+  it("accepts notes in the action schema", async () => {
+    const result = await (action as any).schema["~standard"].validate({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Say this",
+      fullContent: "<div>New</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+    expect(result.issues).toBeUndefined();
+    expect(result.value.notes).toBe("Say this");
+  });
+
+  it("saves notes together with a content edit", async () => {
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>New</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
+        notes: "Say this",
+      } as any,
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0]).toMatchObject({
+      content: "<div>New</div>",
+      notes: "Say this",
+    });
+  });
+
+  it("saves notes alone", async () => {
+    await action.run(
+      { deckId: "deck-1", slideId: "slide-1", notes: "Only notes" } as any,
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0].notes).toBe("Only notes");
+  });
+});
+
 describe("update-slide", () => {
   it("uses a full-content repair for verified layout overflow", () => {
     expect(action.tool.description).toContain(

@@ -171,6 +171,12 @@ export default defineAction({
         .describe(
           "Replacement text; pass an empty string explicitly to clear it",
         ),
+      notes: z
+        .string()
+        .optional()
+        .describe(
+          "Presenter-only speaker notes to save on this slide; may be sent alone or with a content edit",
+        ),
       fullContent: z
         .string()
         .optional()
@@ -268,6 +274,7 @@ export default defineAction({
       contextPackId,
       contextModeOverride,
       reuseLabels,
+      notes,
     } = args;
     const hasLegacyMode =
       find !== undefined || objectId !== undefined || replace !== undefined;
@@ -275,9 +282,9 @@ export default defineAction({
       Number(Boolean(edits)) +
       Number(hasLegacyMode) +
       Number(fullContent !== undefined);
-    if (inputModeCount === 0) {
+    if (inputModeCount === 0 && notes === undefined) {
       fail(
-        "One of --edits, --find/--replace, --objectId/--replace, or --fullContent is required",
+        "One of --edits, --find/--replace, --objectId/--replace, --fullContent, or notes is required",
         {
           errorCode: "slide_edit_mode_required",
         },
@@ -525,9 +532,15 @@ export default defineAction({
         }
       }
 
-      if (applied) {
+      const contentApplied = applied;
+      if (contentApplied) {
         slide.layoutFitRevision = createLayoutFitRevision();
         if (isAgentCaller) delete slide.layoutWarningDismissed;
+      }
+
+      if (notes !== undefined && notes !== slide.notes) {
+        slide.notes = notes;
+        applied = true;
       }
 
       // A content edit keeps the reveals. One it newly strands fails the edit and
