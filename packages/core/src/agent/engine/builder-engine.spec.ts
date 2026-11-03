@@ -324,6 +324,30 @@ describe("createBuilderEngine", () => {
     expect(sources).toContain('"type":"base64"');
   });
 
+  it("flags a tool result whose screenshot could not be fetched", async () => {
+    imageFetch.mockResolvedValue(new Response("nope", { status: 404 }));
+    const { inlineToolResultImageUrls } =
+      await import("./inline-tool-result-image-urls.js");
+    const [message] = await inlineToolResultImageUrls([
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "t1",
+            toolName: "shot",
+            toolInput: "{}",
+            content: "ok",
+            images: [{ url: "https://cdn.builder.io/missing.png" }],
+          },
+        ],
+      },
+    ] as any);
+    const part = (message.content as any[])[0];
+    expect(part.images).toEqual([]);
+    expect(part.content).toContain("could not be loaded");
+  });
+
   it("preserves optional action schemas in GPT gateway requests", async () => {
     const inputSchema = {
       type: "object",
