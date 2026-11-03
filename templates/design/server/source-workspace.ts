@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, withoutWriteObservation } from "@agent-native/core/action";
 import {
   CollabBaseVersionConflictError,
   hasCollabState,
@@ -69,10 +69,15 @@ export async function lockDesignFilesTable(tx: unknown): Promise<void> {
   if (typeof execute !== "function") {
     throw new Error("Design-file transactions must support SQL table locks.");
   }
-  await (execute as (query: unknown) => Promise<unknown>).call(
-    tx,
-    sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
-  );
+  // A table lock saves nothing and ends with the transaction, but `LOCK` is not
+  // a read verb, so counted it would make every rejection after it look like a
+  // failed write. Awaited inside: a query builder only runs when awaited.
+  await withoutWriteObservation(async () => {
+    await (execute as (query: unknown) => Promise<unknown>).call(
+      tx,
+      sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
+    );
+  });
 }
 
 export async function withSourceFileWriteLock<T>(

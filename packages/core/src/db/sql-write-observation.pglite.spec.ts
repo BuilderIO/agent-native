@@ -87,25 +87,65 @@ afterAll(async () => {
 });
 
 describe("getDbExec().execute reaches the hook", () => {
+  // Each row runs its own literal statement, so none is built from a variable.
   it.each([
-    ["INSERT", "INSERT INTO write_observation_probe (id) VALUES ('exec-a')"],
+    [
+      "INSERT",
+      () =>
+        getDbExec().execute(
+          "INSERT INTO write_observation_probe (id) VALUES ('exec-a')",
+        ),
+    ],
     [
       "UPDATE",
-      "UPDATE write_observation_probe SET note = 'x' WHERE id = 'seed'",
+      () =>
+        getDbExec().execute(
+          "UPDATE write_observation_probe SET note = 'x' WHERE id = 'seed'",
+        ),
     ],
-    ["DELETE", "DELETE FROM write_observation_probe WHERE id = 'exec-a'"],
-    ["CREATE", "CREATE TABLE IF NOT EXISTS write_observation_other (id TEXT)"],
-  ])("sees a %s", async (_name, statement) => {
-    expect(await observed(() => getDbExec().execute(statement))).toBe("db");
+    [
+      "DELETE",
+      () =>
+        getDbExec().execute(
+          "DELETE FROM write_observation_probe WHERE id = 'exec-a'",
+        ),
+    ],
+    [
+      "CREATE",
+      () =>
+        getDbExec().execute(
+          "CREATE TABLE IF NOT EXISTS write_observation_other (id TEXT)",
+        ),
+    ],
+  ])("sees a %s", async (_name, run) => {
+    expect(await observed(run)).toBe("db");
   });
 
   it.each([
-    ["SELECT", "SELECT id FROM write_observation_probe"],
-    ["set_config", "SELECT set_config('statement_timeout', '0', false)"],
-    ["a locking select", "SELECT id FROM write_observation_probe FOR UPDATE"],
-    ["an advisory lock", "SELECT pg_advisory_xact_lock(1)"],
-  ])("does not see a %s", async (_name, statement) => {
-    expect(await observed(() => getDbExec().execute(statement))).toBeNull();
+    [
+      "SELECT",
+      () => getDbExec().execute("SELECT id FROM write_observation_probe"),
+    ],
+    [
+      "set_config",
+      () =>
+        getDbExec().execute(
+          "SELECT set_config('statement_timeout', '0', false)",
+        ),
+    ],
+    [
+      "a locking select",
+      () =>
+        getDbExec().execute(
+          "SELECT id FROM write_observation_probe FOR UPDATE",
+        ),
+    ],
+    [
+      "an advisory lock",
+      () => getDbExec().execute("SELECT pg_advisory_xact_lock(1)"),
+    ],
+  ])("does not see a %s", async (_name, run) => {
+    expect(await observed(run)).toBeNull();
   });
 
   it("reads a typed fragment and an object statement by their text", async () => {

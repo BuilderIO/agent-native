@@ -11,6 +11,7 @@ import {
 import {
   ActionContractError,
   isActionContractError,
+  noteExternalWrite,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getAppConfig } from "@agent-native/core/app-config";
@@ -2829,6 +2830,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2845,6 +2847,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2885,6 +2888,7 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
+    noteExternalWrite("child-process");
     const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
       cwd: input.cwd,
       stdio: ["ignore", "pipe", "pipe"],

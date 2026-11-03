@@ -65,6 +65,7 @@ const fakeQuery = (rows: unknown[] = []) =>
 
 describe("a PGlite call that carries no statement text", () => {
   it("counts as a write, while a read call and an exclusive section do not", async () => {
+    // raw-sql-ok: a PGlite client double; `sql` is the driver's tagged-template method here, not a statement.
     const fake = {
       query: vi.fn(async () => ({ rows: [] })),
       sql: vi.fn(async () => ({ rows: [] })),

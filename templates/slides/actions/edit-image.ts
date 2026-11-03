@@ -1,4 +1,5 @@
 import { parseArgs } from "@agent-native/core";
+import { noteExternalWrite } from "@agent-native/core/action";
 import { resolveGeminiApiKey } from "@agent-native/core/server";
 
 const config = async () => {
@@ -48,6 +49,7 @@ export default async function main(args: string[]) {
   console.log(`Generating ${count} variation(s)...\n`);
 
   if (outputPrefix) {
+    noteExternalWrite("local-disk");
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
