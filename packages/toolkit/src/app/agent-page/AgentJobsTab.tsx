@@ -556,7 +556,8 @@ export function AgentJobsTab({
                 </DropdownMenuItem>
                 {resource.canUpdate ? (
                   <>
-                    {resource.capabilities.canOperate ? (
+                    {entry.kind !== "automation" ||
+                    entry.resource.capabilities.canOperate ? (
                       <DropdownMenuItem
                         disabled={runAutomationMutation.isPending}
                         onSelect={() => setRunTarget(entry)}
