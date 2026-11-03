@@ -3,9 +3,9 @@ slug: qbr-presentation
 type: how-to-guide
 title: How to make a QBR presentation
 seo_title: How to make a QBR presentation (with example slides)
-og_line: With a slide outline and an example deck
+og_line: Every number traced to its source
 meta_description: "Make a quarterly business review (QBR) presentation your customer can trust: pull each number from its source, set it next to its goal, then build the slides."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6e7b0ce3038e4fd7a8715446f46c329d
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F32229a01e09c4dcbad6af4daa7ecf684
 published: 2026-10-28
 updated: 2026-10-28
 author:
