@@ -362,12 +362,25 @@ describe("HistoryPanel", () => {
     fireEvent.click(screen.getByText("history.restoreThisVersion"));
 
     await waitFor(() =>
-      expect(mocks.toastInfo).toHaveBeenCalledWith(
-        "history.alreadyAtVersion",
-      ),
+      expect(mocks.toastInfo).toHaveBeenCalledWith("history.alreadyAtVersion"),
     );
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
     expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("does not read a restore response without applied as success or no-op", async () => {
+    mocks.restore.mockResolvedValue({});
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("history.restoreFailed", {
+        description: "history.restoreFailedDescription",
+      }),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastInfo).not.toHaveBeenCalled();
   });
 
   it("reports an error, not success, when the reload after restore fails", async () => {

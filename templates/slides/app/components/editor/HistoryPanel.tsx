@@ -199,12 +199,16 @@ export default function HistoryPanel({
       });
       return;
     }
-    if (applied) {
+    if (applied === true) {
       toast.success(t("history.versionRestored"), {
         description: t("history.versionRestoredDescription"),
       });
-    } else {
+    } else if (applied === false) {
       toast.info(t("history.alreadyAtVersion"));
+    } else {
+      toast.error(t("history.restoreFailed"), {
+        description: t("history.restoreFailedDescription"),
+      });
     }
     handleClose(false);
   };

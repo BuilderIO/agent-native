@@ -843,7 +843,8 @@ const messages = {
     restoreFailedDescription: "Could not restore this deck version.",
     alreadyAtVersion: "Already at this version",
     restoreReloadFailed: "Couldn't refresh the deck",
-    restoreReloadFailedDescription: "The version was restored on the server. Reload the page to see it.",
+    restoreReloadFailedDescription:
+      "The version was restored on the server. Reload the page to see it.",
     backToSavedVersions: "Back to history",
     savedVersions: "History",
     description: "Browse deck history and restore a previous snapshot.",

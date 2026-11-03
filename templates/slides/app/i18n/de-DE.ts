@@ -870,7 +870,8 @@ const messages = {
       "Diese Deck-Version konnte nicht wiederhergestellt werden.",
     alreadyAtVersion: "Bereits bei dieser Version",
     restoreReloadFailed: "Deck konnte nicht aktualisiert werden",
-    restoreReloadFailedDescription: "Die Version wurde auf dem Server wiederhergestellt. Lade die Seite neu, um sie zu sehen.",
+    restoreReloadFailedDescription:
+      "Die Version wurde auf dem Server wiederhergestellt. Lade die Seite neu, um sie zu sehen.",
     backToSavedVersions: "Zurück zum Verlauf",
     savedVersions: "Verlauf",
     description:
