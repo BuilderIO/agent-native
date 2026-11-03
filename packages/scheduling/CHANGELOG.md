@@ -1,5 +1,17 @@
 # @agent-native/scheduling
 
+## 0.2.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
 ## 0.2.50
 
 ### Patch Changes
@@ -1233,13 +1245,5 @@
 
 - Updated dependencies [01a3f27]
   - @agent-native/toolkit@0.6.0
-
-## 0.1.27
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-- Updated dependencies [079e19a]
-  - @agent-native/toolkit@0.5.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
