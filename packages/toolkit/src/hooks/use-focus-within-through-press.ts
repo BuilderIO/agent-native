@@ -1,5 +1,9 @@
 import * as React from "react";
 
+// A tap moves focus and clicks after its release, within the browser's
+// double-tap delay of about 300 ms.
+const TAP_CLICK_WAIT_MS = 400;
+
 /**
  * Tracks focus inside an element that shrinks when focus leaves it, such as a
  * reply box that rests as one line.
@@ -19,27 +23,46 @@ export function useFocusWithinThroughPress(
 
   React.useEffect(() => {
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let tapTimer: ReturnType<typeof setTimeout> | undefined;
     const onPressStart = () => {
+      clearTimeout(tapTimer);
       pressing.current = true;
     };
     const onPressEnd = () => {
+      clearTimeout(tapTimer);
       pressing.current = false;
       if (!blurredDuringPress.current) return;
       blurredDuringPress.current = false;
       clearTimeout(settleTimer);
-      // The click fires right after the release, ahead of this timer.
+      // The click's own handlers run ahead of this timer.
       settleTimer = setTimeout(() => {
         setFocused(Boolean(ref.current?.contains(document.activeElement)));
       });
     };
+    const onPointerUp = (event: PointerEvent) => {
+      if (event.pointerType !== "touch") {
+        onPressEnd();
+        return;
+      }
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(onPressEnd, TAP_CLICK_WAIT_MS);
+    };
     window.addEventListener("pointerdown", onPressStart, true);
-    window.addEventListener("pointerup", onPressEnd, true);
+    window.addEventListener("pointerup", onPointerUp, true);
     window.addEventListener("pointercancel", onPressEnd, true);
+    window.addEventListener("click", onPressEnd, true);
+    // Neither of these reports a release, so a press could otherwise stick.
+    window.addEventListener("contextmenu", onPressEnd, true);
+    window.addEventListener("blur", onPressEnd);
     return () => {
       clearTimeout(settleTimer);
+      clearTimeout(tapTimer);
       window.removeEventListener("pointerdown", onPressStart, true);
-      window.removeEventListener("pointerup", onPressEnd, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPressEnd, true);
+      window.removeEventListener("click", onPressEnd, true);
+      window.removeEventListener("contextmenu", onPressEnd, true);
+      window.removeEventListener("blur", onPressEnd);
     };
   }, [ref]);
 

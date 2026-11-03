@@ -33,9 +33,14 @@ describe("useFocusWithinThroughPress", () => {
   const focused = () =>
     container.querySelector("[data-focused]")?.getAttribute("data-focused");
 
-  const press = (type: "pointerdown" | "pointerup" | "pointercancel") =>
+  const press = (
+    type: "pointerdown" | "pointerup" | "pointercancel" | "contextmenu",
+    pointerType = "mouse",
+  ) =>
     act(() => {
-      outside().dispatchEvent(new Event(type, { bubbles: true }));
+      outside().dispatchEvent(
+        Object.assign(new Event(type, { bubbles: true }), { pointerType }),
+      );
     });
 
   beforeEach(() => {
@@ -85,6 +90,64 @@ describe("useFocusWithinThroughPress", () => {
     act(() => outside().click());
     expect(focusedAtClick).toBe("true");
 
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(focused()).toBe("false");
+  });
+
+  it("holds through a tap, which moves focus and clicks after its release", () => {
+    let focusedAtClick: string | null | undefined;
+    const onClick = () => {
+      focusedAtClick = focused();
+    };
+    outside().addEventListener("click", onClick);
+
+    press("pointerdown", "touch");
+    press("pointerup", "touch");
+    act(() => outside().focus());
+    expect(focused()).toBe("true");
+
+    act(() => outside().click());
+    expect(focusedAtClick).toBe("true");
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(focused()).toBe("false");
+  });
+
+  it("settles a tap that never clicks once the wait runs out", () => {
+    press("pointerdown", "touch");
+    press("pointerup", "touch");
+    act(() => outside().focus());
+    expect(focused()).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(focused()).toBe("false");
+  });
+
+  it("settles when a context menu takes over the press", () => {
+    press("pointerdown");
+    act(() => outside().focus());
+    press("contextmenu");
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(focused()).toBe("false");
+  });
+
+  it("settles when the window loses focus during the press", () => {
+    press("pointerdown");
+    act(() => outside().focus());
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
     act(() => {
       vi.runOnlyPendingTimers();
     });
