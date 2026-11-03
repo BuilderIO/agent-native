@@ -300,6 +300,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -4875,8 +4876,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -7264,7 +7264,8 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      if (schemaAcceptsToolValue(propertySchema, entry))
+      // A valid `false` sets a value; only null, "", [] and {} can clear one.
+      if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(
@@ -12088,8 +12089,7 @@ export function isRecoverableContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }

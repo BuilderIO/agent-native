@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const ptBR = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Quando",
     howOften: "Com que frequência",
     filterRole: "Função",
@@ -24,7 +24,6 @@ const ptBR = {
     whereItBreaks: "Onde falha",
     updatedDate: "Atualizado em {{date}}",
     publishedDate: "Publicado em {{date}}",
-    allArticles: "Todos os artigos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tarefas recorrentes, por app",
     useCasesTitle:
@@ -33,14 +32,15 @@ const ptBR = {
       "Escolha o trabalho que você faz repetidamente, ou explore os {{articles}} para encontrar modelos e tutoriais.",
     articles: "Artigos",
     articlesIntro:
-      "Respostas práticas sobre trabalho recorrente com agentes de IA. Para ver páginas que explicam uma tarefa específica passo a passo, explore os {{useCases}}.",
-    useCasesLink: "casos de uso",
+      "Guias e explicações para trabalho recorrente com agentes de IA.",
     articleCount_one: "{{count}} artigo",
     articleCount_many: "{{count}} de artigos",
     articleCount_other: "{{count}} artigos",
-    moreOnTopic: "Mais sobre {{topic}}",
-    faqs: "Perguntas frequentes",
     copyPage: "Copiar página",
+    enlargeImage: "Ampliar imagem",
+    closeImage: "Fechar imagem",
+    copyPrompt: "Copiar prompt",
+    promptHint: "Cole o prompt na caixa de prompt do {{app}}.",
     copyLink: "Copiar link",
     copied: "Copiado",
     copyFailed: "Não foi possível copiar. Tente novamente.",
@@ -49,11 +49,9 @@ const ptBR = {
     readTime_many: "{{count}} min de leitura",
     readTime_other: "{{count}} min de leitura",
     partOf: "Parte de:",
-    relatedResources: "Recursos relacionados",
     moreArticles: "Mais artigos de {{category}}",
     genericMore: "Mais artigos",
     showMore: "Mostrar mais artigos",
-    allTopics: "Todos os tópicos",
     topics: {
       clips:
         "Gravações de tela, reuniões e ditado que seu agente de IA pode usar",

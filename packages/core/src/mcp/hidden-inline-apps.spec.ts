@@ -30,7 +30,6 @@ const INLINE_ACTIONS: Record<string, string[]> = {
   content: ["share-local-file-document"],
   design: ["generate-screens", "export-coding-handoff"],
   slides: ["clone-context-slide"],
-  "slides-2": ["clone-context-slide"],
 };
 
 let apps: AppCatalog[];

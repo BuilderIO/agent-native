@@ -246,7 +246,19 @@ export default defineAction({
 
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
-    const provider = await getProvider(args.model || "auto");
+    let provider: Awaited<ReturnType<typeof getProvider>>;
+    try {
+      provider = await getProvider(args.model || "auto");
+    } catch (error) {
+      if (!assetsUnavailableReason) throw error;
+      fail(
+        `Assets image generation was unavailable (${assetsUnavailableReason}), and no local provider could generate instead: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          errorCode: "assets_unavailable_no_local_provider",
+          statusCode: 424,
+        },
+      );
+    }
 
     const referenceUrls = normalizeReferenceUrls([
       ...DEFAULT_STYLE_REFERENCE_URLS,

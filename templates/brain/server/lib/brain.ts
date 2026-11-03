@@ -2102,12 +2102,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
 }
 
 export async function searchKnowledgeRows(args: {
-  query?: string;
-  topic?: string;
-  tag?: string;
-  status?: BrainKnowledgeStatus | "all";
-  includeDrafts?: boolean;
-  limit?: number;
+  query?: string | undefined;
+  topic?: string | undefined;
+  tag?: string | undefined;
+  status?: BrainKnowledgeStatus | "all" | undefined;
+  includeDrafts?: boolean | undefined;
+  limit?: number | undefined;
 }) {
   const db = getDb();
   const audienceIds = await listAccessibleAudienceIds();
