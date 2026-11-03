@@ -13,8 +13,8 @@ export type RecordingBatchItem =
 /**
  * Sends a selection as few batch calls as the per-call limit allows.
  * Recordings that changed, or were already that way, succeed. Skipped ones
- * fail, and so does every recording in a call the server refused, since a
- * refused call changes none of them.
+ * fail, as do ones a response leaves out and every recording in a call the
+ * server refused, since a refused call changes none of them.
  */
 export async function sendRecordingBatches(
   ids: string[],
@@ -36,13 +36,20 @@ export async function sendRecordingBatches(
       if (!("results" in response)) {
         throw new Error("Expected one result per recording.");
       }
+      const unanswered = new Set(chunk);
       for (const result of response.results) {
+        unanswered.delete(result.id);
         if (result.status === "skipped") {
           failedCount++;
           firstError ??= result.reason;
         } else {
           succeededIds.push(result.id);
         }
+      }
+      // A recording the response leaves out can't be shown as changed.
+      if (unanswered.size) {
+        failedCount += unanswered.size;
+        firstError ??= "The server didn't report on every recording.";
       }
     } catch (error) {
       failedCount += chunk.length;

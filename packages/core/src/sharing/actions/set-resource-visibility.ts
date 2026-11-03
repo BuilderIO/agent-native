@@ -264,11 +264,18 @@ export default defineAction({
       return attachedOrg && !movedOrg ? "organization" : null;
     };
 
+    // A batch leaves resources already in this state alone, so a no-op can't
+    // trip a registration's own checks or send a change notice; a single
+    // call writes as it always has.
+    const toWrite = args.resourceIds
+      ? prepared.filter((change) => change.resourceChanged)
+      : prepared;
+
     const beforeExtensionTargets = new Map<
       string,
       Awaited<ReturnType<typeof getExtensionShareChangeTargets>>
     >();
-    for (const change of prepared) {
+    for (const change of toWrite) {
       beforeExtensionTargets.set(
         change.resourceId,
         await getExtensionShareChangeTargets(
@@ -284,11 +291,7 @@ export default defineAction({
     const written: PreparedChange[] = [];
     let failing: PreparedChange | undefined;
     try {
-      for (const change of prepared) {
-        // A batch leaves resources already in this state alone, so a no-op
-        // can't trip a registration's own checks; a single call writes as
-        // it always has.
-        if (args.resourceIds && !change.resourceChanged) continue;
+      for (const change of toWrite) {
         failing = change;
         await persistVisibility(change, args.visibility, change.update);
         written.push(change);
@@ -348,7 +351,7 @@ export default defineAction({
     }
 
     const app = getAppConfig().app.slug ?? "unknown";
-    for (const change of prepared) {
+    for (const change of toWrite) {
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
       // The writes have committed, so a notice that fails is logged rather
       // than reported as a failed change, and the rest still go out.

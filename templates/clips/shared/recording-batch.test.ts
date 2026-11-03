@@ -41,4 +41,18 @@ describe("sendRecordingBatches", () => {
     expect(outcome.failedCount).toBe(2);
     expect(outcome.firstError).toBe("Recording not found");
   });
+
+  it("counts a recording the response leaves out as failed", async () => {
+    const send = vi.fn(async () => ({
+      results: [{ id: "rec-1", status: "changed" as const }],
+    }));
+
+    const outcome = await sendRecordingBatches(["rec-1", "rec-2"], send);
+
+    expect(outcome).toEqual({
+      succeededIds: ["rec-1"],
+      failedCount: 1,
+      firstError: "The server didn't report on every recording.",
+    });
+  });
 });

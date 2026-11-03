@@ -406,10 +406,10 @@ describe("set-resource-visibility on several resources", () => {
       expect.objectContaining({ resource_id: "doc-a" }),
       expect.objectContaining({ resource_id: "doc-b" }),
     ]);
+    // doc-c already had that visibility, so it gets no change notice.
     expect(calls.notified).toEqual([
       { resourceId: "doc-a", before: ["before-doc-a"] },
       { resourceId: "doc-b", before: ["before-doc-b"] },
-      { resourceId: "doc-c", before: ["before-doc-c"] },
     ]);
   });
 
