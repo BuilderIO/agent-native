@@ -592,21 +592,37 @@ describe("worker GPU resource lifetime", () => {
   });
 
   it("resets working resources when density changes despite a matching signature", async () => {
-    const { gpu: pending } = harness();
+    const { gpu: pending, device } = harness();
     const gpu = await pending;
+    const pipeline = await gpu.pipeline(
+      "density-uniforms",
+      "rgba16float",
+      false,
+      0,
+    );
     const bank = gpu.spareBank(scene(1), "same-composition");
     const target = gpu.texture(bank, "effect:fixed", 8, 6);
-    const arena = (gpu as unknown as { uniformArena: unknown }).uniformArena;
-
+    gpu.beginFrame();
+    gpu.bind(bank, "first", pipeline, null, null, new Float32Array([1]));
+    gpu.bind(bank, "second", pipeline, null, null, new Float32Array([2]));
+    gpu.uploadFrame();
+    gpu.finishFrame();
     gpu.endLegacyFlight();
+
     gpu.spareBank({ ...scene(2), pixelRatio: 3 }, "same-composition");
     expect(target.destroy).toHaveBeenCalledOnce();
     expect(bank.textures.size).toBe(0);
-    // Not `.not.toBe`: on an identity miss vitest deep-compares both arenas'
-    // 2 MB staging buffers, which takes seconds and times out on loaded CI.
+    gpu.beginFrame();
+    gpu.bind(bank, "second", pipeline, null, null, new Float32Array([2]));
+    gpu.uploadFrame();
+    gpu.finishFrame();
     expect(
-      (gpu as unknown as { uniformArena: unknown }).uniformArena === arena,
-    ).toBe(false);
+      device.createBindGroup.mock.calls.map(
+        ([descriptor]) =>
+          (descriptor.entries[0] as { resource: { offset: number } }).resource
+            .offset,
+      ),
+    ).toEqual([0, 256, 0]);
     gpu.endLegacyFlight();
     gpu.dispose();
   });
