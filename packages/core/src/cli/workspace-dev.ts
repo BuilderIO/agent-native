@@ -41,7 +41,9 @@ export function pnpmSpawnTarget(
 ): [string, string[], boolean] {
   if (platform !== "win32") return ["pnpm", args, false];
   const quoted = args.map((arg) =>
-    /[\s"&|<>^()%!]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg,
+    /[\s"&|<>^()%!]/.test(arg)
+      ? `"${arg.replace(/"/g, '""').replace(/%/g, '"^%"')}"`
+      : arg,
   );
   return [["pnpm", ...quoted].join(" "), [], true];
 }

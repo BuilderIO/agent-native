@@ -23,6 +23,7 @@ import {
   DEFAULT_PROXY_READY_TIMEOUT_MS,
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
+  pnpmSpawnTarget,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
   shouldOpenWorkspaceBrowser,
@@ -1313,5 +1314,21 @@ describe("workspace app spawn on Windows", () => {
     } finally {
       Object.defineProperty(process, "platform", platform);
     }
+  });
+});
+
+describe("pnpmSpawnTarget", () => {
+  it("passes args through untouched off Windows", () => {
+    expect(pnpmSpawnTarget(["a b"], "linux")).toEqual(["pnpm", ["a b"], false]);
+  });
+
+  it("quotes spaces and keeps percent signs from expanding on Windows", () => {
+    const [command, args, shell] = pnpmSpawnTarget(
+      ["--dir", "C:\\My Apps\\%TEMP%\\x"],
+      "win32",
+    );
+    expect(command).toBe('pnpm --dir "C:\\My Apps\\"^%"TEMP"^%"\\x"');
+    expect(args).toEqual([]);
+    expect(shell).toBe(true);
   });
 });
