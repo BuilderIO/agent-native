@@ -6232,6 +6232,7 @@ export interface AgentKitComposerProps extends Omit<
     | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
+    | "onSetupCardClick"
     | "initialText"
     | "initialTextKey"
     | "layoutVariant"
@@ -6337,6 +6338,7 @@ export function AgentKitComposer({
   isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
+  onSetupCardClick,
   placeholder,
   initialText,
   initialTextKey,
@@ -7058,6 +7060,7 @@ export function AgentKitComposer({
             disabled,
             isReferenceTarget,
             onDisabledClick,
+            onSetupCardClick,
             onConnectProvider,
             onConnectLocalRuntime,
             imageModelMenu,
