@@ -5,7 +5,7 @@ title: How to make a sales presentation
 seo_title: How to make a sales presentation (with an example deck)
 og_line: Built from your discovery call notes
 meta_description: "Make a sales presentation for one prospect: turn what they told you in discovery into slides, match proof to them, and end on one clear next step."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F72ee2629ece1404dab45026776764463
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0764c5621da64d89a28cd70ff546f23f
 published: 2026-11-03
 updated: 2026-11-03
 author:
