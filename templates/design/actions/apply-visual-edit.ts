@@ -44,7 +44,6 @@ import {
   widthToPrefix,
 } from "../shared/responsive-classes.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-import { optionalInput } from "./_optional-input.js";
 import applyComponentPropEditAction from "./apply-component-prop-edit.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
@@ -265,18 +264,17 @@ const sourceSchema = z.preprocess(
   parseJsonString,
   z
     .object({
-      kind: optionalInput(
-        z.enum(["design-file", "inline-html", "local-file", "remote-url"]),
-        "design-file",
-      ),
-      designId: optionalInput(z.string()),
-      fileId: optionalInput(z.string()),
-      filename: optionalInput(z.string()),
-      path: optionalInput(z.string()),
-      url: optionalInput(z.string()),
-      connectionId: optionalInput(z.string()),
-      revision: optionalInput(z.string()),
-      html: optionalInput(z.string()),
+      kind: z
+        .enum(["design-file", "inline-html", "local-file", "remote-url"])
+        .default("design-file"),
+      designId: z.string().optional(),
+      fileId: z.string().optional(),
+      filename: z.string().optional(),
+      path: z.string().optional(),
+      url: z.string().optional(),
+      connectionId: z.string().optional(),
+      revision: z.string().optional(),
+      html: z.string().optional(),
     })
     .superRefine((source, ctx) => {
       if (source.kind === "design-file" && !source.designId && !source.fileId) {
@@ -302,26 +300,26 @@ const sourceSchema = z.preprocess(
 
 const targetSchema = z
   .object({
-    nodeId: optionalInput(z.string()),
-    selector: optionalInput(z.string()),
-    sourceAnchor: optionalInput(
-      z.object({
+    nodeId: z.string().optional(),
+    selector: z.string().optional(),
+    sourceAnchor: z
+      .object({
         line: z.number().int().positive(),
         column: z.number().int().positive(),
-        positionPrecision: optionalInput(
-          z.enum(["authored", "transformed", "unknown"]),
-        ),
-        runtimeMultiplicity: optionalInput(z.number().int().positive()),
-        scope: optionalInput(
-          z.enum([
+        positionPrecision: z
+          .enum(["authored", "transformed", "unknown"])
+          .optional(),
+        runtimeMultiplicity: z.number().int().positive().optional(),
+        scope: z
+          .enum([
             "single-instance",
             "repeated-render",
             "shared-component-definition",
             "unknown",
-          ]),
-        ),
-      }),
-    ),
+          ])
+          .optional(),
+      })
+      .optional(),
   })
   .superRefine((target, ctx) => {
     if (!target.nodeId && !target.selector && !target.sourceAnchor) {
@@ -344,8 +342,8 @@ const structureSizeHintSchema = z
   .object({
     width: structureSizeHintCoordinate.nonnegative(),
     height: structureSizeHintCoordinate.nonnegative(),
-    left: optionalInput(structureSizeHintCoordinate),
-    top: optionalInput(structureSizeHintCoordinate),
+    left: structureSizeHintCoordinate.optional(),
+    top: structureSizeHintCoordinate.optional(),
   })
   .strict();
 
@@ -358,12 +356,18 @@ const styleIntentSchema = z
       .describe(
         "CSS property to set or remove. Deterministic edits cover the visual editor's common layout, typography, fill, stroke, effect, transform, and spacing properties.",
       ),
-    operation: optionalInput(z.enum(["set", "remove"])).describe(
-      '"set" (default) writes the CSS value; "remove" deletes all matching inline declarations so the stylesheet or inherited value applies.',
-    ),
-    value: optionalInput(z.string()).describe(
-      'CSS value to write; required for "set" and omitted for "remove".',
-    ),
+    operation: z
+      .enum(["set", "remove"])
+      .optional()
+      .describe(
+        '"set" (default) writes the CSS value; "remove" deletes all matching inline declarations so the stylesheet or inherited value applies.',
+      ),
+    value: z
+      .string()
+      .optional()
+      .describe(
+        'CSS value to write; required for "set" and omitted for "remove".',
+      ),
   })
   .superRefine((intent, ctx) => {
     if (intent.operation === "remove" && intent.value !== undefined) {
@@ -389,10 +393,10 @@ const intentSchema = z.preprocess(
       kind: z.literal("class"),
       target: targetSchema,
       operation: z.enum(["add", "remove", "replace", "set"]),
-      className: optionalInput(z.string()),
-      classNames: optionalInput(z.array(z.string())),
-      from: optionalInput(z.string()),
-      to: optionalInput(z.string()),
+      className: z.string().optional(),
+      classNames: z.array(z.string()).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
     }),
     z.object({
       kind: z.literal("breakpoint-style"),
@@ -407,12 +411,16 @@ const intentSchema = z.preprocess(
       property: z
         .string()
         .describe("CSS property to set (camelCase or kebab-case)."),
-      value: optionalInput(z.string()).describe(
-        "CSS value. Required for operation 'set'.",
-      ),
-      operation: optionalInput(z.enum(["set", "remove"])).describe(
-        "'set' (default) writes/overwrites the scoped declaration; 'remove' deletes it so the base value cascades back down.",
-      ),
+      value: z
+        .string()
+        .optional()
+        .describe("CSS value. Required for operation 'set'."),
+      operation: z
+        .enum(["set", "remove"])
+        .optional()
+        .describe(
+          "'set' (default) writes/overwrites the scoped declaration; 'remove' deletes it so the base value cascades back down.",
+        ),
     }),
     z.object({
       kind: z.literal("textContent"),
@@ -422,9 +430,12 @@ const intentSchema = z.preprocess(
         .describe(
           "Text content for a leaf HTML element. This REPLACES the element's entire text. view-screen's selection preview caps textContent at 200 chars, so when its textContentTruncated is true, read the element's full text first — writing the preview back deletes everything past the cap.",
         ),
-      html: optionalInput(z.string()).describe(
-        "Optional sanitized inner HTML for preserving styled inline text runs.",
-      ),
+      html: z
+        .string()
+        .optional()
+        .describe(
+          "Optional sanitized inner HTML for preserving styled inline text runs.",
+        ),
     }),
     z.object({
       kind: z.literal("attribute"),
@@ -450,13 +461,19 @@ const intentSchema = z.preprocess(
         .describe(
           "data-agent-native-node-id values of sibling nodes to group. All must share a common parent.",
         ),
-      autoLayout: optionalInput(z.boolean()).describe(
-        "When true the wrapper gets display:flex; flex-direction:column; gap:8px and absolute positioning is stripped from each wrapped child.",
-      ),
-      wrapperKind: optionalInput(z.enum(["group", "frame"])).describe(
-        "Semantic identity for a non-auto-layout wrapper. Defaults to group; auto-layout wrappers are frames.",
-      ),
-      sizeHints: optionalInput(z.record(z.string(), structureSizeHintSchema)),
+      autoLayout: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true the wrapper gets display:flex; flex-direction:column; gap:8px and absolute positioning is stripped from each wrapped child.",
+        ),
+      wrapperKind: z
+        .enum(["group", "frame"])
+        .optional()
+        .describe(
+          "Semantic identity for a non-auto-layout wrapper. Defaults to group; auto-layout wrappers are frames.",
+        ),
+      sizeHints: z.record(z.string(), structureSizeHintSchema).optional(),
     }) satisfies z.ZodType<WrapNodesEditIntent>,
     z.object({
       kind: z.literal("booleanSubtract"),
@@ -487,45 +504,52 @@ const intentSchema = z.preprocess(
         .describe(
           "true = enable auto-layout (display:flex + direction + gap, strip absolute positioning from direct children); false = set display:block.",
         ),
-      direction: optionalInput(z.enum(["row", "column"])).describe(
-        "Flex direction when enabling. Defaults to column.",
-      ),
-      gap: optionalInput(z.string()).describe(
-        "Gap value when enabling. Defaults to 8px.",
-      ),
-      containerStyles: optionalInput(z.record(z.string(), z.string())).describe(
-        "Complete container CSS overrides, including display:grid and grid-template-columns when a grid flow is requested.",
-      ),
-      childRects: optionalInput(
-        z.record(
+      direction: z
+        .enum(["row", "column"])
+        .optional()
+        .describe("Flex direction when enabling. Defaults to column."),
+      gap: z
+        .string()
+        .optional()
+        .describe("Gap value when enabling. Defaults to 8px."),
+      containerStyles: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Complete container CSS overrides, including display:grid and grid-template-columns when a grid flow is requested.",
+        ),
+      childRects: z
+        .record(
           z.string(),
           z.object({
             x: z.number(),
             y: z.number(),
             width: z.number().nonnegative(),
             height: z.number().nonnegative(),
-            box: optionalInput(
-              z.object({
+            box: z
+              .object({
                 sizing: z.enum(["border-box", "content-box"]),
                 edges: z.object({
                   width: z.number().nonnegative(),
                   height: z.number().nonnegative(),
                 }),
-              }),
-            ),
+              })
+              .optional(),
           }),
+        )
+        .optional()
+        .describe(
+          "Measured child rectangles relative to the container, required when disabling auto-layout. A child's box (computed box-sizing, padding plus border per axis) lets an inset-sized child with a relative size join the flow.",
         ),
-      ).describe(
-        "Measured child rectangles relative to the container, required when disabling auto-layout. A child's box (computed box-sizing, padding plus border per axis) lets an inset-sized child with a relative size join the flow.",
-      ),
-      containerRect: optionalInput(
-        z.object({
+      containerRect: z
+        .object({
           width: z.number().nonnegative(),
           height: z.number().nonnegative(),
-        }),
-      ).describe(
-        "Measured container size used to keep a disabled auto-layout container open.",
-      ),
+        })
+        .optional()
+        .describe(
+          "Measured container size used to keep a disabled auto-layout container open.",
+        ),
     }) satisfies z.ZodType<AutoLayoutEditIntent>,
   ]),
 );
@@ -863,16 +887,21 @@ export default defineAction({
     intent: intentsSchema.describe(
       "One visual edit intent, or a non-empty ordered array of intents, targeting CodeLayerProjection nodeIds or selectors. Batched intents are folded into one persisted write.",
     ),
-    includeContent: optionalInput(z.boolean(), false).describe(
-      "Include patched HTML content in the response.",
-    ),
-    persist: optionalInput(z.boolean(), false).describe(
-      "For local-file sources only, persist the proposed edit through write-local-file. Omit/false to return a proposed diff without writing. Local persistence requires the existing human write-consent grant and an exact bridge version hash.",
-    ),
+    includeContent: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Include patched HTML content in the response."),
+    persist: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For local-file sources only, persist the proposed edit through write-local-file. Omit/false to return a proposed diff without writing. Local persistence requires the existing human write-consent grant and an exact bridge version hash.",
+      ),
     activeBreakpoint: z
       .enum(TAILWIND_PREFIXES)
       .optional()
-      .nullable()
       .describe(
         "Active canvas breakpoint prefix. When set and the intent is a 'class' edit, the change is written as a breakpoint-scoped Tailwind class (e.g. 'md:text-lg') instead of a global class. 'base' writes an unprefixed class (same as omitting this field). Takes priority over activeFrameWidthPx.",
       ),
@@ -881,7 +910,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped. When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
       ),
@@ -890,7 +918,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),

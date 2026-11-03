@@ -33,7 +33,6 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
-  actionCallReadOnly,
   actionChangeResource,
   classifyActionCall,
 } from "../action-call-classification.js";
@@ -394,6 +393,13 @@ import {
   hasObservationalMemory,
   serializeObservationalMemoryBlock,
 } from "./observational-memory/index.js";
+import {
+  AmbiguousToolPlaceholdersError,
+  discriminatedBranchIndex,
+  normalizeOptionalToolPlaceholders,
+  schemaAcceptsToolValue,
+  type ToolInputRepair,
+} from "./optional-placeholders.js";
 import {
   ProcessorChain,
   TripWire,
@@ -7105,218 +7111,6 @@ const rawToolInputValidatorCache = new WeakMap<
   Map<boolean, ValidateFunction>
 >();
 
-const optionalPlaceholderAjv = new Ajv({
-  strict: false,
-  allErrors: false,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
-
-const optionalPlaceholderValidatorCache = new WeakMap<
-  object,
-  ValidateFunction
->();
-
-function isStructurallyEmptyToolValue(value: unknown): boolean {
-  if (value === false) return true;
-  if (value === null) return true;
-  if (typeof value === "string") return value.trim().length === 0;
-  if (Array.isArray(value)) {
-    return (
-      value.length === 0 ||
-      value.every(
-        (item) =>
-          item !== null &&
-          typeof item === "object" &&
-          !Array.isArray(item) &&
-          Object.keys(item).length === 0,
-      )
-    );
-  }
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Object.keys(value).length === 0
-  );
-}
-
-function compileToolValueValidator(schema: object): ValidateFunction | null {
-  const cached = optionalPlaceholderValidatorCache.get(schema);
-  if (cached) return cached;
-  try {
-    const validator = optionalPlaceholderAjv.compile(schema);
-    optionalPlaceholderValidatorCache.set(schema, validator);
-    return validator;
-  } catch {
-    return null;
-  }
-}
-
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? Boolean(validator(value)) : false;
-}
-
-function schemaRejectsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? !validator(value) : false;
-}
-
-function schemaDiscriminatorValue(
-  schema: AgentNativeJsonSchema | undefined,
-): unknown {
-  if (!schema) return undefined;
-  if (schema.const !== undefined) return schema.const;
-  if (Array.isArray(schema.enum) && schema.enum.length === 1) {
-    return schema.enum[0];
-  }
-  return undefined;
-}
-
-function discriminatedBranchIndex(
-  branches: readonly AgentNativeJsonSchema[],
-  value: unknown,
-): number {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return -1;
-  const record = value as Record<string, unknown>;
-  return branches.findIndex((branch) => {
-    const properties = branch.properties;
-    if (!properties) return false;
-    const discriminators = Object.entries(properties).filter(
-      ([, spec]) => schemaDiscriminatorValue(spec) !== undefined,
-    );
-    if (discriminators.length === 0) return false;
-    return discriminators.every(
-      ([key, spec]) => record[key] === schemaDiscriminatorValue(spec),
-    );
-  });
-}
-
-function resolveObjectSchemaBranch(
-  schema: RawJsonSchema,
-  value: unknown,
-): RawJsonSchema | undefined {
-  const branches = schema.oneOf ?? schema.anyOf;
-  if (!branches?.length) return schema;
-  const index = discriminatedBranchIndex(branches, value);
-  return index >= 0 ? branches[index] : undefined;
-}
-
-function stripOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean },
-): { value: unknown; changed: boolean } {
-  if (!schema) return { value, changed: false };
-
-  if (Array.isArray(value)) {
-    const itemSchema = schema.items;
-    if (!itemSchema) return { value, changed: false };
-    let changed = false;
-    const items = value.map((item) => {
-      const result = stripOptionalToolPlaceholders(
-        itemSchema,
-        item,
-        emptyValues,
-      );
-      if (result.changed) changed = true;
-      return result.value;
-    });
-    return changed
-      ? { value: items, changed: true }
-      : { value, changed: false };
-  }
-
-  if (!value || typeof value !== "object") return { value, changed: false };
-
-  const objectSchema = resolveObjectSchemaBranch(schema, value);
-  const properties = objectSchema?.properties;
-  if (!properties) return { value, changed: false };
-
-  const required = new Set(
-    Array.isArray(objectSchema.required) ? objectSchema.required : [],
-  );
-  const record = value as Record<string, unknown>;
-  const placeholders: string[] = [];
-  let normalized: Record<string, unknown> | null = null;
-
-  for (const [key, entry] of Object.entries(record)) {
-    const propertySchema = Object.hasOwn(properties, key)
-      ? properties[key]
-      : undefined;
-    if (!propertySchema) {
-      // Root unions are flattened by providers; an unused branch can arrive as null.
-      const branches = schema.oneOf ?? schema.anyOf;
-      if (
-        entry === null &&
-        objectSchema.additionalProperties === false &&
-        branches?.some((branch) =>
-          branch.properties ? Object.hasOwn(branch.properties, key) : false,
-        )
-      ) {
-        placeholders.push(key);
-      }
-      continue;
-    }
-    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
-      if (schemaRejectsToolValue(propertySchema, entry)) {
-        emptyValues.invalid = true;
-        placeholders.push(key);
-        continue;
-      }
-      // A valid `false` sets a value; only null, "", [] and {} can clear one. An
-      // empty equal to the schema's own default changes nothing either.
-      if (
-        entry !== false &&
-        schemaAcceptsToolValue(propertySchema, entry) &&
-        !(
-          propertySchema.default !== undefined &&
-          JSON.stringify(propertySchema.default) === JSON.stringify(entry)
-        )
-      )
-        emptyValues.valid = true;
-    }
-    const nested = stripOptionalToolPlaceholders(
-      propertySchema,
-      entry,
-      emptyValues,
-    );
-    if (nested.changed) {
-      normalized ??= { ...record };
-      normalized[key] = nested.value;
-    }
-  }
-
-  if (placeholders.length > 0) {
-    normalized ??= { ...record };
-    for (const key of placeholders) delete normalized[key];
-  }
-
-  return normalized
-    ? { value: normalized, changed: true }
-    : { value, changed: false };
-}
-
-class AmbiguousToolPlaceholdersError extends Error {
-  readonly errorCode = "ambiguous_tool_placeholders";
-
-  constructor() {
-    super(
-      "Tool input mixes invalid placeholders with valid empty values, so it is unclear which fields should be cleared. " +
-        "No action was run. Retry the native tool with sparse JSON containing only the intended changes. " +
-        "If the transport keeps adding unused fields, use a dedicated operation that expresses the intended change or report this error. Mutating actions cannot run through run-code.",
-    );
-    this.name = "AmbiguousToolPlaceholdersError";
-  }
-}
-
-interface ToolInputRepair {
-  input: unknown;
-  changed: boolean;
-  error?: AmbiguousToolPlaceholdersError;
-}
-
 /** The repairs the loop makes to a model's tool input before anything reads it. */
 function repairToolCallInput(
   entry: ActionEntry | undefined,
@@ -7436,33 +7230,6 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
     args.waitMs > 0 &&
     args.waitMs <= 20_000
   );
-}
-
-function normalizeOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  input: unknown,
-  entry: Pick<ActionEntry, "readOnly" | "planMode">,
-): ToolInputRepair {
-  if (!schema || !input || typeof input !== "object") {
-    return { input, changed: false };
-  }
-  if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false };
-  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
-  // A read cannot clear stored data, so an empty value beside a placeholder is
-  // never ambiguous there.
-  if (
-    emptyValues.valid &&
-    emptyValues.invalid &&
-    actionCallReadOnly(entry, result.value) !== true
-  ) {
-    return {
-      input,
-      changed: false,
-      error: new AmbiguousToolPlaceholdersError(),
-    };
-  }
-  return { input: result.value, changed: result.changed };
 }
 
 function coerceStringifiedJsonToolValues(

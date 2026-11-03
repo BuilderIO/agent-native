@@ -2660,6 +2660,69 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     ).resolves.toMatchObject({ valid: false });
   });
 
+  describe("padded optional fields", () => {
+    const update = defineAction({
+      description: "update",
+      schema: z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        note: z.string().nullable().optional(),
+        tags: z.array(z.string()).optional(),
+        limit: z.number().optional().default(10),
+        items: z.array(z.string()).optional().default([]),
+      }),
+      run: async () => ({ ok: true }),
+    });
+
+    it("treats null on an optional field as omitted", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        limit: null,
+      });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).toEqual({
+        id: "a",
+        limit: 10,
+        items: [],
+      });
+    });
+
+    it("runs a padded call whose empty value equals the schema default", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        items: [],
+      });
+      expect(intent.valid).toBe(true);
+    });
+
+    it.each([
+      { id: "a", title: null, tags: [] },
+      { id: "a", title: null, note: null },
+    ])("refuses a padded call that could clear data: %j", async (input) => {
+      const intent = await actionCallIntent(update, input);
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
+      });
+    });
+
+    it("runs the same padded call when it is read-only", async () => {
+      const search = defineAction({
+        description: "search",
+        schema: z.object({
+          q: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+        readOnly: true,
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(search, { q: null, tags: [] });
+      expect(intent.valid).toBe(true);
+    });
+  });
+
   it("runs a prepared call as prepared, without parsing or classifying it again", async () => {
     let parses = 0;
     let effects = 0;

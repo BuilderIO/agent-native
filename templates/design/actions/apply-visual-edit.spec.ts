@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import action from "./apply-visual-edit.js";
@@ -33,94 +37,6 @@ describe("apply-visual-edit schema", () => {
     ).toBe(true);
   });
 
-  it("treats null on unused source, target, and flag fields as not provided", () => {
-    const sparse = {
-      source: { kind: "design-file", designId: "d1" },
-      intent: {
-        kind: "style" as const,
-        target: { selector: "p" },
-        property: "display",
-        value: "none",
-      },
-      activeFrameWidthPx: 390,
-    };
-    const padded = {
-      source: {
-        kind: null,
-        designId: "d1",
-        fileId: null,
-        filename: null,
-        path: null,
-        url: null,
-        connectionId: null,
-        revision: null,
-        html: null,
-      },
-      intent: {
-        ...sparse.intent,
-        target: { nodeId: null, selector: "p", sourceAnchor: null },
-      },
-      activeFrameWidthPx: 390,
-      includeContent: null,
-      persist: null,
-    };
-    const parsed = action.schema.safeParse(padded);
-    expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual(action.schema.safeParse(sparse).data);
-
-    const properties = (
-      action.tool.parameters as {
-        properties: Record<string, { properties?: Record<string, unknown> }>;
-      }
-    ).properties;
-    for (const key of ["path", "url", "revision", "includeContent"]) {
-      const field =
-        key === "includeContent"
-          ? properties[key]
-          : properties.source?.properties?.[key];
-      expect(JSON.stringify(field), key).toContain('"null"');
-    }
-  });
-
-  it("treats null on unused intent fields as not provided", () => {
-    const source = { kind: "design-file", designId: "d1" };
-    const target = { selector: "p" };
-    for (const [padded, sparse] of [
-      [
-        {
-          kind: "style",
-          target,
-          property: "display",
-          value: "none",
-          operation: null,
-        },
-        { kind: "style", target, property: "display", value: "none" },
-      ],
-      [
-        {
-          kind: "class",
-          target,
-          operation: "add",
-          className: "hidden",
-          classNames: null,
-          from: null,
-          to: null,
-        },
-        { kind: "class", target, operation: "add", className: "hidden" },
-      ],
-      [
-        { kind: "textContent", target, value: "Hi", html: null },
-        { kind: "textContent", target, value: "Hi" },
-      ],
-    ] as const) {
-      const parsed = action.schema.safeParse({ source, intent: padded });
-      expect(parsed.success, JSON.stringify(padded)).toBe(true);
-      expect(parsed.data).toEqual(
-        action.schema.safeParse({ source, intent: sparse }).data,
-      );
-    }
-  });
-
   it("accepts optional activeBreakpoint param", () => {
     const base = {
       source: { kind: "design-file", designId: "d1" },
@@ -129,9 +45,10 @@ describe("apply-visual-edit schema", () => {
 
     expect(action.schema.safeParse(base).success).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeBreakpoint: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     for (const bp of ["base", "sm", "md", "lg", "xl", "2xl"] as const) {
       expect(
@@ -200,9 +117,10 @@ describe("apply-visual-edit schema", () => {
       action.schema.safeParse({ ...base, activeFrameWidthPx: 768 }).success,
     ).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: 0 }).success,
@@ -210,6 +128,47 @@ describe("apply-visual-edit schema", () => {
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: -1 }).success,
     ).toBe(false);
+  });
+});
+
+describe("apply-visual-edit padded optional fields", () => {
+  const sparse = {
+    source: { kind: "design-file", designId: "d1" },
+    intent: styleIntent,
+    activeFrameWidthPx: 390,
+  };
+
+  it("runs a call whose unused optional fields are null", async () => {
+    const padded = {
+      source: {
+        kind: null,
+        designId: "d1",
+        fileId: null,
+        filename: null,
+        path: null,
+        url: null,
+        connectionId: null,
+        revision: null,
+        html: null,
+      },
+      intent: {
+        ...styleIntent,
+        target: { nodeId: null, selector: "main", sourceAnchor: null },
+        operation: null,
+      },
+      activeFrameWidthPx: 390,
+      activeBreakpoint: null,
+      maxWidthPx: null,
+      includeContent: null,
+      persist: null,
+    };
+    const intent = await actionCallIntent(action, padded);
+    const expected = await actionCallIntent(action, sparse);
+    if (!intent.valid) throw intent.error;
+    if (!expected.valid) throw expected.error;
+    expect(preparedCallArguments(intent)).toEqual(
+      preparedCallArguments(expected),
+    );
   });
 });
 

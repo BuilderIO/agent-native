@@ -90,7 +90,6 @@ import {
 import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
-import { optionalInput } from "./_optional-input.js";
 
 function designDeepLink(
   designId: string,
@@ -191,18 +190,15 @@ function isFixedCanvasFormatConversion(prompt: string): boolean {
 
 const reuseLabelSchema = z
   .object({
-    itemId: optionalInput(z.string().min(1)),
-    itemVersionId: optionalInput(z.string().min(1)),
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
     kind: z.string().min(1),
     label: z.string().min(1),
-    dataRole: optionalInput(
-      z.literal("untrusted-reference"),
-      "untrusted-reference",
-    ),
-    elementId: optionalInput(z.string().min(1)),
-    influence: optionalInput(
-      z.enum(["reused", "adapted", "reference-conditioned", "generated"]),
-    ),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
   })
   .superRefine((label, context) => {
     const influence = label.influence ?? "reference-conditioned";
@@ -445,26 +441,29 @@ async function finalizeGenerationForSavedFiles(
 const designFileSchema = z.object({
   filename: z.string().describe("Filename (e.g. 'index.html')"),
   content: z.string().min(1).describe("File content"),
-  fileType: optionalInput(
-    z.enum(["html", "css", "jsx", "asset"]),
-    "html",
-  ).describe("Type of file"),
+  fileType: z
+    .enum(["html", "css", "jsx", "asset"])
+    .optional()
+    .default("html")
+    .describe("Type of file"),
 });
 
 const canvasFrameSchema = z
   .object({
-    fileId: optionalInput(z.string()).describe("Id of an existing design file"),
-    filename: optionalInput(z.string()).describe(
-      "Filename of a file saved by this call",
-    ),
-    x: optionalInput(z.number()),
-    y: optionalInput(z.number()),
-    width: optionalInput(z.number()),
-    height: optionalInput(z.number()),
-    rotation: optionalInput(z.number()).describe(
-      "Degrees. Omit unless the user asked for a rotated screen.",
-    ),
-    z: optionalInput(z.number()),
+    fileId: z.string().optional().describe("Id of an existing design file"),
+    filename: z
+      .string()
+      .optional()
+      .describe("Filename of a file saved by this call"),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().optional(),
+    height: z.number().optional(),
+    rotation: z
+      .number()
+      .optional()
+      .describe("Degrees. Omit unless the user asked for a rotated screen."),
+    z: z.number().optional(),
   })
   .refine((frame) => frame.fileId || frame.filename, {
     message: "canvasFrames entries require fileId or filename",
@@ -489,17 +488,23 @@ const filesDescription =
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
 
-const designSystemIdField = optionalInput(z.string()).describe(
-  "Optional design system ID used for generation. Omit to keep the current link; unlink with update-design.",
-);
+const designSystemIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Optional design system ID used for generation. Omit to keep the current link; unlink with update-design.",
+  );
 
-const projectTypeField = optionalInput(z.enum(["prototype", "other"])).describe(
-  "Optional project type hint.",
-);
+const projectTypeField = z
+  .enum(["prototype", "other"])
+  .optional()
+  .describe("Optional project type hint.");
 
-const tweaksField = optionalInput(tweakDefinitionsSchema).describe(
-  "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit or pass [] to keep the design's current tweaks. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
-);
+const tweaksField = tweakDefinitionsSchema
+  .default([])
+  .describe(
+    "Optional tweak definitions (omit or pass [] to keep the current ones) (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
+  );
 
 // Reject two placements for the same target in one call. Without this,
 // mergeCanvasFramePlacements folds both entries into a single
@@ -510,8 +515,9 @@ const tweaksField = optionalInput(tweakDefinitionsSchema).describe(
 // recomputes the identical mismatch, so the whole action always fails with a
 // "concurrent write conflicts" error after burning through all retries, even
 // though nothing else was actually writing to the design.
-const canvasFramesField = optionalInput(
-  z.array(canvasFrameSchema).superRefine((frames, ctx) => {
+const canvasFramesField = z
+  .array(canvasFrameSchema)
+  .superRefine((frames, ctx) => {
     const seen = new Map<string, number>();
     frames.forEach((frame, index) => {
       const key = frame.fileId
@@ -531,55 +537,68 @@ const canvasFramesField = optionalInput(
       }
       seen.set(key, index);
     });
-  }),
-).describe(
-  "Optional overview-canvas placements keyed by filename or fileId. " +
-    "Pass explicit x/y/width/height for every generated screen as numbers. " +
-    "When the prompt gives one exact pixel size, use those exact width/height values. " +
-    "For screens with different exact sizes, make separate calls scoped to one screen each.",
-);
+  })
+  .default([])
+  .describe(
+    "Optional overview-canvas placements keyed by filename or fileId. " +
+      "Pass explicit x/y/width/height for every generated screen as numbers. " +
+      "When the prompt gives one exact pixel size, use those exact width/height values. " +
+      "For screens with different exact sizes, make separate calls scoped to one screen each.",
+  );
 
-const contextPackIdField = optionalInput(z.string()).describe(
-  "Immutable creative-context pack. Omit to preserve the active generation session pack.",
-);
+const contextPackIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Immutable creative-context pack. Omit to preserve the active generation session pack.",
+  );
 
-const contextModeOverrideField = optionalInput(z.literal("off")).describe(
-  "Disable Creative Context for this generation only without changing the saved preference.",
-);
+const contextModeOverrideField = z
+  .literal("off")
+  .optional()
+  .describe(
+    "Disable Creative Context for this generation only without changing the saved preference.",
+  );
 
-const reuseLabelsField = optionalInput(z.array(reuseLabelSchema), []).describe(
-  "Optional exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen. " +
-    "itemId and itemVersionId go together; only `generated` labels may omit them.",
-);
+const reuseLabelsField = z
+  .array(reuseLabelSchema)
+  .optional()
+  .default([])
+  .describe(
+    "Optional exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen. " +
+      "itemId and itemVersionId go together; only `generated` labels may omit them.",
+  );
 
-const primaryViewportField = optionalInput(
-  z.enum(["mobile", "tablet", "desktop"]),
-  DEFAULT_GENERATION_VIEWPORT,
-).describe(
-  "The requested primary form factor. Defaults to desktop (1440x900). " +
-    "Set this from the intake answer when no explicit canvasFrames placement is supplied. " +
-    "Ignored when `devices` is provided (the widest device becomes primary).",
-);
+const primaryViewportField = z
+  .enum(["mobile", "tablet", "desktop"])
+  .optional()
+  .default(DEFAULT_GENERATION_VIEWPORT)
+  .describe(
+    "The requested primary form factor. Defaults to desktop (1440x900). " +
+      "Set this from the intake answer when no explicit canvasFrames placement is supplied. " +
+      "Ignored when `devices` is provided (the widest device becomes primary).",
+  );
 
-const devicesField = optionalInput(
-  z.array(z.enum(["mobile", "tablet", "desktop"])),
-).describe(
-  "Device set for responsive frames. Exact pixels or a platform preset " +
-    "in the original prompt always use no device breakpoints and ignore " +
-    "this field. For a fixed-artwork inference without exact pixels or a " +
-    "preset, honor variants explicitly named in the original prompt; omit " +
-    'to default to ["desktop","mobile"]. Pass [] for fixed artwork ' +
-    "without those named variants and for follow-ups on an existing " +
-    "fixed canvas. " +
-    "The result lists ignored model devices as `ignoredDevices`; give " +
-    "each other exact size its own call. " +
-    "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
-    "The widest " +
-    "device becomes the primary/base frame and the narrower devices become " +
-    "breakpoint frames — never a duplicate of the base width and never an " +
-    "auto-added tablet. A single device yields one frame with no breakpoints. " +
-    "When provided, this overrides primaryViewport.",
-);
+const devicesField = z
+  .array(z.enum(["mobile", "tablet", "desktop"]))
+  .optional()
+  .describe(
+    "Device set for responsive frames. Exact pixels or a platform preset " +
+      "in the original prompt always use no device breakpoints and ignore " +
+      "this field. For a fixed-artwork inference without exact pixels or a " +
+      "preset, honor variants explicitly named in the original prompt; omit " +
+      'to default to ["desktop","mobile"]. Pass [] for fixed artwork ' +
+      "without those named variants and for follow-ups on an existing " +
+      "fixed canvas. " +
+      "The result lists ignored model devices as `ignoredDevices`; give " +
+      "each other exact size its own call. " +
+      "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
+      "The widest " +
+      "device becomes the primary/base frame and the narrower devices become " +
+      "breakpoint frames — never a duplicate of the base width and never an " +
+      "auto-added tablet. A single device yields one frame with no breakpoints. " +
+      "When provided, this overrides primaryViewport.",
+  );
 
 // Strings are still accepted for the CLI and older callers. A failure names the
 // field: the SyntaxError alone reports only a position.
@@ -1018,7 +1037,7 @@ const generateDesignAction = defineAction({
       fixedSize: boolean;
       contentDriven: boolean;
     }> = [];
-    const normalizedTweaks = tweaks?.length
+    const normalizedTweaks = tweaks.length
       ? tweaks.map((tweak) => ({
           ...tweak,
           type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,

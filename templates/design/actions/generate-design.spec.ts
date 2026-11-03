@@ -1,3 +1,4 @@
+import { actionCallIntent } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -332,10 +333,6 @@ describe("generate-design action tool schema", () => {
       string,
       {
         type?: string | readonly string[];
-        anyOf?: Array<{
-          type?: string;
-          items?: { properties?: Record<string, { enum?: string[] }> };
-        }>;
         description?: string;
         items?: { properties?: Record<string, { enum?: string[] }> };
       }
@@ -345,28 +342,14 @@ describe("generate-design action tool schema", () => {
 
   it("shows the model the real shape of every structured field", () => {
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
-    // oracle-change: optional fields are now `anyOf [T, null]`, so their array type sits under anyOf[0].
-    for (const field of ["tweaks", "canvasFrames", "reuseLabels"]) {
-      expect(parameters.properties[field]?.anyOf?.[0]?.type, field).toBe(
-        "array",
-      );
-      expect(parameters.properties[field]?.anyOf?.[1]?.type, field).toBe(
-        "null",
-      );
+    for (const field of ["files", "tweaks", "canvasFrames", "reuseLabels"]) {
+      expect(parameters.properties[field]?.type, field).toBe("array");
     }
-    expect(parameters.properties.files?.type).toBe("array");
-    expect(
-      parameters.properties.tweaks?.anyOf?.[0]?.items?.properties?.type?.enum,
-    ).toEqual([
-      "color-swatch",
-      "color-swatches",
-      "segment",
-      "slider",
-      "toggle",
-    ]);
-    expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
-      "null",
+    expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
+      ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
+    // oracle-change: designSystemId is a plain optional string; unlinking moved to update-design.
+    expect(parameters.properties.designSystemId?.type).toBe("string");
     expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
       '"off"',
     );
@@ -415,7 +398,6 @@ describe("generate-design action tool schema", () => {
   it("still accepts structured fields sent as JSON strings", () => {
     const parsed = (action as any).schema.safeParse({
       ...validInput(),
-      designSystemId: null,
       files: JSON.stringify(validInput().files),
       tweaks: JSON.stringify([
         {
@@ -428,38 +410,9 @@ describe("generate-design action tool schema", () => {
     });
 
     expect(parsed.success).toBe(true);
-    // oracle-change: null is "not provided" now; unlinking a design system moved to update-design.
     expect(parsed.data.designSystemId).toBeUndefined();
     expect(parsed.data.files).toEqual(validInput().files);
     expect(parsed.data.tweaks).toHaveLength(1);
-  });
-
-  it("accepts null on every optional field and treats it as not provided", () => {
-    const required = new Set(parameters.required ?? []);
-    for (const [key, property] of Object.entries(parameters.properties)) {
-      if (required.has(key)) continue;
-      expect(
-        property.anyOf?.some((branch) => branch.type === "null"),
-        key,
-      ).toBe(true);
-    }
-    const padded = {
-      ...validInput(),
-      files: [{ ...validInput().files[0], fileType: null }],
-      designSystemId: null,
-      projectType: null,
-      tweaks: null,
-      canvasFrames: null,
-      contextPackId: null,
-      contextModeOverride: null,
-      reuseLabels: null,
-      primaryViewport: null,
-      devices: null,
-    };
-    const sparse = (action as any).schema.safeParse(validInput());
-    const parsed = (action as any).schema.safeParse(padded);
-    expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual(sparse.data);
   });
 
   it("names the field when a JSON string does not parse", async () => {
@@ -3224,6 +3177,20 @@ describe("generate-design: rejected input in the agent loop", () => {
       expect(mocks.seededCollabText.size).toBe(1);
     },
   );
+
+  it("refuses a padded call whose empty devices could clear fixed artwork", async () => {
+    const intent = await actionCallIntent(action as never, {
+      designId: "design-1",
+      prompt: "Make a design",
+      files: [{ filename: "index.html", content: "<main>Hi</main>" }],
+      designSystemId: null,
+      devices: [],
+    });
+    expect(intent.valid).toBe(false);
+    expect((intent as { error: { errorCode?: string } }).error.errorCode).toBe(
+      "ambiguous_tool_placeholders",
+    );
+  });
 
   it("lets a corrected call run after a filename path rejection", async () => {
     const { runAgentLoop } = await import("@agent-native/core/server");

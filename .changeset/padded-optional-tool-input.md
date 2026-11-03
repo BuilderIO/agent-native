@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Stop refusing tool calls that pad optional fields with null beside empty values when the call is read-only or the empty value equals the schema default. Writes with a non-default empty value still refuse.
+Treat null on an optional action field as "not provided" for every caller (agent loop, MCP, HTTP, scripts), not only the agent loop. A padded call still refuses when it would clear data: a null on a nullable field, or an empty value that differs from the schema default. Read-only calls and empty values equal to the default run.
