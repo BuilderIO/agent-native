@@ -324,6 +324,16 @@ describe("a Clip comment in the margin", () => {
       expect(sentKey()).not.toBe(key);
     });
 
+    it("keeps the key when Clips refuses a retry of a comment it may have saved", async () => {
+      await postClipComment("Cut this pause");
+      const key = sentKey();
+      await respond(502, { error: "clips_unreachable" });
+      await submitAgain();
+      await respond(429, { error: "rate_limited" });
+      await submitAgain();
+      expect(sentKey()).toBe(key);
+    });
+
     it("sends a changed comment under a new key", async () => {
       await postClipComment("Cut this pause");
       const key = sentKey();
@@ -386,6 +396,19 @@ describe("a Clip comment in the margin", () => {
         content: "Agreed",
         idempotencyKey: key,
       });
+    });
+
+    it("keeps the key when Clips refuses a retry of a reply it may have saved", async () => {
+      const { composer, send } = await openClipReply();
+      await setRichEditorValue(composer(), "Agreed");
+      await send();
+      const key = sentKey();
+      await respond(502, { error: "clips_unreachable" });
+      await send();
+      await respond(429, { error: "rate_limited" });
+      expect(richEditorValue(composer())).toBe("Agreed");
+      await send();
+      expect(sentKey()).toBe(key);
     });
 
     it("keeps a reply's key when only mentions Clips never gets change", async () => {

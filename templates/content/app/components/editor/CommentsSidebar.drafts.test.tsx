@@ -1889,6 +1889,17 @@ it("keeps decided suggestion history readable and replies only to pending thread
     expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
       firstOperationId,
     );
+    const refused = Object.assign(new Error("Too many requests"), {
+      status: 429,
+    });
+    await act(async () => {
+      replyMutate.mock.calls[1][1].onError(refused);
+      replyMutate.mock.calls[1][1].onSettled();
+    });
+    await act(async () => submit?.click());
+    expect(replyMutate.mock.calls[2][0].clientOperationId).toBe(
+      firstOperationId,
+    );
   } finally {
     await act(async () => root.unmount());
     container.remove();

@@ -251,6 +251,18 @@ function retryOperationId(
     : undefined;
 }
 
+/**
+ * What a failed send leaves to retry with. A retry's refusal says nothing about
+ * the try it repeats, which may have saved, so its key stays however it fails.
+ */
+function uncertainAfterFailure(
+  error: unknown,
+  retried: boolean,
+  submission: UncertainSubmission,
+): UncertainSubmission | null {
+  return retried || isAmbiguousCommentCreateError(error) ? submission : null;
+}
+
 /** The session's name for the signed-in person's own entries, if it has one. */
 function ownAuthorName(
   authorEmail: string | null | undefined,
@@ -2089,10 +2101,11 @@ export function CommentsSidebar({
           content: pendingText.trim(),
         })
       : null;
-    const clientOperationId =
-      (clipPayload !== null &&
-        retryOperationId(pendingDraft.draft, clipPayload)) ||
-      crypto.randomUUID();
+    const retryId =
+      clipPayload !== null
+        ? retryOperationId(pendingDraft.draft, clipPayload)
+        : undefined;
+    const clientOperationId = retryId ?? crypto.randomUUID();
     pendingDraft.beginSubmission(clientOperationId);
     onPendingChange(id, () => ({ submitting: true }));
     setPendingHandoff({ id, operationId: clientOperationId });
@@ -2153,8 +2166,11 @@ export function CommentsSidebar({
       if ((clip || !ambiguous) && isCurrentPendingComment) {
         pendingDraft.restoreSubmittedDraft(
           clientOperationId,
-          clipPayload !== null && ambiguous
-            ? { payload: clipPayload, operationId: clientOperationId }
+          clipPayload !== null
+            ? uncertainAfterFailure(error, retryId !== undefined, {
+                payload: clipPayload,
+                operationId: clientOperationId,
+              })
             : null,
         );
         setPendingHandoff(null);
@@ -2282,8 +2298,8 @@ export function CommentsSidebar({
         ? {}
         : { mentions: mentionsJsonFor(replyText, replyMentions, agent) }),
     });
-    const clientOperationId =
-      replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
+    const retryId = replyDrafts.retryOperationId(threadId, payload);
+    const clientOperationId = retryId ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
       const created = thread.clip
@@ -2307,9 +2323,10 @@ export function CommentsSidebar({
       replyDrafts.restoreSubmittedDraft(
         threadId,
         clientOperationId,
-        isAmbiguousCommentCreateError(error)
-          ? { payload, operationId: clientOperationId }
-          : null,
+        uncertainAfterFailure(error, retryId !== undefined, {
+          payload,
+          operationId: clientOperationId,
+        }),
       );
       replyDrafts.finishSubmission(clientOperationId);
       toast.error(t("empty.genericError"), {
@@ -4394,10 +4411,7 @@ function SuggestionThreadView({
     includeResolved: true,
   });
   const reply = useReplyReviewComment();
-  const uncertainReply = useRef<{
-    payload: string;
-    operationId: string;
-  } | null>(null);
+  const uncertainReply = useRef<UncertainSubmission | null>(null);
   const expanded = expandRequested;
   const { text: draft, mentions } = replyDrafts.get(suggestion.threadId);
   const root = comments.data?.comments.find(
@@ -4529,10 +4543,11 @@ function SuggestionThreadView({
             body: draft.trim(),
             mentions: replyMentions,
           });
-          const clientOperationId =
+          const retryId =
             uncertainReply.current?.payload === payload
               ? uncertainReply.current.operationId
-              : crypto.randomUUID();
+              : undefined;
+          const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
           reply.mutate(
             {
@@ -4548,9 +4563,11 @@ function SuggestionThreadView({
                 uncertainReply.current = null;
               },
               onError: (error) => {
-                uncertainReply.current = isAmbiguousCommentCreateError(error)
-                  ? { payload, operationId: clientOperationId }
-                  : null;
+                uncertainReply.current = uncertainAfterFailure(
+                  error,
+                  retryId !== undefined,
+                  { payload, operationId: clientOperationId },
+                );
                 replyDrafts.restoreSubmittedDraft(
                   suggestion.threadId,
                   clientOperationId,
