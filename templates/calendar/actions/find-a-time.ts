@@ -134,7 +134,9 @@ function addCalendarEventBusyBlocks(
     const eventAccount = event.accountEmail?.toLowerCase();
     const participantEmail = (
       event.overlayEmail ||
-      (eventAccount && ownedAccountSet.has(eventAccount)
+      (eventAccount &&
+      event.calendarPrimary !== false &&
+      ownedAccountSet.has(eventAccount)
         ? organizerEmail
         : event.accountEmail) ||
       organizerEmail

@@ -68,4 +68,29 @@ describe("find-a-time", () => {
       }),
     ]);
   });
+
+  it("does not attribute shared-calendar events to the organizer", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "evt-2",
+          title: "Shared meeting",
+          start: "2026-09-08T10:00:00.000Z",
+          end: "2026-09-08T11:00:00.000Z",
+          allDay: false,
+          source: "google",
+          accountEmail: "secondary@example.com",
+          calendarPrimary: false,
+        },
+      ],
+      errors: [],
+    });
+
+    const result = (await action.run(
+      { date: "2026-09-08", attendees: [], timezone: "UTC" } as never,
+      undefined as never,
+    )) as { busy: unknown[] };
+
+    expect(result.busy).toEqual([]);
+  });
 });
