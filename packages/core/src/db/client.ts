@@ -13,6 +13,7 @@ import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
+import { noteSqlStatement } from "./note-sql-statement.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
@@ -436,6 +437,51 @@ function finishPgliteClientOperation(): void {
   _pgliteClientOperationDrain.waiters.clear();
 }
 
+const PGLITE_PROTOCOL_METHODS = new Set([
+  "execProtocol",
+  "execProtocolRaw",
+  "execProtocolRawStream",
+]);
+
+/**
+ * Counts a statement PGlite is about to run, from its text. The wire-protocol
+ * methods carry none, so they count as writes. `transaction` hands its callback
+ * a handle that is observed the same way.
+ */
+function observePgliteCall(
+  method: string | symbol,
+  args: unknown[],
+): unknown[] {
+  if (method === "query" || method === "exec") {
+    noteSqlStatement(args[0]);
+  } else if (method === "sql") {
+    noteSqlStatement(Array.isArray(args[0]) ? args[0].join("$1") : undefined);
+  } else if (
+    typeof method === "string" &&
+    PGLITE_PROTOCOL_METHODS.has(method)
+  ) {
+    noteSqlStatement(undefined);
+  } else if (method === "transaction" && typeof args[0] === "function") {
+    const callback = args[0] as (tx: unknown) => unknown;
+    return [
+      (tx: object) => callback(observePgliteTransaction(tx)),
+      ...args.slice(1),
+    ];
+  }
+  return args;
+}
+
+function observePgliteTransaction<T extends object>(tx: T): T {
+  return new Proxy(tx, {
+    get(target, property) {
+      const member = Reflect.get(target, property, target);
+      if (typeof member !== "function") return member;
+      return (...args: unknown[]) =>
+        Reflect.apply(member, target, observePgliteCall(property, args));
+    },
+  });
+}
+
 function guardPgliteClientAccess(client: any): any {
   return new Proxy(client, {
     get(target, property) {
@@ -444,9 +490,10 @@ function guardPgliteClientAccess(client: any): any {
       if (property === "close") return method.bind(target);
       return (...args: unknown[]) => {
         assertPgliteClientAccessOpen();
+        const observed = observePgliteCall(property, args);
         _pgliteClientOperationDrain.active++;
         try {
-          const result: unknown = Reflect.apply(method, target, args);
+          const result: unknown = Reflect.apply(method, target, observed);
           if (
             result !== null &&
             (typeof result === "object" || typeof result === "function") &&
@@ -1183,6 +1230,10 @@ export async function withDbTimeout<T>(
   onTimeout?: () => void | Promise<void>,
   query?: { sql: string },
 ): Promise<T> {
+  // Every statement a driver runs passes here with its text, so a query with
+  // none is counted as a write. Counted before it is sent, so a statement
+  // still in flight when its failure arrives is already seen.
+  if (op === "query") noteSqlStatement(query?.sql);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   const finishTelemetry = beginDatabaseOperation(

@@ -1,7 +1,8 @@
 /**
  * The execution frame each action invocation runs in, and the evidence a
  * dispatcher vouched for that one invocation. Not in the package exports: the
- * action entry exposes no frame-evidence helpers, and request input or
+ * action entry exposes no frame-evidence helpers but `noteExternalWrite`, which
+ * can only add observed-write evidence, and request input or
  * `ActionRunContext` fields never become evidence. Trusted server dispatcher
  * APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and
  * attribution. Nothing here imports `action.ts` at runtime, so `action.ts` and
@@ -48,6 +49,10 @@ export type ActionExecutionFrame = {
   writeEntered: boolean;
   /** One of those writes publishes action changes. */
   changeEntered: boolean;
+  /** This call, or one nested in it, was seen to write. */
+  writeObserved: boolean;
+  /** Which channel saw it first, for diagnostics. */
+  writeObservedChannel?: string;
   /** This call's classification, once validated arguments set it. */
   writes?: boolean;
   emitsChange?: boolean;
@@ -56,6 +61,8 @@ export type ActionExecutionFrame = {
   record?: ActionCallRecord;
   context?: ActionRunContext;
   nestedWriteEntered?: boolean;
+  /** The write was seen in a call nested in this one, not this call's own. */
+  nestedWriteObserved?: boolean;
   raised?: unknown;
   /** The dispatcher's outcome, which takes the record as it is made. */
   outcome?: ActionExecutionOutcome;
@@ -67,6 +74,11 @@ export type ActionExecutionState = {
 const ActionExecutionStorage = getAsyncLocalStorageCtor();
 export const actionExecutionStorage = ActionExecutionStorage
   ? new ActionExecutionStorage<ActionExecutionState>()
+  : undefined;
+
+/** The frame whose writes are not observed, for the work that runs inside it. */
+const unobservedFrame = ActionExecutionStorage
+  ? new ActionExecutionStorage<ActionExecutionFrame>()
   : undefined;
 
 /** Evidence vouched for a run, until that run opens its frame. */
@@ -125,4 +137,46 @@ export function runOutsideActionInvocation<T>(fn: () => T): T {
   const state = actionExecutionStorage?.getStore();
   if (!actionExecutionStorage || !state?.frame) return fn();
   return actionExecutionStorage.run({ failures: state.failures }, fn);
+}
+
+/**
+ * Whether a write seen now would add evidence: not outside a call, not inside
+ * bookkeeping, and not once the call has already seen one. Lets a caller skip
+ * work it would only do to classify a write.
+ */
+export function observingWrites(): boolean {
+  const frame = actionExecutionStorage?.getStore()?.frame;
+  return (
+    frame !== undefined &&
+    !frame.writeObserved &&
+    unobservedFrame?.getStore() !== frame
+  );
+}
+
+/**
+ * Record that the running call, and every call it runs inside, was seen to
+ * write through `channel`. Call it before the write is sent: a write still in
+ * flight when its failure arrives must already count. Evidence is only added,
+ * never cleared.
+ */
+export function noteObservedWrite(channel: string): void {
+  const frame = actionExecutionStorage?.getStore()?.frame;
+  if (!frame || unobservedFrame?.getStore() === frame) return;
+  for (let f: ActionExecutionFrame | undefined = frame; f; f = f.parent) {
+    f.writeObserved = true;
+    f.writeObservedChannel ??= channel;
+    if (f !== frame) f.nestedWriteObserved = true;
+  }
+}
+
+/**
+ * Run the framework's own bookkeeping, such as an audit row or a change
+ * marker, without it counting as a write of the call it runs inside. Scoped to
+ * that call's frame, so an action it runs still records its own writes. Never
+ * wrap code that saves what the call exists to save: a retry would repeat it.
+ */
+export function withoutWriteObservation<T>(fn: () => T): T {
+  const frame = actionExecutionStorage?.getStore()?.frame;
+  if (!frame || !unobservedFrame) return fn();
+  return unobservedFrame.run(frame, fn);
 }

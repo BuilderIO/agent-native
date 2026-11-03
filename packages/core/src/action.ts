@@ -16,6 +16,7 @@ import {
   actionExecutionStorage,
   endInvocationEvidence,
   holdInvocationEvidence,
+  noteObservedWrite,
   runOutsideActionInvocation,
   takeVouchedEvidence,
   type ActionExecutionFrame,
@@ -486,6 +487,17 @@ function readableFailure(error: unknown): unknown {
   }
 }
 
+/**
+ * Record that the running action call wrote somewhere the framework cannot
+ * watch, such as a provider API or object storage, so that a later failure of
+ * the call is not read as one that saved nothing. Call it before the write is
+ * sent. It only adds evidence: nothing it records can be cleared, and outside
+ * an action call it does nothing. Database writes need no call.
+ */
+export function noteExternalWrite(channel: string): void {
+  noteObservedWrite(channel);
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -504,6 +516,15 @@ export interface InvocationEffect {
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
  * call raised itself may narrow. A refused call is settled before its error is
  * read.
+ *
+ * A recorded call that threw by itself needs a write the framework saw it
+ * send as well, not just a write handler having started: a rejection raised
+ * before anything was saved is `none`. Seeing a write only narrows what
+ * entered, so a call declared read-only that writes anyway is no more suspect
+ * than before. A call whose result never came may still be running and write
+ * later, so observing nothing proves nothing and it keeps the entered
+ * evidence alone. So does `changed`: a refresh nothing needed costs less than
+ * a missed one.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -535,16 +556,25 @@ export function invocationEffect(
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
+  const enteredNested =
+    evidence?.writeEntered && (evidence.nestedWriteEntered || !record)
+      ? evidence
+      : undefined;
+  const enteredOwn = record ? record.evidence.writeEntered : readOnly !== true;
+  const changed = enteredNested
+    ? enteredNested.changeEntered
+    : record
+      ? record.evidence.changeEntered && !(failed && typed === "none")
+      : entry.changeEvents !== false &&
+        (failed ? typed === "committed" : enteredOwn);
+  const observed = record !== undefined && failed !== undefined && !failed.lost;
+  if (enteredNested && (!observed || enteredNested.nestedWriteObserved)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
-      changed: evidence.changeEntered,
+      changed,
     };
   }
-  const wrote = record ? record.evidence.writeEntered : readOnly !== true;
-  const changed = record
-    ? record.evidence.changeEntered && !(failed && typed === "none")
-    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+  const wrote = enteredOwn && (!observed || record.evidence.writeObserved);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
       ? "committed"
@@ -2402,6 +2432,10 @@ export interface ActionCallEvidence {
   readonly changeEntered: boolean;
   /** One of those writes was nested in the call, not the call's own. */
   readonly nestedWriteEntered?: boolean;
+  /** The framework saw the call, or one nested in it, send a write. */
+  readonly writeObserved: boolean;
+  /** One of those observed writes was nested in the call, not the call's own. */
+  readonly nestedWriteObserved?: boolean;
   /**
    * The failure this call raised or rebuilt itself; only its typed effect
    * speaks for the call. Its own, so another call throwing it again cannot
@@ -2503,6 +2537,7 @@ function wrapRunWithExecutionBoundary(
             handlerEntered: false,
             writeEntered: false,
             changeEntered: false,
+            writeObserved: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
@@ -2555,6 +2590,7 @@ export async function runActionWithExecutionOutcome(
     handlerEntered: true,
     writeEntered: false,
     changeEntered: false,
+    writeObserved: false,
     boundaryPending: true,
     outcome,
   };

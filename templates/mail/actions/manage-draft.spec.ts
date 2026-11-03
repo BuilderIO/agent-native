@@ -40,6 +40,7 @@ vi.mock("@agent-native/core/action", async (importOriginal) => {
     },
     NoWriteError: actual.NoWriteError,
     isNoWriteError: actual.isNoWriteError,
+    noteExternalWrite: actual.noteExternalWrite,
   };
 });
 
