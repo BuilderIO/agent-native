@@ -60,10 +60,13 @@ Options:
     parsed["include-agent-scratch"] === "true" ||
     parsed.includeAgentScratch === "true" ||
     parsed.includeScratch === "true";
-  const limit = Math.min(
-    Math.max(parseNonNegativeInt("limit", parsed.limit, DEFAULT_LIMIT), 1),
-    MAX_LIMIT,
+  const requestedLimit = parseNonNegativeInt(
+    "limit",
+    parsed.limit,
+    DEFAULT_LIMIT,
   );
+  if (requestedLimit < 1) fail("--limit must be at least 1.");
+  const limit = Math.min(requestedLimit, MAX_LIMIT);
   const offset = parseNonNegativeInt("offset", parsed.offset, 0);
   const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
@@ -170,8 +173,15 @@ Options:
   }
 
   if (nextOffset !== null) {
+    const filters = [
+      prefix !== undefined ? `--prefix ${JSON.stringify(prefix)}` : "",
+      `--scope ${scope}`,
+      includeAgentScratch ? "--include-agent-scratch true" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     console.log(
-      `\nMore resources remain (${total - nextOffset}). Next page: --offset ${nextOffset} --limit ${limit}`,
+      `\nMore resources remain (${total - nextOffset}). Next page: ${filters} --offset ${nextOffset} --limit ${limit}`,
     );
   }
 }
