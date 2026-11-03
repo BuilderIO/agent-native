@@ -1,7 +1,7 @@
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
 import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { Button, type ButtonProps } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -45,6 +45,7 @@ export interface BuilderConnectPopoverProps {
     };
   canProvisionAccount?: boolean;
   children: BuilderConnectTrigger;
+  cancelSize?: ButtonProps["size"];
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
@@ -277,6 +278,7 @@ export function BuilderConnectPopover({
   flow,
   canProvisionAccount,
   children,
+  cancelSize = "sm",
   onConnect,
   onTriggerClick,
   openOnMount = false,
@@ -322,7 +324,7 @@ export function BuilderConnectPopover({
       <Button
         type="button"
         variant="ghost"
-        size="sm"
+        size={cancelSize}
         className="shrink-0"
         onClick={flow.cancel}
       >
