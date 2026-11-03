@@ -1711,7 +1711,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       );
     }
   }
-  if (!completedResult) throw new Error("BigQuery completed without a result");
   return {
     ...completedResult,
     ...(usageAccounting ? { usageAccounting } : {}),
