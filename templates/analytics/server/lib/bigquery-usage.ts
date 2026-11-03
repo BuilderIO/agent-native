@@ -210,7 +210,8 @@ export async function observeBigQueryJobUsage(
     const stats = data.statistics?.query;
     result.bytesProcessed =
       usageBytes(stats?.totalBytesProcessed) ?? usage.bytesProcessed;
-    result.bytesBilled = usageBytes(stats?.totalBytesBilled);
+    result.bytesBilled =
+      usageBytes(stats?.totalBytesBilled) ?? usage.bytesBilled;
     result.providerCacheHit =
       typeof stats?.cacheHit === "boolean"
         ? stats.cacheHit

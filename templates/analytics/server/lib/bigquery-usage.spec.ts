@@ -361,6 +361,71 @@ describe("durable warehouse ledger", () => {
     });
   });
 
+  it.each([
+    {
+      name: "missing",
+      initial: "9007199254740999",
+      later: undefined,
+      expected: "9007199254740999",
+    },
+    { name: "malformed", initial: "0", later: "bad", expected: "0" },
+    {
+      name: "new valid",
+      initial: "9007199254740999",
+      later: "10485760",
+      expected: "10485760",
+    },
+  ])(
+    "keeps the latest valid billed bytes across $name follow-up metadata",
+    async ({ initial, later, expected }) => {
+      const usage = makeUsage();
+      await persistBigQueryJobUsage(usage);
+      const background: Promise<unknown>[] = [];
+      getRunContext.mockReturnValue({
+        waitUntil: (work) => {
+          background.push(work);
+        },
+      });
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(
+          json(
+            metadata(
+              {
+                totalBytesProcessed: "123",
+                totalBytesBilled: initial,
+                cacheHit: false,
+              },
+              { state: "RUNNING" },
+            ),
+          ),
+        )
+        .mockImplementation(async () =>
+          json(
+            metadata({
+              totalBytesProcessed: "123",
+              totalBytesBilled: later,
+              cacheHit: false,
+            }),
+          ),
+        );
+      vi.stubGlobal("fetch", fetch);
+      await finalizeBigQueryJobUsage(usage, "fake", true);
+      expect(await background[0]).toMatchObject({
+        status: "recorded",
+        usageStatus: "complete",
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(
+        (
+          await client.query(
+            "SELECT bytes_billed, usage_status FROM analytics_bigquery_usage",
+          )
+        ).rows[0],
+      ).toMatchObject({ bytes_billed: expected, usage_status: "complete" });
+    },
+  );
+
   it("bounds follow-up observations and preserves unresolved usage as unknown", async () => {
     const usage = makeUsage();
     await persistBigQueryJobUsage(usage);
