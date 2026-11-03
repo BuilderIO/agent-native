@@ -156,7 +156,9 @@ export default defineAction({
     background: z
       .string()
       .optional()
-      .describe("Slide background, copied from get-deck when duplicating"),
+      .describe(
+        "Slide background; read it with get-deck compact=false when duplicating",
+      ),
     transition: z.enum(SLIDE_TRANSITION_INPUTS).optional(),
     transitionSpeed: z
       .number()
