@@ -4723,9 +4723,11 @@ export async function fetchDecksForCurrentRoute(
 ): Promise<{ decks: Deck[]; listPending: boolean } | null> {
   const currentOpenDeckId = currentOpenDeckIdFromWindow();
   if (currentOpenDeckId) {
-    const directDeck = deckOrNull(
-      await (openDeckRead ?? readDeck(currentOpenDeckId)),
-    );
+    const openDeckResult = await (openDeckRead ?? readDeck(currentOpenDeckId));
+    // A transient failure must not fall through to a list that omits the open
+    // deck: the editor would open empty with no error and no retry.
+    if (openDeckResult.status === "unavailable") return null;
+    const directDeck = deckOrNull(openDeckResult);
     if (directDeck) return { decks: [directDeck], listPending: true };
   }
   const listRead = await readList();
@@ -6121,12 +6123,21 @@ export function DeckProvider({
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshById = new Map(fresh.map((d) => [d.id, d]));
+    // A list row has no slide bodies, so while the open deck's full read has
+    // never landed the row must not stand in for it: the editor would open empty.
+    const openDeckId = currentOpenDeckIdFromWindow();
+    const openDeckPending =
+      openDeckId !== null &&
+      !currentIds.has(openDeckId) &&
+      !appliedServerRevisionsRef.current.has(openDeckId);
     const addedIds = fresh
-      .filter((d) => !currentIds.has(d.id))
+      .filter(
+        (d) =>
+          !currentIds.has(d.id) && !(openDeckPending && d.id === openDeckId),
+      )
       .map((d) => d.id);
     // A list that omits the open deck cannot tell revoked from deleted; the
     // deck's own read decides, and keeps the local copy while it does.
-    const openDeckId = currentOpenDeckIdFromWindow();
     const removed = currentDecks.filter(
       (d) =>
         !freshById.has(d.id) &&
@@ -6164,7 +6175,7 @@ export function DeckProvider({
       removed.length === 0 &&
       changedMetadataIds.length === 0
     ) {
-      setLoadError(false);
+      if (!openDeckPending) setLoadError(false);
       return "ok";
     }
 
@@ -6191,7 +6202,7 @@ export function DeckProvider({
       }
       return next;
     });
-    setLoadError(false);
+    if (!openDeckPending) setLoadError(false);
     return "ok";
   }, [isNewerThanSnapshot]);
 

@@ -5429,30 +5429,30 @@ describe("DeckContext deck creation persistence", () => {
     const deckId = "resolve-latest-pending-fields-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     let safeWriteStartedWithFailedSave = false;
-    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
-      staleContentConflicts: true,
-      getDeckFailures: { deckId, count: 2 },
-      patchResponse: (body: Record<string, unknown>) => {
-        const operations = Array.isArray(body.operations)
-          ? body.operations
-          : [];
-        if (
-          operations.some(
-            (operation: unknown) =>
-              !!operation &&
-              typeof operation === "object" &&
-              "fields" in operation &&
-              !!operation.fields &&
-              typeof operation.fields === "object" &&
-              "notes" in operation.fields &&
-              operation.fields.notes === "Pending local notes",
-          )
-        ) {
-          safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
-        }
-        return { ok: true };
-      },
-    });
+    const { fetchMock, setAccessibleDeck, getPatchAttempts, failNextGetDeck } =
+      setupFetch({
+        staleContentConflicts: true,
+        patchResponse: (body: Record<string, unknown>) => {
+          const operations = Array.isArray(body.operations)
+            ? body.operations
+            : [];
+          if (
+            operations.some(
+              (operation: unknown) =>
+                !!operation &&
+                typeof operation === "object" &&
+                "fields" in operation &&
+                !!operation.fields &&
+                typeof operation.fields === "object" &&
+                "notes" in operation.fields &&
+                operation.fields.notes === "Pending local notes",
+            )
+          ) {
+            safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
+          }
+          return { ok: true };
+        },
+      });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -5486,6 +5486,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
 
+    failNextGetDeck(2);
     act(() => {
       result.current.updateSlide(
         deckId,
