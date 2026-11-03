@@ -87,6 +87,7 @@ export type DraftCardData =
   | { draft: null }
   | {
       draft: ComposeState;
+      revision: string;
       accounts: Array<{ email: string }>;
       thread: DraftCardThread;
       settings: Pick<UserSettings, "signature" | "imagePolicy">;

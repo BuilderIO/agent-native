@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import {
+  SAVE_CONFLICT_ERROR_CODE,
+  saveRevisionOf,
+} from "@agent-native/core/save-conflict";
 import type { ComposeState, DraftCardData, EmailMessage } from "@shared/types";
 import {
   focusManager,
@@ -54,6 +58,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: () => <div data-testid="skeleton" />,
+}));
+vi.mock("@agent-native/core/client/analytics", () => ({
+  trackEvent: vi.fn(),
 }));
 
 vi.mock("./ComposeModal", async () => {
@@ -141,6 +148,7 @@ function cardData(
 ): DraftCardData {
   return {
     draft,
+    revision: saveRevisionOf(draft),
     accounts: [{ email: "agent@example.com" }],
     thread: { messages: [], status: "none" },
     settings: { signature: "Sam" },
@@ -155,10 +163,37 @@ function serveCard(read: () => DraftCardData | Promise<DraftCardData>) {
     async (name: string, params: Record<string, unknown>) => {
       if (name === "get-draft-card") return read();
       const current = await read();
-      const { action: _action, id: _id, ...edits } = params;
-      return { draft: { ...current.draft, ...edits } };
+      const {
+        action: _action,
+        id: _id,
+        expectedRevision: _revision,
+        ...edits
+      } = params;
+      const draft = { ...current.draft, ...edits };
+      return { draft, revision: saveRevisionOf(draft) };
     },
   );
+}
+
+// Holds a draft and refuses a stale save, as manage-draft does.
+function serveStoredDraft(initial: ComposeState) {
+  const server = { draft: initial };
+  mockCallAction.mockImplementation(
+    async (name: string, params: Record<string, unknown>) => {
+      if (name === "get-draft-card") return cardData(server.draft);
+      const { action: _action, id: _id, expectedRevision, ...edits } = params;
+      const currentRevision = saveRevisionOf(server.draft);
+      if (expectedRevision !== currentRevision) {
+        throw Object.assign(new Error("Changed since it was read."), {
+          errorCode: SAVE_CONFLICT_ERROR_CODE,
+          details: { current: server.draft, currentRevision },
+        });
+      }
+      server.draft = { ...server.draft, ...edits };
+      return { draft: server.draft, revision: saveRevisionOf(server.draft) };
+    },
+  );
+  return server;
 }
 
 function saves() {
@@ -271,11 +306,11 @@ describe("DraftCard", () => {
     const drafts = new Map([newDraft, replyDraft].map((d) => [d.id, d]));
     mockCallAction.mockImplementation(
       async (name: string, params: Record<string, unknown>) => {
-        const { action: _action, id, ...edits } = params;
+        const { action: _action, id, expectedRevision: _r, ...edits } = params;
         const draft = drafts.get(id as string);
         if (!draft) throw new Error(`No draft ${String(id)}`);
         if (name === "get-draft-card") return cardData(draft);
-        return { draft: { ...draft, ...edits } };
+        return { draft: { ...draft, ...edits }, revision: "saved" };
       },
     );
     const router = createMemoryRouter(
@@ -301,7 +336,12 @@ describe("DraftCard", () => {
     expect(saves()).toEqual([
       [
         "manage-draft",
-        { action: "update", id: newDraft.id, body: "Free Friday" },
+        {
+          action: "update",
+          id: newDraft.id,
+          expectedRevision: saveRevisionOf(newDraft),
+          body: "Free Friday",
+        },
       ],
     ]);
     expect(composer().activeDraft?.body).toBe(replyDraft.body);
@@ -396,7 +436,12 @@ describe("DraftCard", () => {
       expect(saves()).toEqual([
         [
           "manage-draft",
-          { action: "update", id: newDraft.id, body: "Free Friday" },
+          {
+            action: "update",
+            id: newDraft.id,
+            expectedRevision: saveRevisionOf(newDraft),
+            body: "Free Friday",
+          },
         ],
       ]);
       expect(composer().activeDraft?.body).toBe("Free Friday");
@@ -417,7 +462,12 @@ describe("DraftCard", () => {
       expect(saves()).toEqual([
         [
           "manage-draft",
-          { action: "update", id: newDraft.id, subject: "Dinner" },
+          {
+            action: "update",
+            id: newDraft.id,
+            expectedRevision: saveRevisionOf(newDraft),
+            subject: "Dinner",
+          },
         ],
       ]);
     });
@@ -435,7 +485,10 @@ describe("DraftCard", () => {
 
     it("keeps what's typed while a save runs", async () => {
       await openCard();
-      let finishSave!: (value: { draft: ComposeState }) => void;
+      let finishSave!: (value: {
+        draft: ComposeState;
+        revision: string;
+      }) => void;
       mockCallAction.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -447,7 +500,10 @@ describe("DraftCard", () => {
       await act(() => vi.advanceTimersByTimeAsync(1_500));
       act(() => composer().onUpdate(newDraft.id, { body: "Second" }));
       await act(async () => {
-        finishSave({ draft: { ...newDraft, body: "First" } });
+        finishSave({
+          draft: { ...newDraft, body: "First" },
+          revision: "after-first",
+        });
         await vi.advanceTimersByTimeAsync(0);
       });
 
@@ -457,6 +513,7 @@ describe("DraftCard", () => {
         "First",
         "Second",
       ]);
+      expect(saves()[1]?.[1].expectedRevision).toBe("after-first");
     });
 
     it("tells the model the draft's new text once it's saved", async () => {
@@ -473,6 +530,9 @@ describe("DraftCard", () => {
         status: "edited",
       });
       expect(report.content[0].text).toContain("Free Friday");
+      expect(report.content[0].text).toContain(
+        saveRevisionOf({ ...newDraft, body: "Free Friday" }),
+      );
     });
 
     it("warns when an edit doesn't save, and keeps it on screen", async () => {
@@ -500,6 +560,169 @@ describe("DraftCard", () => {
       });
 
       expect(saves()).toHaveLength(1);
+    });
+  });
+
+  describe("when someone else saved first", () => {
+    const agentSubject = "Agent's subject";
+
+    async function openStoredCard() {
+      const server = serveStoredDraft(newDraft);
+      const view = renderCard(newDraft.id);
+      await view.findByTestId("composer");
+      vi.useFakeTimers();
+      return { ...view, server };
+    }
+
+    function revisions() {
+      return saves().map(([, params]) => params.expectedRevision);
+    }
+
+    it("saves on the revision it read, then the one each save returns", async () => {
+      const { server } = await openStoredCard();
+
+      act(() => composer().onUpdate(newDraft.id, { body: "One" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      const afterFirst = saveRevisionOf(server.draft);
+      act(() => composer().onUpdate(newDraft.id, { body: "Two" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+
+      expect(revisions()).toEqual([saveRevisionOf(newDraft), afterFirst]);
+      expect(server.draft.body).toBe("Two");
+      expect(mockToast.error).not.toHaveBeenCalled();
+    });
+
+    it("merges a change to another field without asking", async () => {
+      const { server, queryByText } = await openStoredCard();
+      server.draft = { ...server.draft, body: "Agent's body" };
+      const agentRevision = saveRevisionOf(server.draft);
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+
+      expect(queryByText("saveConflict.title")).toBeNull();
+      expect(revisions()).toEqual([saveRevisionOf(newDraft), agentRevision]);
+      expect(saves()[1]?.[1]).not.toHaveProperty("body");
+      expect(server.draft).toMatchObject({
+        subject: "Mine",
+        body: "Agent's body",
+      });
+      expect(composer().activeDraft).toMatchObject({
+        subject: "Mine",
+        body: "Agent's body",
+      });
+    });
+
+    it("asks about the same field, even after a read brought in their change", async () => {
+      const { server, getByText, queryClient } = await openStoredCard();
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      server.draft = { ...server.draft, subject: agentSubject };
+      await act(() =>
+        queryClient.invalidateQueries({ queryKey: ["draft-card", newDraft.id] }),
+      );
+      expect(
+        queryClient.getQueryData<{ draft: ComposeState }>([
+          "draft-card",
+          newDraft.id,
+        ])?.draft.subject,
+      ).toBe(agentSubject);
+      expect(composer().activeDraft?.subject).toBe("Mine");
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+
+      expect(server.draft.subject).toBe(agentSubject);
+      expect(getByText("saveConflict.title")).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(getByText("saveConflict.keepMine"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(server.draft.subject).toBe("Mine");
+      expect(composer().activeDraft?.subject).toBe("Mine");
+    });
+
+    it("writes nothing more when the reader takes the other version", async () => {
+      const { server, getByText } = await openStoredCard();
+      server.draft = { ...server.draft, subject: agentSubject };
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      await act(async () => {
+        fireEvent.click(getByText("saveConflict.useTheirs"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(saves()).toHaveLength(1);
+      expect(composer().activeDraft?.subject).toBe(agentSubject);
+      act(() => composer().onUpdate(newDraft.id, { body: "Later" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(server.draft).toMatchObject({
+        subject: agentSubject,
+        body: "Later",
+      });
+    });
+
+    it("can bring back the version the reader gave up", async () => {
+      const { server, getByText } = await openStoredCard();
+      server.draft = { ...server.draft, subject: agentSubject };
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      await act(async () => {
+        fireEvent.click(getByText("saveConflict.keepMine"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        fireEvent.click(getByText("saveConflict.getOtherBack"));
+        await vi.advanceTimersByTimeAsync(1_500);
+      });
+
+      expect(server.draft.subject).toBe(agentSubject);
+      expect(composer().activeDraft?.subject).toBe(agentSubject);
+    });
+
+    it("doesn't open Mail until the reader has chosen", async () => {
+      const { server, getByText } = await openStoredCard();
+      server.draft = { ...server.draft, subject: agentSubject };
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      await act(async () => {
+        composer().onSendInMail();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mockOpenHostLink).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(getByText("saveConflict.keepMine"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(server.draft.subject).toBe("Mine");
+      expect(mockOpenHostLink).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't store a draft that was sent or deleted during the save", async () => {
+      const { getByText } = await openStoredCard();
+      let gone = false;
+      mockCallAction.mockImplementation(async (name: string) => {
+        if (name === "get-draft-card") {
+          return gone ? { draft: null } : cardData(newDraft);
+        }
+        gone = true;
+        throw Object.assign(new Error("Changed since it was read."), {
+          errorCode: SAVE_CONFLICT_ERROR_CODE,
+          details: { current: null, currentRevision: null },
+        });
+      });
+
+      act(() => composer().onUpdate(newDraft.id, { subject: "Mine" }));
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+
+      expect(getByText("mail.draftCard.goneTitle")).toBeTruthy();
+      expect(saves()).toHaveLength(1);
+      expect(mockToast.error).toHaveBeenCalledWith(
+        "mail.toasts.failedToSaveDraft",
+      );
     });
   });
 
@@ -533,7 +756,10 @@ describe("DraftCard", () => {
         () =>
           new Promise((resolve) => {
             finishSave = () =>
-              resolve({ draft: { ...newDraft, body: "First" } });
+              resolve({
+                draft: { ...newDraft, body: "First" },
+                revision: "after-first",
+              });
           }),
       );
 

@@ -28,6 +28,12 @@ export const CONTENT_CLIP_CLAIMS = {
   viewerName: "name",
   /** Optional, on an upload token: the uploader's IP address. */
   clientIp: "client_ip",
+  /**
+   * Optional, on a public-read token: an opaque key for the signed-out
+   * reader's network, which Clips counts their reads under. Without it, Clips
+   * counts every keyless reader of a Clip on a page together.
+   */
+  visitorKey: "visitor_key",
 } as const;
 
 /** The most comment threads one comment-list call returns. */

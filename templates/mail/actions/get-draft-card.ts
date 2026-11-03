@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { saveRevisionOf } from "@agent-native/core/save-conflict/server";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -106,6 +107,7 @@ export default defineAction({
     z.object({
       // The stored draft and the provider's messages; see shared/types.ts.
       draft: z.looseObject({ id: z.string() }),
+      revision: z.string(),
       accounts: z.array(z.object({ email: z.string() })),
       thread: z.object({
         messages: z.array(z.looseObject({ id: z.string() })),
@@ -140,6 +142,8 @@ export default defineAction({
     const account = draft.savedDraftAccountEmail ?? draft.accountEmail;
     return {
       draft,
+      // Of the stored draft, which is what manage-draft checks a save against.
+      revision: saveRevisionOf(stored),
       // A saved draft keeps its account, so the card has no From picker.
       accounts: account ? [{ email: account }] : [],
       thread,

@@ -208,6 +208,7 @@ describe("existing-resource inline cards", () => {
     it("edits the message's recipients, subject and body", () => {
       const allowed = {
         ...edit,
+        expectedRevision: "revision-1",
         to: "a@example.test",
         cc: "b@example.test",
         bcc: "c@example.test",

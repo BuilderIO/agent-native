@@ -14,7 +14,7 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-const CARD_EDITABLE_FIELD = { type: "actionSchema" } as const;
+const CHECKED_BY_ACTION_SCHEMA = { type: "actionSchema" } as const;
 
 type WidgetWriteAuthorizationInput = {
   toolName: string;
@@ -75,11 +75,12 @@ export const MAIL_CARD_PROFILE = {
     "manage-draft": {
       action: "draftAction",
       id: "draftId",
-      to: CARD_EDITABLE_FIELD,
-      cc: CARD_EDITABLE_FIELD,
-      bcc: CARD_EDITABLE_FIELD,
-      subject: CARD_EDITABLE_FIELD,
-      body: CARD_EDITABLE_FIELD,
+      expectedRevision: CHECKED_BY_ACTION_SCHEMA,
+      to: CHECKED_BY_ACTION_SCHEMA,
+      cc: CHECKED_BY_ACTION_SCHEMA,
+      bcc: CHECKED_BY_ACTION_SCHEMA,
+      subject: CHECKED_BY_ACTION_SCHEMA,
+      body: CHECKED_BY_ACTION_SCHEMA,
     },
   },
 };

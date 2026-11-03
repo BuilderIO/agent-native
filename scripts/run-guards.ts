@@ -81,6 +81,7 @@ const guards = [
   "guard:help-icon-scale",
   "guard:no-default-chrome",
   "guard:single-search-clear",
+  "guard:single-s3-signer",
   "guard:no-boot-data-work",
   "guard:realtime-opt-in",
   "guard:tracking-event-names",

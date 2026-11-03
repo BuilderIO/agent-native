@@ -1,3 +1,4 @@
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -97,6 +98,7 @@ describe("get-draft-card", () => {
     mocks.readAppState.mockResolvedValue(compose);
     await expect(action.run({ id: "draft-1" })).resolves.toEqual({
       draft: compose,
+      revision: saveRevisionOf(compose),
       accounts: [],
       thread: { messages: [], status: "none" },
       // Only what the card shows; the rest of the settings stay out.
@@ -117,6 +119,22 @@ describe("get-draft-card", () => {
       draft: Record<string, unknown>;
     };
     expect(result.draft).toEqual({ ...compose, queuedDraftId: "queued-1" });
+  });
+
+  it("returns the revision manage-draft checks, of the draft as stored", async () => {
+    const stored = {
+      ...compose,
+      queuedDraftRequesterEmail: "lee@example.com",
+      queuedDraftContext: "Follow up",
+    };
+    mocks.readAppState.mockResolvedValue(stored);
+
+    const result = (await action.run({ id: "draft-1" })) as {
+      revision: string;
+    };
+
+    expect(result.revision).toBe(saveRevisionOf(stored));
+    expect(result.revision).not.toBe(saveRevisionOf(compose));
   });
 
   it("offers only the account the draft is saved to", async () => {

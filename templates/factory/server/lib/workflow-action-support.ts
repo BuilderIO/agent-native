@@ -28,7 +28,7 @@ interface WorkflowActionCaller {
  */
 export async function requireWorkflowActionCaller(
   context: ActionRunContext | undefined,
-  input: { factoryId?: string },
+  input: { factoryId?: string | undefined },
 ): Promise<WorkflowActionCaller> {
   const { userEmail, orgId } = await requireWorkspaceMember(
     workspaceMemberIdentityFromContext(context),
@@ -76,17 +76,23 @@ export function assertResultWithinLimit<T>(actionName: string, result: T): T {
 /**
  * Keeps leading entries while the running JSON size stays inside `budget`.
  * The caller reports `truncated` when `kept.length < entries.length`.
+ * `keepFirst` is for a budget a graph may set below one entry: the first entry
+ * is clipped by its own limits, so it is kept over the budget rather than hand
+ * on a page that is empty and says it was cut, which no caller could continue.
  */
 export function takeWithinBudget<T>(
   entries: readonly T[],
   budget: number,
   spent = 0,
+  options: { keepFirst?: boolean } = {},
 ): { kept: T[]; truncated: boolean } {
   const kept: T[] = [];
   let used = spent;
   for (const entry of entries) {
     const cost = JSON.stringify(entry).length + 1;
-    if (used + cost > budget) return { kept, truncated: true };
+    if (used + cost > budget && !(options.keepFirst && kept.length === 0)) {
+      return { kept, truncated: true };
+    }
     kept.push(entry);
     used += cost;
   }

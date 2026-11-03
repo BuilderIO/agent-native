@@ -5,6 +5,11 @@ import {
   openMcpAppHostLink,
   updateMcpAppModelContext,
 } from "@agent-native/core/client/mcp-app-host";
+import {
+  SaveOverlapError,
+  saveWithMerge,
+  type SavedRecord,
+} from "@agent-native/core/save-conflict";
 import type { ComposeState, DraftCardData, EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,
@@ -33,6 +38,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useDraftConflictPrompt } from "@/hooks/use-draft-conflict-prompt";
 
 import { ComposeModal } from "./ComposeModal";
 import { CollapsedMessageRow, ExpandedMessageCard } from "./EmailThread";
@@ -66,6 +72,15 @@ function restrictCardQueries(queryClient: QueryClient) {
 
 function draftCardQueryKey(draftId: string) {
   return ["draft-card", draftId] as const;
+}
+
+// What a save writes. Leaving out the rest keeps other writers' changes to them.
+function changedFields(from: ComposeState, to: ComposeState) {
+  return Object.fromEntries(
+    EDITABLE_FIELDS.filter((field) => to[field] !== from[field]).map(
+      (field) => [field, to[field]],
+    ),
+  );
 }
 
 /**
@@ -107,7 +122,8 @@ export function DraftCard({ draftId }: { draftId: string }) {
     refetchOnWindowFocus: true,
   });
   const loaded = card.data?.draft ? card.data : null;
-  const { edits, update, flush, flushAll } = useDraftEdits(draftId);
+  const { edits, update, flush, flushAll, conflictPrompt } =
+    useDraftEdits(draftId);
 
   useReportDraftGoneToModel(draftId, card.data);
   // A draft this card showed and can't read now was sent or deleted, most
@@ -228,36 +244,75 @@ export function DraftCard({ draftId }: { draftId: string }) {
       >
         {body}
       </div>
+      {conflictPrompt}
     </AccountFilterContext.Provider>
   );
 }
 
 /**
  * The reader's unsaved edits, shown over the stored draft and saved through
- * manage-draft. A save sends only the fields the reader changed, so the
- * agent's earlier changes to other fields stay.
+ * manage-draft. A save names the revision the edits started from, so a change
+ * the reader hasn't seen can't be overwritten: one to another field merges in,
+ * and one to the same field asks which to keep.
  */
 function useDraftEdits(draftId: string) {
   const t = useT();
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<DraftEdits>({});
   const editsRef = useRef<DraftEdits>({});
+  // What the edits started from. A read can't move it under them, or a change to
+  // a field being edited would go unnoticed.
+  const baseRef = useRef<SavedRecord<ComposeState> | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastSaveRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
+  const { resolveOverlap, prompt: conflictPrompt } = useDraftConflictPrompt(
+    (restoreOnto) => {
+      const shown = queryClient.getQueryData<DraftCardData>(
+        draftCardQueryKey(draftId),
+      );
+      if (shown?.draft) {
+        update(draftId, restoreOnto({ ...shown.draft, ...editsRef.current }));
+      }
+    },
+  );
+
   const save = useCallback(async (): Promise<boolean> => {
     const sent = editsRef.current;
-    if (Object.keys(sent).length === 0) return true;
+    const base = baseRef.current;
+    if (!base || Object.keys(sent).length === 0) return true;
     try {
-      const result = (await callAction("manage-draft", {
-        action: "update",
-        id: draftId,
-        ...sent,
-      })) as { draft: ComposeState };
+      const saved = await saveWithMerge<ComposeState>({
+        base,
+        mine: { ...base.value, ...sent },
+        resolveOverlap,
+        parseCurrent: (current) => {
+          // Sent or deleted during this save. Merging would store it again, so
+          // this fails and the read below says it's gone.
+          if (!current) throw new Error(`Draft ${draftId} is gone.`);
+          return current as ComposeState;
+        },
+        save: async ({ value, revision, base: from }) => {
+          const result = (await callAction("manage-draft", {
+            action: "update",
+            id: draftId,
+            expectedRevision: revision ?? undefined,
+            ...changedFields(from, value),
+          })) as { draft: ComposeState; revision: string };
+          return { value: result.draft, revision: result.revision };
+        },
+      });
+      baseRef.current = saved;
       const key = draftCardQueryKey(draftId);
       await queryClient.cancelQueries({ queryKey: key });
       queryClient.setQueryData<DraftCardData>(key, (current) =>
-        current?.draft ? { ...current, draft: result.draft } : current,
+        current?.draft
+          ? {
+              ...current,
+              draft: saved.value,
+              revision: saved.revision ?? current.revision,
+            }
+          : current,
       );
       // Anything typed while this save ran is still unsaved.
       const remaining = Object.fromEntries(
@@ -270,22 +325,26 @@ function useDraftEdits(draftId: string) {
       reportToModel(
         draftId,
         "edited",
-        `The user edited email draft ${draftId} in the Mail card. It now reads:\n` +
-          `To: ${result.draft.to}\nCc: ${result.draft.cc ?? ""}\n` +
-          `Bcc: ${result.draft.bcc ?? ""}\nSubject: ${result.draft.subject}\n\n` +
-          result.draft.body,
+        `The user edited email draft ${draftId} in the Mail card. To change it ` +
+          `again, send expectedRevision "${saved.revision}". It now reads:\n` +
+          `To: ${saved.value.to}\nCc: ${saved.value.cc ?? ""}\n` +
+          `Bcc: ${saved.value.bcc ?? ""}\nSubject: ${saved.value.subject}\n\n` +
+          saved.value.body,
       );
       return true;
     } catch (error) {
       console.error(`Couldn't save draft ${draftId}:`, error);
-      toast.error(t("mail.toasts.failedToSaveDraft"));
+      // The prompt already said so when it couldn't ask.
+      if (!(error instanceof SaveOverlapError)) {
+        toast.error(t("mail.toasts.failedToSaveDraft"));
+      }
       // The draft may be gone by now; the read says so.
       void queryClient.invalidateQueries({
         queryKey: draftCardQueryKey(draftId),
       });
       return false;
     }
-  }, [draftId, queryClient, t]);
+  }, [draftId, queryClient, resolveOverlap, t]);
 
   // Saves run one at a time, so they can't land out of order. Resolves once
   // everything typed so far is saved, or false when that failed.
@@ -312,12 +371,21 @@ function useDraftEdits(draftId: string) {
         if (value !== undefined) changed[field] = value;
       }
       if (Object.keys(changed).length === 0) return;
+      // Nothing unsaved, so this starts from the draft on screen.
+      if (Object.keys(editsRef.current).length === 0) {
+        const shown = queryClient.getQueryData<DraftCardData>(
+          draftCardQueryKey(draftId),
+        );
+        // The composer's last change after the draft went: nothing to edit.
+        if (!shown?.draft) return;
+        baseRef.current = { value: shown.draft, revision: shown.revision };
+      }
       editsRef.current = { ...editsRef.current, ...changed };
       setEdits(editsRef.current);
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
     },
-    [flush],
+    [draftId, flush, queryClient],
   );
 
   // A host can tear the card down with the chat, so a hidden card saves now.
@@ -334,7 +402,7 @@ function useDraftEdits(draftId: string) {
     };
   }, []);
 
-  return { edits, update, flush, flushAll };
+  return { edits, update, flush, flushAll, conflictPrompt };
 }
 
 function DraftCardHeader({
