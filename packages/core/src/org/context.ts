@@ -513,6 +513,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     const membershipsBeforeJoin = memberships;
     const joined = await autoJoinDomainMatchingOrgs(email, {
       activateJoinedOrg: "never",
+      event,
     });
     const joinedOrgId = joined.joined[0]?.orgId ?? null;
     if (joinedOrgId) {
