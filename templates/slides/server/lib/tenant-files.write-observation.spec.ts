@@ -45,7 +45,9 @@ function writeExport(dir: string, name: string, mtime: Date): void {
 }
 
 function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
-  const order = spy.mock.invocationCallOrder.at(0);
+  const orders: ReadonlyArray<number | undefined> =
+    spy.mock.invocationCallOrder;
+  const order = orders[0];
   if (order === undefined) {
     throw new Error("Expected the spy to be called.");
   }

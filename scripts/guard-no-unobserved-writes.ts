@@ -20,7 +20,13 @@
  *   - vendor SDK imports known to write externally (stripe, googleapis, …)
  *
  * A flagged line passes when:
- *   - the same file calls `noteExternalWrite(`, or
+ *   - a `noteExternalWrite(` call comes before it in the same function (or in
+ *     one that contains it, or at module level for code outside any function).
+ *     A call to a function in the same file that itself calls
+ *     `noteExternalWrite(` counts as one. A note in another function, after the
+ *     write, or inside a callback beside it covers nothing. An import of an
+ *     HTTP client or vendor SDK has no write site to place a call before, so it
+ *     passes when the file calls `noteExternalWrite(` anywhere, or
  *   - the line or the line above carries an opt-out with a reason:
  *
  *       // observed-write-ok: <why this write is temp-only or retry-idempotent>
@@ -36,6 +42,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import ts from "typescript";
 
 import {
   GUARD_EXIT_COULD_NOT_RUN,
@@ -104,7 +112,6 @@ const CHILD_PROCESS_CALL = new RegExp(
   `(?:(?<![\\w$.])|(?<![\\w$])(?:child_process|childProcess|cp)\\.)(?:${CHILD_PROCESS_CALLS.join("|")})\\s*\\(`,
 );
 const HTTP_REQUEST_CALL = /(?<![\w$])(?:https?|http2)\.request\s*\(/;
-const NOTE_EXTERNAL_WRITE_CALL = /(?<![\w$])noteExternalWrite\s*\(/;
 
 const CHILD_PROCESS_MODULE = /^(?:node:)?child_process$/;
 const HTTP_CLIENT_MODULE =
@@ -200,6 +207,8 @@ function importedModule(line: string): string | null {
 interface WriteMatch {
   matched: string;
   channel: string;
+  /** An import has no write site, so only a call in the file can cover it. */
+  kind: "import" | "call";
 }
 
 function matchUnobservedWrite(
@@ -209,24 +218,40 @@ function matchUnobservedWrite(
   const module = importedModule(line);
   if (module !== null) {
     if (HTTP_CLIENT_MODULE.test(module)) {
-      return { matched: `import "${module}"`, channel: "node-http" };
+      return {
+        matched: `import "${module}"`,
+        channel: "node-http",
+        kind: "import",
+      };
     }
     if (VENDOR_SDK_MODULE.test(module)) {
-      return { matched: `import "${module}"`, channel: "vendor-sdk" };
+      return {
+        matched: `import "${module}"`,
+        channel: "vendor-sdk",
+        kind: "import",
+      };
     }
   }
 
   const code = codeOf(line);
   const fsCall = FS_CALL.exec(code);
-  if (fsCall) return { matched: fsCall[0].trim(), channel: "local-disk" };
+  if (fsCall) {
+    return { matched: fsCall[0].trim(), channel: "local-disk", kind: "call" };
+  }
   if (importsChildProcess) {
     const childCall = CHILD_PROCESS_CALL.exec(code);
     if (childCall) {
-      return { matched: childCall[0].trim(), channel: "child-process" };
+      return {
+        matched: childCall[0].trim(),
+        channel: "child-process",
+        kind: "call",
+      };
     }
   }
   const httpCall = HTTP_REQUEST_CALL.exec(code);
-  if (httpCall) return { matched: httpCall[0].trim(), channel: "node-http" };
+  if (httpCall) {
+    return { matched: httpCall[0].trim(), channel: "node-http", kind: "call" };
+  }
   return null;
 }
 
@@ -243,15 +268,116 @@ function hasEmptyPragma(lines: readonly string[], lineNo: number): boolean {
   );
 }
 
+interface NoteCall {
+  /** Where the call ends: a write is covered only by a call before it. */
+  end: number;
+  /** The function the call is in, or the file, which covers writes inside it. */
+  scopeStart: number;
+  scopeEnd: number;
+  /** In no function: it covers only code that is in none either. */
+  moduleLevel: boolean;
+}
+
+function isFunctionScope(node: ts.Node): boolean {
+  return (
+    ts.isFunctionLike(node) ||
+    ts.isClassStaticBlockDeclaration(node) ||
+    ts.isSourceFile(node)
+  );
+}
+
+function calleeName(node: ts.CallExpression): string | undefined {
+  const callee = node.expression;
+  if (ts.isIdentifier(callee)) return callee.text;
+  return ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+}
+
+/** The name a function is declared or bound to, for a call to find it by. */
+function boundName(fn: ts.Node): string | undefined {
+  if (ts.isFunctionDeclaration(fn)) return fn.name?.text;
+  const parent = fn.parent;
+  if (
+    (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) &&
+    ts.isVariableDeclaration(parent) &&
+    ts.isIdentifier(parent.name)
+  ) {
+    return parent.name.text;
+  }
+  return undefined;
+}
+
+/**
+ * Every `noteExternalWrite(` call, and every call to a function in this file
+ * that makes one (a helper such as `noteLocalFileWrite()`), with the function
+ * it sits in. A helper that calls such a helper makes one too.
+ */
+function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
+  const calls: Array<{ node: ts.CallExpression; scope: ts.Node }> = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      let scope: ts.Node = node;
+      while (!isFunctionScope(scope)) scope = scope.parent;
+      calls.push({ node, scope });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  const noting = new Set(["noteExternalWrite"]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const { node, scope } of calls) {
+      const name = boundName(scope);
+      const callee = calleeName(node);
+      if (
+        name !== undefined &&
+        callee !== undefined &&
+        noting.has(callee) &&
+        !noting.has(name)
+      ) {
+        noting.add(name);
+        grew = true;
+      }
+    }
+  }
+
+  return calls
+    .filter(({ node }) => noting.has(calleeName(node) ?? ""))
+    .map(({ node, scope }) => ({
+      end: node.getEnd(),
+      scopeStart: scope.getStart(sourceFile),
+      scopeEnd: scope.getEnd(),
+      moduleLevel: ts.isSourceFile(scope),
+    }));
+}
+
+/** The start of every function body in the file, to tell code in none from code in one. */
+function functionRanges(sourceFile: ts.SourceFile): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const visit = (node: ts.Node) => {
+    if (isFunctionScope(node) && !ts.isSourceFile(node)) {
+      ranges.push([node.getStart(sourceFile), node.getEnd()]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return ranges;
+}
+
 export function findUnobservedWrites(
   file: string,
   source: string,
   addedLines: ReadonlySet<number>,
 ): UnobservedWriteFinding[] {
   const lines = source.split(/\r?\n/);
-  const observedInFile = lines.some((line) =>
-    NOTE_EXTERNAL_WRITE_CALL.test(codeOf(line)),
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
   );
+  const notes = noteExternalWriteCalls(sourceFile);
+  const functions = functionRanges(sourceFile);
   const importsChildProcess = lines.some((line) => {
     const module = importedModule(line);
     return module !== null && CHILD_PROCESS_MODULE.test(module);
@@ -262,7 +388,31 @@ export function findUnobservedWrites(
     const text = lines[lineNo - 1];
     if (text === undefined) continue;
     const match = matchUnobservedWrite(text, importsChildProcess);
-    if (match === null || observedInFile || hasPragma(lines, lineNo)) continue;
+    if (match === null || hasPragma(lines, lineNo)) continue;
+    // A note counts up to the end of the write's line, so a call earlier on the
+    // same line still covers it; the write belongs to the scope it starts in.
+    const starts = sourceFile.getPositionOfLineAndCharacter(
+      lineNo - 1,
+      text.length - text.trimStart().length,
+    );
+    const ends = sourceFile.getPositionOfLineAndCharacter(
+      lineNo - 1,
+      text.length,
+    );
+    const inFunction = functions.some(
+      ([start, end]) => start <= starts && starts < end,
+    );
+    const noted =
+      match.kind === "import"
+        ? notes.length > 0
+        : notes.some(
+            (note) =>
+              note.end <= ends &&
+              note.scopeStart <= starts &&
+              starts < note.scopeEnd &&
+              !(note.moduleLevel && inFunction),
+          );
+    if (noted) continue;
     findings.push({
       file,
       line: lineNo,
@@ -327,7 +477,9 @@ function main() {
   }
   console.error(
     "noteExternalWrite is exported from @agent-native/core/action. The guard\n" +
-      "accepts any such call in the file, so place it by each write it covers.\n",
+      "accepts a call that comes before the write in the same function, or in a\n" +
+      "function that contains it, or a call to a helper in this file that makes\n" +
+      "one, so place it in the function that makes the write.\n",
   );
   process.exit(1);
 }

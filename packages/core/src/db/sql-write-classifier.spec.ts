@@ -18,6 +18,8 @@ const reads: Array<[string, string]> = [
   ["stacked leading parentheses", "((select 1))"],
   ["select for update", "SELECT id FROM designs WHERE id = $1 FOR UPDATE"],
   ["an advisory lock", "SELECT pg_advisory_xact_lock(hashtext($1))"],
+  ["a try-lock", "SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired"],
+  ["the backend pid", "SELECT pg_backend_pid() AS pid"],
   ["set_config", "select set_config('statement_timeout', '5s', true)"],
   ["nextval", "SELECT nextval('design_seq')"],
   ["show", "SHOW statement_timeout"],
@@ -87,6 +89,30 @@ const reads: Array<[string, string]> = [
   [
     "a column that only contains a write verb",
     "WITH x AS (SELECT 1 AS updated_at) SELECT updated_at FROM x",
+  ],
+  [
+    "a side-effecting function named only in a string",
+    "SELECT * FROM designs WHERE note = 'call pg_notify(x) later'",
+  ],
+  [
+    "a side-effecting function named only in a comment",
+    "SELECT 1 /* pg_notify('c', 'p') */",
+  ],
+  ["a sequence function named only in a string", "SELECT 'setval(1)' AS note"],
+  ["a sequence function named only in a line comment", "SELECT 1 -- setval(1)"],
+  [
+    "a column that only starts like a large-object function",
+    "SELECT lo_total FROM designs",
+  ],
+  ["a column named like a sequence function", "SELECT setval FROM designs"],
+  ["a large-object read", "SELECT lo_get($1)"],
+  [
+    "a function that only ends like a side-effecting one",
+    "SELECT my_setval($1, 2)",
+  ],
+  [
+    "a quoted column and a quoted table",
+    'SELECT "id" FROM "designs" WHERE ("id" = $1)',
   ],
 ];
 
@@ -168,6 +194,37 @@ const writes: Array<[string, unknown]> = [
     "BEGIN; INSERT INTO designs (id) VALUES ('a'); COMMIT",
   ],
   ["a write in a lowercase second statement", "select 1; delete from designs"],
+  ["a select that sends a notification", "SELECT pg_notify('designs', $1)"],
+  ["a notification in uppercase", "SELECT PG_NOTIFY('designs', $1)"],
+  [
+    "a notification with a space before its parenthesis",
+    "SELECT pg_notify ('designs', $1)",
+  ],
+  ["a select that resets a sequence", "SELECT setval('design_seq', 1)"],
+  [
+    "a select that runs SQL on another connection",
+    "SELECT dblink_exec('conn', 'DELETE FROM a')",
+  ],
+  ["a select that removes a large object", "SELECT lo_unlink($1)"],
+  ["a select that imports a large object", "SELECT lo_import('/tmp/a')"],
+  ["a select that creates a large object", "SELECT lo_create(0)"],
+  ["a select that writes a large object", "SELECT lowrite($1, $2)"],
+  [
+    "a select that sends a message to the write-ahead log",
+    "SELECT pg_logical_emit_message(true, 'p', 'm')",
+  ],
+  ["a select that cancels another backend", "SELECT pg_cancel_backend($1)"],
+  [
+    "a notification through a schema name",
+    "SELECT pg_catalog.pg_notify('designs', $1)",
+  ],
+  ["a select that stops another backend", "SELECT pg_terminate_backend($1)"],
+  [
+    "a with whose select sends a notification",
+    "WITH x AS (SELECT pg_notify('c', 'p')) SELECT * FROM x",
+  ],
+  ["values that send a notification", "VALUES (pg_notify('c', 'p'))"],
+  ["a call whose function name is quoted", 'SELECT "refresh_designs"($1)'],
   ["an unterminated string", "SELECT 'oops"],
   ["an unterminated quoted identifier", 'SELECT "oops'],
   ["an unterminated block comment", "SELECT 1 /* never closed"],

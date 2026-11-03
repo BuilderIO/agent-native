@@ -13,7 +13,7 @@ async function load() {
   vi.resetModules();
   const [frames, observation] = await Promise.all([
     import("../action-frame.js"),
-    import("./outbound-write-observation.js"),
+    import("../outbound-write-observation.js"),
   ]);
   const sent = vi.fn(async (..._args: unknown[]) => new Response("{}"));
   globalThis.fetch = sent as unknown as typeof fetch;

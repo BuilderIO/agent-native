@@ -66,7 +66,7 @@ import {
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
-import { observeOutboundWrites } from "./server/outbound-write-observation.js";
+import { observeOutboundWrites } from "./outbound-write-observation.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {

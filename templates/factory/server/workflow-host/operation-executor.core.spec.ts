@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, noteExternalWrite } from "@agent-native/core/action";
 import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -393,13 +393,22 @@ describe("an action operation through the guarded call", () => {
     });
   });
 
-  it("treats an untyped write failure as possibly done, and an untyped read failure as none", async () => {
+  it("treats an untyped write failure after a write was sent as possibly done, and one before any write, or a read failure, as none", async () => {
     behavior.write = () => {
+      noteExternalWrite("provider-post");
       throw new Error("socket hang up");
     };
     expect(await executor.execute(slackPost())).toMatchObject({
       ok: false,
       sideEffect: "maybe",
+    });
+    behavior.write = () => {
+      throw new Error("socket hang up");
+    };
+    // raw-sql-ok: the executor runs a workflow operation, not SQL
+    expect(await executor.execute(slackPost())).toMatchObject({
+      ok: false,
+      sideEffect: "none",
     });
     behavior.read = () => {
       throw new Error("socket hang up");

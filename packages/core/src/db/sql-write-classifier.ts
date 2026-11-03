@@ -8,7 +8,7 @@
 
 // Transaction control, session settings and table locks change no stored data.
 // `SELECT` covers `FOR UPDATE`, `pg_advisory_xact_lock`, `set_config` and
-// `nextval`.
+// `nextval`, unless it calls a function named in `SIDE_EFFECT_CALL`.
 const READ_VERBS = new Set([
   "SELECT",
   "SHOW",
@@ -29,6 +29,15 @@ const READ_VERBS = new Set([
 const WRITING_WORD = /\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\b/i;
 /** `SELECT ... INTO` creates a table. */
 const INTO_WORD = /\bINTO\b/i;
+/**
+ * Built-in functions a `SELECT` or `VALUES` can call that change something
+ * other than a stored row's data: a notification, a sequence, a large object,
+ * another connection or the server. A call whose name is quoted is read as one
+ * of them, since the masked text no longer says which. The app's own functions
+ * cannot be told from their text, so one that writes is not seen.
+ */
+const SIDE_EFFECT_CALL =
+  /\b(?:pg_notify|pg_logical_emit_message|setval|dblink\w*|lo_(?:creat|create|import|export|unlink|put|from_bytea|truncate(?:64)?)|lowrite|pg_(?:terminate|cancel)_backend|pg_reload_conf|pg_rotate_logfile|pg_(?:create|drop)_\w+|pg_replication_\w+)\s*\(|""\s*\(/i;
 const ANALYZE_WORD = /\bANALY[SZ]E\b/i;
 const FINISHES_PREPARED = /^(?:COMMIT|ROLLBACK)\s+PREPARED\b/i;
 const IDENTIFIER_CHAR = /[\w$\u0080-￿]/;
@@ -119,11 +128,20 @@ function isReadStatement(statement: string): boolean {
   const text = statement.replace(/^[\s(]+/, "");
   const verb = /^[A-Za-z_]+/.exec(text)?.[0].toUpperCase();
   if (!verb) return false;
-  if (verb === "WITH") return !WRITING_WORD.test(text) && !INTO_WORD.test(text);
+  if (verb === "WITH") {
+    return (
+      !WRITING_WORD.test(text) &&
+      !INTO_WORD.test(text) &&
+      !SIDE_EFFECT_CALL.test(text)
+    );
+  }
   if (verb === "EXPLAIN") return !ANALYZE_WORD.test(text);
   if (!READ_VERBS.has(verb)) return false;
   if (FINISHES_PREPARED.test(text)) return false;
-  return verb !== "SELECT" || !INTO_WORD.test(text);
+  if (verb === "SELECT") {
+    return !INTO_WORD.test(text) && !SIDE_EFFECT_CALL.test(text);
+  }
+  return verb !== "VALUES" || !SIDE_EFFECT_CALL.test(text);
 }
 
 /** Whether running `sql` may write, or `sql` cannot be told to be a read. */

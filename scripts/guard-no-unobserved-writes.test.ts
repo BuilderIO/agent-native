@@ -167,12 +167,144 @@ describe("unobserved write guard: passes", () => {
     assert.equal(finding.emptyPragma, true);
   });
 
-  it("passes every flagged line in a file that calls noteExternalWrite", () => {
+  it("passes every write that follows a noteExternalWrite in its own function", () => {
     const source = [
       'import { noteExternalWrite } from "@agent-native/core/action";',
+      "export async function save(path, body, old) {",
+      '  noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "  await rm(old);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("passes a write in a callback or branch of the function that noted it", () => {
+    const source = [
+      "export async function prune(paths) {",
+      '  noteExternalWrite("local-disk");',
+      "  for (const p of paths) {",
+      "    if (p) await rm(p);",
+      "  }",
+      "  paths.forEach((p) => unlinkSync(p));",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("passes a module-level write that follows a module-level note", () => {
+    const source = [
       'noteExternalWrite("local-disk");',
-      "await writeFile(path, body);",
-      "await rm(old);",
+      "mkdirSync(dir, { recursive: true });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("does not let a module-level note cover a write inside a function", () => {
+    const source = [
+      'noteExternalWrite("local-disk");',
+      "export async function save(path) {",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["3:local-disk"]);
+  });
+
+  it("does not let a note in one function cover a write in another", () => {
+    const source = [
+      "export async function noted(path) {",
+      '  noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function other(path) {",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["6:local-disk"]);
+  });
+
+  it("does not let a note after a write, or inside a callback beside it, cover it", () => {
+    const source = [
+      "export async function late(path) {",
+      "  await writeFile(path, body);",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "export async function beside(paths) {",
+      '  paths.forEach(() => noteExternalWrite("local-disk"));',
+      "  await rm(paths[0]);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["2:local-disk", "7:local-disk"]);
+  });
+
+  it("lets a note anywhere in the file cover an HTTP client or vendor SDK import", () => {
+    const source = [
+      'import Stripe from "stripe";',
+      'import axios from "axios";',
+      "export async function charge() {",
+      '  noteExternalWrite("vendor-sdk");',
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+    assert.deepEqual(flagged(source.split("\n").slice(0, 2).join("\n")), [
+      "1:vendor-sdk",
+      "2:node-http",
+    ]);
+  });
+
+  it("passes a write that follows a call to a helper in the file that makes the note", () => {
+    const source = [
+      "async function noteDiskWrite() {",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "const markWrite = () => noteDiskWrite();",
+      "export async function save(path, body) {",
+      "  await markWrite();",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function prune(path) {",
+      "  await noteDiskWrite();",
+      "  await rm(path);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("does not pass a write on a helper that makes no note, or that is called after it", () => {
+    const source = [
+      "async function logWrite() {",
+      '  console.log("writing");',
+      "}",
+      "async function noteDiskWrite() {",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "export async function plain(path) {",
+      "  await logWrite();",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function late(path) {",
+      "  await writeFile(path, body);",
+      "  await noteDiskWrite();",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["9:local-disk", "12:local-disk"]);
+  });
+
+  it("accepts a note called through a namespace", () => {
+    const source = [
+      "export async function save(path, body) {",
+      '  core.noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
     ].join("\n");
 
     assert.deepEqual(flagged(source), []);
@@ -240,7 +372,7 @@ describe("unobserved write guard scope", () => {
       "templates/mail/actions/__tests__/sync.ts",
       "templates/mail/app/routes/index.tsx",
       "packages/dispatch/src/server/export.test.ts",
-      "packages/core/src/server/outbound-write-observation.ts",
+      "packages/core/src/outbound-write-observation.ts",
       "apps/demo/actions/do-thing.ts",
       "scripts/guard-no-unobserved-writes.ts",
       "templates/mail/actions/readme.md",

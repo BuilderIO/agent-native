@@ -512,6 +512,7 @@ async function ensureSafeDirectoryPath(root: string, directory: string) {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // observed-write-ok: only writeLocalComponentFile calls this, and it notes the write first
       await fsp.mkdir(current);
       const stat = await fsp.lstat(current);
       if (stat.isSymbolicLink() || !stat.isDirectory()) {

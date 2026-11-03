@@ -1,4 +1,4 @@
-import { noteObservedWrite, observingWrites } from "../action-frame.js";
+import { noteObservedWrite, observingWrites } from "./action-frame.js";
 
 /**
  * The write an action sends over HTTP is seen here, because no other layer can

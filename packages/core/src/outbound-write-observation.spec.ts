@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ActionExecutionFrame } from "../action-frame.js";
+import type { ActionExecutionFrame } from "./action-frame.js";
 
 // Each test loads its own copy of the modules, so the frame storage the wrapper
 // writes to is the one the test reads. `fetch` is a stub that records what
@@ -10,7 +10,7 @@ const originalFetch = globalThis.fetch;
 async function load() {
   vi.resetModules();
   const [frames, observation] = await Promise.all([
-    import("../action-frame.js"),
+    import("./action-frame.js"),
     import("./outbound-write-observation.js"),
   ]);
   return { ...frames, ...observation };
