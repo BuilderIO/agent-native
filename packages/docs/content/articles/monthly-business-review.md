@@ -213,7 +213,7 @@ An MBR usually runs 60 to 90 minutes. Keep at least half of it for the metrics t
 
 ### What's the difference between an MBR, a WBR and a QBR?
 
-A weekly business review (WBR) tracks the same few operating metrics every week to spot what moved. A monthly business review (MBR) compares the month with the plan and corrects course. A quarterly business review (QBR) resets goals for the next quarter. A QBR held with a customer reviews the account's quarter; see [how to make a QBR presentation](https://www.agent-native.com/articles/qbr-presentation/).
+A [weekly business review](https://www.agent-native.com/articles/weekly-business-review/) (WBR) tracks the same few operating metrics every week to spot what moved. A monthly business review (MBR) compares the month with the plan and corrects course. A quarterly business review (QBR) resets goals for the next quarter. A QBR held with a customer reviews the account's quarter; see [how to make a QBR presentation](https://www.agent-native.com/articles/qbr-presentation/).
 
 ### Who should attend an MBR?
 
