@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
     ownerEmail: "ownerEmail",
     orgId: "orgId",
     type: "type",
+    provider: "provider",
+    providerObjectId: "providerObjectId",
   },
   rows: [] as Array<Record<string, string | number | null>>,
   whereCondition: null as Condition | null,
@@ -25,11 +27,14 @@ const state = vi.hoisted(() => ({
   routerParam: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/file-upload", () => ({ uploadFile: vi.fn() }));
+vi.mock("@agent-native/core/file-upload", () => ({
+  uploadFile: vi.fn(),
+  deleteUploadedFile: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: vi.fn(),
-  runWithRequestContext: vi.fn(),
+  runWithRequestContext: vi.fn((_context: unknown, fn: () => unknown) => fn()),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -90,7 +95,19 @@ vi.mock("../db/index.js", () => ({
         from: () => ({
           where: (condition: Condition) => {
             state.whereCondition = condition;
+            const selectRows = () =>
+              state.rows
+                .filter((row) => matches(condition, row))
+                .map((row) =>
+                  Object.fromEntries(
+                    Object.entries(selection).map(([key, column]) => [
+                      key,
+                      row[column],
+                    ]),
+                  ),
+                );
             return {
+              limit: async () => selectRows().slice(0, 1),
               orderBy: async () =>
                 state.rows
                   .filter((row) => matches(condition, row))
@@ -123,6 +140,9 @@ vi.mock("./request-auth-context.js", () => ({
   resolveSlidesRequestAuth: (...args: unknown[]) => state.auth(...args),
 }));
 
+import { deleteUploadedFile } from "@agent-native/core/file-upload";
+import { setResponseStatus } from "h3";
+
 import { deleteAsset, listAssets } from "./assets";
 
 describe("listAssets", () => {
@@ -130,6 +150,9 @@ describe("listAssets", () => {
     state.whereCondition = null;
     state.deleteCondition = null;
     state.routerParam.mockReturnValue("image-1");
+    vi.mocked(deleteUploadedFile).mockReset();
+    vi.mocked(deleteUploadedFile).mockResolvedValue(true);
+    vi.mocked(setResponseStatus).mockClear();
     state.rows = [
       {
         id: "image-1",
@@ -140,6 +163,8 @@ describe("listAssets", () => {
         ownerEmail: "owner@example.com",
         orgId: "org-1",
         type: "image/png",
+        provider: "s3",
+        providerObjectId: null,
       },
       {
         id: "video-1",
@@ -180,6 +205,8 @@ describe("listAssets", () => {
         ownerEmail: "owner@example.com",
         orgId: null,
         type: "image/png",
+        provider: "s3",
+        providerObjectId: null,
       },
     ];
     state.auth.mockReset();
@@ -284,6 +311,46 @@ describe("listAssets", () => {
     expect(state.rows.some((row) => row.id === "legacy-image")).toBe(false);
     expect(state.rows.some((row) => row.id === "other-org-image")).toBe(true);
     expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
+  });
+
+  it("removes the stored file before the row", async () => {
+    await deleteAsset({} as never);
+
+    expect(deleteUploadedFile).toHaveBeenCalledWith("s3", {
+      url: "https://cdn.example.com/slide.png",
+    });
+    expect(state.rows.some((row) => row.id === "image-1")).toBe(false);
+  });
+
+  it("returns 404 for a missing asset and deletes nothing", async () => {
+    state.routerParam.mockReturnValue("made-up-id");
+
+    const result = await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 404);
+    expect(result).toEqual({ error: expect.any(String) });
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 for another owner's asset and leaves it untouched", async () => {
+    state.routerParam.mockReturnValue("other-owner-image");
+
+    const result = await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 403);
+    expect(result).toEqual({ error: expect.any(String) });
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
+    expect(state.rows.some((row) => row.id === "other-owner-image")).toBe(true);
+  });
+
+  it("keeps the row and reports failure when the stored file cannot be deleted", async () => {
+    vi.mocked(deleteUploadedFile).mockResolvedValue(false);
+
+    const result = await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 502);
+    expect(result).toEqual({ error: expect.any(String) });
+    expect(state.rows.some((row) => row.id === "image-1")).toBe(true);
   });
 
   it("limits asset reads to unscoped uploads without an active workspace", async () => {

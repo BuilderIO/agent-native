@@ -2238,12 +2238,55 @@ export const deleteAsset = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Asset id is required" };
   }
+  const assetId = decodeURIComponent(id);
   const db = getDb();
+  const rows = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      provider: schema.uploadedAssets.provider,
+      providerObjectId: schema.uploadedAssets.providerObjectId,
+      ownerEmail: schema.uploadedAssets.ownerEmail,
+      orgId: schema.uploadedAssets.orgId,
+    })
+    .from(schema.uploadedAssets)
+    .where(eq(schema.uploadedAssets.id, assetId))
+    .limit(1);
+  const asset = rows.at(0);
+  if (!asset) {
+    setResponseStatus(event, 404);
+    return { error: "Asset not found" };
+  }
+  const inActiveWorkspace = !asset.orgId || asset.orgId === session.orgId;
+  if (asset.ownerEmail !== session.email || !inActiveWorkspace) {
+    setResponseStatus(event, 403);
+    return { error: "Asset belongs to another user" };
+  }
+
+  const provider = asset.provider;
+  const deleted = provider
+    ? await runWithRequestContext(
+        {
+          userEmail: session.email,
+          ...(session.orgId ? { orgId: session.orgId } : {}),
+        },
+        () =>
+          deleteUploadedFile(provider, {
+            ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
+            url: asset.url,
+          }),
+      )
+    : false;
+  if (!deleted) {
+    setResponseStatus(event, 502);
+    return { error: "Could not delete the stored file" };
+  }
+
   await db
     .delete(schema.uploadedAssets)
     .where(
       and(
-        eq(schema.uploadedAssets.id, decodeURIComponent(id)),
+        eq(schema.uploadedAssets.id, assetId),
         eq(schema.uploadedAssets.ownerEmail, session.email),
         imageAssetWorkspaceScope(session.orgId),
       ),
