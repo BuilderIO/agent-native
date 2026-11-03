@@ -213,6 +213,15 @@ describe("update-form settings", () => {
     expect(state.updated).toBeNull();
   });
 
+  it("doesn't report a fields conflict when a rename loses the race", async () => {
+    state.writeConflict = true;
+
+    await expect(
+      updateForm.run({ id: "form-1", title: "Renamed" }),
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "form_changed" });
+    expect(state.updated).toBeNull();
+  });
+
   it("refuses to replace the fields without the revision it read", async () => {
     await expect(
       updateForm.run({ id: "form-1", fields: [] }),

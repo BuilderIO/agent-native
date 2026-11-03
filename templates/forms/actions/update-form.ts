@@ -208,6 +208,14 @@ export default defineAction({
         .returning({ id: schema.forms.id });
 
       if (!written) {
+        // Only a call that sent fields has a fields revision to answer with.
+        // The rest stay last-save-wins, so they read again and retry.
+        if (args.fields === undefined) {
+          fail(
+            `Form ${args.id} changed while this update was in progress; read it again and retry`,
+            { errorCode: "form_changed", statusCode: 409 },
+          );
+        }
         const rows = await db
           .select()
           .from(schema.forms)
