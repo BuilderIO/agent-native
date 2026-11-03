@@ -2298,7 +2298,7 @@ function queuedMessageFileParts(
   return files;
 }
 
-function withQueuedMessageHistory(
+export function withQueuedMessageHistory(
   messages: AgentMessage[],
   queued: AgentQueuedMessage,
 ): AgentMessage[] {
@@ -2307,14 +2307,23 @@ function withQueuedMessageHistory(
   if (!parts.some((part) => part.type === "text")) {
     parts.unshift({ type: "text", text: queued.text });
   }
+  const unmatchedFiles = parts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+      part.type === "file",
+  );
   for (const file of queuedMessageFileParts(queued)) {
-    const alreadyPresent = parts.some(
-      (part) =>
-        part.type === "file" &&
-        (part.url === file.url ||
-          (part.name === file.name && part.mediaType === file.mediaType)),
+    const matchIndex = unmatchedFiles.findIndex((part) =>
+      file.url
+        ? part.url === file.url
+        : !part.url &&
+          part.name === file.name &&
+          part.mediaType === file.mediaType,
     );
-    if (!alreadyPresent) parts.push(file);
+    if (matchIndex >= 0) {
+      unmatchedFiles.splice(matchIndex, 1);
+    } else {
+      parts.push(file);
+    }
   }
   const message: AgentMessage = existing
     ? { ...existing, role: "user", parts }
