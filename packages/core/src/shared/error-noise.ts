@@ -69,6 +69,7 @@ export type ErrorNoiseReason =
   | "amplitude-network"
   | "unattributable-network"
   | "benign-abort"
+  | "agentkit-disposed"
   | "run-timeout-reconnect"
   | "agent-auto-continue"
   | "session-replay-autoplay"
@@ -575,6 +576,14 @@ const RULES: readonly NoiseRule[] = [
     reason: "benign-abort",
     surfaces: BROWSER,
     test: ({ type, value }) => isBenignAbort(type, value),
+  },
+  {
+    // The reason AgentKit aborts its in-flight requests with when the client
+    // is disposed (route change, unmount). A host promise that rejects with it
+    // after teardown is the abort being observed, not a failure.
+    reason: "agentkit-disposed",
+    surfaces: BROWSER,
+    test: ({ type }) => type === "AgentKitDisposedError",
   },
   {
     reason: "run-timeout-reconnect",
