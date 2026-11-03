@@ -88,7 +88,7 @@ With deals in HubSpot and calls in Gong, you can [ask Agent-Native Analytics abo
 
 Turn the discovery page into **one headline per slide, starting from the prospect's situation**. A good order is their situation, what it costs them, one headline per problem, then why you over the alternative. Aim for 6–10 headlines, counting the title and the next step. For the Pinecrest example, the first headlines could be "Invoices wait in 14 inboxes before anyone approves them" and "Late approvals cost Pinecrest early-payment discounts."
 
-Give your company one slide at most. The headlines alone should read as the story of the meeting.
+Give your company one slide at most. The headlines alone should read as the story of the meeting, the same test consultants use when they [write every slide title before building a consulting deck](https://www.agent-native.com/articles/consulting-deck/).
 
 ### 4. Match each problem to what you sell
 
