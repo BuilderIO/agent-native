@@ -951,6 +951,7 @@ const editor = {
       video: "Vidéo",
     },
     fromSource: "À partir de {{name}}",
+    hiddenInThisView: "Masquées dans cette vue",
     hiddenProperties: "Propriétés cachées",
     imageUploaded_zero: "Images téléchargées",
     imageUploaded_one: "Image téléchargée",
@@ -1289,6 +1290,23 @@ const rawLiterals = {
     restoreDatabase: "Restaurer",
     restoreDatabaseNamed: "Restaurer {{title}}",
     trash: "Corbeille",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Gratuit et open source sur GitHub",
+    pagePath: "Chemin de la page",
+    privateDescription:
+      "Demandez au propriétaire de le partager avec votre compte ou votre espace de travail avant d’ouvrir ce lien.",
+    privateTitle: "Ce document est privé",
+    signIn: "Connexion",
+    signUp: "S’inscrire",
+    signUpFree: "Inscription gratuite",
+    subPages: "Sous-pages",
+    tryContentFree: "Essayer Content gratuitement",
+    updated: "Mis à jour le {{date}}",
+    writtenIn: "Rédigé dans Agent-Native Content.",
+    writtenInDescription:
+      "Rédigez et publiez vos propres pages, avec un agent IA qui travaille dans vos documents.",
   },
 };
 

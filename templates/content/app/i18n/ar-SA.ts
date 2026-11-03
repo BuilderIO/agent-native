@@ -905,6 +905,7 @@ const editor = {
       video: "فيديو",
     },
     fromSource: "من {{name}}",
+    hiddenInThisView: "مخفية في هذا العرض",
     hiddenProperties: "خصائص مخفية",
     imageUploaded_zero: "تم تحميل الصور",
     imageUploaded_one: "تم تحميل الصورة",
@@ -1233,6 +1234,23 @@ const rawLiterals = {
     restoreDatabase: "استعادة",
     restoreDatabaseNamed: "استعادة {{title}}",
     trash: "المهملات",
+  },
+  publicDocument: {
+    chat: "الدردشة",
+    freeAndOpenSource: "مجاني ومفتوح المصدر على GitHub",
+    pagePath: "مسار الصفحة",
+    privateDescription:
+      "اطلب من المالك مشاركته مع حسابك أو مساحة عملك قبل فتح هذا الرابط.",
+    privateTitle: "هذا المستند خاص",
+    signIn: "تسجيل الدخول",
+    signUp: "إنشاء حساب",
+    signUpFree: "أنشئ حسابًا مجانًا",
+    subPages: "الصفحات الفرعية",
+    tryContentFree: "جرّب Content مجانًا",
+    updated: "آخر تحديث {{date}}",
+    writtenIn: "كُتبت في Agent-Native Content.",
+    writtenInDescription:
+      "اكتب صفحاتك وانشرها، مع وكيل ذكاء اصطناعي يعمل داخل مستنداتك.",
   },
 };
 

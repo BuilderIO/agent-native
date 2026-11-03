@@ -79,6 +79,7 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   hasStoredBuilderOAuthGrant,
+  hasStoredBuilderOAuthGrantForUse,
   listUsersWithStoredBuilderOAuthGrant,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
@@ -415,6 +416,18 @@ describe("Builder hosted user OAuth", () => {
     );
 
     await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
+    await expect(hasStoredBuilderOAuthGrantForUse(ownerEmail)).resolves.toBe(
+      true,
+    );
+  });
+
+  it("finds no stored grant when no token row exists", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue(null);
+
+    await expect(hasStoredBuilderOAuthGrantForUse(ownerEmail)).resolves.toBe(
+      false,
+    );
   });
 
   it("does not treat a non-record token bundle as OAuth custody", async () => {

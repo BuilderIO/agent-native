@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_PROFILE as slides2Profile } from "../../../../templates/slides-2/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import {
@@ -69,10 +68,7 @@ const templateProfiles = [
   { appId: "content", profile: contentProfile },
 ] as const;
 
-const registryProfiles = [
-  ...templateProfiles,
-  { appId: "slides-2", profile: slides2Profile },
-] as const;
+const registryProfiles = [...templateProfiles] as const;
 
 // Framework actions the runtime merges into every app (mergeCoreSharingActions
 // and the review kit) that a profile binds to widget grants, so they have no
@@ -92,12 +88,6 @@ const sharedActionsByApp: Record<string, Record<string, unknown>> = {
     "set-resource-visibility": setResourceVisibility,
   },
   slides: {
-    "list-resource-shares": listResourceShares,
-    "share-resource": shareResource,
-    "unshare-resource": unshareResource,
-    "set-resource-visibility": setResourceVisibility,
-  },
-  "slides-2": {
     "list-resource-shares": listResourceShares,
     "share-resource": shareResource,
     "unshare-resource": unshareResource,
@@ -127,8 +117,7 @@ async function loadTemplateActions(appId: string) {
   )?.profile;
   if (!profile) throw new Error(`Unknown ChatGPT directory template ${appId}.`);
   const toolNames = profile.connectorCatalog;
-  const sharedActions =
-    sharedActionsByApp[appId === "slides-2" ? "slides" : appId] ?? {};
+  const sharedActions = sharedActionsByApp[appId] ?? {};
   const loadNames = [
     ...new Set([
       ...toolNames,
@@ -199,10 +188,7 @@ function mentionsTool(text: string, name: string): boolean {
 
 describe("ChatGPT directory template profiles", () => {
   it.each(
-    [
-      { appId: "slides-2", profile: slides2Profile },
-      { appId: "slides", profile: slidesProfile },
-    ].flatMap((template) =>
+    [{ appId: "slides", profile: slidesProfile }].flatMap((template) =>
       [
         { mode: "generic", catalogMode: undefined },
         { mode: "directory", catalogMode: "directory" as const },

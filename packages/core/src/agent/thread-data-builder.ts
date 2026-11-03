@@ -35,7 +35,10 @@ import {
   approvalKeyForPrivateHistory,
 } from "./approval-key.js";
 import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isRejectedRequestErrorCode,
+} from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
   stringifyToolUseInputForGateway,
@@ -250,8 +253,7 @@ function isInternalContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -312,10 +314,21 @@ export function buildAssistantMessage(
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
 
+  // Content length at the last auto_continue; the separator belongs only to a
+  // text delta that lands directly on that tail, not after reasoning or tools.
+  let textBreakAt = -1;
   const appendText = (text: string) => {
-    const last = content[content.length - 1];
-    if (last && last.type === "text") {
-      last.text = (last.text ?? "") + text;
+    const last = content.at(-1);
+    const sep =
+      text &&
+      last?.type === "text" &&
+      last.text &&
+      content.length === textBreakAt
+        ? "\n\n"
+        : "";
+    if (text) textBreakAt = -1;
+    if (last?.type === "text") {
+      last.text = (last.text ?? "") + sep + text;
     } else {
       content.push({ type: "text", text });
     }
@@ -582,6 +595,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "auto_continue") {
+      textBreakAt = content.length;
       if (options.suppressInternalContinuation) {
         endedAtInternalContinuationBoundary = true;
       }
