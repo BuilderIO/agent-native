@@ -38,7 +38,7 @@ export function DatabaseItemPreviewPlaceholder({
   documentId: string;
   databaseId: string | null;
   databaseDocumentId: string | null;
-  rowView?: DatabaseRowView | null;
+  rowView?: DatabaseRowView | null | undefined;
 }) {
   const { document } = item;
   return (

@@ -79,9 +79,11 @@ describe("a row's panel while its page is read", () => {
         />,
       );
     });
-    return container.querySelector<HTMLElement>(
+    const placeholder = container.querySelector<HTMLElement>(
       "[data-database-item-preview-placeholder]",
-    )!;
+    );
+    if (!placeholder) throw new Error("The placeholder didn't draw");
+    return placeholder;
   }
 
   it("draws the toolbar the page will use, with the row's own count", () => {

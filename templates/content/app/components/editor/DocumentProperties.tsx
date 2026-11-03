@@ -202,7 +202,7 @@ interface DocumentPropertiesProps {
   databaseId: string | null;
   databaseDocumentId: string | null;
   /** The view this row was opened from, which lays out its Properties. */
-  rowView?: DatabaseRowView | null;
+  rowView?: DatabaseRowView | null | undefined;
   /** The view isn't read yet, so the Properties don't draw out of order. */
   rowViewPending?: boolean;
   canEdit: boolean;
@@ -1175,7 +1175,7 @@ function HiddenPropertiesMenu({
   databaseDocumentId?: string;
   databaseId: string;
   properties: DocumentProperty[];
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   t: TFunction;
 }) {
   const configure = useConfigureDocumentProperty(
@@ -4245,7 +4245,7 @@ export function AddProperty({
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
   onConnectSource?: () => void;
