@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireFormsPermission } from "../server/lib/app-roles.js";
+import { fieldsRevision } from "../server/lib/merge-fields.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -201,6 +202,7 @@ export default defineAction({
               : {}),
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
+            revision: fieldsRevision(form.fields),
             ...(selection ? { selection } : {}),
           };
         }
