@@ -486,15 +486,22 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
       </div>
 
-      {partialTranscript ? (
+      {partialTranscript && audience !== "viewer" && builderCreditsPaused ? (
+        <div className="border-b border-border p-3">
+          <BuilderCreditsPausedNotice onRetry={onRetry} />
+        </div>
+      ) : partialTranscript && audience !== "viewer" && needsSetup ? (
+        <div className="border-b border-border">
+          <TranscriptSetupCard
+            failureReason={failureReason}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : partialTranscript ? (
         <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
           <IconAlertTriangle className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            {audience !== "viewer" && (builderCreditsPaused || needsSetup)
-              ? t("transcriptPanel.transcriptUnavailable", {
-                  reason: friendlyTranscriptFailure(failureReason, t),
-                })
-              : t("transcriptPanel.partialTranscript")}
+            {t("transcriptPanel.partialTranscript")}
           </span>
           {onRetry ? (
             <Button
