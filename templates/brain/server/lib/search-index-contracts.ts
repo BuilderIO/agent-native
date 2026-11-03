@@ -22,6 +22,7 @@ export function parseCaptureMetadata(
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
+    // coercion-ok: null is unreadable metadata; callers surface unknown completeness, never zero.
     return null;
   }
 }
