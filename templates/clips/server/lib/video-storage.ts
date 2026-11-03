@@ -3,6 +3,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getActiveFileUploadProviderForRequest,
+  getBuilderUploadCredentialStatus,
   listFileUploadProviders,
   type FileUploadProvider,
 } from "@agent-native/core/file-upload";
@@ -10,7 +11,6 @@ import {
   BUILDER_ASSETS_WRITE_SCOPE,
   canAuthorizeBuilderApiRequest,
   getAppConfig,
-  hasBuilderApiCredentialCustody,
   resolveClipsHostedStorageConfig,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -171,12 +171,11 @@ async function readEmailVerified(
 }
 
 async function ownStorageStatus() {
-  const [active, builderConfigured, builderUploadConfigured] =
-    await Promise.all([
-      getActiveFileUploadProviderForRequest(),
-      hasBuilderApiCredentialCustody(),
-      canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE),
-    ]);
+  const [active, builder] = await Promise.all([
+    getActiveFileUploadProviderForRequest(),
+    getBuilderUploadCredentialStatus(),
+  ]);
+  const { builderUploadConfigured } = builder;
   const isBuilderEnvActive = active?.id === "builder";
   const configured = isBuilderEnvActive
     ? builderUploadConfigured
@@ -197,10 +196,7 @@ async function ownStorageStatus() {
     configured,
     active,
     activeProvider,
-    builderConfigured,
-    builderUploadConfigured,
-    builderReauthorizationRequired:
-      builderConfigured && !builderUploadConfigured,
+    ...builder,
   };
 }
 
