@@ -72,11 +72,12 @@ async function seed(row: {
 }
 
 async function storedSha256(id: string) {
-  const result = await client.query<{ source_head_sha256: string | null }>(
+  const result = await client.query(
     `SELECT source_head_sha256 FROM recordings WHERE id = $1`,
     [id],
   );
-  return result.rows[0]?.source_head_sha256;
+  const row = result.rows[0] as { source_head_sha256: string | null };
+  return row.source_head_sha256;
 }
 
 function fileBytes(length: number, seed = 1) {

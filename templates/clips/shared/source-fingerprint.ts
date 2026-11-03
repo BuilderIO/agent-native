@@ -10,7 +10,8 @@ export const SOURCE_HEAD_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 /** Hex SHA-256 of a file's first `SOURCE_HEAD_BYTES` (or all of a shorter file). */
 export async function sourceHeadSha256(head: Uint8Array): Promise<string> {
-  const span = head.subarray(0, SOURCE_HEAD_BYTES);
+  // A copy: digest() refuses views that may sit on a SharedArrayBuffer.
+  const span = head.slice(0, SOURCE_HEAD_BYTES);
   const digest = await crypto.subtle.digest("SHA-256", span);
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
