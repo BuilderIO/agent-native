@@ -717,6 +717,14 @@ export function gmailStopWatch(accessToken: string): Promise<null> {
   return googleFetch(`${GMAIL_BASE}/stop`, accessToken, { method: "POST" });
 }
 
+export interface GmailBatchResult {
+  id: string;
+  data: any;
+  error?: string;
+  status?: number;
+  errorBody?: unknown;
+}
+
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
 
 async function gmailBatchGet(
@@ -726,15 +734,7 @@ async function gmailBatchGet(
   buildPath: (id: string) => string,
   lane: GmailQuotaLane,
   signal?: AbortSignal,
-): Promise<
-  Array<{
-    id: string;
-    data: any;
-    error?: string;
-    status?: number;
-    errorBody?: any;
-  }>
-> {
+): Promise<GmailBatchResult[]> {
   signal?.throwIfAborted();
   if (ids.length === 0) return [];
 
@@ -744,13 +744,7 @@ async function gmailBatchGet(
     for (let i = 0; i < ids.length; i += maxIdsPerBatch) {
       chunks.push(ids.slice(i, i + maxIdsPerBatch));
     }
-    const results: Array<{
-      id: string;
-      data: any;
-      error?: string;
-      status?: number;
-      errorBody?: any;
-    }> = [];
+    const results: GmailBatchResult[] = [];
     for (const chunk of chunks) {
       const part = await gmailBatchGet(
         accessToken,
@@ -855,15 +849,7 @@ export async function gmailBatchGetMessages(
   format?: "full" | "metadata" | "minimal",
   lane: GmailQuotaLane = "interactive",
   signal?: AbortSignal,
-): Promise<
-  Array<{
-    id: string;
-    data: any;
-    error?: string;
-    status?: number;
-    errorBody?: any;
-  }>
-> {
+): Promise<GmailBatchResult[]> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
     accessToken,
@@ -881,15 +867,7 @@ export async function gmailBatchGetThreads(
   format?: "full" | "metadata" | "minimal",
   metadataHeaders?: string[],
   lane: GmailQuotaLane = "interactive",
-): Promise<
-  Array<{
-    id: string;
-    data: any;
-    error?: string;
-    status?: number;
-    errorBody?: any;
-  }>
-> {
+): Promise<GmailBatchResult[]> {
   const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
@@ -904,20 +882,8 @@ function parseBatchResponse(
   text: string,
   boundary: string,
   ids: string[],
-): Array<{
-  id: string;
-  data: any;
-  error?: string;
-  status?: number;
-  errorBody?: any;
-}> {
-  const results: Array<{
-    id: string;
-    data: any;
-    error?: string;
-    status?: number;
-    errorBody?: any;
-  }> = ids.map((id) => ({ id, data: null, error: "No response part" }));
+): GmailBatchResult[] {
+  const results: GmailBatchResult[] = ids.map((id) => ({ id, data: null, error: "No response part" }));
 
   const marker = `--${boundary}`;
   const rawParts = text.split(marker);
@@ -971,6 +937,7 @@ function parseBatchResponse(
           id: ids[slot],
           data: null,
           error: `Failed to parse JSON: ${e?.message || String(e)}`,
+          status,
         };
         continue;
       }

@@ -446,6 +446,13 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
   ) {
     return TRANSIENT_RETRY_DELAY_MS;
   }
+  if (
+    error instanceof Error &&
+    typeof (error as Error & { status?: unknown }).status === "number" &&
+    (error as Error & { status: number }).status >= 500
+  ) {
+    return TRANSIENT_RETRY_DELAY_MS;
+  }
   return null;
 }
 
