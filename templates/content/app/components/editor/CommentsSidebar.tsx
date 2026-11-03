@@ -174,6 +174,7 @@ import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
+  reviewUnitDiffParts,
   reviewUnitLabel,
   reviewUnitOperations,
   reviewUnits,
@@ -3279,7 +3280,9 @@ export function CommentsSidebar({
         onHeightChange={onHeightChange}
         suggestion={suggestion}
         operations={reviewUnitOperations(unit)}
-        showsBothSides={unit.members.length > 1}
+        isReviewUnit={
+          unit.members.length > 1 || reviewUnitLabel(suggestion) !== null
+        }
         reason={inProposalGroup ? null : agentSuggestionReason(suggestion)}
         documentId={documentId}
         isActive={unit.members.some(
@@ -4067,10 +4070,12 @@ function changesLayout(removed: string, inserted: string) {
 function SuggestionOperationSummary({
   operations,
   expanded,
+  wordLevel = false,
   t,
 }: {
   operations: ResourceSuggestion["operations"];
   expanded: boolean;
+  wordLevel?: boolean;
   t: ReturnType<typeof useT>;
 }) {
   return operations.map((operation, index) => {
@@ -4113,12 +4118,17 @@ function SuggestionOperationSummary({
         : undefined;
 
     if (previousText && nextText) {
-      const diff =
-        operation.kind === "replace_text"
-          ? suggestionDiffParts(previousText, nextText)
-          : null;
-      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const diff =
+        operation.kind !== "replace_text"
+          ? null
+          : !wordLevel
+            ? suggestionDiffParts(previousText, nextText)
+            : // Formatted text can only be read as a whole against its source.
+              richText
+              ? null
+              : reviewUnitDiffParts(previousText, nextText);
+      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const changed = (type: "delete" | "insert", whole: string) =>
         diff && hasSharedContext
           ? diff
@@ -4357,7 +4367,7 @@ function SuggestionThreadView({
   onHeightChange,
   suggestion,
   operations,
-  showsBothSides,
+  isReviewUnit,
   reason,
   documentId,
   isActive,
@@ -4390,7 +4400,7 @@ function SuggestionThreadView({
   /** What the card decides, read as one edit even when it takes several pieces. */
   operations: ResourceSuggestion["operations"];
   /** Spells out what the edit replaces without being opened first. */
-  showsBothSides: boolean;
+  isReviewUnit: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
   documentId: string;
@@ -4684,7 +4694,8 @@ function SuggestionThreadView({
             ) : null}
             <SuggestionOperationSummary
               operations={operations}
-              expanded={expanded || showsBothSides}
+              expanded={expanded || isReviewUnit}
+              wordLevel={isReviewUnit}
               t={t}
             />
             {anchorUnavailable || sourceUrl ? (

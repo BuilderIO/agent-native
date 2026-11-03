@@ -1,6 +1,8 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 
+import { wordDiff } from "./comment-ai-diff";
+
 /**
  * The comment thread an AI suggestion was asked for from, if any. Only a
  * suggestion bound to a comment AI request counts: the server checks that
@@ -188,6 +190,20 @@ export function reviewUnitOperations(
       anchor: { from: first.from, to: last.to },
     },
   ];
+}
+
+const REVIEW_UNIT_DIFF_TYPE = {
+  same: "equal",
+  removed: "delete",
+  added: "insert",
+} as const;
+
+/** A unit's change by whole words: by characters, a rewrite reads as noise. */
+export function reviewUnitDiffParts(before: string, after: string) {
+  return wordDiff(before, after).map(({ kind, text }) => ({
+    type: REVIEW_UNIT_DIFF_TYPE[kind],
+    text,
+  }));
 }
 
 // Suggestion ids are URL-safe, so the encoded id in the link is the id itself.

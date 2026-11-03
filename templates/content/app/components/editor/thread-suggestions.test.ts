@@ -6,6 +6,7 @@ import {
   proposalGroups,
   receiptSuggestion,
   reviewedInThread,
+  reviewUnitDiffParts,
   reviewUnitOperations,
   reviewUnits,
   suggestionLineExcerpt,
@@ -220,6 +221,16 @@ describe("reviewUnitOperations", () => {
       unitOf(swap("Teh", "The"), swap("Keep this line.", "<empty-block/>")),
     );
     expect(operations).toHaveLength(2);
+  });
+});
+
+describe("reviewUnitDiffParts", () => {
+  it("keeps whole words together", () => {
+    expect(reviewUnitDiffParts("the retry hooks", "the retries")).toEqual([
+      { type: "equal", text: "the " },
+      { type: "delete", text: "retry hooks" },
+      { type: "insert", text: "retries" },
+    ]);
   });
 });
 

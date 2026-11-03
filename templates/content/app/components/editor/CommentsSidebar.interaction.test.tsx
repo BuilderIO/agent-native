@@ -407,7 +407,10 @@ describe("comment review interactions", () => {
             id: `operation-${id}`,
             kind: "replace_text",
             before: { markdown: source, changedText: find },
-            after: { markdown: source, changedText: find.toUpperCase() },
+            after: {
+              markdown: source.replace(find, find.toUpperCase()),
+              changedText: find.toUpperCase(),
+            },
             anchor: { from, to: from + find.length },
           },
         ],
@@ -474,6 +477,50 @@ describe("comment review interactions", () => {
         [members[0], members[1]],
         true,
       );
+    });
+
+    it("shows what a one-piece unit replaces, where cards would read alike", () => {
+      render(null, [], "inline", {
+        suggestions: [piece("one", "k:0", "Teh"), piece("two", "k:1", "files")],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const card = container.querySelector("[data-suggestion-id='one']");
+      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
+      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+    });
+
+    it("marks a unit's change by whole words", () => {
+      const rewrite = "Our plan is ready now.";
+      const swap = (id: string, find: string, replace: string) => {
+        const from = rewrite.indexOf(find);
+        const member = piece(id, "k:0", find);
+        member.operations = [
+          {
+            ...member.operations[0],
+            before: { markdown: rewrite, changedText: find },
+            after: { markdown: rewrite, changedText: replace },
+            anchor: { from, to: from + find.length },
+          },
+        ];
+        return member;
+      };
+      render(null, [], "inline", {
+        suggestions: [
+          swap("one", "Our", "The"),
+          swap("two", "ready", "steady"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const marked = (selector: string) =>
+        [...container.querySelectorAll(selector)].map((span) =>
+          span.textContent?.trim(),
+        );
+      expect(marked(".line-through")).toEqual(["Our", "ready"]);
+      expect(marked(".underline")).toEqual(["The", "steady"]);
     });
   });
   it("keeps a proposal's Accept all off while one of its edits can't be placed", () => {
