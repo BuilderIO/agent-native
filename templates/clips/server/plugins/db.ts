@@ -1400,10 +1400,9 @@ export const migrations = runMigrations(
     {
       version: 100,
       name: "recording-source-head-sha256",
-      sql: [
-        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_head_sha256 TEXT`,
-        `CREATE INDEX IF NOT EXISTS recordings_source_head_idx ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
-      ].join("; "),
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_head_sha256 TEXT;
+      CREATE INDEX IF NOT EXISTS recordings_source_head_idx
+        ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
     },
   ]),
   { table: "clips_migrations" },

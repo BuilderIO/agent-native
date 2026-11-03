@@ -442,7 +442,8 @@ describe("queueRecordFirstUpload", () => {
       file,
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const body = JSON.parse(String(init?.body));
     expect(body.sourceHeadSha256).toBe(await sourceHeadSha256(bytes));
     expect(upload).toMatchObject({
       recordingId: "rec-9",

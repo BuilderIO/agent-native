@@ -16,7 +16,7 @@ export async function findUploadedSourceRecording(
   ownerEmail: string,
   sha256: string,
 ) {
-  const [match] = await getDb()
+  const rows = await getDb()
     .select({
       id: schema.recordings.id,
       organizationId: schema.recordings.organizationId,
@@ -33,7 +33,7 @@ export async function findUploadedSourceRecording(
     )
     .orderBy(desc(schema.recordings.createdAt))
     .limit(1);
-  return match ?? null;
+  return rows.at(0) ?? null;
 }
 
 /**
