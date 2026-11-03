@@ -3,9 +3,9 @@ slug: meeting-summary
 type: how-to-guide
 title: How to write a meeting summary
 seo_title: How to write a meeting summary (with an example)
-og_line: With a worked example and an email to copy
+og_line: Outcomes first, sent the same day
 meta_description: "Write a meeting summary people act on: pull out the decisions, owners and open questions, check them against your notes, and send it the same day."
-og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F19c6376d3be141dba751359cbfd3e716
+og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F453d26d9d16943c2a1ee4e3bcd41ae63
 published: 2026-11-03
 updated: 2026-11-03
 author:
