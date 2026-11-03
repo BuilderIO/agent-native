@@ -243,8 +243,9 @@ export default defineEventHandler(async (event: H3Event) => {
     recording.editsJson,
     typeof recording.durationMs === "number" ? recording.durationMs : 0,
   );
-  const requestedMs = timeline.toSourceMs(
-    parseTimestampMs(queryString(query.atMs), queryString(query.tSeconds)),
+  const requestedMs = parseTimestampMs(
+    queryString(query.atMs),
+    queryString(query.tSeconds),
   );
   const atMs = timeline.toSourceMs(
     clampAgentFrameAtMs(

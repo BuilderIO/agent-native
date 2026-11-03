@@ -33,6 +33,7 @@ import {
   clampFrameSheetRange,
   frameSheetReachesPast,
   parseFrameSheetRequest,
+  type FrameSheetRequest,
   planFrameSheet,
   type FrameSheetPlan,
   type FrameSheetResult,
@@ -159,19 +160,24 @@ export default defineEventHandler(async (event: H3Event) => {
   ): FrameSheetResult<FrameSheetPlan> => {
     const clamped = clampFrameSheetRange(parsed.value, durationMs);
     if (!clamped.ok) return clamped;
-    const planned = planFrameSheet({
-      request: clamped.value,
-      fps,
-      durationMs,
-      width: recording.width,
-      height: recording.height,
-    });
+    const planRequest = (request: FrameSheetRequest) =>
+      planFrameSheet({
+        request,
+        fps,
+        durationMs,
+        width: recording.width,
+        height: recording.height,
+      });
+    const planned = planRequest(clamped.value);
     if (!planned.ok) return planned;
     const cut = timeline.cutBoundariesMs.find(
       (boundaryMs) =>
         boundaryMs > planned.value.startMs && boundaryMs < planned.value.endMs,
     );
     if (cut === undefined) return planned;
+    if (parsed.value.endMs === null) {
+      return planRequest({ ...clamped.value, endMs: cut });
+    }
     return {
       ok: false,
       error: `This range crosses a cut the owner made at ${cut} ms, and a frame sheet shows continuous footage.`,
