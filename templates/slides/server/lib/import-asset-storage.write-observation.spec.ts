@@ -63,6 +63,14 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
+  const order = spy.mock.invocationCallOrder.at(0);
+  if (order === undefined) {
+    throw new Error("Expected the spy to be called.");
+  }
+  return order;
+}
+
 describe("storeLocalImportedAsset write observation", () => {
   it("notes the write before creating the folder and saving the file", async () => {
     const url = await storeLocalImportedAsset({
@@ -80,12 +88,12 @@ describe("storeLocalImportedAsset write observation", () => {
     );
     expect(url).toMatch(/\/api\/import-assets\//);
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(mkdir).mock.invocationCallOrder[0],
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(
+      callOrder(vi.mocked(mkdir)),
     );
     expect(mkdir).toHaveBeenCalledWith(directory, { recursive: true });
-    expect(vi.mocked(mkdir).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(writeFile).mock.invocationCallOrder[0],
+    expect(callOrder(vi.mocked(mkdir))).toBeLessThan(
+      callOrder(vi.mocked(writeFile)),
     );
     const [saved] = fs.readdirSync(directory);
     expect(saved).toMatch(/-Pic-1\.png$/);

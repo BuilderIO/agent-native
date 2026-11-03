@@ -52,6 +52,14 @@ function uploadedFile(name: string): string {
   return file;
 }
 
+function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
+  const order = spy.mock.invocationCallOrder.at(0);
+  if (order === undefined) {
+    throw new Error("Expected the spy to be called.");
+  }
+  return order;
+}
+
 describe("deleteUploadedReference write observation", () => {
   it("notes the delete before unlinking a local upload", async () => {
     expect(isHostedSlidesRuntime()).toBe(false);
@@ -63,9 +71,7 @@ describe("deleteUploadedReference write observation", () => {
     ).resolves.toBe(true);
 
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      unlink.mock.invocationCallOrder[0],
-    );
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(callOrder(unlink));
     expect(fs.existsSync(file)).toBe(false);
   });
 

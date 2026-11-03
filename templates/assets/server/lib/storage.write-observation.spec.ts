@@ -54,6 +54,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
+  const order = spy.mock.invocationCallOrder.at(0);
+  if (order === undefined) {
+    throw new Error("Expected the spy to be called.");
+  }
+  return order;
+}
+
 describe("putObject local fallback writes", () => {
   it("notes a local-disk write before the folder and file are created", async () => {
     const stored = await putObject({
@@ -69,11 +77,11 @@ describe("putObject local fallback writes", () => {
       body,
     );
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.mkdir.mock.invocationCallOrder[0],
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(
+      callOrder(mocks.mkdir),
     );
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.writeFile.mock.invocationCallOrder[0],
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(
+      callOrder(mocks.writeFile),
     );
   });
 

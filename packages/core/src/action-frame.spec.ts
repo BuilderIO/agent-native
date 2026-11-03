@@ -131,6 +131,33 @@ describe("withoutWriteObservation", () => {
     });
   });
 
+  it("exempts the work its callback awaits, not a lazy builder it returns", async () => {
+    // A Drizzle query builder is a thenable that sends its statement when it
+    // is awaited, which for a returned one is after the callback has returned.
+    const lazyWrite = (): PromiseLike<void> => ({
+      then(onFulfilled) {
+        noteObservedWrite("db");
+        return Promise.resolve().then(onFulfilled);
+      },
+    });
+    const returned = frame();
+    await inFrame(returned, async () => {
+      await withoutWriteObservation(() => lazyWrite());
+    });
+    expect(returned).toMatchObject({
+      writeObserved: true,
+      writeObservedChannel: "db",
+    });
+
+    const awaited = frame();
+    await inFrame(awaited, async () => {
+      await withoutWriteObservation(async () => {
+        await lazyWrite();
+      });
+    });
+    expect(awaited.writeObserved).toBe(false);
+  });
+
   it("does not leak into a call that overlaps it", async () => {
     const quiet = frame();
     const busy = frame();

@@ -34,6 +34,17 @@ const reads: Array<[string, string]> = [
   ["set", "SET statement_timeout = 3750"],
   ["set local", "SET LOCAL idle_in_transaction_session_timeout = 30000"],
   ["reset", "RESET statement_timeout"],
+  ["lock table", "LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE"],
+  ["lowercase lock table", "lock table design_files in exclusive mode"],
+  ["lock without the table keyword", "LOCK designs"],
+  [
+    "a lock after leading comments",
+    "-- serialize writers\n/* held until commit */ LOCK TABLE design_files IN EXCLUSIVE MODE",
+  ],
+  [
+    "a lock inside a transaction block",
+    "BEGIN; LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE; COMMIT",
+  ],
   ["explain without analyze", "EXPLAIN SELECT * FROM designs"],
   ["explain with options but no analyze", "EXPLAIN (FORMAT JSON) SELECT 1"],
   ["a with that only selects", "WITH x AS (SELECT 1) SELECT * FROM x"],
@@ -93,7 +104,6 @@ const writes: Array<[string, unknown]> = [
   ["call", "CALL refresh_designs()"],
   ["do", "DO $$ BEGIN PERFORM 1; END $$"],
   ["execute", "EXECUTE prepared_write"],
-  ["lock", "LOCK TABLE designs"],
   ["explain analyze", "EXPLAIN ANALYZE SELECT 1"],
   ["explain with an analyze option", "EXPLAIN (ANALYZE, BUFFERS) SELECT 1"],
   ["explain analyse", "EXPLAIN ANALYSE DELETE FROM designs"],
@@ -131,6 +141,14 @@ const writes: Array<[string, unknown]> = [
   [
     "a backslash that does not escape a quote in a standard string",
     "SELECT 'a\\'; DELETE FROM designs",
+  ],
+  [
+    "a lock in a multi-statement string that also inserts",
+    "lock table design_files in exclusive mode; INSERT INTO design_files (id) VALUES ($1)",
+  ],
+  [
+    "a lock that follows a write",
+    "UPDATE designs SET title = $1; LOCK TABLE designs IN EXCLUSIVE MODE",
   ],
   [
     "a read followed by a write",

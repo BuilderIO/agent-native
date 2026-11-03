@@ -44,6 +44,14 @@ function writeExport(dir: string, name: string, mtime: Date): void {
   fs.utimesSync(file, mtime, mtime);
 }
 
+function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
+  const order = spy.mock.invocationCallOrder.at(0);
+  if (order === undefined) {
+    throw new Error("Expected the spy to be called.");
+  }
+  return order;
+}
+
 describe("pruneHostedPptxExports write observation", () => {
   it("notes the delete before unlinking an expired export", () => {
     const dir = exportDir();
@@ -58,9 +66,7 @@ describe("pruneHostedPptxExports write observation", () => {
     pruneHostedPptxExports(dir, NOW);
 
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      unlink.mock.invocationCallOrder[0],
-    );
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(callOrder(unlink));
     expect(unlink).toHaveBeenCalledWith(path.join(dir, "old.pptx"));
     expect(unlink).not.toHaveBeenCalledWith(path.join(dir, "fresh.pptx"));
     expect(fs.existsSync(path.join(dir, "old.pptx"))).toBe(false);

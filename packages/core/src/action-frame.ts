@@ -177,7 +177,10 @@ export function noteObservedWrite(channel: string): void {
  * own writes. Use it only for bookkeeping, or for a write a retry provably
  * cannot repeat, such as one keyed by a deterministic id or a dedup key. Never
  * wrap a write the call exists to make: a failure after it would read as
- * having saved nothing, and the agent would repeat it.
+ * having saved nothing, and the agent would repeat it. The callback must await
+ * the work inside itself: a Drizzle query builder is a thenable that runs when
+ * awaited, after the callback returned, so `() => db.insert(t).values(v)`
+ * exempts nothing.
  */
 export function withoutWriteObservation<T>(fn: () => T): T {
   const frame = actionExecutionStorage?.getStore()?.frame;

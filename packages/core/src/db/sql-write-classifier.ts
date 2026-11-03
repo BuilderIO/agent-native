@@ -6,8 +6,9 @@
  * a read because it only decides whether a failed query is safe to retry.
  */
 
-// Transaction control and session settings change no stored data. `SELECT`
-// covers `FOR UPDATE`, `pg_advisory_xact_lock`, `set_config` and `nextval`.
+// Transaction control, session settings and table locks change no stored data.
+// `SELECT` covers `FOR UPDATE`, `pg_advisory_xact_lock`, `set_config` and
+// `nextval`.
 const READ_VERBS = new Set([
   "SELECT",
   "SHOW",
@@ -21,6 +22,7 @@ const READ_VERBS = new Set([
   "RELEASE",
   "SET",
   "RESET",
+  "LOCK",
 ]);
 
 /** A `WITH` is a read unless one of its common table expressions writes. */

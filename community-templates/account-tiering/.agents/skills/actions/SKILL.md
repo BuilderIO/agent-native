@@ -138,12 +138,12 @@ A receipt is not an error channel. A write that did not achieve the requested st
 
 ## Failed Writes
 
-The framework classifies a failed action from the writes it **saw** the call make: every database write (any statement that is not a `SELECT`) and every `fetch` that is not GET, HEAD or OPTIONS. A rejection raised before any of those is "nothing saved", however it is thrown (`fail()`, a plain `Error`, a library error).
+The framework classifies a failed action from the writes it **saw** the call make: every database write (any statement that is not a read such as `SELECT`, `SET` or `LOCK`, and not the framework's own schema setup) and every `fetch` that is not GET, HEAD or OPTIONS. A rejection raised before any of those is "nothing saved", however it is thrown (`fail()`, a plain `Error`, a library error).
 
 - **Declare writes it cannot see.** Before a disk write, child process, `node:http`/`https` request or vendor SDK call, call `noteExternalWrite("<channel>")`, e.g. `noteExternalWrite("local-disk")`. Without it, a failed call that already wrote looks retry-safe. `guard:no-unobserved-writes` fails new code that skips the call. A temp-only or retry-idempotent write can say why with `// observed-write-ok: <reason>` instead.
-- **`withoutWriteObservation(fn)`** is only for framework bookkeeping (an audit row, a change marker, analytics) or a write a retry provably cannot repeat, such as one keyed by a deterministic id or dedup key. Never wrap the write the call exists to make.
+- **`withoutWriteObservation(fn)`** is only for framework bookkeeping (an audit row, a change marker, analytics) or a write a retry provably cannot repeat, such as one keyed by a deterministic id or dedup key. Never wrap the write the call exists to make. `await` the work inside `fn`: a Drizzle query builder only runs when awaited, after `fn` has returned, so `withoutWriteObservation(() => db.insert(t).values(v))` exempts nothing.
 - **`retrySafe`** says this action's own write is safe to run again, so a failure after that write is not "unknown". It covers only this action's write. Don't set it on an action that appends, sends or charges unless the input carries an idempotency key.
-- **`NoWriteError`** still works as an override, but it is rarely needed now: a rejection before the first observed write already counts as nothing saved.
+- **`NoWriteError`** is an override, not a requirement: most rejections need no label, but it wins over an observed write when the only write before the rejection is one a retry harmlessly repeats (such as uploads nobody has referenced yet), and the framework accepts it only for the call that raised it and only when no nested write action entered that call's handler.
 - **A call that times out or loses its result stays "unknown"**, because it may still be running.
 
 ## Frontend Hooks

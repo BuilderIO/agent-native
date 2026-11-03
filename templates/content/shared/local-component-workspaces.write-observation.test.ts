@@ -53,6 +53,14 @@ afterEach(() => {
   }
 });
 
+function callOrder(spy: { mock: { invocationCallOrder: number[] } }): number {
+  const order = spy.mock.invocationCallOrder.at(0);
+  if (order === undefined) {
+    throw new Error("Expected the spy to be called.");
+  }
+  return order;
+}
+
 describe("local component workspaces write observation", () => {
   it("notes a local-file write before the workspace store is written", async () => {
     const { cwd, workspace } = workspaceWithComponent();
@@ -66,8 +74,8 @@ describe("local component workspaces write observation", () => {
       "utf8",
     );
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-file");
-    expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
-      writeFile.mock.invocationCallOrder[0],
+    expect(callOrder(mocks.noteExternalWrite)).toBeLessThan(
+      callOrder(writeFile),
     );
   });
 
@@ -102,8 +110,8 @@ describe("local component workspaces write observation", () => {
 
     expect(mkdir).toHaveBeenCalled();
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-file");
-    const noted = mocks.noteExternalWrite.mock.invocationCallOrder[0];
-    expect(noted).toBeLessThan(mkdir.mock.invocationCallOrder[0]);
-    expect(noted).toBeLessThan(writeFile.mock.invocationCallOrder[0]);
+    const noted = callOrder(mocks.noteExternalWrite);
+    expect(noted).toBeLessThan(callOrder(mkdir));
+    expect(noted).toBeLessThan(callOrder(writeFile));
   });
 });

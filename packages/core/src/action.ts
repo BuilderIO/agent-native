@@ -341,13 +341,14 @@ export function defineActionErrors<const TCode extends string>(
 }
 
 /**
- * A rejection raised before the action's first write: a missing target, an
- * edit that matches nothing, a patch identical to what is saved. A caller may
- * then retry with corrected arguments instead of treating the call as
- * possibly applied. The framework accepts the claim only for the call that
- * raised it, and only when no write action nested in that call entered its
- * handler; otherwise it reads as any other failure. It cannot see the
- * handler's own database or provider writes, so throw it before the first.
+ * A rejection raised before the action saved anything that matters, so a
+ * caller can retry with corrected arguments. The framework reads a failure
+ * from the writes it saw, so most rejections need no label. This one is an
+ * override that wins over an observed write, for example when the only thing
+ * written first is something a retry harmlessly repeats, such as uploads
+ * nobody has referenced yet. The framework accepts the claim only for the call
+ * that raised it, and only when no write action nested in that call entered
+ * its handler; otherwise it reads as any other failure.
  */
 export class NoWriteError extends ActionContractError {
   readonly noWrite = true;
