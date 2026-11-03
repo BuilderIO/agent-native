@@ -49,6 +49,8 @@ export interface BuilderConnectPopoverProps {
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
+  /** For a trigger inside a menu, which refocuses itself as the pointer leaves. */
+  keepOpenOnFocusOutside?: boolean;
   appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
@@ -282,6 +284,7 @@ export function BuilderConnectPopover({
   onConnect,
   onTriggerClick,
   openOnMount = false,
+  keepOpenOnFocusOutside = false,
   appId,
   contentTestId,
   primaryTestId,
@@ -340,6 +343,9 @@ export function BuilderConnectPopover({
         side="right"
         sideOffset={8}
         aria-labelledby="builder-connect-popover-title"
+        onFocusOutside={
+          keepOpenOnFocusOutside ? (event) => event.preventDefault() : undefined
+        }
         className="z-[330] max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-3 text-left"
       >
         <BuilderConnectChoicePanel

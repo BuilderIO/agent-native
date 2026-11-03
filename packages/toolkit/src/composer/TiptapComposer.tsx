@@ -2167,7 +2167,7 @@ function ModelSelector({
     selectedModelDescription?.name ??
     friendlyModelName(model, t);
   // An empty list mid-load says nothing about connection; judging it now
-  // flashes "Connect agent" at a user whose engine is already connected.
+  // flashes "Connect agent" at a connected user.
   const awaitingModelList = modelListLoading && providerGroups.length === 0;
   const selectedModelNeedsConnection =
     !awaitingModelList &&
@@ -2224,8 +2224,6 @@ function ModelSelector({
     return null;
   }
 
-  if (awaitingModelList && !model && !terminalModeControl) return null;
-
   // Two menus side by side need about 34rem; below that a submenu cannot
   // clear the viewport on either side, so the sections stack in one menu and
   // the model card, which needs the same room, stays hidden.
@@ -2241,6 +2239,7 @@ function ModelSelector({
           <>
             <BuilderConnectPopover
               flow={builderFlow}
+              keepOpenOnFocusOutside
               onConnect={(provisionAccount) => {
                 if (onConnectProvider && !provisionAccount) {
                   onConnectProvider();
@@ -2739,6 +2738,7 @@ function ModelSelector({
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
@@ -2781,9 +2781,17 @@ function ModelSelector({
                 {selectedAgentOption.icon}
               </span>
             ) : null}
-            {selectedAgentOption && selectedAgentOption.id !== "default"
-              ? selectedAgentLabel
-              : selectedModelButtonLabel}
+            {selectedAgentOption && selectedAgentOption.id !== "default" ? (
+              selectedAgentLabel
+            ) : awaitingModelList ? (
+              // The default model name is a guess until the list says what is connected.
+              <span
+                aria-hidden="true"
+                className="inline-block h-3.5 w-20 animate-pulse rounded bg-muted align-middle"
+              />
+            ) : (
+              selectedModelButtonLabel
+            )}
           </span>
           {showEffortInLabel && (
             <span className="agent-composer-model-effort shrink-0 text-muted-foreground">
