@@ -42,7 +42,7 @@ faqs:
   - q: How detailed should meeting minutes be?
     a: Minutes should be detailed enough that someone who missed the meeting knows what was decided and who's doing what. That usually means one or two sentences per agenda item, plus motions word for word. Leave out who said what, unless your group's rules ask for it.
   - q: What's the difference between meeting minutes and meeting notes?
-    a: "Meeting minutes are a formal record of decisions that the whole group approves. Meeting notes are informal, written for yourself or your team, and can hold anything useful. Minutes follow a fixed format and stay neutral. A meeting summary is different again: a few lines sent to everyone after a call."
+    a: "Meeting minutes are a formal record of decisions that the whole group approves. Meeting notes are informal, written for yourself or your team, and can hold anything useful; see how to take meeting notes. Minutes follow a fixed format and stay neutral. A meeting summary is different again: a few lines sent to everyone after a call, covered in how to write a meeting summary."
   - q: Do meeting minutes need to be signed?
     a: Whether minutes need a signature depends on your bylaws or the group's own rules. Where minutes are signed, the secretary, the chair or both sign the approved version after the group votes to approve it. The signature shows which copy is the official record.
   - q: Can AI take meeting minutes?
@@ -216,7 +216,7 @@ Minutes should be detailed enough that someone who missed the meeting knows what
 
 ### What's the difference between meeting minutes and meeting notes?
 
-Meeting minutes are a formal record of decisions that the whole group approves. Meeting notes are informal, written for yourself or your team, and can hold anything useful. Minutes follow a fixed format and stay neutral. A meeting summary is different again: a few lines sent to everyone after a call.
+Meeting minutes are a formal record of decisions that the whole group approves. Meeting notes are informal, written for yourself or your team, and can hold anything useful; see [how to take meeting notes](https://www.agent-native.com/articles/meeting-notes/). Minutes follow a fixed format and stay neutral. A meeting summary is different again: a few lines sent to everyone after a call, covered in [how to write a meeting summary](https://www.agent-native.com/articles/meeting-summary/).
 
 ### Do meeting minutes need to be signed?
 
