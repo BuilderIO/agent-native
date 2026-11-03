@@ -2263,7 +2263,12 @@ function queuedMessageFileParts(
       persistedFileUrl(attachment.referenceUrl) ??
       persistedFileUrl(attachment.url);
     if (url) {
-      if (!seenUrls.has(url)) {
+      if (seenUrls.has(url)) {
+        const storedIndex = unmatchedStored.findIndex(
+          (part) => part.url === url,
+        );
+        if (storedIndex >= 0) unmatchedStored.splice(storedIndex, 1);
+      } else {
         files.push({
           type: "file",
           name: attachment.name,
