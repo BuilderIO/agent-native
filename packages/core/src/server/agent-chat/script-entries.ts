@@ -1,3 +1,4 @@
+import { DEFAULT_TOOL_RESULT_CHARS, fail } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import {
@@ -462,6 +463,20 @@ export async function createResourceScriptEntries(): Promise<
                 description:
                   "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
               },
+              offset: {
+                type: "integer",
+                minimum: 0,
+                maximum: Number.MAX_SAFE_INTEGER,
+                description:
+                  "Read only: zero-based text offset in UTF-16 code units. Requires limit.",
+              },
+              limit: {
+                type: "integer",
+                minimum: 1,
+                maximum: Number.MAX_SAFE_INTEGER,
+                description:
+                  "Read only: requested text length in UTF-16 code units. Requires offset.",
+              },
               content: {
                 type: "string",
                 description: "Content to write. Required for write.",
@@ -515,10 +530,45 @@ export async function createResourceScriptEntries(): Promise<
         },
         needsApproval: requiresSharedResourceApproval,
         allowPersistentApproval: false,
-        run: async (args: Record<string, string>) => {
+        run: async (
+          args: Record<string, unknown> & {
+            action: string;
+            path?: string;
+            offset?: number;
+            limit?: number;
+          },
+          context,
+        ) => {
+          const range = read.validateResourceTextRange(args);
           const { action: a, ...rest } = args;
           if (a === "list") return listEntry.run(rest);
           if (a === "read") {
+            if (range) {
+              if (
+                typeof rest.path !== "string" ||
+                !rest.path ||
+                (rest.scope !== undefined && typeof rest.scope !== "string")
+              ) {
+                fail(
+                  "A Resource range requires a path and an optional string scope.",
+                  { errorCode: "invalid_resource_range" },
+                );
+              }
+              const resource = await read.resolveResourceForRead(
+                rest.path,
+                rest.scope,
+              );
+              if (!resource)
+                fail(`Resource not found: ${rest.path}`, {
+                  errorCode: "resource_not_found",
+                  statusCode: 404,
+                });
+              return read.formatResourceTextRange(
+                resource,
+                range,
+                context?.maxResultChars ?? DEFAULT_TOOL_RESULT_CHARS,
+              );
+            }
             if (!rest.path) return "Error: path is required for read";
             return readEntry.run(rest);
           }
