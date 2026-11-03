@@ -660,6 +660,7 @@ type PreviewFrame = {
   skeleton: boolean;
   placeholder: boolean;
   shareTop: number | null;
+  shareLeft: number | null;
   propertyTop: number | null;
   bodyTop: number | null;
 };
@@ -841,6 +842,57 @@ test("a preview draws the next row while its slow page read finishes", async ({
     const frames = await stopPreviewFrameLog(page);
     expect(frames.some((frame) => frame.placeholder)).toBe(true);
     expectSteadySwitch(frames);
+  } finally {
+    releaseRead();
+    await page.unroute(readPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a preview's Row menu holds its place, and Duplicate waits for the page's read", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  const readPattern = "**/_agent-native/actions/get-document**";
+  let releaseRead = () => {};
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    const readHeld = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    await page.route(readPattern, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("id") === rowB.documentId) await readHeld;
+      await route.fallback();
+    });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+    await preview.getByRole("button", { name: "Next collection page" }).click();
+    await expect(
+      preview.locator("[data-database-item-preview-placeholder]"),
+    ).toContainText(rowB.title);
+
+    const rowActions = preview.getByRole("button", {
+      name: `Preview actions for ${rowB.title}`,
+    });
+    const duplicate = page.getByRole("menuitem", { name: "Duplicate row" });
+    await rowActions.click();
+    await expect(duplicate).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+
+    releaseRead();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
+    await rowActions.click();
+    await expect(duplicate).toBeVisible();
+    await expect(duplicate).not.toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
   } finally {
     releaseRead();
     await page.unroute(readPattern);

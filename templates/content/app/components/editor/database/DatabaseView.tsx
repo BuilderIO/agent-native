@@ -2072,7 +2072,9 @@ function DatabaseTable({
       openItemPage(item);
       return;
     }
-    startDatabaseItemPreviewReads(queryClient, item, document.id);
+    if (item.document.id !== previewDocumentId) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id);
+    }
     setPreviewDocumentId(item.document.id);
   }
 
@@ -5527,7 +5529,10 @@ function DatabaseItemPreview({
     { enabled: false },
   );
   const previewTitle = document?.title || databaseItemPreviewTitle(item);
-  const canEdit = (document ?? item.document).canEdit === true;
+  // The list's answer holds the Row menu's place through a switch. Writing waits
+  // for this page's own answer.
+  const canEdit = document?.canEdit === true;
+  const canEditExpected = (document ?? item.document).canEdit === true;
   const previousButtonRef = useRef<HTMLButtonElement | null>(null);
   const nextButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousDocumentId = previousItem?.document.id;
@@ -5660,7 +5665,8 @@ function DatabaseItemPreview({
               <IconExternalLink className="size-3.5" />
               {dbText("openPage")}
             </Button>
-            {(canEdit && !isWorkspaceCatalog) || removesFavoriteMembership ? (
+            {(canEditExpected && !isWorkspaceCatalog) ||
+            removesFavoriteMembership ? (
               <DropdownMenu
                 modal={false}
                 open={actionsMenuOpen}
@@ -5682,10 +5688,12 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit &&
+                  {canEditExpected &&
                   databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
-                      disabled={duplicateItem.isPending || transitionPending}
+                      disabled={
+                        !canEdit || duplicateItem.isPending || transitionPending
+                      }
                       onSelect={(event) => {
                         event.preventDefault();
                         void duplicatePreviewRow();
