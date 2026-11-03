@@ -1099,6 +1099,10 @@ export default function MeetingDetailRoute() {
   const segments = meeting.segmentsJson ?? [];
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+  // A rebuild that fails after notes were cleared leaves no summary to
+  // regenerate from, and its Retry toast doesn't survive a reload.
+  const canRetryNotes =
+    meeting.transcriptStatus === "failed" && segments.length > 0;
 
   const handleCopyTranscript = async () => {
     if (!segments.length) return;
@@ -1354,7 +1358,7 @@ export default function MeetingDetailRoute() {
                   {t("meetingDetail.working")}
                 </span>
               )}
-              {canEdit && hasSummary && (
+              {canEdit && (hasSummary || canRetryNotes) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
