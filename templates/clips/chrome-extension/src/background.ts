@@ -2403,10 +2403,16 @@ async function attachSession(session: CaptureSession): Promise<void> {
   // attached, and the failure is reported rather than hidden.
   let wanted = [session.targetTabId];
   try {
+    const targetWindowId = (await chrome.tabs.get(session.targetTabId))
+      .windowId;
     wanted = pickDebugTabIds({
       targetTabId: session.targetTabId,
-      targetWindowId: (await chrome.tabs.get(session.targetTabId)).windowId,
-      activations: await readTabActivations(),
+      targetWindowId,
+      // Stored windowIds can be stale; every candidate is re-checked live.
+      activations: (await readTabActivations()).map((tab) => ({
+        ...tab,
+        windowId: targetWindowId,
+      })),
       nowMs: nowMs(),
     });
   } catch (err) {
@@ -2417,9 +2423,23 @@ async function attachSession(session: CaptureSession): Promise<void> {
   for (const tabId of wanted) {
     if (session.debugTabs.has(tabId)) continue;
     if (session.debugTabs.size >= MAX_DEBUGGED_TABS) break;
-    if (tabId !== session.targetTabId && !(await inTargetWindow(session, tabId)))
-      continue;
-    await attachDebugTab(session, tabId);
+    try {
+      if (
+        tabId !== session.targetTabId &&
+        !(await inTargetWindow(session, tabId))
+      )
+        continue;
+      if (!(await attachDebugTab(session, tabId))) continue;
+      if (
+        tabId !== session.targetTabId &&
+        !(await inTargetWindow(session, tabId))
+      )
+        await detachDebugTab(session, tabId);
+    } catch (err) {
+      session.attachError = `Could not check tab ${tabId}'s window: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
   }
 }
 
@@ -2428,15 +2448,11 @@ async function inTargetWindow(
   session: CaptureSession,
   tabId: number,
 ): Promise<boolean> {
-  try {
-    const [target, tab] = await Promise.all([
-      chrome.tabs.get(session.targetTabId),
-      chrome.tabs.get(tabId),
-    ]);
-    return tab.windowId === target.windowId;
-  } catch {
-    return false;
-  }
+  const [target, tab] = await Promise.all([
+    chrome.tabs.get(session.targetTabId),
+    chrome.tabs.get(tabId),
+  ]);
+  return tab.windowId === target.windowId;
 }
 
 async function attachDebugTab(
@@ -3351,7 +3367,9 @@ chrome.tabs.onAttached.addListener(() => {
         await detachDebugTab(session, tabId);
       }
     }
-  })();
+  })().catch((err) => {
+    console.warn("[clips-bg] window cleanup after tab move failed", err);
+  });
 });
 
 chrome.tabs.onActivated.addListener((info) => {
@@ -3413,7 +3431,10 @@ async function followRecordingTab(
   }
   // Attach first, so a refused tab never costs an attached tab its slot.
   if (!(await attachDebugTab(session, tabId))) return;
-  if (recordingDiagnosticsSession() !== session) {
+  if (
+    recordingDiagnosticsSession() !== session ||
+    !(await inTargetWindow(session, tabId))
+  ) {
     await detachDebugTab(session, tabId);
     return;
   }
@@ -3453,8 +3474,11 @@ chrome.tabs.onActivated.addListener((info) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   queueTabActivation(async () => {
-    const [tab] = await chrome.tabs.query({ active: true, windowId });
-    if (typeof tab?.id === "number") await noteTabActivated(tab.id, windowId);
+    const tabs = await chrome.tabs.query({ active: true, windowId });
+    const activeTabId = tabs.length > 0 ? tabs[0].id : undefined;
+    if (typeof activeTabId === "number") {
+      await noteTabActivated(activeTabId, windowId);
+    }
   });
 });
 
