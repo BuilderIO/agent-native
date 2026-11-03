@@ -102,7 +102,7 @@ export default defineAction({
           .optional(),
       )
       .describe(
-        "Override scheduled runs per month; otherwise use accessible email schedules.",
+        "Override scheduled runs per month; otherwise derive runs from this dashboard's enabled daily email schedules across your organization, or only your own outside an organization.",
       ),
   }),
   outputSchema: dashboardCostOutput,
