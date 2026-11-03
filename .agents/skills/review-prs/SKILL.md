@@ -148,6 +148,13 @@ mutation. Route every Factory approval decision through
 `govern-factory-pull-request` and follow its result; only that action may submit
 an approval, under its code-enforced gates.
 
+<!-- framework-repo-only:start -->
+Runs of the `factory-run` skill on the factory VM are also Factory governance:
+the blanket override is unavailable there too. Their only approval path is
+`factory-github approve <PR url> --sha <reviewed head>`, which refuses forks,
+non-members, unverifiable membership, drafts, and a moved head.
+<!-- framework-repo-only:end -->
+
 Only an explicit instruction from Steve, given directly in the current request
 or in the user-authorized prompt for this invocation, triggers this override.
 It must expressly request approval of every currently open, non-draft PR by
