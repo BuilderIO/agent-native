@@ -1314,6 +1314,34 @@ describe("animation target validation", () => {
   });
 });
 
+describe("silent success: reorder and agent field schema", () => {
+  it("rejects reorder-slides ids that name no slide", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "reorder-slides",
+        orderedIds: ["s2", "ghost"],
+      }),
+    ).toThrow(/ghost/);
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("agent patch-deck-fields schema does not accept visibility", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const operations = parameters.properties.operations.items.anyOf;
+    const deckFields = operations.find(
+      (operation: any) =>
+        operation.properties?.op?.const === "patch-deck-fields",
+    );
+    expect(deckFields.properties.fields.additionalProperties).toBe(false);
+  });
+});
+
 describe("isAgentPatchCaller", () => {
   it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);

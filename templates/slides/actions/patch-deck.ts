@@ -845,16 +845,18 @@ const AgentPatchDeckInputSchema = z.object({
         AddSlideOp,
         z.object({
           op: z.literal("patch-deck-fields"),
-          fields: z.object({
-            title: z
-              .string()
-              .optional()
-              .describe("The concise, specific title to apply to the deck"),
-            starred: z
-              .boolean()
-              .optional()
-              .describe("Whether the deck should be starred"),
-          }),
+          fields: z
+            .object({
+              title: z
+                .string()
+                .optional()
+                .describe("The concise, specific title to apply to the deck"),
+              starred: z
+                .boolean()
+                .optional()
+                .describe("Whether the deck should be starred"),
+            })
+            .strict(),
         }),
       ]),
     )
@@ -1098,8 +1100,15 @@ export function applyOperation(
         });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
-      // Build the new order from the client's desired order, keeping only
-      // slides that actually exist in the server copy.
+      const unknownId = orderedIds.find((id) => !byId.has(id));
+      if (unknownId !== undefined) {
+        fail(
+          `Cannot reorder: slide ${unknownId} is not in this deck. Nothing was moved; re-read the deck and reorder with current slide IDs.`,
+          { errorCode: "reorder_unknown_slide_id", statusCode: 409 },
+        );
+      }
+      // Build the new order from the client's desired order; slides the client
+      // did not name stay appended at the end.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const reordered: any[] = orderedIds
         .map((id) => byId.get(id))
