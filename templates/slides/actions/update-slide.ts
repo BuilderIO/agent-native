@@ -570,7 +570,7 @@ export default defineAction({
             }
           | undefined;
 
-        if (shouldResolveCreativeContext) {
+        if (contentApplied && shouldResolveCreativeContext) {
           const effectivePackId =
             contextPackId ?? existingContext?.contextPackId;
           const requestedLabels: CreativeContextReuseLabel[] =
