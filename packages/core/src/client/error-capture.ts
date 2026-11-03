@@ -591,7 +591,6 @@ function domMutationDiagnostics(
   ) {
     return undefined;
   }
-  runtime.domMutationDiagnosticsReported = true;
   const root = document.documentElement;
   return {
     domMutationDiagnostics: {
@@ -676,6 +675,9 @@ function dispatch(
   const signature = signatureOf(event.type, event.message, event.stack);
   if (shouldDedupe(runtime, signature)) return;
   if (!consumeBudget(runtime, event)) return;
+  if (event.extra?.domMutationDiagnostics) {
+    runtime.domMutationDiagnosticsReported = true;
+  }
   try {
     runtime.config.send(event);
   } catch {
