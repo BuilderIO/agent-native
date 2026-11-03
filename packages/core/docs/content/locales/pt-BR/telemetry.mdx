@@ -105,9 +105,9 @@ Estes eventos mostram quantas máquinas que executaram `create` chegaram a inici
 | `workspace`    | Se `dev` está rodando em um workspace.                                                                                                                                                                                            |
 | `appCount`     | Quantos apps o workspace tem, ou 1 fora de um workspace.                                                                                                                                                                          |
 | `readySeconds` | Segundos entre o início de `dev` e o servidor começar a escutar.                                                                                                                                                                  |
-| `preset`       | O host que um build tem como alvo: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Qualquer outro preset é enviado como `other`.                                                          |
+| `preset`       | O host que um build tem como alvo: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Um preset para qualquer outro host é enviado como `other`.                                             |
 
-`deploy` compila seu app e imprime o comando que o publica, então `completed` significa que o build terminou, não que algo foi ao ar. Os dois eventos de conclusão saem quando o comando termina, por meio de um processo auxiliar de curta duração que a saída espera por no máximo 1,5 segundo. Ctrl+C em uma pergunta de `create` conta como `cancelled`. Parar `build` ou `deploy` com Ctrl+C não envia nenhum evento de conclusão.
+`deploy` compila seu app e imprime o comando que o publica, então `completed` significa que o build terminou, não que algo foi ao ar. Os dois eventos de conclusão saem quando o comando termina, por meio de um processo auxiliar de curta duração que a saída espera por no máximo 1,5 segundo. Essa espera se soma a qualquer espera anterior por outros eventos. Ctrl+C em uma pergunta de `create` conta como `cancelled`. Parar `build` ou `deploy` com Ctrl+C não envia nenhum evento de conclusão.
 
 ### Instalar skills {#installing-skills}
 

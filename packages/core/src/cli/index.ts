@@ -18,6 +18,7 @@ import {
   DEPLOY_FINISHED_EVENT,
   deployFinishedProperties,
   noteCreateReturned,
+  readPresetForReport,
   reportAtExit,
   startDevReadyReport,
 } from "./activation-telemetry.js";
@@ -393,7 +394,6 @@ function runBuildStep(
   cmdArgs: string[],
   opts: { label: string; env?: NodeJS.ProcessEnv; shell?: boolean },
 ): Promise<void> {
-  buildStep = opts.label;
   return new Promise<void>((resolve) => {
     const child = spawn(cmd, cmdArgs, {
       stdio: ["inherit", "pipe", "pipe"],
@@ -528,7 +528,7 @@ switch (command) {
       reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
         deployFinishedProperties(exitCode, {
           step: buildStep,
-          preset: resolveAgentNativeNitroPreset(),
+          preset: readPresetForReport(resolveAgentNativeNitroPreset),
         }),
       );
     }
@@ -553,6 +553,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "react-router-build";
         clearAgentNativeNitroPresetMarker();
         const { clearAgentNativeBuildConfigMarker } =
           await import("../vite/agent-native-config-loader.js");
@@ -565,12 +566,14 @@ switch (command) {
           shell: rr.shell,
         });
       } else {
+        buildStep = "vite-build";
         const vite = findViteBin();
         console.log("Building...");
         await runBuildStep(vite, ["build"], { label: "vite-build" });
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "deploy-build";
         const configuredNitroPreset = resolveAgentNativeNitroPreset();
         const deployEnv = configuredNitroPreset
           ? { ...process.env, NITRO_PRESET: configuredNitroPreset }

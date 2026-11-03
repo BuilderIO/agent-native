@@ -105,9 +105,9 @@ These events show how many machines that ran `create` went on to start a dev ser
 | `workspace`    | Whether `dev` is running in a workspace.                                                                                                                                                       |
 | `appCount`     | How many apps the workspace has, or 1 outside a workspace.                                                                                                                                     |
 | `readySeconds` | Seconds from `dev` starting to the server listening.                                                                                                                                           |
-| `preset`       | The host a build targets: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` or `vercel`. Any other preset is sent as `other`.                                         |
+| `preset`       | The host a build targets: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` or `vercel`. A preset for any other host is sent as `other`.                              |
 
-`deploy` builds your app and prints the command that publishes it, so `completed` means the build finished, not that anything went live. The two finished events go out as the command exits, through a short-lived helper process the exit waits for, for at most 1.5 seconds. Ctrl+C at a `create` prompt counts as `cancelled`. Stopping `build` or `deploy` with Ctrl+C sends no finished event.
+`deploy` builds your app and prints the command that publishes it, so `completed` means the build finished, not that anything went live. The two finished events go out as the command exits, through a short-lived helper process the exit waits for, for at most 1.5 seconds. That wait comes on top of any earlier wait for other events. Ctrl+C at a `create` prompt counts as `cancelled`. Stopping `build` or `deploy` with Ctrl+C sends no finished event.
 
 ### Installing skills
 

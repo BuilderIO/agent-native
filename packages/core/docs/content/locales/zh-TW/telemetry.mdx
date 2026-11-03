@@ -105,9 +105,9 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 | `workspace`    | `dev` 是否在工作區中執行。                                                                                                                                                             |
 | `appCount`     | 工作區中的應用程式數量；不在工作區中時為 1。                                                                                                                                           |
 | `readySeconds` | 從 `dev` 啟動到伺服器開始監聽的秒數。                                                                                                                                                  |
-| `preset`       | 建置面向的託管平台：`aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node` 或 `vercel`。其他預設以 `other` 傳送。                                                  |
+| `preset`       | 建置面向的託管平台：`aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node` 或 `vercel`。面向其他平台的預設以 `other` 傳送。                                        |
 
-`deploy` 只建置應用程式並印出發佈它的命令，因此 `completed` 表示建置已完成，而不是有內容已上線。這兩個完成事件在命令結束時透過一個短暫執行的輔助程序發出，結束最多等待它 1.5 秒。在 `create` 的提示處按 Ctrl+C 計為 `cancelled`。用 Ctrl+C 停止 `build` 或 `deploy` 時，不會傳送完成事件。
+`deploy` 只建置應用程式並印出發佈它的命令，因此 `completed` 表示建置已完成，而不是有內容已上線。這兩個完成事件在命令結束時透過一個短暫執行的輔助程序發出，結束最多等待它 1.5 秒。這段等待會疊加在之前等待其他事件的時間之上。在 `create` 的提示處按 Ctrl+C 計為 `cancelled`。用 Ctrl+C 停止 `build` 或 `deploy` 時，不會傳送完成事件。
 
 ### 安裝技能 {#installing-skills}
 

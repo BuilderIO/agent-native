@@ -105,9 +105,9 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 | `workspace`    | क्या `dev` किसी workspace में चल रहा है।                                                                                                                                                                                        |
 | `appCount`     | Workspace में कितने apps हैं, या workspace के बाहर 1।                                                                                                                                                                           |
 | `readySeconds` | `dev` शुरू होने से server के सुनने तक के सेकंड।                                                                                                                                                                                 |
-| `preset`       | वह host जिसके लिए build बना है: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` या `vercel`। कोई भी अन्य preset `other` के रूप में भेजा जाता है।                                                     |
+| `preset`       | वह host जिसके लिए build बना है: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` या `vercel`। किसी अन्य host का preset `other` के रूप में भेजा जाता है।                                               |
 
-`deploy` आपका app build करता है और उसे publish करने वाला कमांड प्रिंट करता है, इसलिए `completed` का अर्थ है कि build पूरा हुआ, न कि कुछ live हुआ। दोनों finished events कमांड के बाहर निकलते समय एक अल्पकालिक helper process से जाते हैं, जिसका इंतज़ार exit अधिकतम 1.5 सेकंड करता है। `create` के prompt पर Ctrl+C को `cancelled` माना जाता है। `build` या `deploy` को Ctrl+C से रोकने पर कोई finished event नहीं भेजा जाता।
+`deploy` आपका app build करता है और उसे publish करने वाला कमांड प्रिंट करता है, इसलिए `completed` का अर्थ है कि build पूरा हुआ, न कि कुछ live हुआ। दोनों finished events कमांड के बाहर निकलते समय एक अल्पकालिक helper process से जाते हैं, जिसका इंतज़ार exit अधिकतम 1.5 सेकंड करता है। यह इंतज़ार अन्य events के लिए पहले हुए किसी भी इंतज़ार के अतिरिक्त होता है। `create` के prompt पर Ctrl+C को `cancelled` माना जाता है। `build` या `deploy` को Ctrl+C से रोकने पर कोई finished event नहीं भेजा जाता।
 
 ### Skills इंस्टॉल करना {#installing-skills}
 

@@ -105,9 +105,9 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 | `workspace`    | `dev`가 워크스페이스에서 실행 중인지 여부.                                                                                                                                                     |
 | `appCount`     | 워크스페이스의 앱 수. 워크스페이스 밖에서는 1.                                                                                                                                                 |
 | `readySeconds` | `dev` 시작부터 서버가 수신을 시작할 때까지의 초.                                                                                                                                               |
-| `preset`       | 빌드가 대상으로 하는 호스트: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` 또는 `vercel`. 그 밖의 프리셋은 `other`로 전송됩니다.                                  |
+| `preset`       | 빌드가 대상으로 하는 호스트: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` 또는 `vercel`. 그 밖의 호스트용 프리셋은 `other`로 전송됩니다.                         |
 
-`deploy`는 앱을 빌드하고 게시 명령을 출력하므로, `completed`는 빌드가 끝났다는 뜻이지 무언가가 게시되었다는 뜻이 아닙니다. 두 완료 이벤트는 명령이 종료될 때 잠시 실행되는 보조 프로세스를 통해 전송되며, 종료는 이를 최대 1.5초까지 기다립니다. `create` 프롬프트에서 누른 Ctrl+C는 `cancelled`로 처리됩니다. Ctrl+C로 `build`나 `deploy`를 중지하면 완료 이벤트가 전송되지 않습니다.
+`deploy`는 앱을 빌드하고 게시 명령을 출력하므로, `completed`는 빌드가 끝났다는 뜻이지 무언가가 게시되었다는 뜻이 아닙니다. 두 완료 이벤트는 명령이 종료될 때 잠시 실행되는 보조 프로세스를 통해 전송되며, 종료는 이를 최대 1.5초까지 기다립니다. 이 대기 시간은 다른 이벤트를 먼저 기다리는 시간과 별도로 더해집니다. `create` 프롬프트에서 누른 Ctrl+C는 `cancelled`로 처리됩니다. Ctrl+C로 `build`나 `deploy`를 중지하면 완료 이벤트가 전송되지 않습니다.
 
 ### 스킬 설치 {#installing-skills}
 

@@ -92,10 +92,26 @@ describe("deploy outcome", () => {
     ["cloudflare_module", "cloudflare"],
     ["aws_lambda", "aws"],
     ["NODE_SERVER", "node"],
+    ["vercel-static", "vercel"],
+    ["node", "node"],
+    ["awsome-host", "other"],
+    ["nodejitsu", "other"],
     ["my-company-internal-host", "other"],
   ])("reports preset %s as %s", async (preset, reported) => {
     const m = await freshModule();
     expect(m.reportablePreset(preset)).toBe(reported);
+  });
+
+  it("keeps the event when the preset marker can't be read", async () => {
+    const m = await freshModule();
+    const preset = m.readPresetForReport(() => {
+      throw new Error("Agent-Native Nitro preset marker is empty");
+    });
+    expect(
+      m.deployFinishedProperties(0, { step: "vite-build", preset }),
+    ).toEqual({ outcome: "completed", preset: "other" });
+    expect(m.readPresetForReport(() => "vercel")).toBe("vercel");
+    expect(m.readPresetForReport(() => undefined)).toBeUndefined();
   });
 
   it("assumes Node only for a build that finished", async () => {
@@ -200,6 +216,27 @@ describe("startDevReadyReport", () => {
     expect(telemetry.track.mock.calls).toEqual([
       ["cli_dev_ready", { workspace: true, appCount: 4, readySeconds: 3.5 }],
     ]);
+  });
+
+  it("keeps watching while the file has no time in it yet", async () => {
+    const m = await freshModule();
+    const telemetry = { track: vi.fn() };
+    const env = m.startDevReadyReport(
+      telemetry,
+      { workspace: false, appCount: () => 1 },
+      {},
+    );
+    const file = env[DEV_SERVER_READY_FILE_ENV] as string;
+    files.push(file);
+
+    fs.writeFileSync(file, "");
+    vi.advanceTimersByTime(2_000);
+    expect(telemetry.track).not.toHaveBeenCalled();
+
+    fs.writeFileSync(file, String(Date.now()));
+    vi.advanceTimersByTime(1_000);
+    expect(telemetry.track).toHaveBeenCalledTimes(1);
+    expect(telemetry.track.mock.calls[0][1].readySeconds).toBe(2);
   });
 
   it("leaves the environment alone when telemetry is off", async () => {

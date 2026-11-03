@@ -105,9 +105,9 @@ Ces événements montrent combien de machines ayant lancé `create` ont ensuite 
 | `workspace`    | Si `dev` tourne dans un workspace.                                                                                                                                                                                                    |
 | `appCount`     | Le nombre d’apps du workspace, ou 1 hors d’un workspace.                                                                                                                                                                              |
 | `readySeconds` | Les secondes entre le lancement de `dev` et le moment où le serveur écoute.                                                                                                                                                           |
-| `preset`       | L’hébergeur visé par un build : `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Tout autre preset est envoyé comme `other`.                                                                   |
+| `preset`       | L’hébergeur visé par un build : `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Un preset pour tout autre hébergeur est envoyé comme `other`.                                                 |
 
-`deploy` compile votre app et affiche la commande qui la publie, donc `completed` signifie que le build est terminé, pas que quoi que ce soit a été mis en ligne. Les deux événements de fin partent quand la commande se termine, via un processus auxiliaire de courte durée que la sortie attend au plus 1,5 seconde. Ctrl+C à une invite de `create` compte comme `cancelled`. Arrêter `build` ou `deploy` avec Ctrl+C n’envoie aucun événement de fin.
+`deploy` compile votre app et affiche la commande qui la publie, donc `completed` signifie que le build est terminé, pas que quoi que ce soit a été mis en ligne. Les deux événements de fin partent quand la commande se termine, via un processus auxiliaire de courte durée que la sortie attend au plus 1,5 seconde. Cette attente s’ajoute à toute attente précédente d’autres événements. Ctrl+C à une invite de `create` compte comme `cancelled`. Arrêter `build` ou `deploy` avec Ctrl+C n’envoie aucun événement de fin.
 
 ### Installer des skills {#installing-skills}
 

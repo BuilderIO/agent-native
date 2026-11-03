@@ -611,7 +611,7 @@ describe("the exit sender script", () => {
     expect(received.sort()).toEqual(["POST first", "POST second"]);
   });
 
-  it("exits cleanly when nothing answers", async () => {
+  it("exits cleanly when the connection is refused", async () => {
     const server = http.createServer();
     const url = await listen(server);
     await new Promise((resolve) => server.close(resolve));

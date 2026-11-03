@@ -33,18 +33,9 @@ const UNKNOWN_TEMPLATE = "unknown";
 const DEV_READY_POLL_MS = 500;
 const DEFAULT_PRESET = "node";
 const OTHER_PRESET = "other";
-// Nitro has many presets per host, such as vercel_edge and netlify-edge.
-const PRESET_HOSTS = [
-  "aws",
-  "azure",
-  "bun",
-  "cloudflare",
-  "deno",
-  "firebase",
-  "netlify",
-  "node",
-  "vercel",
-];
+// Nitro names a preset after its host, such as vercel_edge or netlify-edge.
+const PRESET_HOST_RE =
+  /^(aws|azure|bun|cloudflare|deno|firebase|netlify|node|vercel)(?:$|[-_])/;
 
 const createRun: {
   kind?: CreateProjectKind;
@@ -106,10 +97,19 @@ export function createFinishedProperties(
 
 /** A preset can be any string a developer set, so only known hosts pass. */
 export function reportablePreset(preset: string): string {
-  const normalized = preset.trim().toLowerCase();
-  return (
-    PRESET_HOSTS.find((host) => normalized.startsWith(host)) ?? OTHER_PRESET
-  );
+  return PRESET_HOST_RE.exec(preset.trim().toLowerCase())?.[1] ?? OTHER_PRESET;
+}
+
+/** A preset marker that can't be read doesn't name a host or cost the event. */
+export function readPresetForReport(
+  read: () => string | undefined,
+): string | undefined {
+  try {
+    return read();
+    // coercion-ok: the build reports its own outcome whatever this marker holds
+  } catch {
+    return OTHER_PRESET;
+  }
 }
 
 export function deployFinishedProperties(
@@ -173,6 +173,8 @@ export function startDevReadyReport(
     } catch {
       return;
     }
+    // The server has created the file but not written the time into it yet.
+    if (!readyAt) return;
     clearInterval(poll);
     try {
       telemetry.track(DEV_READY_EVENT, {
