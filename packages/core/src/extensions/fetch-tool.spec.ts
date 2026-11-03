@@ -548,6 +548,40 @@ describe("createFetchToolEntry", () => {
     expect(savedContent).toContain("Research evidence.");
   });
 
+  it("keeps a raw HTML fallback in the saved file instead of save-path search results", async () => {
+    const filler = "x".repeat(50_000);
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      `<frameset cols='200,*'><frame src='/nav' name='topbar'>${filler}</frameset></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/login",
+          extract: "none",
+          search: { query: "topbar" },
+          maxChars: 4_000,
+          saveToFile: "scratch/login.md",
+        }),
+      ),
+    );
+
+    expect(result.savedFormat).toBe("raw");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[2]).toBe(body);
+    expect(result.searchResults).toContain("Matches:");
+    expect(result.searchResults).toContain("topbar");
+    expect(result.searchResults).not.toContain(filler);
+    expect(result.searchResults.length).toBeLessThan(4_000);
+    expect(result.searchResultsTruncated).toBe(false);
+  });
+
   it("returns complete search matches instead of the short save preview", async () => {
     const repeatedMatch =
       "Population estimate: The United States population figure was 331000000 in this report. ";

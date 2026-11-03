@@ -525,6 +525,42 @@ describe("processWebContent", () => {
     expect(result.searchSource).toBe("raw");
   });
 
+  it("keeps a raw fallback body in saved fullContent instead of save-path search results", async () => {
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    const filler = "x".repeat(8_000);
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      `<frameset cols='200,*'><frame src='/nav' name='topbar'>${filler}</frameset></html>`;
+
+    const result = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      extract: "none",
+      search: { query: "topbar" },
+      maxChars: null,
+      saveContentFormat: "markdown",
+    });
+
+    expect(result.fullContent).toBe(body);
+    expect(result.fullContentFormat).toBe("raw");
+    expect(result.content).toBeUndefined();
+    expect(result.truncated).toBeUndefined();
+    expect(result.matches?.length).toBeGreaterThan(0);
+    expect(result.searchSource).toBe("raw");
+
+    const formatted = formatWebContentResult(result);
+    expect(formatted).toContain("Matches:");
+    expect(formatted).toContain("[source: raw]");
+    expect(formatted).toContain("topbar");
+    expect(formatted).not.toContain(filler);
+    expect(formatted).not.toContain(
+      `Full raw response: ${body.length} characters.`,
+    );
+  });
+
   it("keeps the truncation marker on a truncated raw fallback body", async () => {
     vi.doMock("linkedom/worker", () => ({
       parseHTML: () => {

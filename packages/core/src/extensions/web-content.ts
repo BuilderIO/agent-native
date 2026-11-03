@@ -302,7 +302,15 @@ export async function processWebContent(
   }
 
   if (mode === "matches") {
-    if (noUsableExtractedText) {
+    // Save-to-file keeps the complete fallback in `fullContent` and sets
+    // maxChars to null. Copying that unbounded body into matches `content`
+    // makes fetch return it as searchResults and mark those truncated even
+    // when the matches themselves fit.
+    if (
+      noUsableExtractedText &&
+      !options.saveContentFormat &&
+      Number.isFinite(maxChars)
+    ) {
       applyFallbackBody(result, options.body, maxChars);
     }
     const matchResult = findWebContentMatches({
