@@ -50,7 +50,6 @@ import {
 } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 
-import { dateKeyInTimezone } from "../shared/timezone.js";
 import createEventAction from "./create-event";
 
 describe("create-event approval gate", () => {
@@ -255,15 +254,40 @@ describe("create-event recurrence", () => {
       start: "2026-10-03T06:30:00.000",
       end: "2026-10-03T06:50:00.000",
     });
-    const expectedDate = dateKeyInTimezone(
-      new Date("2026-10-03T06:30:00.000"),
-      "America/Los_Angeles",
-    );
-
     expect(result.change.detail).toContain("PT");
     expect(result.change.url).toBe(
-      `https://calendar.example.test/event?date=${expectedDate}`,
+      "https://calendar.example.test/event?date=2026-10-03",
     );
+  });
+
+  it("saves a zoneless wall-clock time at that time in the saved Calendar timezone", async () => {
+    getUserSettingMock.mockImplementation((_email: string, key: string) =>
+      key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+    );
+
+    await createEventAction.run({
+      title: "QA team meeting",
+      start: "2026-11-04T10:00:00",
+      end: "2026-11-04T11:00:00",
+    });
+    await createEventAction.run({
+      title: "Weekly sync",
+      start: "2026-11-09T09:30:00",
+      end: "2026-11-09T10:00:00",
+      recurrence: "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=13",
+    });
+
+    expect(createEventMock.mock.calls[0][0]).toMatchObject({
+      start: "2026-11-04T04:30:00.000Z",
+      end: "2026-11-04T05:30:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      endTimeZone: "Asia/Kolkata",
+    });
+    expect(createEventMock.mock.calls[1][0]).toMatchObject({
+      start: "2026-11-09T04:00:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=13"],
+    });
   });
 
   it("formats event timing using the saved interface locale", async () => {

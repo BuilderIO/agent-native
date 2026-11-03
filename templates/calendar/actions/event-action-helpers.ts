@@ -548,7 +548,18 @@ function requireIanaTimezone(timezone: string | undefined): string {
   return timezone;
 }
 
-function normalizedIso(value: string, label: "start" | "end"): string {
+const ZONELESS_DATETIME_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/;
+
+function normalizedIso(
+  value: string,
+  label: "start" | "end",
+  zonelessTimezone?: string,
+): string {
+  const zoneless = ZONELESS_DATETIME_PATTERN.exec(value.trim());
+  if (zoneless && zonelessTimezone) {
+    return zonedDateTimeToUtcIso(zoneless[1], zoneless[2], zonelessTimezone);
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid event ${label}: ${value}`);
@@ -575,6 +586,7 @@ export function normalizeCreateEventInput(args: {
   endTimeZone?: string;
   allDay?: boolean;
   fullDay?: boolean;
+  defaultTimezone?: string;
 }) {
   if (args.fullDay === true && args.eventType !== "outOfOffice") {
     throw new Error("fullDay is only supported for out-of-office events.");
@@ -646,17 +658,25 @@ export function normalizeCreateEventInput(args: {
     };
   }
 
-  const start = normalizedIso(args.start, "start");
-  const end = normalizedIso(args.end, "end");
+  const startZone = args.startTimeZone ?? args.defaultTimezone;
+  const endZone = args.endTimeZone ?? startZone;
+  const start = normalizedIso(args.start, "start", startZone);
+  const end = normalizedIso(args.end, "end", endZone);
   if (new Date(end).getTime() <= new Date(start).getTime()) {
     throw new Error("Event end must be after its start.");
   }
+  const startZoneless = ZONELESS_DATETIME_PATTERN.test(args.start.trim());
+  const endZoneless = ZONELESS_DATETIME_PATTERN.test(args.end.trim());
   return {
     title,
     start,
     end,
-    startTimeZone: args.startTimeZone,
-    endTimeZone: args.endTimeZone ?? args.startTimeZone,
+    startTimeZone:
+      args.startTimeZone ?? (startZoneless ? startZone : undefined),
+    endTimeZone:
+      args.endTimeZone ??
+      args.startTimeZone ??
+      (endZoneless ? endZone : undefined),
     allDay: args.allDay ?? false,
   };
 }

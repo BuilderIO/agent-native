@@ -351,7 +351,19 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
-    const normalized = normalizeCreateEventInput(args);
+    const needsDefaultTimezone =
+      !args.startTimeZone &&
+      [args.start, args.end].some((value) =>
+        /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(
+          value.trim(),
+        ),
+      );
+    const normalized = normalizeCreateEventInput({
+      ...args,
+      defaultTimezone: needsDefaultTimezone
+        ? await getCalendarTimezone(email)
+        : undefined,
+    });
     validateStatusEventTiming({
       eventType: args.eventType,
       allDay: normalized.allDay,
