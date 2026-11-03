@@ -118,11 +118,10 @@ Algumas áreas estão intencionalmente fora do sistema de compartilhamento:
 
 Todo recurso compartilhável recebe um botão de compartilhamento em seu cabeçalho. Clicar nele abre um popover ancorado no botão (não modal) com:
 
-- Seletor de visibilidade (`Private` / `Organization` / `Public link`).
-- Preenchimento automático "Adicionar pessoas ou equipes": pesquise usuários na organização ou cole um e-mail.
-- Uma caixa de seleção `Notificar pessoas` para concessões individuais por e-mail.
-- Uma lista de concessões atuais com seletores de funções e um controle de remoção.
-- Um botão de copiar link que respeita a visibilidade atual.
+- Um campo de convite para pessoas, grupos da organização e os agentes da organização, com seletor de papel e Convidar. Um e-mail digitado também mostra a caixa `Notify people`.
+- Pessoas com acesso: o proprietário, as pessoas, os grupos e os agentes em uma lista. Os papéis são Pode ver, Pode comentar, Pode editar e Pode gerenciar o acesso. Remover acesso é o último item do menu de papel de cada linha.
+- Acesso geral: Somente pessoas convidadas / Qualquer pessoa da organização / Qualquer pessoa com o link.
+- Copiar link e um menu Enviar para: Abrir no Claude, Claude Code ou Codex, Copiar prompt do agente, Copiar link para agentes, Configurações do servidor MCP e os destinos que o app adicionar.
 
 Mudar um recurso de `Private` para `Organization` pede confirmação primeiro. Nada muda até que a pessoa confirme. Cancelar ou Escape mantém o acesso atual. Se o salvamento falhar, a caixa de diálogo mostra o erro e a pessoa pode tentar novamente. As demais mudanças de visibilidade são salvas imediatamente. A confirmação existe apenas na UI de compartilhamento. `set-resource-visibility` não muda, então o agente e qualquer outro chamador continuam alterando a visibilidade diretamente, e a política de compartilhamento do recurso continua decidindo o que é permitido.
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+Os agentes aparecem no campo de convite quando a organização tem agentes de serviço (identidades `svc-<name>@service.<orgId>` dos tokens de serviço da organização). Eles são compartilhados como usuários comuns e nunca recebem e-mail. Agentes que se conectam por MCP ou OAuth agem como a pessoa que os conectou, por isso não têm linha. Entregue o recurso a eles pelo Enviar para.
 
 Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lado de cada linha para que os usuários possam ver rapidamente o que é privado e o que é compartilhado.
 
@@ -193,7 +194,7 @@ Diga ao agente "compartilhe este design com a equipe de marketing como editores"
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## Construindo-o em um novo modelo {#building}
 

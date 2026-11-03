@@ -131,6 +131,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -155,7 +156,9 @@ import {
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
+  hasPrivateActionHistory,
   mergeThreadDataForClientSave,
+  sanitizeThreadDataForPrivateActions,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -816,13 +819,19 @@ export function resolveConfiguredAgentModel(
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
     AgentChatPluginOptions,
-    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+    | "runSoftTimeoutMs"
+    | "runNoProgressTimeoutMs"
+    | "durableBackgroundRuns"
+    | "reasoningEffort"
   >,
 ) {
   return {
     runSoftTimeoutMs: options?.runSoftTimeoutMs,
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
+    ...(options?.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
   };
 }
 
@@ -2239,7 +2248,7 @@ export function createAgentChatPlugin(
         workspaceFileActions = createWorkspaceFileActionEntries();
       } catch {}
       let toolActions: Record<string, ActionEntry> =
-        createDataWidgetActionEntries();
+        createDataWidgetActionEntries(options?.validateDataWidget);
       if (extensionToolsEnabled) {
         try {
           const { createExtensionActionEntries } =
@@ -3990,6 +3999,11 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const privateChatHistoryActionNames = new Set(
+        Object.entries(httpActions)
+          .filter(([, action]) => action.persistInChatHistory === false)
+          .map(([name]) => name),
+      );
       reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
@@ -4470,7 +4484,12 @@ export function createAgentChatPlugin(
         if (!threadId) return;
         const ownerEmail =
           getRequestRunContext()?.owner ?? getRequestUserEmail();
-        if (!ownerEmail) return;
+        if (!ownerEmail) {
+          console.warn(
+            `[agent-chat] prompt not saved for run ${details.runId}: no owner on the request (thread ${threadId}, turn ${details.turnId})`,
+          );
+          return;
+        }
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;
@@ -7804,6 +7823,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // to `getActiveRunForThreadAsync`'s return type does NOT reach
               // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
+              // Whether sending the same prompt again can succeed. Null when
+              // the run has not errored or recorded no reason, so a client
+              // keeps its own default.
+              retryable:
+                run.status === "errored" && run.terminalReason
+                  ? isRunFailureRetryable(run.terminalReason)
+                  : null,
             };
           }
 
@@ -8360,7 +8386,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
-                const nextPreview =
+                let nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
@@ -8379,6 +8405,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }
                 };
                 let isSnapshotDelta = false;
+                let privateHistoryDetected = false;
                 let existing: unknown;
                 try {
                   existing = JSON.parse(thread.threadData);
@@ -8394,6 +8421,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 500);
                   return { error: "Stored thread data is invalid JSON" };
                 }
+                privateHistoryDetected = hasPrivateActionHistory(
+                  existing,
+                  privateChatHistoryActionNames,
+                );
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
@@ -8429,6 +8460,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       retryable: false,
                     };
                   }
+                  privateHistoryDetected ||= hasPrivateActionHistory(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
+                  incoming = sanitizeThreadDataForPrivateActions(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
                   const incomingAgentKit = (incoming as Record<string, unknown>)
                     .agentKit;
                   isSnapshotDelta =
@@ -8438,11 +8479,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     (incomingAgentKit as Record<string, unknown>)
                       ._snapshotDelta === true;
                   if (isSnapshotDelta) {
+                    newThreadData = JSON.stringify(incoming);
                     preserveTitleOverride(existing);
                   } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
+                      {
+                        privateActionNames: privateChatHistoryActionNames,
+                      },
                     );
                     newThreadData = JSON.stringify(merged);
                     if (Array.isArray(merged.messages)) {
@@ -8464,6 +8509,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     body.title !== thread.title)
                 ) {
                   assertThreadOwner(thread, owner);
+                }
+                if (privateHistoryDetected) {
+                  nextTitle = thread.title;
+                  nextPreview = thread.preview;
                 }
                 let updated: boolean;
                 try {
@@ -9993,6 +10042,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
             };
           } catch (error) {
+            if (error && typeof error === "object" && "statusCode" in error) {
+              if (error.statusCode === 403) {
+                setResponseStatus(event, 403);
+                return { error: "Workspace membership required" };
+              }
+              if (error.statusCode === 503) {
+                setResponseStatus(event, 503);
+                return {
+                  error: "Organization scope is temporarily unavailable.",
+                };
+              }
+            }
             console.error("[agent-chat] stream token unavailable:", error);
             setResponseStatus(event, 503);
             return { error: "Agent-chat streaming is not configured" };
@@ -10066,7 +10127,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the

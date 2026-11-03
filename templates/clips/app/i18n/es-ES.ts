@@ -318,6 +318,55 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips no se pudieron restaurar",
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
+    deletedMediaPending:
+      "Vídeo eliminado de Clips. Se están realizando las comprobaciones de eliminación.",
+    deletedMediaBlocked:
+      "Vídeo eliminado de Clips. No se pudo confirmar la eliminación de los archivos.",
+    deletedMediaRetained:
+      "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    clipsDeletedMediaPending:
+      "Vídeos eliminados de Clips: {{count}}. Se están realizando las comprobaciones de eliminación.",
+    clipsDeletedMediaBlocked:
+      "Vídeos eliminados de Clips: {{count}}. No se pudo confirmar la eliminación de los archivos.",
+    clipsDeletedMediaRetained:
+      "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    deletedMediaFinalizing:
+      "Vídeo eliminado de Clips. Hay que reintentar la actualización del uso de almacenamiento.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos eliminados de Clips: {{count}}. Hay que reintentar la actualización del uso de almacenamiento.",
+    mediaCleanupFinalizing:
+      "Hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupFinalizingHelp:
+      "Las comprobaciones de eliminación de archivos terminaron, pero este vídeo podría seguir contando para tu límite de almacenamiento. Reintenta la actualización del uso para actualizar tu total de almacenamiento.",
+    mediaCleanupListLabel: "Eliminación de archivos multimedia",
+    mediaCleanupPending: "Comprobaciones de eliminación en curso",
+    mediaCleanupPendingHelp:
+      "Clips sigue comprobándolo en segundo plano. Puedes salir de esta página y consultar las actualizaciones en la Papelera.",
+    mediaCleanupBlocked:
+      "No se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Los archivos de vídeo almacenados podrían seguir existiendo. Reintentar la eliminación inicia otro intento. Puedes salir de esta página y consultar el resultado en la Papelera.",
+    mediaCleanupReconnect:
+      "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
+    mediaCleanupRetained:
+      "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
+    mediaCleanupHelp: "Más información",
+    mediaCleanupRetryFiles: "Reintentar eliminación",
+    mediaCleanupRetryingFiles:
+      "Reintentando la eliminación de los archivos de vídeo",
+    mediaCleanupRetryUsage: "Reintentar actualización de uso",
+    mediaCleanupRetryingUsage:
+      "Reintentando la actualización del uso de almacenamiento",
+    mediaCleanupRemoved: "Archivos multimedia eliminados",
+    mediaCleanupUsageUpdated: "Uso de almacenamiento actualizado",
+    mediaCleanupStillBlocked:
+      "Todavía no se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "Todavía hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupRetryFailed:
+      "No se pudo iniciar el reintento. Vuelve a intentarlo.",
+    mediaCleanupLoadFailed:
+      "No se pudo cargar el estado de eliminación de archivos multimedia",
   },
   recordingRoute: {
     pageTitle: "Grabación de clip · Clips",

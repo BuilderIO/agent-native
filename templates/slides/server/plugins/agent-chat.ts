@@ -43,6 +43,8 @@ const INITIAL_TOOL_NAMES = [
   "toggle-slide-comment-reaction",
   "update-slide",
   "patch-deck",
+  "list-deck-versions",
+  "restore-deck-version",
   "generate-image-api",
   "import-file",
   "import-google-doc",
@@ -300,12 +302,15 @@ never as fullContent. Use occurrence for a style declaration
 rather than expectedMatches, which rejects a declaration that repeats on the
 slide; use all=true when every occurrence should change. The action
 applies the whole list atomically under the deck lock, so a failed required
-match writes nothing. After a focused one-slide text write, verify with a targeted get-deck
+match writes nothing. A small edit as the Core Rules define it is that one
+write with no read-back, layout-fit check, or contrast audit. After any other
+focused one-slide text write, verify with a targeted get-deck
 read of the same slide using slideId and compact=false; do not read the full deck. Before a multi-slide
 patch-deck write, read every target with get-deck slideIds and compact=false to capture its full source
 and contentHash. Pass each hash as baseContentHash, then verify the batch once with get-deck using the
 same slideIds and compact=false.
-After a one-slide style, structural, or multi-representation write, call
+After a one-slide structural or multi-representation write, or a style write
+larger than a small edit, call
 get-deck again for that slide with compact=false and verify the requested
 text, ordering, relationships, counts, and style scope. If the readback is wrong,
 rebase against its returned hash and correct it; if any action returns an
@@ -315,8 +320,8 @@ fullContent only for an intentional full rewrite. Pass compact=true when you
 only need a lightweight check of that slide. Content writes return immediately
 after persistence with layoutFit.status=pending, the resulting content hash,
 and a write-specific layoutFitRevision. Do not wait for fit checks between
-writes. Finish all slide edits, then call get-layout-overflows once for final
-verification. If you repair a measured overflow, call it once more after the
+writes. Finish all slide edits, then, when an edit changed layout or made text
+longer, call get-layout-overflows once for final verification. If you repair a measured overflow, call it once more after the
 repair. Use only measurements whose contentHash and layoutFitRevision match the
 latest write. Unknown means the browser has not reported yet, not that the
 slide fits; list the unmeasured slides and do not call again this turn unless a
@@ -336,7 +341,7 @@ Slide scope rule: change only the slides the request targets. Deck-wide checks (
 
 Layout-fit workflow is strict. After creating or structurally rewriting slides, finish the deck edits, then call get-layout-overflows once in the same turn even when the user did not ask about overflow. Use only measurements whose contentHash and layoutFitRevision match the current persisted slides. Repair measured overflows only on slides this turn created or changed or the user asked to fix; report overflows on other slides without editing them. If any slide is unknown, name its slide number and ID, do not claim the deck fits, and do not recheck this turn unless the editor has produced a new measurement. For each measured overflow, read that slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the repair result, verify persisted HTML with get-deck slideId=<id> compact=true, then call get-layout-overflows once more. If overflow remains after that recheck, report it and stop; do not repair or measure repeatedly. When the user asks to fix an existing overflow, first call view-screen and inspect the deck-wide layout-fit section, then follow this same bounded workflow.
 
-Contrast verification is the last step of any turn that created or changed slides, even when the user did not ask about contrast. After every other edit, including layout-fit repairs, and right before the final response, call audit-contrast once with slideIds set to the slides this turn created or changed. If it cannot run because the deck is not open in the editor, say contrast was not checked instead of claiming it passes. For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Every replacement color must match the deck's theme: when a design system is linked, choose a passing color from that system's own palette, and if none passes, keep the token and report it rather than inventing a color; otherwise reuse a color already in the deck or shift the failing color's lightness while keeping its hue. Never introduce an unrelated hue to pass contrast. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked. If slides come back skipped as stale-render, call audit-contrast once more before reporting. Remaining unverified text sits over an image, gradient, or visual effect; name those slides and objects, and do not call them risky or fine without a measurement.
+Contrast verification is the last step of any turn that created slides or changed their colors, layout, or text length, even when the user did not ask about contrast. After every other edit, including layout-fit repairs, and right before the final response, call audit-contrast once with slideIds set to the slides this turn created or changed. If it cannot run because the deck is not open in the editor, say contrast was not checked instead of claiming it passes. For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Every replacement color must match the deck's theme: when a design system is linked, choose a passing color from that system's own palette, and if none passes, keep the token and report it rather than inventing a color; otherwise reuse a color already in the deck or shift the failing color's lightness while keeping its hue. Never introduce an unrelated hue to pass contrast. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked. If slides come back skipped as stale-render, call audit-contrast once more before reporting. Remaining unverified text sits over an image, gradient, or visual effect; name those slides and objects, and do not call them risky or fine without a measurement.
 
 Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. Card, text-container height, and contain rules are in the slide-editing skill. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
 

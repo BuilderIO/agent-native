@@ -5,6 +5,8 @@ import {
   hasInlineBottom,
   hasInlineHeight,
   isFitFreeformFrame,
+  shrinkTextToFit,
+  textRunsIn,
 } from "./fit-text-object";
 
 afterEach(() => {
@@ -49,5 +51,45 @@ describe("fit freeform frame", () => {
 
     expect(isFitFreeformFrame(box("", "pinned"))).toBe(true);
     expect(isFitFreeformFrame(box("bottom:12px", "pinned"))).toBe(false);
+  });
+});
+
+describe("shrink text to fit", () => {
+  const sizes = (elements: readonly HTMLElement[]) =>
+    elements.map((element) => element.style.getPropertyValue("font-size"));
+
+  it("steps every run down in whole px until it fits", () => {
+    const title = box("font-size:40px");
+    const body = box("font-size:20px");
+    const result = shrinkTextToFit(
+      [title, body],
+      () => Number.parseFloat(title.style.fontSize) <= 34,
+    );
+    expect(result).toBe("fitted");
+    expect(sizes([title, body])).toEqual(["34px", "17px"]);
+  });
+
+  it("stops at 12px and 65% of the start size, and then restores it", () => {
+    const title = box("font-size:40px");
+    const small = box("font-size:14px;color:red");
+    const seen: string[][] = [];
+    const result = shrinkTextToFit([title, small], () => {
+      seen.push(sizes([title, small]));
+      return false;
+    });
+    expect(result).toBe("cannot-fit");
+    expect(seen.at(-1)).toEqual(["26px", "12px"]);
+    expect(small.getAttribute("style")).toBe("font-size:14px;color:red");
+    expect(title.getAttribute("style")).toBe("font-size:40px");
+  });
+
+  it("only picks the text that holds characters of its own", () => {
+    const frame = box("");
+    frame.textContent = "";
+    frame.innerHTML = "<div><p>Line <b>bold</b></p><span></span></div>";
+    expect(textRunsIn(frame).map((element) => element.tagName)).toEqual([
+      "P",
+      "B",
+    ]);
   });
 });

@@ -73,6 +73,7 @@ function describeUploadedFilesForAgent(
     "File handling rules:",
     `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
     `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
+    "- If the user's message does not say what to do with an attached file (for example, use it as design inspiration, or build slides from its content), do not create or edit slides yet. Call `ask-question` once to ask how they want to use the file, offering the likely uses as options, then end the turn; their answer arrives as the next message.",
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",

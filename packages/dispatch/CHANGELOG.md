@@ -1,5 +1,53 @@
 # @agent-native/dispatch
 
+## 0.41.0
+
+### Minor Changes
+
+- 5761203: Builder Workspaces support. When `BUILDER_WORKSPACE_PROJECT_ID` is set, the workspace's apps are built in Builder: Dispatch's create-app surfaces (the create-app popover, `/new-app`, Build app, community install and template remix) link to the workspace in Builder, and app-creation actions return a `builder-managed` result with that link instead of creating anything. Core adds `getBuilderWorkspaceProjectId` / `getBuilderWorkspaceUrl`, an opt-in preview step (`WORKSPACE_PREVIEW_JOIN_ORG=1`, development + `AUTH_DISABLED` only) that adds the dev account to the workspace org, a `guard:workspace-app-scope` script in the workspace template, and Builder-compatible app id validation in `add-app`.
+
+### Patch Changes
+
+- 4fa3202: Add `runtime.apiBaseUrl` (`AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL`, or `window.__AGENT_NATIVE_CONFIG__.apiBaseUrl`) so a UI served from another origin can reach the app's server. `agentNativePath()` and `appApiPath()` return URLs on that server, requests addressed to it carry credentials, relative URLs are never rewritten (a host page that embeds the app keeps its own `/api` calls), and framework and template client code now build every server URL with those helpers; and origins in `CORS_ALLOWED_ORIGINS` are matched with the same normalization for credentialed responses and are trusted by the sign-in origin check. Sign-in from such a UI happens on the server and returns to the UI page through `/_agent-native/auth/ui-return`, which redirects only to those allowlisted origins. Preflights from allowed origins now also admit any extra request headers they ask for, and cookie-writing POSTs such as consent accept an origin listed in `CORS_ALLOWED_ORIGINS`.
+- eeef9e4: Dispatch opens on the chat home instead of the apps list, the home heading is one type step smaller with room above it, and the Connect AI card sits inside the composer edges.
+- 828d50e: Show Builder users where to find their workspace when they visit standalone Dispatch.
+- Release all public npm packages with a patch version bump.
+- c57b733: Fix workspace sign-in session creation for canonical Agent-Native apps after MCP tool visibility hardening.
+- a0356c6: Lower the default usage alert from $100 a day to $20 a month, and move defaults still at $100 a day to the new limit. `USAGE_ALERT_DEFAULT_MONTHLY_USD` replaces `USAGE_ALERT_DEFAULT_DAILY_USD`, which stays as a deprecated alias.
+- Updated dependencies [3a2fa31]
+- Updated dependencies [92d54bb]
+- Updated dependencies [23cf2ea]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [033d9ad]
+- Updated dependencies [7138000]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [eacd478]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [f527363]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [d795784]
+- Updated dependencies [4699487]
+  - @agent-native/toolkit@0.223.0
+
+## 0.40.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 568b298: Add an owner-only Builder backup status inspection that reports bounded metadata without downloading branch files.
+- Updated dependencies
+- Updated dependencies [39cb8ce]
+  - @agent-native/toolkit@0.222.2
+
 ## 0.40.43
 
 ### Patch Changes
@@ -1421,18 +1469,5 @@
 ### Patch Changes
 
 - ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
-
-## 0.31.2
-
-### Patch Changes
-
-- Updated dependencies [60b7e74]
-  - @agent-native/toolkit@0.16.8
-
-## 0.31.1
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

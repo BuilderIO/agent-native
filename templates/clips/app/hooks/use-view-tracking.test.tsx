@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useViewTracking } from "./use-view-tracking";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
 }));
 

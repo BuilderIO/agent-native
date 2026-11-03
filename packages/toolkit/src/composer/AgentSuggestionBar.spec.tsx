@@ -91,6 +91,24 @@ describe("AgentSuggestionBar", () => {
     expect(onSelect).toHaveBeenCalledWith(suggestion);
   });
 
+  it("uses comfortable dimensions when the host requests them", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={["Explore this data"]}
+          onSelect={() => {}}
+          size="comfortable"
+        />,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.className).toContain("h-8");
+    expect(button?.className).toContain("px-3");
+    expect(button?.className).toContain("text-sm");
+  });
+
   it("keeps tracked home suggestions as centered compact chips and reports clicks", () => {
     const onSelect = vi.fn();
     const onHomeSuggestionClick = vi.fn();

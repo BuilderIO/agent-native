@@ -9,6 +9,15 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -21,6 +30,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDecks, type Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import {
   useDeckVersion,
   useDeckVersions,
@@ -62,6 +72,26 @@ function slideLabel(
   return translate("history.slideCount", { count: version.slideCount });
 }
 
+export function restoreFailureDescription(
+  error: unknown,
+  translate: Translate,
+): string {
+  const status =
+    error && typeof error === "object"
+      ? ((error as { status?: unknown }).status ??
+        (error as { statusCode?: unknown }).statusCode)
+      : undefined;
+  if (status === 401 || status === 403) {
+    return translate("history.restoreNoAccess");
+  }
+  if (status === 404) return translate("history.restoreVersionMissing");
+  if (status === 409) return translate("history.restoreDeckChanged");
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return translate("history.restoreOffline");
+  }
+  return translate("history.restoreFailedDescription");
+}
+
 function normalizeSlides(slides: DeckVersionSummary["slidePreviews"]): string {
   return slides
     .map((slide) => slide.textPreview)
@@ -90,7 +120,8 @@ export default function HistoryPanel({
   const versionsQuery = useDeckVersions(open ? deckId : null);
   const versionQuery = useDeckVersion(open ? deckId : null, selectedVersionId);
   const restoreVersion = useRestoreDeckVersion();
-  const { flushDeckSave, refreshOpenDeck } = useDecks();
+  const { flushDeckSave, getDeck, refreshOpenDeck } = useDecks();
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   const versions = Array.isArray(versionsQuery.data?.versions)
     ? versionsQuery.data.versions
@@ -118,10 +149,33 @@ export default function HistoryPanel({
     onOpenChange(nextOpen);
   };
 
-  const handleRestore = async () => {
+  const versionDesignSystemId = selectedVersion?.designSystemId;
+  const { designSystem } = useDeckDesignSystem(
+    open
+      ? typeof versionDesignSystemId === "string" && versionDesignSystemId
+        ? versionDesignSystemId
+        : getDeck(deckId)?.designSystemId
+      : null,
+    deckId,
+  );
+
+  const handleRestore = async (discardUnsaved = false) => {
     if (!selectedVersionId) return;
+    if (discardUnsaved) {
+      await refreshOpenDeck(deckId, { clearPendingWrites: true });
+    } else {
+      // Edits that can't be saved (a conflict or a failed save) would block
+      // the restore; the user decides whether to drop them.
+      const unsaved = await flushDeckSave(deckId).then(
+        () => false,
+        () => true,
+      );
+      if (unsaved) {
+        setConfirmDiscardOpen(true);
+        return;
+      }
+    }
     try {
-      await flushDeckSave(deckId);
       await restoreVersion.mutateAsync({
         deckId,
         versionId: selectedVersionId,
@@ -133,10 +187,7 @@ export default function HistoryPanel({
       handleClose(false);
     } catch (error) {
       toast.error(t("history.restoreFailed"), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t("history.restoreFailedDescription"),
+        description: restoreFailureDescription(error, t),
       });
     }
   };
@@ -229,6 +280,7 @@ export default function HistoryPanel({
                             | AspectRatio
                             | undefined
                         }
+                        designSystem={designSystem}
                         className="border border-border bg-black"
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
@@ -249,7 +301,7 @@ export default function HistoryPanel({
                 <Button
                   size="sm"
                   className="w-full"
-                  onClick={handleRestore}
+                  onClick={() => void handleRestore()}
                   disabled={
                     restoreVersion.isPending ||
                     versionQuery.isLoading ||
@@ -346,6 +398,24 @@ export default function HistoryPanel({
           </ScrollArea>
         )}
       </SheetContent>
+      <AlertDialog
+        open={confirmDiscardOpen}
+        onOpenChange={setConfirmDiscardOpen}
+      >
+        <AlertDialogContent aria-describedby={undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("history.restoreDiscardTitle")}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("history.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleRestore(true)}>
+              {t("history.restoreDiscardConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }

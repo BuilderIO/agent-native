@@ -2532,6 +2532,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   });
 
   it("uses a built-in home URL when discovery returns a deep agent link", async () => {
+    mocks.getOrgDomain.mockResolvedValue("example.test");
     mocks.getBuiltinAgents.mockReturnValue([
       {
         id: "clips",
@@ -2560,6 +2561,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     const result = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
+        orgId: "org-1",
         requestOrigin: "https://dispatch.agent-native.com",
       },
       () =>
@@ -2580,14 +2582,45 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       servers: {
         target: expect.objectContaining({
           url: "https://clips.agent-native.com/mcp",
+          headers: {
+            Authorization: "Bearer signed-token",
+            "x-agent-native-mcp-inline-apps": "1",
+          },
         }),
       },
     });
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "example.test",
+      undefined,
+      expect.objectContaining({
+        audience: "https://clips.agent-native.com/mcp",
+        extraClaims: {
+          jti: expect.any(String),
+          scope: "mcp-connect",
+          agent_native_first_party_mcp: true,
+        },
+      }),
+    );
     expect(result).toMatchObject({
       app: "clips",
       startUrl:
         "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
+
+    mocks.getOrgDomain.mockResolvedValue(null);
+    mocks.managerConstructor.mockClear();
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () => createWorkspaceSsoEmbedSession({ app: "clips", path: "/" }),
+      ),
+    ).rejects.toThrow("Workspace organization domain is unavailable.");
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
   });
 
   it("uses an external agent origin as the home fallback for deep registrations", async () => {
@@ -2637,6 +2670,19 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         url: "https://custom.example.com/home",
         chrome: "full",
       },
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: { Authorization: "Bearer signed-token" },
+        }),
+      },
+    });
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.not.objectContaining({ extraClaims: expect.anything() }),
     );
     expect(result.app).toBe("custom-agent");
   });

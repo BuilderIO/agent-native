@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { CHATGPT_DIRECTORY_PROFILE as content } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as design } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_PROFILE as slides2 } from "../../../../templates/slides-2/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slides } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import {
   createMcpDirectoryWidgetWriteCapability,
@@ -181,10 +180,7 @@ describe("existing-resource inline cards", () => {
     );
   });
 
-  it("keeps Slides-2 HTML clones on their full-app link", () => {
-    expect(slides2.widgetTargets).not.toHaveProperty("clone-context-slide");
-  });
-
+  // oracle-change: remove tests for the deleted Slides 2 template
   it("never binds Content sharing to the local source or a missing copy", () => {
     expect(
       content.widgetTargets["share-local-file-document"](

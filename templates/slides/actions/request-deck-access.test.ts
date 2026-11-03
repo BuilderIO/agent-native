@@ -448,7 +448,9 @@ describe("request-deck-access", () => {
     ];
     state.updateConflict = true;
 
-    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+    await expect(
+      action.run({ deckId: "deck-1", role: "viewer" }),
+    ).resolves.toMatchObject({
       ok: true,
       alreadyHasAccess: false,
       alreadyRequested: true,
@@ -685,7 +687,9 @@ describe("request-deck-access", () => {
   it("does not create a request for a viewer who already has access", async () => {
     state.access = { role: "viewer" };
 
-    await expect(action.run({ deckId: "deck-1" })).resolves.toEqual({
+    await expect(
+      action.run({ deckId: "deck-1", role: "viewer" }),
+    ).resolves.toEqual({
       ok: true,
       alreadyHasAccess: true,
       notifiedOwner: false,
@@ -693,6 +697,74 @@ describe("request-deck-access", () => {
     });
     expect(state.insertedRows).toHaveLength(0);
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("asks for edit access unless the request says otherwise", async () => {
+    await action.run({ deckId: "deck-1" });
+
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      requestedRole: "editor",
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "Requester requested edit access to “Quarterly Review”.",
+        metadata: expect.objectContaining({ requestedRole: "editor" }),
+      }),
+      { owner: "owner@example.com" },
+    );
+  });
+
+  it("records a view request from a presentation link", async () => {
+    await action.run({ deckId: "deck-1", role: "viewer" });
+
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      requestedRole: "viewer",
+    });
+  });
+
+  it("lets a viewer of an organization-visible deck ask for edit access", async () => {
+    state.deck = {
+      id: "deck-1",
+      title: "Quarterly Review",
+      ownerEmail: "owner@example.com",
+      visibility: "org",
+    };
+    state.access = { role: "viewer" };
+
+    await expect(
+      action.run({ deckId: "deck-1", role: "editor" }),
+    ).resolves.toMatchObject({ alreadyHasAccess: false, notifiedOwner: true });
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      requestedRole: "editor",
+    });
+  });
+
+  it("does not record an edit request from someone who can edit", async () => {
+    state.access = { role: "editor" };
+
+    await expect(
+      action.run({ deckId: "deck-1", role: "editor" }),
+    ).resolves.toMatchObject({ alreadyHasAccess: true });
+    expect(state.insertedRows).toHaveLength(0);
+  });
+
+  it("raises a pending view request to edit", async () => {
+    const pending = {
+      id: "access-request-existing",
+      payload: JSON.stringify({
+        requesterEmail: "requester@example.com",
+        requestedRole: "viewer",
+        notifiedOwner: true,
+      }) as string | null,
+    };
+    state.previousRequests = [pending];
+
+    await expect(
+      action.run({ deckId: "deck-1", role: "editor" }),
+    ).resolves.toMatchObject({ alreadyRequested: true });
+    expect(JSON.parse(pending.payload ?? "")).toMatchObject({
+      requestedRole: "editor",
+    });
   });
 
   it("records an anonymous request for the supplied email", async () => {

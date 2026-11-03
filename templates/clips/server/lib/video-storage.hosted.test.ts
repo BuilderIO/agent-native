@@ -20,6 +20,11 @@ const hostedProvider = vi.hoisted(() => ({ id: "clips-hosted" }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
+  getBuilderUploadCredentialStatus: async () => ({
+    builderConfigured: false,
+    builderUploadConfigured: false,
+    builderReauthorizationRequired: false,
+  }),
   listFileUploadProviders: () => [],
 }));
 vi.mock("@agent-native/core/feature-flags", () => ({
@@ -45,7 +50,6 @@ vi.mock("@agent-native/core/server", () => ({
       },
     },
   }),
-  hasBuilderApiCredentialCustody: vi.fn(async () => false),
   resolveClipsHostedStorageConfig: (config: unknown) => config,
   runWithRequestContext: async (_context: unknown, callback: () => unknown) =>
     callback(),

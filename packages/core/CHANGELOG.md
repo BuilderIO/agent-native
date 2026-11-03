@@ -51,6 +51,111 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.223.0
+
+### Minor Changes
+
+- 4fa3202: Add `runtime.apiBaseUrl` (`AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL`, or `window.__AGENT_NATIVE_CONFIG__.apiBaseUrl`) so a UI served from another origin can reach the app's server. `agentNativePath()` and `appApiPath()` return URLs on that server, requests addressed to it carry credentials, relative URLs are never rewritten (a host page that embeds the app keeps its own `/api` calls), and framework and template client code now build every server URL with those helpers; and origins in `CORS_ALLOWED_ORIGINS` are matched with the same normalization for credentialed responses and are trusted by the sign-in origin check. Sign-in from such a UI happens on the server and returns to the UI page through `/_agent-native/auth/ui-return`, which redirects only to those allowlisted origins. Preflights from allowed origins now also admit any extra request headers they ask for, and cookie-writing POSTs such as consent accept an origin listed in `CORS_ALLOWED_ORIGINS`.
+- 033d9ad: One way to show a comment, in every app:
+  - New `CommentBody` from `@agent-native/toolkit/app/review` draws a comment's Markdown: paragraphs, bold, italic, strikethrough, code, links, lists, quotes, code blocks and mention chips, with headings as bold lines. Raw HTML shows as written, so a note like `use <Button> here` keeps its tag; HTML comments stay hidden. Mentions come from a `mentions` list (`@label`, whole words only, or pinned with `at`) or from `@[Name](mailto:…)` text. A label two listed people share stays text, rather than name one of them for both. `renderMention` draws a mention an app's own way; returning nothing keeps the kit's chip. `compact` flattens it to one run of text for previews, with links shown as text and chips in the line's size and color, so they read on a dark card. Past 20,000 characters, or from a paragraph nested or tangled far past what people write (brackets, quotes or list markers more than 16 deep, more than 1,000 emphasis markers in one paragraph, or brackets the parser would spend long looking back for), the rest shows as plain text, so one comment can't stall the page. Code in a fence doesn't count, and rather than split a code block at 20,000 characters, the plain text starts before it. If drawing a comment fails, it shows as written instead of breaking the list it sits in.
+  - `ReviewCommentItem` uses it, so review comments keep their lists, quotes and code blocks, and mentions show as chips.
+  - New `commentPlainText()` and `commentExcerpt()` from `@agent-native/core/review/plain-text` turn a comment into plain text for emails and webhooks. They read the comment with the same Markdown parser as the renderer, so the text matches what the comment shows. The kit's reply and mention emails quote comments with them, so they no longer show Markdown markers or `@[Name](mailto:…)`. `COMMENT_MARKDOWN_LIMIT` and `splitCommentAtMarkdownLimit()` from the same module give the cut both use.
+  - `InlineMarkdown` shows a protected span's own text inside inline code and code blocks, instead of its placeholder link. A new `showRawHtml` option shows raw HTML as text rather than skip it, with its HTML comments cut out.
+  - Toolkit now requires Core 0.223.0 or newer, because `CommentBody` uses Core's comment plain text.
+
+- f527363: The share popover is one panel: an invite field for people, groups and org agents, one "People with access" list, general access ("Only people invited", "Anyone at <org>", "Anyone with the link"), and a footer with Copy link and a Send to menu. Roles read "Can view", "Can comment", "Can edit" and "Can manage access", and Remove access moved into each row's role menu.
+
+  Org service principals can now be shared with like people: `list-resource-shares` returns `agents` for owners and admins in the resource's org, marks agent rows with `agent: true`, and resolves people's profile names into `displayName` and `ownerDisplayName`. Resources locked to their org accept live agents of that org, and agents are never emailed.
+
+  Breaking for `ShareButton`: `agentTabContent`, `peopleTabLabel`, `agentsTabLabel` and the `secondaryShareUrl*` props are removed. Pass a `sendTo` prop (`openInAgent`, `items`, `copyAgentPrompt`, `openMcpSettings`) instead. `shareUrlPlacement` and `shareUrlDescription` no longer affect rendering.
+
+  `writeClipboardText` keeps its fallback copy inside the open dialog or menu, so copying from a popover no longer closes it when the async clipboard is unavailable.
+
+  `registerShareableResource` accepts `agentRead: { actions, idParam? }` naming the MCP tool that reads one resource. `list-resource-shares` returns it, and the share panel then offers Open in Claude, Open in Claude Code, Open in Codex and Copy agent prompt with a prompt that sends the agent to the app's MCP server. Analytics, Assets, Brain, Design, Forms, Plan, Slides and Slides 2 declare it.
+
+- 5761203: Builder Workspaces support. When `BUILDER_WORKSPACE_PROJECT_ID` is set, the workspace's apps are built in Builder: Dispatch's create-app surfaces (the create-app popover, `/new-app`, Build app, community install and template remix) link to the workspace in Builder, and app-creation actions return a `builder-managed` result with that link instead of creating anything. Core adds `getBuilderWorkspaceProjectId` / `getBuilderWorkspaceUrl`, an opt-in preview step (`WORKSPACE_PREVIEW_JOIN_ORG=1`, development + `AUTH_DISABLED` only) that adds the dev account to the workspace org, a `guard:workspace-app-scope` script in the workspace template, and Builder-compatible app id validation in `add-app`.
+
+### Patch Changes
+
+- 3a2fa31: Support awaited action send and navigation read gates, POST-based action queries and fresh feature-flag reads on mount. Preserve aborts and propagate gate failures.
+- 7c3cfbb: Keep AgentKit run readers attached while a cancel is in flight, so a turn whose event stream closes before the cancel settles still delivers its `run.cancelled` event instead of ending with "event stream ended without a completion".
+- d32865c: A file path that isn't an upload reference, or no path at all, is now a normal tool error the agent corrects instead of a stop that ends the run. Stops for a missing, expired or inaccessible upload now say to attach the file again instead of listing credentials, roles, connected accounts or approvals.
+- 82ca04d: Keep assistant text blocks separate across an auto-continue, in the live chat and the persisted thread.
+- 3a2fa31: Add bounded provider response limits, catalog locale restrictions, and server-side data widget validation and reasoning defaults.
+- 26745fa: A Builder.io upload that gets a 401 when the token can't be refreshed is now reported as rejected credentials, so Clips asks the user to reconnect storage instead of showing a retryable "refresh and try again" error.
+- 2f2ea8f: Give every 400 from the agent chat request handler and the background `_process-run` route a `code`, so a background worker failure reads `Background worker returned HTTP 400 code=<code>` instead of a bare HTTP 400 and says which request check failed. Messages and status codes are unchanged.
+- 2428fde: Deleting a review thread's first comment now deletes the whole thread, replies included, instead of leaving the replies behind with no comment to hang them on. Only an editor, or the author of a thread that holds no one else's reply, may do it, and `list-review-comments` reports that per thread as `canDeleteThread`. The check runs inside the delete, after the thread is locked, so a reply that lands at the last moment is checked too, and a reply can no longer be added to a thread that was deleted, even while the delete is running.
+- 3a2fa31: Define optional validated native capability manifests, a typed desktop bridge and doctor checks.
+- 252c80b: Expose the existing migration database URL resolver so app release commands can open direct connections for concurrent index builds.
+- 23cf2ea: Build each app faster. The resource icon picker's Tabler chunks now carry icon data instead of importing every icon component, so an app's client build handles about 3,200 modules instead of 9,200, and the picker's icon chunks are about 20% smaller. Core's stub and shim Vite plugins declare hook filters, so the bundler no longer calls into them for every import. Icons render exactly as before.
+- 9a70043: Keep feedback sweep Slack replies scoped to claimed and investigated reports.
+- 17abb90: Feedback sweep skill: account for every candidate a source helper returns, treat a broken setup as something to fix rather than an attempt, and wait for CI in one long blocking call.
+- cedda31: Feedback sweep skill: the Slack helper returns every unmarked root unfiltered, the main thread triages and claims every Fix report, and the recap counts roots seen, claimed, and left.
+- 1a4191a: Expose the configured first-run credits experiment in onboarding profiles.
+- ee6264c: `sendFusionBranchMessage` now reports a run as completed only when the app agent's last turn ended the run. A `done` event marked `autoContinue` is followed by more turns, so a stream that ends after one is reported as unconfirmed rather than finished. Add `isFusionDevServerServing(previewUrl)`, which tells whether a branch's dev server is serving pages. A container `ensureFusionContainer` reports as ready can still be starting its dev server. `ensureFusionContainer` errors now carry `errorSource`: `container` when the container reported it failed, `request` when the call to Builder failed.
+- 2428fde: Google's generic default silhouette (`/a/default-user`) is no longer served as a person's profile photo, so an account with no photo shows initials instead of a stock icon. A silhouette saved before this change is ignored when the avatar is read.
+- 92d54bb: `@agent-native/core/server` reads Google's public font catalog with `readGoogleFontCatalog`, listing every family with the weights and italics it ships, most popular first. The toolkit font picker searches that whole library, previews each family in its own face, and loads any catalog family on the canvas through `ensureGoogleFontStylesheets`.
+- 808ef4e: Spin the Google sign-in button loader on the inline-styled sign-in page.
+- 2f2ea8f: Give every array in an in-app agent tool schema an `items` schema, as MCP already does. A `z.tuple` field (only `prefixItems`) made OpenAI reject the whole request with "array schema missing items", so Design chats that loaded `edit-native-shader` failed on every retry.
+
+  `@agent-native/core/testing` adds `listAgentToolSchemas`, `AGENT_PATH_PROVIDERS`, and `listAgentTools()` on `loadTemplateMcpConformance`, so a template spec can hold its in-app agent tools to the Anthropic and OpenAI rules as well as its MCP catalogs.
+
+- Release all public npm packages with a patch version bump.
+- 7704185: Preserve PostgreSQL quoted bodies and identifiers when splitting migration statements.
+- d7a6890: Route each Netlify workspace app's OAuth discovery requests to that app. Dispatch's `/.well-known/*` function path overlapped the apps' own discovery paths, and Netlify picks the function whose name sorts first, so apps after "dispatch" (for example `sales-tools`) advertised Dispatch's authorization server and MCP clients could not sign in to them.
+- 7138000: The Comments & Review Kit guide documents the shared comment send key: Enter sends, Shift+Enter starts a new line, Cmd/Ctrl+Enter sends too, and nothing sends while an input method is composing.
+- 3a2fa31: Reject routes and agent streams when organization membership cannot be confirmed.
+- 3a2fa31: Keep explicitly private action inputs, results and derived same-turn content out of durable chat history, execution journals, audit payloads and traces while preserving live delivery. Preserve privacy flags through action discovery. Support request-specific follow-up suggestions, validated data widgets and complete draft resets across live and reloaded transcripts.
+- 3a2fa31: Keep approved private results available to the current model while omitting durable approval keys, trace prompts, and context manifests.
+- 3a2fa31: Preserve private-action provenance across retries and later requests, omit sensitive durable payloads, and retain full live tool results.
+- 3a2fa31: Protect private tool execution recovery against mismatched or unverifiable prior calls.
+- 2bdaaca: Include actions created by define-prefixed wrappers in the generated action registry.
+- 3e1db3b: Remove the unintended Slides 2 template and its framework registrations.
+- eacd478: Reply emails from the Comments & Review Kit now reach everyone in the thread on busy resources. The kit used to look for a thread's people among the resource's first 200 comments, so on a design or page with more comments than that, people in newer threads got no email; it now looks them up by thread with `listReviewThreadParticipantEmails`. Deleting a review comment now clears its text, mentions, anchor (which can quote the text it points at), image attachments and any resolution note, as apps that remove the row do, and so does deleting a thread for each reply it takes along. The comment box's mention parser reads the characters beside each `@` without copying the line, so loading a long line with many `@` signs into the box takes linear time.
+- 2ab8632: `/runs/active` now reports `retryable` for an errored run, so a client can skip its automatic retry when the provider rejected the request and resending would fail the same way. The chat client, the server's continuation checks, and error formatting now share one check for a rejected request.
+- 3a2fa31: Support scoped workspace OAuth consent, account-bound reconnects and concurrent flows. Record actual granted scopes and preserve application-specific connection readiness.
+- 3a2fa31: Keep scopeless OAuth providers connected when an application grant has no scopes, while retaining missing-scope checks for providers that require them.
+- 3a2fa31: Persist private approval history under the server-created approval ID instead of a deterministic digest of tool input. Bind approval grants with server-keyed digests so stored rows cannot be checked against guessed input offline. Existing pending grants from before this change, or grants whose server encryption key rotates, require a new approval; live approval and exact-call checks remain in place.
+- 3a2fa31: Add reusable chart schemas and optional UI controls while preserving current framework defaults.
+- 3a2fa31: Tighten shared audit and SQL boundary types, preserve scoped connection updates, and localize sign-out cleanup errors.
+- ab15bf1: Close four gaps left after the server shutdown fix. A Google Docs document whose comment check fails is checked again on later polls (up to five) instead of being skipped for good once the change cursor moves past it. The Drive watch-channel stop request times out after 10 seconds, so a stalled request can't hold up turning Docs off. Shutdown now waits, within its existing 5-second limit, for sandbox runs this process is executing before a dev server closes their database. A closing dev server waits at most 5 seconds for its PGlite database before exiting without it.
+- 3a2fa31: Add scoped connection discovery preferences, transaction-aware user setting updates, and registered sign-out cleanup.
+- d8f90cd: Repair unused union-branch transport placeholders and refuse ambiguous input before it can clear unrelated fields. Stop repeated failed tool calls across parallel batches and continuations, preserve a visible failure explanation, and retain progress messages while retrying a stalled model request.
+
+  Stop plan-mode write rejections through the same failure handler, with a visible instruction to approve the plan and switch to Act mode.
+
+  Keep cached reads from resetting failure counts, including when rebuilding a continuation from durable results. Admit parallel calls within the remaining equivalent-error budget and retain the failure explanation when model closeout is empty.
+
+  Keep equivalent-error counts under exact tool names, so colon-containing names cannot share a budget or retain each other's errors across a mutation.
+
+  Preserve provider error statuses and recovery guidance when computing repeating-error keys; discard only recognized validation argument echoes.
+
+  Skip normalization for oversized errors to bound synchronous parsing work while preserving their full diagnosis; the per-tool failure cap still stops varying errors.
+
+  Recognize complete terminal JSON validation echoes when no parameter signature is available, while retaining malformed payloads and trailing recovery guidance.
+
+- a0356c6: Lower the default usage alert from $100 a day to $20 a month, and move defaults still at $100 a day to the new limit. `USAGE_ALERT_DEFAULT_MONTHLY_USD` replaces `USAGE_ALERT_DEFAULT_DAILY_USD`, which stays as a deprecated alias.
+- 3a2fa31: Reject unverified organization scope even when a session supplies an organization ID, and retain required Google identity scopes during API-specific OAuth consent.
+- 3a2fa31: Add the Zoom provider API catalog and bounded OAuth token refresh support.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.0
+  - @agent-native/recap-cli@0.5.94
+
+## 0.222.2
+
+### Patch Changes
+
+- 6eed332: Mark the `agentNative.chatRunning` event for a run this client just started with `reason: "run.submitted"`, so apps can follow a submitted message's run without a successor link. `readAgentRunStatus` also reports `awaitingRedispatch` when a run is waiting for its continuation.
+- d11cfc3: Add default English copy for the chat setup card's Connect Builder.io button and the composer placeholders, so hosts without the toolkit catalog no longer show humanized key names.
+- aa877cf: Feedback sweep skill: read sources with cheap closed-after helpers, run fixes on fresh helpers, require the second opinion before the PR, wait for CI with one blocking command, drop a fix after two review rounds, and include older threads with a new human reply.
+- 56b7564: Use the Builder.io credits that Fusion injects into a project's preview, so the preview chat works without asking the project owner to connect Builder.io again. When a deployed credits pair is refused by the runtime, the agent engine status reports `builderCreditsRefused` and the server logs it once.
+- Release all public npm packages with a patch version bump.
+- 568b298: Add an owner-only Builder backup status inspection that reports bounded metadata without downloading branch files.
+- 1e5a64b: An SSR route can shorten its own shared-cache window with the `SSR_MAX_AGE_HEADER` response header. The handler removes the header and only ever lowers the deployment policy; `0`, or a value that isn't whole seconds, stores nothing.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.2
+  - @agent-native/recap-cli@0.5.93
+
 ## 0.222.1
 
 ### Patch Changes
@@ -4386,29 +4491,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
-
-## 0.171.1
-
-### Patch Changes
-
-- c56a23e: Preserve explicitly safe stopped-action error codes and details across browser action transport.
-
-## 0.171.0
-
-### Minor Changes
-
-- f60345d: Add `auth.requireEmailVerification` to the app config schema, aliased to
-  `AUTH_REQUIRE_EMAIL_VERIFICATION`, so a deployment can state its password-signup
-  verification policy instead of inheriting the environment-derived one.
-  `AUTH_SKIP_EMAIL_VERIFICATION` stays a local/QA-only convenience that hosted
-  deployments ignore; a declared value outranks it. Setting the field to `false`
-  accepts an unverified address as a login credential and therefore also lifts the
-  hosted no-email-provider signup lock, which exists to prevent exactly that;
-  setting it to `true` where no email provider is configured disables password
-  signup rather than stranding accounts on a verification that cannot be delivered.
-
-### Patch Changes
-
-- f60345d: Stop the dev server from warning that the `agent-native-config` plugin set both `rollupOptions` and `rolldownOptions`. Vite 8 exposes `rollupOptions` as a getter alias of `rolldownOptions`, and spreading the incoming `build` / `optimizeDeps` sections copied that alias back out alongside our own `rolldownOptions`.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

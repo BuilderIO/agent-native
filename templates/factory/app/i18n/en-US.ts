@@ -371,9 +371,6 @@ const messages = {
       connectionsNeeded: "{{count}} to connect",
       connectionsListName: "Connections needed",
       jumpToProblem: "Show on the canvas",
-      testRun: "Dry run",
-      testing: "Starting",
-      saveAndTest: "Save and dry run",
       moreActions: "More actions",
       runNow: "Run now",
       runNowSaveFirst: "Save your changes before running for real.",
@@ -447,6 +444,13 @@ const messages = {
       body: "This workflow has changes that are not saved.",
       stay: "Keep editing",
       discard: "Discard",
+    },
+    draft: {
+      restored: "Restored your unsaved changes.",
+      saveFailed: "Could not save a draft of your changes. {{reason}}",
+      unreadable:
+        "Your unsaved changes could not be restored, so the saved version is open.",
+      discardFailed: "Could not discard your draft. {{reason}}",
     },
     liveRun: {
       dialogTitle: "Run this workflow for real?",

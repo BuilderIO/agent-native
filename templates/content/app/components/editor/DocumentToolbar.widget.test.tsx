@@ -497,7 +497,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
       // The widget's session cannot set discoverability, mint agent links,
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
-      expect(props.agentTabContent).toBeUndefined();
+      expect(mocks.shareProps.slice(-1)).toEqual([
+        expect.not.objectContaining({ sendTo: expect.anything() }),
+      ]);
       expect(props.shareTabs).toBeUndefined();
       // The popover's own trigger group matches the one drawn before it.
       expect(props.quickCopy.size).toBe("sm");
@@ -517,7 +519,15 @@ describe("DocumentToolbar in an MCP App widget", () => {
       const props = mocks.shareProps[mocks.shareProps.length - 1];
       expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
-      expect(props.agentTabContent).toBeDefined();
+      expect(mocks.shareProps.slice(-1)).toEqual([
+        expect.objectContaining({
+          sendTo: expect.objectContaining({
+            openInAgent: expect.any(Function),
+            copyAgentPrompt: expect.any(Function),
+            openMcpSettings: expect.any(Function),
+          }),
+        }),
+      ]);
       expect(props.quickCopy.className).toBeUndefined();
     });
   });

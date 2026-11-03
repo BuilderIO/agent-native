@@ -5545,7 +5545,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
-        copied ? (
+        copyAction.pending ? (
+          <IconLoader2 aria-hidden="true" className="animate-spin" />
+        ) : copied ? (
           <IconCircleCheck aria-hidden="true" />
         ) : (
           <IconCopy aria-hidden="true" />
@@ -5553,8 +5555,13 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       }
       size="compact"
       className="size-6"
-      pending={copyAction.pending}
-      onPress={() => void copyAction.execute().catch(() => undefined)}
+      // Copies stay enabled while they run: disabling the pressed button drops
+      // focus to the page, where Escape can no longer close the toolbar.
+      aria-busy={copyAction.pending || undefined}
+      onPress={() => {
+        if (copyAction.pending) return;
+        void copyAction.execute().catch(() => undefined);
+      }}
     />
   );
   const branchControls =
@@ -5623,6 +5630,19 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         event.stopPropagation();
         setMoreActions(false, "toggle");
       }}
+      onMouseDown={(event) => {
+        // Safari does not focus a pressed button; it focuses the transcript
+        // instead, which blur below reads as leaving and collapses the set
+        // before the click lands. Keep focus on the button that was pressed.
+        const button =
+          event.target instanceof Element
+            ? event.target.closest("button")
+            : null;
+        if (!button || button.disabled) return;
+        if (!event.currentTarget.contains(button)) return;
+        event.preventDefault();
+        button.focus({ preventScroll: true });
+      }}
       onBlur={(event) => {
         const next = event.relatedTarget;
         if (!moreActionsOpen || !(next instanceof Node)) return;
@@ -5650,7 +5670,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           {feedbackCapability.visible
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
-                return (
+                const renderFeedbackButton = (
+                  toggle?: () => void,
+                  open?: boolean,
+                  contentId?: string,
+                ) => (
                   <MessageActionButton
                     key={value}
                     label={
@@ -5675,14 +5699,32 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                     className="size-6"
                     data-message-action={`feedback-${value}`}
                     aria-pressed={chosen}
+                    aria-haspopup={toggle ? "dialog" : undefined}
+                    aria-expanded={toggle ? open : undefined}
+                    aria-controls={toggle && open ? contentId : undefined}
                     disabled={
                       !feedbackCapability.enabled || feedbackAction.pending
                     }
                     {...(feedbackCapability.reason === undefined
                       ? {}
                       : { title: feedbackCapability.reason })}
-                    onPress={() => void rateResponse(value)}
+                    onPress={() => {
+                      toggle?.();
+                      // raw-sql-ok: This submits a UI feedback rating, not SQL.
+                      void rateResponse(value);
+                    }}
                   />
+                );
+                return value === "negative" && slots.feedbackNote ? (
+                  <slots.feedbackNote
+                    key={value}
+                    threadId={threadId}
+                    {...(runId ? { runId } : {})}
+                    {...(messageSeq >= 0 ? { messageSeq } : {})}
+                    renderTrigger={renderFeedbackButton}
+                  />
+                ) : (
+                  renderFeedbackButton()
                 );
               })
             : null}
@@ -5736,7 +5778,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
-                  requestIdCopied ? (
+                  requestIdAction.pending ? (
+                    <IconLoader2 aria-hidden="true" className="animate-spin" />
+                  ) : requestIdCopied ? (
                     <IconCircleCheck aria-hidden="true" />
                   ) : (
                     <IconId aria-hidden="true" />
@@ -5745,10 +5789,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 size="compact"
                 className="size-6"
                 data-message-action="request-id"
-                pending={requestIdAction.pending}
-                onPress={() =>
-                  void requestIdAction.execute().catch(() => undefined)
-                }
+                aria-busy={requestIdAction.pending || undefined}
+                onPress={() => {
+                  if (requestIdAction.pending) return;
+                  void requestIdAction.execute().catch(() => undefined);
+                }}
               />
             ) : null}
           </div>
@@ -6187,6 +6232,7 @@ export interface AgentKitComposerProps extends Omit<
     | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
+    | "onSetupCardClick"
     | "initialText"
     | "initialTextKey"
     | "layoutVariant"
@@ -6229,8 +6275,12 @@ export interface AgentKitComposerProps extends Omit<
     | "interceptBuildRequestsForBuilder"
     | "stopButton"
   >,
-  "onSubmit"
+  "onSubmit" | "initialText" | "initialTextKey"
 > {
+  /** Programmatically seed the composer with plain text. */
+  initialText?: string | undefined;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
+  initialTextKey?: string | number | undefined;
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
   /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
@@ -6288,6 +6338,7 @@ export function AgentKitComposer({
   isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
+  onSetupCardClick,
   placeholder,
   initialText,
   initialTextKey,
@@ -7009,6 +7060,7 @@ export function AgentKitComposer({
             disabled,
             isReferenceTarget,
             onDisabledClick,
+            onSetupCardClick,
             onConnectProvider,
             onConnectLocalRuntime,
             imageModelMenu,

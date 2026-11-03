@@ -1,6 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { serializeIconValue } from "@agent-native/core/icons";
 import {
   AGENT_ACCESS_PARAM,
   verifyScopedAgentAccessToken,
@@ -11,12 +12,14 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import type { ContentLinkTarget } from "@shared/api";
 import {
   CLIP_EMBED_BLOCK_TYPE,
   clipEmbedRecordingIdFromRaw,
@@ -24,9 +27,10 @@ import {
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
 import { buildPublicDocumentDescription } from "@shared/og-description";
-import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
+import type { PublicReaderContext } from "@shared/public-reader";
+import { IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   HeadersArgs,
   LoaderFunctionArgs,
@@ -35,8 +39,10 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
+import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import { PublicReader } from "@/components/public-reader/PublicReader";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
   privateDocumentRedirectHref,
@@ -46,9 +52,11 @@ import {
 
 import { getDb, schema } from "../../server/db";
 import { resolveClipsAppUrl } from "../../server/lib/clips-peer";
+import { loadPublicReaderContext } from "../../server/lib/public-reader";
 import {
   buildContentDocumentAgentDiscovery,
   contentDocumentMcpInstructionText,
+  buildContentPublicDocumentPath,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
@@ -62,6 +70,7 @@ type PublicDocumentLoaderData =
         updatedAt: string;
         visibility: string;
       };
+      reader: PublicReaderContext;
       agentAccessToken: string | null;
       basePath: string;
       origin: string;
@@ -70,6 +79,7 @@ type PublicDocumentLoaderData =
     }
   | {
       document: null;
+      reader?: undefined;
       agentAccessToken: null;
       basePath: string;
       origin: string;
@@ -77,24 +87,47 @@ type PublicDocumentLoaderData =
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
+// A public page can be edited, made private or moved to Trash at any moment,
+// and every answer here is cached for all visitors, so none is kept longer
+// than this. Readers see a change within twice this, well under a minute.
+export const PUBLIC_DOCUMENT_CACHE_SECONDS = 20;
+
+const PUBLIC_DOCUMENT_HEADERS = {
+  [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+};
+
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
   [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+  [SSR_MAX_AGE_HEADER]: "0",
 };
 
 function publicDocumentLoaderData(
   payload: PublicDocumentLoaderData,
   privateAgentAccess = false,
 ) {
-  if (!privateAgentAccess) return payload;
   return data(payload, {
-    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
+    headers: privateAgentAccess
+      ? PRIVATE_AGENT_DOCUMENT_HEADERS
+      : PUBLIC_DOCUMENT_HEADERS,
   });
 }
 
-export function headers({ loaderHeaders }: HeadersArgs) {
-  return loaderHeaders;
+// Every answer keeps the short window, including a thrown not-found, which
+// arrives here as errorHeaders; an answer that asked for less keeps its own.
+export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
+  const answer = new Headers(errorHeaders ?? loaderHeaders);
+  if (!answer.has(SSR_MAX_AGE_HEADER)) {
+    answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
+  }
+  return answer;
+}
+
+// React Router calls only the catching route's headers for a thrown answer,
+// so this route catches its own not-found to keep the short cache window.
+export function ErrorBoundary() {
+  return <ContentErrorBoundaryBody />;
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -121,6 +154,9 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       content: schema.documents.content,
       updatedAt: schema.documents.updatedAt,
       visibility: schema.documents.visibility,
+      parentId: schema.documents.parentId,
+      icon: schema.documents.icon,
+      ownerEmail: schema.documents.ownerEmail,
     })
     .from(schema.documents)
     .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
@@ -134,9 +170,17 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       }).ok
     : false;
   if (doc.visibility === "public" || tokenAccess) {
+    const { parentId, icon, ownerEmail, ...page } = doc;
     return publicDocumentLoaderData(
       {
-        document: doc,
+        document: page,
+        reader: await loadPublicReaderContext({
+          id: doc.id,
+          parentId,
+          icon,
+          content: doc.content,
+          ownerEmail,
+        }),
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
         origin,
@@ -209,16 +253,6 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       : []),
   ];
 };
-
-function formatUpdatedAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function textOf(node: PMNode): string {
   if (node.type === "text") return node.text ?? "";
@@ -370,15 +404,45 @@ export function ReadOnlyMarkdownContent({
   documentId,
   content,
   clipsAppUrl,
+  pageLinks,
+  basePath,
 }: {
   documentId: string;
   content: string;
   clipsAppUrl: string | null;
+  pageLinks: PublicReaderContext["pageLinks"];
+  basePath: string;
 }) {
   const [mounted, setMounted] = useState(false);
   const blockContext = useMemo(
     () => ({ dialect: "nfm" as const, documentId, canEdit: false }),
     [documentId],
+  );
+  // Page blocks open the public copy of their page, from the targets the
+  // page loaded with; a reader without an account can't look them up.
+  const resolvePageLink = useMemo(() => {
+    const targets = new Map(Object.entries(pageLinks));
+    return (id: string): ContentLinkTarget | null => {
+      const page = targets.get(id);
+      return page
+        ? {
+            documentId: page.id,
+            title: page.title,
+            icon: serializeIconValue(page.icon),
+          }
+        : null;
+    };
+  }, [pageLinks]);
+  // The editor reads its options once, when it mounts, so page data that
+  // arrives with different targets mounts a new one.
+  const pageLinksKey = useMemo(() => JSON.stringify(pageLinks), [pageLinks]);
+  const openPageLink = useCallback(
+    (id: string) => {
+      window.location.assign(
+        `${basePath}${buildContentPublicDocumentPath(id)}`,
+      );
+    },
+    [basePath],
   );
 
   useEffect(() => setMounted(true), []);
@@ -396,7 +460,14 @@ export function ReadOnlyMarkdownContent({
       registry={publicContentBlockRegistry}
       ctx={blockContext}
     >
-      <VisualEditor content={content} onChange={() => {}} editable={false} />
+      <VisualEditor
+        key={pageLinksKey}
+        content={content}
+        onChange={() => {}}
+        editable={false}
+        onOpenNotionPageLink={openPageLink}
+        resolveNotionPageLink={resolvePageLink}
+      />
     </BlockRegistryProvider>
   );
 }
@@ -494,9 +565,12 @@ function PrivateDocumentNotice({
 }
 
 export default function PublicDocumentPage() {
-  const t = useT();
   const data = useLoaderData<typeof loader>();
+  const { status } = useSession();
   const document = data.document;
+  // Chat and the agent's view of this page are for signed-in readers: a
+  // visitor without an account has no model to chat with.
+  const signedIn = status === "authenticated";
 
   if (!document) {
     return (
@@ -510,7 +584,12 @@ export default function PublicDocumentPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <PublicDocumentContextSync document={document} basePath={data.basePath} />
+      {signedIn ? (
+        <PublicDocumentContextSync
+          document={document}
+          basePath={data.basePath}
+        />
+      ) : null}
       <AgentReadableDocumentDiscovery
         document={document}
         token={data.agentAccessToken}
@@ -518,33 +597,20 @@ export default function PublicDocumentPage() {
         origin={data.origin}
         accessState={document.visibility === "public" ? "public" : "authorized"}
       />
-      <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-        >
-          <IconLayoutSidebarRight size={16} />
-          {t("publicDocument.chat")}
-        </button>
-      </div>
-      <article className="mx-auto max-w-3xl px-6 pb-16 pt-8 sm:px-8 lg:pb-24">
-        <p className="text-sm text-muted-foreground">
-          {t("publicDocument.updated", {
-            date: formatUpdatedAt(document.updatedAt),
-          })}
-        </p>
-        <h1 className="mt-3 break-words text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
-          {document.title}
-        </h1>
-        <div className="mt-8 border-t border-border pt-4">
-          <ReadOnlyMarkdownContent
-            documentId={document.id}
-            content={document.content}
-            clipsAppUrl={data.clipsAppUrl ?? null}
-          />
-        </div>
-      </article>
+      <PublicReader
+        document={document}
+        reader={data.reader}
+        basePath={data.basePath}
+        signedIn={signedIn}
+      >
+        <ReadOnlyMarkdownContent
+          documentId={document.id}
+          content={document.content}
+          clipsAppUrl={data.clipsAppUrl ?? null}
+          pageLinks={data.reader.pageLinks}
+          basePath={data.basePath}
+        />
+      </PublicReader>
     </main>
   );
 }

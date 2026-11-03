@@ -94,7 +94,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     key === "comments.proposalEditCount" ? `${key}:${params?.count}` : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => content,
+  CommentBody: ({ body }: { body: string }) => body,
 }));
 
 function thread(id: string, resolved = false): CommentThread {

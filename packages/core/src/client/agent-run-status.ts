@@ -8,6 +8,10 @@ export type AgentRunStatusRead =
       runId?: string;
       turnId?: string;
       terminalReason?: string;
+      /** A truncated run whose continuation the server has not started yet. */
+      awaitingRedispatch?: boolean;
+      /** False when resending the same prompt would fail the same way. */
+      retryable?: boolean;
     }
   | { ok: false };
 
@@ -36,6 +40,8 @@ export async function readAgentRunStatus(input: {
       runId?: unknown;
       turnId?: unknown;
       terminalReason?: unknown;
+      awaitingRedispatch?: unknown;
+      retryable?: unknown;
     };
     if (typeof state.status !== "string") return { ok: false };
 
@@ -61,6 +67,12 @@ export async function readAgentRunStatus(input: {
         : {}),
       ...(typeof state.terminalReason === "string" && state.terminalReason
         ? { terminalReason: state.terminalReason }
+        : {}),
+      ...(state.awaitingRedispatch === true
+        ? { awaitingRedispatch: true }
+        : {}),
+      ...(typeof state.retryable === "boolean"
+        ? { retryable: state.retryable }
         : {}),
     };
   } catch {

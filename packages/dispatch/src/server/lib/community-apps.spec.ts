@@ -47,6 +47,11 @@ vi.mock("../../shared/labs.js", () => ({
   COMMUNITY_APPS_LAB: { key: "dispatch.community-apps", defaultEnabled: false },
 }));
 vi.mock("./app-creation-store.js", () => ({
+  builderManagedCreationResult: (url: string) => ({
+    mode: "builder-managed",
+    url,
+    message: "Apps in this workspace are built in Builder.",
+  }),
   getAppCreationSettings: mocks.getAppCreationSettings,
   getWorkspaceInfo: mocks.getWorkspaceInfo,
   isLocalAppCreationRuntime: mocks.isLocalAppCreationRuntime,
@@ -159,6 +164,24 @@ describe("curated community apps", () => {
       statusCode: 403,
     });
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+    expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
+  });
+
+  it("links a Builder-linked workspace to Builder before any install checks", async () => {
+    mocks.getWorkspaceInfo.mockReturnValueOnce({
+      name: "acme",
+      displayName: "Acme",
+      rootPath: "/workspace",
+      appCount: 1,
+      builderWorkspaceUrl: "https://builder.io/app/workspaces/ws-123",
+    });
+
+    await expect(
+      installCuratedCommunityApp({ sourceId: "community-qr" }),
+    ).resolves.toMatchObject({
+      mode: "builder-managed",
+      url: "https://builder.io/app/workspaces/ws-123",
+    });
     expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
   });
 

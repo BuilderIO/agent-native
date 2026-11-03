@@ -438,7 +438,7 @@ async function finalizeGenerationForSavedFiles(
 
 // The model is shown these typed fields as they are, and the validating schema
 // wraps the structured ones in `jsonField` so a JSON string still parses.
-const agentFileSchema = z.object({
+const designFileSchema = z.object({
   filename: z.string().describe("Filename (e.g. 'index.html')"),
   content: z.string().min(1).describe("File content"),
   fileType: z
@@ -446,12 +446,6 @@ const agentFileSchema = z.object({
     .optional()
     .default("html")
     .describe("Type of file"),
-});
-
-// `frameType` stays accepted but is never shown to the model: models set it on
-// ordinary screens, omit the email meta marker, and every write is rejected.
-const designFileSchema = agentFileSchema.extend({
-  frameType: z.literal("hubspot-email").optional(),
 });
 
 const canvasFrameSchema = z
@@ -493,11 +487,6 @@ const filesDescription =
   "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.";
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
-
-const agentFilesField = z
-  .array(agentFileSchema)
-  .min(1)
-  .describe(filesDescription);
 
 const designSystemIdField = z
   .string()
@@ -687,7 +676,7 @@ const generateDesignAction = defineAction({
   agentInputSchema: z.object({
     designId: designIdField,
     prompt: promptField,
-    files: agentFilesField,
+    files: filesField,
     designSystemId: designSystemIdField,
     projectType: projectTypeField,
     tweaks: tweaksField,
@@ -838,7 +827,6 @@ const generateDesignAction = defineAction({
         assertHubSpotEmailFrameContent({
           content: file.content,
           fileType: file.fileType,
-          ...(file.frameType ? { frameType: file.frameType } : {}),
         });
       } catch (error) {
         throw noWriteValidationError(error);

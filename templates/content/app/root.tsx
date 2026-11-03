@@ -1,6 +1,9 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  createAgentNativeQueryClient,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
@@ -11,7 +14,6 @@ import {
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
@@ -38,12 +40,10 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  isRouteErrorResponse,
   useLoaderData,
   useLocation,
   useNavigate,
   useRouteLoaderData,
-  useRouteError,
 } from "react-router";
 import type {
   LinksFunction,
@@ -57,6 +57,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { ContentErrorBoundaryBody } from "./components/ContentErrorBoundary";
 import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
@@ -328,15 +329,18 @@ function ThemeToggleItem({ query }: { query: string }) {
   );
 }
 
+// The agent sidebar loads only for a signed-in reader. A visitor without an
+// account has no model to chat with, so they get the page alone.
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const t = useT();
+  const { status } = useSession();
 
   useEffect(() => setMounted(true), []);
 
   const content = <>{children}</>;
 
-  if (!mounted) {
+  if (!mounted || status !== "authenticated") {
     return (
       <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
@@ -543,53 +547,6 @@ export default function Root() {
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>
-  );
-}
-
-function ContentErrorBoundaryBody() {
-  const error = useRouteError();
-  let title = "Something went wrong";
-  let details = "An unexpected error occurred.";
-
-  if (isRouteErrorResponse(error)) {
-    if (error.status === 404) {
-      title = "Page not found";
-      details = "We couldn't find this page.";
-    } else {
-      title = `${error.status} Error`;
-      details = error.statusText || details;
-    }
-  } else if (error instanceof Error && error.message) {
-    details = error.message;
-  } else if (typeof error === "string" && error) {
-    details = error;
-  }
-
-  if (typeof console !== "undefined" && error) {
-    console.error("[ContentErrorBoundary]", error);
-  }
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
-      <div className="flex max-w-md flex-col items-center text-center">
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{details}</p>
-        <a
-          href={appPath("/page")}
-          className="mt-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
-        >
-          Go to page list
-        </a>
-        <ErrorReportActions
-          appName="Content"
-          title={title}
-          details={details}
-          issueTitle={`Content error: ${title}`}
-          className="mt-4"
-          align="center"
-        />
-      </div>
-    </main>
   );
 }
 

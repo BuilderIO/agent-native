@@ -1,3 +1,4 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -259,7 +260,9 @@ export default function SetupRoute() {
               Using a Salesforce sandbox?{" "}
               <a
                 className="font-medium text-foreground underline underline-offset-4"
-                href="/_agent-native/connections/oauth/salesforce/start?environment=sandbox&appId=crm"
+                href={agentNativePath(
+                  "/_agent-native/connections/oauth/salesforce/start?environment=sandbox&appId=crm",
+                )}
               >
                 Authorize the sandbox directly
               </a>

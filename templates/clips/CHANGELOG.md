@@ -3,6 +3,20 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-29
+
+### Improved
+
+- Share lists show each person's name and email, roles read "Can view", "Can comment" and "Can edit", and Remove access is in each person's role menu.
+
+### Fixed
+
+- Window recording now shows the countdown and recording pill on the picked window's Space and display, including full-screen apps
+
+### Changed
+
+- Screenshots are available when enabled in Labs.
+
 ## 2026-10-28
 
 ### Improved
@@ -13,6 +27,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Deleted recordings retain media removal status and retries until storage cleanup is confirmed
+- Fixed the Share → Advanced popover so the Save buttons fit and the password toggle matches other switches
 - Clips desktop preserves your server choice across updates and reconnects after temporary sign-in outages.
 - Recording chapters remain reachable when the list extends below the player.
 - The Chrome extension recorder has more room and a clearer feedback link.
@@ -1599,15 +1615,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Mobile recording pages keep videos in a 16:9 player with activity below.
-
-## 2026-07-02
-
-### Added
-
-- Private recordings can be shared with agents through temporary links without making them public.
-
-### Fixed
-
-- Recordings now wait for uploaded media to play from storage before finishing, and playback falls back when a compressed storage copy is temporarily broken.
 
 For the full list of updates, see the [changelog folder](./changelog/).

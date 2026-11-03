@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-// oracle-change: Content share-local-file-document and Design generate-screens and export-coding-handoff are now scoped widget targets, so their catalog entries carry a UI resource; every other tool stays plain
+// oracle-change: the deleted Slides 2 template no longer has an inline app
 exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
 {
   "analytics": [
@@ -149,18 +149,6 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false,
-        "title": "Clone context slide",
-      },
-      "name": "clone-context-slide",
-    },
-  ],
-  "slides-2": [
-    {
-      "_meta": undefined,
-      "annotations": {
-        "destructiveHint": false,
         "openWorldHint": false,
         "readOnlyHint": false,
         "title": "Clone context slide",

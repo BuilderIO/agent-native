@@ -36,6 +36,11 @@ const messages = {
     composer: {
       chatgptManageUsage: "Manage usage",
       chatgptPlanUsing: "Using ChatGPT plan",
+      newChatPlaceholder: "Ask anything",
+    },
+    setup: {
+      connectBuilder: "Connect Builder.io",
+      connectPlaceholder: "Connect AI to start chatting...",
     },
     error: {
       chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
@@ -86,6 +91,9 @@ const messages = {
     roleMarketing: "Marketing",
     roleSales: "Sales",
     roleOps: "Ops",
+    roleCreator: "Content creator",
+    roleStudent: "Student",
+    roleEducator: "Educator",
     roleIndividual: "Individual",
     roleOther: "Other",
     roleOtherInputLabel: "Describe your role",

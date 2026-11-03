@@ -1,3 +1,19 @@
+## 0.1.26
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
+## 0.1.25
+
+### Patch Changes
+
+- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
+- Updated dependencies [38ca6fa]
+  - @agent-native/toolkit@0.4.7
+
 ## 0.1.24
 
 ### Patch Changes

@@ -7,6 +7,7 @@ import fixtureSource from "../collab/__fixtures__/live-copy-tasks.ts?bounded-tas
 import { createBoundedTaskRunner } from "../collab/bounded-tasks.js";
 import { LIVE_COPY_TASK } from "../collab/live-copy-tasks.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
+import { callPluginHook } from "./plugin-hook.test-helpers.js";
 
 const fixture = fileURLToPath(
   new URL("../collab/__fixtures__/live-copy-tasks.ts", import.meta.url),
@@ -29,17 +30,25 @@ describe("boundedTaskSourcePlugin", () => {
   it("turns a ?bounded-task import into a runnable task source", async () => {
     const plugin = boundedTaskSourcePlugin();
     const ctx = context();
-    const id = await plugin.resolveId.call(
+    const id = await callPluginHook(
+      plugin.resolveId,
       ctx,
       "./live-copy-tasks.ts?bounded-task",
       "/app/server/live-copy.ts",
     );
     expect(id).toBe(`\0agent-native-bounded-task:${fixture}`);
-    await expect(
-      plugin.resolveId.call(ctx, "./live-copy-tasks.ts", undefined),
-    ).resolves.toBeNull();
+    expect(
+      await callPluginHook(
+        plugin.resolveId,
+        ctx,
+        "./live-copy-tasks.ts",
+        undefined,
+      ),
+    ).toBeNull();
 
-    const code = await plugin.load.call(ctx, id!);
+    const code = (await callPluginHook(plugin.load, ctx, String(id))) as
+      | string
+      | null;
     const prefix = "export default Object.freeze(";
     expect(code?.startsWith(prefix)).toBe(true);
     const source = JSON.parse(
@@ -90,7 +99,12 @@ describe("boundedTaskSourcePlugin", () => {
     const plugin = boundedTaskSourcePlugin();
     const ctx = { ...context(), resolve: async () => null };
     await expect(
-      plugin.resolveId.call(ctx, "./missing.ts?bounded-task", "/app/x.ts"),
+      callPluginHook(
+        plugin.resolveId,
+        ctx,
+        "./missing.ts?bounded-task",
+        "/app/x.ts",
+      ),
     ).rejects.toThrow(/Cannot resolve bounded task module \.\/missing\.ts/);
   });
 });

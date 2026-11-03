@@ -47,9 +47,10 @@ screenshots, or provider payloads into a comment.
 ## Comment-started runs
 
 An editor can also start a background agent run from a thread: an `@agent`
-chip in their comment, or the card menu items Suggest changes, Reply in
-thread, and Apply changes and resolve. Send to agent is not one of them; it
-still opens this chat. A run is scoped by code, not by its prompt:
+chip in their comment, or the card menu items Suggest changes and Apply
+changes and resolve. A question put to `@agent` is answered as a reply. Send to
+agent is not one of them; it still opens this chat. A run is scoped by code,
+not by its prompt:
 
 - It sees only the actions it needs, chosen from the stored request. With
   `@agent` the run first classifies the comment (`get-review-agent-context`,

@@ -2048,6 +2048,34 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBe(true);
   });
 
+  it("names the slides another writer deleted instead of failing untyped", async () => {
+    const data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+    mockDeckRow = { ...mockDeckRow, data };
+
+    const error = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-gone",
+          fields: { skipped: true },
+          baseFields: { skipped: { present: false } },
+        },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-gone"] },
+    });
+    expect(mockDeckRow).toMatchObject({ data });
+  });
+
   it("rejects extra widget operation metadata", () => {
     const operations = [
       {
@@ -5799,5 +5827,101 @@ describe("run() — patch-slide edits", () => {
         edits: [{ find: "#a85f43", replace: "#000000" }],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("run() — a patch to a deleted slide is a typed 404 with no write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("names the slide the client is still editing and writes nothing", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Edited</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-2"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a patch to a slide deleted earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+            },
+            { op: "delete-slide", slideId: "slide-1" },
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "late" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      details: { slideIds: ["slide-1"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("accepts a patch to a slide added earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              afterSlideId: "slide-1",
+              fields: { content: "<div>Two</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { notes: "Typed right after adding" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ ok: true });
   });
 });

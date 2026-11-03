@@ -3147,13 +3147,16 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     __setAgentTraceRuntimeForTests(runtime as any);
 
     await instrumentAgentLoop({
-      runAgentLoop: async () => ({
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: "claude-test",
-      }),
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
       loopOpts: {
         engine: { name: "anthropic" },
         model: "claude-test",
@@ -6013,5 +6016,198 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("omits preexisting private model context before the first input capture", async () => {
+    const secret = "approved-private-trace-sentinel";
+    const persisted: unknown[] = [];
+    const span = vi
+      .spyOn(traceStore, "insertTraceSpan")
+      .mockImplementation(async (value) => {
+        persisted.push(value);
+      });
+    const summary = vi
+      .spyOn(traceStore, "upsertTraceSummary")
+      .mockImplementation(async (value) => {
+        persisted.push(value);
+      });
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+    const messages = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call",
+            toolName: "private",
+            content: secret,
+            omitFromPersistedHistory: true,
+          },
+        ],
+      },
+    ];
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ onModelInput, send }) => {
+          onModelInput?.(messages);
+          send({ type: "model_stream", status: "start" });
+          send({ type: "text", text: "live reply" });
+          send({ type: "model_stream", status: "end", reason: "end_turn" });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test",
+            usageReported: true,
+          };
+        },
+        loopOpts: {
+          engine: { name: "test" },
+          model: "test",
+          systemPrompt: "",
+          tools: [],
+          messages,
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+          historyPrivacyState: { private: true },
+        },
+        runId: "run-seeded-private",
+        threadId: "thread-seeded-private",
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          capturePrompts: true,
+          captureToolArgs: true,
+          captureToolResults: true,
+          evalSampleRate: 0,
+        },
+      });
+      await vi.waitFor(() => expect(persisted.length).toBeGreaterThan(0));
+      expect(JSON.stringify(persisted)).not.toContain(secret);
+    } finally {
+      span.mockRestore();
+      summary.mockRestore();
+      adopt.mockRestore();
+    }
+  });
+
+  it("redacts the whole private turn from generations and terminal callbacks", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_trace") {
+          events.push(event);
+        }
+      },
+    });
+    const persistedSpans: unknown[] = [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    const body = "private-mail-body-sentinel";
+    let observedOutcome: unknown;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onModelInput, onOutcome }) => {
+        onModelInput?.([{ role: "user", content: "fetch thread by id" }]);
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "tool_input_start",
+          id: "private-read-call",
+          tool: "get-gmail-thread",
+          omitFromPersistedHistory: true,
+        });
+        send({
+          type: "tool_input_delta",
+          id: "private-read-call",
+          tool: "get-gmail-thread",
+          text: body,
+          omitFromPersistedHistory: true,
+        });
+        send({
+          type: "tool_start",
+          id: "private-read-call",
+          tool: "get-gmail-thread",
+          input: { threadId: "thread-id", body },
+          omitFromPersistedHistory: true,
+        });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({
+          type: "tool_done",
+          id: "private-read-call",
+          tool: "get-gmail-thread",
+          result: body,
+          isError: true,
+          errorClass: "input_invalid",
+          invalidPaths: [body],
+        });
+        onModelInput?.([{ role: "tool", content: body }]);
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: `Summary: ${body}` });
+        send({ type: "model_stream", status: "end" });
+        onOutcome?.({
+          state: "failed",
+          code: "private_failure",
+          retryable: false,
+          message: `Failure included ${body}`,
+        });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+        onOutcome: (outcome: unknown) => {
+          observedOutcome = outcome;
+        },
+      } as any,
+      runId: "run-private-turn-outcome",
+      threadId: "thread-private-turn-outcome",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+        captureToolArgs: true,
+        captureToolResults: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(observedOutcome).toEqual({
+      state: "failed",
+      code: "private_content_omitted",
+      retryable: false,
+      message: "Private content omitted",
+    });
+    const generations = events.filter(
+      (event) => event.name === "$ai_generation",
+    );
+    expect(generations.length).toBeGreaterThan(0);
+    expect(
+      generations.every((event) => event.properties?.tools?.length === 0),
+    ).toBe(true);
+    expect(
+      JSON.stringify({ events, observedOutcome, persistedSpans }),
+    ).not.toContain(body);
   });
 });

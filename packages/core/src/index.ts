@@ -293,6 +293,7 @@ export {
   saveUsageAlert,
   setUsageAlertEnabled,
   USAGE_ALERT_DEFAULT_DAILY_USD,
+  USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
   type SaveUsageAlertInput,
   type UsageAlertAccess,
