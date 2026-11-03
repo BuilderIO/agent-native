@@ -466,6 +466,16 @@ export async function createResourceScriptEntries(): Promise<
                 type: "string",
                 description: "Content to write. Required for write.",
               },
+              offset: {
+                type: "string",
+                description:
+                  "read: start at this character (default 0). Reads return at most 40000 chars; a partial result's header gives the next offset.",
+              },
+              length: {
+                type: "string",
+                description:
+                  "read: max chars to return (default and max 40000).",
+              },
               scope: {
                 type: "string",
                 description:

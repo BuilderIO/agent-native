@@ -65,14 +65,55 @@ async function requireSkillLabAccess(
   }
 }
 
+// Stays under the agent loop's 50,000-char tool-result cap so a page is never cut off silently.
+export const RESOURCE_READ_PAGE_CHARS = 40_000;
+
+function parseRangeArg(
+  name: "offset" | "length",
+  value: string | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < (name === "length" ? 1 : 0)) {
+    fail(
+      `--${name} must be ${name === "length" ? "a positive" : "a non-negative"} integer.`,
+    );
+  }
+  return n;
+}
+
 async function writeResource(
   resource: Resource,
   resourcePath: string,
   owner: string,
   orgId: string | null,
+  range: { offset?: number; length?: number },
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
-  process.stdout.write(resource.content);
+  const { content } = resource;
+  const offset = range.offset ?? 0;
+  const length = Math.min(
+    range.length ?? RESOURCE_READ_PAGE_CHARS,
+    RESOURCE_READ_PAGE_CHARS,
+  );
+  if (offset === 0 && content.length <= length) {
+    process.stdout.write(content);
+    return;
+  }
+  if (offset >= content.length) {
+    fail(
+      `--offset ${offset} is past the end of "${resourcePath}" (${content.length} chars).`,
+    );
+  }
+  const end = Math.min(offset + length, content.length);
+  const status =
+    end < content.length
+      ? `partial - read again with offset=${end} for the rest`
+      : "end of resource";
+  process.stdout.write(
+    `[chars ${offset}-${end} of ${content.length}; ${status}]\n` +
+      content.slice(offset, end),
+  );
 }
 
 export default async function resourceReadScript(
@@ -87,6 +128,8 @@ Options:
   --path <path>            Resource path (required)
   --scope personal|shared|workspace
                            Scope to read from (default: personal, falls back to shared then workspace)
+  --offset <n>             Start at this character (default: 0)
+  --length <n>             Characters to return (max ${RESOURCE_READ_PAGE_CHARS}; larger resources are returned in pages)
   --help                   Show this help message`);
     return;
   }
@@ -96,6 +139,10 @@ Options:
     fail("--path is required. Example: --path LEARNINGS.md");
   }
 
+  const range = {
+    offset: parseRangeArg("offset", parsed.offset),
+    length: parseRangeArg("length", parsed.length),
+  };
   const scope = parsed.scope;
   const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
@@ -119,7 +166,7 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId);
+    await writeResource(resource, resourcePath, owner, orgId, range);
     return;
   }
 
@@ -137,7 +184,7 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId);
+    await writeResource(resource, resourcePath, owner, orgId, range);
     return;
   }
 
@@ -148,6 +195,7 @@ Options:
       resourcePath,
       owner,
       getRequestOrgId() ?? null,
+      range,
     );
     return;
   }
@@ -167,7 +215,7 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(shared, resourcePath, owner, orgId);
+    await writeResource(shared, resourcePath, owner, orgId, range);
     return;
   }
 
@@ -175,7 +223,7 @@ Options:
     orgId,
   });
   if (workspace) {
-    await writeResource(workspace, resourcePath, owner, orgId);
+    await writeResource(workspace, resourcePath, owner, orgId, range);
     return;
   }
 

@@ -123,4 +123,55 @@ describe("resource-read Lab gating", () => {
     ).rejects.toThrow("Lab settings are unavailable");
     expect(output).toEqual([]);
   });
+
+  describe("paging", () => {
+    const path = "notes/big.txt";
+    const content =
+      "START\n" +
+      "line\n".repeat(30000) +
+      "MIDDLE\n" +
+      "line\n".repeat(30000) +
+      "TAIL\n";
+
+    async function page(...extra: string[]): Promise<string> {
+      output.length = 0;
+      await runWithRequestContext({ userEmail: owner }, () =>
+        resourceReadScript(["--path", path, "--scope", "personal", ...extra]),
+      );
+      return output.join("");
+    }
+
+    it("returns small resources unchanged", async () => {
+      addResource({ owner, path, content: "small" });
+      expect(await page()).toBe("small");
+    });
+
+    it("pages a large resource to the end without losing text", async () => {
+      addResource({ owner, path, content });
+      let offset = 0;
+      let rebuilt = "";
+      for (let i = 0; i < 20; i++) {
+        const out = await page(...(offset ? ["--offset", String(offset)] : []));
+        const nl = out.indexOf("\n");
+        const header = out.slice(0, nl);
+        const body = out.slice(nl + 1);
+        expect(body.length).toBeLessThanOrEqual(40_000);
+        rebuilt += body;
+        const next = header.match(/offset=(\d+)/);
+        if (!next) {
+          expect(header).toContain("end of resource");
+          break;
+        }
+        offset = Number(next[1]);
+      }
+      expect(rebuilt).toBe(content);
+    });
+
+    it("rejects an offset past the end", async () => {
+      addResource({ owner, path, content });
+      await expect(page("--offset", String(content.length))).rejects.toThrow(
+        "past the end",
+      );
+    });
+  });
 });
