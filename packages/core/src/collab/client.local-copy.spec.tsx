@@ -474,9 +474,13 @@ describe("collab local copies", () => {
     release();
     await advance(200);
 
-    // The server's deletion stands, on both sides.
+    // The server's deletion stands, on both sides, and the typing that went
+    // into the deleted paragraph isn't in the state the server keeps.
     expect(paragraphsOf(current().ydoc!)).toEqual(["Second paragraph."]);
     expect(paragraphsOf(server)).toEqual(["Second paragraph."]);
+    expect(
+      new TextDecoder().decode(Y.encodeStateAsUpdate(server)),
+    ).not.toContain("Typed on the copy");
     // The typing is handed over as the page stood with it.
     expect(displaced).toHaveLength(1);
     expect(displaced[0]!.reason).toBe("deleted");
@@ -878,6 +882,52 @@ describe("collab local copies", () => {
     await advance(50);
     await reread;
     expect(stateRequests).toHaveLength(2);
+  });
+
+  it("reads again when the session changes while a boot read's answer is on its way", async () => {
+    stateRequests = [];
+    const release = holdStateResponses();
+    // The read's own session can't open this doc; the one after it can.
+    stateResponses.push("forbidden");
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+
+    mount();
+    await advance(0);
+    expect(stateRequests).toHaveLength(1);
+    const reread = notifySessionInvalidated();
+    release();
+    await advance(50);
+    await reread;
+
+    expect(stateRequests).toHaveLength(2);
+    expect(current().initialization).toEqual({ status: "ready" });
+    expect(text()).toBe("hello");
+  });
+
+  it("keeps the saved copy when the session changes while a boot read built on it is on its way", async () => {
+    await visit();
+    stateRequests = [];
+    const release = holdStateResponses();
+    // The read's own session can't open this doc; the one after it can.
+    stateResponses.push("forbidden");
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+
+    mount();
+    await advance(0);
+    expect(current().fromLocalCopy).toBe(true);
+    const reread = notifySessionInvalidated();
+    release();
+    await advance(50);
+    await reread;
+
+    expect(stateRequests).toHaveLength(2);
+    expect(stateRequests[1]).toContain("stateVector=");
+    expect(current().initialization).toEqual({ status: "ready" });
+    expect(current().isSynced).toBe(true);
+    expect(store.copy()).not.toBeNull();
+    expect(text()).toBe("hello");
   });
 
   it("drops a boot read built on another account's copy", async () => {

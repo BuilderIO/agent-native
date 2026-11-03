@@ -457,7 +457,10 @@ const SERVER_STATE_RETRY_MAX_MS = 30_000;
 type SentCollabStateRequest = Pick<
   CollabStateRequest,
   "response" | "withStateVector"
->;
+> & {
+  /** For a boot read, whether the session it was made under is still the tab's. */
+  isCurrent?: () => boolean;
+};
 
 /** Whether a doc at `server` holds every struct a doc at `local` holds. */
 function stateVectorCovers(server: Uint8Array, local: Uint8Array): boolean {
@@ -1131,11 +1134,11 @@ class CollabDocConnection {
     void prefetch.request.then(
       (request) => {
         if (this.disposed) return;
-        this.fetchInitialState(
-          request.localState || !prefetch.isCurrent()
-            ? undefined
-            : request.response,
-        );
+        if (request.localState || !prefetch.isCurrent()) {
+          this.fetchInitialState();
+        } else {
+          this.fetchInitialState(request.response, prefetch.isCurrent);
+        }
       },
       () => {
         if (!this.disposed) this.fetchInitialState();
@@ -1199,12 +1202,18 @@ class CollabDocConnection {
     if (rejectedLocalCopies.has(this.registryKey)) local = null;
     if (!local || !this.applyLocalCopy(local)) {
       if (local) deleteCollabLocalCopy(account, key);
-      this.fetchInitialState(
-        request && !request.localState ? request.response : undefined,
-      );
+      if (request && !request.localState) {
+        this.fetchInitialState(request.response, prefetch?.isCurrent);
+      } else {
+        this.fetchInitialState();
+      }
       return;
     }
-    void this.requestServerState(request?.localState ? request : undefined);
+    void this.requestServerState(
+      request?.localState
+        ? { ...request, isCurrent: prefetch?.isCurrent }
+        : undefined,
+    );
   }
 
   /** Applies a saved copy, unless it is not a whole doc. */
@@ -1268,7 +1277,7 @@ class CollabDocConnection {
     // Only a doc opened from a saved copy waits for the server's state.
     const localVector = this.localCopyVector;
     if (!localVector) return { status: "unavailable" };
-    const sent =
+    const sent: SentCollabStateRequest =
       prefetched ??
       requestCollabState(
         this.baseUrl,
@@ -1284,6 +1293,9 @@ class CollabDocConnection {
     if (this.disposed || !this.awaitingServerState) {
       return { status: "unavailable" };
     }
+    // The session changed while the boot read was on its way, so its answer
+    // says nothing about this one, not even that the doc is gone.
+    if (sent.isCurrent?.() === false) return this.readServerState();
     if (res.status === 404 || res.status === 403) {
       this.forgetLocalCopy();
       this.awaitingServerState = false;
@@ -1309,6 +1321,7 @@ class CollabDocConnection {
       activityBaseline?: unknown;
     } | null;
     if (!this.stillAwaitsServerState()) return { status: "unavailable" };
+    if (sent.isCurrent?.() === false) return this.readServerState();
     let update: Uint8Array;
     let serverVector: Uint8Array | null;
     try {
@@ -1366,7 +1379,10 @@ class CollabDocConnection {
     this.startTransport();
     this.restoreUnsentUpdates();
     this.scheduleLocalCopySave();
-    // What was typed on the copy waited for this.
+    // What was typed on the copy waited for this. Typing inside a block the
+    // server deleted goes too: a client's updates must arrive without gaps, or
+    // the server holds back everything after them. It arrives already deleted,
+    // so the server's doc doesn't change.
     void this.flushPendingUpdates();
     return { status: "synced" };
   }
@@ -1615,10 +1631,18 @@ class CollabDocConnection {
     response: Promise<Response> = fetch(`${this.baseUrl}/${this.docId}/state`, {
       headers: { "X-Agent-Native-Poll-Baseline": "1" },
     }),
+    // For a boot read, whether the session it was made under is still the tab's.
+    isCurrent?: () => boolean,
   ): void {
     response.then(
       async (res) => {
         if (this.disposed) return;
+        // The session changed while the boot read was on its way, so its
+        // answer is another session's.
+        if (isCurrent?.() === false) {
+          this.fetchInitialState();
+          return;
+        }
         if (res.status === 404 || res.status === 403) {
           this.markInitializationFailed("forbidden-or-not-found");
           return;
@@ -1636,6 +1660,10 @@ class CollabDocConnection {
           };
         } | null;
         if (this.disposed) return;
+        if (isCurrent?.() === false) {
+          this.fetchInitialState();
+          return;
+        }
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
