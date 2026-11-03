@@ -719,7 +719,7 @@ export function gmailStopWatch(accessToken: string): Promise<null> {
 
 export interface GmailBatchResult {
   id: string;
-  data: any;
+  data: ReturnType<typeof JSON.parse>;
   error?: string;
   status?: number;
   errorBody?: unknown;
@@ -883,7 +883,11 @@ function parseBatchResponse(
   boundary: string,
   ids: string[],
 ): GmailBatchResult[] {
-  const results: GmailBatchResult[] = ids.map((id) => ({ id, data: null, error: "No response part" }));
+  const results: GmailBatchResult[] = ids.map((id) => ({
+    id,
+    data: null,
+    error: "No response part",
+  }));
 
   const marker = `--${boundary}`;
   const rawParts = text.split(marker);
