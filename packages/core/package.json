@@ -435,6 +435,7 @@
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
+    "./collab/outbox-keys": "./dist/collab/outbox-keys.js",
     "./a2a": "./dist/a2a/index.js",
     "./state-machine": "./dist/state-machine/index.js",
     "./action-properties": "./dist/action-properties.js",
