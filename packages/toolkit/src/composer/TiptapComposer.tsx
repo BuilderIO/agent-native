@@ -2166,10 +2166,14 @@ function ModelSelector({
     selectedModelDisplayName ??
     selectedModelDescription?.name ??
     friendlyModelName(model, t);
+  // An empty list mid-load says nothing about connection; judging it now
+  // flashes "Connect agent" at a user whose engine is already connected.
+  const awaitingModelList = modelListLoading && providerGroups.length === 0;
   const selectedModelNeedsConnection =
-    onlyConnectPathAvailable ||
-    (selectedModelProviderGroups.length > 0 &&
-      selectedModelProviderGroups.every((group) => !group.configured));
+    !awaitingModelList &&
+    (onlyConnectPathAvailable ||
+      (selectedModelProviderGroups.length > 0 &&
+        selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
   // an empty list is a catalog that failed to load, not proof of anything.
@@ -2220,6 +2224,8 @@ function ModelSelector({
     return null;
   }
 
+  if (awaitingModelList && !model && !terminalModeControl) return null;
+
   // Two menus side by side need about 34rem; below that a submenu cannot
   // clear the viewport on either side, so the sections stack in one menu and
   // the model card, which needs the same room, stays hidden.
@@ -2228,71 +2234,72 @@ function ModelSelector({
     typeof window !== "undefined" &&
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
-  const connectItems = showProviderActions ? (
-    <>
-      {showBuilderAction && BuilderConnectPopover ? (
-        <>
-          <BuilderConnectPopover
-            flow={builderFlow}
-            onConnect={(provisionAccount) => {
-              if (onConnectProvider && !provisionAccount) {
-                onConnectProvider();
-              } else {
-                builderFlow.start({ provisionAccount });
-              }
-            }}
+  const connectItems =
+    showProviderActions && !awaitingModelList ? (
+      <>
+        {showBuilderAction && BuilderConnectPopover ? (
+          <>
+            <BuilderConnectPopover
+              flow={builderFlow}
+              onConnect={(provisionAccount) => {
+                if (onConnectProvider && !provisionAccount) {
+                  onConnectProvider();
+                } else {
+                  builderFlow.start({ provisionAccount });
+                }
+              }}
+            >
+              <DropdownMenuItem
+                disabled={builderFlow.connecting}
+                // The Builder choice opens its own popover from this row.
+                onSelect={(event) => event.preventDefault()}
+                className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+              >
+                <span className="block font-medium text-foreground">
+                  {builderFlow.connecting
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Setting up Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Use Builder.io",
+                      })}
+                </span>
+                <span className="block agent-kit-caption-copy text-muted-foreground">
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </DropdownMenuItem>
+            </BuilderConnectPopover>
+            {!onConnectProvider && builderFlow.error && (
+              <p
+                role="alert"
+                className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+              >
+                {builderFlow.error}
+              </p>
+            )}
+          </>
+        ) : null}
+        {showAddKeysAction && (
+          <DropdownMenuItem
+            onSelect={openLlmSettings}
+            className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
           >
-            <DropdownMenuItem
-              disabled={builderFlow.connecting}
-              // The Builder choice opens its own popover from this row.
-              onSelect={(event) => event.preventDefault()}
-              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-            >
-              <span className="block font-medium text-foreground">
-                {builderFlow.connecting
-                  ? t("agentPanel.connectingBuilder", {
-                      defaultValue: "Setting up Builder.io…",
-                    })
-                  : t("agentPanel.connectBuilderIo", {
-                      defaultValue: "Use Builder.io",
-                    })}
-              </span>
-              <span className="block agent-kit-caption-copy text-muted-foreground">
-                {t("agentPanel.builderModelCredits", {
-                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                })}
-              </span>
-            </DropdownMenuItem>
-          </BuilderConnectPopover>
-          {!onConnectProvider && builderFlow.error && (
-            <p
-              role="alert"
-              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
-            >
-              {builderFlow.error}
-            </p>
-          )}
-        </>
-      ) : null}
-      {showAddKeysAction && (
-        <DropdownMenuItem
-          onSelect={openLlmSettings}
-          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-        >
-          <span className="block font-medium text-foreground">
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
-            })}
-          </span>
-          <span className="block agent-kit-caption-copy text-muted-foreground">
-            {t("agentPanel.configureProviderKeys", {
-              defaultValue: "Choose a cloud, gateway, or local provider",
-            })}
-          </span>
-        </DropdownMenuItem>
-      )}
-    </>
-  ) : null;
+            <span className="block font-medium text-foreground">
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+            </span>
+            <span className="block agent-kit-caption-copy text-muted-foreground">
+              {t("agentPanel.configureProviderKeys", {
+                defaultValue: "Choose a cloud, gateway, or local provider",
+              })}
+            </span>
+          </DropdownMenuItem>
+        )}
+      </>
+    ) : null;
 
   const agentItems = hasAgentSection ? (
     <>
@@ -2494,6 +2501,17 @@ function ModelSelector({
 
   const primaryItems = (
     <>
+      {awaitingModelList ? (
+        <div
+          role="status"
+          aria-busy="true"
+          className="agent-composer-model-loading flex flex-col gap-2 px-2 py-2"
+        >
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+        </div>
+      ) : null}
       {connectItems}
       {hasConfiguredProvider &&
         isCodexAgent &&
@@ -2716,7 +2734,8 @@ function ModelSelector({
       </DropdownMenuSub>
     );
 
-  const hasPrimaryItems = Boolean(connectItems) || shortcutRows.length > 0;
+  const hasPrimaryItems =
+    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
