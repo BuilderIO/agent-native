@@ -4447,7 +4447,7 @@ function createAuthGuardFn(
           try {
             const { getOrgContext } = await import("../org/context.js");
             const org = await getOrgContext(event);
-            if (org?.orgId) effectiveOrgId = org.orgId;
+            if (org.orgId) effectiveOrgId = org.orgId;
           } catch (error) {
             // A broken org-creation path is not a membership denial: report the
             // check as unavailable (503) instead of a misleading 403, and keep
