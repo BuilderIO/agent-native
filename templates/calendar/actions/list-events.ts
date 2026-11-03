@@ -1108,7 +1108,17 @@ export default defineAction({
       };
     }
 
-    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
+    const failedAccounts = new Set(
+      result.primaryErrors.map((entry) => entry.email.trim().toLowerCase()),
+    );
+    const someAccountRead = result.resolvedAccounts.some(
+      (account) => !failedAccounts.has(account.trim().toLowerCase()),
+    );
+    if (
+      result.primaryEventCount === 0 &&
+      result.primaryErrors.length > 0 &&
+      !someAccountRead
+    ) {
       throw new Error(
         result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
       );
