@@ -1577,13 +1577,13 @@ async function writeTranscriptOrKeepImport(
     mediaUpdatedAt: row.mediaUpdatedAt,
   });
   // A refused write means an import landed, the rewrite's source changed, or
-  // the row was deleted. The first two leave a ready transcript to keep; with
-  // nothing to keep, carrying on would report work that wasn't saved.
+  // the row was deleted. Only a ready transcript with text can be kept; without
+  // one, carrying on would report work that wasn't saved.
   if (!kept) {
-    fail(`Transcript row for ${row.recordingId} was removed while saving`, {
-      errorCode: "transcript_removed",
-      statusCode: 409,
-    });
+    fail(
+      `Transcript row for ${row.recordingId} changed or was removed while saving`,
+      { errorCode: "transcript_removed", statusCode: 409 },
+    );
   }
   return kept;
 }

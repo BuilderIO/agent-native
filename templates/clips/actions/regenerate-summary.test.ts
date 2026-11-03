@@ -5,19 +5,27 @@ const expiryAccess = vi.hoisted(() => ({
   expiresAt: null as string | null,
 }));
 
+type Rows = Array<Record<string, unknown>>;
 const mockSelectRows = vi.hoisted(() => ({
-  queue: [] as Array<Array<Record<string, unknown>>>,
+  queue: [] as Array<Rows | (() => Rows)>,
 }));
+const mockRemoval = vi.hoisted(() => ({ at: null as string | null }));
 const mockUpdateSet = vi.hoisted(() => vi.fn(() => ({ where: vi.fn() })));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 
 const mockDb = vi.hoisted(() => {
   const db = {
-    select: vi.fn(() => ({
+    select: vi.fn((projection?: Record<string, unknown>) => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
-          limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+          limit: vi.fn(async () => {
+            if (projection && "removedAt" in projection) {
+              return [{ removedAt: mockRemoval.at }];
+            }
+            const next = mockSelectRows.queue.shift() ?? [];
+            return typeof next === "function" ? next() : next;
+          }),
           for: vi.fn(async () => []),
         })),
       })),
@@ -84,6 +92,7 @@ describe("regenerate-summary", () => {
     expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockRemoval.at = null;
     mockCleanupTranscriptRun.mockResolvedValue({
       summaryMd: "A concise summary.",
       provider: "builder",
@@ -145,12 +154,17 @@ describe("regenerate-summary", () => {
     });
   });
 
+  const removedAt = "2026-11-03T10:00:00.000Z";
+
   it("drops a summary of earlier audio removed while it was generated", async () => {
     mockSelectRows.queue = [
       [{ id: "rec_1", title: "A Clip", description: "" }],
       [{ status: "ready", fullText: "Audio the user removes." }],
-      [{ removedAt: "2026-11-03T10:00:00.000Z" }],
     ];
+    mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+      mockRemoval.at = removedAt;
+      return { summaryMd: "Summary of removed audio", provider: "builder" };
+    });
 
     await expect(
       regenerateSummary.run({ recordingId: "rec_1" }),
@@ -164,8 +178,32 @@ describe("regenerate-summary", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
+  it("drops a summary whose title was read just before a removal", async () => {
+    mockSelectRows.queue = [
+      () => {
+        mockRemoval.at = removedAt;
+        return [
+          { id: "rec_1", title: "Title from removed audio", description: "" },
+        ];
+      },
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: false, reason: "transcript_changed" });
+
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
   it("writes a summary built after an earlier removal", async () => {
-    const removedAt = "2026-11-03T10:00:00.000Z";
+    mockRemoval.at = removedAt;
     mockSelectRows.queue = [
       [{ id: "rec_1", title: "A Clip", description: "" }],
       [
@@ -175,7 +213,6 @@ describe("regenerate-summary", () => {
           earlierAudioRemovedAt: removedAt,
         },
       ],
-      [{ removedAt }],
     ];
 
     await expect(

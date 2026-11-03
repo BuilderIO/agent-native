@@ -33,6 +33,12 @@ export default defineAction({
     );
 
     const db = getDb();
+    // Read before anything the model sees: a removal after this read fails the
+    // check below, and one before it has already reset what is read next.
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      args.recordingId,
+    );
     const [rec] = await db
       .select({
         id: schema.recordings.id,
@@ -96,7 +102,7 @@ export default defineAction({
           .for("update");
         if (
           (await readEarlierAudioRemovedAt(tx, args.recordingId)) !==
-          (transcript?.earlierAudioRemovedAt ?? null)
+          earlierAudioRemovedAt
         ) {
           return false;
         }
