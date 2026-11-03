@@ -47,6 +47,28 @@ it("starts one state read per doc at boot, without the collab client or Yjs", as
   });
 });
 
+it("reports no failure of a read until someone takes it", async () => {
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  // Not a vi.fn: it handles the rejections of the promises it returns.
+  let asked = false;
+  vi.stubGlobal("fetch", () => {
+    asked = true;
+    return Promise.reject(new TypeError("offline"));
+  });
+
+  prefetchCollabState("doc-1", { baseUrl: "/collab" });
+  await vi.waitFor(() => expect(asked).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  process.off("unhandledRejection", unhandled);
+
+  expect(unhandled).not.toHaveBeenCalled();
+  recordSessionIdentity("ada@example.com");
+  const taken = takeCollabStatePrefetch("/collab", "doc-1");
+  const request = await taken?.request;
+  await expect(request?.response).rejects.toThrow("offline");
+});
+
 it("makes no boot read for a tab known to be signed out", () => {
   const fetchMock = vi.fn(() => Promise.resolve(new Response("{}")));
   vi.stubGlobal("fetch", fetchMock);

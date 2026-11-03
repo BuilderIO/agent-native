@@ -159,6 +159,9 @@ export function prefetchCollabState(
       ...sent,
     };
   })();
+  // A read nobody takes fails quietly; whoever takes one hears it from these
+  // same promises.
+  void request.then((sent) => sent.response).catch(() => {});
   const prefetch: CollabStatePrefetch = { request, identity, dropped: false };
   prefetches.set(key, prefetch);
   unexpired.add(prefetch);

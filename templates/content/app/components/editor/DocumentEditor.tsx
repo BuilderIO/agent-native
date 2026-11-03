@@ -1893,18 +1893,19 @@ function DocumentCommentDraftProvider({
 
 /**
  * Whether a collab doc's body holds any text. Read from the doc itself, before
- * an editor projects it; markup and attributes are not text.
+ * an editor projects it; markup and attributes are not text. Read on each
+ * render until the doc is ready, so it stops at the first block with text.
  */
 export function collabDocHasText(
-  ydoc: { getXmlFragment(name: string): { toString(): string } } | null,
+  ydoc: {
+    getXmlFragment(name: string): { toArray(): { toString(): string }[] };
+  } | null,
 ): boolean {
   if (!ydoc) return false;
-  return /\S/.test(
-    ydoc
-      .getXmlFragment("default")
-      .toString()
-      .replace(/<[^>]*>/g, ""),
-  );
+  return ydoc
+    .getXmlFragment("default")
+    .toArray()
+    .some((block) => /\S/.test(block.toString().replace(/<[^>]*>/g, "")));
 }
 
 export function documentEditorLoadState({
