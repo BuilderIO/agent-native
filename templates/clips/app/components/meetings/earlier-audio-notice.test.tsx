@@ -9,7 +9,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import {
+  DEFERRED_NOTES_POLL_MS,
+  DEFERRED_NOTES_WAIT_MS,
   EarlierAudioNotice,
+  useDeferredNotesWait,
   withEarlierAudioRemoved,
 } from "./earlier-audio-notice";
 
@@ -81,6 +84,103 @@ describe("EarlierAudioNotice", () => {
 
     await act(async () => buttonNamed("meetingDetail.remove")[1]?.click());
     expect(onRemove).toHaveBeenCalledOnce();
+  });
+});
+
+describe("useDeferredNotesWait", () => {
+  let root: Root;
+  let wait: ReturnType<typeof useDeferredNotesWait>;
+  const refetch = vi.fn();
+  const onGiveUp = vi.fn();
+
+  function Harness(props: { meetingId: string; notesArrived: boolean }) {
+    wait = useDeferredNotesWait({ ...props, refetch, onGiveUp });
+    return null;
+  }
+  const render = (notesArrived = false, meetingId = "m1") =>
+    act(async () => {
+      root.render(
+        <Harness meetingId={meetingId} notesArrived={notesArrived} />,
+      );
+    });
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const start = () => act(async () => wait.start("m1"));
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    refetch.mockClear();
+    onGiveUp.mockClear();
+    root = createRoot(document.createElement("div"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("does nothing until a removal leaves its rebuild to the job", async () => {
+    await render();
+    await advance(DEFERRED_NOTES_WAIT_MS);
+
+    expect(wait.pending).toBe(false);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
+
+  it("refetches until the rebuilt notes arrive, then stops", async () => {
+    await render();
+    await start();
+    expect(wait.pending).toBe(true);
+
+    await advance(DEFERRED_NOTES_POLL_MS * 2);
+    expect(refetch).toHaveBeenCalledTimes(2);
+
+    await render(true);
+    expect(wait.pending).toBe(false);
+    await advance(DEFERRED_NOTES_WAIT_MS);
+    expect(refetch).toHaveBeenCalledTimes(2);
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
+
+  it("gives up visibly when the notes never arrive", async () => {
+    await render();
+    await start();
+
+    await advance(DEFERRED_NOTES_WAIT_MS);
+    expect(wait.pending).toBe(false);
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+
+    refetch.mockClear();
+    await advance(DEFERRED_NOTES_WAIT_MS);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps watching when a poll re-renders the page", async () => {
+    await render();
+    await start();
+
+    await advance(DEFERRED_NOTES_WAIT_MS - 1_000);
+    await render();
+    await advance(1_000);
+
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't carry a wait over to another meeting", async () => {
+    await render();
+    await start();
+
+    await render(false, "m2");
+    expect(wait.pending).toBe(false);
+    await advance(DEFERRED_NOTES_WAIT_MS);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(onGiveUp).not.toHaveBeenCalled();
   });
 });
 

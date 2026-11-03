@@ -40,6 +40,7 @@ import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
 import {
   EarlierAudioNotice,
+  useDeferredNotesWait,
   withEarlierAudioRemoved,
 } from "@/components/meetings/earlier-audio-notice";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
@@ -515,7 +516,6 @@ export default function MeetingDetailRoute() {
     { notes: string },
     { meetingId: string }
   >("remove-earlier-meeting-audio");
-  const generatingNotes = finalize.isPending || removeEarlierAudio.isPending;
 
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -587,11 +587,11 @@ export default function MeetingDetailRoute() {
   const canEdit =
     data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
 
-  const hasNotes =
+  const hasGeneratedNotes =
     !!meeting?.summaryMd ||
-    !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+  const hasNotes = hasGeneratedNotes || !!meeting?.userNotesMd;
 
   useEffect(() => {
     if (!meeting) {
@@ -926,6 +926,24 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
+  const showNotesFailed = () => {
+    toast.error(t("meetingDetail.generateNotesFailed"), {
+      action: {
+        label: t("meetingDetail.retry"),
+        onClick: handleFinalize,
+      },
+    });
+  };
+
+  const deferredNotes = useDeferredNotesWait({
+    meetingId: meeting?.id,
+    notesArrived: hasGeneratedNotes,
+    refetch: refetchMeeting,
+    onGiveUp: showNotesFailed,
+  });
+  const generatingNotes =
+    finalize.isPending || removeEarlierAudio.isPending || deferredNotes.pending;
+
   const handleRemoveEarlierAudio = () => {
     if (!meeting) return;
     const queryKey = ["action", "get-meeting", { id: meetingId }];
@@ -941,13 +959,8 @@ export default function MeetingDetailRoute() {
       { meetingId: meeting.id },
       {
         onSuccess: (result) => {
-          if (result.notes !== "failed") return;
-          toast.error(t("meetingDetail.generateNotesFailed"), {
-            action: {
-              label: t("meetingDetail.retry"),
-              onClick: handleFinalize,
-            },
-          });
+          if (result.notes === "regenerating") deferredNotes.start(meeting.id);
+          if (result.notes === "failed") showNotesFailed();
         },
         onError: (err: unknown) => {
           qc.setQueryData(queryKey, previous);

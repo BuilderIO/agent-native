@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { withoutEarlierAudio } from "@shared/earlier-audio";
 import { readSegmentEntries } from "@shared/transcript-segments";
 import { IconHistory } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   AlertDialog,
@@ -56,6 +56,50 @@ export function withEarlierAudioRemoved<T extends MeetingWithEarlierAudio>(
         }
       : {}),
   } as T;
+}
+
+export const DEFERRED_NOTES_POLL_MS = 5_000;
+// Covers the removal's 30-second job, then the two minutes before it can take
+// over a claim left by a run that died.
+export const DEFERRED_NOTES_WAIT_MS = 3 * 60_000;
+
+/**
+ * Watches for notes the server left to its delayed job. An ended meeting's page
+ * doesn't otherwise poll, so it would sit blank until the next focus or reload.
+ */
+export function useDeferredNotesWait({
+  meetingId,
+  notesArrived,
+  refetch,
+  onGiveUp,
+}: {
+  meetingId: string | undefined;
+  notesArrived: boolean;
+  refetch: () => unknown;
+  onGiveUp: () => void;
+}) {
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const pending = !!meetingId && waitingFor === meetingId;
+  if (pending && notesArrived) setWaitingFor(null);
+
+  const onGiveUpRef = useRef(onGiveUp);
+  useEffect(() => {
+    onGiveUpRef.current = onGiveUp;
+  });
+  useEffect(() => {
+    if (!pending) return;
+    const poll = setInterval(() => void refetch(), DEFERRED_NOTES_POLL_MS);
+    const giveUp = setTimeout(() => {
+      setWaitingFor(null);
+      onGiveUpRef.current();
+    }, DEFERRED_NOTES_WAIT_MS);
+    return () => {
+      clearInterval(poll);
+      clearTimeout(giveUp);
+    };
+  }, [pending, refetch]);
+
+  return { pending, start: setWaitingFor };
 }
 
 export function EarlierAudioNotice({

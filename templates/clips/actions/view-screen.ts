@@ -48,7 +48,6 @@ import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
-import { parseTranscriptSegments } from "../shared/transcript-segments.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
