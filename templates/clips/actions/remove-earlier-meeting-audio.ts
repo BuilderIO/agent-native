@@ -15,6 +15,19 @@ import { readSegmentEntries } from "../shared/transcript-segments.js";
 import finalizeMeeting from "./finalize-meeting.js";
 import { listEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 
+const removalResultSchema = z.object({
+  meetingId: z.string(),
+  removedSegments: z.number(),
+  notes: z.enum([
+    "regenerated",
+    "regenerating",
+    "failed",
+    "live",
+    "empty",
+    "unchanged",
+  ]),
+});
+
 function unreadableTranscript(): never {
   fail("The transcript couldn't be read, so nothing was removed.", {
     errorCode: "transcript_unreadable",
@@ -45,19 +58,8 @@ export default defineAction({
     idempotentHint: true,
     openWorldHint: false,
   },
-  outputSchema: z.object({
-    meetingId: z.string(),
-    removedSegments: z.number(),
-    notes: z.enum([
-      "regenerated",
-      "regenerating",
-      "failed",
-      "live",
-      "empty",
-      "unchanged",
-    ]),
-  }),
-  run: async ({ meetingId }) => {
+  outputSchema: removalResultSchema,
+  run: async ({ meetingId }): Promise<z.infer<typeof removalResultSchema>> => {
     await assertAccess("meeting", meetingId, "editor");
     const db = getDb();
     const meetings = await db

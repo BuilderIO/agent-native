@@ -31,7 +31,7 @@ export function withoutEarlierAudio<T extends EarlierAudioEntry>(
 
 /** The `Me:` / `Them:` text live capture saves alongside its segments. */
 export function speakerLabeledText(
-  entries: ReadonlyArray<{ text?: unknown; source?: unknown }>,
+  entries: ReadonlyArray<Record<string, unknown>>,
 ): string {
   const turns: Array<{ speaker: string; text: string }> = [];
   for (const entry of entries) {
