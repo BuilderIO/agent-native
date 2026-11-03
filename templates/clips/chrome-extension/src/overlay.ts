@@ -491,9 +491,10 @@ function initToolbar(): void {
     pill.classList.toggle("toolbar-v-paused", paused);
     pauseBtn.title = paused ? "Resume" : "Pause";
     pauseBtn.innerHTML = paused ? ICONS.resume : ICONS.pause;
-    const elapsed = paused
-      ? state.baseElapsedMs
-      : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
+    const elapsed =
+      state.phase !== "recording"
+        ? state.baseElapsedMs
+        : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
     clock.textContent = formatDuration(elapsed);
   };
 
@@ -549,7 +550,6 @@ function applyOverlayState(next: Partial<OverlayState> | undefined): void {
 // learns how long the recording has been running.
 function sendHello(): void {
   send("CLIPS_OVERLAY_HELLO", { part }, (_ok, response) => {
-    if (response?.state?.phase === "idle") return;
     applyOverlayState(response?.state);
   });
 }

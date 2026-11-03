@@ -50,7 +50,7 @@ describe("Clips recording toolbar clock", () => {
     expect(document.querySelector(".toolbar-v-time")?.textContent).toBe("1:05");
   });
 
-  it("ignores an idle reply instead of showing a time since epoch zero", async () => {
+  it("freezes the timer at zero on an idle reply instead of counting from epoch zero", async () => {
     mockHello({
       phase: "idle",
       baseElapsedMs: 0,
@@ -58,6 +58,8 @@ describe("Clips recording toolbar clock", () => {
       countdownEndsAtMs: 0,
     });
     await import("./overlay");
+    expect(document.querySelector(".toolbar-v-time")?.textContent).toBe("0:00");
+    vi.advanceTimersByTime(5_000);
     expect(document.querySelector(".toolbar-v-time")?.textContent).toBe("0:00");
   });
 
