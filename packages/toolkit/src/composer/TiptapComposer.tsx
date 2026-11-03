@@ -345,6 +345,10 @@ function isVoicePreviewIntact(
   });
 }
 
+function normalizeVoiceWords(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
 export function getComposerSendTooltipKey(
   willQueue: boolean,
 ): "composer.queueMessage" | "composer.sendMessage" {
@@ -4558,10 +4562,17 @@ function TiptapComposerSurface({
   // Dictated text left in the draft after its anchor went stale; the recognizer's cumulative output must not re-insert it.
   const abandonedVoiceTextRef = useRef("");
   const stripAbandonedVoiceText = (text: string) => {
-    const abandoned = abandonedVoiceTextRef.current;
-    return abandoned && text.startsWith(abandoned)
-      ? text.slice(abandoned.length)
-      : text;
+    const abandoned = normalizeVoiceWords(abandonedVoiceTextRef.current);
+    if (!abandoned) return text;
+    let matched = 0;
+    for (let i = 0; i < text.length; i++) {
+      const ch = normalizeVoiceWords(text[i]);
+      if (!ch) continue;
+      if (abandoned[matched] !== ch) return text;
+      matched += 1;
+      if (matched === abandoned.length) return text.slice(i + 1).trimStart();
+    }
+    return "";
   };
 
   const handleLiveUpdate = useCallback(
