@@ -177,7 +177,7 @@ Options:
 
   if (nextOffset !== null) {
     const filters = [
-      prefix !== undefined ? `--prefix '${prefix.replace(/'/g, "'\\''")}'` : "",
+      prefix ? `--prefix '${prefix.replace(/'/g, "'\\''")}'` : "",
       `--scope ${scope}`,
       includeAgentScratch ? "--include-agent-scratch true" : "",
     ]
