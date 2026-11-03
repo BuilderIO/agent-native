@@ -6642,7 +6642,19 @@ pub(crate) fn persist_shared_clip_recording(
 pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, path: &Path) {
     let saved = read_saved_recording_metadata(app, recording_id).ok();
     if let Some(saved) = saved {
-        clear_saved_recording_after_success(app, &saved);
+        // Rewind clips are cut from the rolling screen buffer, so they are still
+        // deleted once uploaded rather than kept for a week.
+        if let Err(err) = clear_saved_recording(app, &saved) {
+            eprintln!(
+                "[clips-tray] upload succeeded for {}, but local pending recording cleanup failed: {err}",
+                saved.recording_id
+            );
+        } else {
+            eprintln!(
+                "[clips-tray] upload succeeded for {}; removed local recording file",
+                saved.recording_id
+            );
+        }
     } else {
         remove_recording_intent(path);
         if let Err(error) = remove_saved_file(path, "shared Clip temporary artifact") {
