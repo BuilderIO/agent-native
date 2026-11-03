@@ -935,6 +935,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
+import { resourceDeleteByPath } from "@agent-native/core/resources/store";
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -2265,6 +2266,95 @@ describe("Brain knowledge quality gates", () => {
           withheldPassages,
           rawContentIncluded: includeRawContent,
         });
+      }
+    },
+  );
+
+  it.each([
+    { mode: "ingest", failure: "published-resource" },
+    { mode: "ingest", failure: "proposal-redaction" },
+    { mode: "resanitize", failure: "published-resource" },
+    { mode: "resanitize", failure: "proposal-redaction" },
+  ])(
+    "retries derived invalidation before committing a partial capture ($mode, $failure)",
+    async ({ mode, failure }) => {
+      seedSource({ provider: "zoom" });
+      Object.assign(mocks.settings, { privacyClassifier: "jev" });
+      const { content, classifier } = zoomPassageFixture();
+      const capture = seedCapture({
+        externalId: "zoom:invalidation-retry",
+        title: "Weekly update",
+        kind: "transcript",
+        content,
+        contentHash: await sha256Hex(content),
+      });
+      mocks.rows.knowledge.push({
+        id: "derived-knowledge",
+        captureId: "capture-1",
+        evidenceJson: "[]",
+        status: "published",
+        body: "WITHHELD_PRIVATE_DETAIL",
+        publishedResourcePath: "/brain/derived-knowledge.md",
+      });
+      mocks.rows.proposals.push({
+        id: "derived-proposal",
+        captureId: "capture-1",
+        evidenceJson: "[]",
+        status: "pending",
+        body: "WITHHELD_PRIVATE_DETAIL",
+      });
+      const error = new Error("Derived invalidation failed");
+      const update = mocks.db.update.getMockImplementation();
+      ok(update);
+      if (failure === "published-resource")
+        vi.mocked(resourceDeleteByPath).mockRejectedValueOnce(error);
+      else
+        mocks.db.update.mockImplementation((table) => {
+          if (table === mocks.schema.brainProposals) {
+            mocks.db.update.mockImplementation(update);
+            throw error;
+          }
+          return update(table);
+        });
+      const run = () =>
+        mode === "ingest"
+          ? createCapture({
+              sourceId: "source-1",
+              externalId: "zoom:invalidation-retry",
+              title: "Weekly update",
+              kind: "transcript",
+              content,
+            })
+          : resanitizeCapturesAction.run({
+              sourceId: "source-1",
+              dryRun: false,
+              allowCitationDrift: true,
+            });
+      try {
+        await expect(run()).rejects.toBe(error);
+        expect(capture.content).toBe(content);
+        expect(capture.contentHash).toBe(await sha256Hex(content));
+        expect(mocks.rows.sensitivityEvents).toHaveLength(0);
+        expect(enqueueCaptureInvalidation).not.toHaveBeenCalled();
+        await run();
+        expect(mocks.rows.knowledge[0]).toMatchObject({
+          status: "redacted",
+          body: "",
+          publishedResourcePath: null,
+        });
+        expect(mocks.rows.proposals[0]).toMatchObject({
+          status: "rejected",
+          body: "",
+        });
+        expect(capture.content).toContain("[…]");
+        expect(JSON.stringify(mocks.rows)).not.toContain(
+          "WITHHELD_PRIVATE_DETAIL",
+        );
+        expect(mocks.rows.sensitivityEvents).toHaveLength(1);
+        expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+      } finally {
+        mocks.db.update.mockImplementation(update);
+        classifier.mockRestore();
       }
     },
   );

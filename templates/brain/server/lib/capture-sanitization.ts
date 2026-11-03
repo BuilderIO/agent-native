@@ -591,6 +591,13 @@ const ZOOM_PASSAGE_MAX_CHARS = 2_000;
 const ZOOM_PASSAGE_LIMIT = 48;
 const ZOOM_PASSAGE_SCREENING_MS = 120_000;
 
+function scrubZoomRecordingUrls(text: string): string {
+  return text.replace(
+    /(?<![\w.-])(?:(?:https?:)?\/\/)?(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi,
+    "[…]",
+  );
+}
+
 function zoomPassages(content: string): string[] | null {
   if (content.length > ZOOM_PASSAGE_MAX_CHARS * ZOOM_PASSAGE_LIMIT) return null;
   const passages: string[] = [];
@@ -693,12 +700,7 @@ async function retainSafeZoomPassages(
     if (!withheld.has(index)) retained.push(passage);
     else if (index === 0 || !withheld.has(index - 1)) retained.push("[…]");
   }
-  const retainedContent = retained
-    .join("\n")
-    .replace(
-      /(?<![\w.-])(?:(?:https?:)?\/\/)?(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi,
-      "[…]",
-    );
+  const retainedContent = scrubZoomRecordingUrls(retained.join("\n"));
   const filteredContent = shouldSanitizeCaptureBeforeStorage(input)
     ? deterministicSanitizeContent(retainedContent, {
         dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
@@ -829,17 +831,23 @@ export async function sanitizeCaptureForStorage(
         delete sanitizedMetadata[key];
     }
   }
+  const safeContent = receipt
+    ? scrubZoomRecordingUrls(decision.safeContent)
+    : decision.safeContent;
+  const title =
+    decision.disposition === "allowed"
+      ? sanitizationRequested
+        ? safeTranscriptTitle(input)
+        : input.title
+      : safeTranscriptTitle(input);
   const sanitizedContent =
     decision.disposition === "allowed"
       ? sanitizationRequested && !partial
-        ? deterministicSanitizeContent(
-            sanitizeSensitiveText(decision.safeContent),
-            {
-              dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
-              preserveGaps: Boolean(receipt),
-            },
-          )
-        : sanitizeSensitiveText(decision.safeContent)
+        ? deterministicSanitizeContent(sanitizeSensitiveText(safeContent), {
+            dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
+            preserveGaps: Boolean(receipt),
+          })
+        : sanitizeSensitiveText(safeContent)
       : QUARANTINED_CAPTURE_OUTPUT;
   const safeSegmentMetadata =
     decision.disposition === "allowed" && input.source.provider === "slack"
@@ -852,12 +860,11 @@ export async function sanitizeCaptureForStorage(
         }
       : {};
   return {
-    title:
-      decision.disposition === "allowed"
-        ? sanitizeSensitiveText(
-            sanitizationRequested ? safeTranscriptTitle(input) : input.title,
-          )
-        : safeTranscriptTitle(input),
+    title: receipt
+      ? sanitizeSensitiveText(scrubZoomRecordingUrls(title))
+      : decision.disposition === "allowed"
+        ? sanitizeSensitiveText(title)
+        : title,
     content: sanitizedContent,
     metadata: {
       ...sanitizedMetadata,

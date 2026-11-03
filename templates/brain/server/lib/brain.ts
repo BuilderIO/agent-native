@@ -50,7 +50,6 @@ import {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
-  ensureCaptureAudience,
   ensureEvidenceIntersectionAudience,
   listAccessibleAudienceIds,
   withCaptureAudience,
@@ -939,6 +938,9 @@ export async function createCapture(values: {
       ),
     );
   }
+  if (existing?.contentHash && derivedInputChanged) {
+    await invalidateDerivedForCapture(captureId);
+  }
   const policyVersion = sanitized.decision.policyVersion;
   const finalized = await withCaptureAudience(
     {
@@ -1049,9 +1051,6 @@ export async function createCapture(values: {
     );
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
-  }
-  if (existing?.contentHash && derivedInputChanged) {
-    await invalidateDerivedForCapture(captureId);
   }
   const [capture] = await db
     .select()

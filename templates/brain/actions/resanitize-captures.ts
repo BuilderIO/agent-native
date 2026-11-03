@@ -273,6 +273,13 @@ export default defineAction({
             })
           ).aclHash;
         }
+        if (
+          hasDerivedRefs &&
+          (sanitized.decision?.disposition !== "allowed" ||
+            row.capture.contentHash !== nextContentHash)
+        ) {
+          await invalidateDerivedForCapture(row.capture.id);
+        }
         await db.transaction(async (tx) => {
           await tx
             .update(schema.brainRawCaptures)
@@ -363,13 +370,6 @@ export default defineAction({
             tx as unknown as ReturnType<typeof getDb>,
           );
         });
-        if (
-          hasDerivedRefs &&
-          (sanitized.decision?.disposition !== "allowed" ||
-            row.capture.contentHash !== nextContentHash)
-        ) {
-          await invalidateDerivedForCapture(row.capture.id);
-        }
       }
       results.push({
         id: row.capture.id,

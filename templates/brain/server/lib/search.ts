@@ -466,15 +466,22 @@ async function searchKnowledgeResults(
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(limit);
   const citedRows = rows.map((row) => {
+    const evidence = parseJson<Array<Partial<BrainEvidence>>>(
+      row.evidenceJson,
+      [],
+    );
     const citation = firstCitation(row.evidenceJson);
-    return { row, citation, captureId: citation?.captureId ?? row.captureId };
+    const captureIds = Array.from(
+      new Set(
+        [row.captureId, ...evidence.map((item) => item.captureId)].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    );
+    return { row, citation, evidence, captureIds };
   });
   const captureIds = Array.from(
-    new Set(
-      citedRows
-        .map(({ captureId }) => captureId)
-        .filter((id): id is string => Boolean(id)),
-    ),
+    new Set(citedRows.flatMap(({ captureIds }) => captureIds)),
   );
   const captures =
     captureIds.length && audienceIds.length
@@ -508,23 +515,61 @@ async function searchKnowledgeResults(
   const sources = await accessibleSourceMap([
     ...rows.map((row) => row.sourceId),
     ...captures.map((capture) => capture.sourceId),
+    ...citedRows.flatMap(({ evidence }) =>
+      evidence.map((item) => item.sourceId ?? null),
+    ),
   ]);
-  return citedRows.map(({ row, citation, captureId }) => {
+  return citedRows.map(({ row, citation, evidence, captureIds }) => {
     const source = sources.get(row.sourceId ?? "");
-    const capture = capturesById.get(captureId ?? "");
-    const citedSource = capture ? sources.get(capture.sourceId) : undefined;
-    const withheldPassages = !captureId
-      ? 0
-      : capture && citedSource
+    const provenance: Array<{
+      captureId: string | null;
+      citedEvidence: Array<Partial<BrainEvidence>>;
+    }> = captureIds.map((captureId) => ({
+      captureId,
+      citedEvidence: evidence.filter((item) => item.captureId === captureId),
+    }));
+    provenance.push(
+      ...evidence
+        .filter((item) => !item.captureId)
+        .map((item) => ({ captureId: null, citedEvidence: [item] })),
+    );
+    if (!provenance.length) {
+      provenance.push({ captureId: null, citedEvidence: [] });
+    }
+    const counts = provenance.map(({ captureId, citedEvidence }) => {
+      const capture = capturesById.get(captureId ?? "");
+      const citedSource = capture
+        ? sources.get(capture.sourceId)
+        : citedEvidence
+            .map((item) => sources.get(item.sourceId ?? ""))
+            .find((item) => item !== undefined);
+      const provider =
+        citedSource?.provider ??
+        ((captureId !== null && captureId === row.captureId) || !evidence.length
+          ? source?.provider
+          : undefined);
+      if (provider && provider !== "zoom") return 0;
+      return capture && citedSource
         ? withheldZoomPassageCount(
             parseCaptureMetadata(capture.metadataJson),
             citedSource.provider,
           )
         : null;
+    });
+    const withheldPassages = counts.reduce<number | null>(
+      (total, count) =>
+        total === null || count === null ? null : total + count,
+      0,
+    );
+    const displayedCapture = capturesById.get(
+      (citation ? citation.captureId : row.captureId) ?? "",
+    );
     const sourceUrl =
-      withheldPassages !== 0
-        ? null
-        : safeCitationUrl(citation?.sourceUrl ?? citation?.url);
+      withheldPassages === 0 &&
+      displayedCapture &&
+      sources.has(displayedCapture.sourceId)
+        ? safeCitationUrl(citation?.sourceUrl ?? citation?.url)
+        : null;
     const summary = cleanText(row.summary) || buildSnippet(row.body, terms);
     const score =
       scoreSearchText(

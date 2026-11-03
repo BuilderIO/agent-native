@@ -869,6 +869,9 @@ describe("Brain knowledge citation completeness", () => {
           },
         }),
       );
+      const knowledgeSource = mocks.rows.sources[0];
+      ok(knowledgeSource);
+      knowledgeSource.provider = "zoom";
       if (restriction === "missing") mocks.rows.captures.pop();
       if (restriction === "source") {
         const source = mocks.rows.sources[mocks.rows.sources.length - 1];
@@ -906,9 +909,249 @@ describe("Brain knowledge citation completeness", () => {
     });
   });
 
-  it("reports zero for knowledge with no capture", async () => {
+  it.each(["manual", "zoom"])(
+    "handles missing capture provenance with a URL for %s knowledge",
+    async (provider) => {
+      const knowledge = mocks.rows.knowledge[1];
+      const source = mocks.rows.sources[0];
+      ok(knowledge);
+      ok(source);
+      source.provider = provider;
+      knowledge.captureId = null;
+      knowledge.evidenceJson = JSON.stringify([{ sourceUrl }]);
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: null,
+        sourceUrl: null,
+        citation: { sourceUrl: null },
+      });
+      knowledge.evidenceJson = "[]";
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: provider === "zoom" ? null : 0,
+      });
+    },
+  );
+
+  it.each(["zoom", "slack", "unknown"])(
+    "does not authorize URL-only %s evidence with an unrelated complete Slack row capture",
+    async (provider) => {
+      const { knowledge } = seedCitedCapture(provider);
+      knowledge.evidenceJson = JSON.stringify([
+        {
+          sourceId: provider === "unknown" ? "source-unknown" : "source-cited",
+          sourceUrl,
+        },
+      ]);
+      const expected = {
+        withheldPassages: provider === "slack" ? 0 : null,
+        sourceUrl: null,
+        citation: { sourceUrl: null },
+      };
+      expect(await searchKnowledge()).toMatchObject(expected);
+      knowledge.evidenceJson = JSON.stringify([
+        { sourceId: "source-slack" },
+        {
+          sourceId: provider === "unknown" ? "source-unknown" : "source-cited",
+          sourceUrl,
+        },
+      ]);
+      expect(await searchKnowledge()).toMatchObject(expected);
+    },
+  );
+
+  it.each(["missing", "unknown", "inaccessible"])(
+    "keeps secondary evidence with a %s source unknown on Slack knowledge",
+    async (restriction) => {
+      const knowledge = mocks.rows.knowledge[1];
+      ok(knowledge);
+      if (restriction === "inaccessible") {
+        mocks.rows.sources.push({
+          ...mocks.rows.sources[0],
+          id: "source-unreadable",
+          accessible: false,
+          provider: "slack",
+        });
+      }
+      knowledge.evidenceJson = JSON.stringify([
+        {
+          captureId: knowledge.captureId,
+          sourceId: knowledge.sourceId,
+          sourceUrl,
+        },
+        {
+          captureId: "capture-unreadable",
+          sourceId:
+            restriction === "missing"
+              ? undefined
+              : restriction === "unknown"
+                ? "source-unknown"
+                : "source-unreadable",
+        },
+      ]);
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: null,
+        sourceUrl: null,
+        citation: { sourceUrl: null },
+      });
+    },
+  );
+
+  it("uses the primary non-Zoom row source when its capture is inaccessible", async () => {
     const knowledge = mocks.rows.knowledge[1];
     ok(knowledge);
+    mocks.rows.captures.shift();
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 0,
+      sourceUrl: null,
+      citation: { sourceUrl: null },
+    });
+  });
+
+  it("includes partial secondary citations even when a complete URL citation is displayed", async () => {
+    const { capture, knowledge } = seedCitedCapture();
+    const partial = {
+      ...capture,
+      id: "capture-partial-secondary",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+    };
+    mocks.rows.captures.push(partial);
+    knowledge.evidenceJson = JSON.stringify([
+      { captureId: partial.id, sourceId: "source-cited" },
+      { captureId: capture.id, sourceId: "source-cited", sourceUrl },
+    ]);
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 5,
+      sourceUrl: null,
+      citation: { captureId: capture.id, sourceUrl: null },
+    });
+    knowledge.captureId = partial.id;
+    knowledge.evidenceJson = JSON.stringify([
+      { captureId: capture.id, sourceUrl },
+    ]);
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 5,
+      sourceUrl: null,
+    });
+  });
+
+  it("deduplicates capture counts and gives an unknown secondary precedence over their sum", async () => {
+    const { capture, knowledge } = seedCitedCapture(
+      "zoom",
+      JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+    );
+    const secondary = {
+      ...capture,
+      id: "capture-secondary",
+      metadataJson: JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 3,
+        },
+      }),
+    };
+    mocks.rows.captures.push(secondary);
+    knowledge.captureId = capture.id;
+    knowledge.evidenceJson = JSON.stringify([
+      { captureId: capture.id, sourceUrl },
+      { captureId: secondary.id, sourceId: "source-cited" },
+      { captureId: capture.id },
+      { captureId: secondary.id },
+    ]);
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 8,
+      sourceUrl: null,
+    });
+    secondary.metadataJson = "not JSON";
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: null,
+      sourceUrl: null,
+    });
+    mocks.rows.captures.pop();
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: null,
+      sourceUrl: null,
+    });
+  });
+
+  it.each(["sensitivity", "audience", "missing"])(
+    "suppresses URLs without a Zoom warning for %s-inaccessible non-Zoom citations",
+    async (restriction) => {
+      const { capture, knowledge } = seedCitedCapture("slack");
+      const knowledgeSource = mocks.rows.sources[0];
+      ok(knowledgeSource);
+      knowledgeSource.provider = "zoom";
+      knowledge.evidenceJson = JSON.stringify([
+        { captureId: capture.id, sourceId: "source-cited", sourceUrl },
+      ]);
+      if (restriction === "sensitivity")
+        capture.sensitivityDisposition = "quarantined";
+      if (restriction === "audience") capture.audienceIds = ["aud_private"];
+      if (restriction === "missing") mocks.rows.captures.pop();
+      expect(await searchKnowledge()).toMatchObject({
+        withheldPassages: 0,
+        sourceUrl: null,
+        citation: { sourceUrl: null },
+      });
+    },
+  );
+
+  it("uses cited providers in mixed evidence and keeps unknown Zoom provenance unknown", async () => {
+    const { capture, knowledge } = seedCitedCapture(
+      "zoom",
+      JSON.stringify({
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      }),
+    );
+    knowledge.evidenceJson = JSON.stringify([
+      {
+        captureId: "capture-freemium-current",
+        sourceId: "source-slack",
+        sourceUrl,
+      },
+      { captureId: capture.id, sourceId: "source-cited" },
+    ]);
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: 5,
+      sourceUrl: null,
+    });
+    const knowledgeSource = mocks.rows.sources[0];
+    ok(knowledgeSource);
+    knowledgeSource.provider = "zoom";
+    knowledge.evidenceJson = JSON.stringify([
+      { captureId: capture.id, sourceUrl },
+      { captureId: "capture-unknown", sourceId: "source-unknown" },
+    ]);
+    expect(await searchKnowledge()).toMatchObject({
+      withheldPassages: null,
+      sourceUrl: null,
+    });
+    expect(JSON.stringify(await searchKnowledge())).not.toContain(
+      "zoomPassageQuarantine",
+    );
+  });
+
+  it("reports zero for manual knowledge with no capture", async () => {
+    const knowledge = mocks.rows.knowledge[1];
+    const source = mocks.rows.sources[0];
+    ok(knowledge);
+    ok(source);
+    source.provider = "manual";
     knowledge.captureId = null;
     knowledge.evidenceJson = "[]";
     expect(await searchKnowledge()).toMatchObject({ withheldPassages: 0 });

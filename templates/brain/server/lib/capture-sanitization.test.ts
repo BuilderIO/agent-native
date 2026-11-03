@@ -92,37 +92,101 @@ describe("Zoom passage quarantine", () => {
     ),
   });
 
-  it.each([
+  const recordingUrls = [
     "https://zoom.us/rec/share/example",
     "http://zoom.us/rec/share/example",
     "//zoom.us/rec/share/example",
     "zoom.us/rec/share/example",
     "company.zoom.us/rec/play/example",
     "HTTP://COMPANY.ZOOM.US/rec/share/example",
-  ])("retains safe passages without the recording link %s", async (url) => {
-    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
-      classification(content),
-    );
-    const result = await sanitizeCaptureForStorage({
-      ...zoomInput,
-      content: `${transcript}\n${url}`,
-    });
-    expect(result.decision?.disposition).toBe("allowed");
-    expect(result.content.toLowerCase()).not.toContain("zoom.us/rec");
-    expect(result.content).toContain("PUBLIC_UPDATE_0");
-    expect(result.content).toContain("PUBLIC_UPDATE_35");
-    expect(result.content).toContain("[…]");
-    expect(JSON.stringify(result)).not.toContain("PRIVATE_HEALTH_DETAIL");
-    expect(result.metadata.sourceUrl).toBeUndefined();
-    expect(result.metadata.zoomPassageQuarantine).toMatchObject({ version: 1 });
-    expect(result.withheldDecision?.disposition).toBe("quarantined");
-    expect(result.withheldDecision?.safeContent).toBe("");
-    const finalInput =
-      mocks.classifyWithJev.mock.calls[
-        mocks.classifyWithJev.mock.calls.length - 1
-      ]?.[0];
-    expect(finalInput.content).toBe(result.content);
-  });
+    "//company.zoom.us/rec/play/example",
+  ];
+  const recordingCases = recordingUrls.flatMap((url) =>
+    [true, false].map((sanitizeBeforeStorage) => ({
+      url,
+      sanitizeBeforeStorage,
+    })),
+  );
+
+  it.each(recordingCases)(
+    "retains safe passages without $url with sanitization $sanitizeBeforeStorage",
+    async ({ url, sanitizeBeforeStorage }) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content),
+      );
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        title: `Weekly update ${url}`,
+        content: `${transcript}\n${url}`,
+        metadata: { ...zoomInput.metadata, sanitizeBeforeStorage },
+      });
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.title.toLowerCase()).not.toContain("zoom.us/rec");
+      expect(result.content.toLowerCase()).not.toContain("zoom.us/rec");
+      expect(result.content).toContain("PUBLIC_UPDATE_0");
+      expect(result.content).toContain("PUBLIC_UPDATE_35");
+      expect(result.content).toContain("[…]");
+      expect(JSON.stringify(result)).not.toContain("PRIVATE_HEALTH_DETAIL");
+      expect(result.metadata.sourceUrl).toBeUndefined();
+      expect(result.metadata.zoomPassageQuarantine).toMatchObject({
+        version: 1,
+      });
+      expect(result.withheldDecision?.disposition).toBe("quarantined");
+      expect(result.withheldDecision?.safeContent).toBe("");
+      const finalInput =
+        mocks.classifyWithJev.mock.calls[
+          mocks.classifyWithJev.mock.calls.length - 1
+        ]?.[0];
+      expect(finalInput.content).toBe(result.content);
+    },
+  );
+
+  it.each(recordingCases)(
+    "scrubs $url from stored excerpt titles and content with sanitization $sanitizeBeforeStorage",
+    async ({ url, sanitizeBeforeStorage }) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const receipt = { version: 1, totalPassages: 12, withheldPassages: 5 };
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        title: `Weekly update ${url}`,
+        content: `Product roadmap is on track. ${url}\n[…]`,
+        metadata: { ...zoomInput.metadata, sanitizeBeforeStorage },
+        storedZoomPassageQuarantine: receipt,
+      });
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.title.toLowerCase()).not.toContain("zoom.us/rec");
+      const redactedLink = /^https?:/i.test(url) ? "[link]" : "[…]";
+      expect(result.content).toBe(
+        `Product roadmap is on track. ${redactedLink}\n[…]`,
+      );
+      expect(result.metadata.zoomPassageQuarantine).toEqual(receipt);
+    },
+  );
+
+  it.each(["zoom", "slack"] as const)(
+    "preserves recording links for complete %s captures without a receipt",
+    async (provider) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content, false),
+      );
+      const title = "Weekly update company.zoom.us/rec/share/example";
+      const content =
+        "Product roadmap is on track. company.zoom.us/rec/share/example";
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        source: { ...zoomInput.source, provider },
+        title,
+        content,
+        metadata: { sanitizeBeforeStorage: false },
+      });
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.title).toBe(title);
+      expect(result.content).toBe(content);
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+    },
+  );
 
   it.each(["slack", "granola"] as const)(
     "keeps whole-capture quarantine for %s",
