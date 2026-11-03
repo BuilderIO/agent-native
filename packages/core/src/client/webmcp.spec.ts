@@ -283,6 +283,33 @@ describe("WebMCP client", () => {
     );
   });
 
+  it("passes JSON text input to the WebMCP polyfill", async () => {
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      inputSchema: { type: "object" },
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => ({ status: "shipped" }));
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+        __isWebMCPPolyfill: true,
+      }),
+    });
+    const [tool] = await client.listTools();
+
+    await client.executeTool(tool, { id: "order-1" });
+    expect(executeTool).toHaveBeenCalledWith(
+      registeredTool,
+      '{"id":"order-1"}',
+      {},
+    );
+  });
+
   it("passes object input to the Codex page adapter", async () => {
     const registeredTool = {
       name: "get-order",

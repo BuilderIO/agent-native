@@ -644,9 +644,11 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
     const { context, tool: nativeTool } = binding;
+    const usesPolyfill =
+      (context as { __isWebMCPPolyfill?: unknown }).__isWebMCPPolyfill === true;
     const result = await context.executeTool(
       nativeTool,
-      input,
+      usesPolyfill ? JSON.stringify(input) : input,
       executionOptions,
     );
     return normalizeToolResult(
