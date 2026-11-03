@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm.js";
 import {
   applyMarkdownSuggestionWithSiblings,
   rebaseOntoAcceptedSiblings,
   type AcceptedSiblingRange,
 } from "./suggestion-apply.js";
-import { canonicalizeNfm } from "./nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "./suggestion-diff.js";
 
 // Two agent edits saved from one version of a Page, the second just below the
@@ -260,11 +260,10 @@ describe("placing a piece after the editor saves the Page in its own form", () =
     return canonicalizeNfm(accepts.body);
   }
 
-  const beforePiece4 = [...lower, ...upper.slice(0, 3)];
-  const piece4 = upper[3]!;
+  const piece4 = pieceChanging(upper, ";");
+  const beforePiece4 = [...lower, ...upper.slice(0, upper.indexOf(piece4))];
 
   it("places a piece anchored to a single character", () => {
-    expect(piece4.before.changedText).toBe(";");
     const saved = savedAfter(beforePiece4);
     expect(saved).not.toContain("\n\n");
     const accepts = acceptInOrder([piece4], true, {
