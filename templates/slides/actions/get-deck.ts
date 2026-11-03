@@ -346,7 +346,7 @@ export default defineAction({
         .enum(["true", "false"])
         .optional()
         .describe(
-          "Set to 'true' to return full slide HTML formatted with Prettier for reading. Formatting changes whitespace (`padding: 4px` vs stored `padding:4px`), so quote `find` text from compact=false without format, not from this output. The contentHash still identifies the persisted source.",
+          "Set to 'true' to return full slide HTML formatted with Prettier for reading. Formatting changes whitespace (`padding: 4px` vs stored `padding:4px`), so quote `find` text from compact=false without format, unless the matching update-slide uses format=true, which matches against this formatted output. The contentHash still identifies the persisted source.",
         ),
       reviewPreview: z
         .boolean()

@@ -194,7 +194,7 @@ export default defineAction({
         .optional()
         .default(false)
         .describe(
-          "Format the resulting HTML with Prettier before persisting it. With edits or objectId it also formats the stored HTML before matching, so find text must come from a get-deck format=true read; leave it off otherwise.",
+          "Format the resulting HTML with Prettier before persisting it. With edits or objectId the stored HTML is formatted first too, so find text should come from a get-deck format=true read; omit it otherwise. Not applied to fullContent.",
         ),
       preserveSource: z
         .boolean()

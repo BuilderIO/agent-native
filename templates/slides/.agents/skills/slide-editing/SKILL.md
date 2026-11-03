@@ -85,8 +85,9 @@ skip steps 2, 4, and 5 and the fit and contrast checks below.
      `var(--trend-flat)` for an unsigned zero when the element defines
      `--trend-flat`.
    - Use `fullContent` only for an intentional full rewrite, never to make a
-     small change. `format=true` persists readable line breaks, but with `edits`
-     it formats the stored HTML before matching `find`: leave it off unless
+     small change. `format=true` on `update-slide` applies to `edits` and
+     `objectId` only, not `fullContent`: it formats the stored HTML before
+     matching `find` and persists readable line breaks, so use it only when
      every `find` was quoted from a `get-deck format=true` read.
 4. Read back with `get-deck` (or a thumbnail's `.slide-content`
    `textContent`), never `document.body.innerText`: thumbnails use
