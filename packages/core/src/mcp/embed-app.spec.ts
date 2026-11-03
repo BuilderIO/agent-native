@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
+import { fetchTransport } from "../client/fetch-transport.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import {
   FETCH_TRANSPORT_CHANGED_EVENT,
@@ -551,6 +552,9 @@ describe("embedApp", () => {
     const installedFetch = windowObject.fetch as (
       input: string,
     ) => Promise<Response>;
+    // On the target's mount its reads are signed: a transport of their own.
+    const signedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(typeof signedTransport).toBe("object");
     await installedFetch("/deck/_agent-native/actions/action");
     const sameMountHeaders = new Headers(forwarded[0]?.init?.headers);
     expect(sameMountHeaders.get("Authorization")).toBe("Bearer deck-token");
@@ -621,6 +625,19 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    // Off the target's mount its reads go out unsigned, still without
+    // cookies: neither the signed transport nor the page's.
+    const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(unsignedTransport).not.toBe(signedTransport);
+    expect(unsignedTransport).not.toBe(fetch);
+    expect(typeof unsignedTransport).toBe("object");
+
+    locationObject.pathname = "/deck/reports";
+    locationObject.href = "https://host.example/deck/reports";
+    expect(fetchTransport(installedFetch as typeof fetch)).toBe(
+      signedTransport,
+    );
   });
 
   it("prefers canonical metadata when legacy open-link fields conflict", () => {
