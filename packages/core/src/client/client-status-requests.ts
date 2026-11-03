@@ -129,18 +129,35 @@ function headersCacheScope(headers: HeadersInit | undefined): string {
   }
 }
 
+// Reads share an answer only over the same transport. A wrapper that adds
+// other credentials, like an embed token, is another identity; one that
+// passes requests on unchanged, like session replay's, is seen through. A
+// read with no `fetch` of its own goes out as the page's own unless the
+// global fetch names other credentials, so a script that wraps
+// `window.fetch` after the page mounts without marking it, such as error
+// tracking, doesn't split the cache.
+function requestTransportToken(
+  fetcher: typeof fetch | undefined,
+): number | null {
+  const pageFetch = globalThis.fetch;
+  const transport =
+    typeof fetcher === "function"
+      ? fetchTransport(fetcher)
+      : typeof pageFetch === "function"
+        ? fetchTransport(pageFetch)
+        : undefined;
+  if (!transport) return null;
+  if (typeof fetcher !== "function" && typeof transport === "function") {
+    return null;
+  }
+  return requestSourceToken(transport);
+}
+
 function statusRequestKey(
   url: string,
   options?: ClientStatusRequestOptions,
 ): string {
-  // Reads share an answer only over the same transport. A wrapper that adds
-  // other credentials, like an embed token, is another identity; one that
-  // passes requests on unchanged, like session replay's, is seen through.
-  const fetcher = options?.fetch ?? globalThis.fetch;
-  const fetcherToken =
-    typeof fetcher === "function"
-      ? requestSourceToken(fetchTransport(fetcher))
-      : null;
+  const fetcherToken = requestTransportToken(options?.fetch);
   return JSON.stringify([
     url,
     fetcherToken,
