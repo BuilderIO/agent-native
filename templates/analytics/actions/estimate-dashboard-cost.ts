@@ -98,7 +98,7 @@ export default defineAction({
             : value,
         z
           .union([z.number(), z.string()])
-          .pipe(z.coerce.number().int().min(0).max(100_000))
+          .pipe(z.coerce.number<string | number>().int().min(0).max(100_000))
           .optional(),
       )
       .describe(
