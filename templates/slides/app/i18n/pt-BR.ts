@@ -862,6 +862,9 @@ const messages = {
     versionRestoredDescription: "O deck voltou para o snapshot selecionado.",
     restoreFailed: "Falha ao restaurar",
     restoreFailedDescription: "Não foi possível restaurar esta versão do deck.",
+    alreadyAtVersion: "Já está nesta versão",
+    restoreReloadFailed: "Não foi possível atualizar o deck",
+    restoreReloadFailedDescription: "A versão foi restaurada no servidor. Recarregue a página para vê-la.",
     backToSavedVersions: "Voltar ao histórico",
     savedVersions: "Histórico",
     description:
