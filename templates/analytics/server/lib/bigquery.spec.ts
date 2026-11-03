@@ -505,6 +505,39 @@ describe("runQuery cancellation", () => {
     );
   });
 
+  it.each([409, 503])(
+    "keeps HTTP %s submission failures unknown without resubmitting the query",
+    async (status) => {
+      const fetchMock = vi.fn<typeof globalThis.fetch>(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/jobs"))
+          return new Response(
+            JSON.stringify({ error: { message: "Ambiguous submission" } }),
+            { status },
+          );
+        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/cancel")) return jsonResponse({});
+        throw new Error("Unexpected request: " + url);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(
+        runQuery("SELECT 1 AS ambiguous_submission_" + status),
+      ).rejects.toBeInstanceOf(BigQueryBackendError);
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith("/jobs"),
+        ),
+      ).toHaveLength(1);
+      expect(usageWrites).toHaveLength(1);
+      expect(finalizeUsage).toHaveBeenCalledOnce();
+      expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+        submissionState: "unknown",
+        bytesBilled: null,
+        outcome: null,
+      });
+    },
+  );
+
   it("keeps the submit deadline active while reading the response body", async () => {
     vi.useFakeTimers();
     let jobId = "";

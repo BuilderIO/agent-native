@@ -96,34 +96,40 @@ afterEach(() => {
 });
 
 describe("warehouse job observations", () => {
-  it("keeps exact billed bytes separate from processed bytes and provider cache provenance", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      json(
-        metadata({
-          totalBytesProcessed: "123",
-          totalBytesBilled: "10485760",
-          cacheHit: false,
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const result = await observeBigQueryJobUsage(
-      { ...makeUsage(), location: "EU" },
-      "fake-token",
-    );
-    expect(result).toMatchObject({
-      bytesProcessed: "123",
-      bytesBilled: "10485760",
-      providerCacheHit: false,
-      outcome: "succeeded",
-      usageStatus: "complete",
-    });
-    const url = new URL(String(present(fetch.mock.calls[0])[0]));
-    expect(url.pathname).toBe("/bigquery/v2/projects/test-project/jobs/job-1");
-    expect(url.searchParams.get("location")).toBe("EU");
-    expect(url.searchParams.get("fields")).toContain("totalBytesBilled");
-    expect(present(fetch.mock.calls[0])[1]).not.toHaveProperty("body");
-  });
+  it.each(["unknown", "rejected"] as const)(
+    "confirms %s submission while keeping exact billed bytes separate from processed bytes and provider cache provenance",
+    async (submissionState) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        json(
+          metadata({
+            totalBytesProcessed: "123",
+            totalBytesBilled: "10485760",
+            cacheHit: false,
+          }),
+        ),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const result = await observeBigQueryJobUsage(
+        { ...makeUsage(), submissionState, location: "EU" },
+        "fake-token",
+      );
+      expect(result).toMatchObject({
+        submissionState: "accepted",
+        bytesProcessed: "123",
+        bytesBilled: "10485760",
+        providerCacheHit: false,
+        outcome: "succeeded",
+        usageStatus: "complete",
+      });
+      const url = new URL(String(present(fetch.mock.calls[0])[0]));
+      expect(url.pathname).toBe(
+        "/bigquery/v2/projects/test-project/jobs/job-1",
+      );
+      expect(url.searchParams.get("location")).toBe("EU");
+      expect(url.searchParams.get("fields")).toContain("totalBytesBilled");
+      expect(present(fetch.mock.calls[0])[1]).not.toHaveProperty("body");
+    },
+  );
 
   it("preserves a reported provider cache hit and explicit zero billed bytes", async () => {
     vi.stubGlobal(
@@ -172,8 +178,16 @@ describe("warehouse job observations", () => {
         }),
       );
       const result = await observeBigQueryJobUsage(
-        { ...makeUsage(), bytesProcessed: "123", providerCacheHit: false },
+        {
+          ...makeUsage(),
+          submissionState: "unknown",
+          bytesProcessed: "123",
+          providerCacheHit: false,
+        },
         "fake",
+      );
+      expect(result.submissionState).toBe(
+        mode === "missing" ? "accepted" : "unknown",
       );
       expect(result.bytesProcessed).toBe("123");
       expect(result.bytesBilled).toBeNull();

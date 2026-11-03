@@ -198,6 +198,7 @@ export async function observeBigQueryJobUsage(
       data.jobReference.jobId !== usage.jobId
     )
       return result;
+    result.submissionState = "accepted";
     result.location = data.jobReference.location ?? usage.location;
     const state = data.status?.state;
     result.providerState =

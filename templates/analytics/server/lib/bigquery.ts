@@ -1483,9 +1483,10 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       });
 
       if (!res.ok) {
-        usage.submissionState = "rejected";
+        usage.submissionState = "unknown";
         const text = await res.text();
         if (isMaximumBytesBilledError(res.status, text)) {
+          usage.submissionState = "rejected";
           jobId = null;
           throw new BigQueryMaximumBytesBilledError(res.status);
         }
