@@ -11,7 +11,7 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { earlierAudioMinutes } from "../shared/earlier-audio.js";
-import { readSegmentEntries } from "../shared/transcript-segments.js";
+import { parseTranscriptSegments } from "../shared/transcript-segments.js";
 
 interface Bullet {
   text: string;
@@ -118,7 +118,7 @@ export default defineAction({
       recording,
       transcript,
       earlierAudioMinutes: earlierAudioMinutes(
-        readSegmentEntries(transcript?.segmentsJson) ?? [],
+        parseTranscriptSegments(transcript?.segmentsJson),
       ),
       role: access.role,
     };

@@ -195,6 +195,50 @@ describe("regenerate-title fallback refinement", () => {
     ).resolves.toMatchObject({ updated: true, title: "Generated title" });
   });
 
+  describe("when earlier audio is removed while the title generates", () => {
+    const untitled = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    const removed = [{ removedAt: "2026-11-03T10:00:00.000Z" }];
+    const staleRead = [
+      [{ id: "rec_1", ...untitled, description: "" }],
+      [
+        {
+          status: "ready",
+          fullText: "Audio the user is about to remove.",
+          segmentsJson: "[]",
+        },
+      ],
+    ];
+
+    it("drops a generated title", async () => {
+      mockSelectRows.queue = [...staleRead, [untitled], removed];
+      mockCleanupTranscriptRun.mockResolvedValueOnce({
+        title: "Title from removed audio",
+        provider: "builder",
+      });
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("drops a fallback title", async () => {
+      mockSelectRows.queue = [...staleRead, [untitled], removed];
+      mockCleanupTranscriptRun.mockRejectedValueOnce(new Error("no provider"));
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+  });
+
   it.each([false, true])(
     "rechecks title expiry after cleanup without falling back (owner=%s)",
     async (owner) => {
@@ -369,6 +413,7 @@ describe("regenerate-title fallback refinement", () => {
         },
       ],
       [{ title: "Untitled recording", titleSource: "default" }],
+      [],
       [{ title: "Agent Credits Cost $63", titleSource: "context" }],
     ];
 

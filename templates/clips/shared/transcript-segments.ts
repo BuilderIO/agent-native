@@ -4,6 +4,8 @@ export interface TranscriptSegment {
   text: string;
   source?: "mic" | "system";
   speaker?: string | null;
+  /** Audio recovered from before the user started recording. */
+  recovered?: true;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -63,6 +65,7 @@ export function parseTranscriptSegments(
             : undefined,
         speaker:
           typeof segment?.speaker === "string" ? segment.speaker : undefined,
+        ...(segment?.recovered === true ? { recovered: true as const } : {}),
       }))
       .filter(
         (segment) =>
@@ -223,6 +226,7 @@ function splitTimedSegmentIntoCaptions(
       text: chunk,
       source: segment.source,
       speaker: segment.speaker,
+      ...(segment.recovered ? { recovered: true as const } : {}),
     };
     cursorMs = endMs;
     return next;

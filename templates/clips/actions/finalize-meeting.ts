@@ -7,6 +7,7 @@ import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
@@ -66,20 +67,10 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    const readEarlierAudioRemovedAt = async (
-      reader: Pick<typeof db, "select">,
-    ) => {
-      if (!meeting.recordingId) return null;
-      const rows = await reader
-        .select({
-          removedAt: schema.recordingTranscripts.earlierAudioRemovedAt,
-        })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-        .limit(1);
-      return rows.length ? rows[0].removedAt : null;
-    };
-    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(db);
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      meeting.recordingId,
+    );
 
     const linked = await loadMeetingRecordingContent(
       meeting,
@@ -276,7 +267,10 @@ export default defineAction({
         .for("update");
       // A summary of audio removed since the read above must not land, even
       // over the newer claim the removal's own rebuild holds.
-      if ((await readEarlierAudioRemovedAt(tx)) !== earlierAudioRemovedAt) {
+      if (
+        (await readEarlierAudioRemovedAt(tx, meeting.recordingId)) !==
+        earlierAudioRemovedAt
+      ) {
         return true;
       }
 

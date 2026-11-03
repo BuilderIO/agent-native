@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
@@ -243,6 +244,14 @@ export default defineAction({
       title: string,
       titleSource: "context" | "ai",
     ) => {
+      // `fresh` was read first and a removal also changes `updatedAt`, so one
+      // that lands after this read fails the compare below.
+      if (
+        (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
+        (transcript?.earlierAudioRemovedAt ?? null)
+      ) {
+        return false;
+      }
       const rows = await db
         .update(schema.recordings)
         .set({ title, titleSource, updatedAt: new Date().toISOString() })

@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
@@ -85,10 +86,35 @@ export default defineAction({
         await assertAccess("recording", args.recordingId, "editor"),
       );
 
-      await db
-        .update(schema.recordings)
-        .set({ description, updatedAt: new Date().toISOString() })
-        .where(eq(schema.recordings.id, args.recordingId));
+      const written = await db.transaction(async (tx) => {
+        // The removal locks this row first, so the stamp read next is either
+        // final or this write lands first and gets cleared by it.
+        await tx
+          .select({ id: schema.recordings.id })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .for("update");
+        if (
+          (await readEarlierAudioRemovedAt(tx, args.recordingId)) !==
+          (transcript?.earlierAudioRemovedAt ?? null)
+        ) {
+          return false;
+        }
+        await tx
+          .update(schema.recordings)
+          .set({ description, updatedAt: new Date().toISOString() })
+          .where(eq(schema.recordings.id, args.recordingId));
+        return true;
+      });
+      if (!written) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "transcript_changed",
+          recordingId: args.recordingId,
+          provider: result.provider,
+        };
+      }
       await writeAppState("refresh-signal", { ts: Date.now() });
 
       return {

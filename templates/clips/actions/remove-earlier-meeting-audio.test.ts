@@ -104,6 +104,8 @@ vi.mock("./lib/finalize-ended-meetings.js", () => ({
     mocks.listEnded(...args),
 }));
 
+import { ForbiddenError } from "@agent-native/core/sharing";
+
 import removeEarlierMeetingAudio from "./remove-earlier-meeting-audio";
 
 const earlier = {
@@ -143,6 +145,7 @@ beforeEach(() => {
   mocks.rows = {
     meetings: [
       {
+        id: "meeting-1",
         title: "Weekly sync",
         recordingId: "recording-1",
         actualEnd: "2026-11-03T10:00:00.000Z",
@@ -202,6 +205,31 @@ describe("remove-earlier-meeting-audio", () => {
       recordingId: "recording-1",
       kind: "transcript",
     });
+  });
+
+  it("resets a title drawn from the transcript when no model was available", async () => {
+    mocks.rows.recordings = [{ status: "ready", titleSource: "context" }];
+
+    await run();
+
+    expect(writesTo("recordings")[0].patch).toMatchObject({
+      title: "Weekly sync",
+      titleSource: "default",
+    });
+  });
+
+  it("removes nothing when another meeting on the recording can't be edited", async () => {
+    mocks.rows.meetings.push({ id: "private-meeting" });
+    mocks.assertAccess.mockImplementation(async (_type, id) => {
+      if (id === "private-meeting") throw new ForbiddenError();
+      return { role: "editor", resource: { expiresAt: null } };
+    });
+
+    await expect(run()).rejects.toThrow("Another meeting you can't edit");
+
+    expect(mocks.writes).toEqual([]);
+    expect(mocks.deleted).toEqual([]);
+    expect(mocks.finalize).not.toHaveBeenCalled();
   });
 
   it("keeps a title the user chose", async () => {

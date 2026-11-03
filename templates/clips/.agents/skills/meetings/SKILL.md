@@ -90,7 +90,7 @@ Desktop notes also check for web End meeting requests every five seconds while a
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
-| `remove-earlier-meeting-audio` | Take audio recovered from before the user started recording out of the transcript and rebuild the notes and the linked Clip's generated title and description. `get-meeting` reports it as `earlierAudioMinutes` |
+| `remove-earlier-meeting-audio` | Take audio recovered from before the user started recording out of the transcript and rebuild the notes and the linked Clip's generated title and description. `get-meeting` and `view-screen` report it as `earlierAudioMinutes` |
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |

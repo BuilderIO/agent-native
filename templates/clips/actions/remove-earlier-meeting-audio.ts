@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm";
 import { z } from "zod";
 
@@ -35,6 +35,23 @@ function unreadableTranscript(): never {
   });
 }
 
+/**
+ * The removal clears the notes of every ended meeting on the recording, and a
+ * rebuild needs editor access, so going ahead without it would leave a meeting
+ * with no notes and no way to get them back.
+ */
+async function assertCanClearNotes(meetingId: string) {
+  try {
+    await assertAccess("meeting", meetingId, "editor");
+  } catch (err) {
+    if (!(err instanceof ForbiddenError)) throw err;
+    fail(
+      "Another meeting you can't edit uses this recording, so nothing was removed.",
+      { errorCode: "linked_meeting_forbidden", statusCode: 403 },
+    );
+  }
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -48,7 +65,7 @@ function logDispatchFailure(recordingId: string, err: unknown) {
 
 export default defineAction({
   description:
-    "Remove the audio recovered from before the user started recording from a meeting. Takes its segments out of the transcript and its saved versions, clears the notes built from it, and rebuilds the notes and the linked Clip's generated title and description from what remains; a hand-written description is replaced too because descriptions don't record their source. `notes` reports the outcome: `regenerated`, `regenerating`, `failed` (run finalize-meeting with force to retry), `live` (notes build when the meeting ends), `empty` (no transcript remains), or `unchanged` (no earlier audio). A running capture can't add it back. Editor access to the meeting and its recording required.",
+    "Remove the audio recovered from before the user started recording from a meeting. Takes its segments out of the transcript and its saved versions, clears the notes built from it, and rebuilds the notes and the linked Clip's generated title and description from what remains; a hand-written description is replaced too because descriptions don't record their source. `notes` reports the outcome: `regenerated`, `regenerating`, `failed` (run finalize-meeting with force to retry), `live` (notes build when the meeting ends), `empty` (no transcript remains), or `unchanged` (no earlier audio). A running capture can't add it back. Editor access to the meeting, its recording, and any other ended meeting on that recording required; without it nothing is removed.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
   }),
@@ -93,6 +110,20 @@ export default defineAction({
     assertRecordingNotExpired(
       await assertAccess("recording", recordingId, "editor"),
     );
+
+    // guard:allow-unscoped — the recording is authorized above, this reads meeting ids only, and each one's editor access is checked next.
+    const endedMeetings = await db
+      .select({ id: schema.meetings.id })
+      .from(schema.meetings)
+      .where(
+        and(
+          eq(schema.meetings.recordingId, recordingId),
+          isNotNull(schema.meetings.actualEnd),
+        ),
+      );
+    for (const ended of endedMeetings) {
+      await assertCanClearNotes(ended.id);
+    }
 
     const now = new Date().toISOString();
     // save-browser-transcript locks the same recording row, so a capture flush
@@ -188,7 +219,8 @@ export default defineAction({
         .update(schema.recordings)
         .set({
           description: "",
-          ...(recording.titleSource === "ai"
+          ...(recording.titleSource === "ai" ||
+          recording.titleSource === "context"
             ? { title: meeting.title, titleSource: "default" as const }
             : {}),
           updatedAt: now,

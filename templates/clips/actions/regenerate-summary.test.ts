@@ -12,16 +12,21 @@ const mockUpdateSet = vi.hoisted(() => vi.fn(() => ({ where: vi.fn() })));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 
-const mockDb = vi.hoisted(() => ({
-  select: vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+const mockDb = vi.hoisted(() => {
+  const db = {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+          for: vi.fn(async () => []),
+        })),
       })),
     })),
-  })),
-  update: vi.fn(() => ({ set: mockUpdateSet })),
-}));
+    update: vi.fn(() => ({ set: mockUpdateSet })),
+    transaction: vi.fn(async (run: (tx: unknown) => unknown) => run(db)),
+  };
+  return db;
+});
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -138,5 +143,43 @@ describe("regenerate-summary", () => {
       description: "A concise summary.",
       provider: "builder",
     });
+  });
+
+  it("drops a summary of earlier audio removed while it was generated", async () => {
+    mockSelectRows.queue = [
+      [{ id: "rec_1", title: "A Clip", description: "" }],
+      [{ status: "ready", fullText: "Audio the user removes." }],
+      [{ removedAt: "2026-11-03T10:00:00.000Z" }],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "transcript_changed",
+    });
+
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("writes a summary built after an earlier removal", async () => {
+    const removedAt = "2026-11-03T10:00:00.000Z";
+    mockSelectRows.queue = [
+      [{ id: "rec_1", title: "A Clip", description: "" }],
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+      [{ removedAt }],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: true });
   });
 });
