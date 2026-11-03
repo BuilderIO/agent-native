@@ -71,12 +71,12 @@ Um patrocinador executivo, a pessoa sênior que decide a renovação, quer resul
 
 Comece pelas metas do trimestre passado, ou pelo kickoff ou plano de sucesso no caso de uma primeira QBR, e **tire o número que mede cada uma**. Acrescente o básico do contrato: licenças, valor do contrato, data de renovação e tickets abertos. Use o mesmo período para todos os números: o trimestre combinado com o cliente.
 
-| Número | Onde costuma estar |
-|---|---|
+| Número                                         | Onde costuma estar              |
+| ---------------------------------------------- | ------------------------------- |
 | Valor do contrato, licenças, data de renovação | Seu CRM, na conta ou no negócio |
-| Usuários ativos, adoção de recursos | Análise de produto |
-| Tickets abertos, tempo de resolução | Sua ferramenta de suporte |
-| Faturas, cobranças por uso | Faturamento |
+| Usuários ativos, adoção de recursos            | Análise de produto              |
+| Tickets abertos, tempo de resolução            | Sua ferramenta de suporte       |
+| Faturas, cobranças por uso                     | Faturamento                     |
 
 Se os seus negócios estão no HubSpot, você pode [pedir ao Agent-Native Analytics os números de negócios em linguagem natural](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copie todos os números para uma única planilha, com a fonte e o período ao lado de cada um.
 
@@ -84,12 +84,12 @@ Se os seus negócios estão no HubSpot, você pode [pedir ao Agent-Native Analyt
 
 Adicione cada meta à planilha como uma linha, com o alvo, o número real e a diferença. **Marque cada meta como atingida, não atingida ou em andamento** (para metas que ainda não venceram) e anote o que você vai mudar em cada uma que não foi atingida. Deixe de fora qualquer número que não meça nem explique uma meta. Veja um exemplo para um cliente fictício, a Brightline Logistics:
 
-| Meta | Alvo | Real | Status |
-|---|---|---|---|
-| Reduzir o tempo médio de despacho | −15% | −22% | Atingida |
-| Licenças ativas por semana | 180 de 200 | 184 de 200 | Atingida |
-| Adoção do app de motoristas | 70% | 76% | Atingida |
-| Tickets resolvidos em 8 horas | 90% | 81% | Não atingida |
+| Meta                              | Alvo       | Real       | Status       |
+| --------------------------------- | ---------- | ---------- | ------------ |
+| Reduzir o tempo médio de despacho | −15%       | −22%       | Atingida     |
+| Licenças ativas por semana        | 180 de 200 | 184 de 200 | Atingida     |
+| Adoção do app de motoristas       | 70%        | 76%        | Atingida     |
+| Tickets resolvidos em 8 horas     | 90%        | 81%        | Não atingida |
 
 A tabela já mostra ao cliente como foi o trimestre.
 
@@ -119,18 +119,18 @@ Sugira duas ou três metas para o próximo trimestre, cada uma com um número e 
 
 Dê a cada slide deste roteiro **uma mensagem e a prova dela**.
 
-| Slide | Montado a partir de |
-|---|---|
-| A decisão de hoje | Sua frase "Ao final desta reunião" |
-| Placar: cada meta, atingida ou não | A tabela de metas |
-| Um slide por meta, com a manchete primeiro | A manchete, o número e a fonte de cada meta |
-| O valor que você entregou | Seu número de valor e a fórmula dele |
-| O que não foi atingido e o risco à frente | Metas não atingidas, suas mudanças, sua manchete de risco |
-| Metas propostas para o próximo trimestre | Seu rascunho de metas |
-| O que precisamos de vocês | Seus pedidos |
-| Responsáveis e prazos | Preenchido durante a reunião |
-| Opcional: saúde da conta | Seu health score, se você acompanha um |
-| Anexo: números e definições | Sua planilha de fontes |
+| Slide                                      | Montado a partir de                                       |
+| ------------------------------------------ | --------------------------------------------------------- |
+| A decisão de hoje                          | Sua frase "Ao final desta reunião"                        |
+| Placar: cada meta, atingida ou não         | A tabela de metas                                         |
+| Um slide por meta, com a manchete primeiro | A manchete, o número e a fonte de cada meta               |
+| O valor que você entregou                  | Seu número de valor e a fórmula dele                      |
+| O que não foi atingido e o risco à frente  | Metas não atingidas, suas mudanças, sua manchete de risco |
+| Metas propostas para o próximo trimestre   | Seu rascunho de metas                                     |
+| O que precisamos de vocês                  | Seus pedidos                                              |
+| Responsáveis e prazos                      | Preenchido durante a reunião                              |
+| Opcional: saúde da conta                   | Seu health score, se você acompanha um                    |
+| Anexo: números e definições                | Sua planilha de fontes                                    |
 
 Use um gráfico de linhas para uma tendência e um gráfico de barras com o alvo marcado para uma meta. Os slides da Brightline no início deste guia são quatro slides de uma apresentação montada com este roteiro.
 

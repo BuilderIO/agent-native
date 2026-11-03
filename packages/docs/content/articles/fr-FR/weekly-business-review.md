@@ -72,14 +72,14 @@ Chaque résultat sur lequel l'équipe est jugée est un indicateur de résultat,
 
 La liste de Northpine commence ainsi :
 
-| Indicateur | Levier ou résultat | Où il se trouve |
-|---|---|---|
-| Nouveau revenu mensuel récurrent | Résultat | Facturation |
-| Rendez-vous commerciaux tenus | Levier | CRM |
-| Inscriptions à l'essai | Levier | Analytics produit |
-| Essais qui réservent un premier rendez-vous | Levier | Analytics produit |
-| Clients perdus | Résultat | Facturation |
-| Tickets de support ouverts depuis plus de deux jours | Levier | Outil de support |
+| Indicateur                                           | Levier ou résultat | Où il se trouve   |
+| ---------------------------------------------------- | ------------------ | ----------------- |
+| Nouveau revenu mensuel récurrent                     | Résultat           | Facturation       |
+| Rendez-vous commerciaux tenus                        | Levier             | CRM               |
+| Inscriptions à l'essai                               | Levier             | Analytics produit |
+| Essais qui réservent un premier rendez-vous          | Levier             | Analytics produit |
+| Clients perdus                                       | Résultat           | Facturation       |
+| Tickets de support ouverts depuis plus de deux jours | Levier             | Outil de support  |
 
 Écartez tout indicateur sur lequel personne n'agirait s'il doublait. Si le marketing envoie un [rapport marketing hebdomadaire](https://www.agent-native.com/use-cases/weekly-marketing-report/), ne reprenez que ses chiffres clés.
 

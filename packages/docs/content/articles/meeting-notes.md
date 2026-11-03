@@ -107,12 +107,12 @@ Priya's page has three agenda headings: onboarding checklist, export usage and p
 
 Most of what's said in a meeting doesn't need writing down. **Write down only what someone will act on** or need to look up later. Give each kind a mark, so you can pull it out at a glance after the meeting:
 
-| Listen for | It sounds like | Mark |
-|---|---|---|
-| A decision | "Let's go with…", "Agreed", "November 10 it is" | D: |
-| An action item | "I'll take that", "Can you…", "by Friday" | A: |
-| An open question | "We don't know yet", "Let's check with…" | ?: |
-| A key fact or number | A date, a metric, a name | none |
+| Listen for           | It sounds like                                  | Mark |
+| -------------------- | ----------------------------------------------- | ---- |
+| A decision           | "Let's go with…", "Agreed", "November 10 it is" | D:   |
+| An action item       | "I'll take that", "Can you…", "by Friday"       | A:   |
+| An open question     | "We don't know yet", "Let's check with…"        | ?:   |
+| A key fact or number | A date, a metric, a name                        | none |
 
 Leave out the discussion that led to a decision. If the reason will matter later, add it in a few words after the decision. When the group seems to agree, **read the decision back in one sentence**, such as "So the checklist ships November 10?", and anyone who disagrees will say so.
 

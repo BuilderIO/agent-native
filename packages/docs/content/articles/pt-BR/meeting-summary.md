@@ -64,11 +64,11 @@ Um resumo de reunião é um texto curto enviado depois de uma reunião que diz o
 
 Um resumo não é a mesma coisa que uma ata ou que notas:
 
-| | Notas de reunião | Resumo de reunião | Ata de reunião |
-|---|---|---|---|
-| O que é | O que você anota durante a reunião | Os resultados, enviados depois | O registro oficial |
-| Quem lê | Você | Os participantes e quem faltou | O grupo e quem consultar depois |
-| Formalidade | Nenhuma | Curto e direto | Formal, aprovada na reunião seguinte |
+|             | Notas de reunião                   | Resumo de reunião              | Ata de reunião                       |
+| ----------- | ---------------------------------- | ------------------------------ | ------------------------------------ |
+| O que é     | O que você anota durante a reunião | Os resultados, enviados depois | O registro oficial                   |
+| Quem lê     | Você                               | Os participantes e quem faltou | O grupo e quem consultar depois      |
+| Formalidade | Nenhuma                            | Curto e direto                 | Formal, aprovada na reunião seguinte |
 
 Se você precisa do registro oficial de uma diretoria ou de um comitê, siga [como escrever uma ata de reunião](https://www.agent-native.com/articles/meeting-minutes/).
 
@@ -84,15 +84,15 @@ Quando o resumo vai para leitores diferentes, **escreva para quem não estava l�
 
 Leia as suas notas uma vez e **marque cada linha com D, A ou P**: uma decisão, um item de ação ou uma pergunta em aberto. As linhas sem marca são contexto, e a maioria delas sai. Este é o início das notas da Fernhill, já marcado:
 
-| Nota | Marca |
-|---|---|
-| Lançamento passa de 6 para 20 de maio, fornecedor de pagamentos precisa de mais duas semanas para testar o novo checkout | D |
-| Marcus: confirmar a nova data com o fornecedor de pagamentos | A |
-| Longa conversa sobre as fotos da home, Dana mostrou três opções | – |
-| Vamos com a opção B, a mais clara | D |
-| Quem escreve o e-mail de lançamento? | P |
-| Dana envia os arquivos finais das fotos para o Marcus | A |
-| Mantemos as URLs antigas do blog? | P |
+| Nota                                                                                                                     | Marca |
+| ------------------------------------------------------------------------------------------------------------------------ | ----- |
+| Lançamento passa de 6 para 20 de maio, fornecedor de pagamentos precisa de mais duas semanas para testar o novo checkout | D     |
+| Marcus: confirmar a nova data com o fornecedor de pagamentos                                                             | A     |
+| Longa conversa sobre as fotos da home, Dana mostrou três opções                                                          | –     |
+| Vamos com a opção B, a mais clara                                                                                        | D     |
+| Quem escreve o e-mail de lançamento?                                                                                     | P     |
+| Dana envia os arquivos finais das fotos para o Marcus                                                                    | A     |
+| Mantemos as URLs antigas do blog?                                                                                        | P     |
 
 Sete linhas viram duas decisões, dois itens de ação e duas perguntas em aberto, e a discussão sobre as fotos sai.
 

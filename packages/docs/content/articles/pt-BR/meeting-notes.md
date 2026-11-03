@@ -107,12 +107,12 @@ A página de Priya tem três títulos de pauta: checklist de onboarding, uso da 
 
 A maior parte do que se fala em uma reunião não precisa ser anotada. **Anote só o que alguém vai executar** ou vai precisar consultar depois. Dê uma marca a cada tipo, para encontrá-lo de relance depois da reunião:
 
-| Preste atenção a | Soa como | Marca |
-|---|---|---|
-| Uma decisão | "Vamos com…", "Combinado", "Fica 10 de novembro, então" | D: |
-| Um item de ação | "Eu cuido disso", "Você pode…", "até sexta" | A: |
-| Uma pergunta em aberto | "Ainda não sabemos", "Vamos ver com…" | ?: |
-| Um fato ou número importante | Uma data, uma métrica, um nome | nenhuma |
+| Preste atenção a             | Soa como                                                | Marca   |
+| ---------------------------- | ------------------------------------------------------- | ------- |
+| Uma decisão                  | "Vamos com…", "Combinado", "Fica 10 de novembro, então" | D:      |
+| Um item de ação              | "Eu cuido disso", "Você pode…", "até sexta"             | A:      |
+| Uma pergunta em aberto       | "Ainda não sabemos", "Vamos ver com…"                   | ?:      |
+| Um fato ou número importante | Uma data, uma métrica, um nome                          | nenhuma |
 
 Deixe de fora a discussão que levou à decisão. Se o motivo for importar depois, acrescente-o em poucas palavras logo após a decisão. Quando o grupo parecer de acordo, **repita a decisão em uma frase**, como "Então o checklist sai em 10 de novembro?", e quem discordar vai dizer.
 

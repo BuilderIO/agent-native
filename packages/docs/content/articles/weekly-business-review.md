@@ -72,14 +72,14 @@ Each result the team is judged on is an output, like new monthly recurring reven
 
 Northpine's list starts like this:
 
-| Metric | Input or output | Where it lives |
-|---|---|---|
-| New monthly recurring revenue | Output | Billing |
-| Sales calls held | Input | CRM |
-| Trial signups | Input | Product analytics |
-| Trials that book a first meeting | Input | Product analytics |
-| Customers lost | Output | Billing |
-| Support tickets older than two days | Input | Support tool |
+| Metric                              | Input or output | Where it lives    |
+| ----------------------------------- | --------------- | ----------------- |
+| New monthly recurring revenue       | Output          | Billing           |
+| Sales calls held                    | Input           | CRM               |
+| Trial signups                       | Input           | Product analytics |
+| Trials that book a first meeting    | Input           | Product analytics |
+| Customers lost                      | Output          | Billing           |
+| Support tickets older than two days | Input           | Support tool      |
 
 Leave out any metric nobody would act on if it doubled. If marketing sends a [weekly marketing report](https://www.agent-native.com/use-cases/weekly-marketing-report/), bring in only its headline numbers.
 

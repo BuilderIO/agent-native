@@ -100,11 +100,11 @@ Percorra o esboço como o usuário faria. Se precisar de um toque que não tem s
 
 O quanto um protótipo parece acabado é a sua fidelidade. **Ajuste a fidelidade ao tipo de pergunta** que você escreveu [na primeira etapa](#1-escreva-a-pergunta-que-o-protótipo-precisa-responder):
 
-| A sua pergunta é sobre | Crie | Por que funciona |
-|---|---|---|
-| Usabilidade | Telas clicáveis simples, com textos reais | Quem testa se concentra na tarefa, e não no visual |
-| Desejo | Telas que parecem um app de verdade, com conteúdo real | As pessoas decidem se querem algo pelo quanto aquilo parece real |
-| Adesão | Uma demonstração caprichada do fluxo, que você apresenta | Uma equipe ou um investidor reage a uma imagem do produto pronto |
+| A sua pergunta é sobre | Crie                                                     | Por que funciona                                                 |
+| ---------------------- | -------------------------------------------------------- | ---------------------------------------------------------------- |
+| Usabilidade            | Telas clicáveis simples, com textos reais                | Quem testa se concentra na tarefa, e não no visual               |
+| Desejo                 | Telas que parecem um app de verdade, com conteúdo real   | As pessoas decidem se querem algo pelo quanto aquilo parece real |
+| Adesão                 | Uma demonstração caprichada do fluxo, que você apresenta | Uma equipe ou um investidor reage a uma imagem do produto pronto |
 
 A pergunta do app de yoga é de usabilidade, então um visual simples bastaria. Mas agendar significa escolher um horário e um preço, então o conteúdo precisa ser real. Telas com visual caprichado também funcionam em um teste de usabilidade, desde que você [mantenha quem testa focado na tarefa](#todo-o-feedback-é-sobre-cores-e-fontes).
 

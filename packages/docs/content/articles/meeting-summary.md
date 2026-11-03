@@ -64,11 +64,11 @@ A meeting summary is a short note sent after a meeting that says what was decide
 
 A summary isn't the same as minutes or notes:
 
-| | Meeting notes | Meeting summary | Meeting minutes |
-|---|---|---|---|
-| What it is | What you jot down during the meeting | The outcomes, sent after it | The official record |
-| Who reads it | You | Attendees and people who missed it | The group, and anyone who checks later |
-| How formal | Not at all | Short and plain | Formal, approved at the next meeting |
+|              | Meeting notes                        | Meeting summary                    | Meeting minutes                        |
+| ------------ | ------------------------------------ | ---------------------------------- | -------------------------------------- |
+| What it is   | What you jot down during the meeting | The outcomes, sent after it        | The official record                    |
+| Who reads it | You                                  | Attendees and people who missed it | The group, and anyone who checks later |
+| How formal   | Not at all                           | Short and plain                    | Formal, approved at the next meeting   |
 
 If you need the official record for a board or committee, follow [how to write meeting minutes](https://www.agent-native.com/articles/meeting-minutes/) instead.
 
@@ -84,15 +84,15 @@ When the summary goes to a mix of readers, **write it for the person who wasn't 
 
 Read through your notes once and **mark each line D, A or Q**: a decision, an action item or an open question. Unmarked lines are context, and most of them get cut. Here's the start of the Fernhill notes, marked up:
 
-| Note | Mark |
-|---|---|
-| Launch moves from May 6 to May 20, payments vendor needs two more weeks to test the new checkout | D |
-| Marcus: confirm the new date with the payments vendor | A |
-| Long talk about homepage photos, Dana showed three options | – |
-| Going with option B, the brighter one | D |
-| Who writes the launch email? | Q |
-| Dana to send final photo files to Marcus | A |
-| Do we keep the old blog URLs? | Q |
+| Note                                                                                             | Mark |
+| ------------------------------------------------------------------------------------------------ | ---- |
+| Launch moves from May 6 to May 20, payments vendor needs two more weeks to test the new checkout | D    |
+| Marcus: confirm the new date with the payments vendor                                            | A    |
+| Long talk about homepage photos, Dana showed three options                                       | –    |
+| Going with option B, the brighter one                                                            | D    |
+| Who writes the launch email?                                                                     | Q    |
+| Dana to send final photo files to Marcus                                                         | A    |
+| Do we keep the old blog URLs?                                                                    | Q    |
 
 Seven lines become two decisions, two action items and two open questions, and the photo discussion drops out.
 

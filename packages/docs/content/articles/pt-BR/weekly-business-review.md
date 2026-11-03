@@ -72,14 +72,14 @@ Cada resultado pelo qual a equipe é avaliada é uma métrica de saída, como a 
 
 A lista da Northpine começa assim:
 
-| Métrica | Entrada ou saída | Onde está |
-|---|---|---|
-| Nova receita recorrente mensal | Saída | Faturamento |
-| Reuniões de vendas realizadas | Entrada | CRM |
-| Cadastros de teste grátis | Entrada | Análise de produto |
-| Testes grátis que agendam uma primeira reunião | Entrada | Análise de produto |
-| Clientes perdidos | Saída | Faturamento |
-| Tickets de suporte com mais de dois dias | Entrada | Ferramenta de suporte |
+| Métrica                                        | Entrada ou saída | Onde está             |
+| ---------------------------------------------- | ---------------- | --------------------- |
+| Nova receita recorrente mensal                 | Saída            | Faturamento           |
+| Reuniões de vendas realizadas                  | Entrada          | CRM                   |
+| Cadastros de teste grátis                      | Entrada          | Análise de produto    |
+| Testes grátis que agendam uma primeira reunião | Entrada          | Análise de produto    |
+| Clientes perdidos                              | Saída            | Faturamento           |
+| Tickets de suporte com mais de dois dias       | Entrada          | Ferramenta de suporte |
 
 Deixe de fora qualquer métrica sobre a qual ninguém agiria se ela dobrasse. Se o marketing envia um [relatório semanal de marketing](https://www.agent-native.com/use-cases/weekly-marketing-report/), traga só os números principais dele.
 

@@ -71,12 +71,12 @@ Ein Executive Sponsor, also die Führungskraft, die über die Verlängerung ents
 
 Gehen Sie von den Zielen des letzten Quartals aus, bei einem ersten QBR vom Kickoff oder Success Plan, und **holen Sie die Zahl, die jedes Ziel misst**. Ergänzen Sie die Vertragsgrundlagen: Lizenzen, Vertragswert, Verlängerungsdatum und offene Tickets. Verwenden Sie für alle Zahlen denselben Zeitraum, nämlich das mit dem Kunden vereinbarte Quartal.
 
-| Zahl | Wo sie meist zu finden ist |
-|---|---|
+| Zahl                                       | Wo sie meist zu finden ist      |
+| ------------------------------------------ | ------------------------------- |
 | Vertragswert, Lizenzen, Verlängerungsdatum | Ihr CRM, beim Account oder Deal |
-| Aktive Nutzer, Feature-Nutzung | Produktanalyse |
-| Eröffnete Tickets, Lösungszeit | Ihr Support-Tool |
-| Rechnungen, nutzungsbasierte Gebühren | Abrechnung |
+| Aktive Nutzer, Feature-Nutzung             | Produktanalyse                  |
+| Eröffnete Tickets, Lösungszeit             | Ihr Support-Tool                |
+| Rechnungen, nutzungsbasierte Gebühren      | Abrechnung                      |
 
 Wenn Ihre Deals in HubSpot liegen, können Sie [Agent-Native Analytics in normaler Sprache nach Deal-Zahlen fragen](https://www.agent-native.com/use-cases/ai-sales-analytics/). Übertragen Sie jede Zahl in eine einzige Tabelle, mit Quelle und Zeitraum daneben.
 
@@ -84,12 +84,12 @@ Wenn Ihre Deals in HubSpot liegen, können Sie [Agent-Native Analytics in normal
 
 Tragen Sie jedes Ziel als Zeile mit Zielwert, Istwert und Abweichung in die Tabelle ein. **Markieren Sie jedes Ziel als erreicht, verfehlt oder noch offen** (für Ziele, die noch nicht fällig sind), und notieren Sie zu jedem verfehlten Ziel, was Sie ändern werden. Lassen Sie jede Zahl weg, die kein Ziel misst oder erklärt. Hier ein Beispiel für einen fiktiven Kunden, Brightline Logistics:
 
-| Ziel | Zielwert | Istwert | Status |
-|---|---|---|---|
-| Durchschnittliche Dispositionszeit senken | −15 % | −22 % | Erreicht |
-| Wöchentlich aktive Lizenzen | 180 von 200 | 184 von 200 | Erreicht |
-| Nutzung der Fahrer-App | 70 % | 76 % | Erreicht |
-| Tickets innerhalb von 8 Stunden gelöst | 90 % | 81 % | Verfehlt |
+| Ziel                                      | Zielwert    | Istwert     | Status   |
+| ----------------------------------------- | ----------- | ----------- | -------- |
+| Durchschnittliche Dispositionszeit senken | −15 %       | −22 %       | Erreicht |
+| Wöchentlich aktive Lizenzen               | 180 von 200 | 184 von 200 | Erreicht |
+| Nutzung der Fahrer-App                    | 70 %        | 76 %        | Erreicht |
+| Tickets innerhalb von 8 Stunden gelöst    | 90 %        | 81 %        | Verfehlt |
 
 Schon die Tabelle zeigt dem Kunden, wie das Quartal gelaufen ist.
 
@@ -119,18 +119,18 @@ Schlagen Sie zwei oder drei Ziele für das nächste Quartal vor, jeweils mit ein
 
 Geben Sie jeder Folie dieser Gliederung **eine Botschaft und ihren Beleg**.
 
-| Folie | Grundlage |
-|---|---|
-| Die Entscheidung für heute | Ihr Satz „Am Ende dieses Meetings …“ |
-| Scorecard: jedes Ziel, erreicht oder verfehlt | Die Zieltabelle |
-| Eine Folie pro Ziel, Kernaussage zuerst | Kernaussage, Zahl und Quelle jedes Ziels |
-| Der gelieferte Nutzen | Ihre Nutzenzahl und ihre Formel |
+| Folie                                             | Grundlage                                                 |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| Die Entscheidung für heute                        | Ihr Satz „Am Ende dieses Meetings …“                      |
+| Scorecard: jedes Ziel, erreicht oder verfehlt     | Die Zieltabelle                                           |
+| Eine Folie pro Ziel, Kernaussage zuerst           | Kernaussage, Zahl und Quelle jedes Ziels                  |
+| Der gelieferte Nutzen                             | Ihre Nutzenzahl und ihre Formel                           |
 | Was verfehlt wurde und das Risiko für die Zukunft | Verfehlte Ziele, Ihre Änderungen, Ihre Risiko-Kernaussage |
-| Vorgeschlagene Ziele für das nächste Quartal | Ihre Zielentwürfe |
-| Was wir von Ihnen brauchen | Ihre Anliegen |
-| Verantwortliche und Termine | Werden im Meeting ausgefüllt |
-| Optional: Account Health | Ihr Health Score, falls Sie einen erfassen |
-| Anhang: Zahlen und Definitionen | Ihre Tabelle mit den Quellen |
+| Vorgeschlagene Ziele für das nächste Quartal      | Ihre Zielentwürfe                                         |
+| Was wir von Ihnen brauchen                        | Ihre Anliegen                                             |
+| Verantwortliche und Termine                       | Werden im Meeting ausgefüllt                              |
+| Optional: Account Health                          | Ihr Health Score, falls Sie einen erfassen                |
+| Anhang: Zahlen und Definitionen                   | Ihre Tabelle mit den Quellen                              |
 
 Verwenden Sie ein Liniendiagramm für einen Trend und ein Balkendiagramm mit markiertem Zielwert für ein Ziel. Die Brightline-Folien oben in dieser Anleitung sind vier Folien aus einem Deck, das auf dieser Gliederung aufbaut.
 

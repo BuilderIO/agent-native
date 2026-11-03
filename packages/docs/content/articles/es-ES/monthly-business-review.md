@@ -62,14 +62,14 @@ Una revisión mensual de negocio (MBR, por sus siglas en inglés, monthly busine
 
 El cuadro de resultados es la lista fija de métricas que la MBR revisa cada mes. **Elige de 6 a 10 métricas que midan el plan**, cada una con su definición, fuente, responsable y umbral de desviación; los objetivos mensuales salen del plan. Combina resultados como los ingresos con métricas en las que el equipo influye directamente, en este caso los pedidos y las entregas a tiempo. Brambleroot, una tienda online de plantas ficticia, usa este:
 
-| Métrica | Definición | Fuente | Responsable | Desviada cuando |
-|---|---|---|---|---|
-| Ingresos | Netos de devoluciones | Plataforma de la tienda | Finanzas | 5% por debajo del plan |
-| Pedidos | Pedidos pagados | Plataforma de la tienda | Ecommerce | 5% por debajo del plan |
-| Valor medio del pedido | Ingresos ÷ pedidos | Plataforma de la tienda | Ecommerce | 5% por debajo del plan |
-| Tasa de clientes recurrentes | Pedidos de compradores que repiten | Plataforma de la tienda | Marketing | 3 puntos por debajo del plan |
-| Coste por cliente nuevo | Gasto en anuncios ÷ compradores nuevos | Cuentas publicitarias | Marketing | 5% por encima del plan |
-| Entregas a tiempo | Entregados en la fecha prometida | Herramienta de envíos | Operaciones | 3 puntos por debajo del plan |
+| Métrica                      | Definición                             | Fuente                  | Responsable | Desviada cuando              |
+| ---------------------------- | -------------------------------------- | ----------------------- | ----------- | ---------------------------- |
+| Ingresos                     | Netos de devoluciones                  | Plataforma de la tienda | Finanzas    | 5% por debajo del plan       |
+| Pedidos                      | Pedidos pagados                        | Plataforma de la tienda | Ecommerce   | 5% por debajo del plan       |
+| Valor medio del pedido       | Ingresos ÷ pedidos                     | Plataforma de la tienda | Ecommerce   | 5% por debajo del plan       |
+| Tasa de clientes recurrentes | Pedidos de compradores que repiten     | Plataforma de la tienda | Marketing   | 3 puntos por debajo del plan |
+| Coste por cliente nuevo      | Gasto en anuncios ÷ compradores nuevos | Cuentas publicitarias   | Marketing   | 5% por encima del plan       |
+| Entregas a tiempo            | Entregados en la fecha prometida       | Herramienta de envíos   | Operaciones | 3 puntos por debajo del plan |
 
 Fija también tres fechas cada mes: el día de las cifras (por ejemplo, el tercer día laborable después del cierre), el día de la lectura previa (dos días laborables antes de la reunión) y la reunión.
 
@@ -83,14 +83,14 @@ Si tus cifras están en Stripe, HubSpot o Google Analytics, puedes [pedírselas 
 
 El plan muestra si el equipo va bien encaminado, y el mes pasado muestra la tendencia. Pon **el dato real, el plan, la diferencia y el mes pasado** uno al lado de otro para cada métrica. Marca cada una como en plan o desviada según su umbral; en una métrica de coste, una diferencia negativa es buena. Si tu negocio es estacional, añade el mismo mes del año pasado. Este es el octubre de Brambleroot:
 
-| Métrica | Plan | Real | Diferencia | Septiembre | Estado |
-|---|---|---|---|---|---|
-| Ingresos | 410.000 $ | 372.000 $ | −9% | 395.000 $ | Desviada |
-| Pedidos | 6.200 | 6.100 | −2% | 6.080 | En plan |
-| Valor medio del pedido | 66 $ | 61 $ | −8% | 65 $ | Desviada |
-| Tasa de clientes recurrentes | 34% | 35% | +1 pt | 33% | En plan |
-| Coste por cliente nuevo | 38 $ | 36 $ | −5% | 39 $ | En plan |
-| Entregas a tiempo | 95% | 88% | −7 pts | 94% | Desviada |
+| Métrica                      | Plan      | Real      | Diferencia | Septiembre | Estado   |
+| ---------------------------- | --------- | --------- | ---------- | ---------- | -------- |
+| Ingresos                     | 410.000 $ | 372.000 $ | −9%        | 395.000 $  | Desviada |
+| Pedidos                      | 6.200     | 6.100     | −2%        | 6.080      | En plan  |
+| Valor medio del pedido       | 66 $      | 61 $      | −8%        | 65 $       | Desviada |
+| Tasa de clientes recurrentes | 34%       | 35%       | +1 pt      | 33%        | En plan  |
+| Coste por cliente nuevo      | 38 $      | 36 $      | −5%        | 39 $       | En plan  |
+| Entregas a tiempo            | 95%       | 88%       | −7 pts     | 94%        | Desviada |
 
 Tres de las seis métricas están desviadas del plan, y esas tres son la reunión.
 
@@ -117,16 +117,16 @@ Una acción que va con retraso dos meses seguidos entra en el orden del día com
 
 El orden de la presentación es el mismo cada mes, así que **parte de una copia de la presentación del mes pasado** y cambia solo lo nuevo. En la primera MBR, crea la presentación una vez con este esquema:
 
-| Diapositiva | Cada mes |
-|---|---|
-| Decisiones que hay que tomar hoy | Se reescribe |
-| Acciones y proyectos clave del mes pasado | Se actualizan los estados |
-| Cuadro de resultados: real, plan, diferencia, mes pasado | Se actualizan las cifras |
-| Una diapositiva por motivo de desviación, con el titular primero | Se sustituye |
-| Tendencias: cada métrica en los últimos 12 meses | Se añade un mes nuevo |
-| Riesgos y peticiones, incluidos presupuesto y contrataciones | Se reescribe |
-| Nuevas acciones, responsables y fechas | Se completa durante la reunión |
-| Anexo: definiciones y fuentes | Sin cambios |
+| Diapositiva                                                      | Cada mes                       |
+| ---------------------------------------------------------------- | ------------------------------ |
+| Decisiones que hay que tomar hoy                                 | Se reescribe                   |
+| Acciones y proyectos clave del mes pasado                        | Se actualizan los estados      |
+| Cuadro de resultados: real, plan, diferencia, mes pasado         | Se actualizan las cifras       |
+| Una diapositiva por motivo de desviación, con el titular primero | Se sustituye                   |
+| Tendencias: cada métrica en los últimos 12 meses                 | Se añade un mes nuevo          |
+| Riesgos y peticiones, incluidos presupuesto y contrataciones     | Se reescribe                   |
+| Nuevas acciones, responsables y fechas                           | Se completa durante la reunión |
+| Anexo: definiciones y fuentes                                    | Sin cambios                    |
 
 Muestra las tendencias como gráficos de líneas con el plan como segunda línea, para que una desviación se vea sin leer cifras. Las diapositivas de ejemplo del principio de esta guía son de la presentación de Brambleroot creada con este esquema.
 

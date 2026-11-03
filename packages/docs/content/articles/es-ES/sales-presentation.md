@@ -73,14 +73,14 @@ Después, haz una lista de quién asiste y qué decide cada persona. El **compra
 
 Todo lo que la presentación dice del cliente potencial sale del descubrimiento, así que **recógelo con sus propias palabras** en una sola página:
 
-| Qué recoger | Dónde suele estar |
-|---|---|
-| El problema, con sus palabras | Tus notas o la grabación de la llamada |
-| Lo que les cuesta el problema | Notas de la llamada, emails de seguimiento |
-| Lo que ya han probado | Notas de la llamada |
-| Quién decide y quién más participa | La oportunidad en tu CRM |
+| Qué recoger                                   | Dónde suele estar                             |
+| --------------------------------------------- | --------------------------------------------- |
+| El problema, con sus palabras                 | Tus notas o la grabación de la llamada        |
+| Lo que les cuesta el problema                 | Notas de la llamada, emails de seguimiento    |
+| Lo que ya han probado                         | Notas de la llamada                           |
+| Quién decide y quién más participa            | La oportunidad en tu CRM                      |
 | Su plazo, o qué les ha llevado a buscar ahora | Notas de la llamada, la oportunidad en el CRM |
-| Preguntas o dudas que plantearon | Notas o grabación de la llamada |
+| Preguntas o dudas que plantearon              | Notas o grabación de la llamada               |
 
 Con las oportunidades en HubSpot y las llamadas en Gong, puedes [preguntar a Agent-Native Analytics por una oportunidad y sus llamadas](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copia las citas exactas: una diapositiva con sus propias palabras cala más que tu paráfrasis. Priya, directora financiera de Pinecrest, contó que las facturas se aprueban reenviando emails entre 14 hoteles, y eso se convirtió en la diapositiva 2. Prevé preguntar al principio de la reunión por todo lo que falte.
 
@@ -94,11 +94,11 @@ Dedica como mucho una diapositiva a tu empresa. Los titulares por sí solos debe
 
 Para cada problema que mencionó el cliente potencial, escribe **qué lo resuelve y cómo lo vas a mostrar**. Deja fuera cualquier función que no responda a un problema de la lista, por buena que sea. Este es el ejemplo de Pinecrest:
 
-| Su problema | Qué lo resuelve | Cómo lo mostrarás |
-|---|---|---|
-| Las facturas se quedan en el email | Una sola cola de aprobación para los 14 hoteles | Una captura de pantalla de la cola |
-| Nadie sabe quién tiene una factura | Cada factura muestra quién debe aprobarla y cuánto tiempo lleva esperando | Una demo en directo de 2 minutos |
-| Se pierden los descuentos por pronto pago | Recordatorios antes de la fecha del descuento | Un resultado de un cliente parecido |
+| Su problema                               | Qué lo resuelve                                                           | Cómo lo mostrarás                   |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------- |
+| Las facturas se quedan en el email        | Una sola cola de aprobación para los 14 hoteles                           | Una captura de pantalla de la cola  |
+| Nadie sabe quién tiene una factura        | Cada factura muestra quién debe aprobarla y cuánto tiempo lleva esperando | Una demo en directo de 2 minutos    |
+| Se pierden los descuentos por pronto pago | Recordatorios antes de la fecha del descuento                             | Un resultado de un cliente parecido |
 
 La tabla se convierte en la parte central de la presentación, con una diapositiva por fila. Después, escribe una línea sobre por qué tú y no lo que usan ahora, a partir de «lo que ya han probado» en tu página de descubrimiento. En el caso de Pinecrest, eso es el email y el paso de aprobación de su sistema de contabilidad.
 
@@ -112,17 +112,17 @@ Comprueba que cada cliente ha aceptado que se le mencione. Si no, descríbelo: �
 
 Da a cada diapositiva **un titular y la prueba que lo respalda**, con este esquema. Las diapositivas del cliente potencial son nuevas, y el resto sale de tu presentación estándar.
 
-| Diapositiva | Se crea a partir de |
-|---|---|
-| Portada, con el siguiente paso propuesto | Tu frase del siguiente paso |
-| Su situación, con sus palabras | Citas del descubrimiento |
-| Lo que les cuesta | El coste que describieron |
-| Una diapositiva por problema | Cada fila de la tabla de problemas, con su prueba |
-| Por qué tú y no la alternativa | Tu línea de por qué tú |
-| Cómo funciona | La presentación estándar o una demo breve |
-| Inversión, si la oportunidad está en esa fase | Tus precios para su tamaño |
-| Siguiente paso, responsables y fechas | Tu frase del siguiente paso |
-| Diapositivas de reserva | Respuestas a las objeciones previstas, con diapositivas de la presentación estándar |
+| Diapositiva                                   | Se crea a partir de                                                                 |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Portada, con el siguiente paso propuesto      | Tu frase del siguiente paso                                                         |
+| Su situación, con sus palabras                | Citas del descubrimiento                                                            |
+| Lo que les cuesta                             | El coste que describieron                                                           |
+| Una diapositiva por problema                  | Cada fila de la tabla de problemas, con su prueba                                   |
+| Por qué tú y no la alternativa                | Tu línea de por qué tú                                                              |
+| Cómo funciona                                 | La presentación estándar o una demo breve                                           |
+| Inversión, si la oportunidad está en esa fase | Tus precios para su tamaño                                                          |
+| Siguiente paso, responsables y fechas         | Tu frase del siguiente paso                                                         |
+| Diapositivas de reserva                       | Respuestas a las objeciones previstas, con diapositivas de la presentación estándar |
 
 Limita la presentación principal a unas 10 diapositivas y deja la mitad de la reunión para hablar. Para ir más rápido la próxima vez, **copia esta presentación para cada cliente potencial** y cambia solo sus diapositivas.
 

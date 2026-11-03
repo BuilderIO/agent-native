@@ -62,14 +62,14 @@ Ein Monthly Business Review (MBR) ist ein wiederkehrendes Meeting, in dem ein Te
 
 Die Scorecard ist die feste Liste der Kennzahlen, die das MBR jeden Monat prüft. **Wählen Sie 6 bis 10 Kennzahlen, die den Plan messen**, jeweils mit Definition, Quelle, Verantwortlichem und Schwellenwert für eine Planabweichung; die Monatsziele stammen aus dem Plan. Stellen Sie Ergebnissen wie dem Umsatz Kennzahlen gegenüber, die das Team direkt beeinflusst, hier Bestellungen und pünktliche Lieferung. Brambleroot, ein fiktiver Online-Pflanzenshop, verwendet diese Scorecard:
 
-| Kennzahl | Definition | Quelle | Verantwortlich | Planabweichung, wenn |
-|---|---|---|---|---|
-| Umsatz | Abzüglich Erstattungen | Shop-Plattform | Finanzen | 5 % unter Plan |
-| Bestellungen | Bezahlte Bestellungen | Shop-Plattform | E-Commerce | 5 % unter Plan |
-| Durchschnittlicher Bestellwert | Umsatz ÷ Bestellungen | Shop-Plattform | E-Commerce | 5 % unter Plan |
-| Wiederkaufsrate | Bestellungen von Stammkunden | Shop-Plattform | Marketing | 3 Punkte unter Plan |
-| Kosten pro Neukunde | Werbeausgaben ÷ Erstkäufer | Werbekonten | Marketing | 5 % über Plan |
-| Pünktliche Lieferung | Bis zum zugesagten Datum geliefert | Versand-Tool | Operations | 3 Punkte unter Plan |
+| Kennzahl                       | Definition                         | Quelle         | Verantwortlich | Planabweichung, wenn |
+| ------------------------------ | ---------------------------------- | -------------- | -------------- | -------------------- |
+| Umsatz                         | Abzüglich Erstattungen             | Shop-Plattform | Finanzen       | 5 % unter Plan       |
+| Bestellungen                   | Bezahlte Bestellungen              | Shop-Plattform | E-Commerce     | 5 % unter Plan       |
+| Durchschnittlicher Bestellwert | Umsatz ÷ Bestellungen              | Shop-Plattform | E-Commerce     | 5 % unter Plan       |
+| Wiederkaufsrate                | Bestellungen von Stammkunden       | Shop-Plattform | Marketing      | 3 Punkte unter Plan  |
+| Kosten pro Neukunde            | Werbeausgaben ÷ Erstkäufer         | Werbekonten    | Marketing      | 5 % über Plan        |
+| Pünktliche Lieferung           | Bis zum zugesagten Datum geliefert | Versand-Tool   | Operations     | 3 Punkte unter Plan  |
 
 Legen Sie außerdem jeden Monat drei Termine fest: den Zahlentag (etwa den dritten Arbeitstag nach dem Monatsabschluss), den Versandtag für die Vorab-Lektüre (zwei Arbeitstage vor dem Meeting) und das Meeting selbst.
 
@@ -83,14 +83,14 @@ Wenn Ihre Zahlen in Stripe, HubSpot oder Google Analytics liegen, können Sie [A
 
 Der Plan zeigt, ob das Team auf Kurs ist, und der Vormonat zeigt die Richtung. Stellen Sie für jede Kennzahl **Ist, Plan, Abweichung und Vormonat** nebeneinander. Markieren Sie jede Kennzahl anhand ihres Schwellenwerts als im Plan oder als Planabweichung; bei einer Kostenkennzahl ist eine negative Abweichung gut. Ist Ihr Geschäft saisonal, ergänzen Sie den gleichen Monat des Vorjahrs. Hier der Oktober von Brambleroot:
 
-| Kennzahl | Plan | Ist | Abweichung | September | Status |
-|---|---|---|---|---|---|
-| Umsatz | 410.000 $ | 372.000 $ | −9 % | 395.000 $ | Planabweichung |
-| Bestellungen | 6.200 | 6.100 | −2 % | 6.080 | Im Plan |
-| Durchschnittlicher Bestellwert | 66 $ | 61 $ | −8 % | 65 $ | Planabweichung |
-| Wiederkaufsrate | 34 % | 35 % | +1 Pkt. | 33 % | Im Plan |
-| Kosten pro Neukunde | 38 $ | 36 $ | −5 % | 39 $ | Im Plan |
-| Pünktliche Lieferung | 95 % | 88 % | −7 Pkt. | 94 % | Planabweichung |
+| Kennzahl                       | Plan      | Ist       | Abweichung | September | Status         |
+| ------------------------------ | --------- | --------- | ---------- | --------- | -------------- |
+| Umsatz                         | 410.000 $ | 372.000 $ | −9 %       | 395.000 $ | Planabweichung |
+| Bestellungen                   | 6.200     | 6.100     | −2 %       | 6.080     | Im Plan        |
+| Durchschnittlicher Bestellwert | 66 $      | 61 $      | −8 %       | 65 $      | Planabweichung |
+| Wiederkaufsrate                | 34 %      | 35 %      | +1 Pkt.    | 33 %      | Im Plan        |
+| Kosten pro Neukunde            | 38 $      | 36 $      | −5 %       | 39 $      | Im Plan        |
+| Pünktliche Lieferung           | 95 %      | 88 %      | −7 Pkt.    | 94 %      | Planabweichung |
 
 Drei von sechs Kennzahlen weichen vom Plan ab, und um diese drei geht es im Meeting.
 
@@ -117,16 +117,16 @@ Eine Maßnahme, die zwei Monate in Folge verspätet ist, kommt als Entscheidung 
 
 Die Reihenfolge des Decks bleibt jeden Monat gleich, also **beginnen Sie mit einer Kopie des Vormonats-Decks** und ändern Sie nur, was neu ist. Für das erste MBR bauen Sie das Deck einmal nach dieser Gliederung:
 
-| Folie | Jeden Monat |
-|---|---|
-| Heute nötige Entscheidungen | Neu geschrieben |
-| Maßnahmen und wichtige Projekte des Vormonats | Status aktualisiert |
-| Scorecard: Ist, Plan, Abweichung, Vormonat | Zahlen aktualisiert |
-| Eine Folie pro Grund für eine Planabweichung, Kernaussage zuerst | Ersetzt |
-| Trends: jede Kennzahl über 12 Monate | Ein neuer Monat ergänzt |
-| Risiken und Anliegen, auch zu Budget und Einstellungen | Neu geschrieben |
-| Neue Maßnahmen, Verantwortliche und Termine | Werden im Meeting ausgefüllt |
-| Anhang: Definitionen und Quellen | Unverändert |
+| Folie                                                            | Jeden Monat                  |
+| ---------------------------------------------------------------- | ---------------------------- |
+| Heute nötige Entscheidungen                                      | Neu geschrieben              |
+| Maßnahmen und wichtige Projekte des Vormonats                    | Status aktualisiert          |
+| Scorecard: Ist, Plan, Abweichung, Vormonat                       | Zahlen aktualisiert          |
+| Eine Folie pro Grund für eine Planabweichung, Kernaussage zuerst | Ersetzt                      |
+| Trends: jede Kennzahl über 12 Monate                             | Ein neuer Monat ergänzt      |
+| Risiken und Anliegen, auch zu Budget und Einstellungen           | Neu geschrieben              |
+| Neue Maßnahmen, Verantwortliche und Termine                      | Werden im Meeting ausgefüllt |
+| Anhang: Definitionen und Quellen                                 | Unverändert                  |
 
 Zeigen Sie Trends als Liniendiagramme mit dem Plan als zweiter Linie, damit eine Abweichung sichtbar ist, ohne Zahlen zu lesen. Die Beispielfolien oben in dieser Anleitung stammen aus dem Deck von Brambleroot, das auf dieser Gliederung aufbaut.
 

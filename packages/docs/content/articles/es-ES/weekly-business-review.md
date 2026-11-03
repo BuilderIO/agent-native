@@ -72,14 +72,14 @@ Cada resultado por el que se juzga al equipo es un indicador de salida, como los
 
 La lista de Northpine empieza así:
 
-| Métrica | Entrada o salida | Dónde está |
-|---|---|---|
-| Nuevos ingresos recurrentes mensuales | Salida | Facturación |
-| Llamadas de ventas realizadas | Entrada | CRM |
-| Registros de prueba | Entrada | Analítica de producto |
-| Pruebas que reservan una primera reunión | Entrada | Analítica de producto |
-| Clientes perdidos | Salida | Facturación |
-| Tickets de soporte de más de dos días | Entrada | Herramienta de soporte |
+| Métrica                                  | Entrada o salida | Dónde está             |
+| ---------------------------------------- | ---------------- | ---------------------- |
+| Nuevos ingresos recurrentes mensuales    | Salida           | Facturación            |
+| Llamadas de ventas realizadas            | Entrada          | CRM                    |
+| Registros de prueba                      | Entrada          | Analítica de producto  |
+| Pruebas que reservan una primera reunión | Entrada          | Analítica de producto  |
+| Clientes perdidos                        | Salida           | Facturación            |
+| Tickets de soporte de más de dos días    | Entrada          | Herramienta de soporte |
 
 Deja fuera cualquier métrica sobre la que nadie actuaría si se duplicara. Si marketing envía un [informe semanal de marketing](https://www.agent-native.com/use-cases/weekly-marketing-report/), incluye solo sus cifras principales.
 

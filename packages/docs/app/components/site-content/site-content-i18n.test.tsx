@@ -92,7 +92,7 @@ describe("SiteContentDate kind", () => {
   ] as const)("renders %s", async (kind, text) => {
     const html = await render(
       "en-US",
-      <SiteContentDate date="2026-01-02" kind={kind} />,
+      <SiteContentDate date="2026-01-02" {...(kind ? { kind } : {})} />,
     );
     expect(html).toContain('dateTime="2026-01-02"');
     expect(html).toContain(text);

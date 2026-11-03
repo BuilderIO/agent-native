@@ -100,11 +100,11 @@ Walk through the sketch as the user would. If you need a tap that has no arrow, 
 
 How finished a prototype looks is its fidelity. **Match the fidelity to the kind of question** you wrote in [the first step](#1-write-down-the-question-the-prototype-must-answer):
 
-| Your question is about | Build | Why it fits |
-|---|---|---|
-| Usability | Plain clickable screens with real labels | Testers stay on the task instead of the styling |
-| Desire | Screens that look like a real app, with real content | People decide whether they want something by how real it feels |
-| Buy-in | A polished walkthrough of the one flow that you present | A team or an investor reacts to a picture of the finished product |
+| Your question is about | Build                                                   | Why it fits                                                       |
+| ---------------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
+| Usability              | Plain clickable screens with real labels                | Testers stay on the task instead of the styling                   |
+| Desire                 | Screens that look like a real app, with real content    | People decide whether they want something by how real it feels    |
+| Buy-in                 | A polished walkthrough of the one flow that you present | A team or an investor reacts to a picture of the finished product |
 
 The yoga question is about usability, so plain styling would do. Booking means choosing a time and a price, though, so the content must be real. Styled screens work for a usability test too, as long as you [keep testers on the task](#all-the-feedback-is-about-colors-and-fonts).
 

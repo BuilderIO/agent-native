@@ -71,12 +71,12 @@ Un sponsor exécutif, la personne en position de décider du renouvellement, att
 
 Partez des objectifs du trimestre dernier, ou du kickoff ou du plan de succès pour une première QBR, et **récupérez le chiffre qui mesure chacun d'eux**. Ajoutez les éléments de base du contrat : licences, valeur du contrat, date de renouvellement et tickets ouverts. Utilisez la même période pour tous les chiffres : le trimestre convenu avec le client.
 
-| Chiffre | Où il se trouve généralement |
-|---|---|
+| Chiffre                                             | Où il se trouve généralement              |
+| --------------------------------------------------- | ----------------------------------------- |
 | Valeur du contrat, licences, date de renouvellement | Votre CRM, sur le compte ou l'opportunité |
-| Utilisateurs actifs, adoption des fonctionnalités | Analytics produit |
-| Tickets ouverts, délai de résolution | Votre outil de support |
-| Factures, frais à l'usage | Facturation |
+| Utilisateurs actifs, adoption des fonctionnalités   | Analytics produit                         |
+| Tickets ouverts, délai de résolution                | Votre outil de support                    |
+| Factures, frais à l'usage                           | Facturation                               |
 
 Si vos opportunités sont dans HubSpot, vous pouvez [demander les chiffres de vos opportunités à Agent-Native Analytics en langage courant](https://www.agent-native.com/use-cases/ai-sales-analytics/). Reportez chaque chiffre dans un seul tableur, avec sa source et sa période à côté.
 
@@ -84,12 +84,12 @@ Si vos opportunités sont dans HubSpot, vous pouvez [demander les chiffres de vo
 
 Ajoutez chaque objectif au tableur sous forme de ligne, avec sa cible, le chiffre réel et l'écart. **Indiquez pour chaque objectif s'il est atteint, manqué ou en cours** (pour les objectifs pas encore échus), et notez ce que vous allez changer pour chaque objectif manqué. Écartez tout chiffre qui ne mesure ni n'explique un objectif. Voici un exemple pour un client fictif, Brightline Logistics :
 
-| Objectif | Cible | Réel | Statut |
-|---|---|---|---|
-| Réduire le temps moyen de régulation | −15 % | −22 % | Atteint |
-| Licences actives chaque semaine | 180 sur 200 | 184 sur 200 | Atteint |
-| Adoption de l'application chauffeurs | 70 % | 76 % | Atteint |
-| Tickets résolus en 8 heures | 90 % | 81 % | Manqué |
+| Objectif                             | Cible       | Réel        | Statut  |
+| ------------------------------------ | ----------- | ----------- | ------- |
+| Réduire le temps moyen de régulation | −15 %       | −22 %       | Atteint |
+| Licences actives chaque semaine      | 180 sur 200 | 184 sur 200 | Atteint |
+| Adoption de l'application chauffeurs | 70 %        | 76 %        | Atteint |
+| Tickets résolus en 8 heures          | 90 %        | 81 %        | Manqué  |
 
 Le tableau dit déjà au client comment s'est passé le trimestre.
 
@@ -119,18 +119,18 @@ Proposez deux ou trois objectifs pour le prochain trimestre, chacun avec un chif
 
 Donnez à chaque diapositive de ce plan **un message et sa preuve**.
 
-| Diapositive | Construite à partir de |
-|---|---|
-| La décision du jour | Votre phrase « À la fin de cette réunion » |
-| Tableau de bord : chaque objectif, atteint ou manqué | Le tableau des objectifs |
-| Une diapositive par objectif, message clé en premier | Le message clé, le chiffre et la source de chaque objectif |
-| La valeur apportée | Votre chiffre de valeur et sa formule |
-| Ce qui a été manqué et le risque à venir | Objectifs manqués, vos changements, votre message clé sur le risque |
-| Objectifs proposés pour le prochain trimestre | Vos objectifs provisoires |
-| Ce dont nous avons besoin de votre part | Vos demandes |
-| Responsables et dates | À remplir pendant la réunion |
-| Facultatif : santé du compte | Votre score de santé, si vous en suivez un |
-| Annexe : chiffres et définitions | Votre tableur des sources |
+| Diapositive                                          | Construite à partir de                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------- |
+| La décision du jour                                  | Votre phrase « À la fin de cette réunion »                          |
+| Tableau de bord : chaque objectif, atteint ou manqué | Le tableau des objectifs                                            |
+| Une diapositive par objectif, message clé en premier | Le message clé, le chiffre et la source de chaque objectif          |
+| La valeur apportée                                   | Votre chiffre de valeur et sa formule                               |
+| Ce qui a été manqué et le risque à venir             | Objectifs manqués, vos changements, votre message clé sur le risque |
+| Objectifs proposés pour le prochain trimestre        | Vos objectifs provisoires                                           |
+| Ce dont nous avons besoin de votre part              | Vos demandes                                                        |
+| Responsables et dates                                | À remplir pendant la réunion                                        |
+| Facultatif : santé du compte                         | Votre score de santé, si vous en suivez un                          |
+| Annexe : chiffres et définitions                     | Votre tableur des sources                                           |
 
 Utilisez une courbe pour une tendance et un histogramme avec la cible indiquée pour un objectif. Les diapositives Brightline en haut de ce guide sont quatre diapositives d'un deck construit sur ce plan.
 

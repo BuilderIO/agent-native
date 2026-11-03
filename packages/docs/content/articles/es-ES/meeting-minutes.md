@@ -69,13 +69,13 @@ El acta de una reunión es el registro aprobado de lo que pasó en ella: quién 
 
 **Copia el orden del día en un documento y deja huecos debajo de cada punto**, para que durante la reunión solo tengas que escribir los resultados. Pide actas anteriores a la presidencia o a quien fue secretario antes que tú, y sigue su formato. Esta es la plantilla que Tom Becker, secretario de la junta de Riverside Community Garden, rellenó antes de la reunión de octubre:
 
-| Sección | Qué incluye | Riverside, antes de la reunión |
-|---|---|---|
-| Encabezado | Grupo, tipo de reunión, fecha, hora de inicio, lugar o enlace de la llamada | Riverside Community Garden, junta directiva, reunión ordinaria, 13 de octubre de 2026, 19:00, Zoom |
-| Asistencia | Presentes, ausentes, invitados, presidencia, quien levanta el acta, quórum | Los siete miembros en la lista, para marcarlos ese día |
-| Acta anterior | Aprobada tal como se envió o con correcciones | Acta del 8 de septiembre |
-| Un bloque por punto del orden del día | Resultado, propuesta, tareas | Informe de tesorería · Cuotas de las parcelas para 2027 · Reparación del cobertizo de herramientas |
-| Cierre | Próxima reunión, hora de cierre | 10 de noviembre de 2026 |
+| Sección                               | Qué incluye                                                                 | Riverside, antes de la reunión                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Encabezado                            | Grupo, tipo de reunión, fecha, hora de inicio, lugar o enlace de la llamada | Riverside Community Garden, junta directiva, reunión ordinaria, 13 de octubre de 2026, 19:00, Zoom |
+| Asistencia                            | Presentes, ausentes, invitados, presidencia, quien levanta el acta, quórum  | Los siete miembros en la lista, para marcarlos ese día                                             |
+| Acta anterior                         | Aprobada tal como se envió o con correcciones                               | Acta del 8 de septiembre                                                                           |
+| Un bloque por punto del orden del día | Resultado, propuesta, tareas                                                | Informe de tesorería · Cuotas de las parcelas para 2027 · Reparación del cobertizo de herramientas |
+| Cierre                                | Próxima reunión, hora de cierre                                             | 10 de noviembre de 2026                                                                            |
 
 ### 2. Anota quién asiste
 
@@ -91,8 +91,8 @@ El acta recoge lo que hizo el grupo: sus acuerdos, informes y planes. Para cada 
 
 Este es un punto de la junta de Riverside Community Garden, en notas sin pulir y en el acta:
 
-| Notas sin pulir | Acta |
-|---|---|
+| Notas sin pulir                                                                                                                                  | Acta                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dana: ¿subir la cuota de parcela a 45 $? A Sam le preocupan los socios con pocos ingresos. Mucho tira y afloja. ¿Fondo de ayuda? Sam lo estudia. | **Cuotas de las parcelas para 2027.** La junta debatió la subida de la cuota anual de las parcelas y su efecto en los socios con pocos ingresos. La junta acordó subir la cuota y pidió a Sam Okafor que estudiara un fondo de ayuda. |
 
 El acta conserva el acuerdo y el motivo, y deja fuera el tira y afloja.

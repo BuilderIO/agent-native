@@ -81,7 +81,7 @@ Im Beispiel, das sich durch diese Anleitung zieht, verliert Tidewater Fitness, e
 
 ### 2. Schreiben Sie zuerst die Antwort
 
-Das Deck beginnt mit Ihrer Antwort, denn Führungskräfte lesen den Anfang und hören dort vielleicht auf. Prüfen Sie, was Ihre Interviewnotizen und Ihre Analyse zusammen ergeben, und **schreiben Sie die Antwort als einen Satz, nach dem die Entscheiderin oder der Entscheider handeln kann**. Schreiben Sie darunter die drei Gründe, die sie stützen. Das ist die Struktur mit der Antwort zuerst, die Barbara Minto in ihrem Buch *The Pyramid Principle* beschrieben hat.
+Das Deck beginnt mit Ihrer Antwort, denn Führungskräfte lesen den Anfang und hören dort vielleicht auf. Prüfen Sie, was Ihre Interviewnotizen und Ihre Analyse zusammen ergeben, und **schreiben Sie die Antwort als einen Satz, nach dem die Entscheiderin oder der Entscheider handeln kann**. Schreiben Sie darunter die drei Gründe, die sie stützen. Das ist die Struktur mit der Antwort zuerst, die Barbara Minto in ihrem Buch _The Pyramid Principle_ beschrieben hat.
 
 Die Antwort für Tidewater lautet: „Lassen Sie die Preise, wie sie sind, und verbessern Sie stattdessen die ersten 90 Tage der Mitglieder.“ Drei Gründe stützen sie. Die meisten Mitglieder kündigen in diesen 90 Tagen, und der Preis ist nicht der Hauptgrund dafür. Mitglieder, die sich im ersten Monat feste Kurse angewöhnen, bleiben.
 
@@ -95,14 +95,14 @@ Geben Sie jeder Folie einen **Aktionstitel**, der sagt, welchen Schluss der Lese
 
 **Schreiben Sie jeden Titel, bevor Sie eine Folie gestalten**, jeweils unter dem Grund, den er stützt:
 
-| Abschnitt | Folientitel |
-|---|---|
-| Antwort | Preise beibehalten und die ersten 90 Tage der Mitglieder verbessern |
-| Grund 1 | 61 % der Kündigungen erfolgen in den ersten 90 Tagen |
-| Grund 2 | Mitglieder, die mit Rabatt eingestiegen sind, kündigen genauso oft wie alle anderen |
-| Grund 2 | Kündigende Mitglieder nennen den Preis erst an vierter Stelle, nach „nicht wissen, wo man anfangen soll“ |
-| Grund 3 | Mitglieder, die im ersten Monat drei Kurse buchen, bleiben fast doppelt so oft ein Jahr |
-| Nächste Schritte | Jedes neue Mitglied für drei Kurse einbuchen, beginnend mit einem Pilotprojekt in 8 Studios |
+| Abschnitt        | Folientitel                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------- |
+| Antwort          | Preise beibehalten und die ersten 90 Tage der Mitglieder verbessern                                      |
+| Grund 1          | 61 % der Kündigungen erfolgen in den ersten 90 Tagen                                                     |
+| Grund 2          | Mitglieder, die mit Rabatt eingestiegen sind, kündigen genauso oft wie alle anderen                      |
+| Grund 2          | Kündigende Mitglieder nennen den Preis erst an vierter Stelle, nach „nicht wissen, wo man anfangen soll“ |
+| Grund 3          | Mitglieder, die im ersten Monat drei Kurse buchen, bleiben fast doppelt so oft ein Jahr                  |
+| Nächste Schritte | Jedes neue Mitglied für drei Kurse einbuchen, beginnend mit einem Pilotprojekt in 8 Studios              |
 
 Schon die Titel allein, von oben nach unten gelesen, ergeben das ganze Argument.
 
@@ -110,11 +110,11 @@ Schon die Titel allein, von oben nach unten gelesen, ergeben das ganze Argument.
 
 Ein **Ghost Deck** ist das Deck mit Titeln, aber noch ohne Inhalt. Legen Sie pro Titel eine leere Folie an und **schreiben Sie auf jede Folie das Diagramm, das den Titel belegen würde**, woher die Daten kommen und ob Sie sie schon haben. So sah das Ghost Deck von Tidewater zur Hälfte der Analyse aus:
 
-| Folientitel | Benötigter Beleg | Daten | Vorhanden? |
-|---|---|---|---|
-| 61 % der Kündigungen erfolgen in den ersten 90 Tagen | Kündigungen nach Mitgliedschaftsdauer | Mitgliederverwaltung | Ja |
-| Kündigende Mitglieder nennen den Preis erst an vierter Stelle, nach „nicht wissen, wo man anfangen soll“ | Hauptgrund für die Kündigung, nach Rang | Austrittsbefragung | Noch nicht |
-| Mitglieder, die im ersten Monat drei Kurse buchen, bleiben fast doppelt so oft ein Jahr | Bindung nach gebuchten Kursen im ersten Monat | Buchungen und Mitgliederverwaltung | Noch nicht |
+| Folientitel                                                                                              | Benötigter Beleg                              | Daten                              | Vorhanden? |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------- | ---------- |
+| 61 % der Kündigungen erfolgen in den ersten 90 Tagen                                                     | Kündigungen nach Mitgliedschaftsdauer         | Mitgliederverwaltung               | Ja         |
+| Kündigende Mitglieder nennen den Preis erst an vierter Stelle, nach „nicht wissen, wo man anfangen soll“ | Hauptgrund für die Kündigung, nach Rang       | Austrittsbefragung                 | Noch nicht |
+| Mitglieder, die im ersten Monat drei Kurse buchen, bleiben fast doppelt so oft ein Jahr                  | Bindung nach gebuchten Kursen im ersten Monat | Buchungen und Mitgliederverwaltung | Noch nicht |
 
 Die Zeilen mit „Noch nicht“ sind Ihre restliche Analyse. Widerlegen die Daten einen Titel, schreiben Sie den Titel um und prüfen Sie, ob die Antwort noch gilt.
 
@@ -122,13 +122,13 @@ Die Zeilen mit „Noch nicht“ sind Ihre restliche Analyse. Widerlegen die Date
 
 Der Inhalt jeder Folie belegt ihren Titel mit einem Diagramm oder einer Tabelle. **Heben Sie die Zahl, die der Titel nennt, in der Akzentfarbe hervor** und halten Sie den Rest neutral. Wählen Sie das Diagramm nach dem Vergleich, den der Titel zieht:
 
-| Der Titel vergleicht | Verwenden Sie |
-|---|---|
-| Eine Veränderung über die Zeit | Liniendiagramm |
-| Positionen nach Größe sortiert | Horizontales Balkendiagramm |
-| Teile eines Ganzen | Gestapelter Balken |
-| Zwei Gruppen oder vorher und nachher | Zwei Balken nebeneinander |
-| Genaue Werte, die jemand nachschlagen wird | Tabelle |
+| Der Titel vergleicht                       | Verwenden Sie               |
+| ------------------------------------------ | --------------------------- |
+| Eine Veränderung über die Zeit             | Liniendiagramm              |
+| Positionen nach Größe sortiert             | Horizontales Balkendiagramm |
+| Teile eines Ganzen                         | Gestapelter Balken          |
+| Zwei Gruppen oder vorher und nachher       | Zwei Balken nebeneinander   |
+| Genaue Werte, die jemand nachschlagen wird | Tabelle                     |
 
 Fügen Sie unten auf jeder Folie **eine Quellenzeile** ein. Sie nennt die Daten, ihren Zeitraum und jeden Filter, etwa „Mitgliederverwaltung Tidewater, Kündigungen 2024–2025, 40 Studios“. Halten Sie auf jeder Folie den Titel oben und die Quelle unten. Braucht eine Folie zwei Diagramme für ihre Aussage, teilen Sie sie in zwei Folien mit zwei Titeln auf.
 

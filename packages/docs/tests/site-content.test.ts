@@ -1,3 +1,4 @@
+// oracle-change(packages/docs/tests/campaign-foundation.test.ts): renamed here when campaign content became site content; its assertions moved with it.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

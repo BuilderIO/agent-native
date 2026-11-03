@@ -73,14 +73,14 @@ Listez ensuite les participants et ce que chacun décide. Le **décideur économ
 
 Tout ce que le deck dit du prospect vient de la découverte : **rassemblez-le avec ses propres mots** sur une seule page.
 
-| Ce qu'il faut noter | Où cela se trouve généralement |
-|---|---|
-| Le problème, avec ses mots | Vos notes ou l'enregistrement de l'appel |
-| Ce que le problème lui coûte | Notes d'appel, e-mails de suivi |
-| Ce qu'il a déjà essayé | Notes d'appel |
-| Qui décide et qui d'autre est impliqué | L'opportunité dans votre CRM |
+| Ce qu'il faut noter                                      | Où cela se trouve généralement           |
+| -------------------------------------------------------- | ---------------------------------------- |
+| Le problème, avec ses mots                               | Vos notes ou l'enregistrement de l'appel |
+| Ce que le problème lui coûte                             | Notes d'appel, e-mails de suivi          |
+| Ce qu'il a déjà essayé                                   | Notes d'appel                            |
+| Qui décide et qui d'autre est impliqué                   | L'opportunité dans votre CRM             |
 | Son échéance, ou ce qui l'a poussé à chercher maintenant | Notes d'appel, l'opportunité dans le CRM |
-| Les questions ou les doutes qu'il a soulevés | Vos notes ou l'enregistrement de l'appel |
+| Les questions ou les doutes qu'il a soulevés             | Vos notes ou l'enregistrement de l'appel |
 
 Si vos opportunités sont dans HubSpot et vos appels dans Gong, vous pouvez [interroger Agent-Native Analytics sur une opportunité et ses appels](https://www.agent-native.com/use-cases/ai-sales-analytics/). Recopiez les citations exactes : une diapositive avec ses propres mots porte plus qu'une reformulation. Priya, directrice financière de Pinecrest, a expliqué que les factures sont validées par e-mails transférés entre 14 hôtels, ce qui est devenu la diapositive 2. Prévoyez de poser des questions sur ce qui manque au début de la réunion.
 
@@ -94,11 +94,11 @@ Consacrez au maximum une diapositive à votre entreprise. Les titres seuls doive
 
 Pour chaque problème cité par le prospect, notez **ce qui le résout et comment vous allez le montrer**. Écartez toute fonctionnalité qui ne répond à aucun problème de la liste, aussi bonne soit-elle. Voici l'exemple de Pinecrest :
 
-| Son problème | Ce qui le résout | Comment vous le montrez |
-|---|---|---|
-| Les factures restent bloquées dans les e-mails | Une seule file de validation pour les 14 hôtels | Une capture d'écran de la file |
-| Personne ne sait qui détient une facture | Chaque facture affiche son valideur et depuis combien de temps elle attend | Une démo en direct de 2 minutes |
-| Les escomptes pour paiement anticipé sont perdus | Des rappels avant la date de l'escompte | Le résultat d'un client similaire |
+| Son problème                                     | Ce qui le résout                                                           | Comment vous le montrez           |
+| ------------------------------------------------ | -------------------------------------------------------------------------- | --------------------------------- |
+| Les factures restent bloquées dans les e-mails   | Une seule file de validation pour les 14 hôtels                            | Une capture d'écran de la file    |
+| Personne ne sait qui détient une facture         | Chaque facture affiche son valideur et depuis combien de temps elle attend | Une démo en direct de 2 minutes   |
+| Les escomptes pour paiement anticipé sont perdus | Des rappels avant la date de l'escompte                                    | Le résultat d'un client similaire |
 
 Ce tableau devient le cœur du deck, avec une diapositive par ligne. Écrivez ensuite une ligne sur pourquoi vous plutôt que ce qu'il utilise aujourd'hui, à partir de « ce qu'il a déjà essayé » sur votre page de découverte. Pour Pinecrest, ce sont les e-mails et l'étape de validation de son logiciel comptable.
 
@@ -112,17 +112,17 @@ Vérifiez que chaque client a accepté d'être cité. Sinon, décrivez-le : « u
 
 Donnez à chaque diapositive **un titre et la preuve qui le soutient**, en suivant ce plan. Les diapositives sur le prospect sont nouvelles, et les autres viennent de votre deck standard.
 
-| Diapositive | Construite à partir de |
-|---|---|
-| Titre, avec la prochaine étape proposée | Votre phrase de prochaine étape |
-| Sa situation, avec ses mots | Les citations de la découverte |
-| Ce qu'elle lui coûte | Le coût qu'il a décrit |
-| Une diapositive par problème | Chaque ligne du tableau des problèmes, avec sa preuve |
-| Pourquoi vous plutôt que l'alternative | Votre ligne « pourquoi vous » |
-| Le fonctionnement | Le deck standard, ou une courte démo |
-| Investissement, si l'affaire en est à ce stade | Vos tarifs pour sa taille |
-| Prochaine étape, responsables et dates | Votre phrase de prochaine étape |
-| Diapositives de réserve | Réponses aux objections attendues, avec des diapositives du deck standard |
+| Diapositive                                    | Construite à partir de                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------- |
+| Titre, avec la prochaine étape proposée        | Votre phrase de prochaine étape                                           |
+| Sa situation, avec ses mots                    | Les citations de la découverte                                            |
+| Ce qu'elle lui coûte                           | Le coût qu'il a décrit                                                    |
+| Une diapositive par problème                   | Chaque ligne du tableau des problèmes, avec sa preuve                     |
+| Pourquoi vous plutôt que l'alternative         | Votre ligne « pourquoi vous »                                             |
+| Le fonctionnement                              | Le deck standard, ou une courte démo                                      |
+| Investissement, si l'affaire en est à ce stade | Vos tarifs pour sa taille                                                 |
+| Prochaine étape, responsables et dates         | Votre phrase de prochaine étape                                           |
+| Diapositives de réserve                        | Réponses aux objections attendues, avec des diapositives du deck standard |
 
 Limitez le deck principal à une dizaine de diapositives, pour laisser la moitié de la réunion à la discussion. Pour aller plus vite la prochaine fois, **copiez ce deck pour chaque prospect** et ne changez que les diapositives qui le concernent.
 

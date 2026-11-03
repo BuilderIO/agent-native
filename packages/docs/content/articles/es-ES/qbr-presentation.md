@@ -71,12 +71,12 @@ Un patrocinador ejecutivo, la persona de alto nivel que decide la renovación, q
 
 Parte de los objetivos del trimestre pasado, o del plan de lanzamiento o de éxito si es la primera QBR, y **saca la cifra que mide cada uno**. Añade lo básico del contrato: licencias, valor del contrato, fecha de renovación y tickets abiertos. Usa el mismo periodo para todas las cifras: el trimestre que acordaste con el cliente.
 
-| Cifra | Dónde suele estar |
-|---|---|
+| Cifra                                              | Dónde suele estar                 |
+| -------------------------------------------------- | --------------------------------- |
 | Valor del contrato, licencias, fecha de renovación | Tu CRM, en la cuenta o el negocio |
-| Usuarios activos, adopción de funciones | Analítica de producto |
-| Tickets abiertos, tiempo de resolución | Tu herramienta de soporte |
-| Facturas, cargos por uso | Facturación |
+| Usuarios activos, adopción de funciones            | Analítica de producto             |
+| Tickets abiertos, tiempo de resolución             | Tu herramienta de soporte         |
+| Facturas, cargos por uso                           | Facturación                       |
 
 Si tus negocios están en HubSpot, puedes [pedir a Agent-Native Analytics las cifras de negocios en lenguaje natural](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copia todas las cifras en una sola hoja, con su fuente y su periodo al lado.
 
@@ -84,12 +84,12 @@ Si tus negocios están en HubSpot, puedes [pedir a Agent-Native Analytics las ci
 
 Añade cada objetivo a la hoja como una fila con su meta, la cifra real y la diferencia. **Marca cada objetivo como cumplido, no cumplido o en curso** (para los que aún no vencen) y anota qué cambiarás en cada uno que no se cumplió. Deja fuera cualquier cifra que no mida un objetivo ni lo explique. Aquí tienes un ejemplo para un cliente ficticio, Brightline Logistics:
 
-| Objetivo | Meta | Real | Estado |
-|---|---|---|---|
-| Reducir el tiempo medio de despacho | −15% | −22% | Cumplido |
-| Licencias activas semanales | 180 de 200 | 184 de 200 | Cumplido |
-| Adopción de la app de conductores | 70% | 76% | Cumplido |
-| Tickets resueltos en 8 horas | 90% | 81% | No cumplido |
+| Objetivo                            | Meta       | Real       | Estado      |
+| ----------------------------------- | ---------- | ---------- | ----------- |
+| Reducir el tiempo medio de despacho | −15%       | −22%       | Cumplido    |
+| Licencias activas semanales         | 180 de 200 | 184 de 200 | Cumplido    |
+| Adopción de la app de conductores   | 70%        | 76%        | Cumplido    |
+| Tickets resueltos en 8 horas        | 90%        | 81%        | No cumplido |
 
 La tabla ya le dice al cliente cómo ha ido el trimestre.
 
@@ -119,18 +119,18 @@ Sugiere dos o tres objetivos para el próximo trimestre, cada uno con una cifra 
 
 Da a cada diapositiva de este esquema **un mensaje y su prueba**.
 
-| Diapositiva | Se crea a partir de |
-|---|---|
-| La decisión de hoy | Tu frase «Al final de esta reunión» |
-| Cuadro de resultados: cada objetivo, cumplido o no | La tabla de objetivos |
-| Una diapositiva por objetivo, con el titular primero | El titular, la cifra y la fuente de cada objetivo |
-| El valor que aportaste | Tu cifra de valor y su fórmula |
-| Lo que no se cumplió y el riesgo que viene | Objetivos no cumplidos, tus cambios, tu titular de riesgo |
-| Objetivos propuestos para el próximo trimestre | Tu borrador de objetivos |
-| Lo que necesitamos de vosotros | Tus peticiones |
-| Responsables y fechas | Se completa durante la reunión |
-| Opcional: salud de la cuenta | Tu puntuación de salud, si la sigues |
-| Anexo: cifras y definiciones | Tu hoja de fuentes |
+| Diapositiva                                          | Se crea a partir de                                       |
+| ---------------------------------------------------- | --------------------------------------------------------- |
+| La decisión de hoy                                   | Tu frase «Al final de esta reunión»                       |
+| Cuadro de resultados: cada objetivo, cumplido o no   | La tabla de objetivos                                     |
+| Una diapositiva por objetivo, con el titular primero | El titular, la cifra y la fuente de cada objetivo         |
+| El valor que aportaste                               | Tu cifra de valor y su fórmula                            |
+| Lo que no se cumplió y el riesgo que viene           | Objetivos no cumplidos, tus cambios, tu titular de riesgo |
+| Objetivos propuestos para el próximo trimestre       | Tu borrador de objetivos                                  |
+| Lo que necesitamos de vosotros                       | Tus peticiones                                            |
+| Responsables y fechas                                | Se completa durante la reunión                            |
+| Opcional: salud de la cuenta                         | Tu puntuación de salud, si la sigues                      |
+| Anexo: cifras y definiciones                         | Tu hoja de fuentes                                        |
 
 Usa un gráfico de líneas para una tendencia y uno de barras con la meta marcada para un objetivo. Las diapositivas de Brightline del principio de esta guía son cuatro diapositivas de una presentación creada con este esquema.
 

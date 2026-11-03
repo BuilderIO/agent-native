@@ -318,7 +318,7 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
     return {
       path: docsPathForSlug(slug),
       title: data.title || titleFromSlug(slug),
-      description: data.description,
+      ...(data.description ? { description: data.description } : {}),
       markdown: localizeDocsMarkdownLinks(
         docsBodyToMarkdownMirror(body),
         DEFAULT_LOCALE,
@@ -351,7 +351,7 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
             return {
               path: docsPathForSlug(slug, locale as DocsLocale),
               title: data.title || titleFromSlug(slug),
-              description: data.description,
+              ...(data.description ? { description: data.description } : {}),
               markdown: localizeDocsMarkdownLinks(
                 docsBodyToMarkdownMirror(body),
                 locale as DocsLocale,

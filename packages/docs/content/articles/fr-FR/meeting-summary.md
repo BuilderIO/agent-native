@@ -64,11 +64,11 @@ Un compte rendu de réunion est une note courte envoyée après une réunion, qu
 
 Un compte rendu n'est ni un procès-verbal ni des notes :
 
-| | Notes de réunion | Compte rendu de réunion | Procès-verbal |
-|---|---|---|---|
-| Ce que c'est | Ce que vous notez pendant la réunion | Les résultats, envoyés après | Le document officiel |
-| Qui le lit | Vous | Les participants et les absents | Le groupe, et quiconque le consulte plus tard |
-| Niveau de formalité | Aucun | Court et simple | Formel, approuvé à la réunion suivante |
+|                     | Notes de réunion                     | Compte rendu de réunion         | Procès-verbal                                 |
+| ------------------- | ------------------------------------ | ------------------------------- | --------------------------------------------- |
+| Ce que c'est        | Ce que vous notez pendant la réunion | Les résultats, envoyés après    | Le document officiel                          |
+| Qui le lit          | Vous                                 | Les participants et les absents | Le groupe, et quiconque le consulte plus tard |
+| Niveau de formalité | Aucun                                | Court et simple                 | Formel, approuvé à la réunion suivante        |
 
 S'il vous faut le document officiel d'un conseil ou d'un comité, suivez plutôt [comment rédiger un procès-verbal de réunion](https://www.agent-native.com/articles/meeting-minutes/).
 
@@ -84,15 +84,15 @@ Quand le compte rendu s'adresse à des lecteurs variés, **rédigez-le pour la p
 
 Relisez vos notes une fois et **marquez chaque ligne D, A ou Q** : une décision, une action ou une question ouverte. Les lignes non marquées relèvent du contexte, et la plupart disparaissent. Voici le début des notes de Fernhill, annotées :
 
-| Note | Repère |
-|---|---|
-| Lancement décalé du 6 au 20 mai, le prestataire de paiement a besoin de deux semaines de plus pour tester le nouveau tunnel de paiement | D |
-| Marcus : confirmer la nouvelle date avec le prestataire de paiement | A |
-| Longue discussion sur les photos de la page d'accueil, Dana a montré trois options | – |
-| On part sur l'option B, la plus lumineuse | D |
-| Qui rédige l'e-mail de lancement ? | Q |
-| Dana envoie les fichiers photo définitifs à Marcus | A |
-| On garde les anciennes URL du blog ? | Q |
+| Note                                                                                                                                    | Repère |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Lancement décalé du 6 au 20 mai, le prestataire de paiement a besoin de deux semaines de plus pour tester le nouveau tunnel de paiement | D      |
+| Marcus : confirmer la nouvelle date avec le prestataire de paiement                                                                     | A      |
+| Longue discussion sur les photos de la page d'accueil, Dana a montré trois options                                                      | –      |
+| On part sur l'option B, la plus lumineuse                                                                                               | D      |
+| Qui rédige l'e-mail de lancement ?                                                                                                      | Q      |
+| Dana envoie les fichiers photo définitifs à Marcus                                                                                      | A      |
+| On garde les anciennes URL du blog ?                                                                                                    | Q      |
 
 Sept lignes deviennent deux décisions, deux actions et deux questions ouvertes, et la discussion sur les photos disparaît.
 

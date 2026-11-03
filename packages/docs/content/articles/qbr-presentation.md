@@ -71,12 +71,12 @@ An executive sponsor, the senior person who decides on the renewal, wants outcom
 
 Start from last quarter's goals, or the kickoff or success plan for a first QBR, and **pull the number that measures each one**. Add the contract basics: seats, contract value, renewal date and open tickets. Use one date window for every number, the quarter you agreed with the customer.
 
-| Number | Where it usually lives |
-|---|---|
+| Number                              | Where it usually lives           |
+| ----------------------------------- | -------------------------------- |
 | Contract value, seats, renewal date | Your CRM, on the account or deal |
-| Active users, feature adoption | Product analytics |
-| Tickets opened, time to resolve | Your support tool |
-| Invoices, usage-based charges | Billing |
+| Active users, feature adoption      | Product analytics                |
+| Tickets opened, time to resolve     | Your support tool                |
+| Invoices, usage-based charges       | Billing                          |
 
 If your deals are in HubSpot, you can [ask Agent-Native Analytics for deal numbers in plain English](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copy every number into one sheet, with its source and date window beside it.
 
@@ -84,12 +84,12 @@ If your deals are in HubSpot, you can [ask Agent-Native Analytics for deal numbe
 
 Add each goal to the sheet as a row with its target, the actual number and the gap. **Mark each goal as met, missed or still moving** (for goals not due yet), and note what you'll change for each miss. Leave out any number that doesn't measure a goal or explain one. Here's an example for a made-up customer, Brightline Logistics:
 
-| Goal | Target | Actual | Status |
-|---|---|---|---|
-| Cut average dispatch time | −15% | −22% | Met |
-| Weekly active seats | 180 of 200 | 184 of 200 | Met |
-| Driver app adoption | 70% | 76% | Met |
-| Tickets resolved in 8 hours | 90% | 81% | Missed |
+| Goal                        | Target     | Actual     | Status |
+| --------------------------- | ---------- | ---------- | ------ |
+| Cut average dispatch time   | −15%       | −22%       | Met    |
+| Weekly active seats         | 180 of 200 | 184 of 200 | Met    |
+| Driver app adoption         | 70%        | 76%        | Met    |
+| Tickets resolved in 8 hours | 90%        | 81%        | Missed |
 
 The table already tells the customer how the quarter went.
 
@@ -119,18 +119,18 @@ Suggest two or three goals for the next quarter, each with a number and the tool
 
 Give each slide in this outline **one message and its proof**.
 
-| Slide | Built from |
-|---|---|
-| The decision for today | Your "By the end of this meeting" sentence |
-| Scorecard: every goal, met or missed | The goals table |
-| One slide per goal, headline first | Each goal's headline, number and source |
-| The value you delivered | Your value number and its formula |
-| What missed, and the risk ahead | Missed goals, your changes, your risk headline |
-| Proposed goals for next quarter | Your draft goals |
-| What we need from you | Your asks |
-| Owners and dates | Filled in during the meeting |
-| Optional: account health | Your health score, if you track one |
-| Appendix: numbers and definitions | Your sheet of sources |
+| Slide                                | Built from                                     |
+| ------------------------------------ | ---------------------------------------------- |
+| The decision for today               | Your "By the end of this meeting" sentence     |
+| Scorecard: every goal, met or missed | The goals table                                |
+| One slide per goal, headline first   | Each goal's headline, number and source        |
+| The value you delivered              | Your value number and its formula              |
+| What missed, and the risk ahead      | Missed goals, your changes, your risk headline |
+| Proposed goals for next quarter      | Your draft goals                               |
+| What we need from you                | Your asks                                      |
+| Owners and dates                     | Filled in during the meeting                   |
+| Optional: account health             | Your health score, if you track one            |
+| Appendix: numbers and definitions    | Your sheet of sources                          |
 
 Use a line chart for a trend and a bar with the target marked for a goal. The Brightline slides at the top of this guide are four slides from a deck built on this outline.
 

@@ -62,14 +62,14 @@ A monthly business review (MBR) is a recurring meeting where a team compares the
 
 The scorecard is the fixed list of metrics the MBR reviews every month. **Pick 6 to 10 metrics that measure the plan**, each with a definition, source, owner and off-plan threshold; the monthly targets come from the plan. Pair results like revenue with metrics the team moves directly, here orders and on-time delivery. Brambleroot, a made-up online plant shop, uses this one:
 
-| Metric | Definition | Source | Owner | Off plan when |
-|---|---|---|---|---|
-| Revenue | Net of refunds | Store platform | Finance | 5% below plan |
-| Orders | Paid orders | Store platform | Ecommerce | 5% below plan |
-| Average order value | Revenue ÷ orders | Store platform | Ecommerce | 5% below plan |
-| Repeat customer rate | Orders from returning buyers | Store platform | Marketing | 3 points below plan |
-| Cost per new customer | Ad spend ÷ first-time buyers | Ad accounts | Marketing | 5% above plan |
-| On-time delivery | Delivered by the promised date | Shipping tool | Operations | 3 points below plan |
+| Metric                | Definition                     | Source         | Owner      | Off plan when       |
+| --------------------- | ------------------------------ | -------------- | ---------- | ------------------- |
+| Revenue               | Net of refunds                 | Store platform | Finance    | 5% below plan       |
+| Orders                | Paid orders                    | Store platform | Ecommerce  | 5% below plan       |
+| Average order value   | Revenue ÷ orders               | Store platform | Ecommerce  | 5% below plan       |
+| Repeat customer rate  | Orders from returning buyers   | Store platform | Marketing  | 3 points below plan |
+| Cost per new customer | Ad spend ÷ first-time buyers   | Ad accounts    | Marketing  | 5% above plan       |
+| On-time delivery      | Delivered by the promised date | Shipping tool  | Operations | 3 points below plan |
 
 Also set three dates each month: numbers day (say, the third working day after close), pre-read day (two working days before the meeting) and the meeting.
 
@@ -83,14 +83,14 @@ If your numbers live in Stripe, HubSpot or Google Analytics, you can [ask Agent-
 
 Plan shows whether the team is on track, and last month shows the direction. Put **actual, plan, gap and last month** side by side for every metric. Mark each one on plan or off plan by its threshold; for a cost metric, a negative gap is good. When your business is seasonal, add the same month last year; here's Brambleroot's October:
 
-| Metric | Plan | Actual | Gap | September | Status |
-|---|---|---|---|---|---|
-| Revenue | $410,000 | $372,000 | −9% | $395,000 | Off plan |
-| Orders | 6,200 | 6,100 | −2% | 6,080 | On plan |
-| Average order value | $66 | $61 | −8% | $65 | Off plan |
-| Repeat customer rate | 34% | 35% | +1 pt | 33% | On plan |
-| Cost per new customer | $38 | $36 | −5% | $39 | On plan |
-| On-time delivery | 95% | 88% | −7 pts | 94% | Off plan |
+| Metric                | Plan     | Actual   | Gap    | September | Status   |
+| --------------------- | -------- | -------- | ------ | --------- | -------- |
+| Revenue               | $410,000 | $372,000 | −9%    | $395,000  | Off plan |
+| Orders                | 6,200    | 6,100    | −2%    | 6,080     | On plan  |
+| Average order value   | $66      | $61      | −8%    | $65       | Off plan |
+| Repeat customer rate  | 34%      | 35%      | +1 pt  | 33%       | On plan  |
+| Cost per new customer | $38      | $36      | −5%    | $39       | On plan  |
+| On-time delivery      | 95%      | 88%      | −7 pts | 94%       | Off plan |
 
 Three of six metrics are off plan, and those three are the meeting.
 
@@ -117,16 +117,16 @@ An action that's late two months in a row goes on the agenda as a decision: give
 
 The deck's order stays the same every month, so **start from a copy of last month's deck** and change only what's new. On the first MBR, build the deck once from this outline:
 
-| Slide | Each month |
-|---|---|
-| Decisions needed today | Rewritten |
-| Last month's actions and key projects | Statuses updated |
-| Scorecard: actual, plan, gap, last month | Numbers updated |
-| One slide per off-plan reason, headline first | Replaced |
-| Trends: each metric over 12 months | One new month added |
-| Risks and asks, including budget and hiring | Rewritten |
-| New actions, owners and dates | Filled in during the meeting |
-| Appendix: definitions and sources | Unchanged |
+| Slide                                         | Each month                   |
+| --------------------------------------------- | ---------------------------- |
+| Decisions needed today                        | Rewritten                    |
+| Last month's actions and key projects         | Statuses updated             |
+| Scorecard: actual, plan, gap, last month      | Numbers updated              |
+| One slide per off-plan reason, headline first | Replaced                     |
+| Trends: each metric over 12 months            | One new month added          |
+| Risks and asks, including budget and hiring   | Rewritten                    |
+| New actions, owners and dates                 | Filled in during the meeting |
+| Appendix: definitions and sources             | Unchanged                    |
 
 Show trends as line charts with the plan as a second line, so a miss is visible without reading numbers. The example slides at the top of this guide come from Brambleroot's deck built on this outline.
 

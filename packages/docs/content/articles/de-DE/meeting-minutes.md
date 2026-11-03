@@ -69,13 +69,13 @@ Ein Protokoll ist die genehmigte Aufzeichnung eines Meetings durch das Gremium: 
 
 **Kopieren Sie die Tagesordnung in ein Dokument und legen Sie unter jedem Punkt Platz an**, damit Sie während des Meetings nur noch Ergebnisse eintragen. Bitten Sie den Vorsitz oder die letzte Schriftführung um frühere Protokolle und übernehmen Sie deren Aufbau. Hier die Vorlage, die Tom Becker, Schriftführer des Vorstands von Riverside Community Garden, vor der Oktobersitzung ausgefüllt hat:
 
-| Abschnitt | Was hineingehört | Riverside, vor der Sitzung |
-|---|---|---|
-| Kopf | Gremium, Art der Sitzung, Datum, Beginn, Ort oder Link zum Call | Riverside Community Garden, Vorstand, ordentliche Sitzung, 13. Oktober 2026, 19:00 Uhr, Zoom |
-| Anwesenheit | Anwesend, abwesend, Gäste, Vorsitz, Protokoll, Beschlussfähigkeit | Alle sieben Mitglieder aufgeführt, zum Abhaken am Abend |
-| Letztes Protokoll | Unverändert genehmigt oder mit Korrekturen | Protokoll vom 8. September |
-| Ein Block pro Tagesordnungspunkt | Ergebnis, Antrag, Aufgaben | Kassenbericht · Parzellengebühren 2027 · Reparatur des Geräteschuppens |
-| Abschluss | Nächste Sitzung, Uhrzeit des Endes | 10. November 2026 |
+| Abschnitt                        | Was hineingehört                                                  | Riverside, vor der Sitzung                                                                   |
+| -------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Kopf                             | Gremium, Art der Sitzung, Datum, Beginn, Ort oder Link zum Call   | Riverside Community Garden, Vorstand, ordentliche Sitzung, 13. Oktober 2026, 19:00 Uhr, Zoom |
+| Anwesenheit                      | Anwesend, abwesend, Gäste, Vorsitz, Protokoll, Beschlussfähigkeit | Alle sieben Mitglieder aufgeführt, zum Abhaken am Abend                                      |
+| Letztes Protokoll                | Unverändert genehmigt oder mit Korrekturen                        | Protokoll vom 8. September                                                                   |
+| Ein Block pro Tagesordnungspunkt | Ergebnis, Antrag, Aufgaben                                        | Kassenbericht · Parzellengebühren 2027 · Reparatur des Geräteschuppens                       |
+| Abschluss                        | Nächste Sitzung, Uhrzeit des Endes                                | 10. November 2026                                                                            |
 
 ### 2. Halten Sie fest, wer anwesend ist
 
@@ -91,8 +91,8 @@ Ein Protokoll hält fest, was das Gremium getan hat: seine Beschlüsse, Berichte
 
 Hier ein Punkt aus der Vorstandssitzung von Riverside Community Garden, als Rohnotiz und als Protokoll:
 
-| Rohnotizen | Protokoll |
-|---|---|
+| Rohnotizen                                                                                                                                   | Protokoll                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dana: Parzellengebühr auf 45 $ erhöhen? Sam besorgt wegen Mitgliedern mit geringem Einkommen. Langes Hin und Her. Härtefonds? Sam prüft das. | **Parzellengebühren 2027.** Der Vorstand erörterte eine Erhöhung der jährlichen Parzellengebühr und ihre Auswirkung auf Mitglieder mit geringem Einkommen. Der Vorstand beschloss die Erhöhung und bat Sam Okafor, einen Härtefonds zu prüfen. |
 
 Das Protokoll behält den Beschluss und den Grund und lässt das Hin und Her weg.

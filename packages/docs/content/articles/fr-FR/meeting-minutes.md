@@ -69,13 +69,13 @@ Le procès-verbal de réunion est le compte rendu approuvé d'une réunion : qui
 
 **Copiez l'ordre du jour dans un document et ajoutez des emplacements sous chaque point** : pendant la réunion, vous n'aurez plus qu'à noter les issues. Demandez au président ou au précédent secrétaire d'anciens procès-verbaux, et reprenez leur mise en page. Voici le modèle que Tom Becker, secrétaire du conseil de Riverside Community Garden, a rempli avant la réunion d'octobre :
 
-| Section | Contenu | Riverside, avant la réunion |
-|---|---|---|
-| En-tête | Groupe, type de réunion, date, heure de début, lieu ou lien de l'appel | Riverside Community Garden, conseil d'administration, réunion ordinaire, 13 octobre 2026, 19 h, Zoom |
-| Présences | Présents, absents, invités, président, secrétaire, quorum | Les sept membres listés, à cocher le soir même |
-| Dernier procès-verbal | Approuvé tel quel, ou avec corrections | Procès-verbal du 8 septembre |
-| Un bloc par point de l'ordre du jour | Issue, proposition, actions | Rapport du trésorier · Cotisations des parcelles pour 2027 · Réparation de l'abri à outils |
-| Clôture | Prochaine réunion, heure de fin de séance | 10 novembre 2026 |
+| Section                              | Contenu                                                                | Riverside, avant la réunion                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| En-tête                              | Groupe, type de réunion, date, heure de début, lieu ou lien de l'appel | Riverside Community Garden, conseil d'administration, réunion ordinaire, 13 octobre 2026, 19 h, Zoom |
+| Présences                            | Présents, absents, invités, président, secrétaire, quorum              | Les sept membres listés, à cocher le soir même                                                       |
+| Dernier procès-verbal                | Approuvé tel quel, ou avec corrections                                 | Procès-verbal du 8 septembre                                                                         |
+| Un bloc par point de l'ordre du jour | Issue, proposition, actions                                            | Rapport du trésorier · Cotisations des parcelles pour 2027 · Réparation de l'abri à outils           |
+| Clôture                              | Prochaine réunion, heure de fin de séance                              | 10 novembre 2026                                                                                     |
 
 ### 2. Notez qui est présent
 
@@ -91,8 +91,8 @@ Le procès-verbal consigne ce que le groupe a fait : ses décisions, ses rapport
 
 Voici un point de la réunion du conseil de Riverside Community Garden, en notes brutes puis dans le procès-verbal :
 
-| Notes brutes | Procès-verbal |
-|---|---|
+| Notes brutes                                                                                                                        | Procès-verbal                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dana : passer la cotisation à 45 $ ? Sam inquiet pour les membres à faibles revenus. Long débat. Fonds de solidarité ? Sam regarde. | **Cotisations des parcelles pour 2027.** Le conseil a débattu d'une hausse de la cotisation annuelle des parcelles et de son effet sur les membres à faibles revenus. Le conseil a convenu d'augmenter la cotisation et a demandé à Sam Okafor d'étudier la création d'un fonds de solidarité. |
 
 Le procès-verbal garde la décision et sa raison, et laisse de côté les allers-retours.

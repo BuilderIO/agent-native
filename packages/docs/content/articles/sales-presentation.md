@@ -73,14 +73,14 @@ Then list who's attending and what each person decides. The **economic buyer**, 
 
 Everything the deck says about the prospect comes from discovery, so **gather it in their words** on one page:
 
-| What to capture | Where it usually lives |
-|---|---|
-| The problem, in their words | Your call notes or the call recording |
-| What the problem costs them | Call notes, follow-up emails |
-| What they've tried already | Call notes |
-| Who decides and who else is involved | The deal in your CRM |
-| Their deadline, or what made them look now | Call notes, the CRM deal |
-| Questions or doubts they raised | Call notes or the call recording |
+| What to capture                            | Where it usually lives                |
+| ------------------------------------------ | ------------------------------------- |
+| The problem, in their words                | Your call notes or the call recording |
+| What the problem costs them                | Call notes, follow-up emails          |
+| What they've tried already                 | Call notes                            |
+| Who decides and who else is involved       | The deal in your CRM                  |
+| Their deadline, or what made them look now | Call notes, the CRM deal              |
+| Questions or doubts they raised            | Call notes or the call recording      |
 
 With deals in HubSpot and calls in Gong, you can [ask Agent-Native Analytics about one deal and its calls](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copy exact quotes: a slide in their own words lands better than your paraphrase. Priya, Pinecrest's finance director, said invoices get approved by forwarded email across 14 hotels, which became slide 2. Plan to ask about anything missing early in the meeting.
 
@@ -94,11 +94,11 @@ Give your company one slide at most. The headlines alone should read as the stor
 
 For each problem the prospect named, write **what solves it and how you'll show it**. Leave out any feature that doesn't answer a problem on the list, however good it is. Here's the Pinecrest example:
 
-| Their problem | What solves it | How you'll show it |
-|---|---|---|
-| Invoices sit in email | One approval queue for all 14 hotels | A screenshot of the queue |
-| Nobody knows who's holding an invoice | Each invoice shows its approver and how long it has waited | A 2-minute live demo |
-| Early-payment discounts are missed | Reminders before the discount date | A result from a similar customer |
+| Their problem                         | What solves it                                             | How you'll show it               |
+| ------------------------------------- | ---------------------------------------------------------- | -------------------------------- |
+| Invoices sit in email                 | One approval queue for all 14 hotels                       | A screenshot of the queue        |
+| Nobody knows who's holding an invoice | Each invoice shows its approver and how long it has waited | A 2-minute live demo             |
+| Early-payment discounts are missed    | Reminders before the discount date                         | A result from a similar customer |
 
 The table becomes the middle of the deck, with one slide per row. Then write one line on why you over what they use today, from "what they've tried already" in your discovery page. For Pinecrest, that's email and their accounting system's approval step.
 
@@ -112,17 +112,17 @@ Check that each customer has agreed to be named. If they haven't, describe them 
 
 Give each slide **one headline and the proof behind it**, using this outline. The prospect slides are new, and the rest come from your standard deck.
 
-| Slide | Built from |
-|---|---|
-| Title, with the proposed next step | Your next-step sentence |
-| Their situation, in their words | Discovery quotes |
-| What it costs them | The cost they described |
-| One slide per problem | Each row of the problem table, with its proof |
-| Why you over the alternative | Your why-you line |
-| How it works | The standard deck, or a short demo |
-| Investment, if the deal is at that stage | Your pricing for their size |
-| Next step, owners and dates | Your next-step sentence |
-| Backup slides | Answers to expected objections, with standard deck slides |
+| Slide                                    | Built from                                                |
+| ---------------------------------------- | --------------------------------------------------------- |
+| Title, with the proposed next step       | Your next-step sentence                                   |
+| Their situation, in their words          | Discovery quotes                                          |
+| What it costs them                       | The cost they described                                   |
+| One slide per problem                    | Each row of the problem table, with its proof             |
+| Why you over the alternative             | Your why-you line                                         |
+| How it works                             | The standard deck, or a short demo                        |
+| Investment, if the deal is at that stage | Your pricing for their size                               |
+| Next step, owners and dates              | Your next-step sentence                                   |
+| Backup slides                            | Answers to expected objections, with standard deck slides |
 
 Keep the main deck to about 10 slides, leaving half the meeting for talk. To go faster next time, **copy this deck for each prospect** and change only the prospect slides.
 

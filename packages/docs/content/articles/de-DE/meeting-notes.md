@@ -107,12 +107,12 @@ Priyas Seite hat drei Tagesordnungsüberschriften: Onboarding-Checkliste, Export
 
 Das meiste, was in einem Meeting gesagt wird, muss nicht aufgeschrieben werden. **Notieren Sie nur, woraus jemand etwas tun wird** oder was später nachgeschlagen werden muss. Geben Sie jeder Art eine Markierung, damit Sie sie nach dem Meeting auf einen Blick herausziehen können:
 
-| Achten Sie auf | Das klingt so | Markierung |
-|---|---|---|
-| Eine Entscheidung | „Machen wir …“, „Einverstanden“, „Dann also der 10. November“ | E: |
-| Eine Aufgabe | „Übernehme ich“, „Kannst du …“, „bis Freitag“ | A: |
-| Eine offene Frage | „Wissen wir noch nicht“, „Klären wir mit …“ | ?: |
-| Eine wichtige Tatsache oder Zahl | Ein Datum, eine Kennzahl, ein Name | keine |
+| Achten Sie auf                   | Das klingt so                                                 | Markierung |
+| -------------------------------- | ------------------------------------------------------------- | ---------- |
+| Eine Entscheidung                | „Machen wir …“, „Einverstanden“, „Dann also der 10. November“ | E:         |
+| Eine Aufgabe                     | „Übernehme ich“, „Kannst du …“, „bis Freitag“                 | A:         |
+| Eine offene Frage                | „Wissen wir noch nicht“, „Klären wir mit …“                   | ?:         |
+| Eine wichtige Tatsache oder Zahl | Ein Datum, eine Kennzahl, ein Name                            | keine      |
 
 Lassen Sie die Diskussion weg, die zu einer Entscheidung geführt hat. Wenn der Grund später wichtig sein wird, ergänzen Sie ihn in wenigen Worten nach der Entscheidung. Scheint sich die Runde einig zu sein, **fassen Sie die Entscheidung in einem Satz zusammen**, etwa „Die Checkliste kommt also am 10. November?“, und wer nicht einverstanden ist, wird es sagen.
 

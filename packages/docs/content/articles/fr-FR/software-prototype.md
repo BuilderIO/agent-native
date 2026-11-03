@@ -100,11 +100,11 @@ Parcourez l'esquisse comme le ferait l'utilisateur. S'il vous faut un appui qui 
 
 Le niveau de finition d'un prototype s'appelle sa fidélité. **Adaptez la fidélité au type de question** que vous avez notée à [la première étape](#1-notez-la-question-à-laquelle-le-prototype-doit-répondre) :
 
-| Votre question porte sur | Construisez | Pourquoi cela convient |
-|---|---|---|
-| L'utilisabilité | Des écrans cliquables simples avec de vrais libellés | Les testeurs restent concentrés sur la tâche plutôt que sur le style |
-| L'envie | Des écrans qui ressemblent à une vraie application, avec du vrai contenu | On décide si l'on veut quelque chose selon le réalisme qu'il dégage |
-| L'adhésion | Une présentation soignée du parcours, que vous montrez vous-même | Une équipe ou un investisseur réagit à une image du produit fini |
+| Votre question porte sur | Construisez                                                              | Pourquoi cela convient                                               |
+| ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| L'utilisabilité          | Des écrans cliquables simples avec de vrais libellés                     | Les testeurs restent concentrés sur la tâche plutôt que sur le style |
+| L'envie                  | Des écrans qui ressemblent à une vraie application, avec du vrai contenu | On décide si l'on veut quelque chose selon le réalisme qu'il dégage  |
+| L'adhésion               | Une présentation soignée du parcours, que vous montrez vous-même         | Une équipe ou un investisseur réagit à une image du produit fini     |
 
 La question du studio de yoga porte sur l'utilisabilité : un style simple suffirait. Mais réserver implique de choisir un horaire et un prix, donc le contenu doit être réel. Des écrans stylés conviennent aussi à un test d'utilisabilité, tant que vous [gardez les testeurs concentrés sur la tâche](#tous-les-retours-portent-sur-les-couleurs-et-les-polices).
 

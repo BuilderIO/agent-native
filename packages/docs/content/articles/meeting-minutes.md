@@ -69,13 +69,13 @@ Meeting minutes are a group's approved record of a meeting: who attended, each d
 
 **Copy the agenda into a document and add slots under each item**, so during the meeting you only write outcomes. Ask the chair or the last secretary for past minutes, and match their layout. Here's the template Tom Becker, secretary of the Riverside Community Garden board, filled in before the October meeting:
 
-| Section | What goes in it | Riverside, before the meeting |
-|---|---|---|
-| Header | Group, type of meeting, date, start time, place or call link | Riverside Community Garden, board, regular meeting, October 13, 2026, 7:00 p.m., Zoom |
-| Attendance | Present, absent, guests, chair, minute-taker, quorum | All seven members listed, to mark on the night |
-| Last minutes | Approved as sent, or with corrections | Minutes of September 8 |
-| One block per agenda item | Outcome, motion, action items | Treasurer's report · Plot fees for 2027 · Tool shed repair |
-| Close | Next meeting, time adjourned | November 10, 2026 |
+| Section                   | What goes in it                                              | Riverside, before the meeting                                                         |
+| ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Header                    | Group, type of meeting, date, start time, place or call link | Riverside Community Garden, board, regular meeting, October 13, 2026, 7:00 p.m., Zoom |
+| Attendance                | Present, absent, guests, chair, minute-taker, quorum         | All seven members listed, to mark on the night                                        |
+| Last minutes              | Approved as sent, or with corrections                        | Minutes of September 8                                                                |
+| One block per agenda item | Outcome, motion, action items                                | Treasurer's report · Plot fees for 2027 · Tool shed repair                            |
+| Close                     | Next meeting, time adjourned                                 | November 10, 2026                                                                     |
 
 ### 2. Record who's there
 
@@ -91,8 +91,8 @@ Minutes record what the group did: its decisions, reports and plans. For each ag
 
 Here's one item from the Riverside Community Garden board, as raw notes and as minutes:
 
-| Raw notes | Minutes |
-|---|---|
+| Raw notes                                                                                                                       | Minutes                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dana: raise plot fee to $45? Sam worried about members on low incomes. Long back and forth. Hardship fund? Sam to look into it. | **Plot fees for 2027.** The board discussed raising the annual plot fee and its effect on members with low incomes. The board agreed to raise the fee and asked Sam Okafor to look into a hardship fund. |
 
 The minutes keep the decision and the reason, and drop the back and forth.

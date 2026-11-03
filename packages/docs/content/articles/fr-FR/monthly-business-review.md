@@ -62,14 +62,14 @@ Une revue mensuelle d'activité (MBR, pour Monthly Business Review) est une réu
 
 Le tableau de bord est la liste fixe des indicateurs que la MBR passe en revue chaque mois. **Choisissez 6 à 10 indicateurs qui mesurent le plan**, chacun avec une définition, une source, un responsable et un seuil d'écart ; les cibles mensuelles viennent du plan. Associez les résultats comme le chiffre d'affaires à des indicateurs sur lesquels l'équipe agit directement, ici les commandes et la livraison à temps. Brambleroot, une boutique en ligne de plantes fictive, utilise celui-ci :
 
-| Indicateur | Définition | Source | Responsable | En écart quand |
-|---|---|---|---|---|
-| Chiffre d'affaires | Net des remboursements | Plateforme e-commerce | Finance | 5 % sous le plan |
-| Commandes | Commandes payées | Plateforme e-commerce | E-commerce | 5 % sous le plan |
-| Panier moyen | Chiffre d'affaires ÷ commandes | Plateforme e-commerce | E-commerce | 5 % sous le plan |
-| Taux de clients fidèles | Commandes d'acheteurs déjà clients | Plateforme e-commerce | Marketing | 3 points sous le plan |
-| Coût par nouveau client | Dépenses publicitaires ÷ nouveaux acheteurs | Comptes publicitaires | Marketing | 5 % au-dessus du plan |
-| Livraison à temps | Livrée à la date promise | Outil d'expédition | Opérations | 3 points sous le plan |
+| Indicateur              | Définition                                  | Source                | Responsable | En écart quand        |
+| ----------------------- | ------------------------------------------- | --------------------- | ----------- | --------------------- |
+| Chiffre d'affaires      | Net des remboursements                      | Plateforme e-commerce | Finance     | 5 % sous le plan      |
+| Commandes               | Commandes payées                            | Plateforme e-commerce | E-commerce  | 5 % sous le plan      |
+| Panier moyen            | Chiffre d'affaires ÷ commandes              | Plateforme e-commerce | E-commerce  | 5 % sous le plan      |
+| Taux de clients fidèles | Commandes d'acheteurs déjà clients          | Plateforme e-commerce | Marketing   | 3 points sous le plan |
+| Coût par nouveau client | Dépenses publicitaires ÷ nouveaux acheteurs | Comptes publicitaires | Marketing   | 5 % au-dessus du plan |
+| Livraison à temps       | Livrée à la date promise                    | Outil d'expédition    | Opérations  | 3 points sous le plan |
 
 Fixez aussi trois dates chaque mois : le jour des chiffres (par exemple, le troisième jour ouvré après la clôture), le jour d'envoi du pré-read (deux jours ouvrés avant la réunion) et la réunion.
 
@@ -83,14 +83,14 @@ Si vos chiffres sont dans Stripe, HubSpot ou Google Analytics, vous pouvez [les 
 
 Le plan montre si l'équipe est sur la bonne trajectoire, et le mois dernier montre la tendance. Placez côte à côte **le réel, le plan, l'écart et le mois dernier** pour chaque indicateur. Indiquez pour chacun s'il est conforme au plan ou en écart, selon son seuil ; pour un indicateur de coût, un écart négatif est une bonne nouvelle. Si votre activité est saisonnière, ajoutez le même mois de l'année précédente. Voici le mois d'octobre de Brambleroot :
 
-| Indicateur | Plan | Réel | Écart | Septembre | Statut |
-|---|---|---|---|---|---|
-| Chiffre d'affaires | 410 000 $ | 372 000 $ | −9 % | 395 000 $ | En écart |
-| Commandes | 6 200 | 6 100 | −2 % | 6 080 | Conforme |
-| Panier moyen | 66 $ | 61 $ | −8 % | 65 $ | En écart |
-| Taux de clients fidèles | 34 % | 35 % | +1 pt | 33 % | Conforme |
-| Coût par nouveau client | 38 $ | 36 $ | −5 % | 39 $ | Conforme |
-| Livraison à temps | 95 % | 88 % | −7 pts | 94 % | En écart |
+| Indicateur              | Plan      | Réel      | Écart  | Septembre | Statut   |
+| ----------------------- | --------- | --------- | ------ | --------- | -------- |
+| Chiffre d'affaires      | 410 000 $ | 372 000 $ | −9 %   | 395 000 $ | En écart |
+| Commandes               | 6 200     | 6 100     | −2 %   | 6 080     | Conforme |
+| Panier moyen            | 66 $      | 61 $      | −8 %   | 65 $      | En écart |
+| Taux de clients fidèles | 34 %      | 35 %      | +1 pt  | 33 %      | Conforme |
+| Coût par nouveau client | 38 $      | 36 $      | −5 %   | 39 $      | Conforme |
+| Livraison à temps       | 95 %      | 88 %      | −7 pts | 94 %      | En écart |
 
 Trois indicateurs sur six sont en écart, et ces trois-là font la réunion.
 
@@ -117,16 +117,16 @@ Une action en retard deux mois de suite passe à l'ordre du jour comme une déci
 
 L'ordre du deck reste le même chaque mois : **partez d'une copie du deck du mois dernier** et ne changez que ce qui est nouveau. Pour la première MBR, construisez le deck une fois à partir de ce plan :
 
-| Diapositive | Chaque mois |
-|---|---|
-| Décisions à prendre aujourd'hui | Réécrite |
-| Actions et projets clés du mois dernier | Statuts mis à jour |
-| Tableau de bord : réel, plan, écart, mois dernier | Chiffres mis à jour |
-| Une diapositive par raison d'écart, message clé en premier | Remplacée |
-| Tendances : chaque indicateur sur 12 mois | Un nouveau mois ajouté |
-| Risques et demandes, y compris budget et recrutements | Réécrite |
-| Nouvelles actions, responsables et dates | Remplie pendant la réunion |
-| Annexe : définitions et sources | Inchangée |
+| Diapositive                                                | Chaque mois                |
+| ---------------------------------------------------------- | -------------------------- |
+| Décisions à prendre aujourd'hui                            | Réécrite                   |
+| Actions et projets clés du mois dernier                    | Statuts mis à jour         |
+| Tableau de bord : réel, plan, écart, mois dernier          | Chiffres mis à jour        |
+| Une diapositive par raison d'écart, message clé en premier | Remplacée                  |
+| Tendances : chaque indicateur sur 12 mois                  | Un nouveau mois ajouté     |
+| Risques et demandes, y compris budget et recrutements      | Réécrite                   |
+| Nouvelles actions, responsables et dates                   | Remplie pendant la réunion |
+| Annexe : définitions et sources                            | Inchangée                  |
 
 Présentez les tendances sous forme de courbes, avec le plan en seconde courbe, pour qu'un écart se voie sans lire les chiffres. Les diapositives d'exemple en haut de ce guide viennent du deck de Brambleroot construit sur ce plan.
 

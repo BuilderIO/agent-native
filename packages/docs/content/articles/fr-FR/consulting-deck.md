@@ -81,7 +81,7 @@ Dans l'exemple suivi tout au long de ce guide, Tidewater Fitness, une chaîne fi
 
 ### 2. Rédigez la réponse en premier
 
-Le deck s'ouvre sur votre réponse, car les dirigeants lisent le début et s'arrêtent parfois là. Relisez vos notes d'entretien et votre analyse pour voir ce qui s'en dégage, puis **rédigez la réponse en une phrase sur laquelle le décideur peut agir**. En dessous, notez les trois raisons qui la soutiennent. C'est la structure « réponse d'abord » que Barbara Minto a décrite dans son livre *The Pyramid Principle*.
+Le deck s'ouvre sur votre réponse, car les dirigeants lisent le début et s'arrêtent parfois là. Relisez vos notes d'entretien et votre analyse pour voir ce qui s'en dégage, puis **rédigez la réponse en une phrase sur laquelle le décideur peut agir**. En dessous, notez les trois raisons qui la soutiennent. C'est la structure « réponse d'abord » que Barbara Minto a décrite dans son livre _The Pyramid Principle_.
 
 La réponse pour Tidewater : « Gardez vos prix actuels et travaillez plutôt les 90 premiers jours des adhérents. » Trois raisons la soutiennent. La plupart des adhérents partent pendant ces 90 jours, et le prix n'est pas la principale raison de leur départ. Les adhérents qui prennent l'habitude des cours dès le premier mois restent.
 
@@ -95,14 +95,14 @@ Donnez à chaque diapositive un **titre-message**, qui dit au lecteur quoi reten
 
 **Rédigez tous les titres avant de construire la moindre diapositive**, sous la raison que chacun soutient :
 
-| Section | Titre de la diapositive |
-|---|---|
-| Réponse | Gardez vos prix actuels et travaillez les 90 premiers jours des adhérents |
-| Raison 1 | 61 % des résiliations ont lieu dans les 90 premiers jours |
-| Raison 2 | Les adhérents inscrits avec une remise résilient au même rythme que les autres |
-| Raison 2 | Les adhérents qui résilient placent le prix en quatrième position, derrière le fait de ne pas savoir par où commencer |
-| Raison 3 | Les adhérents qui réservent trois cours le premier mois ont presque deux fois plus de chances de rester un an |
-| Prochaines étapes | Inscrire chaque nouvel adhérent à trois cours, en commençant par un pilote dans 8 salles |
+| Section           | Titre de la diapositive                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Réponse           | Gardez vos prix actuels et travaillez les 90 premiers jours des adhérents                                             |
+| Raison 1          | 61 % des résiliations ont lieu dans les 90 premiers jours                                                             |
+| Raison 2          | Les adhérents inscrits avec une remise résilient au même rythme que les autres                                        |
+| Raison 2          | Les adhérents qui résilient placent le prix en quatrième position, derrière le fait de ne pas savoir par où commencer |
+| Raison 3          | Les adhérents qui réservent trois cours le premier mois ont presque deux fois plus de chances de rester un an         |
+| Prochaines étapes | Inscrire chaque nouvel adhérent à trois cours, en commençant par un pilote dans 8 salles                              |
 
 Lus de haut en bas, les titres suffisent à porter toute l'argumentation.
 
@@ -110,11 +110,11 @@ Lus de haut en bas, les titres suffisent à porter toute l'argumentation.
 
 Un **ghost deck** est le deck avec ses titres, mais encore sans contenu. Créez une diapositive vierge par titre, puis **notez sur chacune le graphique qui le prouverait**, d'où viennent ses données et si vous les avez déjà. Le ghost deck de Tidewater à mi-parcours de l'analyse :
 
-| Titre de la diapositive | Preuve nécessaire | Données | Disponible ? |
-|---|---|---|---|
-| 61 % des résiliations ont lieu dans les 90 premiers jours | Résiliations selon l'ancienneté de l'adhérent | Système de gestion des abonnements | Oui |
-| Les adhérents qui résilient placent le prix en quatrième position, derrière le fait de ne pas savoir par où commencer | Principale raison de résiliation, classée | Questionnaire de départ | Pas encore |
-| Les adhérents qui réservent trois cours le premier mois ont presque deux fois plus de chances de rester un an | Fidélisation selon le nombre de cours réservés le premier mois | Réservations et abonnements | Pas encore |
+| Titre de la diapositive                                                                                               | Preuve nécessaire                                              | Données                            | Disponible ? |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------- | ------------ |
+| 61 % des résiliations ont lieu dans les 90 premiers jours                                                             | Résiliations selon l'ancienneté de l'adhérent                  | Système de gestion des abonnements | Oui          |
+| Les adhérents qui résilient placent le prix en quatrième position, derrière le fait de ne pas savoir par où commencer | Principale raison de résiliation, classée                      | Questionnaire de départ            | Pas encore   |
+| Les adhérents qui réservent trois cours le premier mois ont presque deux fois plus de chances de rester un an         | Fidélisation selon le nombre de cours réservés le premier mois | Réservations et abonnements        | Pas encore   |
 
 Les lignes « Pas encore » sont l'analyse qu'il vous reste à faire. Si les données contredisent un titre, réécrivez-le et vérifiez que la réponse tient toujours.
 
@@ -122,13 +122,13 @@ Les lignes « Pas encore » sont l'analyse qu'il vous reste à faire. Si les don
 
 Le corps de chaque diapositive prouve son titre avec un seul graphique ou tableau. **Mettez en évidence le chiffre qu'énonce le titre** dans la couleur d'accent et gardez le reste neutre. Choisissez le graphique selon la comparaison que fait le titre :
 
-| Le titre compare | Utilisez |
-|---|---|
-| Une évolution dans le temps | Courbe |
-| Des éléments classés par taille | Barres horizontales |
-| Les parties d'un tout | Barres empilées |
-| Deux groupes, ou un avant et un après | Deux barres côte à côte |
-| Des chiffres exacts que l'on viendra consulter | Tableau |
+| Le titre compare                               | Utilisez                |
+| ---------------------------------------------- | ----------------------- |
+| Une évolution dans le temps                    | Courbe                  |
+| Des éléments classés par taille                | Barres horizontales     |
+| Les parties d'un tout                          | Barres empilées         |
+| Deux groupes, ou un avant et un après          | Deux barres côte à côte |
+| Des chiffres exacts que l'on viendra consulter | Tableau                 |
 
 Ajoutez **une ligne de source** en bas de chaque diapositive. Elle indique les données, leur période et tout filtre appliqué, par exemple « Système de gestion des abonnements Tidewater, résiliations 2024–2025, 40 salles ». Gardez le titre en haut et la source en bas sur toutes les diapositives. Si une diapositive a besoin de deux graphiques, scindez-la en deux diapositives avec deux titres.
 

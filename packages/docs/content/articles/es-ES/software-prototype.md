@@ -100,11 +100,11 @@ Recorre el boceto como lo haría el usuario. Si necesitas un toque que no tiene 
 
 El acabado de un prototipo es su fidelidad. **Ajusta la fidelidad al tipo de pregunta** que escribiste en [el primer paso](#1-escribe-la-pregunta-que-debe-responder-el-prototipo):
 
-| Tu pregunta es de | Crea | Por qué encaja |
-|---|---|---|
-| Usabilidad | Pantallas clicables sencillas con etiquetas reales | Quien prueba se centra en la tarea y no en el estilo |
-| Interés | Pantallas que parecen una app real, con contenido real | La gente decide si quiere algo según lo real que parece |
-| Apoyo | Un recorrido pulido del flujo que presentas tú | Un equipo o un inversor reacciona a una imagen del producto terminado |
+| Tu pregunta es de | Crea                                                   | Por qué encaja                                                        |
+| ----------------- | ------------------------------------------------------ | --------------------------------------------------------------------- |
+| Usabilidad        | Pantallas clicables sencillas con etiquetas reales     | Quien prueba se centra en la tarea y no en el estilo                  |
+| Interés           | Pantallas que parecen una app real, con contenido real | La gente decide si quiere algo según lo real que parece               |
+| Apoyo             | Un recorrido pulido del flujo que presentas tú         | Un equipo o un inversor reacciona a una imagen del producto terminado |
 
 La pregunta de yoga es de usabilidad, así que bastaría con un estilo sencillo. Pero reservar implica elegir un horario y un precio, así que el contenido tiene que ser real. Las pantallas con estilo también sirven para una prueba de usabilidad, siempre que [mantengas a quien prueba centrado en la tarea](#todos-los-comentarios-son-sobre-colores-y-fuentes).
 

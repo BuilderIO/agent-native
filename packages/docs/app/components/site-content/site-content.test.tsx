@@ -1,3 +1,4 @@
+// oracle-change(packages/docs/app/components/campaign/campaign.test.tsx): renamed here when campaign content became site content; its assertions moved with it.
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   act,
@@ -253,9 +254,11 @@ describe("public site content frontend", () => {
     (locale) => {
       currentLocale.locale = locale;
       const document = dom(markup(<UseCasesIndex items={[indexItem]} />));
-      const header = document.querySelector("h1")!.parentElement!;
+      const header = document.querySelector("h1")?.parentElement;
+      if (!header) throw new Error("No heading");
       expect(header.querySelectorAll("h1 ~ p")).toHaveLength(1);
-      const intro = header.querySelector("h1 + p")!;
+      const intro = header.querySelector("h1 + p");
+      if (!intro) throw new Error("No intro paragraph");
       expect(intro.textContent).toBe(
         "Pick the job you do again and again, or browse the articles for templates and how-tos.",
       );
@@ -266,7 +269,8 @@ describe("public site content frontend", () => {
         0,
       );
       expect(intro.querySelectorAll("a")).toHaveLength(1);
-      const link = intro.querySelector("a")!;
+      const link = intro.querySelector("a");
+      if (!link) throw new Error("No articles link");
       expect(link.textContent).toBe("articles");
       expect(link.getAttribute("href")).toBe(
         sitePathForLocale(ARTICLES_BASE, locale),
@@ -1573,8 +1577,8 @@ describe("public site content frontend", () => {
       [localizedSiteContentRoute2.loader, { locale: "fr-fr" }, "/articles/"],
       [
         localizedSiteContentRoute3.loader,
-        { locale: "fr-fr", slug: articles[0]!.slug },
-        `${ARTICLES_BASE}/${articles[0]!.slug}/`,
+        { locale: "fr-fr", slug: "test-article-0" },
+        `${ARTICLES_BASE}/test-article-0/`,
       ],
       [
         localizedSiteContentRoute5.loader,

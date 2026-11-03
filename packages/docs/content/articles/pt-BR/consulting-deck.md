@@ -81,7 +81,7 @@ No exemplo usado ao longo deste guia, a Tidewater Fitness, uma rede fictícia de
 
 ### 2. Escreva a resposta primeiro
 
-A apresentação abre com a sua resposta, porque executivos leem o começo e podem parar ali. Leia as anotações das entrevistas e a análise para ver a que conclusão elas levam e **escreva a resposta como uma frase com a qual quem decide possa agir**. Embaixo, escreva os três motivos que a sustentam. Essa é a estrutura de resposta primeiro que Barbara Minto apresentou no livro *The Pyramid Principle*.
+A apresentação abre com a sua resposta, porque executivos leem o começo e podem parar ali. Leia as anotações das entrevistas e a análise para ver a que conclusão elas levam e **escreva a resposta como uma frase com a qual quem decide possa agir**. Embaixo, escreva os três motivos que a sustentam. Essa é a estrutura de resposta primeiro que Barbara Minto apresentou no livro _The Pyramid Principle_.
 
 A resposta da Tidewater é "Mantenham os preços como estão e melhorem os primeiros 90 dias dos alunos." Três motivos a sustentam. A maioria dos alunos sai nesses 90 dias, e o preço não é o principal motivo da saída. Quem cria o hábito de ir às aulas no primeiro mês fica.
 
@@ -95,14 +95,14 @@ Dê a cada slide um **título de ação**, que diz ao leitor o que concluir daqu
 
 **Escreva todos os títulos antes de montar qualquer slide**, embaixo do motivo que cada um sustenta:
 
-| Seção | Título do slide |
-|---|---|
-| Resposta | Mantenham os preços como estão e melhorem os primeiros 90 dias dos alunos |
-| Motivo 1 | 61% dos cancelamentos acontecem nos primeiros 90 dias |
-| Motivo 2 | Alunos que entraram com desconto cancelam na mesma proporção que os demais |
-| Motivo 2 | Quem cancela coloca o preço em quarto lugar, atrás de não saber por onde começar |
-| Motivo 3 | Alunos que reservam três aulas no primeiro mês têm quase o dobro de chance de ficar um ano |
-| Próximos passos | Agendar três aulas para cada novo aluno, começando com um piloto em 8 academias |
+| Seção           | Título do slide                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| Resposta        | Mantenham os preços como estão e melhorem os primeiros 90 dias dos alunos                  |
+| Motivo 1        | 61% dos cancelamentos acontecem nos primeiros 90 dias                                      |
+| Motivo 2        | Alunos que entraram com desconto cancelam na mesma proporção que os demais                 |
+| Motivo 2        | Quem cancela coloca o preço em quarto lugar, atrás de não saber por onde começar           |
+| Motivo 3        | Alunos que reservam três aulas no primeiro mês têm quase o dobro de chance de ficar um ano |
+| Próximos passos | Agendar três aulas para cada novo aluno, começando com um piloto em 8 academias            |
 
 Lidos de cima para baixo, só os títulos já fazem o argumento inteiro.
 
@@ -110,10 +110,10 @@ Lidos de cima para baixo, só os títulos já fazem o argumento inteiro.
 
 Um **ghost deck** é a apresentação com os títulos e ainda sem conteúdo. Crie um slide em branco por título e **escreva em cada slide o gráfico que o provaria**, de onde vêm os dados e se você já os tem. O ghost deck da Tidewater no meio da análise:
 
-| Título do slide | Prova necessária | Dados | Já tem? |
-|---|---|---|---|
-| 61% dos cancelamentos acontecem nos primeiros 90 dias | Cancelamentos por tempo de matrícula | Sistema de matrículas | Sim |
-| Quem cancela coloca o preço em quarto lugar, atrás de não saber por onde começar | Principal motivo do cancelamento, em ordem | Pesquisa de saída | Ainda não |
+| Título do slide                                                                            | Prova necessária                              | Dados                 | Já tem?   |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------- | --------------------- | --------- |
+| 61% dos cancelamentos acontecem nos primeiros 90 dias                                      | Cancelamentos por tempo de matrícula          | Sistema de matrículas | Sim       |
+| Quem cancela coloca o preço em quarto lugar, atrás de não saber por onde começar           | Principal motivo do cancelamento, em ordem    | Pesquisa de saída     | Ainda não |
 | Alunos que reservam três aulas no primeiro mês têm quase o dobro de chance de ficar um ano | Retenção por aulas reservadas no primeiro mês | Reservas e matrículas | Ainda não |
 
 As linhas com "ainda não" são a análise que falta. Se os dados contradisserem um título, reescreva o título e confira se a resposta continua de pé.
@@ -122,13 +122,13 @@ As linhas com "ainda não" são a análise que falta. Se os dados contradisserem
 
 O corpo de cada slide prova o título com um gráfico ou uma tabela. **Destaque o número que o título afirma** na cor de destaque e deixe o resto neutro. Escolha o gráfico pela comparação que o título faz:
 
-| O título compara | Use |
-|---|---|
-| Uma mudança ao longo do tempo | Gráfico de linhas |
-| Itens em ordem de tamanho | Gráfico de barras horizontais |
-| Partes de um todo | Barras empilhadas |
-| Dois grupos, ou antes e depois | Duas barras lado a lado |
-| Valores exatos que as pessoas vão consultar | Tabela |
+| O título compara                            | Use                           |
+| ------------------------------------------- | ----------------------------- |
+| Uma mudança ao longo do tempo               | Gráfico de linhas             |
+| Itens em ordem de tamanho                   | Gráfico de barras horizontais |
+| Partes de um todo                           | Barras empilhadas             |
+| Dois grupos, ou antes e depois              | Duas barras lado a lado       |
+| Valores exatos que as pessoas vão consultar | Tabela                        |
 
 Coloque **uma linha de fonte** no pé de cada slide. Ela informa os dados, o período e qualquer filtro, como "Sistema de matrículas da Tidewater, cancelamentos de 2024–2025, 40 academias." Mantenha o título no topo e a fonte no pé de todos os slides. Se um slide precisa de dois gráficos para defender o ponto, divida-o em dois slides com dois títulos.
 

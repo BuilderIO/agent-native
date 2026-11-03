@@ -107,12 +107,12 @@ La página de Priya tiene tres títulos del orden del día: checklist de onboard
 
 La mayor parte de lo que se dice en una reunión no hace falta anotarlo. **Anota solo aquello sobre lo que alguien tendrá que actuar** o que necesitará consultar después. Da a cada tipo una marca, para poder localizarlo de un vistazo después de la reunión:
 
-| Presta atención a | Suena así | Marca |
-|---|---|---|
-| Una decisión | «Vamos con…», «De acuerdo», «Pues el 10 de noviembre» | D: |
-| Una tarea | «Me lo quedo yo», «¿Puedes…?», «para el viernes» | A: |
-| Una pregunta abierta | «Todavía no lo sabemos», «Hay que consultarlo con…» | ?: |
-| Un dato o una cifra clave | Una fecha, una métrica, un nombre | ninguna |
+| Presta atención a         | Suena así                                             | Marca   |
+| ------------------------- | ----------------------------------------------------- | ------- |
+| Una decisión              | «Vamos con…», «De acuerdo», «Pues el 10 de noviembre» | D:      |
+| Una tarea                 | «Me lo quedo yo», «¿Puedes…?», «para el viernes»      | A:      |
+| Una pregunta abierta      | «Todavía no lo sabemos», «Hay que consultarlo con…»   | ?:      |
+| Un dato o una cifra clave | Una fecha, una métrica, un nombre                     | ninguna |
 
 Deja fuera el debate que llevó a una decisión. Si el motivo va a importar más adelante, añádelo en pocas palabras después de la decisión. Cuando parezca que el grupo está de acuerdo, **repite la decisión en una frase**, por ejemplo «Entonces, ¿la checklist sale el 10 de noviembre?», y quien no esté de acuerdo lo dirá.
 

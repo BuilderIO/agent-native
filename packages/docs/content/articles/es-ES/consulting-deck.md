@@ -81,7 +81,7 @@ En el ejemplo que sigue toda esta guía, Tidewater Fitness, una cadena ficticia 
 
 ### 2. Escribe primero la respuesta
 
-La presentación empieza por tu respuesta, porque los directivos leen el principio y puede que no pasen de ahí. Lee tus notas de las entrevistas y tu análisis para ver a qué conclusión llevan y **escribe la respuesta en una frase con la que quien decide pueda actuar**. Debajo, escribe las tres razones que la sostienen. Es la estructura de respuesta primero que Barbara Minto expuso en su libro *The Pyramid Principle* (*El principio de la pirámide*).
+La presentación empieza por tu respuesta, porque los directivos leen el principio y puede que no pasen de ahí. Lee tus notas de las entrevistas y tu análisis para ver a qué conclusión llevan y **escribe la respuesta en una frase con la que quien decide pueda actuar**. Debajo, escribe las tres razones que la sostienen. Es la estructura de respuesta primero que Barbara Minto expuso en su libro _The Pyramid Principle_ (_El principio de la pirámide_).
 
 La respuesta para Tidewater es «Mantened las cuotas como están y mejorad los primeros 90 días de los socios». La sostienen tres razones. La mayoría de los socios se van en esos 90 días, y el precio no es el principal motivo por el que se van. Los socios que crean el hábito de ir a clases en su primer mes se quedan.
 
@@ -95,14 +95,14 @@ Da a cada diapositiva un **título de acción**, que dice al lector qué debe co
 
 **Escribe todos los títulos antes de crear ninguna diapositiva**, debajo de la razón que sostiene cada uno:
 
-| Sección | Título de la diapositiva |
-|---|---|
-| Respuesta | Mantened las cuotas como están y mejorad los primeros 90 días de los socios |
-| Razón 1 | El 61% de las bajas se produce en los primeros 90 días |
-| Razón 2 | Los socios que se apuntaron con descuento se dan de baja al mismo ritmo que los demás |
-| Razón 2 | Los socios que se dan de baja ponen el precio en cuarto lugar, por detrás de no saber por dónde empezar |
-| Razón 3 | Los socios que reservan tres clases en el primer mes tienen casi el doble de probabilidades de quedarse un año |
-| Siguientes pasos | Reservar tres clases a cada socio nuevo, empezando con un piloto en 8 gimnasios |
+| Sección          | Título de la diapositiva                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| Respuesta        | Mantened las cuotas como están y mejorad los primeros 90 días de los socios                                    |
+| Razón 1          | El 61% de las bajas se produce en los primeros 90 días                                                         |
+| Razón 2          | Los socios que se apuntaron con descuento se dan de baja al mismo ritmo que los demás                          |
+| Razón 2          | Los socios que se dan de baja ponen el precio en cuarto lugar, por detrás de no saber por dónde empezar        |
+| Razón 3          | Los socios que reservan tres clases en el primer mes tienen casi el doble de probabilidades de quedarse un año |
+| Siguientes pasos | Reservar tres clases a cada socio nuevo, empezando con un piloto en 8 gimnasios                                |
 
 Solo con los títulos, leídos de arriba abajo, se entiende el argumento completo.
 
@@ -110,11 +110,11 @@ Solo con los títulos, leídos de arriba abajo, se entiende el argumento complet
 
 Un **ghost deck** es la presentación con los títulos y todavía sin contenido. Haz una diapositiva en blanco por título y **escribe en cada una el gráfico que la demostraría**, de dónde salen sus datos y si ya los tienes. Este es el ghost deck de Tidewater a mitad del análisis:
 
-| Título de la diapositiva | Prueba que necesita | Datos | ¿Los tienes? |
-|---|---|---|---|
-| El 61% de las bajas se produce en los primeros 90 días | Bajas según el tiempo como socio | Sistema de socios | Sí |
-| Los socios que se dan de baja ponen el precio en cuarto lugar, por detrás de no saber por dónde empezar | Motivo principal de la baja, ordenado | Encuesta de baja | Todavía no |
-| Los socios que reservan tres clases en el primer mes tienen casi el doble de probabilidades de quedarse un año | Permanencia según las clases reservadas en el primer mes | Reservas y socios | Todavía no |
+| Título de la diapositiva                                                                                       | Prueba que necesita                                      | Datos             | ¿Los tienes? |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------- | ------------ |
+| El 61% de las bajas se produce en los primeros 90 días                                                         | Bajas según el tiempo como socio                         | Sistema de socios | Sí           |
+| Los socios que se dan de baja ponen el precio en cuarto lugar, por detrás de no saber por dónde empezar        | Motivo principal de la baja, ordenado                    | Encuesta de baja  | Todavía no   |
+| Los socios que reservan tres clases en el primer mes tienen casi el doble de probabilidades de quedarse un año | Permanencia según las clases reservadas en el primer mes | Reservas y socios | Todavía no   |
 
 Las filas con «todavía no» son el análisis que te queda. Si los datos desmienten un título, reescríbelo y comprueba que la respuesta sigue en pie.
 
@@ -122,13 +122,13 @@ Las filas con «todavía no» son el análisis que te queda. Si los datos desmie
 
 El cuerpo de cada diapositiva demuestra su título con un gráfico o una tabla. **Destaca la cifra que dice el título** con el color de acento y deja el resto en un tono neutro. Elige el gráfico según la comparación que hace el título:
 
-| El título compara | Usa |
-|---|---|
-| Un cambio a lo largo del tiempo | Gráfico de líneas |
-| Elementos ordenados por tamaño | Gráfico de barras horizontales |
-| Partes de un todo | Barras apiladas |
-| Dos grupos, o un antes y un después | Dos barras lado a lado |
-| Cifras exactas que la gente va a consultar | Tabla |
+| El título compara                          | Usa                            |
+| ------------------------------------------ | ------------------------------ |
+| Un cambio a lo largo del tiempo            | Gráfico de líneas              |
+| Elementos ordenados por tamaño             | Gráfico de barras horizontales |
+| Partes de un todo                          | Barras apiladas                |
+| Dos grupos, o un antes y un después        | Dos barras lado a lado         |
+| Cifras exactas que la gente va a consultar | Tabla                          |
 
 Añade **una línea de fuente** al pie de cada diapositiva. Indica los datos, su periodo y cualquier filtro, por ejemplo «Sistema de socios de Tidewater, bajas de 2024–2025, 40 gimnasios». Mantén el título arriba y la fuente abajo en todas las diapositivas. Si una diapositiva necesita dos gráficos para defender su idea, divídela en dos diapositivas con dos títulos.
 

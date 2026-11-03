@@ -69,13 +69,13 @@ A ata de reunião é o registro aprovado de uma reunião: quem esteve presente, 
 
 **Copie a pauta para um documento e deixe espaços embaixo de cada item**, para que durante a reunião você só precise escrever os resultados. Peça ao presidente ou ao último secretário as atas anteriores e siga o mesmo layout. Este é o modelo que Tom Becker, secretário da diretoria da Riverside Community Garden, preencheu antes da reunião de outubro:
 
-| Seção | O que entra | Riverside, antes da reunião |
-|---|---|---|
-| Cabeçalho | Grupo, tipo de reunião, data, horário de início, local ou link da chamada | Riverside Community Garden, diretoria, reunião ordinária, 13 de outubro de 2026, 19h, Zoom |
-| Presença | Presentes, ausentes, convidados, presidente, secretário, quórum | Os sete membros listados, para marcar na hora |
-| Ata anterior | Aprovada como enviada ou com correções | Ata de 8 de setembro |
-| Um bloco por item da pauta | Resultado, proposta, itens de ação | Relatório do tesoureiro · Taxa dos canteiros para 2027 · Reforma do galpão de ferramentas |
-| Encerramento | Próxima reunião, horário de encerramento | 10 de novembro de 2026 |
+| Seção                      | O que entra                                                               | Riverside, antes da reunião                                                                |
+| -------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Cabeçalho                  | Grupo, tipo de reunião, data, horário de início, local ou link da chamada | Riverside Community Garden, diretoria, reunião ordinária, 13 de outubro de 2026, 19h, Zoom |
+| Presença                   | Presentes, ausentes, convidados, presidente, secretário, quórum           | Os sete membros listados, para marcar na hora                                              |
+| Ata anterior               | Aprovada como enviada ou com correções                                    | Ata de 8 de setembro                                                                       |
+| Um bloco por item da pauta | Resultado, proposta, itens de ação                                        | Relatório do tesoureiro · Taxa dos canteiros para 2027 · Reforma do galpão de ferramentas  |
+| Encerramento               | Próxima reunião, horário de encerramento                                  | 10 de novembro de 2026                                                                     |
 
 ### 2. Registre quem está presente
 
@@ -91,8 +91,8 @@ A ata registra o que o grupo fez: suas decisões, relatórios e planos. Para cad
 
 Este é um item da diretoria da Riverside Community Garden, em anotações brutas e em ata:
 
-| Anotações brutas | Ata |
-|---|---|
+| Anotações brutas                                                                                                                 | Ata                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dana: subir taxa do canteiro p/ US$ 45? Sam preocupado com membros de baixa renda. Muita discussão. Fundo de apoio? Sam vai ver. | **Taxa dos canteiros para 2027.** A diretoria discutiu o aumento da taxa anual dos canteiros e o efeito sobre os membros de baixa renda. A diretoria concordou com o aumento e pediu a Sam Okafor que estudasse um fundo de apoio. |
 
 A ata guarda a decisão e o motivo, e deixa de fora a discussão.

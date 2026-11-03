@@ -100,11 +100,11 @@ Gehen Sie die Skizze so durch, wie es der Nutzer tun würde. Brauchen Sie einen 
 
 Wie fertig ein Prototyp aussieht, ist seine Detailtreue. **Passen Sie die Detailtreue an die Art der Frage an**, die Sie im [ersten Schritt](#1-schreiben-sie-die-frage-auf-die-der-prototyp-beantworten-muss) aufgeschrieben haben:
 
-| Ihre Frage betrifft | Bauen Sie | Warum das passt |
-|---|---|---|
-| Benutzerfreundlichkeit | Schlichte klickbare Screens mit echten Beschriftungen | Testpersonen bleiben bei der Aufgabe statt beim Styling |
-| Bedarf | Screens, die wie eine echte App aussehen, mit echten Inhalten | Ob Menschen etwas wollen, entscheiden sie danach, wie echt es wirkt |
-| Zustimmung | Einen ausgefeilten Durchlauf des einen Ablaufs, den Sie präsentieren | Ein Team oder ein Investor reagiert auf ein Bild des fertigen Produkts |
+| Ihre Frage betrifft    | Bauen Sie                                                            | Warum das passt                                                        |
+| ---------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Benutzerfreundlichkeit | Schlichte klickbare Screens mit echten Beschriftungen                | Testpersonen bleiben bei der Aufgabe statt beim Styling                |
+| Bedarf                 | Screens, die wie eine echte App aussehen, mit echten Inhalten        | Ob Menschen etwas wollen, entscheiden sie danach, wie echt es wirkt    |
+| Zustimmung             | Einen ausgefeilten Durchlauf des einen Ablaufs, den Sie präsentieren | Ein Team oder ein Investor reagiert auf ein Bild des fertigen Produkts |
 
 Die Yoga-Frage betrifft die Benutzerfreundlichkeit, also würde ein schlichtes Styling genügen. Beim Buchen wählt man aber eine Uhrzeit und einen Preis, deshalb müssen die Inhalte echt sein. Gestaltete Screens funktionieren auch für einen Test der Benutzerfreundlichkeit, solange Sie [die Testpersonen bei der Aufgabe halten](#alles-feedback-dreht-sich-um-farben-und-schriften).
 

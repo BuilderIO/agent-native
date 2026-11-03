@@ -107,12 +107,12 @@ La page de Priya comporte trois titres : checklist d'onboarding, utilisation de 
 
 La plupart de ce qui se dit en réunion n'a pas besoin d'être noté. **Ne notez que ce sur quoi quelqu'un va agir** ou qu'il faudra retrouver plus tard. Donnez un repère à chaque type, pour le retrouver d'un coup d'œil après la réunion :
 
-| À repérer | Ce que l'on entend | Repère |
-|---|---|---|
-| Une décision | « On part sur… », « D'accord », « Va pour le 10 novembre » | D : |
-| Une action | « Je m'en occupe », « Tu peux… », « d'ici vendredi » | A : |
-| Une question ouverte | « On ne sait pas encore », « Voyons avec… » | ? : |
-| Un fait ou un chiffre clé | Une date, un indicateur, un nom | aucun |
+| À repérer                 | Ce que l'on entend                                         | Repère |
+| ------------------------- | ---------------------------------------------------------- | ------ |
+| Une décision              | « On part sur… », « D'accord », « Va pour le 10 novembre » | D :    |
+| Une action                | « Je m'en occupe », « Tu peux… », « d'ici vendredi »       | A :    |
+| Une question ouverte      | « On ne sait pas encore », « Voyons avec… »                | ? :    |
+| Un fait ou un chiffre clé | Une date, un indicateur, un nom                            | aucun  |
 
 Laissez de côté la discussion qui a mené à une décision. Si la raison comptera plus tard, ajoutez-la en quelques mots après la décision. Quand le groupe semble d'accord, **reformulez la décision en une phrase**, par exemple « Donc la checklist sort le 10 novembre ? », et ceux qui ne sont pas d'accord le diront.
 

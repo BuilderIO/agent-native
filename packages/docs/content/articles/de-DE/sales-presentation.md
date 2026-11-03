@@ -73,14 +73,14 @@ Listen Sie dann auf, wer teilnimmt und worüber jede Person entscheidet. Der **E
 
 Alles, was das Deck über den Interessenten sagt, stammt aus dem Discovery Call, also **sammeln Sie es in seinen eigenen Worten** auf einer Seite:
 
-| Was Sie festhalten | Wo es meist zu finden ist |
-|---|---|
-| Das Problem, in seinen Worten | Ihre Gesprächsnotizen oder die Aufzeichnung |
-| Was ihn das Problem kostet | Gesprächsnotizen, Follow-up-E-Mails |
-| Was er schon versucht hat | Gesprächsnotizen |
-| Wer entscheidet und wer noch beteiligt ist | Der Deal in Ihrem CRM |
-| Seine Frist oder der Anlass, jetzt zu suchen | Gesprächsnotizen, der Deal im CRM |
-| Fragen oder Bedenken, die er geäußert hat | Gesprächsnotizen oder die Aufzeichnung |
+| Was Sie festhalten                           | Wo es meist zu finden ist                   |
+| -------------------------------------------- | ------------------------------------------- |
+| Das Problem, in seinen Worten                | Ihre Gesprächsnotizen oder die Aufzeichnung |
+| Was ihn das Problem kostet                   | Gesprächsnotizen, Follow-up-E-Mails         |
+| Was er schon versucht hat                    | Gesprächsnotizen                            |
+| Wer entscheidet und wer noch beteiligt ist   | Der Deal in Ihrem CRM                       |
+| Seine Frist oder der Anlass, jetzt zu suchen | Gesprächsnotizen, der Deal im CRM           |
+| Fragen oder Bedenken, die er geäußert hat    | Gesprächsnotizen oder die Aufzeichnung      |
 
 Wenn Ihre Deals in HubSpot und Ihre Gespräche in Gong liegen, können Sie [Agent-Native Analytics nach einem Deal und seinen Gesprächen fragen](https://www.agent-native.com/use-cases/ai-sales-analytics/). Übernehmen Sie Zitate wörtlich: Eine Folie in seinen eigenen Worten wirkt stärker als Ihre Umschreibung. Priya, die Finanzdirektorin von Pinecrest, sagte, dass Rechnungen in 14 Hotels per weitergeleiteter E-Mail freigegeben werden, und daraus wurde Folie 2. Nehmen Sie sich vor, alles Fehlende früh im Meeting zu erfragen.
 
@@ -94,11 +94,11 @@ Geben Sie Ihrem Unternehmen höchstens eine Folie. Schon die Titel allein sollte
 
 Schreiben Sie zu jedem Problem, das der Interessent genannt hat, **was es löst und wie Sie das zeigen**. Lassen Sie jedes Feature weg, das kein Problem auf der Liste beantwortet, so gut es auch ist. Hier das Beispiel Pinecrest:
 
-| Sein Problem | Was es löst | Wie Sie es zeigen |
-|---|---|---|
-| Rechnungen bleiben in E-Mails liegen | Eine Freigabe-Warteschlange für alle 14 Hotels | Ein Screenshot der Warteschlange |
-| Niemand weiß, wer eine Rechnung gerade hat | Jede Rechnung zeigt ihre freigebende Person und wie lange sie schon wartet | Eine 2-minütige Live-Demo |
-| Skonto geht verloren | Erinnerungen vor Ablauf der Skontofrist | Ein Ergebnis eines ähnlichen Kunden |
+| Sein Problem                               | Was es löst                                                                | Wie Sie es zeigen                   |
+| ------------------------------------------ | -------------------------------------------------------------------------- | ----------------------------------- |
+| Rechnungen bleiben in E-Mails liegen       | Eine Freigabe-Warteschlange für alle 14 Hotels                             | Ein Screenshot der Warteschlange    |
+| Niemand weiß, wer eine Rechnung gerade hat | Jede Rechnung zeigt ihre freigebende Person und wie lange sie schon wartet | Eine 2-minütige Live-Demo           |
+| Skonto geht verloren                       | Erinnerungen vor Ablauf der Skontofrist                                    | Ein Ergebnis eines ähnlichen Kunden |
 
 Die Tabelle wird zur Mitte des Decks, mit einer Folie pro Zeile. Schreiben Sie dann eine Zeile dazu, warum Sie statt dem, was er heute nutzt, ausgehend von „Was er schon versucht hat“ auf Ihrer Discovery-Seite. Bei Pinecrest sind das E-Mails und der Freigabeschritt im Buchhaltungssystem.
 
@@ -112,17 +112,17 @@ Prüfen Sie, ob jeder Kunde zugestimmt hat, namentlich genannt zu werden. Wenn n
 
 Geben Sie jeder Folie dieser Gliederung **einen Titel und den Beleg dahinter**. Die Interessentenfolien sind neu, der Rest stammt aus Ihrem Standard-Deck.
 
-| Folie | Grundlage |
-|---|---|
-| Titel, mit dem vorgeschlagenen nächsten Schritt | Ihr Satz zum nächsten Schritt |
-| Seine Situation, in seinen Worten | Zitate aus dem Discovery Call |
-| Was sie ihn kostet | Die Kosten, die er beschrieben hat |
-| Eine Folie pro Problem | Jede Zeile der Problemtabelle, mit ihrem Beleg |
-| Warum Sie statt der Alternative | Ihre Zeile zu „Warum Sie“ |
-| Wie es funktioniert | Das Standard-Deck oder eine kurze Demo |
-| Investition, wenn der Deal so weit ist | Ihre Preise für seine Größe |
-| Nächster Schritt, Verantwortliche und Termine | Ihr Satz zum nächsten Schritt |
-| Reservefolien | Antworten auf erwartete Einwände, mit Folien aus dem Standard-Deck |
+| Folie                                           | Grundlage                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------ |
+| Titel, mit dem vorgeschlagenen nächsten Schritt | Ihr Satz zum nächsten Schritt                                      |
+| Seine Situation, in seinen Worten               | Zitate aus dem Discovery Call                                      |
+| Was sie ihn kostet                              | Die Kosten, die er beschrieben hat                                 |
+| Eine Folie pro Problem                          | Jede Zeile der Problemtabelle, mit ihrem Beleg                     |
+| Warum Sie statt der Alternative                 | Ihre Zeile zu „Warum Sie“                                          |
+| Wie es funktioniert                             | Das Standard-Deck oder eine kurze Demo                             |
+| Investition, wenn der Deal so weit ist          | Ihre Preise für seine Größe                                        |
+| Nächster Schritt, Verantwortliche und Termine   | Ihr Satz zum nächsten Schritt                                      |
+| Reservefolien                                   | Antworten auf erwartete Einwände, mit Folien aus dem Standard-Deck |
 
 Halten Sie das Hauptdeck bei etwa 10 Folien, damit die Hälfte des Meetings für das Gespräch bleibt. Um beim nächsten Mal schneller zu sein, **kopieren Sie dieses Deck für jeden Interessenten** und ändern Sie nur die Interessentenfolien.
 

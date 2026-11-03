@@ -73,14 +73,14 @@ Depois, liste quem vai participar e o que cada pessoa decide. O **comprador econ
 
 Tudo o que a apresentação diz sobre o prospect vem da descoberta, então **reúna tudo com as palavras dele** em uma página:
 
-| O que registrar | Onde costuma estar |
-|---|---|
-| O problema, com as palavras dele | Suas notas ou a gravação da reunião |
-| Quanto o problema custa a ele | Notas da reunião, e-mails de follow-up |
-| O que ele já tentou | Notas da reunião |
-| Quem decide e quem mais está envolvido | O negócio no seu CRM |
-| O prazo dele, ou o que o fez buscar uma solução agora | Notas da reunião, o negócio no CRM |
-| Perguntas ou dúvidas que ele levantou | Notas ou a gravação da reunião |
+| O que registrar                                       | Onde costuma estar                     |
+| ----------------------------------------------------- | -------------------------------------- |
+| O problema, com as palavras dele                      | Suas notas ou a gravação da reunião    |
+| Quanto o problema custa a ele                         | Notas da reunião, e-mails de follow-up |
+| O que ele já tentou                                   | Notas da reunião                       |
+| Quem decide e quem mais está envolvido                | O negócio no seu CRM                   |
+| O prazo dele, ou o que o fez buscar uma solução agora | Notas da reunião, o negócio no CRM     |
+| Perguntas ou dúvidas que ele levantou                 | Notas ou a gravação da reunião         |
 
 Com os negócios no HubSpot e as reuniões no Gong, você pode [perguntar ao Agent-Native Analytics sobre um negócio e as reuniões dele](https://www.agent-native.com/use-cases/ai-sales-analytics/). Copie as citações exatas: um slide com as palavras do próprio prospect funciona melhor do que a sua paráfrase. Priya, diretora financeira da Pinecrest, contou que as faturas são aprovadas por e-mails encaminhados entre 14 hotéis, e isso virou o slide 2. Planeje perguntar logo no início da reunião sobre o que estiver faltando.
 
@@ -94,11 +94,11 @@ Dedique no máximo um slide à sua empresa. Só as manchetes já devem contar a 
 
 Para cada problema que o prospect citou, escreva **o que o resolve e como você vai mostrar isso**. Deixe de fora qualquer recurso que não responda a um problema da lista, por melhor que ele seja. Veja o exemplo da Pinecrest:
 
-| O problema dele | O que resolve | Como você vai mostrar |
-|---|---|---|
-| As faturas ficam paradas no e-mail | Uma única fila de aprovação para os 14 hotéis | Uma captura de tela da fila |
-| Ninguém sabe com quem está cada fatura | Cada fatura mostra quem deve aprová-la e há quanto tempo espera | Uma demonstração ao vivo de 2 minutos |
-| Descontos por pagamento antecipado são perdidos | Lembretes antes da data do desconto | Um resultado de um cliente parecido |
+| O problema dele                                 | O que resolve                                                   | Como você vai mostrar                 |
+| ----------------------------------------------- | --------------------------------------------------------------- | ------------------------------------- |
+| As faturas ficam paradas no e-mail              | Uma única fila de aprovação para os 14 hotéis                   | Uma captura de tela da fila           |
+| Ninguém sabe com quem está cada fatura          | Cada fatura mostra quem deve aprová-la e há quanto tempo espera | Uma demonstração ao vivo de 2 minutos |
+| Descontos por pagamento antecipado são perdidos | Lembretes antes da data do desconto                             | Um resultado de um cliente parecido   |
 
 A tabela vira o meio da apresentação, com um slide por linha. Depois, escreva uma linha sobre por que escolher você em vez do que eles usam hoje, a partir de "o que ele já tentou" na sua página da descoberta. Na Pinecrest, isso é o e-mail e a etapa de aprovação do sistema contábil deles.
 
@@ -112,17 +112,17 @@ Confirme que cada cliente autorizou o uso do nome. Se não autorizou, descreva-o
 
 Dê a cada slide **uma manchete e a prova por trás dela**, usando este roteiro. Os slides do prospect são novos, e o resto vem da sua apresentação padrão.
 
-| Slide | Montado a partir de |
-|---|---|
-| Abertura, com o próximo passo proposto | Sua frase de próximo passo |
-| A situação deles, com as palavras deles | Citações da descoberta |
-| Quanto isso custa a eles | O custo que eles descreveram |
-| Um slide por problema | Cada linha da tabela de problemas, com a sua prova |
-| Por que você e não a alternativa | Sua linha sobre por que escolher você |
-| Como funciona | A apresentação padrão ou uma demonstração curta |
-| Investimento, se o negócio estiver nessa fase | Seus preços para o porte deles |
-| Próximo passo, responsáveis e prazos | Sua frase de próximo passo |
-| Slides de apoio | Respostas às objeções esperadas, com slides da apresentação padrão |
+| Slide                                         | Montado a partir de                                                |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| Abertura, com o próximo passo proposto        | Sua frase de próximo passo                                         |
+| A situação deles, com as palavras deles       | Citações da descoberta                                             |
+| Quanto isso custa a eles                      | O custo que eles descreveram                                       |
+| Um slide por problema                         | Cada linha da tabela de problemas, com a sua prova                 |
+| Por que você e não a alternativa              | Sua linha sobre por que escolher você                              |
+| Como funciona                                 | A apresentação padrão ou uma demonstração curta                    |
+| Investimento, se o negócio estiver nessa fase | Seus preços para o porte deles                                     |
+| Próximo passo, responsáveis e prazos          | Sua frase de próximo passo                                         |
+| Slides de apoio                               | Respostas às objeções esperadas, com slides da apresentação padrão |
 
 Limite a apresentação principal a cerca de 10 slides, deixando metade da reunião para a conversa. Para ir mais rápido da próxima vez, **faça uma cópia desta apresentação para cada prospect** e mude só os slides do prospect.
 

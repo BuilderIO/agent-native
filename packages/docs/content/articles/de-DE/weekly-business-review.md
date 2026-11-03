@@ -72,14 +72,14 @@ Jedes Ergebnis, an dem das Team gemessen wird, ist eine Ergebnisgröße, etwa de
 
 Die Liste von Northpine beginnt so:
 
-| Kennzahl | Einfluss- oder Ergebnisgröße | Wo sie liegt |
-|---|---|---|
-| Neuer monatlich wiederkehrender Umsatz | Ergebnisgröße | Abrechnung |
-| Geführte Vertriebsgespräche | Einflussgröße | CRM |
-| Testanmeldungen | Einflussgröße | Produktanalyse |
-| Testnutzer, die ein erstes Meeting buchen | Einflussgröße | Produktanalyse |
-| Verlorene Kunden | Ergebnisgröße | Abrechnung |
-| Support-Tickets älter als zwei Tage | Einflussgröße | Support-Tool |
+| Kennzahl                                  | Einfluss- oder Ergebnisgröße | Wo sie liegt   |
+| ----------------------------------------- | ---------------------------- | -------------- |
+| Neuer monatlich wiederkehrender Umsatz    | Ergebnisgröße                | Abrechnung     |
+| Geführte Vertriebsgespräche               | Einflussgröße                | CRM            |
+| Testanmeldungen                           | Einflussgröße                | Produktanalyse |
+| Testnutzer, die ein erstes Meeting buchen | Einflussgröße                | Produktanalyse |
+| Verlorene Kunden                          | Ergebnisgröße                | Abrechnung     |
+| Support-Tickets älter als zwei Tage       | Einflussgröße                | Support-Tool   |
 
 Lassen Sie jede Kennzahl weg, auf die niemand reagieren würde, wenn sie sich verdoppelte. Wenn das Marketing einen [wöchentlichen Marketingbericht](https://www.agent-native.com/use-cases/weekly-marketing-report/) verschickt, übernehmen Sie nur dessen Kernzahlen.
 

@@ -81,7 +81,7 @@ In the example used throughout this guide, Tidewater Fitness, a made-up chain of
 
 ### 2. Write the answer first
 
-The deck opens with your answer, because executives read the start and may stop there. Read your interview notes and analysis for what they add up to, then **write the answer as one sentence the decision-maker could act on**. Under it, write the three reasons that support it. This is the answer-first structure Barbara Minto set out in her book *The Pyramid Principle*.
+The deck opens with your answer, because executives read the start and may stop there. Read your interview notes and analysis for what they add up to, then **write the answer as one sentence the decision-maker could act on**. Under it, write the three reasons that support it. This is the answer-first structure Barbara Minto set out in her book _The Pyramid Principle_.
 
 Tidewater's answer is "Keep prices as they are and fix members' first 90 days instead." Three reasons support it. Most members leave in those 90 days, and price isn't the main reason they leave. Members who build a class habit in their first month stay.
 
@@ -95,14 +95,14 @@ Give every slide an **action title**, which tells the reader what to conclude fr
 
 **Write every title before you build any slide**, under the reason it supports:
 
-| Section | Slide title |
-|---|---|
-| Answer | Keep prices as they are and fix members' first 90 days |
-| Reason 1 | 61% of cancellations happen in the first 90 days |
-| Reason 2 | Members who joined on a discount cancel at the same rate as everyone else |
-| Reason 2 | Cancelling members rank price fourth, behind not knowing where to start |
-| Reason 3 | Members who book three classes in month one are nearly twice as likely to stay a year |
-| Next steps | Book every new member into three classes, starting with an 8-gym pilot |
+| Section    | Slide title                                                                           |
+| ---------- | ------------------------------------------------------------------------------------- |
+| Answer     | Keep prices as they are and fix members' first 90 days                                |
+| Reason 1   | 61% of cancellations happen in the first 90 days                                      |
+| Reason 2   | Members who joined on a discount cancel at the same rate as everyone else             |
+| Reason 2   | Cancelling members rank price fourth, behind not knowing where to start               |
+| Reason 3   | Members who book three classes in month one are nearly twice as likely to stay a year |
+| Next steps | Book every new member into three classes, starting with an 8-gym pilot                |
 
 The titles alone, read top to bottom, make the whole argument.
 
@@ -110,11 +110,11 @@ The titles alone, read top to bottom, make the whole argument.
 
 A **ghost deck** is the deck with titles and no content yet. Make one blank slide per title, then **write on each slide the chart that would prove it**, where its data comes from, and whether you have it yet. Tidewater's ghost deck halfway through the analysis:
 
-| Slide title | Proof it needs | Data | Have it? |
-|---|---|---|---|
-| 61% of cancellations happen in the first 90 days | Cancellations by time as a member | Membership system | Yes |
-| Cancelling members rank price fourth, behind not knowing where to start | Main reason for cancelling, ranked | Exit survey | Not yet |
-| Members who book three classes in month one are nearly twice as likely to stay a year | Retention by classes booked in month one | Bookings and membership | Not yet |
+| Slide title                                                                           | Proof it needs                           | Data                    | Have it? |
+| ------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------- | -------- |
+| 61% of cancellations happen in the first 90 days                                      | Cancellations by time as a member        | Membership system       | Yes      |
+| Cancelling members rank price fourth, behind not knowing where to start               | Main reason for cancelling, ranked       | Exit survey             | Not yet  |
+| Members who book three classes in month one are nearly twice as likely to stay a year | Retention by classes booked in month one | Bookings and membership | Not yet  |
 
 The "not yet" rows are your remaining analysis. If the data disproves a title, rewrite the title and check that the answer still holds.
 
@@ -122,13 +122,13 @@ The "not yet" rows are your remaining analysis. If the data disproves a title, r
 
 Each slide body proves its title with one chart or table. **Highlight the number the title states** in the accent color and keep the rest neutral. Pick the chart for the comparison the title makes:
 
-| The title compares | Use |
-|---|---|
-| A change over time | Line chart |
-| Items ranked by size | Horizontal bar chart |
-| Parts of a whole | Stacked bar |
-| Two groups or before and after | Two bars side by side |
-| Exact figures people will look up | Table |
+| The title compares                | Use                   |
+| --------------------------------- | --------------------- |
+| A change over time                | Line chart            |
+| Items ranked by size              | Horizontal bar chart  |
+| Parts of a whole                  | Stacked bar           |
+| Two groups or before and after    | Two bars side by side |
+| Exact figures people will look up | Table                 |
 
 Add **a source line** at the bottom of every slide. It names the data, its date range and any filter, such as "Tidewater membership system, 2024–2025 cancellations, 40 gyms." Keep the title at the top and the source at the bottom of every slide. If a slide needs two charts to make its point, split it into two slides with two titles.
 

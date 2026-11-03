@@ -64,11 +64,11 @@ El resumen de una reunión es una nota breve que se envía después de la reuni�
 
 Un resumen no es lo mismo que un acta ni que unas notas:
 
-| | Notas de la reunión | Resumen de la reunión | Acta de la reunión |
-|---|---|---|---|
-| Qué es | Lo que apuntas durante la reunión | Los resultados, enviados después | El registro oficial |
-| Quién lo lee | Tú | Los asistentes y quienes no pudieron ir | El grupo y cualquiera que lo consulte más tarde |
-| Nivel de formalidad | Ninguno | Breve y sencillo | Formal, se aprueba en la siguiente reunión |
+|                     | Notas de la reunión               | Resumen de la reunión                   | Acta de la reunión                              |
+| ------------------- | --------------------------------- | --------------------------------------- | ----------------------------------------------- |
+| Qué es              | Lo que apuntas durante la reunión | Los resultados, enviados después        | El registro oficial                             |
+| Quién lo lee        | Tú                                | Los asistentes y quienes no pudieron ir | El grupo y cualquiera que lo consulte más tarde |
+| Nivel de formalidad | Ninguno                           | Breve y sencillo                        | Formal, se aprueba en la siguiente reunión      |
 
 Si necesitas el registro oficial de una junta o una comisión, sigue [cómo redactar el acta de una reunión](https://www.agent-native.com/articles/meeting-minutes/).
 
@@ -84,15 +84,15 @@ Cuando el resumen va a lectores distintos, **escríbelo para quien no estuvo**. 
 
 Lee tus notas una vez y **marca cada línea con D, A o P**: una decisión, una acción (tarea) o una pregunta abierta. Las líneas sin marca son contexto, y la mayoría se eliminan. Este es el principio de las notas de Fernhill, ya marcadas:
 
-| Nota | Marca |
-|---|---|
-| El lanzamiento pasa del 6 al 20 de mayo, el proveedor de pagos necesita dos semanas más para probar el nuevo proceso de pago | D |
-| Marcus: confirmar la nueva fecha con el proveedor de pagos | A |
-| Larga conversación sobre las fotos de la página de inicio, Dana enseñó tres opciones | – |
-| Nos quedamos con la opción B, la más luminosa | D |
-| ¿Quién escribe el correo del lanzamiento? | P |
-| Dana enviará a Marcus los archivos finales de las fotos | A |
-| ¿Mantenemos las URL antiguas del blog? | P |
+| Nota                                                                                                                         | Marca |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----- |
+| El lanzamiento pasa del 6 al 20 de mayo, el proveedor de pagos necesita dos semanas más para probar el nuevo proceso de pago | D     |
+| Marcus: confirmar la nueva fecha con el proveedor de pagos                                                                   | A     |
+| Larga conversación sobre las fotos de la página de inicio, Dana enseñó tres opciones                                         | –     |
+| Nos quedamos con la opción B, la más luminosa                                                                                | D     |
+| ¿Quién escribe el correo del lanzamiento?                                                                                    | P     |
+| Dana enviará a Marcus los archivos finales de las fotos                                                                      | A     |
+| ¿Mantenemos las URL antiguas del blog?                                                                                       | P     |
 
 Siete líneas se convierten en dos decisiones, dos tareas y dos preguntas abiertas, y el debate sobre las fotos desaparece.
 

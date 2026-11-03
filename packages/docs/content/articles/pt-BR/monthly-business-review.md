@@ -62,14 +62,14 @@ Uma revisão mensal de negócios (MBR, do inglês monthly business review) é um
 
 O placar é a lista fixa de métricas que a MBR revisa todo mês. **Escolha de 6 a 10 métricas que meçam o plano**, cada uma com definição, fonte, responsável e limite para ser considerada fora do plano; as metas mensais vêm do plano. Combine resultados como receita com métricas que a equipe influencia diretamente, aqui pedidos e entregas no prazo. A Brambleroot, uma loja on-line de plantas fictícia, usa este:
 
-| Métrica | Definição | Fonte | Responsável | Fora do plano quando |
-|---|---|---|---|---|
-| Receita | Líquida de reembolsos | Plataforma da loja | Finanças | 5% abaixo do plano |
-| Pedidos | Pedidos pagos | Plataforma da loja | E-commerce | 5% abaixo do plano |
-| Ticket médio | Receita ÷ pedidos | Plataforma da loja | E-commerce | 5% abaixo do plano |
-| Taxa de recompra | Pedidos de clientes que voltaram | Plataforma da loja | Marketing | 3 pontos abaixo do plano |
-| Custo por novo cliente | Gasto com anúncios ÷ compradores de primeira vez | Contas de anúncios | Marketing | 5% acima do plano |
-| Entregas no prazo | Entregues até a data prometida | Ferramenta de envio | Operações | 3 pontos abaixo do plano |
+| Métrica                | Definição                                        | Fonte               | Responsável | Fora do plano quando     |
+| ---------------------- | ------------------------------------------------ | ------------------- | ----------- | ------------------------ |
+| Receita                | Líquida de reembolsos                            | Plataforma da loja  | Finanças    | 5% abaixo do plano       |
+| Pedidos                | Pedidos pagos                                    | Plataforma da loja  | E-commerce  | 5% abaixo do plano       |
+| Ticket médio           | Receita ÷ pedidos                                | Plataforma da loja  | E-commerce  | 5% abaixo do plano       |
+| Taxa de recompra       | Pedidos de clientes que voltaram                 | Plataforma da loja  | Marketing   | 3 pontos abaixo do plano |
+| Custo por novo cliente | Gasto com anúncios ÷ compradores de primeira vez | Contas de anúncios  | Marketing   | 5% acima do plano        |
+| Entregas no prazo      | Entregues até a data prometida                   | Ferramenta de envio | Operações   | 3 pontos abaixo do plano |
 
 Defina também três datas por mês: o dia dos números (por exemplo, o terceiro dia útil após o fechamento), o dia da pré-leitura (dois dias úteis antes da reunião) e a reunião.
 
@@ -83,14 +83,14 @@ Se os seus números estão no Stripe, no HubSpot ou no Google Analytics, você p
 
 O plano mostra se a equipe está no caminho certo, e o mês passado mostra a direção. Coloque **real, plano, diferença e mês passado** lado a lado para cada métrica. Marque cada uma como dentro ou fora do plano de acordo com o limite; numa métrica de custo, uma diferença negativa é boa. Se o seu negócio é sazonal, inclua o mesmo mês do ano passado. Veja o outubro da Brambleroot:
 
-| Métrica | Plano | Real | Diferença | Setembro | Status |
-|---|---|---|---|---|---|
-| Receita | US$ 410.000 | US$ 372.000 | −9% | US$ 395.000 | Fora do plano |
-| Pedidos | 6.200 | 6.100 | −2% | 6.080 | Dentro do plano |
-| Ticket médio | US$ 66 | US$ 61 | −8% | US$ 65 | Fora do plano |
-| Taxa de recompra | 34% | 35% | +1 p.p. | 33% | Dentro do plano |
-| Custo por novo cliente | US$ 38 | US$ 36 | −5% | US$ 39 | Dentro do plano |
-| Entregas no prazo | 95% | 88% | −7 p.p. | 94% | Fora do plano |
+| Métrica                | Plano       | Real        | Diferença | Setembro    | Status          |
+| ---------------------- | ----------- | ----------- | --------- | ----------- | --------------- |
+| Receita                | US$ 410.000 | US$ 372.000 | −9%       | US$ 395.000 | Fora do plano   |
+| Pedidos                | 6.200       | 6.100       | −2%       | 6.080       | Dentro do plano |
+| Ticket médio           | US$ 66      | US$ 61      | −8%       | US$ 65      | Fora do plano   |
+| Taxa de recompra       | 34%         | 35%         | +1 p.p.   | 33%         | Dentro do plano |
+| Custo por novo cliente | US$ 38      | US$ 36      | −5%       | US$ 39      | Dentro do plano |
+| Entregas no prazo      | 95%         | 88%         | −7 p.p.   | 94%         | Fora do plano   |
 
 Três das seis métricas estão fora do plano, e são elas que ocupam a reunião.
 
@@ -117,16 +117,16 @@ Uma ação atrasada por dois meses seguidos entra na pauta como decisão: dar ma
 
 A ordem da apresentação é a mesma todo mês, então **comece com uma cópia da apresentação do mês passado** e mude só o que é novo. Na primeira MBR, monte a apresentação uma vez a partir deste roteiro:
 
-| Slide | A cada mês |
-|---|---|
-| Decisões necessárias hoje | Reescrito |
-| Ações e projetos-chave do mês passado | Status atualizados |
-| Placar: real, plano, diferença, mês passado | Números atualizados |
-| Um slide por motivo de desvio, com a manchete primeiro | Substituído |
-| Tendências: cada métrica ao longo de 12 meses | Um mês novo adicionado |
-| Riscos e pedidos, incluindo orçamento e contratações | Reescrito |
-| Novas ações, responsáveis e prazos | Preenchido durante a reunião |
-| Anexo: definições e fontes | Sem alteração |
+| Slide                                                  | A cada mês                   |
+| ------------------------------------------------------ | ---------------------------- |
+| Decisões necessárias hoje                              | Reescrito                    |
+| Ações e projetos-chave do mês passado                  | Status atualizados           |
+| Placar: real, plano, diferença, mês passado            | Números atualizados          |
+| Um slide por motivo de desvio, com a manchete primeiro | Substituído                  |
+| Tendências: cada métrica ao longo de 12 meses          | Um mês novo adicionado       |
+| Riscos e pedidos, incluindo orçamento e contratações   | Reescrito                    |
+| Novas ações, responsáveis e prazos                     | Preenchido durante a reunião |
+| Anexo: definições e fontes                             | Sem alteração                |
 
 Mostre as tendências em gráficos de linhas com o plano como uma segunda linha, para que um desvio fique visível sem ler os números. Os slides de exemplo no início deste guia vêm da apresentação da Brambleroot montada com este roteiro.
 

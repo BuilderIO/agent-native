@@ -64,11 +64,11 @@ Eine Meeting-Zusammenfassung ist eine kurze Notiz nach einem Meeting, die sagt, 
 
 Eine Zusammenfassung ist nicht dasselbe wie ein Protokoll oder Notizen:
 
-| | Meeting-Notizen | Meeting-Zusammenfassung | Protokoll |
-|---|---|---|---|
-| Was es ist | Was Sie während des Meetings notieren | Die Ergebnisse, danach verschickt | Die offizielle Aufzeichnung |
-| Wer es liest | Sie | Teilnehmende und alle, die nicht dabei waren | Das Gremium und alle, die später nachsehen |
-| Wie formell | Gar nicht | Kurz und schlicht | Formell, in der nächsten Sitzung genehmigt |
+|              | Meeting-Notizen                       | Meeting-Zusammenfassung                      | Protokoll                                  |
+| ------------ | ------------------------------------- | -------------------------------------------- | ------------------------------------------ |
+| Was es ist   | Was Sie während des Meetings notieren | Die Ergebnisse, danach verschickt            | Die offizielle Aufzeichnung                |
+| Wer es liest | Sie                                   | Teilnehmende und alle, die nicht dabei waren | Das Gremium und alle, die später nachsehen |
+| Wie formell  | Gar nicht                             | Kurz und schlicht                            | Formell, in der nächsten Sitzung genehmigt |
 
 Brauchen Sie die offizielle Aufzeichnung für einen Vorstand oder Ausschuss, folgen Sie stattdessen der Anleitung „[So schreiben Sie ein Protokoll](https://www.agent-native.com/articles/meeting-minutes/)“.
 
@@ -84,15 +84,15 @@ Geht die Zusammenfassung an gemischte Leser, **schreiben Sie sie für die Person
 
 Lesen Sie Ihre Notizen einmal durch und **markieren Sie jede Zeile mit E, A oder F**: eine Entscheidung, eine Aufgabe oder eine offene Frage. Nicht markierte Zeilen sind Kontext, und das meiste davon wird gestrichen. Hier der Anfang der Fernhill-Notizen, markiert:
 
-| Notiz | Markierung |
-|---|---|
-| Launch verschiebt sich vom 6. auf den 20. Mai, Zahlungsanbieter braucht zwei Wochen mehr, um den neuen Checkout zu testen | E |
-| Marcus: neuen Termin mit dem Zahlungsanbieter bestätigen | A |
-| Lange Diskussion über Startseitenfotos, Dana zeigte drei Varianten | – |
-| Wir nehmen Variante B, die hellere | E |
-| Wer schreibt die Launch-E-Mail? | F |
-| Dana schickt die finalen Fotodateien an Marcus | A |
-| Behalten wir die alten Blog-URLs? | F |
+| Notiz                                                                                                                     | Markierung |
+| ------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Launch verschiebt sich vom 6. auf den 20. Mai, Zahlungsanbieter braucht zwei Wochen mehr, um den neuen Checkout zu testen | E          |
+| Marcus: neuen Termin mit dem Zahlungsanbieter bestätigen                                                                  | A          |
+| Lange Diskussion über Startseitenfotos, Dana zeigte drei Varianten                                                        | –          |
+| Wir nehmen Variante B, die hellere                                                                                        | E          |
+| Wer schreibt die Launch-E-Mail?                                                                                           | F          |
+| Dana schickt die finalen Fotodateien an Marcus                                                                            | A          |
+| Behalten wir die alten Blog-URLs?                                                                                         | F          |
 
 Aus sieben Zeilen werden zwei Entscheidungen, zwei Aufgaben und zwei offene Fragen, und die Fotodiskussion fällt weg.
 
