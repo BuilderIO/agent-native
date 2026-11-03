@@ -1110,9 +1110,7 @@ export function applyOperation(
       // Build the new order from the client's desired order; slides the client
       // did not name stay appended at the end.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reordered: any[] = orderedIds
-        .map((id) => byId.get(id))
-        .filter(Boolean);
+      const reordered: any[] = orderedIds.map((id) => byId.get(id));
       const orderedSet = new Set(orderedIds);
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
