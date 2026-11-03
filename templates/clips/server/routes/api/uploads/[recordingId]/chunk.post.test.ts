@@ -3236,7 +3236,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       .mockImplementation(() => undefined);
 
     try {
-      await expect(handler({} as any)).resolves.toEqual(
+      await expect(handler({} as H3Event)).resolves.toEqual(
         expect.objectContaining({ ok: true, index: 0 }),
       );
     } finally {
@@ -3272,7 +3272,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       .mockImplementation(() => undefined);
 
     try {
-      await expect(handler({} as any)).resolves.toEqual(
+      await expect(handler({} as H3Event)).resolves.toEqual(
         expect.objectContaining({ duplicate: true, index: 0 }),
       );
     } finally {
