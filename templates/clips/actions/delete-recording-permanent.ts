@@ -74,11 +74,21 @@ async function assertRecordingsDeletable(ids: string[], ownerEmail: string) {
       ),
     );
   const ownedIds = new Set(owned.map((row) => row.id));
-  const missing: string[] = [];
-  for (const id of ids) {
-    if (ownedIds.has(id)) continue;
-    if (!(await mediaCleanupSummary(id, ownerEmail))) missing.push(id);
-  }
+  const notOwned = ids.filter((id) => !ownedIds.has(id));
+  // A deleted recording keeps its cleanup intent; one read finds them all.
+  const deleted = notOwned.length
+    ? await getDb()
+        .select({ id: schema.recordingMediaCleanups.id })
+        .from(schema.recordingMediaCleanups)
+        .where(
+          and(
+            inArray(schema.recordingMediaCleanups.id, notOwned),
+            eq(schema.recordingMediaCleanups.ownerEmail, ownerEmail),
+          ),
+        )
+    : [];
+  const deletedIds = new Set(deleted.map((row) => row.id));
+  const missing = notOwned.filter((id) => !deletedIds.has(id));
   if (missing.length) {
     fail(
       `Nothing was deleted: ${missing.length} of ${ids.length} recordings don't exist or aren't yours: ${missing.join(", ")}`,

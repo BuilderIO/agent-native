@@ -914,7 +914,12 @@ describe("permanent deletion of several recordings in one call", () => {
     expect(await action.run({ id: "rec-1" })).toMatchObject({
       recordingRemoved: true,
     });
+    mocks.summaryReads.clear();
     const result = await action.run({ ids: ["rec-1", "rec-2"] });
+    // The check before the batch finds rec-1's cleanup without reading it.
+    const rec1Reads = mocks.summaryReads.get("rec-1");
+    mocks.summaryReads.clear();
+    expect(rec1Reads).toBe(1);
     expect(result).toMatchObject({ changed: 1, unchanged: 1, skipped: 0 });
     expect(
       "results" in result &&
@@ -953,11 +958,11 @@ describe("permanent deletion of several recordings in one call", () => {
   it("counts a recording another call deleted first as unchanged", async () => {
     await insertRecording("rec-2", video + "-2");
     await action.run({ id: "rec-2" });
-    // The batch's check reads rec-2's cleanup (read 1). The delete's own
-    // first look then misses it (read 2), as when another call commits
-    // while this one waits on the row, so it finds the row already gone.
+    // The delete's own first look misses rec-2's cleanup (read 1), as when
+    // another call commits while this one waits on the row, so it finds the
+    // row already gone.
     mocks.summaryReads.clear();
-    mocks.unreadableSummaries.set("rec-2", (read) => read === 2);
+    mocks.unreadableSummaries.set("rec-2", (read) => read === 1);
     try {
       const result = await action.run({ ids: ["rec-2"] });
       expect(result).toMatchObject({ changed: 0, unchanged: 1, skipped: 0 });
