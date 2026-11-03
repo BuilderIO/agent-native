@@ -35,6 +35,7 @@ import {
 } from "../server/lib/resumable-session.js";
 import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
+import { findUploadedSourceRecording } from "../server/lib/source-fingerprint.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
@@ -153,6 +154,10 @@ export default defineAction({
           statusCode: 409,
         });
       }
+      const uploaded = args.sourceHeadSha256
+        ? await findUploadedSourceRecording(ownerEmail, args.sourceHeadSha256)
+        : null;
+      if (uploaded) return { uploaded } as const;
 
       const { organizationId } = await requireOrganizationAccess(
         args.organizationId,
@@ -181,6 +186,7 @@ export default defineAction({
       await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
       return {
+        uploaded: null,
         db,
         ownerEmail,
         organizationId,
@@ -212,6 +218,14 @@ export default defineAction({
         details: { retryable: true, cleanupConfirmed: true },
       });
     });
+    if (prepared.uploaded !== null) {
+      return {
+        id: prepared.uploaded.id,
+        organizationId: prepared.uploaded.organizationId,
+        status: prepared.uploaded.status,
+        existingRecording: true as const,
+      };
+    }
     const {
       db,
       ownerEmail,
@@ -321,6 +335,7 @@ export default defineAction({
         sourceAppName: args.sourceAppName?.trim() || null,
         recordingPlatform: recordingPlatform ?? "unknown",
         sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
+        sourceHeadSha256: args.sourceHeadSha256 ?? null,
         status: "uploading",
         uploadProgress: 0,
         uploadLeaseExpiresAt: uploadLeaseExpiry(),

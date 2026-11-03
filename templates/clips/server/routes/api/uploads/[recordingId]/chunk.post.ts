@@ -56,6 +56,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { recordSourceHeadFromFirstChunk } from "../../../../lib/source-fingerprint.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   markHostedCleanupConfirmed,
@@ -1107,6 +1108,13 @@ export async function handleRecordingChunk(
       if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
     }
 
     if (total > 0) {
@@ -1786,6 +1794,13 @@ async function handleResumableChunk(
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
   }
+  await recordSourceHeadFromFirstChunk({
+    recordingId,
+    ownerEmail,
+    index,
+    bytes,
+    isFinal,
+  });
 
   if (isFinal && bytes.byteLength === 0) {
     if (session.bytesUploaded <= 0) {

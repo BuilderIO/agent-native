@@ -1,3 +1,7 @@
+import {
+  SOURCE_HEAD_BYTES,
+  sourceHeadSha256,
+} from "../../../shared/source-fingerprint";
 import type { LocalRecordingMode } from "../shared/config";
 import type { LocalExportedFile } from "./local-export";
 import type { PendingBrowserRecordingUpload } from "./recorder";
@@ -226,6 +230,26 @@ export interface RecordFirstChunk {
  * file is read one slice at a time, so memory holds a single slice however
  * long the recording is.
  */
+/**
+ * The saved file's fingerprint, from its first bytes. Clips matches it against
+ * clips this account already has, so a file that was uploaded some other way
+ * comes back as that clip instead of a second copy.
+ */
+export async function recordFirstSourceHeadSha256(input: {
+  size: number;
+  /** Reads into `buffer`; resolves to the bytes read, or null at the end. */
+  read: (buffer: Uint8Array) => Promise<number | null>;
+}): Promise<string> {
+  const head = new Uint8Array(Math.min(input.size, SOURCE_HEAD_BYTES));
+  let filled = 0;
+  while (filled < head.byteLength) {
+    const read = await input.read(head.subarray(filled));
+    if (!read) break;
+    filled += read;
+  }
+  return sourceHeadSha256(head.subarray(0, filled));
+}
+
 export async function stageRecordFirstFile(input: {
   recordingId: string;
   serverUrl: string;

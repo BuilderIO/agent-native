@@ -1397,6 +1397,12 @@ export function App({
   }, [videoStorageIdentity, serverUrl, signedInAs]);
 
   const videoStorageProbeSeqRef = useRef(0);
+  // The server and account a probe found configured since start-up. The
+  // cached "configured" is enough to record, but saved files upload on their
+  // own only after a probe of the current server and account.
+  const [videoStorageProbedIdentity, setVideoStorageProbedIdentity] = useState<
+    string | null
+  >(null);
 
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
@@ -1415,6 +1421,9 @@ export function App({
     );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
+    setVideoStorageProbedIdentity(
+      probe === "configured" ? probedIdentity : null,
+    );
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
@@ -3845,10 +3854,8 @@ export function App({
       openVideoStorageSetup();
       return;
     }
-    // Saved files upload only when the user asks, never automatically: after
-    // a server or account switch, a file already uploaded by hand elsewhere
-    // would be published again. Unclaimed files (saved while signed out) join
-    // this account the same way.
+    // Unclaimed files (saved while signed out) join this account only when
+    // the user clicks Upload now, never automatically.
     let files = changeQueuedFiles(recordFirstKey, (own) => own);
     if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
       try {
@@ -4821,6 +4828,26 @@ export function App({
     reportRecordingFailure,
     localRecordingMode,
     serverUrl,
+  ]);
+
+  const recordFirstPending = recordFirstFiles.length;
+  useEffect(() => {
+    if (
+      recordFirstPending > 0 &&
+      authStatus === "authed" &&
+      videoStorageStatus === "configured" &&
+      videoStorageProbedIdentity === videoStorageIdentity &&
+      !recorder
+    ) {
+      void uploadRecordFirstFilesRef.current();
+    }
+  }, [
+    authStatus,
+    recorder,
+    recordFirstPending,
+    videoStorageIdentity,
+    videoStorageProbedIdentity,
+    videoStorageStatus,
   ]);
 
   const showSourceRow = mode !== "camera";
