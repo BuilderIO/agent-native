@@ -381,9 +381,6 @@ function CommentDraftStore({
     if (existing) return existing;
     submittedDrafts.set(operationId, submittedDraft);
     submittingDrafts.set(key, operationId);
-    // A stored draft posted without an edit has changed nothing else this
-    // session, and storage only writes after a change.
-    setDraftMutationVersion((version) => version + 1);
     setDrafts((current) => {
       if (!current.has(key)) return current;
       const next = new Map(current);
@@ -433,6 +430,10 @@ function CommentDraftStore({
     for (const [key, currentOperationId] of submittingDrafts) {
       if (currentOperationId === operationId) submittingDrafts.delete(key);
     }
+    // Storage only writes after a change, and a stored draft posted without an
+    // edit has made none. It stays stored until its send is answered, so a
+    // reload before then still finds its key.
+    setDraftMutationVersion((version) => version + 1);
     setSubmissionVersion((version) => version + 1);
   }, []);
   const isSubmittingDraft = useCallback(

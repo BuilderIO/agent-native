@@ -320,6 +320,30 @@ describe("comment drafts", () => {
     expect(draft().draft).toMatchObject({ text: "Clip note", retry });
   });
 
+  it("keeps a stored draft and its key through a reload during its send", async () => {
+    const retry = { payload: '{"content":"Clip note"}', operationId: "op-a" };
+    const draft = () => {
+      if (!currentDraft) throw new Error("No draft rendered");
+      return currentDraft;
+    };
+    const reload = async () => {
+      await act(async () => root?.unmount());
+      root = null;
+      render({});
+    };
+    render({});
+    await act(async () => draft().setText("Clip note"));
+    await act(async () => draft().beginSubmission("op-a"));
+    await act(async () => draft().restoreSubmittedDraft("op-a", retry));
+    await act(async () => draft().finishSubmission("op-a"));
+    await reload();
+
+    await act(async () => draft().beginSubmission("op-a"));
+    expect(draft().draft.text).toBe("");
+    await reload();
+    expect(draft().draft).toMatchObject({ text: "Clip note", retry });
+  });
+
   it("forgets a stored draft posted without an edit once it saves", async () => {
     const draft = () => {
       if (!currentDraft) throw new Error("No draft rendered");
