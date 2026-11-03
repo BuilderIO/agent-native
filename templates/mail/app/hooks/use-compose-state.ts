@@ -7,7 +7,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
-import { expandAliasTokens } from "@/lib/alias-utils";
+import { aliasesQueryOptions } from "@/hooks/use-aliases";
+import { ALIAS_PREFIX, expandAliasTokens } from "@/lib/alias-utils";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
@@ -336,11 +337,18 @@ export function useComposeState() {
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
 
   const saveDraft = useCallback(
-    (draft: ComposeState) =>
-      saveDraftToEmailsBestEffort(
-        draft,
-        qc.getQueryData<Alias[]>(["aliases"]) ?? [],
-      ),
+    async (draft: ComposeState): Promise<DraftSaveResult> => {
+      const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
+        field?.includes(ALIAS_PREFIX),
+      );
+      if (!usesAlias) return saveDraftToEmailsBestEffort(draft);
+      try {
+        const aliases = await qc.fetchQuery(aliasesQueryOptions);
+        return saveDraftToEmailsBestEffort(draft, aliases);
+      } catch (error) {
+        return { status: "failed", error };
+      }
+    },
     [qc],
   );
 
