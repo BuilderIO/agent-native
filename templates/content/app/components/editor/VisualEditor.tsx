@@ -1811,6 +1811,8 @@ interface VisualEditorProps {
     actualContent: string,
   ) => void;
   activeSuggestionId?: string | null;
+  /** The suggestions decided together with the active one. */
+  activeSuggestionUnitIds?: readonly string[];
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
   onSuggestionReplacementIntent?: (intent: {
@@ -3295,6 +3297,7 @@ export function VisualEditor({
   onProposalDecisionRendered,
   onProposalDecisionReadbackOutdated,
   activeSuggestionId,
+  activeSuggestionUnitIds,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
@@ -5037,14 +5040,18 @@ export function VisualEditor({
               ) ?? null
             );
           }
+          const unitSpec =
+            spec && activeSuggestionUnitIds?.includes(suggestion.id)
+              ? { ...spec, inActiveUnit: true }
+              : spec;
           // While suggesting, a saved suggestion's text outside the document
           // is somewhere to type beside, not a control to focus.
-          return spec &&
+          return unitSpec &&
             suggesting &&
             editable &&
             suggestion.presentation === "canonical"
-            ? { ...spec, editableBoundary: true }
-            : spec;
+            ? { ...unitSpec, editableBoundary: true }
+            : unitSpec;
         })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
       if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
@@ -5083,6 +5090,7 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    activeSuggestionUnitIds,
     content,
     editable,
     editor,

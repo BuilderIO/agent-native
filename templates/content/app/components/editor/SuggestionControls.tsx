@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { reviewUnits } from "./thread-suggestions";
+
 /**
  * A suggestion's Accept and Reject as icon buttons. Suggestion cards in the
  * margin and the edits an AI suggests in a comment thread both use them.
@@ -122,6 +124,10 @@ export function ProposalGroup({
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
   const undecided = pending.length === totalCount;
+  // Pieces reviewed together count once; any edit not listed here, once each.
+  const editCount =
+    reviewUnits(pending).length ||
+    totalCount - members.length + reviewUnits(members).length;
   return (
     <div
       ref={groupRef}
@@ -152,7 +158,7 @@ export function ProposalGroup({
         </span>
         <span className="shrink-0 text-muted-foreground">
           {t("comments.proposalEditCount", {
-            count: pending.length || totalCount,
+            count: editCount,
           })}
         </span>
       </button>

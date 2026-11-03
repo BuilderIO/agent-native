@@ -167,6 +167,36 @@ describe("SuggestionReviewCard", () => {
     );
   });
 
+  it("decides a unit's pieces with one Accept and leaves the rest", async () => {
+    const [first, second] = proposal();
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ];
+    render(["edit-0"]);
+
+    expect(shownEdits()).toEqual(["edit-0", "edit-2"]);
+    await act(async () => button("editor.acceptSuggestion").click());
+
+    expect(review.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: "proposal-1",
+        decision: "accepted",
+        members: [
+          { id: "edit-0", observedRevision: 3, observedBase: "base-1" },
+          { id: "edit-1", observedRevision: 3, observedBase: "base-1" },
+        ],
+      }),
+    );
+    expect(review.decide).not.toHaveBeenCalled();
+  });
+
   it("decides one edit against the revision the card showed", async () => {
     render();
 

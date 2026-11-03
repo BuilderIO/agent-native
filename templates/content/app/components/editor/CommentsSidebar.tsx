@@ -174,8 +174,12 @@ import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
+  reviewUnitLabel,
+  reviewUnitOperations,
+  reviewUnits,
   suggestionSourceThreadId,
   suggestionsByThread,
+  type ReviewUnit,
 } from "./thread-suggestions";
 import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
 
@@ -1101,7 +1105,9 @@ interface CommentsSidebarOptions {
     proposalId: string,
     decision: SuggestionDecision,
     pendingMembers: ResourceSuggestion[],
-  ) => void;
+    /** Decide just these, as one review unit, not all that's pending by then. */
+    exactMembers?: boolean,
+  ) => void | Promise<void>;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
   /** Card treatment: margin rail, anchored popover, or the comments panel. */
@@ -2957,6 +2963,13 @@ export function CommentsSidebar({
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
         ) => onDecideSuggestion?.(suggestion, decision),
+        onDecideUnit: (
+          unit: ResourceSuggestion[],
+          decision: SuggestionDecision,
+        ) => {
+          if (proposalId)
+            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
+        },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
             ? (decision: SuggestionDecision) =>
@@ -3244,11 +3257,15 @@ export function CommentsSidebar({
     marginTop = 0,
     onHeightChange = handleThreadCardHeightChange,
     inProposalGroup = false,
+    unit: ReviewUnit = { leader: suggestion, members: [suggestion] },
   ) => {
+    const anchored = unit.members.filter((member) =>
+      anchoredSuggestionIds?.includes(member.id),
+    );
     const anchorUnavailable =
       suggestion.status === "pending" &&
       anchoredSuggestionIds !== null &&
-      !anchoredSuggestionIds?.includes(suggestion.id);
+      anchored.length === 0;
     return (
       <SuggestionThreadView
         surface={surface}
@@ -3261,35 +3278,55 @@ export function CommentsSidebar({
         marginTop={marginTop}
         onHeightChange={onHeightChange}
         suggestion={suggestion}
+        operations={reviewUnitOperations(unit)}
+        showsBothSides={unit.members.length > 1}
         reason={inProposalGroup ? null : agentSuggestionReason(suggestion)}
         documentId={documentId}
-        isActive={
-          activeSuggestionId === suggestion.id ||
-          hoveredSuggestionId === suggestion.id
-        }
+        isActive={unit.members.some(
+          (member) =>
+            activeSuggestionId === member.id ||
+            hoveredSuggestionId === member.id,
+        )}
         expandRequested={expandedSuggestionId === suggestion.id}
-        focusRequested={focusSuggestionId === suggestion.id}
+        focusRequested={unit.members.some(
+          (member) => focusSuggestionId === member.id,
+        )}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
-        unplaceable={isUnplaceable(suggestion)}
+        unplaceable={unit.members.some(isUnplaceable)}
         canComment={canComment}
         canDecide={canDecideSuggestions}
-        deciding={suggestionBusy(suggestion)}
+        deciding={unit.members.some(suggestionBusy)}
         onActivate={() => {
-          if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
+          if (presentation !== "history")
+            onActivateSuggestion?.(
+              (anchored.length > 0 ? anchored[0] : suggestion).id,
+            );
         }}
         onExpansionChange={(expanded) =>
           setExpandedSuggestionId(expanded ? suggestion.id : null)
         }
-        onDecide={(decision) => onDecideSuggestion?.(suggestion, decision)}
+        onDecide={(decision) => {
+          if (unit.members.length > 1 && suggestion.proposalId) {
+            void onDecideSuggestionProposal?.(
+              suggestion.proposalId,
+              decision,
+              unit.members,
+              true,
+            );
+          } else {
+            onDecideSuggestion?.(suggestion, decision);
+          }
+        }}
         t={t}
       />
     );
   };
 
-  const renderProposalGroup = (
+  const renderProposalUnits = (
     proposalId: string,
     members: ResourceSuggestion[],
+    units: ReviewUnit[],
     leaderThreadId?: string,
   ) => (
     <ProposalGroup
@@ -3324,9 +3361,34 @@ export function CommentsSidebar({
           : undefined
       }
     >
-      {members.map((member) => renderSuggestionCard(member, 0, () => {}, true))}
+      {units.map((unit) =>
+        renderSuggestionCard(unit.leader, 0, () => {}, true, unit),
+      )}
     </ProposalGroup>
   );
+
+  const renderProposalGroup = (
+    proposalId: string,
+    members: ResourceSuggestion[],
+    leaderThreadId?: string,
+  ) => {
+    const units = reviewUnits(members);
+    const [onlyUnit] = units;
+    // A proposal that is one unit is one decision, so it has nothing to group.
+    // Its height sizes the place laid out for the whole proposal.
+    return units.length === 1 && reviewUnitLabel(onlyUnit.leader)
+      ? renderSuggestionCard(
+          onlyUnit.leader,
+          0,
+          leaderThreadId
+            ? (_threadId, height) =>
+                handleThreadCardHeightChange(leaderThreadId, height)
+            : undefined,
+          false,
+          onlyUnit,
+        )
+      : renderProposalUnits(proposalId, members, units, leaderThreadId);
+  };
 
   const renderDraftSuggestionCard = (
     suggestion: DraftSuggestion,
@@ -4294,6 +4356,8 @@ function SuggestionThreadView({
   marginTop = 0,
   onHeightChange,
   suggestion,
+  operations,
+  showsBothSides,
   reason,
   documentId,
   isActive,
@@ -4323,6 +4387,10 @@ function SuggestionThreadView({
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: ResourceSuggestion;
+  /** What the card decides, read as one edit even when it takes several pieces. */
+  operations: ResourceSuggestion["operations"];
+  /** Spells out what the edit replaces without being opened first. */
+  showsBothSides: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
   documentId: string;
@@ -4377,7 +4445,7 @@ function SuggestionThreadView({
     canComment && suggestion.status === "pending" && root?.status === "open";
   const canExpand =
     canReply ||
-    suggestion.operations.some((operation) => {
+    operations.some((operation) => {
       const before = operation.before as { changedText?: string } | undefined;
       const after = operation.after as { changedText?: string } | undefined;
       return !!before?.changedText && !!after?.changedText;
@@ -4615,8 +4683,8 @@ function SuggestionThreadView({
               </p>
             ) : null}
             <SuggestionOperationSummary
-              operations={suggestion.operations}
-              expanded={expanded}
+              operations={operations}
+              expanded={expanded || showsBothSides}
               t={t}
             />
             {anchorUnavailable || sourceUrl ? (

@@ -1499,6 +1499,35 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("lights up every piece decided together with the active one", () => {
+    const editorState = setSpecs(
+      state("Hello world again"),
+      [
+        { suggestionId: "active", kind: "delete", from: 1, to: 6 },
+        {
+          suggestionId: "same-unit",
+          kind: "delete",
+          from: 7,
+          to: 12,
+          inActiveUnit: true,
+        },
+        { suggestionId: "other", kind: "delete", from: 13, to: 18 },
+      ],
+      "active",
+    );
+    const classes = new Map(
+      (suggestionHighlightKey.getState(editorState) as any).decorations
+        .find()
+        .map((deco: any) => [
+          deco.type.attrs["data-suggestion-id"],
+          deco.type.attrs.class,
+        ]),
+    );
+    expect(classes.get("active")).toContain("suggestion-highlight--active");
+    expect(classes.get("same-unit")).toContain("suggestion-highlight--active");
+    expect(classes.get("other")).not.toContain("suggestion-highlight--active");
+  });
+
   it("maps persisted ranges across document transactions and preserves stable ids", () => {
     let editorState = setSpecs(state("Hello world"), [
       { suggestionId: "stable", kind: "delete", from: 7, to: 12 },

@@ -190,6 +190,7 @@ function SidebarOwner({
       proposalId: string,
       decision: "accepted" | "rejected",
       members: ResourceSuggestion[],
+      exactMembers?: boolean,
     ) => void;
   };
 }) {
@@ -283,6 +284,7 @@ describe("comment review interactions", () => {
         proposalId: string,
         decision: "accepted" | "rejected",
         members: ResourceSuggestion[],
+        exactMembers?: boolean,
       ) => void;
     } = {},
   ) {
@@ -392,6 +394,87 @@ describe("comment review interactions", () => {
       ]),
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
+  });
+  describe("review units", () => {
+    const source = "Teh team will recieve the files.";
+    const piece = (id: string, reviewUnit: string, find: string) => {
+      const from = source.indexOf(find);
+      return {
+        ...proposalSuggestion(id),
+        metadata: { reviewUnit },
+        operations: [
+          {
+            id: `operation-${id}`,
+            kind: "replace_text",
+            before: { markdown: source, changedText: find },
+            after: { markdown: source, changedText: find.toUpperCase() },
+            anchor: { from, to: from + find.length },
+          },
+        ],
+      } as unknown as ResourceSuggestion;
+    };
+    const acceptIn = (id: string) => {
+      const accept = container.querySelector<HTMLButtonElement>(
+        `[data-suggestion-id='${id}'] [data-suggestion-decision='accepted']`,
+      );
+      if (!accept) throw new Error(`No Accept on ${id}`);
+      return accept;
+    };
+
+    it("shows a proposal that is one unit as one card with one Accept", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        1,
+      );
+      expect(container.textContent).toContain("TEH team will RECIEVE");
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members,
+        true,
+      );
+    });
+
+    it("gives each unit of a proposal its own card, counted once", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:2");
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        2,
+      );
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        [members[0], members[1]],
+        true,
+      );
+    });
   });
   it("keeps a proposal's Accept all off while one of its edits can't be placed", () => {
     const failed = proposalSuggestion("one");

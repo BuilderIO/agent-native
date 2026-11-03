@@ -385,6 +385,7 @@ import {
 } from "./suggestions/presentation-rebase";
 import {
   reviewedInThread,
+  reviewUnits,
   suggestionSourceThreadId,
 } from "./thread-suggestions";
 import {
@@ -6284,6 +6285,18 @@ function PageEditorSessionBody({
     },
     [documentId, savedSuggestions],
   );
+  const activeSuggestionOnPage =
+    hoveredSuggestionId ?? editingSuggestionId ?? selectedSuggestionId;
+  // Whichever word of a unit is active, all of its words light up.
+  const activeUnitIds = useMemo(
+    () =>
+      reviewUnits(savedSuggestions)
+        .find((unit) =>
+          unit.members.some((member) => member.id === activeSuggestionOnPage),
+        )
+        ?.members.map((member) => member.id),
+    [activeSuggestionOnPage, savedSuggestions],
+  );
   // The suggestion a Suggesting-mode decision is for: the draft that was
   // clicked, and once its save records it, the saved copy.
   const decidingSuggestionIds = useMemo(() => {
@@ -9819,7 +9832,12 @@ function PageEditorSessionBody({
             decideSuggestionProposal.isPending ||
             queuedDecisions.length > 0)
       }
-      onDecideSuggestionProposal={async (proposalId, decision, members) => {
+      onDecideSuggestionProposal={async (
+        proposalId,
+        decision,
+        members,
+        exactMembers = false,
+      ) => {
         if (decisionQueueActive) {
           if (
             members.length === 0 ||
@@ -9880,7 +9898,9 @@ function PageEditorSessionBody({
             currentMembers = refreshed.data.suggestions.filter(
               (suggestion) =>
                 suggestion.proposalId === proposalId &&
-                suggestion.status === "pending",
+                suggestion.status === "pending" &&
+                (!exactMembers ||
+                  members.some((member) => member.id === suggestion.id)),
             );
             setPendingProposalDecision((current) =>
               current?.generation === decisionGeneration
@@ -10916,11 +10936,8 @@ function PageEditorSessionBody({
                                     : undefined
                                 }
                                 suggestions={visualSuggestions}
-                                activeSuggestionId={
-                                  hoveredSuggestionId ??
-                                  editingSuggestionId ??
-                                  selectedSuggestionId
-                                }
+                                activeSuggestionId={activeSuggestionOnPage}
+                                activeSuggestionUnitIds={activeUnitIds}
                                 onActivateSuggestion={activateInlineSuggestion}
                                 onHoverSuggestion={setHoveredSuggestionId}
                                 onSuggestionReplacementIntent={

@@ -87,6 +87,109 @@ export function proposalGroups(
   );
 }
 
+/** Pieces of an edit a reviewer takes or leaves together. */
+export type ReviewUnit = {
+  leader: ResourceSuggestion;
+  members: ResourceSuggestion[];
+};
+
+/** The unit a piece was staged in, if it was staged with one. */
+export function reviewUnitLabel(
+  suggestion: Pick<ResourceSuggestion, "metadata">,
+): string | null {
+  const label = suggestion.metadata?.reviewUnit;
+  return typeof label === "string" && label ? label : null;
+}
+
+/**
+ * The units a proposal's edits are reviewed in, in the order given. A suggestion
+ * with no unit label, as one staged before units, is a unit of its own. Pieces
+ * that ended differently no longer decide together.
+ */
+export function reviewUnits(
+  suggestions: readonly ResourceSuggestion[],
+): ReviewUnit[] {
+  const units = new Map<string, ReviewUnit>();
+  for (const suggestion of suggestions) {
+    const label = reviewUnitLabel(suggestion);
+    const key = label
+      ? `unit:${suggestion.proposalId}:${label}:${suggestion.status}`
+      : suggestion.id;
+    const unit = units.get(key);
+    if (unit) unit.members.push(suggestion);
+    else units.set(key, { leader: suggestion, members: [suggestion] });
+  }
+  return [...units.values()];
+}
+
+function placedPiece(operation: ResourceSuggestion["operations"][number]) {
+  const before = operation.before as { markdown?: unknown } | undefined;
+  const after = operation.after as { changedText?: unknown } | undefined;
+  const anchor = operation.anchor as { from?: unknown; to?: unknown } | null;
+  return typeof before?.markdown === "string" &&
+    typeof after?.changedText === "string" &&
+    after.changedText !== "<empty-block/>" &&
+    typeof anchor?.from === "number" &&
+    typeof anchor.to === "number"
+    ? {
+        source: before.markdown,
+        from: anchor.from,
+        to: anchor.to,
+        inserted: after.changedText,
+      }
+    : null;
+}
+
+/**
+ * What a unit changes as one edit, from its first piece to its last with every
+ * piece applied, so a card reads it the way the Page will. Pieces that can't be
+ * read together, as when they were staged on different text, stay listed.
+ */
+export function reviewUnitOperations(
+  unit: ReviewUnit,
+): ResourceSuggestion["operations"] {
+  if (unit.members.length === 1) return unit.leader.operations;
+  const operations = unit.members.flatMap((member) => member.operations);
+  const pieces = operations
+    .map(placedPiece)
+    .filter((piece) => piece !== null)
+    .sort((left, right) => left.from - right.from);
+  const [first] = pieces;
+  const last = pieces[pieces.length - 1];
+  if (
+    pieces.length === 0 ||
+    pieces.length !== operations.length ||
+    pieces.some((piece) => piece.source !== first.source)
+  )
+    return operations;
+  const changedText = pieces.reduceRight(
+    (text, piece) =>
+      text.slice(0, piece.from - first.from) +
+      piece.inserted +
+      text.slice(piece.to - first.from),
+    first.source.slice(first.from, last.to),
+  );
+  const [leader] = operations;
+  return [
+    {
+      ...leader,
+      kind: "replace_text",
+      before: {
+        markdown: first.source,
+        changedText: first.source.slice(first.from, last.to),
+      },
+      after: {
+        markdown:
+          first.source.slice(0, first.from) +
+          changedText +
+          first.source.slice(last.to),
+        changedText,
+      },
+      anchor: { from: first.from, to: last.to },
+    },
+  ];
+}
+
 // Suggestion ids are URL-safe, so the encoded id in the link is the id itself.
 // The receipt's summary has its brackets stripped, so it is the whole comment.
 const RECEIPT_LINK = /^\[[^[\]]*\]\([^)\s]*[?&]suggestion=([\w.~-]+)[^)\s]*\)$/;

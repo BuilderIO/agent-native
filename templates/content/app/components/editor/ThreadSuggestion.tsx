@@ -16,7 +16,11 @@ import { AgentAvatar, agentDisplayName } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
-import { suggestionLineExcerpt } from "./thread-suggestions";
+import {
+  reviewUnitOperations,
+  reviewUnits,
+  suggestionLineExcerpt,
+} from "./thread-suggestions";
 
 type ThreadSuggestionProps = {
   /** One suggestion, or every edit of the proposal it belongs to, in Page order. */
@@ -27,6 +31,11 @@ type ThreadSuggestionProps = {
   conflict: (suggestion: ResourceSuggestion) => boolean;
   onDecide: (
     suggestion: ResourceSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
+  /** Decides pieces reviewed together, in one save. */
+  onDecideUnit: (
+    members: ResourceSuggestion[],
     decision: SuggestionDecision,
   ) => void;
   /** Decides every edit of the proposal still pending. */
@@ -79,6 +88,7 @@ function SuggestionStatus({
  */
 function ThreadSuggestionEdit({
   suggestion,
+  operations,
   canDecide,
   busy,
   conflict,
@@ -86,6 +96,8 @@ function ThreadSuggestionEdit({
   showStatus,
 }: {
   suggestion: ResourceSuggestion;
+  /** What the edit changes, read as one even when it takes several pieces. */
+  operations: ResourceSuggestion["operations"];
   canDecide: boolean;
   busy: boolean;
   conflict: boolean;
@@ -95,8 +107,8 @@ function ThreadSuggestionEdit({
   const t = useT();
   const statusLabel = useStatusLabel();
   const excerpt = useMemo(
-    () => suggestionLineExcerpt(suggestion.operations),
-    [suggestion.operations],
+    () => suggestionLineExcerpt(operations),
+    [operations],
   );
   const segments = useMemo(
     () =>
@@ -185,6 +197,7 @@ export function ThreadSuggestionBody({
   busy,
   conflict,
   onDecide,
+  onDecideUnit,
   onDecideRemaining,
   defaultExpanded = false,
 }: ThreadSuggestionProps) {
@@ -202,14 +215,20 @@ export function ThreadSuggestionBody({
       ? first.status
       : null;
   const summary = first.proposalSummary || first.summary;
-  const edits = suggestions.map((suggestion) => (
+  const units = reviewUnits(suggestions);
+  const edits = units.map((unit) => (
     <ThreadSuggestionEdit
-      key={suggestion.id}
-      suggestion={suggestion}
+      key={unit.leader.id}
+      suggestion={unit.leader}
+      operations={reviewUnitOperations(unit)}
       canDecide={canDecide}
-      busy={busy(suggestion)}
-      conflict={conflict(suggestion)}
-      onDecide={(decision) => onDecide(suggestion, decision)}
+      busy={unit.members.some(busy)}
+      conflict={unit.members.some(conflict)}
+      onDecide={(decision) =>
+        unit.members.length > 1
+          ? onDecideUnit(unit.members, decision)
+          : onDecide(unit.leader, decision)
+      }
       showStatus={!sharedStatus}
     />
   ));
@@ -218,7 +237,7 @@ export function ThreadSuggestionBody({
       className="mt-0.5 grid grid-cols-1 gap-2"
       data-thread-suggestion-group={first.proposalId ?? first.id}
     >
-      {suggestions.length > 1 ? (
+      {units.length > 1 ? (
         <ProposalGroup
           proposalId={first.proposalId ?? first.id}
           summary={summary}

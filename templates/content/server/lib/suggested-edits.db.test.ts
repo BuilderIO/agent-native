@@ -364,6 +364,89 @@ describe("Content suggested edits Blocks transaction", () => {
     await run();
   });
 
+  it("accepts one unit of a proposal as one Page version and leaves the rest pending", async () => {
+    sequence += 1;
+    const documentId = `suggestion-unit-page-${sequence}`;
+    const before = canonicalizeNfm(
+      "Teh team will recieve the files.\n\nBring the draft on Thursday.",
+    );
+    const after = canonicalizeNfm(
+      "The team will receive the files.\n\nBring the draft on Friday.",
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Unit page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    const create =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decide =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal");
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const operations = markdownSuggestionOperations(before, after);
+      expect(operations).toHaveLength(3);
+      const created = await create.default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Three pieces, two units",
+          idempotencyKey: `content-unit-${documentId}`,
+          suggestions: operations.map((part, index) => ({
+            summary: `Piece ${index + 1}`,
+            operations: [part],
+          })),
+        },
+        ctx,
+      );
+      const [teh, recieve, thursday] = created.suggestions;
+      const accepted = await decide.default.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `content-unit-decision-${documentId}`,
+          members: [teh, recieve].map((suggestion) => ({
+            id: suggestion.id,
+            observedRevision: suggestion.revision,
+            observedBase: suggestion.baseRevision,
+          })),
+        },
+        ctx,
+      );
+      expect(accepted.suggestions.map((member) => member.status)).toEqual([
+        "accepted",
+        "accepted",
+      ]);
+      const updated = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(updated.content).toBe(
+        canonicalizeNfm(
+          "The team will receive the files.\n\nBring the draft on Thursday.",
+        ),
+      );
+      expect(updated.bodyRevision).toBe(1);
+      // One history entry: the Page before the unit, then the Page after it.
+      const versions = await getDb()
+        .select({ checkpointKind: schema.documentVersions.checkpointKind })
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, documentId));
+      expect(versions.map((version) => version.checkpointKind).sort()).toEqual([
+        "after",
+        "before",
+      ]);
+      const lookup =
+        await import("@agent-native/core/review/suggestions/actions/get-resource-suggestion");
+      const rest = await lookup.default.run({ id: thursday.id }, ctx);
+      expect(rest.status).toBe("pending");
+    });
+  });
+
   it("accepts a 50-edit proposal as one Page version with every edit placed", async () => {
     sequence += 1;
     const documentId = `suggestion-large-proposal-page-${sequence}`;

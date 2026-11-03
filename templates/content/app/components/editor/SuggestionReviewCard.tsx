@@ -146,14 +146,12 @@ export function SuggestionReviewCard({
     }
   };
 
-  const onDecideRemaining = async (
+  const onDecideMembers = async (
     group: ResourceSuggestion[],
+    members: ResourceSuggestion[],
     decision: SuggestionDecision,
   ) => {
     const proposalId = group[0]?.proposalId;
-    const members = group.filter(
-      (suggestion) => suggestion.status === "pending",
-    );
     if (deciding || !proposalId || members.length === 0) return;
     setProblem(null);
     try {
@@ -237,8 +235,17 @@ export function SuggestionReviewCard({
                     onDecide={(suggestion, decision) =>
                       void onDecide(group, suggestion, decision)
                     }
+                    onDecideUnit={(members, decision) =>
+                      void onDecideMembers(group, members, decision)
+                    }
                     onDecideRemaining={(decision) =>
-                      void onDecideRemaining(group, decision)
+                      void onDecideMembers(
+                        group,
+                        group.filter(
+                          (suggestion) => suggestion.status === "pending",
+                        ),
+                        decision,
+                      )
                     }
                   />
                   {problem?.groupKey === key ? (

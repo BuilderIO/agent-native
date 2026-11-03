@@ -63,6 +63,7 @@ function render(
   suggestions: ResourceSuggestion[],
   handlers: {
     onDecide?: (...args: unknown[]) => void;
+    onDecideUnit?: (...args: unknown[]) => void;
     onDecideRemaining?: (...args: unknown[]) => void;
     conflict?: (suggestion: ResourceSuggestion) => boolean;
   } = {},
@@ -76,6 +77,7 @@ function render(
           busy={() => false}
           conflict={handlers.conflict ?? (() => false)}
           onDecide={handlers.onDecide ?? (() => {})}
+          onDecideUnit={handlers.onDecideUnit ?? (() => {})}
           {...(handlers.onDecideRemaining
             ? { onDecideRemaining: handlers.onDecideRemaining }
             : {})}
@@ -176,6 +178,55 @@ describe("ThreadSuggestionBody", () => {
 
     expect(button("comments.acceptAll").disabled).toBe(true);
     expect(button("comments.rejectAll").disabled).toBe(false);
+  });
+
+  it("gives a unit's pieces one Accept that decides them together", () => {
+    const pieces = proposal().map((suggestion) => ({
+      ...suggestion,
+      metadata: { ...suggestion.metadata, reviewUnit: "key:0" },
+    }));
+    const onDecide = vi.fn();
+    const onDecideUnit = vi.fn();
+    render(pieces, { onDecide, onDecideUnit });
+
+    expect(host.querySelector("[data-suggestion-proposal]")).toBeNull();
+    expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(1);
+    const diff = host.querySelector("[data-thread-suggestion-diff]");
+    expect(diff?.querySelector("del")?.textContent).toBeTruthy();
+
+    act(() => button("editor.acceptSuggestion").click());
+    expect(onDecideUnit).toHaveBeenCalledWith(pieces, "accepted");
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it("counts units, and decides each one apart, when a proposal has several", () => {
+    const [first, second] = proposal();
+    const third = { ...second, id: "edit-2" };
+    const label = (suggestion: ResourceSuggestion, reviewUnit: string) => ({
+      ...suggestion,
+      metadata: { ...suggestion.metadata, reviewUnit },
+    });
+    const pieces = [
+      label(first, "key:0"),
+      label(second, "key:1"),
+      label(third, "key:1"),
+    ];
+    const onDecide = vi.fn();
+    const onDecideUnit = vi.fn();
+    render(pieces, { onDecide, onDecideUnit, onDecideRemaining: vi.fn() });
+    openGroup();
+
+    expect(
+      host.querySelector("[data-suggestion-proposal] > button")?.textContent,
+    ).toContain("comments.proposalEditCount");
+    expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(2);
+    act(() => button("editor.acceptSuggestion", 0).click());
+    expect(onDecide).toHaveBeenCalledWith(pieces[0], "accepted");
+    act(() => button("editor.acceptSuggestion", 1).click());
+    expect(onDecideUnit).toHaveBeenCalledWith(
+      [pieces[1], pieces[2]],
+      "accepted",
+    );
   });
 
   it("offers no group decision for a single edit", () => {

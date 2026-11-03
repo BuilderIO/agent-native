@@ -30,6 +30,7 @@ import {
   contentSuggestionPath,
   contentSuggestionReviewPath,
 } from "../shared/suggestion-link.js";
+import { sentenceUnits } from "../shared/suggestion-units.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
@@ -596,6 +597,10 @@ export default defineAction({
     }
 
     const summary = effectiveSummary;
+    // Unit labels come from the creation key, so a retry writes the same ones
+    // and a later call that extends this proposal never joins its units.
+    const creationKey = args.idempotencyKey ?? crypto.randomUUID();
+    const units = sentenceUnits(operations);
 
     const grouped = await createResourceSuggestionProposal.run(
       {
@@ -607,19 +612,26 @@ export default defineAction({
           documentRevisionToken(existing.bodyRevision, content),
         summary,
         proposalId: args.proposalId,
-        idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
-        suggestions: operations.map((operation, index) => ({
-          summary: markdownSuggestionOperationSummary(operation),
-          operations: [{ ...operation, ordinal: 0 }],
-          metadata:
-            index === 0
-              ? {
-                  sourceFind: args.find,
-                  sourceReplace: args.replace ?? "",
-                  sourceProposalId: args.proposalId ?? null,
-                }
-              : undefined,
-        })),
+        idempotencyKey: creationKey,
+        suggestions: operations.map((operation, index) => {
+          const unit =
+            operations.length > 1
+              ? { reviewUnit: `${creationKey}:${units[index]}` }
+              : undefined;
+          return {
+            summary: markdownSuggestionOperationSummary(operation),
+            operations: [{ ...operation, ordinal: 0 }],
+            metadata:
+              index === 0
+                ? {
+                    sourceFind: args.find,
+                    sourceReplace: args.replace ?? "",
+                    sourceProposalId: args.proposalId ?? null,
+                    ...unit,
+                  }
+                : unit,
+          };
+        }),
       },
       suggestionContext,
     );

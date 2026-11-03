@@ -24,6 +24,7 @@ import {
   markdownSuggestionOperationsForFindReplaceEdits,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
+import { sentenceUnits } from "../shared/suggestion-units.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
@@ -186,6 +187,7 @@ export default defineAction({
         runId: request.runId,
         model: request.model,
       };
+      const units = sentenceUnits(operations, proposed.ranges);
       // A Content suggestion holds exactly one edit, so separate changes become
       // one proposal. The receipt links its first edit. Each attempt creates
       // under its own key, because a retry may propose different edits.
@@ -205,10 +207,13 @@ export default defineAction({
                 {
                   ...proposal,
                   idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
-                  suggestions: operations.map((operation) => ({
+                  suggestions: operations.map((operation, index) => ({
                     summary: markdownSuggestionOperationSummary(operation),
                     operations: [{ ...operation, ordinal: 0 }],
-                    metadata,
+                    metadata: {
+                      ...metadata,
+                      reviewUnit: `${args.attemptId}:${units[index]}`,
+                    },
                   })),
                 },
                 ctx,
