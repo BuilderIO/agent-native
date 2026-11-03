@@ -496,16 +496,33 @@ const designSystemIdField = z
     "Optional design system ID used for generation. Pass null to unlink.",
   );
 
+// The agent's copies of `designSystemId` and `tweaks` reject null and []. A
+// model that pads every field sends both for fields it is not using, and
+// accepted they would unlink the design system and replace its tweaks; rejected
+// they are dropped as placeholders. `update-design` unlinks.
+const agentDesignSystemIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Optional design system ID used for generation. To unlink one, use update-design.",
+  );
+
 const projectTypeField = z
   .enum(["prototype", "other"])
   .optional()
   .describe("Optional project type hint.");
 
+const tweaksDescription =
+  "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.";
+
 const tweaksField = tweakDefinitionsSchema
   .optional()
-  .describe(
-    "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
-  );
+  .describe(tweaksDescription);
+
+const agentTweaksField = tweakDefinitionsSchema
+  .min(1)
+  .optional()
+  .describe(tweaksDescription);
 
 // Reject two placements for the same target in one call. Without this,
 // mergeCanvasFramePlacements folds both entries into a single
@@ -677,9 +694,9 @@ const generateDesignAction = defineAction({
     designId: designIdField,
     prompt: promptField,
     files: filesField,
-    designSystemId: designSystemIdField,
+    designSystemId: agentDesignSystemIdField,
     projectType: projectTypeField,
-    tweaks: tweaksField,
+    tweaks: agentTweaksField,
     canvasFrames: canvasFramesField,
     contextPackId: contextPackIdField,
     contextModeOverride: contextModeOverrideField,

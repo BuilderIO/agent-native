@@ -276,6 +276,10 @@ vi.mock("@agent-native/creative-context/server", () => ({
   },
 }));
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./generate-design.js";
 
@@ -347,12 +351,68 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
       ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
-    expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
+    // oracle-change: the agent no longer unlinks a design system through generate-design (update-design does), so a padded null is a dropped placeholder, not an unlink.
+    expect(JSON.stringify(parameters.properties.designSystemId)).not.toContain(
       "null",
+    );
+    expect(parameters.properties.designSystemId?.description).toContain(
+      "update-design",
+    );
+    expect(JSON.stringify(parameters.properties.tweaks)).toContain(
+      '"minItems":1',
     );
     expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
       '"off"',
     );
+  });
+
+  it("runs a call whose unused fields are padded with null and empty lists", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const padded = {
+      ...validInput(),
+      designSystemId: null,
+      projectType: "prototype",
+      tweaks: [],
+      canvasFrames: [
+        {
+          filename: "index.html",
+          fileId: null,
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          z: null,
+          rotation: null,
+        },
+      ],
+      contextPackId: null,
+      reuseLabels: [],
+      primaryViewport: null,
+      devices: [],
+    };
+
+    const result = await executeAgentToolCall({
+      actions: {
+        "generate-design": { ...action, run } as unknown as ActionEntry,
+      },
+      name: "generate-design",
+      callId: "padded-by-model",
+      input: padded,
+    });
+
+    expect(result.status).toBe("completed");
+    const received = run.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(received).toMatchObject({ devices: [], reuseLabels: [] });
+    for (const dropped of [
+      "designSystemId",
+      "tweaks",
+      "contextPackId",
+    ] as const) {
+      expect(received[dropped], dropped).toBeUndefined();
+    }
+    expect(received.canvasFrames).toEqual([
+      { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+    ]);
   });
 
   it("offers the model only filename, content, and fileType per file", () => {
