@@ -42,6 +42,7 @@ import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   type EngineLlmConnectionSource,
   type EngineCredentialOwner,
+  tagEngineCredentialOrg,
   tagEngineCredentialOwner,
   tagEngineLlmConnectionSource,
 } from "./credential-owner.js";
@@ -955,13 +956,30 @@ export function credentialOwnerForEntry(
   return provenance.scope === "deployment" ? "deployment" : "customer";
 }
 
+/**
+ * The org whose stored key a customer-funded engine uses: an org row or that
+ * org's workspace row, never a solo workspace.
+ */
+function credentialOrgIdFor(
+  owner: EngineCredentialOwner | undefined,
+  provenance: CredentialProvenance | undefined,
+): string | undefined {
+  if (owner !== "customer" || !provenance?.scopeId) return undefined;
+  if (provenance.scope === "org") return provenance.scopeId;
+  return provenance.scope === "workspace" &&
+    !provenance.scopeId.startsWith("solo:")
+    ? provenance.scopeId
+    : undefined;
+}
+
 async function createEngineForEntry(
   ...args: Parameters<typeof engineCreateConfigForEntry>
 ): Promise<AgentEngine> {
-  const { config, credentialOwner, connectionSource } =
+  const { config, credentialOwner, credentialOrgId, connectionSource } =
     await engineCreateConfigForEntry(...args);
   const engine = args[0].create(config);
   tagEngineCredentialOwner(engine, credentialOwner);
+  tagEngineCredentialOrg(engine, credentialOrgId);
   tagEngineLlmConnectionSource(engine, connectionSource);
   return engine;
 }
@@ -998,6 +1016,7 @@ async function engineCreateConfigForEntry(
 ): Promise<{
   config: Record<string, unknown>;
   credentialOwner: EngineCredentialOwner | undefined;
+  credentialOrgId: string | undefined;
   connectionSource: EngineLlmConnectionSource | undefined;
 }> {
   const safeExtra = { ...(extra ?? {}) };
@@ -1197,13 +1216,18 @@ async function engineCreateConfigForEntry(
       creds.source === "env" ? "env" : creds.source ? "app_secrets" : undefined;
   }
   const config = engineCreateConfig(entry, matchingApiKey, safeExtra);
+  const credentialOwner = credentialOwnerForEntry(
+    entry,
+    matchingApiKey,
+    matchingApiKeyProvenance,
+    config,
+  );
   return {
     config,
-    credentialOwner: credentialOwnerForEntry(
-      entry,
-      matchingApiKey,
+    credentialOwner,
+    credentialOrgId: credentialOrgIdFor(
+      credentialOwner,
       matchingApiKeyProvenance,
-      config,
     ),
     connectionSource:
       connectionSource ??

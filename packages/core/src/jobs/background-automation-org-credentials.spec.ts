@@ -9,7 +9,10 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
-import { getEngineCredentialOwner } from "../agent/engine/credential-owner.js";
+import {
+  getEngineCredentialOrgId,
+  getEngineCredentialOwner,
+} from "../agent/engine/credential-owner.js";
 import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import type { AutomationExecutionIdentity } from "../automations/service.js";
 
@@ -175,6 +178,7 @@ async function keyUsedByRun(owner: string, runDeps: typeof deps = deps) {
   return {
     apiKey: (check.engine as any).apiKey as string | undefined,
     owner: getEngineCredentialOwner(check.engine),
+    paidByOrgId: getEngineCredentialOrgId(check.engine),
   };
 }
 
@@ -205,6 +209,7 @@ beforeEach(async () => {
   for (const name of [
     ...PROVIDER_ENV_VARS,
     "OPENAI_BASE_URL",
+    "GEMINI_API_KEY",
     "BUILDER_PRIVATE_KEY",
     "BUILDER_PUBLIC_KEY",
     "BUILDER_GATEWAY_TOKEN",
@@ -229,6 +234,7 @@ describe("a personal automation whose provider key is saved at organization scop
     expect(await keyUsedByRun(MEMBER)).toMatchObject({
       apiKey: "sk-ant-org",
       owner: "customer",
+      paidByOrgId: ORG,
     });
   });
 
@@ -391,9 +397,9 @@ describe("a personal automation that works today", () => {
     secret(scope, scopeId, "ANTHROPIC_API_KEY", "sk-ant-personal");
     secret("org", ORG, "ANTHROPIC_API_KEY", "sk-ant-org");
 
-    expect(await keyUsedByRun(owner)).toMatchObject({
-      apiKey: "sk-ant-personal",
-    });
+    const used = await keyUsedByRun(owner);
+    expect(used).toMatchObject({ apiKey: "sk-ant-personal" });
+    expect(used.paidByOrgId).toBeUndefined();
     expect((await credentialCheckFor(owner)).check).toMatchObject({ ok: true });
   });
 
@@ -452,6 +458,18 @@ describe("the organization's key is the last resort of a personal automation", (
       apiKey: "sk-ant-deploy",
       owner: "deployment",
     });
+  });
+
+  it("keeps the deployment's Gemini key saved under its older name", async () => {
+    defaultEngine(MEMBER, "ai-sdk:google");
+    vi.stubEnv("GEMINI_API_KEY", "gemini-deploy");
+    secret("org", ORG, "GOOGLE_GENERATIVE_AI_API_KEY", "gemini-org");
+
+    const used = await keyUsedByRun(MEMBER);
+
+    expect(used.apiKey).not.toBe("gemini-org");
+    expect(used).toMatchObject({ owner: "deployment" });
+    expect(used.paidByOrgId).toBeUndefined();
   });
 
   it("keeps the host's key", async () => {

@@ -12,6 +12,7 @@ import {
   resolveSecretDetailed,
   type ResolvedSecretDetail,
 } from "./credential-provider.js";
+import { personalRunProviderKeyOrgId } from "./personal-provider-key-policy.js";
 
 export {
   GEMINI_API_KEY,
@@ -27,10 +28,23 @@ export interface ResolvedAliasedSecret extends ResolvedSecretDetail {
 
 /**
  * Lower answers first. Mirrors `resolveSecretDetailed`'s own walk (personal,
- * organization, organization workspace, solo workspace, deploy env) so a
- * personal row under either name still beats a shared row under the other.
+ * organization, organization workspace, solo workspace, deploy env, then a
+ * personal run's org fallback) so a personal row under either name still
+ * beats a shared row under the other.
  */
-function precedence(detail: ResolvedSecretDetail): number {
+function precedence(
+  detail: ResolvedSecretDetail,
+  fallbackOrgId: string | undefined,
+): number {
+  // A personal run reads its org's rows only after the deploy env, so a
+  // deployment key under one name beats the org's key under the other.
+  if (
+    fallbackOrgId &&
+    (detail.source === "org" || detail.source === "workspace") &&
+    detail.scopeId === fallbackOrgId
+  ) {
+    return 5;
+  }
   switch (detail.source) {
     case "user":
       return 0;
@@ -41,7 +55,7 @@ function precedence(detail: ResolvedSecretDetail): number {
     case "env":
       return 4;
     default:
-      return 5;
+      return 6;
   }
 }
 
@@ -78,18 +92,23 @@ export async function resolveSecretWithAliasesDetailed(
     const detail = await resolveSecretDetailed(key, options);
     return detail.value ? { ...detail, key } : detail;
   }
+  const fallbackOrgId = personalRunProviderKeyOrgId(key);
   // One name at a time so a personal row under the canonical name, the common
   // case once Settings writes it, answers without reading the older name.
   const details: { name: string; detail: ResolvedSecretDetail }[] = [];
   for (const name of names) {
     const detail = await resolveSecretDetailed(name, options);
     details.push({ name, detail });
-    if (detail.value && precedence(detail) === 0) break;
+    if (detail.value && precedence(detail, fallbackOrgId) === 0) break;
   }
   let best: (typeof details)[number] | undefined;
   for (const entry of details) {
     if (!entry.detail.value) continue;
-    if (!best || precedence(entry.detail) < precedence(best.detail)) {
+    if (
+      !best ||
+      precedence(entry.detail, fallbackOrgId) <
+        precedence(best.detail, fallbackOrgId)
+    ) {
       best = entry;
     }
   }
