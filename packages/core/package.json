@@ -415,6 +415,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/telemetry": {
+      "types": "./dist/cli/telemetry.d.ts",
+      "default": "./dist/cli/telemetry.js"
+    },
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
