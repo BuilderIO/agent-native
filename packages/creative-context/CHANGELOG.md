@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.63
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.62
 
 ### Patch Changes
@@ -647,14 +653,5 @@
   consumer who already has a different Playwright from deduping, which forces a
   nested copy and downloads exactly the second browser this change exists to
   avoid.
-
-## 0.5.9
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

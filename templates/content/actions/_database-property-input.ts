@@ -46,7 +46,7 @@ export const databasePropertyEntrySchema = z.discriminatedUnion(
     ),
     stringPropertyEntry(
       "url",
-      "Absolute http/https URL; null explicitly clears the value",
+      "Absolute http/https URL or t3-thread link; null explicitly clears the value",
     ),
     stringPropertyEntry(
       "email",

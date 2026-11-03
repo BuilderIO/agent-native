@@ -401,11 +401,15 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
     uiImplementation:
-      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed. An outside agent holding a video file calls create-video-upload over MCP: it runs the same check and start, hands the agent the chunk URL and the ClipEmbed tag, and the agent posts the chunks to Clips and writes the tag with edit-document.",
     status: "action-backed",
-    actions: ["get-clip-upload-status", "create-clip-upload"],
+    actions: [
+      "get-clip-upload-status",
+      "create-clip-upload",
+      "create-video-upload",
+    ],
     exception:
-      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+      "get-clip-upload-status and create-clip-upload are hidden with agentTool: false because they serve the editor's Upload tab and the file its tab holds. create-video-upload is MCP-only (agentTool: false, mcpTool: true): an outside agent can read a local file and post it to Clips, but the app's own agent has no files to send. Agents see the editor's uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
     reliabilityRisk: "none",
     spinePriority: "P2",
     testCoverage: "covered",
