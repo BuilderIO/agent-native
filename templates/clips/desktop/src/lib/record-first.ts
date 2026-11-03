@@ -225,12 +225,6 @@ export interface RecordFirstChunk {
 }
 
 /**
- * Copy a record-first file into the desktop backup store's shape, so the
- * existing pending-upload retry path uploads it into its new server row. The
- * file is read one slice at a time, so memory holds a single slice however
- * long the recording is.
- */
-/**
  * The saved file's fingerprint, from its first bytes. Clips matches it against
  * clips this account already has, so a file that was uploaded some other way
  * comes back as that clip instead of a second copy.
@@ -250,6 +244,12 @@ export async function recordFirstSourceHeadSha256(input: {
   return sourceHeadSha256(head.subarray(0, filled));
 }
 
+/**
+ * Copy a record-first file into the desktop backup store's shape, so the
+ * existing pending-upload retry path uploads it into its new server row. The
+ * file is read one slice at a time, so memory holds a single slice however
+ * long the recording is.
+ */
 export async function stageRecordFirstFile(input: {
   recordingId: string;
   serverUrl: string;

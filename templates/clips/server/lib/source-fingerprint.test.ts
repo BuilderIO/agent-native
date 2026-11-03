@@ -111,26 +111,21 @@ describe("sourceHeadSha256", () => {
 });
 
 describe("findUploadedSourceRecording", () => {
-  it("finds the owner's newest uploaded clip with the fingerprint", async () => {
+  it("finds the owner's newest ready clip with the fingerprint", async () => {
     const sha256 = "a".repeat(64);
     await seed({ id: "older", sha256, createdAt: "2026-10-01T00:00:00.000Z" });
-    await seed({
-      id: "newer",
-      sha256,
-      status: "processing",
-      createdAt: "2026-10-24T00:00:00.000Z",
-    });
+    await seed({ id: "newer", sha256, createdAt: "2026-10-24T00:00:00.000Z" });
 
     await expect(
       findUploadedSourceRecording("Owner@Example.com", sha256),
     ).resolves.toEqual({
       id: "newer",
       organizationId: "org-1",
-      status: "processing",
+      status: "ready",
     });
   });
 
-  it("ignores other owners, trashed clips and clips not yet uploaded", async () => {
+  it("ignores other owners, trashed clips and clips that could still fail", async () => {
     const sha256 = "b".repeat(64);
     await seed({ id: "theirs", sha256, ownerEmail: "other@example.com" });
     await seed({
@@ -139,6 +134,7 @@ describe("findUploadedSourceRecording", () => {
       trashedAt: "2026-10-25T00:00:00.000Z",
     });
     await seed({ id: "uploading", sha256, status: "uploading" });
+    await seed({ id: "processing", sha256, status: "processing" });
     await seed({ id: "failed", sha256, status: "failed" });
     await seed({ id: "different", sha256: "c".repeat(64) });
 
@@ -193,6 +189,29 @@ describe("recordSourceHeadFromFirstChunk", () => {
     }
 
     expect(await storedSha256("rec-1")).toBeNull();
+  });
+
+  it("fails the chunk when the fingerprint cannot be stored", async () => {
+    const realDb = mocks.db;
+    const outage = new Error("database unavailable");
+    mocks.db = {
+      update: () => {
+        throw outage;
+      },
+    };
+    try {
+      await expect(
+        recordSourceHeadFromFirstChunk({
+          recordingId: "rec-1",
+          ownerEmail: "owner@example.com",
+          index: 0,
+          bytes: fileBytes(SOURCE_HEAD_BYTES),
+          isFinal: false,
+        }),
+      ).rejects.toBe(outage);
+    } finally {
+      mocks.db = realDb;
+    }
   });
 
   it("keeps a fingerprint already set and never touches another owner's row", async () => {
