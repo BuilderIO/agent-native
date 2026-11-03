@@ -96,7 +96,7 @@ const recoveryHash=new URLSearchParams();
 recoveryHash.set(cacheBusterParam,now.toString(36));
 recoveryHash.set(originalHashParam,originalHash);
 url.hash=recoveryHash.toString();
-location.assign(url.href);
+try{location.assign(url.href);}catch(error){delete window[navigatingKey];throw error;}
 event.stopImmediatePropagation();
 },true);
 })();`;

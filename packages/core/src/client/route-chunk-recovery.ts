@@ -145,7 +145,14 @@ function hardNavigate(win: Window, href: string, now = Date.now()): void {
   try {
     win.location.assign(href);
   } catch {
-    win.location.href = href;
+    try {
+      win.location.href = href;
+    } catch (error) {
+      delete (win as unknown as Record<string, unknown>)[
+        STALE_CHUNK_NAVIGATING_AT_KEY
+      ];
+      throw error;
+    }
   }
 }
 
