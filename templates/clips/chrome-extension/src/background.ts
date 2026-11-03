@@ -2417,7 +2417,25 @@ async function attachSession(session: CaptureSession): Promise<void> {
   for (const tabId of wanted) {
     if (session.debugTabs.has(tabId)) continue;
     if (session.debugTabs.size >= MAX_DEBUGGED_TABS) break;
+    if (tabId !== session.targetTabId && !(await inTargetWindow(session, tabId)))
+      continue;
     await attachDebugTab(session, tabId);
+  }
+}
+
+// Stored activation windows go stale when a tab moves, so ask Chrome.
+async function inTargetWindow(
+  session: CaptureSession,
+  tabId: number,
+): Promise<boolean> {
+  try {
+    const [target, tab] = await Promise.all([
+      chrome.tabs.get(session.targetTabId),
+      chrome.tabs.get(tabId),
+    ]);
+    return tab.windowId === target.windowId;
+  } catch {
+    return false;
   }
 }
 
@@ -3323,6 +3341,19 @@ async function dispatchRuntimeMessage(
   }
 }
 
+chrome.tabs.onAttached.addListener(() => {
+  void (async () => {
+    const session = recordingDiagnosticsSession();
+    if (!session) return;
+    for (const tabId of [...session.debugTabs.keys()]) {
+      if (tabId === session.targetTabId) continue;
+      if (!(await inTargetWindow(session, tabId))) {
+        await detachDebugTab(session, tabId);
+      }
+    }
+  })();
+});
+
 chrome.tabs.onActivated.addListener((info) => {
   if (!CROSS_TAB_FOLLOW) return;
   void (async () => {
@@ -3382,6 +3413,10 @@ async function followRecordingTab(
   }
   // Attach first, so a refused tab never costs an attached tab its slot.
   if (!(await attachDebugTab(session, tabId))) return;
+  if (recordingDiagnosticsSession() !== session) {
+    await detachDebugTab(session, tabId);
+    return;
+  }
   while (session.debugTabs.size > MAX_DEBUGGED_TABS) {
     const victim = chooseTabToDetach({
       attached: [...session.debugTabs].map(([id, lastActiveMs]) => ({
