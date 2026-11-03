@@ -4713,8 +4713,9 @@ export async function includeOpenDeckIfMissing(
 /**
  * The baseline for the current route. On a deck route the open deck alone is
  * enough to render the editor, so the list is not awaited; the caller merges
- * it in afterwards. A deck that cannot be read falls back to the list, which
- * the access probe then explains.
+ * it in afterwards. A deck the server says is gone or forbidden falls back to
+ * the list, which the access probe then explains. A transient read failure
+ * returns null instead, so the editor shows an error rather than an empty deck.
  */
 export async function fetchDecksForCurrentRoute(
   openDeckRead?: Promise<DeckRead>,
