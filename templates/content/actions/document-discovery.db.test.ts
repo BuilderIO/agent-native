@@ -358,6 +358,12 @@ describe("bounded document discovery", () => {
           title: "Marker, then a real comment",
           content: `Write \`<!--\` to open one. <!-- ${filler}commented-okapi-roadmap internal --> Public closing words.`,
         },
+        {
+          id: "search-marker-far-back",
+          ownerEmail: OWNER,
+          title: "Marker too far back to read",
+          content: `<!-- ${"internal ".repeat(3000)}distant-okapi-roadmap stays hidden.`,
+        },
       ]);
 
     const snippetFor = async (query: string) => {
@@ -376,6 +382,7 @@ describe("bounded document discovery", () => {
     expect(await snippetFor("commented-okapi-roadmap")).toBe(
       "...Public closing words.",
     );
+    expect(await snippetFor("distant-okapi-roadmap")).toBe("");
   });
 
   it("prefers snippet context containing more positive terms", async () => {

@@ -80,12 +80,28 @@ Quarterly Launch Plan
       "````\n```\n<!-- a note\n```\n````\n\nThen close it.",
       "Write ``<!--`` to open it. Then close it.",
       "Write ``a ` <!-- b`` to open it. Then close it.",
+      "After \\\\`<!--` the backtick still opens code. Then close it.",
+      "Write &lt;!-- as text. Then close it.",
     ]) {
       expect(stripMarkdownForPreview(sample)).toContain("Then close it.");
     }
     expect(
       stripMarkdownForPreview("```<!-- a note -->``` Then close it."),
     ).toContain("a note");
+  });
+
+  it("removes code's own markers, whatever their length", () => {
+    expect(
+      stripMarkdownForPreview(
+        "Intro.\n\n```html\nconst a = 1;\n```\n\n~~~\nconst b = 2;\n~~~\n\nUse ``c`` and `d`.",
+      ),
+    ).toBe("Intro. const a = 1; const b = 2; Use c and d.");
+  });
+
+  it("keeps a comment written with entities as text", () => {
+    expect(stripMarkdownForPreview("Type &lt;!-- a note --&gt; here.")).toBe(
+      "Type <!-- a note --> here.",
+    );
   });
 
   it("removes a comment after a backtick that isn't code", () => {

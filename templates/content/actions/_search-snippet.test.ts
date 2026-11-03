@@ -149,6 +149,15 @@ describe("searchSnippet", () => {
     ).toBe("");
   });
 
+  it("shows a match in code without the code's markers", () => {
+    expect(
+      searchSnippet(
+        "Intro.\n\n```js\nconst needle = 1;\n```\n\nThen ``two`` words.",
+        "needle",
+      ),
+    ).toBe("Intro. const needle = 1; Then two words.");
+  });
+
   it("leaves a whole short page as it is", () => {
     expect(searchSnippet("Notes come first.", "notes")).toBe(
       "Notes come first.",

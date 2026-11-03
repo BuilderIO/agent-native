@@ -51,6 +51,20 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+/** How much of the page before a match window search reads for a comment. */
+const COMMENT_SCAN_CHARS = 20_000;
+
+/**
+ * Whether a match window starts inside an HTML comment, from the text before it
+ * when that has an open marker. A marker too far back to read counts as one.
+ */
+function startsInComment(beforeOpenMarker: string | null | undefined): boolean {
+  if (!beforeOpenMarker) return false;
+  return (
+    !beforeOpenMarker.includes("<!--") || endsInHtmlComment(beforeOpenMarker)
+  );
+}
+
 /**
  * A result's snippet from its match window. The window starts
  * `SNIPPET_WINDOW_CONTEXT` characters before the match, or at the top of the
@@ -75,7 +89,7 @@ function previewSnippet(
     clippedEnd:
       windowStart - 1 + Array.from(window).length <
       (Number(preview?.contentLength) || 0),
-    startsInComment: endsInHtmlComment(preview?.beforeOpenMarker ?? ""),
+    startsInComment: startsInComment(preview?.beforeOpenMarker),
     matchOffset: position > 0 ? position - windowStart : undefined,
   });
 }
@@ -354,16 +368,17 @@ export default defineAction({
     const matchWindow = selectedBodyPosition
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    // The page before the window, only when that text, read backwards, reaches
-    // a `<!--` before any `-->`. The window can only start inside a comment
-    // then, and the marker may still be code, which takes Markdown to tell.
+    // The end of the page before the window, only when that text, read
+    // backwards, reaches a `<!--` before any `-->`. The window can only start
+    // inside a comment then, and the marker may still be code, which takes
+    // Markdown to tell.
     const beforeWindow = selectedBodyPosition
       ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
       : undefined;
     const beforeOpenMarker = beforeWindow
       ? sql<
           string | null
-        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then ${beforeWindow} end`
+        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then right(${beforeWindow}, ${sql.raw(String(COMMENT_SCAN_CHARS))}) end`
       : sql<string | null>`null`;
     const ranking =
       !indexedSearch && parsedQuery?.groups.length

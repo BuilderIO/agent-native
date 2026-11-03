@@ -16,12 +16,13 @@ const FENCED_CODE =
 
 /**
  * A code span: a run of backticks up to the next run of the same length, in the
- * same paragraph. An escaped backtick or one with no partner is plain text.
+ * same paragraph. A backtick after an odd run of backslashes is escaped, and an
+ * escaped one or one with no partner is plain text.
  */
 const CODE_SPAN =
-  /(?<![`\\])(?<ticks>`+)(?!`)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\k<ticks>(?!`)/;
+  /(?<!`)(?<!(?<!\\)\\(?:\\\\)*)(?<ticks>`+)(?!`)(?<code>(?:(?!\n[ \t]*\n)[\s\S])*?)(?<!`)\k<ticks>(?!`)/g;
 
-/** Code, in its one capture, or an HTML comment, closed or not. */
+/** Code, in the first capture, or an HTML comment, closed or not. */
 const CODE_OR_COMMENT = new RegExp(
   `(${FENCED_CODE.source}|${CODE_SPAN.source})|<!--[\\s\\S]*?(?:-->|$)`,
   "g",
@@ -46,7 +47,7 @@ function stripHtmlComments(markdown: string): string {
 export function endsInHtmlComment(markdown: string): boolean {
   let open = false;
   for (const match of markdown.matchAll(CODE_OR_COMMENT)) {
-    open = match[1] === undefined && !match[0].endsWith("-->");
+    open = match[0].startsWith("<!--") && !match[0].endsWith("-->");
   }
   return open;
 }
@@ -103,7 +104,8 @@ function isDividerBlock(block: string): boolean {
 
 export function stripMarkdownForPreview(markdown: string): string {
   return (
-    stripHtmlComments(decodeCommonEntities(markdown))
+    // Comments go first: a `&lt;!--` is text that reads as a marker, not one.
+    decodeCommonEntities(stripHtmlComments(markdown))
       // A tag starts with a name, so `3 < 4 and 5 > 2` stays.
       .replace(/<[A-Za-z][^<>\n]*\/>/g, " ")
       .replace(/<\/?[A-Za-z][^<>\n]*>/g, " ")
@@ -113,7 +115,9 @@ export function stripMarkdownForPreview(markdown: string): string {
       .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-      .replace(/`([^`]+)`/g, "$1")
+      // A fence's own lines, when code reaches a preview, such as a search match.
+      .replace(/^ {0,3}(?:`{3,}[^`\n]*|~{3,}[^\n]*)$/gm, " ")
+      .replace(CODE_SPAN, "$<code>")
       .replace(/^#{1,6}\s+/gm, "")
       .replace(/\s+#+\s*$/gm, "")
       .replace(/^\s{0,3}>\s?/gm, "")
