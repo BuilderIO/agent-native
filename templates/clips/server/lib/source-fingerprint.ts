@@ -8,12 +8,14 @@ import { getDb, schema } from "../db/index.js";
 import { ownerEmailMatches } from "./recordings.js";
 
 /**
- * The owner's ready clip of the file with this fingerprint, if any. A clip
- * still uploading or processing doesn't count: it may yet fail verification,
- * and the caller drops its own copy on a match.
+ * The owner's ready clip of the file with this fingerprint in this
+ * organization, if any. The caller drops its own copy on a match, so only a
+ * clip it could have saved counts: one in another organization is not where it
+ * asked to save, and one still uploading or processing may yet fail.
  */
 export async function findUploadedSourceRecording(
   ownerEmail: string,
+  organizationId: string,
   sha256: string,
 ) {
   const rows = await getDb()
@@ -27,6 +29,7 @@ export async function findUploadedSourceRecording(
       and(
         eq(schema.recordings.sourceHeadSha256, sha256),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.organizationId, organizationId),
         eq(schema.recordings.status, "ready"),
         isNull(schema.recordings.trashedAt),
       ),

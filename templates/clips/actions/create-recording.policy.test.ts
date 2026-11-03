@@ -304,11 +304,11 @@ describe("create-recording policy", () => {
     expect(calls.insert).toHaveBeenCalledOnce();
   });
 
-  it("returns the owner's uploaded clip of a fingerprinted file instead of creating one", async () => {
+  it("returns the owner's uploaded clip of a fingerprinted file in the authorized organization instead of creating one", async () => {
     const sha256 = "a".repeat(64);
     calls.findUploadedSource.mockResolvedValueOnce({
       id: "rec-uploaded",
-      organizationId: "org-2",
+      organizationId: "org-1",
       status: "ready",
     });
     const action = createRecording as unknown as {
@@ -325,12 +325,13 @@ describe("create-recording policy", () => {
       ),
     ).resolves.toEqual({
       id: "rec-uploaded",
-      organizationId: "org-2",
+      organizationId: "org-1",
       status: "ready",
       existingRecording: true,
     });
     expect(calls.findUploadedSource).toHaveBeenCalledWith(
       "owner@example.com",
+      "org-1",
       sha256,
     );
     expect(calls.snapshot).not.toHaveBeenCalled();

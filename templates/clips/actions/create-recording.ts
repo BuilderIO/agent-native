@@ -158,7 +158,11 @@ export default defineAction({
         args.organizationId,
       );
       const uploaded = args.sourceHeadSha256
-        ? await findUploadedSourceRecording(ownerEmail, args.sourceHeadSha256)
+        ? await findUploadedSourceRecording(
+            ownerEmail,
+            organizationId,
+            args.sourceHeadSha256,
+          )
         : null;
       if (uploaded) return { uploaded } as const;
 

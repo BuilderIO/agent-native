@@ -52,16 +52,18 @@ let client: Awaited<ReturnType<typeof PGlite.create>>;
 async function seed(row: {
   id: string;
   ownerEmail?: string;
+  organizationId?: string;
   status?: string;
   trashedAt?: string | null;
   createdAt?: string;
   sha256?: string | null;
 }) {
   await client.query(
-    `INSERT INTO recordings (id, owner_email, status, trashed_at, created_at, source_head_sha256)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO recordings (id, workspace_id, owner_email, status, trashed_at, created_at, source_head_sha256)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       row.id,
+      row.organizationId ?? "org-1",
       row.ownerEmail ?? "owner@example.com",
       row.status ?? "ready",
       row.trashedAt ?? null,
@@ -117,7 +119,7 @@ describe("findUploadedSourceRecording", () => {
     await seed({ id: "newer", sha256, createdAt: "2026-10-24T00:00:00.000Z" });
 
     await expect(
-      findUploadedSourceRecording("Owner@Example.com", sha256),
+      findUploadedSourceRecording("Owner@Example.com", "org-1", sha256),
     ).resolves.toEqual({
       id: "newer",
       organizationId: "org-1",
@@ -125,9 +127,10 @@ describe("findUploadedSourceRecording", () => {
     });
   });
 
-  it("ignores other owners, trashed clips and clips that could still fail", async () => {
+  it("ignores other owners and organizations, trashed clips and clips that could still fail", async () => {
     const sha256 = "b".repeat(64);
     await seed({ id: "theirs", sha256, ownerEmail: "other@example.com" });
+    await seed({ id: "other-org", sha256, organizationId: "org-2" });
     await seed({
       id: "trashed",
       sha256,
@@ -139,7 +142,7 @@ describe("findUploadedSourceRecording", () => {
     await seed({ id: "different", sha256: "c".repeat(64) });
 
     await expect(
-      findUploadedSourceRecording("owner@example.com", sha256),
+      findUploadedSourceRecording("owner@example.com", "org-1", sha256),
     ).resolves.toBeNull();
   });
 });
