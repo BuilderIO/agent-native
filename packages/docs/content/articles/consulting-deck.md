@@ -48,7 +48,10 @@ faqs:
   - q: How many slides should a consulting deck have?
     a: "Enough slides for the argument, with one takeaway per slide. A main deck of 10 to 20 slides covers most client questions: title, executive summary, the findings and the recommendation. Methods, full data tables and interview lists go in an appendix after the recommendation, so the main deck stays short."
   - q: What's the difference between a consulting deck and a capabilities deck?
-    a: "A consulting deck answers one client's question with findings and a recommendation. A capabilities deck is a firm's overview of its own services, team and past work, used to win new clients. Agencies and consulting firms use both, at different stages: the capabilities deck before the work, the consulting deck during and after it. For a recurring review with a client you already work with, see how to build a QBR deck from the quarter's numbers."
+    a: |-
+      A consulting deck answers one client's question with findings and a recommendation. A capabilities deck is a firm's overview of its own services, team and past work, used to win new clients. Agencies and consulting firms use both, at different stages: the capabilities deck before the work, the consulting deck during and after it.
+
+      When you pitch one prospect, build the sales presentation from what they told you in discovery. For a recurring review with a client you already work with, see how to build a QBR deck from the quarter's numbers.
   - q: What is the Pyramid Principle?
     a: "The Pyramid Principle is a way of structuring an argument with the conclusion first, then the reasons that support it, then the evidence for each reason. Barbara Minto developed it at McKinsey and published it as a book. Consulting decks follow it: the answer on the first slides, the findings after them, and the proof on each slide."
 ---
@@ -227,7 +230,9 @@ Enough slides for the argument, with one takeaway per slide. A main deck of 10 t
 
 ### What's the difference between a consulting deck and a capabilities deck?
 
-A consulting deck answers one client's question with findings and a recommendation. A capabilities deck is a firm's overview of its own services, team and past work, used to win new clients. Agencies and consulting firms use both, at different stages: the capabilities deck before the work, the consulting deck during and after it. For a recurring review with a client you already work with, see [how to build a QBR deck from the quarter's numbers](https://www.agent-native.com/articles/qbr-presentation/).
+A consulting deck answers one client's question with findings and a recommendation. A capabilities deck is a firm's overview of its own services, team and past work, used to win new clients. Agencies and consulting firms use both, at different stages: the capabilities deck before the work, the consulting deck during and after it.
+
+When you pitch one prospect, [build the sales presentation from what they told you in discovery](https://www.agent-native.com/articles/sales-presentation/). For a recurring review with a client you already work with, see [how to build a QBR deck from the quarter's numbers](https://www.agent-native.com/articles/qbr-presentation/).
 
 ### What is the Pyramid Principle?
 
