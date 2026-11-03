@@ -4566,7 +4566,7 @@ function TiptapComposerSurface({
     if (!abandoned) return text;
     let matched = 0;
     for (let i = 0; i < text.length; i++) {
-      const ch = normalizeVoiceWords(text[i]);
+      const ch = normalizeVoiceWords(text.charAt(i));
       if (!ch) continue;
       if (abandoned[matched] !== ch) return text;
       matched += 1;
@@ -4750,6 +4750,10 @@ function TiptapComposerSurface({
   // also stop the run.
   voiceCapturingRef.current =
     voice.state === "recording" || voice.state === "starting";
+
+  useEffect(() => {
+    if (voice.state === "starting") abandonedVoiceTextRef.current = "";
+  }, [voice.state]);
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
