@@ -576,6 +576,35 @@ describe("call-agent action", () => {
     expect(changedOptions.idempotencyKey).not.toBe(firstOptions.idempotencyKey);
   });
 
+  it("gives a same-turn retry that adds files its own message key", async () => {
+    callAgentMock.mockResolvedValue("done");
+    const { run } = await import("./call-agent.js");
+    const context = {
+      send: vi.fn(),
+      threadId: "thread-files",
+      runId: "run-files",
+      turnId: "turn-files",
+    } as any;
+    const attachment = {
+      url: "https://files.example.test/report.pdf",
+      name: "report.pdf",
+    };
+
+    await run({ agent: "slides", message: "make slides" }, context, "mail");
+    await run(
+      { agent: "slides", message: "make slides", attachments: [attachment] },
+      context,
+      "mail",
+    );
+
+    const withoutFiles = callAgentMock.mock.calls[0]?.[2];
+    const withFiles = callAgentMock.mock.calls[1]?.[2];
+    expect(withFiles.files).toEqual([
+      { uri: attachment.url, name: attachment.name },
+    ]);
+    expect(withFiles.idempotencyKey).not.toBe(withoutFiles.idempotencyKey);
+  });
+
   it("preserves and increments nested delegation lineage", async () => {
     callAgentMock.mockResolvedValueOnce("done");
     const { run } = await import("./call-agent.js");

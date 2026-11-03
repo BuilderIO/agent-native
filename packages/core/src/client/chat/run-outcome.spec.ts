@@ -41,6 +41,7 @@ describe("run outcome codes", () => {
     // The incident codes users reported as one state: "the agent stopped / is
     // stuck". Each must stay mapped; a code the table forgets is a type error.
     const reported = [
+      "agent_run_stream_ended",
       "stream_ended",
       "action_not_started",
       "background_run_lost",
@@ -71,6 +72,10 @@ describe("run outcome codes", () => {
     expect(runOutcomeForCode("run_subscription_poll_failed")).toBe(
       "unverified",
     );
+  });
+
+  it("classifies a server-confirmed stream cut as interrupted", () => {
+    expect(runOutcomeForCode("agent_run_stream_ended")).toBe("interrupted");
   });
 
   it("reports an unmapped code as a real failure, never a success", () => {

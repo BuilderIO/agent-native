@@ -1,15 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowDown,
-  IconArrowLeft,
-  IconArrowRight,
-  IconArrowUp,
-  IconCircleX,
-  IconCopy,
-  IconTableColumn,
-  IconTableRow,
-  IconTrash,
-} from "@tabler/icons-react";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import {
@@ -42,7 +31,7 @@ import { cn } from "@/lib/utils";
 
 import { ColorSubmenu } from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
-import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
+import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
   deleteTableColumns,
@@ -62,6 +51,7 @@ import {
   tableGridSize,
   tableWithDuplicatedColumn,
 } from "./table-commands";
+import { COLUMN_SIZING_ATTRIBUTE } from "./table-sizing";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -1327,7 +1317,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               {canToggleHeaderColumn ? (
                 <MenuSwitchItem
                   checked={headerColumnEnabled}
-                  icon={<IconTableColumn className={menuIconClass} />}
                   onToggle={() => toggleHeader("column")}
                   switchTestId="header-column-switch"
                 >
@@ -1350,7 +1339,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   )
                 }
               >
-                <IconArrowLeft className={menuIconClass} />
                 {t("database.insertLeft")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -1361,21 +1349,18 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   )
                 }
               >
-                <IconArrowRight className={menuIconClass} />
                 {t("database.insertRight")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => duplicateColumn(getSelectedCellElement())}
               >
-                <IconCopy className={menuIconClass} />
                 {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => clearColumnContents(getSelectedCellElement())}
               >
-                <IconCircleX className={menuIconClass} />
                 {t("database.clearColumn")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -1394,7 +1379,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   })
                 }
               >
-                <IconTrash className="size-4 shrink-0" />
                 {t("database.deleteColumn")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1467,7 +1451,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               {canToggleHeaderRow ? (
                 <MenuSwitchItem
                   checked={headerRowEnabled}
-                  icon={<IconTableRow className={menuIconClass} />}
                   onToggle={() => toggleHeader("row")}
                   switchTestId="header-row-switch"
                 >
@@ -1490,7 +1473,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   )
                 }
               >
-                <IconArrowUp className={menuIconClass} />
                 {t("database.insertAbove")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -1501,21 +1483,18 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   )
                 }
               >
-                <IconArrowDown className={menuIconClass} />
                 {t("database.insertBelow")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => duplicateRow(getSelectedCellElement())}
               >
-                <IconCopy className={menuIconClass} />
                 {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() => clearRowContents(getSelectedCellElement())}
               >
-                <IconCircleX className={menuIconClass} />
                 {t("database.clearRow")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -1534,7 +1513,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   })
                 }
               >
-                <IconTrash className="size-4 shrink-0" />
                 {t("database.deleteRow")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1555,8 +1533,12 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         const bottom = rect.bottom - wrapperRect.top;
         const visibleCenter =
           (visibleLeft + visibleRight) / 2 - wrapperRect.left;
-        // A hidden handle lets clicks through to the cell under it.
-        const isColumnHandleVisible = hoveredEdges.columnTable === table;
+        // A hidden handle lets clicks through to the cell under it. Cards
+        // stack each row's cells, so they have no right edge to add a column
+        // at; the column menu still inserts one.
+        const isColumnHandleVisible =
+          hoveredEdges.columnTable === table &&
+          table.getAttribute(COLUMN_SIZING_ATTRIBUTE) !== "cards";
         const isRowHandleVisible = hoveredEdges.rowTable === table;
 
         return (

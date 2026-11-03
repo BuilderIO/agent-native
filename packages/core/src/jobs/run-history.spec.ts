@@ -17,6 +17,7 @@ vi.mock("../db/client.js", async () => {
   };
   return {
     getDbExec: () => db,
+    getScopedDbExec: () => undefined,
     getScopedTransactionDbExec: () => undefined,
   };
 });

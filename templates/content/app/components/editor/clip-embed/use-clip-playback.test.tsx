@@ -6,9 +6,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  useClipMarkers,
+  useClipComments,
   useClipPlayback,
-  type ClipMarkersState,
+  type ClipCommentsState,
   type ClipPlaybackState,
 } from "./use-clip-playback";
 
@@ -71,11 +71,11 @@ function fakeQuery(data?: unknown): FakeQuery {
 
 let root: Root | null = null;
 let latest: ClipPlaybackState | null = null;
-let latestMarkers: ClipMarkersState | null = null;
+let latestComments: ClipCommentsState | null = null;
 
 function Probe({ commentsOn = true }: { commentsOn?: boolean }) {
   latest = useClipPlayback("doc_1", "rec_1");
-  latestMarkers = useClipMarkers("doc_1", "rec_1", commentsOn);
+  latestComments = useClipComments("doc_1", "rec_1", commentsOn);
   return null;
 }
 
@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.setSystemTime(T0);
   queries.byName = {
     "get-clip-playback": fakeQuery(grant(1)),
-    "list-clip-comments": fakeQuery({ markers: [] }),
+    "list-clip-comments": fakeQuery({ threads: [], truncated: false }),
   };
   const container = document.createElement("div");
   document.body.append(container);
@@ -99,7 +99,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = null;
   latest = null;
-  latestMarkers = null;
+  latestComments = null;
   delete (document as { visibilityState?: unknown }).visibilityState;
   vi.useRealTimers();
 });
@@ -384,38 +384,46 @@ describe("useClipPlayback", () => {
   });
 });
 
-describe("useClipMarkers", () => {
+const thread = {
+  id: "c1",
+  videoTimestampMs: 4_000,
+  content: "Hi",
+  authorName: "Ada",
+  authorEmail: "ada@example.test",
+  createdAt: "2026-10-23T12:00:00.000Z",
+  replyCount: 0,
+  replies: [],
+};
+
+describe("useClipComments", () => {
   it("asks for nothing and shows nothing while the Clip's comments are off", () => {
     render({ commentsOn: false });
-    expect(latestMarkers).toEqual({ status: "off" });
+    expect(latestComments).toEqual({ status: "off" });
     expect(queries.options["list-clip-comments"]?.enabled).toBe(false);
   });
 
   it("returns the comment threads", () => {
-    const markers = [
-      { id: "c1", videoTimestampMs: 4_000, content: "Hi", authorName: "Ada" },
-    ];
     queries.byName["list-clip-comments"] = fakeQuery({
-      markers,
+      threads: [thread],
       truncated: false,
     });
     render();
-    expect(latestMarkers).toEqual({
+    expect(latestComments).toEqual({
       status: "ready",
-      markers,
+      threads: [thread],
       truncated: false,
     });
   });
 
   it("says when the list stops short of every thread", () => {
     queries.byName["list-clip-comments"] = fakeQuery({
-      markers: [],
+      threads: [],
       truncated: true,
     });
     render();
-    expect(latestMarkers).toEqual({
+    expect(latestComments).toEqual({
       status: "ready",
-      markers: [],
+      threads: [],
       truncated: true,
     });
   });
@@ -429,7 +437,7 @@ describe("useClipMarkers", () => {
       }),
     };
     render();
-    expect(latestMarkers).toEqual({ status: "off" });
+    expect(latestComments).toEqual({ status: "off" });
   });
 
   it("tells a failed comment list apart from an empty one", () => {
@@ -441,25 +449,22 @@ describe("useClipMarkers", () => {
       }),
     };
     render();
-    expect(latestMarkers).toEqual({ status: "failed", markers: [] });
+    expect(latestComments).toEqual({ status: "failed", threads: [] });
 
     queries.byName["list-clip-comments"] = fakeQuery();
     render();
-    expect(latestMarkers).toEqual({ status: "loading" });
+    expect(latestComments).toEqual({ status: "loading" });
   });
 
-  it("reports a failed refetch while keeping the markers it already had", () => {
-    const markers = [
-      { id: "c1", videoTimestampMs: 4_000, content: "Hi", authorName: "Ada" },
-    ];
+  it("reports a failed refetch while keeping the threads it already had", () => {
     queries.byName["list-clip-comments"] = {
-      ...fakeQuery({ markers }),
+      ...fakeQuery({ threads: [thread], truncated: false }),
       isError: true,
       error: Object.assign(new Error("down"), {
         errorCode: "clips_unreachable",
       }),
     };
     render();
-    expect(latestMarkers).toEqual({ status: "failed", markers });
+    expect(latestComments).toEqual({ status: "failed", threads: [thread] });
   });
 });

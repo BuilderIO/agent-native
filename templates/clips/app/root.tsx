@@ -1,5 +1,5 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   createAgentNativeQueryClient,
   getBrowserTabId,
@@ -247,7 +247,7 @@ function ClipsExtensionAuthBridge() {
       try {
         session = await fetchClipsExtensionSession(
           () =>
-            fetch(appPath("/_agent-native/auth/session"), {
+            fetch(agentNativePath("/_agent-native/auth/session"), {
               credentials: "include",
               cache: "no-store",
             }),

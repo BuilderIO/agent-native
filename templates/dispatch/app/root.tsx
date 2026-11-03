@@ -37,6 +37,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
 import changelog from "../CHANGELOG.md?raw";
+import { BuilderWorkspaceNotice } from "./builder-workspace-notice";
 import { dispatchExtensions } from "./dispatch-extensions";
 import { i18nCatalog } from "./i18n";
 
@@ -247,6 +248,7 @@ function PrivateAppShell() {
       </CommandMenu>
       <AppLayout
         extensions={dispatchExtensions}
+        notice={<BuilderWorkspaceNotice />}
         agentPageHref="/settings/agent"
       >
         <Outlet />

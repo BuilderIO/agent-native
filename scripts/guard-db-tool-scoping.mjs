@@ -121,6 +121,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "design:design_versions": "version rows scoped through designs",
   "design:design_visual_edit_snapshot_blob_cleanup":
     "private snapshot blob cleanup outbox processed by Design actions",
+  "design:design_first_output_experiment_claims":
+    "private experiment claims keyed by authenticated user; accessed only by the enrollment action",
+  "design:design_review_agent_requests":
+    "request rows scoped through designs and the requester; read via list-review-agent-requests",
   "design:design_screen_restore_claims":
     "one-use restore authorization scoped to a Design and accessed through Design actions",
   "design:design_motion_bridge_receipt_challenges":
@@ -144,15 +148,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
-  "slides-2:deck_share_links":
-    "public share-token snapshots scoped by token and created through authorized deck actions",
-  "slides-2:deck_events":
-    "deck access-request audit rows read and written through scoped actions",
-  "slides-2:deck_access_request_limits":
-    "internal anonymous access-request throttling buckets",
-  "slides-2:slide_comments": "child rows scoped through authorized decks",
-  "slides-2:uploaded_asset_object_lifecycle":
-    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {

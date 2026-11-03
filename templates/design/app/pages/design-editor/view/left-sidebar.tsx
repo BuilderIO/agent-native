@@ -126,7 +126,7 @@ export function renderLeftSidebar({
     motionDockOpen,
     setMotionDockOpenAnimated,
   } = editorHistory;
-  const { canEditDesign, browserTabId } = editorGenerationAndAccess;
+  const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
@@ -140,8 +140,11 @@ export function renderLeftSidebar({
   const { designExtensionContext } = editorSelectionAndStyles;
   const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
-  const { handleSidebarScreenSelect, handleSidebarScreenOverview } =
-    editorModes;
+  const {
+    handleSidebarScreenSelect,
+    handleSidebarScreenOverview,
+    handlePinToolToggle,
+  } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
   const {
     designIsEmpty,
@@ -400,7 +403,13 @@ export function renderLeftSidebar({
             >
               {/* Mounted only while open: the panel fetches every thread. */}
               {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
-                <ReviewCommentsPanel {...reviewCommentsPanelProps} />
+                <ReviewCommentsPanel
+                  {...reviewCommentsPanelProps}
+                  onNewThread={() => {
+                    // handlePinToolToggle turns comment mode off when it is already on.
+                    if (!pinMode) handlePinToolToggle();
+                  }}
+                />
               ) : null}
             </div>
             <div

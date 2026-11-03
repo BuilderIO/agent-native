@@ -369,9 +369,6 @@ const messages = {
       connectionsNeeded: "{{count}}개 연결 필요",
       connectionsListName: "연결 필요",
       jumpToProblem: "캔버스에서 보기",
-      testRun: "모의 실행",
-      testing: "시작 중",
-      saveAndTest: "저장 후 모의 실행",
       moreActions: "작업 더보기",
       runNow: "지금 실행",
       runNowSaveFirst: "라이브로 실행하기 전에 변경 사항을 저장하세요.",
@@ -442,6 +439,13 @@ const messages = {
       body: "이 워크플로에 저장되지 않은 변경 사항이 있습니다.",
       stay: "계속 편집",
       discard: "버리기",
+    },
+    draft: {
+      restored: "저장하지 않은 변경 사항을 복원했습니다.",
+      saveFailed: "변경 사항 초안을 저장하지 못했습니다. {{reason}}",
+      unreadable:
+        "저장하지 않은 변경 사항을 복원하지 못해 저장된 버전을 열었습니다.",
+      discardFailed: "초안을 버리지 못했습니다. {{reason}}",
     },
     liveRun: {
       dialogTitle: "이 워크플로를 라이브로 실행할까요?",

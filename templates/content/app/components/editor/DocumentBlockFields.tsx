@@ -14,13 +14,7 @@ import {
   isPrimaryBlocksField,
   type BlocksStorageTarget,
 } from "@shared/properties";
-import {
-  IconGripVertical,
-  IconMessage,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconGripVertical, IconMessage, IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -1573,7 +1567,6 @@ function BlockFieldTabMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename} data-block-field-rename>
-          <IconPencil className="mr-2 size-4 text-muted-foreground" />
           {t("editor.renameBlockField")}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -1581,7 +1574,6 @@ function BlockFieldTabMenu({
           onSelect={onDelete}
           data-block-field-delete
         >
-          <IconTrash className="mr-2 size-4" />
           {t("editor.deleteBlockField")}
         </DropdownMenuItem>
       </DropdownMenuContent>

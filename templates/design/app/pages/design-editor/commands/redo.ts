@@ -142,7 +142,12 @@ function currentFrameGeometry(
 
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
+  cancelPendingPastedMediaForHistoryReplay?: (
+    screenId: string,
+    previousContent: string,
+    replayedContent: string,
+  ) => void;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -418,6 +423,7 @@ export interface RedoArgs {
 export function runRedo({
   activeEditorDragRef,
   activeFile,
+  cancelPendingPastedMediaForHistoryReplay,
   applyFileContentUpdate,
   applyDesignDataHistoryChanges,
   applyGeometryHistoryContentChanges,
@@ -979,84 +985,85 @@ export function runRedo({
   let prunedRedoHistory = 0;
   let contentReplayRefused = false;
   const redoContent = (scope: "any" | "local" | "global" = "any") => {
-    if (scope !== "global" && um?.canRedo()) {
-      const beforeRedoContent = ydoc?.getText("content").toJSON();
+    if (scope !== "global" && activeFile && ydoc && um?.canRedo()) {
+      const beforeRedoContent = ydoc.getText("content").toJSON();
       const redoneItem = um.redo();
       const restoredAfterSelection = readYjsRedoSelection(redoneItem);
-      if (ydoc && activeFile && beforeRedoContent !== undefined) {
-        const ytext = ydoc.getText("content");
-        const rawNext = ytext.toJSON();
-        let next = rawNext;
-        try {
-          next = prepareCanonicalSourceContent(rawNext, {
-            fileId: activeFile.id,
-            fileType: activeFile.fileType,
-          }).content;
-        } catch {
-          toast.error(t("common.genericError"), {
-            id: `design-source-identity:${activeFile.id}`,
-          });
-          return false;
-        }
-        if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
-        markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
-        lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next, {
-          expectedVersionHash: sourceContentHash(beforeRedoContent),
-          syncCollab: !(ydoc && isSynced),
+      const ytext = ydoc.getText("content");
+      const rawNext = ytext.toJSON();
+      let next = rawNext;
+      try {
+        next = prepareCanonicalSourceContent(rawNext, {
+          fileId: activeFile.id,
+          fileType: activeFile.fileType,
+        }).content;
+      } catch {
+        toast.error(t("common.genericError"), {
+          id: `design-source-identity:${activeFile.id}`,
         });
-        if (
-          previewContentReplaceNeedsRenderFallback(
-            replacePreviewContent(next, null, {
-              forceFullDocument: true,
-              allowSourceNodeSwap: true,
-            }),
-          )
-        ) {
-          setContentRenderRevision((revision) => revision + 1);
-        }
-        setSelectedElement((prev) => {
-          if (restoredAfterSelection)
-            return resolveLocalHistorySelection(
+        return false;
+      }
+      if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
+      markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
+      lastLocalContentRef.current = next;
+      queueFileContentSave(activeFile.id, next, {
+        expectedVersionHash: sourceContentHash(beforeRedoContent),
+        syncCollab: !isSynced,
+      });
+      if (redoneItem)
+        cancelPendingPastedMediaForHistoryReplay?.(
+          activeFile.id,
+          beforeRedoContent,
+          next,
+        );
+      if (
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(next, null, {
+            forceFullDocument: true,
+            allowSourceNodeSwap: true,
+          }),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+      setSelectedElement((prev) => {
+        if (restoredAfterSelection)
+          return resolveLocalHistorySelection(
+            restoredAfterSelection,
+            activeFile.id,
+            next,
+          ).selectedElement;
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setHoveredElement((prev) => {
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setSelectedLayerIdsState((prev) =>
+        restoredAfterSelection
+          ? resolveLocalHistorySelection(
               restoredAfterSelection,
               activeFile.id,
               next,
-            ).selectedElement;
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
+            ).selectedLayerIds
+          : refreshSelectedLayerIdsFromContent(next, prev, {
+              kind: "design-file",
+              fileId: activeFile.id,
+            }),
+      );
+      if (typeof beforeRedoContent === "string" && beforeRedoContent !== next) {
+        recordLocalContentHistoryChangeFallback({
+          fileId: activeFile.id,
+          before: beforeRedoContent,
+          after: next,
         });
-        setHoveredElement((prev) => {
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
-        });
-        setSelectedLayerIdsState((prev) =>
-          restoredAfterSelection
-            ? resolveLocalHistorySelection(
-                restoredAfterSelection,
-                activeFile.id,
-                next,
-              ).selectedLayerIds
-            : refreshSelectedLayerIdsFromContent(next, prev, {
-                kind: "design-file",
-                fileId: activeFile.id,
-              }),
-        );
-        if (
-          typeof beforeRedoContent === "string" &&
-          beforeRedoContent !== next
-        ) {
-          recordLocalContentHistoryChangeFallback({
-            fileId: activeFile.id,
-            before: beforeRedoContent,
-            after: next,
-          });
-        }
       }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),

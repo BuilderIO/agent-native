@@ -32,6 +32,27 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+function documentWidgetTarget(_args: Record<string, unknown>, result: unknown) {
+  const documentId = id(record(result).id, record(result).documentId);
+  const spaceId = id(record(result).spaceId);
+  return documentId
+    ? {
+        targetPath: `/page/${encodeURIComponent(documentId)}`,
+        resourceIds: {
+          documentId,
+          resourceType: "document",
+          ...(spaceId ? { spaceId } : {}),
+        },
+        writeActions: [
+          "update-document",
+          "share-resource",
+          "unshare-resource",
+          "set-resource-visibility",
+        ],
+      }
+    : null;
+}
+
 type WidgetWriteAuthorizationInput = {
   toolName: string;
   args: Record<string, unknown>;
@@ -70,26 +91,8 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     }
   },
   widgetTargets: {
-    "create-document": (_args: Record<string, unknown>, result: unknown) => {
-      const documentId = id(record(result).id, record(result).documentId);
-      const spaceId = id(record(result).spaceId);
-      return documentId
-        ? {
-            targetPath: `/page/${encodeURIComponent(documentId)}`,
-            resourceIds: {
-              documentId,
-              resourceType: "document",
-              ...(spaceId ? { spaceId } : {}),
-            },
-            writeActions: [
-              "update-document",
-              "share-resource",
-              "unshare-resource",
-              "set-resource-visibility",
-            ],
-          }
-        : null;
-    },
+    "create-document": documentWidgetTarget,
+    "share-local-file-document": documentWidgetTarget,
     "create-content-database": (
       _args: Record<string, unknown>,
       result: unknown,

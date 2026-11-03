@@ -39,7 +39,7 @@ function getSourceParentNodeId(
 }
 
 export interface GetSelectedLayerSnapshotsArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   designSourceType: "inline" | "localhost" | "fusion";
   files: DesignFile[];
   getFreshActiveContent: () => string;

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", () => ({
   createAuthPlugin: mocks.createAuthPlugin,
   registerAuthPublicPaths: mocks.registerAuthPublicPaths,
+  registerBuilderBranchProject: vi.fn(),
   registerDelegatedBuilderCredentials: vi.fn(),
 }));
 

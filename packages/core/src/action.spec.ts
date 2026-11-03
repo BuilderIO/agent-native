@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect, vi } from "vitest";
@@ -11,13 +12,16 @@ import {
 } from "./action-arguments-identity.js";
 import {
   actionCallIntent,
+  ActionInputValidationError,
   defineAction,
   failedCallEmitsChange,
+  telemetryInvalidPaths,
   ActionContractError,
   ActionOutputContractError,
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
+  stripUnsupportedSchemaKeywords,
   invocationEffect,
   DEFAULT_TOOL_RESULT_CHARS,
   resolveToolMaxResultChars,
@@ -39,6 +43,8 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import * as actionAuditRecord from "./audit/record.js";
+import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
   derivedTool,
   plainJsonSnapshot,
@@ -108,6 +114,70 @@ describe("the public action entry", () => {
 });
 
 describe("defineAction", () => {
+  it.each([false, true])(
+    "omits audit content when invocation privacy changes during execution (throws=%s)",
+    async (throws) => {
+      const body = "synthetic-late-private-audit-sentinel";
+      let privateTurn = false;
+      const audit = vi
+        .spyOn(actionAuditRecord, "recordActionAudit")
+        .mockResolvedValue(undefined);
+      const action = defineAction({
+        description: "Run a nested operation",
+        parameters: { note: { type: "string" } },
+        audit: {
+          enabled: true,
+          target: () => ({ id: body }),
+          summary: () => body,
+        },
+        run: async () => {
+          privateTurn = true;
+          if (throws) throw new Error(body);
+          return body;
+        },
+      });
+      const context: ActionRunContext = {
+        actionName: "nested-operation",
+        get omitFromPersistedHistory() {
+          return privateTurn ? true : undefined;
+        },
+      };
+      try {
+        if (throws)
+          await expect(action.run({ note: body }, context)).rejects.toThrow(
+            body,
+          );
+        else expect(await action.run({ note: body }, context)).toBe(body);
+        expect(audit).toHaveBeenCalledOnce();
+        expect(JSON.stringify(audit.mock.calls)).not.toContain(body);
+        expect(audit.mock.calls[0]?.[0].config).toMatchObject({
+          recordInputs: false,
+        });
+        expect(audit.mock.calls[0]?.[0].config?.summary).toBeUndefined();
+        expect(audit.mock.calls[0]?.[0].config?.target).toBeUndefined();
+      } finally {
+        audit.mockRestore();
+      }
+    },
+  );
+
+  it("exposes private chat-history persistence as an opt-in", () => {
+    const ordinary = defineAction({
+      description: "ordinary result",
+      parameters: {},
+      run: async () => "ok",
+    });
+    const privateAction = defineAction({
+      description: "private result",
+      parameters: {},
+      persistInChatHistory: false,
+      run: async () => "ok",
+    });
+
+    expect(ordinary.persistInChatHistory).toBeUndefined();
+    expect(privateAction.persistInChatHistory).toBe(false);
+  });
+
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
       description: "read things",
@@ -1020,11 +1090,31 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
+  it("fills the trailing items of a tuple through the any-value writer", () => {
+    const writeJsonValue = vi.fn((node: Record<string, unknown>) => {
+      node.type = "string";
+    });
+    const tuple = {
+      type: "array",
+      prefixItems: [{ type: "number" }],
+    };
+
+    stripUnsupportedSchemaKeywords(tuple, writeJsonValue);
+
+    expect(tuple).toEqual({
+      type: "array",
+      prefixItems: [{ type: "number" }],
+      items: { type: "string" },
+    });
+    expect(writeJsonValue).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     {
       name: "a Zod tuple",
       schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
       witness: { pair: [1, "a"] },
+      trailingItems: { anyOf: boundedJsonValueBranches() },
     },
     {
       name: "a 2020-12 tuple written by hand",
@@ -1046,10 +1136,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         );
       })(),
       witness: { pair: [1, "a", true] },
+      trailingItems: { type: "boolean" },
     },
   ])(
     "lists, conforms and calls an action whose input holds $name",
-    async ({ schema, witness }) => {
+    async ({ schema, witness, trailingItems }) => {
       const pair = defineAction({
         description: "Reads a pair",
         schema,
@@ -1060,9 +1151,21 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         },
       });
-      expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
-        "pair",
-      ]);
+      const engineTools = actionsToEngineTools({ pair });
+      expect(engineTools.map(({ name }) => name)).toEqual(["pair"]);
+      const inAppSchema = engineTools[0]!.inputSchema;
+      expect(
+        providerSchemaViolations({ name: "pair", inputSchema: inAppSchema }),
+      ).toEqual([]);
+      expect(
+        (inAppSchema as { properties: { pair: { items: unknown } } }).properties
+          .pair.items,
+      ).toEqual(trailingItems);
+      const validateInApp = new Ajv2020({ strict: false }).compile(inAppSchema);
+      expect([
+        validateInApp(witness),
+        validateInApp({ pair: ["a", 1] }),
+      ]).toEqual([true, false]);
 
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
@@ -1805,6 +1908,99 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     );
     await action.run(validated, ctx);
     expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("names the failing input fields by path, never by value", async () => {
+    const schema = z.object({
+      name: z.string(),
+      tweaks: z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+    });
+    const error = await validateActionArgs(schema, {
+      name: "ok",
+      tweaks: [
+        { type: "slider" },
+        { type: "toggle" },
+        { type: "secret-value" },
+      ],
+    }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ActionInputValidationError);
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.2.type",
+    ]);
+
+    const missing = await validateActionArgs(schema, {
+      tweaks: [],
+    }).catch((err: unknown) => err);
+    expect((missing as ActionInputValidationError).paths).toEqual(["name"]);
+    expect((missing as Error).message).toContain(
+      "Missing required parameter: name",
+    );
+  });
+
+  it("masks record keys in the failing paths", async () => {
+    const schema = z.object({
+      filters: z.record(z.string(), z.string()),
+      byYear: z.record(z.string(), z.object({ total: z.number() })),
+    });
+    const error = await validateActionArgs(schema, {
+      filters: { "acme-corp-q3": 42 },
+      byYear: { "1987": { total: "many" } },
+    }).catch((err: unknown) => err);
+
+    const paths = (error as ActionInputValidationError).paths;
+    expect(paths).toContain("filters.*");
+    expect(paths).toContain("byYear.*.total");
+    expect(paths.join(" ")).not.toMatch(/acme|1987/);
+  });
+
+  it("keeps declared fields behind a preprocess that parses a JSON string", async () => {
+    const schema = z.object({
+      tweaks: z.preprocess(
+        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+      ),
+    });
+    const error = await validateActionArgs(schema, {
+      tweaks: JSON.stringify([{ type: "slider" }, { type: "dropdown" }]),
+    }).catch((err: unknown) => err);
+
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.1.type",
+    ]);
+  });
+
+  it("masks every segment of a schema with no JSON Schema converter", async () => {
+    const schema: StandardSchemaV1<unknown, unknown> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({
+          issues: [{ message: "bad", path: ["secret-key", 0, "inner"] }],
+        }),
+      },
+    };
+    const error = await validateActionArgs(schema, {}).catch(
+      (err: unknown) => err,
+    );
+
+    expect((error as ActionInputValidationError).paths).toEqual(["*.*.*"]);
+  });
+
+  it("keeps the input rejection constructor compatible with a bare message", () => {
+    const error = new ActionInputValidationError("'question' is required.");
+    expect(error.message).toBe("'question' is required.");
+    expect(error.paths).toEqual([]);
+  });
+
+  it("bounds the failing paths kept for telemetry", () => {
+    const long = "x".repeat(200);
+    const paths = Array.from({ length: 10 }, (_, i) => `${long}.${i}`);
+
+    const bounded = telemetryInvalidPaths(paths);
+    expect(bounded).toHaveLength(8);
+    expect(bounded?.every((path) => path.length === 120)).toBe(true);
+    expect(telemetryInvalidPaths([])).toBeUndefined();
   });
 
   it("re-validates normally when run() is called without the marking ctx", async () => {

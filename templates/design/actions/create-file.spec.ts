@@ -986,7 +986,6 @@ describe("create-file: canvas placement and landing URL", () => {
       filename: "welcome-email.html",
       content: createHubSpotEmailHtml({ title: "Welcome" }),
       fileType: "html",
-      frameType: "hubspot-email",
     });
     expect(result.frameType).toBe("hubspot-email");
     expect(mocks.getDesignData().canvasFrames).toMatchObject({
@@ -997,19 +996,7 @@ describe("create-file: canvas placement and landing URL", () => {
     );
   });
 
-  it("rejects an ordinary web page requested as an email frame before writing", async () => {
-    await expect(
-      action.run({
-        designId: "design-1",
-        filename: "email.html",
-        content: "<main>A web page</main>",
-        fileType: "html",
-        frameType: "hubspot-email",
-      }),
-    ).rejects.toThrow("requires <meta");
-    expect(mocks.insertValues).not.toHaveBeenCalled();
-  });
-
+  // oracle-change: create-file no longer accepts frameType, so there is no requested-email marker check to reject.
   it("gives a new renderable screen a default desktop placement and an overview landing URL", async () => {
     const result = await action.run({
       designId: "design-1",

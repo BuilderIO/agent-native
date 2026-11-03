@@ -2244,6 +2244,53 @@ describe("AgentKitClient", () => {
     },
   );
 
+  it("orders tool history around the text a replaced draft kept", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      beforeToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Searching first. ",
+        },
+      ],
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Rejected draft.",
+        },
+        {
+          type: "message.replaced",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Searching first. " }],
+          },
+        },
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+        },
+      ],
+      finalParts: [
+        { type: "text", text: "Searching first. " },
+        { type: "text", text: "The release is ready." },
+      ],
+    });
+
+    expect(
+      messages
+        .find((message) => message.id === "assistant-1")
+        ?.parts.map((part) => (part.type === "data" ? part.mediaType : part)),
+    ).toEqual([
+      { type: "text", text: "Searching first. " },
+      "application/x-agent-native-tool-call",
+      "application/x-agent-native-tool-result",
+      { type: "text", text: "The release is ready." },
+    ]);
+  });
+
   it("reports completed tool-call history without an assistant message link", async () => {
     const messages = await assistantPartsAfterToolHistory({
       beforeFollowup(client) {

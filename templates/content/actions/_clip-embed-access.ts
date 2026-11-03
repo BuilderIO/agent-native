@@ -70,6 +70,10 @@ const FAILURES: Record<
     statusCode: 403,
     message: "Comments are turned off for this Clip",
   },
+  [CLIP_PLAYBACK_ERRORS.commentRequired]: {
+    statusCode: 403,
+    message: "Only people who can comment on the page can comment on its Clips",
+  },
   [CLIP_PLAYBACK_ERRORS.forbidden]: {
     statusCode: 403,
     message: "Clips refused this reader",
@@ -121,14 +125,39 @@ async function documentState(documentId: string) {
 export async function authorizeClipReader(
   documentId: string,
 ): Promise<ClipReader> {
+  return (await authorizeReader(documentId)).reader;
+}
+
+/**
+ * The reader Content may vouch for to Clips to comment on a Clip in this
+ * page: a signed-in reader who can comment on the page itself. A signed-out
+ * reader of a public page never can.
+ */
+export async function authorizeClipCommenter(
+  documentId: string,
+): Promise<ClipUploader> {
+  const { reader, role } = await authorizeReader(documentId);
+  if (
+    reader.kind !== "signed-in" ||
+    !role ||
+    !roleSatisfies(role, "commenter")
+  ) {
+    failClip(CLIP_PLAYBACK_ERRORS.commentRequired);
+  }
+  return reader;
+}
+
+async function authorizeReader(documentId: string) {
   const email = getRequestUserEmail();
   const readerEmail = email && !isPublicViewerOwner(email) ? email : null;
 
+  let role: Parameters<typeof roleSatisfies>[0] | null = null;
   if (readerEmail) {
     const access = await resolveDocumentAccess(documentId, {
       skipResourceBody: true,
     });
     if (!access) failClip(CLIP_PLAYBACK_ERRORS.documentNotFound);
+    role = access.role;
   }
   const state = await documentState(documentId);
   if (!state || state.trashedAt) {
@@ -147,13 +176,14 @@ export async function authorizeClipReader(
   });
   if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
 
-  return readerEmail
+  const reader: ClipReader = readerEmail
     ? {
         kind: "signed-in",
         email: readerEmail,
         name: getRequestUserName() ?? null,
       }
     : { kind: "public" };
+  return { reader, role };
 }
 
 /**

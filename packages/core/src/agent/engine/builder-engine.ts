@@ -1,9 +1,8 @@
 import { isTransientDatabaseError } from "../../db/client.js";
 import {
   BUILDER_OAUTH_SCOPE,
-  hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
-  resolveBuilderOAuthRequestAccess,
+  resolveBuilderOAuthRequestAccessState,
 } from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
 import {
@@ -39,6 +38,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
@@ -48,6 +48,7 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
+  isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -200,44 +201,72 @@ class BuilderEngine implements AgentEngine {
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
     const orgId = getRequestOrgId() ?? null;
-    let oauthAccess: Awaited<
-      ReturnType<typeof resolveBuilderOAuthRequestAccess>
-    > = null;
+    let oauthAccess:
+      | Extract<
+          Awaited<ReturnType<typeof resolveBuilderOAuthRequestAccessState>>,
+          { kind: "available" }
+        >["access"]
+      | null = null;
     let hasStoredOAuth = false;
     if (ownerEmail) {
-      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail, orgId);
-      if (hasStoredOAuth) {
-        try {
-          oauthAccess = await resolveBuilderOAuthRequestAccess({
-            ownerEmail,
-            requiredScope: BUILDER_OAUTH_SCOPE,
-            orgId,
-          });
-        } catch (error) {
-          if (isTransientDatabaseError(error)) {
-            const unavailable = new CredentialStoreUnavailableError(error);
-            yield gatewayErrorStop(
-              { error: unavailable.message, errorCode: unavailable.errorCode },
-              false,
-            );
-            return;
-          }
-          // coercion-ok: an unusable grant falls through to the reconnect stop below, never to legacy keys.
-          oauthAccess = null;
-        }
-        // Custody exists but cannot run (expired, revoked, or short of the AI
-        // scope). Reporting it as "no provider connected" sends the reader to
-        // a Connect button that changes nothing.
-        if (!oauthAccess) {
+      let accessState: Awaited<
+        ReturnType<typeof resolveBuilderOAuthRequestAccessState>
+      >;
+      try {
+        accessState = await resolveBuilderOAuthRequestAccessState({
+          ownerEmail,
+          requiredScope: BUILDER_OAUTH_SCOPE,
+          orgId,
+        });
+      } catch (error) {
+        if (isTransientDatabaseError(error)) {
+          const unavailable = new CredentialStoreUnavailableError(error);
           yield gatewayErrorStop(
-            {
-              error: BUILDER_RECONNECT_MESSAGE,
-              errorCode: "builder_auth_error",
-            },
+            { error: unavailable.message, errorCode: unavailable.errorCode },
             false,
           );
           return;
         }
+        captureError(error, {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: {
+            source: "builder-engine",
+            phase: "oauth-access-lookup",
+            model: opts.model,
+            errorCode: "builder_oauth_lookup_failed",
+          },
+          contexts: {
+            builderOAuth: {
+              phase: "access-lookup",
+              requiredScope: BUILDER_OAUTH_SCOPE,
+            },
+          },
+        });
+        yield gatewayErrorStop(
+          {
+            error: BUILDER_RECONNECT_MESSAGE,
+            errorCode: "builder_oauth_lookup_failed",
+          },
+          false,
+        );
+        return;
+      }
+      hasStoredOAuth = accessState.kind !== "not_connected";
+      if (accessState.kind === "available") {
+        oauthAccess = accessState.access;
+      } else if (hasStoredOAuth) {
+        // Custody exists but cannot run (expired, revoked, or short of the AI
+        // scope). Reporting it as "no provider connected" sends the reader to
+        // a Connect button that changes nothing.
+        yield gatewayErrorStop(
+          {
+            error: BUILDER_RECONNECT_MESSAGE,
+            errorCode: "builder_auth_error",
+          },
+          false,
+        );
+        return;
       }
     }
     const authHeader = oauthAccess
@@ -377,23 +406,23 @@ class BuilderEngine implements AgentEngine {
       opts.abortSignal,
       gatewayTimeoutMs,
     );
-    try {
-      const dispatch = await startModelDispatch(opts, () => {
+    const requestGateway = (authorization: string) =>
+      fetch(gatewayUrl.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorization,
+          ...(spaceId && !oauthAccess ? { "x-builder-api-key": spaceId } : {}),
+          ...getBuilderGatewayRequestHeaders(),
+          ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
+        },
+        body: payload,
+        signal: gatewayAbort.signal,
+      });
+    const startGatewayRequest = (authorization: string) =>
+      startModelDispatch(opts, () => {
         try {
-          return fetch(gatewayUrl.toString(), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: authHeader,
-              ...(spaceId && !oauthAccess
-                ? { "x-builder-api-key": spaceId }
-                : {}),
-              ...getBuilderGatewayRequestHeaders(),
-              ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
-            },
-            body: payload,
-            signal: gatewayAbort.signal,
-          }).then(
+          return requestGateway(authorization).then(
             (response) => ({ status: "fulfilled" as const, response }),
             (error: unknown) => ({ status: "rejected" as const, error }),
           );
@@ -401,38 +430,121 @@ class BuilderEngine implements AgentEngine {
           return Promise.resolve({ status: "rejected" as const, error });
         }
       });
+    const gatewayTransportStop = (error: unknown) => {
+      const timedOut = gatewayAbort.didTimeout();
+      if (timedOut) {
+        console.warn(
+          `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
+        );
+      }
+      if (timedOut || isBuilderGatewayNetworkError(error)) {
+        captureBuilderGatewayTransportError(error, {
+          phase: "request",
+          model,
+          gatewayUrl,
+          timeoutMs: gatewayAbort.effectiveTimeoutMs(),
+          timedOut,
+          elapsedMs: Date.now() - tStart,
+        });
+      }
+      return createBuilderGatewayTimeoutStop(
+        error,
+        timedOut,
+        gatewayAbort.effectiveTimeoutMs(),
+        creditsLane,
+        requestShape,
+      );
+    };
+    try {
+      const dispatch = await startGatewayRequest(authHeader);
       if (!dispatch.started) return;
 
-      let response: Response;
-      try {
-        const result = await dispatch.value;
-        if (result.status === "rejected") throw result.error;
-        response = result.response;
-      } catch (err) {
-        const timedOut = gatewayAbort.didTimeout();
-        if (gatewayAbort.didTimeout()) {
-          console.warn(
-            `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
-          );
-        }
-        if (timedOut || isBuilderGatewayNetworkError(err)) {
-          captureBuilderGatewayTransportError(err, {
-            phase: "request",
-            model,
-            gatewayUrl,
-            timeoutMs: gatewayAbort.effectiveTimeoutMs(),
-            timedOut,
-            elapsedMs: Date.now() - tStart,
-          });
-        }
-        yield createBuilderGatewayTimeoutStop(
-          err,
-          timedOut,
-          gatewayAbort.effectiveTimeoutMs(),
-          creditsLane,
-          requestShape,
-        );
+      const result = await dispatch.value;
+      if (result.status === "rejected") {
+        yield gatewayTransportStop(result.error);
         return;
+      }
+      let response = result.response;
+      if (response.status === 401 && oauthAccess && ownerEmail) {
+        let refreshedState: Awaited<
+          ReturnType<typeof resolveBuilderOAuthRequestAccessState>
+        >;
+        try {
+          refreshedState = await resolveBuilderOAuthRequestAccessState({
+            ownerEmail,
+            requiredScope: BUILDER_OAUTH_SCOPE,
+            orgId,
+            forceRefresh: true,
+            connectionId: oauthAccess.connectionId,
+          });
+        } catch (error) {
+          if (isTransientDatabaseError(error)) {
+            const unavailable = new CredentialStoreUnavailableError(error);
+            yield gatewayErrorStop(
+              {
+                error: unavailable.message,
+                errorCode: unavailable.errorCode,
+              },
+              creditsLane,
+              requestShape,
+            );
+            return;
+          }
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            errorMessagePolicy: "omit",
+            tags: {
+              source: "builder-engine",
+              phase: "oauth-refresh",
+              model,
+              errorCode: "builder_oauth_refresh_failed",
+            },
+            contexts: {
+              builderOAuth: {
+                phase: "force-refresh",
+                scope: oauthAccess.scope,
+              },
+            },
+          });
+          yield gatewayErrorStop(
+            {
+              error: BUILDER_RECONNECT_MESSAGE,
+              errorCode: "builder_oauth_refresh_failed",
+            },
+            false,
+            requestShape,
+          );
+          return;
+        }
+        if (
+          refreshedState.kind === "available" &&
+          refreshedState.access.accessToken !== oauthAccess.accessToken
+        ) {
+          oauthAccess = refreshedState.access;
+          await response.body?.cancel();
+          const retryDispatch = await startGatewayRequest(
+            `Bearer ${oauthAccess.accessToken}`,
+          );
+          if (!retryDispatch.started) return;
+          const retryResult = await retryDispatch.value;
+          if (retryResult.status === "rejected") {
+            yield gatewayTransportStop(retryResult.error);
+            return;
+          }
+          response = retryResult.response;
+        } else {
+          await response.body?.cancel().catch(() => {});
+          yield gatewayErrorStop(
+            {
+              error: BUILDER_RECONNECT_MESSAGE,
+              errorCode: "builder_oauth_refresh_failed",
+              statusCode: 401,
+            },
+            false,
+            requestShape,
+          );
+          return;
+        }
       }
 
       console.log(
@@ -547,6 +659,7 @@ function isTransientGatewayFailure(
     return true;
   }
   if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
+  if (isGenericInternalServerErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
@@ -969,14 +1082,19 @@ async function* parseJsonlStream(
               event.error ||
               event.message ||
               "Builder gateway rejected the request as malformed.";
-            const errCode =
+            const rawErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
                 : typeof event.code === "string"
                   ? event.code
                   : "invalid_request";
+            const errCode =
+              canonicalizeBuilderGatewayErrorCode(rawErrCode, String(errMsg)) ??
+              rawErrCode;
+            const gatewayRequestId =
+              typeof event.requestId === "string" ? event.requestId : undefined;
             console.warn(
-              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
             if (isExplicitBuilderCreditsLimitCode(errCode)) {
               await notifyBuilderCreditLimit();
@@ -984,7 +1102,8 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
-              providerRetryable: false,
+              providerRetryable:
+                errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
@@ -1032,7 +1151,7 @@ async function* parseJsonlStream(
               gatewayErrCode === "invalid_request" ||
               gatewayErrCode === "invalid_request_error";
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
             );
             if (isCredentialAuthError) {
               await recordAuthFailureForCurrentLane({

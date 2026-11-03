@@ -3,26 +3,81 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-27
+## 2026-10-30
 
 ### Improved
 
+- Select content inside screens with one click while keeping selected frames and auto-layout containers draggable
+
+## 2026-10-29
+
+### Improved
+
+- A person looks the same everywhere in comments: their photo when they have one, otherwise their initials on their own color, on the thread card, the @ list, the pins and the Threads list.
+- Comment cards give every comment its own menu with Edit and Delete, show just how long ago it was posted, and name the buttons in the top corner when you hover them.
+- Import is one button that opens your files, and pasting a Figma link into the home prompt offers to import it.
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+- The comment card menu no longer has "Reply in thread"; mention an agent with @ to ask it something.
+- The font menu lists the full Google Fonts library with each font previewed in its own face, and font size offers a type scale.
+- The home prompt now starts a design without a mode switch
+
+### Fixed
+
+- Accounts with no profile photo now show initials in comments instead of a generic silhouette icon.
+- Deleting a comment thread now deletes its replies too, and the thread menu says "Delete thread". You can delete a thread you started while it holds only your own replies, and editors can always delete it.
+- Typing @ in a comment now finds anyone in your organization, not only the first few people alphabetically.
+- Design ChatGPT tools describe parameters without referring to unavailable actions.
+
+## 2026-10-28
+
+### Fixed
+
+- Design is less likely to fail when generating a screen with tweaks, files or canvas placements.
+- Dragging a shape inside an SVG now moves it within the drawing, and X/Y, arrow keys, and align move it too.
+- Illustrations the agent draws as SVG now open as separate layers you can select, recolor, and retype.
+- Language and intelligence changes now work during voice chat.
+- Rename a frame by double-clicking its title
+
+## 2026-10-27
+
+### Added
+
+- Comment threads have a new menu: send a thread to the agent, ask it to suggest changes, have it reply in the thread, or apply the changes and resolve the comment in one step.
+- Mention an AI agent in a comment, or ask it from the thread menu to reply, suggest or apply changes.
+
+### Improved
+
+- New Design signups may get a first draft sooner, without intake questions.
+- Design ideas appear right away, with clear next steps after your first design.
+- Design runs recover from temporary builder errors and report incomplete edits clearly
+- New screens now fill in on the canvas as the agent writes them, with each element's frame drawn before its content appears
+- Start designs with ready-to-use role-based prompts, then refine, export, or share your first result from the canvas.
 - First-run setup makes free credits the primary path while keeping personal API keys one click away
 
 ### Fixed
 
+- A comment thread no longer opens by itself after you create a frame.
+- Design edits handle whitespace changes and identify stale snapshots clearly
+- Design generation now recovers from temporary connection and edit conflicts
+- Pinching to zoom over a comment pin or card now zooms the canvas instead of the browser.
+- Images removed by undo, redo, or replacement stay gone when their upload
+  finishes.
 - Design imports make your source and page choices clear, and checklist steps take you to the right place.
 
 ## 2026-10-26
 
 ### Improved
 
+- Comments have a new look: a cleaner thread card with agent badges and reactions, a reply box with mention chips and a toolbar, a Threads panel grouped by screen, and avatar pins on the canvas.
 - The editor chat shows its context chips again, so picked screens and layers stay visible and removable after Select closes.
 - The new-design prompt keeps Send as its main button; the mic still dictates.
 - Voice edits make the smallest matching change, say the new value out loud, and start faster
 
 ### Fixed
 
+- Rejected layer deletions no longer hide canvas content or clear the selection.
+- Undoing an image paste keeps it removed when the upload finishes.
+- Vector changes save reliably, and deleted pasted images stay deleted while uploads finish.
 - Suggested actions in the docked chat sit on one line just above the prompt bar.
 
 ## 2026-10-25
@@ -87,6 +142,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Outside assistants can generate screens and open coding handoffs in Design, with approval before creating shareable code links.
 - Export compatible HTML frames for HubSpot email, or ask the agent to adapt existing content into a new email frame while preserving the original.
 - HubSpot conversion exports can verify that original link destinations are preserved.
 - Preview HubSpot emails with sample recipient names and button destinations without changing saved content.
@@ -96,6 +152,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Generation sessions and coding handoffs open the design inline in compatible agent hosts.
 - Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
 - A selected line or arrow shows a handle at each end; drag one to move just that end, with Shift to snap to 45 degrees
 - Independent content and mobile layout reviews are available on request for HubSpot emails.
@@ -2392,50 +2449,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - The inspector stays read-only while an empty design is still generating.
 - Typography controls now keep the font name visible and move text box sizing into a details popover.
 - Visual edit actions now reject missing design targets before running.
-
-## 2026-06-28
-
-### Improved
-
-- Annotate mode now combines drawing and comment pins in one canvas submission.
-- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
-- Live cursors now use a sharper pointer with a cleaner adjacent name tag.
-- The bottom toolbar now groups tool menus with a distinct mode section.
-- Screen overview now selects screens on click and opens them on double-click.
-- Screen overview zooms into the active screen with smoother edit transitions and consistent tooltips.
-- The Design editor toolbar is more compact and the app menu mark is easier to see.
-- Tweaks now live at the top of the design sidebar instead of behind a floating canvas button.
-- Tweaks now live in the right inspector beside the Design tab.
-- Design mode now has a full-featured visual code canvas with adaptive inspection, patch proof, artboard duplication, clarify cards, and annotation queues.
-
-### Fixed
-
-- Design editor panel borders are cleaner so the canvas edge stays rounded without doubled dividers.
-- Drawing prompts now reliably open and submit to the design agent.
-- Editor app menus now use an outline Agent-Native mark with bordered, instant submenus.
-- Layer selection now updates chat context without opening the agent sidebar.
-- Layer selections now preserve hidden and locked canvas state more faithfully.
-- Screen overview now handles zooming, drawing, opening, and deleting screens more reliably.
-- Selected-element chips in chat are shorter and easier to scan.
-
-## 2026-06-27
-
-### Improved
-
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-
-### Improved
-
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
 
 For the full list of updates, see the [changelog folder](./changelog/).

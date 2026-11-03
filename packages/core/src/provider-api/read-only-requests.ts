@@ -56,17 +56,26 @@ const READ_ONLY_POST_RULES: readonly ReadOnlyPostRule[] = [
     // extract jobs make no such promise.
     body: (body) => isDryRunQueryJob(body.configuration),
   },
+  // HubSpot paths carry `v3`/`v4` or a date-based version such as `2026-09`,
+  // which HubSpot accepts on either side of the API name
+  // (`/crm/objects/2026-09/...` and `/crm/2026-09/objects/...`).
   {
     provider: "hubspot",
     basePath: "",
     hostSuffixes: ["hubapi.com"],
-    path: /^\/crm\/v3\/(?:objects\/[^/]+\/(?:search|batch\/read)|properties\/[^/]+\/batch\/read)$/,
+    path: /^\/crm\/(?:(?:v3|\d{4}-\d{2})\/objects|objects\/\d{4}-\d{2})\/[^/]+\/(?:search|batch\/read)$/,
   },
   {
     provider: "hubspot",
     basePath: "",
     hostSuffixes: ["hubapi.com"],
-    path: /^\/crm\/v[34]\/associations\/[^/]+\/[^/]+\/batch\/read$/,
+    path: /^\/crm\/(?:(?:v3|\d{4}-\d{2})\/properties|properties\/\d{4}-\d{2})\/[^/]+\/batch\/read$/,
+  },
+  {
+    provider: "hubspot",
+    basePath: "",
+    hostSuffixes: ["hubapi.com"],
+    path: /^\/crm\/(?:(?:v[34]|\d{4}-\d{2})\/associations|associations\/\d{4}-\d{2})\/[^/]+\/[^/]+\/batch\/read$/,
   },
   {
     provider: "gong",

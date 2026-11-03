@@ -318,6 +318,55 @@ const messages = {
     clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
+    deletedMediaPending:
+      "Vídeo removido do Clips. As verificações de exclusão estão em andamento.",
+    deletedMediaBlocked:
+      "Vídeo removido do Clips. Não foi possível confirmar a exclusão dos arquivos.",
+    deletedMediaRetained:
+      "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    clipsDeletedMediaPending:
+      "Vídeos removidos do Clips: {{count}}. As verificações de exclusão estão em andamento.",
+    clipsDeletedMediaBlocked:
+      "Vídeos removidos do Clips: {{count}}. Não foi possível confirmar a exclusão dos arquivos.",
+    clipsDeletedMediaRetained:
+      "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    deletedMediaFinalizing:
+      "Vídeo removido do Clips. A atualização do uso de armazenamento precisa ser repetida.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos removidos do Clips: {{count}}. A atualização do uso de armazenamento precisa ser repetida.",
+    mediaCleanupFinalizing:
+      "A atualização do uso de armazenamento precisa ser repetida",
+    mediaCleanupFinalizingHelp:
+      "As verificações de remoção dos arquivos terminaram, mas este vídeo ainda pode contar para seu limite de armazenamento. Tente atualizar o uso novamente para atualizar seu total de armazenamento.",
+    mediaCleanupListLabel: "Remoção de mídia",
+    mediaCleanupPending: "Verificações de exclusão em andamento",
+    mediaCleanupPendingHelp:
+      "O Clips continua verificando em segundo plano. Você pode sair desta página e conferir as atualizações na Lixeira.",
+    mediaCleanupBlocked:
+      "Não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Os arquivos de vídeo armazenados ainda podem existir. Tentar remover novamente inicia outra tentativa. Você pode sair desta página e conferir o resultado na Lixeira.",
+    mediaCleanupReconnect:
+      "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
+    mediaCleanupRetained:
+      "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
+    mediaCleanupHelp: "Mais informações",
+    mediaCleanupRetryFiles: "Tentar remover novamente",
+    mediaCleanupRetryingFiles:
+      "Tentando excluir os arquivos de vídeo novamente",
+    mediaCleanupRetryUsage: "Tentar atualizar o uso novamente",
+    mediaCleanupRetryingUsage:
+      "Tentando atualizar o uso de armazenamento novamente",
+    mediaCleanupRemoved: "Arquivos de mídia removidos",
+    mediaCleanupUsageUpdated: "Uso de armazenamento atualizado",
+    mediaCleanupStillBlocked:
+      "Ainda não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "A atualização do uso de armazenamento ainda precisa ser repetida",
+    mediaCleanupRetryFailed:
+      "Não foi possível iniciar a nova tentativa. Tente novamente.",
+    mediaCleanupLoadFailed:
+      "Não foi possível carregar o status da remoção de mídia",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
@@ -1708,10 +1757,10 @@ const messages = {
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
-    untitled: "Untitled Clip",
+    untitled: "Clipe sem título",
     renameFailed: "Failed to rename clip",
     emptyTitle: "Title cannot be empty",
-    generatingTitle: "Generating title",
+    generatingTitle: "Gerando título",
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },

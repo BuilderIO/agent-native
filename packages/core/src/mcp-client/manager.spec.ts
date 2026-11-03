@@ -48,6 +48,14 @@ const orgContextMocks = vi.hoisted(() => ({
 
 vi.mock("../org/context.js", () => orgContextMocks);
 
+const workspaceConnectionBearer = vi.hoisted(() => vi.fn());
+vi.mock("./workspace-connection-servers.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./workspace-connection-servers.js")
+  >()),
+  resolveWorkspaceConnectionMcpBearer: workspaceConnectionBearer,
+}));
+
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split(".");
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
@@ -871,6 +879,82 @@ describe("McpClientManager", () => {
     },
     FIRST_A2A_SIGNING_TIMEOUT_MS,
   );
+
+  it("authenticates each workspace-connection request with a freshly resolved token", async () => {
+    workspaceConnectionBearer
+      .mockReset()
+      .mockResolvedValueOnce("hubspot-token-1")
+      .mockResolvedValueOnce("hubspot-token-2");
+    serverFixtures["http https://mcp.hubspot.com/"] = {
+      tools: [{ name: "get_user_details" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const workspaceConnection = {
+      provider: "hubspot" as const,
+      connectionId: "hubspot-connection-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-123",
+      appId: "crm",
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        hubspot: {
+          type: "http",
+          url: "https://mcp.hubspot.com",
+          headers: { Authorization: "Bearer stale-static-token" },
+          workspaceConnection,
+        },
+      },
+    });
+    await mgr.start();
+
+    await mgr.callTool("mcp__hubspot__get_user_details", {});
+    await mgr.callTool("mcp__hubspot__get_user_details", {});
+
+    expect(httpCallHeaders.map((headers) => headers.Authorization)).toEqual([
+      "Bearer hubspot-token-1",
+      "Bearer hubspot-token-2",
+    ]);
+    expect(workspaceConnectionBearer).toHaveBeenCalledWith(workspaceConnection);
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(
+      headersFromUnknown(transport.requestInit?.headers).Authorization,
+    ).toBeUndefined();
+    expect(JSON.stringify(mgr.getConfig())).not.toContain("hubspot-token");
+    await mgr.stop();
+  });
+
+  it("reconnects a workspace-connection server when its connection changes", async () => {
+    workspaceConnectionBearer.mockReset().mockResolvedValue("hubspot-token");
+    serverFixtures["http https://mcp.hubspot.com/"] = {
+      tools: [{ name: "get_user_details" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const serverFor = (connectionId: string) => ({
+      servers: {
+        hubspot: {
+          type: "http" as const,
+          url: "https://mcp.hubspot.com",
+          workspaceConnection: {
+            provider: "hubspot" as const,
+            connectionId,
+            ownerEmail: "alice@example.com",
+            orgId: null,
+            appId: "crm",
+          },
+        },
+      },
+    });
+    const mgr = new McpClientManager(serverFor("connection-a"));
+    await mgr.start();
+
+    const unchanged = await mgr.reconfigure(serverFor("connection-a"));
+    const changed = await mgr.reconfigure(serverFor("connection-b"));
+
+    expect(unchanged.reconnected).toEqual([]);
+    expect(changed.reconnected).toEqual(["hubspot"]);
+    await mgr.stop();
+  });
 
   it("does not mint a first-party identity token when the org domain is unavailable", async () => {
     process.env.A2A_SECRET = "test-a2a-secret";

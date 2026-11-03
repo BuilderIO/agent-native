@@ -21,6 +21,11 @@ let latestEventRows: Array<{
   transcript_order?: number | null;
   event_data: string;
 }> = [];
+let currentTurnEventRows: Array<{
+  run_id: string;
+  seq: number;
+  event_data: string;
+}> = [];
 let connectionRequestRows: Array<{ event_data: string }> = [];
 let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
@@ -171,6 +176,13 @@ const mockDb: any = {
       )
     ) {
       return { rows: latestEventRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT e\.run_id AS run_id, e\.seq AS seq, e\.event_data AS event_data\s+FROM agent_run_events e\s+JOIN agent_runs r/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: currentTurnEventRows, rowsAffected: 0 };
     }
     if (
       /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
@@ -344,6 +356,7 @@ const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,
 }));
 
@@ -390,6 +403,7 @@ const {
   claimBackgroundRun,
   terminalEventForAbortReason,
   persistRunCheckpointEvent,
+  persistedRunEventData,
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   setRunTerminalReasonIfStatus,
@@ -458,6 +472,7 @@ describe("run store", () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    currentTurnEventRows = [];
     connectionRequestRows = [];
     hasLaterSameTurnRun = false;
     staleSelectRows = [];
@@ -845,6 +860,98 @@ describe("run store", () => {
     });
   });
 
+  it("omits marked private event content while retaining default event payloads", () => {
+    const body = "synthetic-private-body-sentinel";
+    const privateEvent = JSON.parse(
+      persistedRunEventData(
+        JSON.stringify({
+          type: "tool_done",
+          omitFromPersistedHistory: true,
+          id: "call-private",
+          tool: "read-private-message",
+          input: { threadId: "thread-safe-id", body },
+          argumentsHash: "sensitive-argument-hash",
+          result: body,
+          chatUIResult: { body },
+          artifacts: [{ body }],
+        }),
+      ),
+    );
+
+    expect(JSON.stringify(privateEvent)).not.toContain(body);
+    expect(JSON.stringify(privateEvent)).not.toContain(
+      "sensitive-argument-hash",
+    );
+    expect(privateEvent).toMatchObject({
+      type: "tool_done",
+      omitFromPersistedHistory: true,
+      id: "call-private",
+      tool: "read-private-message",
+      input: {},
+      result: "[Private content omitted]",
+    });
+    expect(privateEvent).not.toHaveProperty("chatUIResult");
+    expect(privateEvent).not.toHaveProperty("artifacts");
+
+    const ordinaryEvent = {
+      type: "tool_done",
+      id: "call-ordinary",
+      tool: "ordinary-read",
+      input: { query: "normal input" },
+      result: "normal result",
+    };
+    expect(
+      JSON.parse(persistedRunEventData(JSON.stringify(ordinaryEvent))),
+    ).toEqual(ordinaryEvent);
+  });
+
+  it("keeps private rich-event placeholders readable during turn recovery", async () => {
+    const sentinel = "synthetic-private-rich-event-sentinel";
+    const event = {
+      type: "rich_event",
+      omitFromPersistedHistory: true,
+      event: {
+        namespace: "private-source-namespace",
+        name: "private-source-event",
+        data: { note: sentinel },
+      },
+    };
+
+    await insertRunEvent("run-private-rich-event", 4, JSON.stringify(event));
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3];
+    if (typeof stored !== "string") {
+      throw new Error("private rich event was not inserted into the journal");
+    }
+    const storedEvent = JSON.parse(stored) as Record<string, unknown>;
+    expect(JSON.stringify(storedEvent)).not.toContain(sentinel);
+    expect(JSON.stringify(storedEvent)).not.toContain(
+      "private-source-namespace",
+    );
+    expect(JSON.stringify(storedEvent)).not.toContain("private-source-event");
+
+    currentTurnEventRows = [
+      { run_id: "run-private-rich-event", seq: 4, event_data: stored },
+    ];
+    const recovered = await getCurrentTurnEventsForThread(
+      "thread-test",
+      "turn-test",
+    );
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]).toMatchObject({
+      type: "rich_event",
+      omitFromPersistedHistory: true,
+      event: {
+        namespace: "agent-native",
+        name: "private-content-omitted",
+        data: {},
+      },
+    });
+  });
+
   it("keeps a paused request pending after the run's terminal done event", async () => {
     latestEventRows = [
       {
@@ -982,6 +1089,56 @@ describe("run store", () => {
       },
       askId: "agent-tool-approval-ask-1",
     });
+  });
+
+  it("persists a private approval by its server grant id without an input digest", async () => {
+    const approvalKey = 'send-email:{"body":"synthetic-private-body"}';
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
+    await insertRunEvent(
+      "run-private-approval",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "send-email",
+        input: { body: "synthetic-private-body" },
+        approvalKey,
+        askId,
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored)).toMatchObject({
+      approvalKey: askId,
+      askId,
+      input: {},
+    });
+    expect(stored).not.toContain("synthetic-private-body");
+    expect(stored).not.toContain(approvalKeyForHistory(approvalKey));
+  });
+
+  it("marks a private approval without a grant id unavailable", async () => {
+    await insertRunEvent(
+      "run-private-approval-no-id",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "send-email",
+        input: { body: "synthetic-private-body" },
+        approvalKey: 'send-email:{"body":"synthetic-private-body"}',
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored).approvalKey).toBe(
+      "[Private approval unavailable]",
+    );
+    expect(stored).not.toContain("synthetic-private-body");
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {

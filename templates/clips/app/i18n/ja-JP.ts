@@ -315,6 +315,48 @@ const messages = {
     clipsRestoreFailed: "{{count}} 件のクリップを復元できませんでした",
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
+    deletedMediaPending:
+      "Clips から動画を削除しました。削除の確認を実行中です。",
+    deletedMediaBlocked:
+      "Clips から動画を削除しました。ファイルの削除を確認できませんでした。",
+    deletedMediaRetained:
+      "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
+    clipsDeletedMediaPending:
+      "Clips から削除した動画：{{count}} 件。削除の確認を実行中です。",
+    clipsDeletedMediaBlocked:
+      "Clips から削除した動画：{{count}} 件。ファイルの削除を確認できませんでした。",
+    clipsDeletedMediaRetained:
+      "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    deletedMediaFinalizing:
+      "Clips から動画を削除しました。ストレージ使用量の更新を再試行する必要があります。",
+    clipsDeletedMediaFinalizing:
+      "Clips から削除した動画：{{count}} 件。ストレージ使用量の更新を再試行する必要があります。",
+    mediaCleanupFinalizing: "ストレージ使用量の更新を再試行する必要があります",
+    mediaCleanupFinalizingHelp:
+      "ファイル削除の確認は終わりましたが、この動画がまだストレージ上限に算入されている可能性があります。使用量の更新を再試行して、ストレージ合計を更新してください。",
+    mediaCleanupListLabel: "メディアの削除",
+    mediaCleanupPending: "削除の確認を実行中",
+    mediaCleanupPendingHelp:
+      "Clips はバックグラウンドで確認を続けます。このページを離れて、ゴミ箱で更新を確認できます。",
+    mediaCleanupBlocked: "動画ファイルの削除を確認できませんでした",
+    mediaCleanupBlockedHelp:
+      "保存された動画ファイルが残っている可能性があります。「削除を再試行」で再度試行します。このページを離れて、ゴミ箱で結果を確認できます。",
+    mediaCleanupReconnect:
+      "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
+    mediaCleanupRetained:
+      "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
+    mediaCleanupHelp: "詳細",
+    mediaCleanupRetryFiles: "削除を再試行",
+    mediaCleanupRetryingFiles: "動画ファイルの削除を再試行しています",
+    mediaCleanupRetryUsage: "使用量の更新を再試行",
+    mediaCleanupRetryingUsage: "ストレージ使用量の更新を再試行しています",
+    mediaCleanupRemoved: "メディアファイルを削除しました",
+    mediaCleanupUsageUpdated: "ストレージ使用量を更新しました",
+    mediaCleanupStillBlocked: "動画ファイルの削除をまだ確認できません",
+    mediaCleanupStillFinalizing: "ストレージ使用量の更新はまだ再試行が必要です",
+    mediaCleanupRetryFailed:
+      "再試行を開始できませんでした。もう一度お試しください。",
+    mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },
   recordingRoute: {
     pageTitle: "クリップ録画 · Clips",
@@ -1695,10 +1737,10 @@ const messages = {
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (ローカライズ済み)",
+    untitled: "無題のクリップ",
     renameFailed: "Failed to rename clip (ローカライズ済み)",
     emptyTitle: "Title cannot be empty (ローカライズ済み)",
-    generatingTitle: "Generating title (ローカライズ済み)",
+    generatingTitle: "タイトルの生成",
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },

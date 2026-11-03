@@ -86,6 +86,8 @@ const overflowHeights = new Map<string, number>();
 // The hull a transformed flow object paints, which is what getBoundingClientRect
 // reports for it; its layout box (FLOW_RECTS) stays what offsetWidth reads.
 const paintedHulls = new Map<string, Rect>();
+// Where the page has scrolled the slide to; layout px are unaffected.
+let viewportShift = { x: 0, y: 0 };
 
 const noop = () => {};
 
@@ -160,7 +162,14 @@ beforeEach(() => {
       const rect =
         (this.style.position !== "absolute" && paintedHulls.get(this.id)) ||
         layoutRect(this);
-      return rect ? toDomRect(rect) : new DOMRect(0, 0, 0, 0);
+      return rect
+        ? toDomRect({
+            left: rect.left + viewportShift.x,
+            top: rect.top + viewportShift.y,
+            right: rect.right + viewportShift.x,
+            bottom: rect.bottom + viewportShift.y,
+          })
+        : new DOMRect(0, 0, 0, 0);
     },
   );
   Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
@@ -217,6 +226,7 @@ afterEach(() => {
   originalGetters.clear();
   overflowHeights.clear();
   paintedHulls.clear();
+  viewportShift = { x: 0, y: 0 };
   stack = [];
   window.getSelection()?.removeAllRanges();
 });
@@ -313,22 +323,26 @@ function dragHandle(
   handle: HTMLElement,
   from: { x: number; y: number },
   delta: { dx: number; dy: number },
+  modifiers: { metaKey?: boolean } = {},
 ) {
   fireEvent.pointerDown(handle, {
     button: 0,
     pointerId: 1,
     clientX: from.x,
     clientY: from.y,
+    ...modifiers,
   });
   fireEvent.pointerMove(window, {
     pointerId: 1,
     clientX: from.x + delta.dx,
     clientY: from.y + delta.dy,
+    ...modifiers,
   });
   fireEvent.pointerUp(window, {
     pointerId: 1,
     clientX: from.x + delta.dx,
     clientY: from.y + delta.dy,
+    ...modifiers,
   });
 }
 
@@ -371,14 +385,15 @@ function type(target: HTMLElement, text: string) {
   }
 }
 
+// The dragged edges land on the 8px grid.
 describe("fit text box handles", () => {
   it.each([
-    ["e", { dx: 50, dy: 20 }, { left: "100px", top: "100px", width: "350px" }],
-    ["w", { dx: -40, dy: 20 }, { left: "60px", top: "100px", width: "340px" }],
+    ["e", { dx: 50, dy: 20 }, { left: "100px", top: "100px", width: "348px" }],
+    ["w", { dx: -40, dy: 20 }, { left: "64px", top: "100px", width: "336px" }],
     ["s", { dx: 0, dy: 60 }, { left: "100px", top: "100px", width: "300px" }],
-    ["n", { dx: 0, dy: -30 }, { left: "100px", top: "70px", width: "300px" }],
-    ["se", { dx: 30, dy: 50 }, { left: "100px", top: "100px", width: "330px" }],
-    ["nw", { dx: -20, dy: -10 }, { left: "80px", top: "90px", width: "320px" }],
+    ["n", { dx: 0, dy: -30 }, { left: "100px", top: "72px", width: "300px" }],
+    ["se", { dx: 30, dy: 50 }, { left: "100px", top: "100px", width: "332px" }],
+    ["nw", { dx: -20, dy: -10 }, { left: "80px", top: "88px", width: "320px" }],
   ])(
     "%s writes width and top edge but never a height (oracle H.1, oracle H.2, oracle H.3, oracle H.4, oracle H.5, oracle H.7)",
     async (name, delta, expected) => {
@@ -411,8 +426,8 @@ describe("fit text box handles", () => {
     expect(box.style.top).toBe("200px");
 
     dragHandle(editor.handle("n")!, { x: 250, y: 200 }, { dx: 0, dy: -30 });
-    expect(box.style.minHeight).toBe("190px");
-    expect(box.style.top).toBe("170px");
+    expect(box.style.minHeight).toBe("192px");
+    expect(box.style.top).toBe("168px");
 
     dragHandle(editor.handle("s")!, { x: 250, y: 360 }, { dx: 0, dy: -400 });
     expect(box.style.minHeight).toBe("31px");
@@ -618,8 +633,9 @@ describe("text box creation", () => {
 
     const box = draw(editor, { x: 100, y: 100 }, { x: 400, y: 220 });
 
+    // Both corners land on the grid: 104 to 400 and 104 to 224.
     expect(box.style.minHeight).toBe("120px");
-    expect(box.style.width).toBe("300px");
+    expect(box.style.width).toBe("296px");
     expect(box.style.height).toBe("");
   });
 
@@ -853,7 +869,7 @@ describe("explicit and anchored heights", () => {
     dragHandle(editor.handle("w")!, { x: 100, y: 200 }, { dx: 40, dy: 0 });
 
     const rect = editor.el("rect");
-    expect(rect.style.width).toBe("280px");
+    expect(rect.style.width).toBe("276px");
     expect(rect.style.minHeight).toBe("120px");
     expect(rect.style.height).toBe("");
   });
@@ -1431,4 +1447,387 @@ describe("releasing the press of a gesture Escape cancelled", () => {
       ).toBeNull();
     },
   );
+});
+
+describe("canvas keyboard shortcuts", () => {
+  const TWO_BOXES = `
+    <div class="fmd-slide" style="position:relative">
+      <div id="a" data-slide-object-id="a-1" style="position:absolute;left:100px;top:100px;width:200px;height:80px;background:#123">A</div>
+      <div id="b" data-slide-object-id="b-1" style="position:absolute;left:400px;top:300px;width:200px;height:80px;background:#321">B</div>
+    </div>`;
+  const zoomButton = (editor: Awaited<ReturnType<typeof mountEditor>>) =>
+    editor.getByRole("button", { name: "contextToolbar.zoom" });
+
+  it("zooms the canvas instead of the page, and fits it again", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    const fitted = zoomButton(editor).textContent;
+    editor.canvas.focus();
+
+    expect(fireEvent.keyDown(editor.canvas, { key: "0", metaKey: true })).toBe(
+      false,
+    );
+    expect(zoomButton(editor).textContent).toBe("100%");
+    fireEvent.keyDown(editor.canvas, { key: "=", metaKey: true });
+    expect(zoomButton(editor).textContent).toBe("125%");
+    fireEvent.keyDown(editor.canvas, { key: "-", ctrlKey: true });
+    expect(zoomButton(editor).textContent).toBe("100%");
+    fireEvent.keyDown(editor.canvas, { key: "=", metaKey: true });
+    expect(
+      fireEvent.keyDown(editor.canvas, {
+        key: "!",
+        code: "Digit1",
+        shiftKey: true,
+      }),
+    ).toBe(false);
+    expect(zoomButton(editor).textContent).toBe(fitted);
+  });
+
+  it("leaves zoom keys to the browser while typing in a field", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    const before = zoomButton(editor).textContent;
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+
+    expect(fireEvent.keyDown(field, { key: "=", metaKey: true })).toBe(true);
+    expect(zoomButton(editor).textContent).toBe(before);
+    field.remove();
+  });
+
+  it("keeps Cmd+D from bookmarking the page with nothing selected", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    editor.canvas.focus();
+
+    expect(fireEvent.keyDown(editor.canvas, { key: "d", metaKey: true })).toBe(
+      false,
+    );
+    expect(editor.container.querySelectorAll(".fmd-text-box")).toHaveLength(1);
+  });
+
+  it("leaves Cmd+D to a handler that already claimed it", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    editor.click("box", { x: 110, y: 110 });
+    editor.canvas.focus();
+    const claim = (event: Event) => event.preventDefault();
+    document.addEventListener("keydown", claim);
+
+    fireEvent.keyDown(editor.canvas, { key: "d", metaKey: true });
+
+    document.removeEventListener("keydown", claim);
+    expect(editor.container.querySelectorAll(".fmd-text-box")).toHaveLength(1);
+  });
+
+  it("keeps the selected object when Backspace is pressed on a toolbar button", async () => {
+    const editor = await mountEditor(TWO_BOXES);
+    editor.click("a", { x: 110, y: 110 });
+    const button = zoomButton(editor);
+    button.focus();
+
+    fireEvent.keyDown(button, { key: "Backspace" });
+    expect(editor.container.querySelector("#a")).not.toBeNull();
+
+    editor.canvas.focus();
+    fireEvent.keyDown(editor.canvas, { key: "Backspace" });
+    expect(editor.container.querySelector("#a")).toBeNull();
+  });
+
+  it("groups with Cmd+Option+G, whose key Option turns into another character", async () => {
+    const editor = await mountEditor(TWO_BOXES);
+    editor.canvas.focus();
+    fireEvent.keyDown(editor.canvas, { key: "a", metaKey: true });
+
+    fireEvent.keyDown(editor.canvas, {
+      key: "©",
+      code: "KeyG",
+      metaKey: true,
+      altKey: true,
+    });
+
+    const group = editor.el("a").parentElement;
+    expect(group?.classList.contains("fmd-slide-group")).toBe(true);
+    expect(group?.contains(editor.el("b"))).toBe(true);
+  });
+
+  it("cycles objects with Tab only while the canvas has focus", async () => {
+    const editor = await mountEditor(FIT_SLIDE);
+    editor.canvas.blur();
+    vi.mocked(enterSelectionMode).mockClear();
+
+    expect(fireEvent.keyDown(document.body, { key: "Tab" })).toBe(true);
+    expect(enterSelectionMode).not.toHaveBeenCalled();
+
+    editor.canvas.focus();
+    expect(fireEvent.keyDown(editor.canvas, { key: "Tab" })).toBe(false);
+    expect(enterSelectionMode).toHaveBeenCalled();
+  });
+
+  it("makes a run of arrow nudges one undo step", async () => {
+    const editor = await mountEditor(TWO_BOXES);
+    editor.click("a", { x: 110, y: 110 });
+    editor.canvas.focus();
+    editor.onUpdateSlide.mockClear();
+
+    fireEvent.keyDown(editor.canvas, { key: "ArrowRight" });
+    fireEvent.keyDown(editor.canvas, { key: "ArrowDown" });
+
+    expect(editor.onUpdateSlide).toHaveBeenCalledTimes(2);
+    for (const [, , options] of editor.onUpdateSlide.mock.calls) {
+      expect(options).toMatchObject({
+        undoCoalesceKey: "nudge:slide-geometry:a-1",
+      });
+      expect(options.separateUndo).toBeUndefined();
+    }
+  });
+});
+
+describe("the 8px grid", () => {
+  const CARD = `
+    <div class="fmd-slide" style="position:relative">
+      <div id="card" data-slide-object-id="card-1" style="position:absolute;left:100px;top:100px;width:300px;height:120px;background:#123">Card</div>
+    </div>`;
+  const resize = async (modifiers: { metaKey?: boolean } = {}) => {
+    const editor = await mountEditor(CARD);
+    editor.click("card", { x: 110, y: 110 });
+    const handle = editor.handle("se");
+    if (!handle) throw new Error("no se handle");
+    dragHandle(handle, { x: 400, y: 220 }, { dx: 10.4, dy: 5.6 }, modifiers);
+    return editor.el("card");
+  };
+  const dragBody = (
+    editor: Awaited<ReturnType<typeof mountEditor>>,
+    id: string,
+    delta: { dx: number; dy: number },
+    modifiers: { metaKey?: boolean } = {},
+  ) => {
+    const from = { x: 110, y: 110 };
+    stack = [editor.el(id)];
+    // Cmd on the press itself would extend the selection instead.
+    fireEvent.pointerDown(editor.el(id), editor.init(from));
+    const to = {
+      pointerId: 1,
+      clientX: from.x + delta.dx,
+      clientY: from.y + delta.dy,
+      ...modifiers,
+    };
+    fireEvent.pointerMove(window, to);
+    fireEvent.pointerUp(window, to);
+  };
+
+  it("lands a resized edge on the grid", async () => {
+    const card = await resize();
+
+    expect(card.style.width).toBe("308px");
+    expect(card.style.height).toBe("124px");
+  });
+
+  it("resizes to whole pixels off the grid while Cmd is held", async () => {
+    const card = await resize({ metaKey: true });
+
+    expect(card.style.width).toBe("310px");
+    expect(card.style.height).toBe("126px");
+  });
+
+  it("lands a dragged object on the grid", async () => {
+    const editor = await mountEditor(CARD);
+    editor.click("card", { x: 110, y: 110 });
+
+    dragBody(editor, "card", { dx: 13, dy: 5 });
+
+    expect(editor.el("card").style.left).toBe("112px");
+    expect(editor.el("card").style.top).toBe("104px");
+  });
+
+  it("drags to whole pixels off the grid while Cmd is held", async () => {
+    const editor = await mountEditor(CARD);
+    editor.click("card", { x: 110, y: 110 });
+
+    dragBody(editor, "card", { dx: 13.4, dy: 5 }, { metaKey: true });
+
+    expect(editor.el("card").style.left).toBe("113px");
+    expect(editor.el("card").style.top).toBe("105px");
+  });
+
+  it("keeps an axis an alignment guide claimed off the grid", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <div id="card" data-slide-object-id="card-1" style="position:absolute;left:100px;top:100px;width:120px;height:80px;background:#123">Card</div>
+        <div id="peer" data-slide-object-id="peer-1" style="position:absolute;left:403px;top:400px;width:120px;height:80px;background:#321">Peer</div>
+      </div>`);
+    editor.click("card", { x: 110, y: 110 });
+
+    dragBody(editor, "card", { dx: 300, dy: 5 });
+
+    expect(editor.el("card").style.left).toBe("403px");
+    expect(editor.el("card").style.top).toBe("104px");
+  });
+
+  it("moves to the next grid line with Shift and an arrow", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <div id="card" data-slide-object-id="card-1" style="position:absolute;left:13px;top:100px;width:120px;height:80px;background:#123">Card</div>
+      </div>`);
+    editor.click("card", { x: 20, y: 110 });
+    editor.canvas.focus();
+    const card = editor.el("card");
+
+    fireEvent.keyDown(editor.canvas, { key: "ArrowRight", shiftKey: true });
+    expect(card.style.left).toBe("16px");
+    fireEvent.keyDown(editor.canvas, { key: "ArrowRight", shiftKey: true });
+    expect(card.style.left).toBe("24px");
+    fireEvent.keyDown(editor.canvas, { key: "ArrowLeft", shiftKey: true });
+    expect(card.style.left).toBe("16px");
+    fireEvent.keyDown(editor.canvas, { key: "ArrowLeft" });
+    expect(card.style.left).toBe("15px");
+  });
+
+  it("shows a computed border width to two decimals", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <div id="card" data-slide-object-id="card-1" style="position:absolute;left:100px;top:100px;width:120px;height:80px;background:#123;border:0.555556px solid #000">Card</div>
+      </div>`);
+    editor.click("card", { x: 110, y: 110 });
+    await wait(60);
+    const controls = document.querySelector<HTMLElement>(
+      '[aria-label="styleInspector.controls"]',
+    );
+    if (!controls) throw new Error("no controls button");
+    fireEvent.click(controls);
+    await wait(60);
+    const label = Array.from(document.querySelectorAll("label")).find(
+      (candidate) => candidate.textContent === "styleInspector.strokeWeight",
+    );
+    if (!label) throw new Error("no stroke weight field");
+
+    const field = document.getElementById(label.htmlFor);
+    expect(field instanceof HTMLInputElement ? field.value : null).toBe(
+      "0.56px",
+    );
+  });
+});
+
+describe("creating objects on the 8px grid", () => {
+  const draw = (
+    editor: Awaited<ReturnType<typeof mountEditor>>,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    modifiers: { metaKey?: boolean } = {},
+  ) => {
+    fireEvent.pointerDown(editor.canvas, editor.init(from));
+    fireEvent.pointerMove(editor.canvas, { ...editor.init(to), ...modifiers });
+    fireEvent.pointerUp(editor.canvas, { ...editor.init(to), ...modifiers });
+    const shape = editor.container.querySelector<HTMLElement>(".fmd-shape");
+    if (!shape) throw new Error("no shape was drawn");
+    return shape;
+  };
+  const box = (element: HTMLElement) => ({
+    left: element.style.left,
+    top: element.style.top,
+    width: element.style.width,
+    height: element.style.height,
+  });
+
+  it("lands both corners of a drawn shape on the grid", async () => {
+    const editor = await mountEditor(FIT_SLIDE, { shapeType: "rectangle" });
+
+    const shape = draw(editor, { x: 111, y: 298 }, { x: 252, y: 375 });
+
+    expect(box(shape)).toEqual({
+      left: "112px",
+      top: "296px",
+      width: "144px",
+      height: "80px",
+    });
+  });
+
+  it("draws off the grid in whole pixels while Cmd is held", async () => {
+    const editor = await mountEditor(FIT_SLIDE, { shapeType: "rectangle" });
+
+    const shape = draw(
+      editor,
+      { x: 111, y: 298 },
+      { x: 252, y: 375 },
+      { metaKey: true },
+    );
+
+    expect(box(shape)).toEqual({
+      left: "111px",
+      top: "298px",
+      width: "141px",
+      height: "77px",
+    });
+  });
+
+  it("places a clicked shape at its default size on the grid", async () => {
+    const editor = await mountEditor(FIT_SLIDE, { shapeType: "circle" });
+
+    const shape = draw(editor, { x: 211, y: 99 }, { x: 211, y: 99 });
+
+    expect(box(shape)).toEqual({
+      left: "208px",
+      top: "96px",
+      width: "144px",
+      height: "144px",
+    });
+  });
+
+  it("duplicates a grid step away, on the grid", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <div id="card" data-slide-object-id="card-1" style="position:absolute;left:101px;top:99px;width:120px;height:80px;background:#123">Card</div>
+      </div>`);
+    editor.click("card", { x: 110, y: 110 });
+    editor.canvas.focus();
+
+    fireEvent.keyDown(editor.canvas, { key: "d", metaKey: true });
+
+    const copy = Array.from(
+      editor.container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).find((element) => element.id !== "card");
+    expect(copy?.style.left).toBe("120px");
+    expect(copy?.style.top).toBe("112px");
+  });
+});
+
+describe("pasting with nothing selected", () => {
+  it("lands beside the copied object after the page scrolls", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <div id="card" data-slide-object-id="card-1" style="position:absolute;left:100px;top:100px;width:300px;height:120px;background:#123">Card</div>
+      </div>`);
+    editor.click("card", { x: 110, y: 110 });
+    editor.canvas.focus();
+    fireEvent.keyDown(editor.canvas, { key: "c", metaKey: true });
+    fireEvent.keyDown(editor.canvas, { key: "Escape" });
+    expect(editor.outline()).toBeNull();
+    viewportShift = { x: -40, y: -250 };
+
+    act(() => {
+      window.dispatchEvent(new Event("paste"));
+    });
+
+    const pasted = Array.from(
+      editor.container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).find((element) => element.id !== "card");
+    // 100 + 16 lands on the grid at 120.
+    expect(pasted?.style.left).toBe("120px");
+    expect(pasted?.style.top).toBe("120px");
+  });
+});
+
+describe("cropping from the toolbar", () => {
+  it("starts the same crop a double-click starts", async () => {
+    const editor = await mountEditor(`
+      <div class="fmd-slide" style="position:relative">
+        <img id="pic" data-slide-object-id="pic-1" src="x.png" style="position:absolute;left:200px;top:100px;width:160px;height:90px">
+      </div>`);
+    editor.click("pic", { x: 220, y: 120 });
+
+    fireEvent.click(
+      editor.getByRole("button", { name: "editorToolbar.cropImage" }),
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    expect(document.querySelector("[data-slide-crop-overlay]")).not.toBeNull();
+    expect(editor.el("pic").closest(".fmd-pptx-image")).not.toBeNull();
+  });
 });

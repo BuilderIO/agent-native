@@ -1110,6 +1110,29 @@ describe("add-slide", () => {
     });
   });
 
+  it("adds the slide and saves no target when a deck without one gets an override", async () => {
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+        targetSlideCountOverride: 3,
+      },
+      { caller: "tool" },
+    );
+
+    const savedDeck = JSON.parse(String(updatedFields?.data)) as {
+      slides: { id: string }[];
+      generationContext?: unknown;
+    };
+    expect(savedDeck.slides.map((slide) => slide.id)).toEqual([
+      "slide-1",
+      "slide-2",
+      "slide-new",
+    ]);
+    expect(savedDeck.generationContext).toBeUndefined();
+  });
+
   it.each([
     {
       name: "before the persisted target",

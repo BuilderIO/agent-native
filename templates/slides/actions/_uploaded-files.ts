@@ -7,12 +7,16 @@ import {
   isAttachmentRef,
   unwrapAttachment,
 } from "@agent-native/core/private-blob";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 import {
   isHostedSlidesRuntime,
   tenantUploadDir,
 } from "../server/lib/tenant-files.js";
+import { readThreadUploads } from "../server/lib/thread-uploads.js";
 import { resolveUploadedReference } from "../server/lib/uploaded-reference-storage.js";
 
 const GENERIC_DOCUMENT_REFERENCE =
@@ -145,6 +149,25 @@ function stampedReference(
   return typeof stamped === "string" ? stamped : null;
 }
 
+/** The newest upload in this thread saved under exactly this file name. */
+async function threadReference(
+  filePath: string,
+  expectedExtensions?: readonly string[],
+): Promise<string | null> {
+  const wanted = filePath.trim();
+  if (!wanted || /[/\\:]/.test(wanted)) return null;
+  const threadId = getRequestRunContext()?.threadId;
+  if (!threadId) return null;
+  const match = (await readThreadUploads(threadId))
+    .filter(
+      (upload) =>
+        upload.name === wanted &&
+        hasExpectedExtension(upload.name, expectedExtensions),
+    )
+    .at(-1);
+  return match?.path ?? null;
+}
+
 /**
  * The one way a Slides action opens an uploaded file. Hosted uploads are core
  * attachment refs; local paths exist only outside hosted runtimes. Every
@@ -165,7 +188,11 @@ export async function readUserUploadedFile(
         filePath,
         ctx?.attachments,
         options?.expectedExtensions,
-      ) ?? filePath);
+      ) ??
+      (isHostedSlidesRuntime()
+        ? await threadReference(filePath, options?.expectedExtensions)
+        : null) ??
+      filePath);
   if (isAttachmentRef(reference)) {
     const { data, filename } = unwrapAttachment(
       await resolveUploadedReference(reference, email),

@@ -19,7 +19,9 @@ import {
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
+import { a2aFilePartsToAttachments } from "./file-attachments.js";
 import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
+import type { Part } from "./types.js";
 
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   const original =
@@ -1042,6 +1044,40 @@ describe("A2AClient", () => {
         platform: "slack",
         integrationTaskId: "integration-task-1",
       },
+    });
+  });
+
+  it("sends attached files as URL parts the receiver turns into chat attachments", async () => {
+    let sentParts: Part[] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      sentParts = body.params.message.parts;
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "make slides from this", {
+      async: false,
+      files: [
+        {
+          uri: "https://cdn.builder.io/api/v1/file/assets%2Ffake%2Freport",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+        },
+        { uri: "http://internal.test/secret.pdf", name: "secret.pdf" },
+      ],
+    });
+
+    expect(a2aFilePartsToAttachments(sentParts)).toEqual({
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          url: "https://cdn.builder.io/api/v1/file/assets%2Ffake%2Freport",
+          contentType: "application/pdf",
+        },
+      ],
+      unreadable: ["secret.pdf"],
     });
   });
 

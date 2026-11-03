@@ -296,6 +296,41 @@ const messages = {
     clipsRestoreFailed: "{{count}} 個剪輯無法恢復",
     clipsPermanentlyDeleted: "已永久刪除 {{count}} 個剪輯",
     clipsDeleteFailed: "{{count}} 個剪輯無法刪除",
+    deletedMediaPending: "影片已從 Clips 移除。正在進行刪除檢查。",
+    deletedMediaBlocked: "影片已從 Clips 移除。無法確認檔案是否已刪除。",
+    deletedMediaRetained: "錄製已刪除。其他錄製仍在使用的媒體檔案已保留。",
+    clipsDeletedMediaPending:
+      "已從 Clips 移除的影片：{{count}}。正在進行刪除檢查。",
+    clipsDeletedMediaBlocked:
+      "已從 Clips 移除的影片：{{count}}。無法確認檔案是否已刪除。",
+    clipsDeletedMediaRetained:
+      "已刪除的錄製：{{count}}。其他錄製仍在使用的媒體檔案已保留。",
+    deletedMediaFinalizing: "影片已從 Clips 移除。需要重試儲存空間用量更新。",
+    clipsDeletedMediaFinalizing:
+      "已從 Clips 移除的影片：{{count}}。需要重試儲存空間用量更新。",
+    mediaCleanupFinalizing: "需要重試儲存空間用量更新",
+    mediaCleanupFinalizingHelp:
+      "檔案移除檢查已結束，但此影片可能仍計入你的儲存限額。重試更新用量以更新儲存總量。",
+    mediaCleanupListLabel: "媒體移除",
+    mediaCleanupPending: "正在進行刪除檢查",
+    mediaCleanupPendingHelp:
+      "Clips 會繼續在背景檢查。你可以離開此頁面，稍後在垃圾桶查看更新。",
+    mediaCleanupBlocked: "無法確認影片檔案是否已刪除",
+    mediaCleanupBlockedHelp:
+      "儲存的影片檔案可能仍然存在。重試移除會發起另一次嘗試。你可以離開此頁面，在垃圾桶查看結果。",
+    mediaCleanupReconnect: "請重新連線儲存空間以移除已刪除錄製的媒體檔案",
+    mediaCleanupRetained: "已刪除錄製的共用媒體檔案在其他錄製使用期間會保留",
+    mediaCleanupHelp: "更多資訊",
+    mediaCleanupRetryFiles: "重試移除",
+    mediaCleanupRetryingFiles: "正在重試刪除影片檔案",
+    mediaCleanupRetryUsage: "重試用量更新",
+    mediaCleanupRetryingUsage: "正在重試儲存空間用量更新",
+    mediaCleanupRemoved: "媒體檔案已移除",
+    mediaCleanupUsageUpdated: "儲存空間用量已更新",
+    mediaCleanupStillBlocked: "仍無法確認影片檔案是否已刪除",
+    mediaCleanupStillFinalizing: "儲存空間用量更新仍需重試",
+    mediaCleanupRetryFailed: "無法開始重試。請再試一次。",
+    mediaCleanupLoadFailed: "無法載入媒體移除狀態",
   },
   recordingRoute: {
     pageTitle: "剪輯錄製 · Clips",

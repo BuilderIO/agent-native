@@ -39,7 +39,10 @@ import { recordDesignPerformance } from "@/components/design/design-trace";
 import { getUnreadReviewThreadIds } from "@/components/design/ReviewCommentsPanel";
 import type { ElementInfo } from "@/components/design/types";
 import { type DesignAccessStatus } from "@/components/DesignAccessState";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  useAgentGenerating,
+  type GenerationFailure,
+} from "@/hooks/use-agent-generating";
 import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -109,6 +112,8 @@ type RequestDesignAccessResult = {
 };
 
 const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
+// Each refetch re-renders the live canvas; the ghost refetches on its own when its call lands.
+const GENERATION_REFETCH_INTERVAL_MS = 3000;
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -357,7 +362,7 @@ export function useEditorGenerationAndAccess({
                 runId: completedRunId,
                 turnId: completedTurnId,
               },
-              { method: "GET" },
+              { method: "GET", uiOnly: true },
             )
               .then((result) =>
                 result?.status === "has_output" ||
@@ -446,26 +451,32 @@ export function useEditorGenerationAndAccess({
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
   }, [clearAutoRetryTimer, clearGenerationCompleteTimer, id]);
-  const handleGenerationFailed = useCallback(() => {
-    if (generationOutputReadyRef.current === null) return;
-    clearGenerationCompleteTimer();
-    clearAutoRetryTimer();
-    const preservedForRetry = rememberPendingGenerationForRetry();
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    setGenerationIssue(
-      preservedForRetry
-        ? t("designEditor.generationStoppedRetry")
-        : t("designEditor.generationStoppedCheckAgent"),
-    );
-    staleToastShownRef.current = false;
-  }, [
-    clearAutoRetryTimer,
-    clearGenerationCompleteTimer,
-    id,
-    rememberPendingGenerationForRetry,
-    t,
-  ]);
+  const handleGenerationFailed = useCallback(
+    (_tabId: string | null, failure?: GenerationFailure) => {
+      if (generationOutputReadyRef.current === null) return;
+      clearGenerationCompleteTimer();
+      clearAutoRetryTimer();
+      // A rejected request fails the same way on resend; keep only the manual retry.
+      const preservedForRetry = rememberPendingGenerationForRetry(
+        failure?.retryable !== false,
+      );
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(
+        preservedForRetry
+          ? t("designEditor.generationStoppedRetry")
+          : t("designEditor.generationStoppedCheckAgent"),
+      );
+      staleToastShownRef.current = false;
+    },
+    [
+      clearAutoRetryTimer,
+      clearGenerationCompleteTimer,
+      id,
+      rememberPendingGenerationForRetry,
+      t,
+    ],
+  );
   const getKnownPreviousRunBaseline = useCallback(
     (runTabId: string) => {
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
@@ -706,10 +717,10 @@ export function useEditorGenerationAndAccess({
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
         ? pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : 30_000
         : pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : false,
     },
   );
@@ -1501,6 +1512,7 @@ export function useEditorGenerationAndAccess({
     [],
   );
 
+  const retryInFlightRef = useRef(false);
   const startRetryGeneration = useCallback(
     async (
       promptState: NonNullable<typeof retryablePrompt>,
@@ -1522,6 +1534,9 @@ export function useEditorGenerationAndAccess({
             "designEditor.invalidCanvasDimensions",
           ),
           id,
+          previousRunTabId: generationChatTabId,
+          retryInFlightRef,
+          trackActiveRun: trackAgentGeneration,
           setGenerationChatTabId,
           setGenerationIssue,
           setHasPendingGeneration,
@@ -1540,8 +1555,10 @@ export function useEditorGenerationAndAccess({
       clearAutoRetryTimer,
       clearGenerationCompleteTimer,
       design,
+      generationChatTabId,
       id,
       t,
+      trackAgentGeneration,
     ],
   );
 

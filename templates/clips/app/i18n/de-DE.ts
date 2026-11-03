@@ -323,6 +323,53 @@ const messages = {
       "{{count}} Clips konnten nicht wiederhergestellt werden",
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
+    deletedMediaPending: "Video aus Clips entfernt. Löschprüfungen laufen.",
+    deletedMediaBlocked:
+      "Video aus Clips entfernt. Löschung der Dateien konnte nicht bestätigt werden.",
+    deletedMediaRetained:
+      "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    clipsDeletedMediaPending:
+      "Aus Clips entfernte Videos: {{count}}. Löschprüfungen laufen.",
+    clipsDeletedMediaBlocked:
+      "Aus Clips entfernte Videos: {{count}}. Löschung der Dateien konnte nicht bestätigt werden.",
+    clipsDeletedMediaRetained:
+      "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    deletedMediaFinalizing:
+      "Video aus Clips entfernt. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    clipsDeletedMediaFinalizing:
+      "Aus Clips entfernte Videos: {{count}}. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    mediaCleanupFinalizing:
+      "Aktualisierung der Speichernutzung muss wiederholt werden",
+    mediaCleanupFinalizingHelp:
+      "Die Prüfungen zur Dateientfernung sind abgeschlossen, aber dieses Video kann noch auf dein Speicherlimit angerechnet werden. Versuche die Aktualisierung der Nutzung erneut, um deinen Speicherstand zu aktualisieren.",
+    mediaCleanupListLabel: "Entfernen von Mediendateien",
+    mediaCleanupPending: "Löschprüfungen laufen",
+    mediaCleanupPendingHelp:
+      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen und im Papierkorb nach Updates sehen.",
+    mediaCleanupBlocked:
+      "Löschung der Videodateien konnte nicht bestätigt werden",
+    mediaCleanupBlockedHelp:
+      "Gespeicherte Videodateien können noch vorhanden sein. Entfernung erneut versuchen startet einen weiteren Versuch. Du kannst diese Seite verlassen und das Ergebnis im Papierkorb prüfen.",
+    mediaCleanupReconnect:
+      "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
+    mediaCleanupRetained:
+      "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
+    mediaCleanupHelp: "Weitere Informationen",
+    mediaCleanupRetryFiles: "Entfernen wiederholen",
+    mediaCleanupRetryingFiles: "Löschung der Videodateien wird erneut versucht",
+    mediaCleanupRetryUsage: "Nutzung erneut aktualisieren",
+    mediaCleanupRetryingUsage:
+      "Aktualisierung der Speichernutzung wird erneut versucht",
+    mediaCleanupRemoved: "Mediendateien entfernt",
+    mediaCleanupUsageUpdated: "Speichernutzung aktualisiert",
+    mediaCleanupStillBlocked:
+      "Löschung der Videodateien konnte weiterhin nicht bestätigt werden",
+    mediaCleanupStillFinalizing:
+      "Aktualisierung der Speichernutzung muss weiterhin wiederholt werden",
+    mediaCleanupRetryFailed:
+      "Erneuter Versuch konnte nicht gestartet werden. Versuche es noch einmal.",
+    mediaCleanupLoadFailed:
+      "Status der Medienentfernung konnte nicht geladen werden",
   },
   recordingRoute: {
     pageTitle: "Clip-Aufnahme · Clips",
@@ -1722,10 +1769,10 @@ const messages = {
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (Lokalisiert)",
+    untitled: "Unbenannter Clip",
     renameFailed: "Failed to rename clip (Lokalisiert)",
     emptyTitle: "Title cannot be empty (Lokalisiert)",
-    generatingTitle: "Generating title (Lokalisiert)",
+    generatingTitle: "Titel wird generiert",
     placeholder: "Clip title (Lokalisiert)",
     editLabel: "Edit clip title (Lokalisiert)",
   },

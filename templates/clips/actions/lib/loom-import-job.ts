@@ -10,6 +10,11 @@ import {
 } from "../../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
 import { trackRecordingFailure } from "../../server/lib/recording-failures.js";
+import {
+  beginMediaProduction,
+  finishMediaProduction,
+  withRecordingMediaProduction,
+} from "../../server/lib/recording-media-lifecycle.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { deleteS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
@@ -276,6 +281,7 @@ export async function runLoomImportJob({
   let upload: Awaited<ReturnType<typeof uploadFile>> | null = null;
   let resolvedStorageMode = recording.storageMode;
   let uploadSizeMismatch = false;
+  const mediaActivity = await beginMediaProduction({ recordingId, ownerEmail });
 
   // An upload that never reached recordings.videoUrl is invisible to the
   // reaper, which would leave the object stored and the reservation held.
@@ -422,25 +428,29 @@ export async function runLoomImportJob({
         return { status: "failed", failureReason: lease.failureReason };
       }
 
-      upload = media
-        ? storage.provider
-          ? await storage.provider.upload({
-              data: media.bytes,
-              filename: `${recordingId}.mp4`,
-              mimeType: media.mimeType,
-              ownerEmail,
-              stableUrl: true,
-              recordAsset: false,
-            })
-          : await uploadFile({
-              data: media.bytes,
-              filename: `${recordingId}.mp4`,
-              mimeType: media.mimeType,
-              ownerEmail,
-              stableUrl: true,
-              recordAsset: false,
-            })
-        : null;
+      upload = await withRecordingMediaProduction(
+        { recordingId, ownerEmail, recordAsset: false },
+        () =>
+          media
+            ? storage.provider
+              ? storage.provider.upload({
+                  data: media.bytes,
+                  filename: `${recordingId}.mp4`,
+                  mimeType: media.mimeType,
+                  ownerEmail,
+                  stableUrl: true,
+                  recordAsset: false,
+                })
+              : uploadFile({
+                  data: media.bytes,
+                  filename: `${recordingId}.mp4`,
+                  mimeType: media.mimeType,
+                  ownerEmail,
+                  stableUrl: true,
+                  recordAsset: false,
+                })
+            : Promise.resolve(null),
+      );
       if (media && !upload?.url) {
         // guard:allow-bare-error — invariant: the background job catch persists provider failures on the recording before returning.
         throw new Error(
@@ -762,5 +772,6 @@ export async function runLoomImportJob({
     );
   } finally {
     await lease.stop();
+    await finishMediaProduction(mediaActivity, null);
   }
 }

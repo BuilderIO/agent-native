@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
 ## 2026-10-27
 
 ### Fixed
@@ -22,6 +28,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Moving one event in a recurring series keeps the series on the right weekday after a time-zone change and at the right local time across daylight-saving changes
 
 ## 2026-10-22
+
+### Added
+
+- Outside assistants can open invite drafts in Calendar for review, with approval required before deleting all drafts.
 
 ### Improved
 

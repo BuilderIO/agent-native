@@ -1409,6 +1409,26 @@ describe("inline prompt starters", () => {
     vi.unstubAllGlobals();
   });
 
+  it("focuses the active composer through its public handle", () => {
+    const controllerRef = createRef<PromptPopoverHandle>();
+    render(
+      <PromptPopover
+        presentation="inline"
+        open
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+        controllerRef={controllerRef}
+      />,
+    );
+
+    act(() => controllerRef.current?.focus());
+
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toBe(
+      document.activeElement,
+    );
+  });
+
   it("renders immediately without a loading indicator during provider readiness checks", async () => {
     let resolveCheck!: (result: boolean) => void;
     const readiness = new Promise<boolean>((resolve) => {

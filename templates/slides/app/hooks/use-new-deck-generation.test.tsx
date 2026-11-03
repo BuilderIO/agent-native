@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import {
+  getAgentChatSubmitTarget,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -21,11 +24,16 @@ import {
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 import {
+  beginNewDeckGenerationSetup,
+  clearNewDeckGenerationRun,
+  NEW_DECK_GENERATION_SETUP_TIMEOUT_MS,
   useNewDeckGeneration,
   useNewDeckGenerationRun,
+  useNewDeckGenerationSetupPending,
 } from "./use-new-deck-generation";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  getAgentChatSubmitTarget: vi.fn(() => null),
   sendToAgentChatAndConfirm: vi.fn(),
 }));
 
@@ -35,6 +43,7 @@ describe("useNewDeckGeneration", () => {
     cleanup();
     sessionStorage.clear();
     vi.mocked(sendToAgentChatAndConfirm).mockReset();
+    vi.mocked(getAgentChatSubmitTarget).mockReset().mockReturnValue(null);
     vi.useRealTimers();
   });
 
@@ -102,6 +111,83 @@ describe("useNewDeckGeneration", () => {
         waitingOnQuestions: false,
       }),
     ).toBeNull();
+  });
+
+  it("does not report a failure while Home is still setting up the prompt", () => {
+    const submitMessageId = "slow-setup-submit";
+    const settleSetup = beginNewDeckGenerationSetup(submitMessageId);
+    const { result } = renderHook(() => {
+      const setupPending = useNewDeckGenerationSetupPending(submitMessageId);
+      return useNewDeckGeneration({
+        deckId: "deck-slow-setup",
+        isNewDeckRoute: true,
+        generating: false,
+        waitingOnQuestions: false,
+        slideCount: 0,
+        setupPending,
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(3 * 60 * 1000);
+    });
+    expect(result.current.phase).toBe("pending");
+
+    act(() => settleSetup());
+    act(() => {
+      vi.advanceTimersByTime(NEW_DECK_GENERATION_START_TIMEOUT_MS - 1);
+    });
+    expect(result.current.phase).toBe("pending");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.phase).toBe("abandoned");
+  });
+
+  it("gives up on a setup that never settles", () => {
+    const settleSetup = beginNewDeckGenerationSetup("hung-setup-submit");
+    const { result } = renderHook(() =>
+      useNewDeckGeneration({
+        deckId: "deck-hung-setup",
+        isNewDeckRoute: true,
+        generating: false,
+        waitingOnQuestions: false,
+        slideCount: 0,
+        setupPending: useNewDeckGenerationSetupPending("hung-setup-submit"),
+      }),
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(NEW_DECK_GENERATION_SETUP_TIMEOUT_MS - 1);
+    });
+    expect(result.current.phase).toBe("pending");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.phase).toBe("abandoned");
+    settleSetup();
+  });
+
+  it("tracks setup per submit and not after it settles", () => {
+    const { result } = renderHook(() => ({
+      first: useNewDeckGenerationSetupPending("setup-a"),
+      second: useNewDeckGenerationSetupPending("setup-b"),
+      none: useNewDeckGenerationSetupPending(null),
+    }));
+    expect(result.current).toEqual({
+      first: false,
+      second: false,
+      none: false,
+    });
+
+    let settle = () => {};
+    act(() => {
+      settle = beginNewDeckGenerationSetup("setup-a");
+    });
+    expect(result.current).toEqual({ first: true, second: false, none: false });
+
+    act(() => settle());
+    expect(result.current.first).toBe(false);
   });
 
   it("resets lifecycle state on deck navigation and a new-generation route", () => {
@@ -402,6 +488,55 @@ describe("useNewDeckGeneration", () => {
       expect.objectContaining({ targetTabId: "pending-question-thread" }),
       expect.objectContaining({ submitMessageId: expect.any(String) }),
     );
+  });
+
+  it("restores a run the chat routed before this route mounted", () => {
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "late-mount-tab",
+      threadId: "late-mount-thread",
+    });
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-late-mount", true, "submit-late-mount"),
+    );
+
+    expect(result.current.tabId).toBe("late-mount-tab");
+    expect(result.current.conversationThreadId).toBe("late-mount-thread");
+  });
+
+  it("does not bring back a cleared run from the chat's route history", () => {
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "cleared-tab",
+      threadId: "cleared-thread",
+    });
+    clearNewDeckGenerationRun("deck-cleared-run", "submit-cleared-run");
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-cleared-run", true, "submit-cleared-run"),
+    );
+
+    expect(result.current.tabId).toBeNull();
+    expect(result.current.conversationThreadId).toBeNull();
+  });
+
+  it("does not let a stale route replace the deck's active run", () => {
+    const activeRunKey = "slides:new-deck-generation-active:deck-newer-run";
+    const activeRun = JSON.stringify({
+      submitMessageId: "submit-newer-run",
+      tabId: "newer-tab",
+    });
+    sessionStorage.setItem(activeRunKey, activeRun);
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "stale-tab",
+      threadId: "stale-thread",
+    });
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-newer-run", true, "submit-stale-run"),
+    );
+
+    expect(result.current.tabId).toBeNull();
+    expect(sessionStorage.getItem(activeRunKey)).toBe(activeRun);
   });
 
   it("reports malformed restored ownership instead of treating it as absent", () => {

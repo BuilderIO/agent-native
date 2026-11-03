@@ -75,6 +75,37 @@ describe("MessageQueueDrawer", () => {
     expect(sendNow(rows[2])).toBeDefined();
   });
 
+  it("keeps queued image previews from shrinking into the row actions", () => {
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={[
+            {
+              id: "screenshots",
+              text: "Review these screenshots",
+              images: ["one.png", "two.png", "three.png", "four.png"],
+            },
+          ]}
+          labels={labels}
+          variant="recessed"
+          onSteer={vi.fn()}
+          onRemove={vi.fn()}
+        />,
+      );
+    });
+
+    const previewStrip = container.querySelector<HTMLElement>(
+      "[data-agent-message-queue-images]",
+    );
+    expect(previewStrip?.className).toContain("min-w-0");
+    expect(previewStrip?.className).toContain("overflow-x-auto");
+    expect(
+      Array.from(previewStrip?.querySelectorAll("img") ?? []).every((image) =>
+        image.className.includes("shrink-0"),
+      ),
+    ).toBe(true);
+  });
+
   it("offers Stop and send in the row menu, even for a single message", async () => {
     const onStopAndSend = vi.fn();
     act(() => {

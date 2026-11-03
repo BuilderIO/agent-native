@@ -562,20 +562,29 @@ export function MessageQueueDrawer({
                     </Tooltip>
                   ) : null}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex h-6 min-w-0 items-center text-sm leading-5 text-foreground">
+                <div
+                  data-agent-message-queue-body="true"
+                  className="min-w-0 flex-1"
+                >
+                  <div
+                    data-agent-message-queue-text="true"
+                    className="flex h-6 min-w-0 items-center text-sm leading-5 text-foreground"
+                  >
                     <span className="min-w-0 truncate">
                       {renderText ? renderText(item) : item.text}
                     </span>
                   </div>
                   {hasImages ? (
-                    <div className="mt-0.5 flex gap-1">
+                    <div
+                      data-agent-message-queue-images="true"
+                      className="mt-0.5 flex min-w-0 gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain"
+                    >
                       {item.images?.map((src, imageIndex) => (
                         <img
                           key={`${item.id}-image-${imageIndex}`}
                           src={src}
                           alt=""
-                          className="size-8 rounded-md border border-border/60 object-cover"
+                          className="size-8 shrink-0 rounded-md border border-border/60 object-cover"
                         />
                       ))}
                     </div>

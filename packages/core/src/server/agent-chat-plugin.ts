@@ -41,6 +41,7 @@ import {
   sanitizeA2ACorrelationId,
   sanitizeA2ACorrelationMetadata,
 } from "../a2a/correlation.js";
+import { a2aFilePartsToAttachments } from "../a2a/file-attachments.js";
 import {
   createA2AApproval,
   a2aTaskLeaseThreadId,
@@ -111,6 +112,9 @@ import {
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  buildUserContentWithAttachments,
+  describeAttachmentPreUploadWarning,
+  isAgentModelVisionCapable,
   subscribeToRun,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -127,6 +131,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -151,7 +156,9 @@ import {
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
+  hasPrivateActionHistory,
   mergeThreadDataForClientSave,
+  sanitizeThreadDataForPrivateActions,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -185,6 +192,7 @@ import {
   renewQueuedSubmissionInterruptClaim,
   registerChatThreadsShareable,
   retryQueuedSubmissionReceipt,
+  renewQueuedSubmissionClaim,
   resolveRunThreadScope,
   resolveThreadAccess,
   resolveThreadAccessScope,
@@ -219,6 +227,7 @@ import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import type { OwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
+import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import {
   hydratePriorThreadImages,
   PriorThreadImageHistoryReadError,
@@ -357,6 +366,8 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
+const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
 const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
@@ -808,13 +819,19 @@ export function resolveConfiguredAgentModel(
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
     AgentChatPluginOptions,
-    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+    | "runSoftTimeoutMs"
+    | "runNoProgressTimeoutMs"
+    | "durableBackgroundRuns"
+    | "reasoningEffort"
   >,
 ) {
   return {
     runSoftTimeoutMs: options?.runSoftTimeoutMs,
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
+    ...(options?.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
   };
 }
 
@@ -2231,7 +2248,7 @@ export function createAgentChatPlugin(
         workspaceFileActions = createWorkspaceFileActionEntries();
       } catch {}
       let toolActions: Record<string, ActionEntry> =
-        createDataWidgetActionEntries();
+        createDataWidgetActionEntries(options?.validateDataWidget);
       if (extensionToolsEnabled) {
         try {
           const { createExtensionActionEntries } =
@@ -3095,14 +3112,62 @@ export function createAgentChatPlugin(
             },
           );
 
+          // The app's upload hook is what lets its actions open these files
+          // like chat uploads. Text-only turns skip it so their delegated
+          // prompt stays unchanged.
+          const inboundFiles = a2aFilePartsToAttachments(message.parts);
+          let a2aText = inboundFiles.unreadable.length
+            ? `${text}\n\nThe caller attached files that could not be read because they were not sent as https URLs: ${inboundFiles.unreadable.join(", ")}.`
+            : text;
+          let a2aAttachments = inboundFiles.attachments;
+          if (a2aAttachments.length > 0) {
+            try {
+              const prepared = await options?.prepareRequest?.({
+                event: context.event,
+                ownerEmail: userEmail,
+                message: a2aText,
+                attachments: a2aAttachments,
+                references: [],
+                threadId: context.taskId,
+                requestContext: a2aText,
+                contextPrefetchDeadlineAt: Date.now() + 1_300,
+                dispatchToBackground: false,
+                mode: "act",
+              });
+              if (prepared?.message?.trim()) a2aText = prepared.message;
+              if (Array.isArray(prepared?.attachments)) {
+                a2aAttachments = prepared.attachments;
+              }
+              const preUpload = await preUploadAttachments({
+                attachments: a2aAttachments,
+                ownerEmail: userEmail,
+                includeFiles: true,
+              });
+              if (preUpload.injectedText) {
+                a2aText = `${a2aText}\n\n${preUpload.injectedText}`;
+              }
+            } catch (err) {
+              console.warn(
+                "[agent-native] A2A attachment preparation failed:",
+                err instanceof Error ? err.message : String(err),
+              );
+              a2aText = `${a2aText}\n\n${describeAttachmentPreUploadWarning()}`;
+            }
+          }
+
           // Precise current time rides the user message (not the cached
           // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
             {
               role: "user",
-              content: [
-                { type: "text", text: text + buildCurrentTimeUserContext() },
-              ],
+              content: buildUserContentWithAttachments({
+                text: a2aText + buildCurrentTimeUserContext(),
+                attachments: a2aAttachments,
+                vision: isAgentModelVisionCapable(
+                  model,
+                  a2aEngine.capabilities.vision === true,
+                ),
+              }),
             },
           ];
 
@@ -3203,6 +3268,9 @@ export function createAgentChatPlugin(
                 (correlation.callerApp ? [correlation.callerApp] : []),
               threadId: context.taskId,
               turnId: context.taskId,
+              ...(a2aAttachments.length > 0
+                ? { attachments: a2aAttachments }
+                : {}),
               onOutcome: (outcome) => {
                 a2aOutcome = outcome;
               },
@@ -3931,6 +3999,11 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const privateChatHistoryActionNames = new Set(
+        Object.entries(httpActions)
+          .filter(([, action]) => action.persistInChatHistory === false)
+          .map(([name]) => name),
+      );
       reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
@@ -4411,7 +4484,12 @@ export function createAgentChatPlugin(
         if (!threadId) return;
         const ownerEmail =
           getRequestRunContext()?.owner ?? getRequestUserEmail();
-        if (!ownerEmail) return;
+        if (!ownerEmail) {
+          console.warn(
+            `[agent-chat] prompt not saved for run ${details.runId}: no owner on the request (thread ${threadId}, turn ${details.turnId})`,
+          );
+          return;
+        }
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;
@@ -7745,6 +7823,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // to `getActiveRunForThreadAsync`'s return type does NOT reach
               // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
+              // Whether sending the same prompt again can succeed. Null when
+              // the run has not errored or recorded no reason, so a client
+              // keeps its own default.
+              retryable:
+                run.status === "errored" && run.terminalReason
+                  ? isRunFailureRetryable(run.terminalReason)
+                  : null,
             };
           }
 
@@ -8301,7 +8386,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
-                const nextPreview =
+                let nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
@@ -8320,6 +8405,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }
                 };
                 let isSnapshotDelta = false;
+                let privateHistoryDetected = false;
                 let existing: unknown;
                 try {
                   existing = JSON.parse(thread.threadData);
@@ -8335,6 +8421,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 500);
                   return { error: "Stored thread data is invalid JSON" };
                 }
+                privateHistoryDetected = hasPrivateActionHistory(
+                  existing,
+                  privateChatHistoryActionNames,
+                );
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
@@ -8370,6 +8460,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       retryable: false,
                     };
                   }
+                  privateHistoryDetected ||= hasPrivateActionHistory(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
+                  incoming = sanitizeThreadDataForPrivateActions(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
                   const incomingAgentKit = (incoming as Record<string, unknown>)
                     .agentKit;
                   isSnapshotDelta =
@@ -8379,11 +8479,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     (incomingAgentKit as Record<string, unknown>)
                       ._snapshotDelta === true;
                   if (isSnapshotDelta) {
+                    newThreadData = JSON.stringify(incoming);
                     preserveTitleOverride(existing);
                   } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
+                      {
+                        privateActionNames: privateChatHistoryActionNames,
+                      },
                     );
                     newThreadData = JSON.stringify(merged);
                     if (Array.isArray(merged.messages)) {
@@ -8405,6 +8509,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     body.title !== thread.title)
                 ) {
                   assertThreadOwner(thread, owner);
+                }
+                if (privateHistoryDetected) {
+                  nextTitle = thread.title;
+                  nextPreview = thread.preview;
                 }
                 let updated: boolean;
                 try {
@@ -9158,6 +9266,45 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
+      const startQueuedSubmissionClaimRenewal = (
+        threadId: string,
+        messageId: string,
+        claimId: string,
+      ) => {
+        let renewal: Promise<void> | undefined;
+        const renewUntil =
+          Date.now() + QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS;
+        const timer = setInterval(() => {
+          if (Date.now() >= renewUntil) {
+            clearInterval(timer);
+            return;
+          }
+          if (renewal) return;
+          renewal = renewQueuedSubmissionClaim({
+            threadId,
+            messageId,
+            claimId,
+            renewUntil,
+          })
+            .then((renewed) => {
+              if (!renewed) clearInterval(timer);
+            })
+            .catch((error: unknown) => {
+              console.error(
+                `[agent-chat] could not renew queued submission claim ${messageId}:`,
+                error,
+              );
+            })
+            .finally(() => {
+              renewal = undefined;
+            });
+        }, QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS);
+        return async () => {
+          clearInterval(timer);
+          await renewal;
+        };
+      };
+
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
@@ -9240,6 +9387,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             break;
           }
           let claimId: string | undefined;
+          let stopClaimRenewal: (() => Promise<void>) | undefined;
           let retryCount = receipt.retryCount;
           let recoveryMutationAttempted = false;
           let activeRunLookupError: { error: unknown } | undefined;
@@ -9366,13 +9514,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
 
-            claimId = crypto.randomUUID();
+            const activeClaimId = crypto.randomUUID();
+            claimId = activeClaimId;
             let claim: Awaited<ReturnType<typeof mutateThreadQueuedMessages>>;
             try {
+              // raw-sql-ok: mutateThreadQueuedMessages binds the thread update values.
               claim = await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "claimFromInbox",
                 receipt,
-                claimId,
+                claimId: activeClaimId,
               });
             } catch (error) {
               if (
@@ -9426,6 +9576,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const claimedMessage = claim.claimedMessage;
             result.claimed += 1;
+            stopClaimRenewal = startQueuedSubmissionClaimRenewal(
+              receipt.threadId,
+              receipt.messageId,
+              activeClaimId,
+            );
 
             const claimedReceipt = await getQueuedSubmissionReceipt(
               receipt.threadId,
@@ -9840,6 +9995,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               deferReceipt(receipt.threadId);
             }
+          } finally {
+            await stopClaimRenewal?.();
           }
         }
         return result;
@@ -9885,6 +10042,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
             };
           } catch (error) {
+            if (error && typeof error === "object" && "statusCode" in error) {
+              if (error.statusCode === 403) {
+                setResponseStatus(event, 403);
+                return { error: "Workspace membership required" };
+              }
+              if (error.statusCode === 503) {
+                setResponseStatus(event, 503);
+                return {
+                  error: "Organization scope is temporarily unavailable.",
+                };
+              }
+            }
             console.error("[agent-chat] stream token unavailable:", error);
             setResponseStatus(event, 503);
             return { error: "Agent-chat streaming is not configured" };
@@ -9958,7 +10127,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the

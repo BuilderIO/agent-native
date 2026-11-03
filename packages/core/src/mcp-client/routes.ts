@@ -83,6 +83,7 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
+import { addWorkspaceConnectionMcpServers } from "./workspace-connection-servers.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
@@ -339,6 +340,7 @@ export async function buildMergedConfig(
   for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
     servers[mergedKey] = cfg;
   }
+  await addWorkspaceConnectionMcpServers(servers, principal);
 
   // Hub-consume: if this app is configured to consume from a remote hub
   // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its

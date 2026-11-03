@@ -76,7 +76,8 @@ test("Home creates a blank design without a system and reloads it", async ({
     designId = createdId;
 
     // The editor writes its view state (editorView, screen, zoom) into the query.
-    const editorUrl = new RegExp(`/design/${createdId}(?:\\?.*)?$`);
+    const editorPathname = `/design/${createdId}`;
+    const editorUrl = new RegExp(`${editorPathname}(?:\\?.*)?$`);
     await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
     const moveTool = page.getByRole("button", {
       name: "Move",

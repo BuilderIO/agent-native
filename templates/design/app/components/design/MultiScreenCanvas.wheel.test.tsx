@@ -4,6 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forwardReviewOverlayWheel } from "./canvas-interactions/review-overlay-interaction";
+import { stubFaithfulWheelEvent } from "./canvas-interactions/test-wheel-event";
 import {
   getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
@@ -427,6 +429,57 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     });
     expect(onZoomChange).toHaveBeenCalledOnce();
     expect(onZoomChange).toHaveBeenCalledWith(notchFactor(100) * 100);
+  });
+
+  describe("a wheel the comment overlay hands over", () => {
+    beforeEach(stubFaithfulWheelEvent);
+    afterEach(() => vi.unstubAllGlobals());
+
+    const settle = () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    it("zooms the canvas for a pinch, where a constructed wheel is otherwise ignored", async () => {
+      const surface = await renderSurface();
+      const before = readView(container);
+      await act(async () => {
+        surface.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            deltaY: -100,
+            ctrlKey: true,
+          }),
+        );
+        await settle();
+      });
+      expect(readView(container).scale).toBe(before.scale);
+
+      const pinch = trustedWheel({ deltaY: -100, ctrlKey: true });
+      await act(async () => {
+        forwardReviewOverlayWheel(pinch, surface);
+        await settle();
+      });
+      expect(pinch.defaultPrevented).toBe(true);
+      expect(readView(container).scale).toBeCloseTo(
+        before.scale * notchFactor(100),
+        6,
+      );
+    });
+
+    it("pans the canvas for a plain scroll", async () => {
+      const surface = await renderSurface();
+      const before = readView(container);
+      const scroll = trustedWheel({ deltaX: 40, deltaY: 25 });
+      await act(async () => {
+        forwardReviewOverlayWheel(scroll, surface);
+        await settle();
+      });
+      expect(scroll.defaultPrevented).toBe(true);
+      const after = readView(container);
+      expect(after.x).toBeCloseTo(before.x - 40, 10);
+      expect(after.y).toBeCloseTo(before.y - 25, 10);
+      expect(after.scale).toBe(before.scale);
+    });
   });
 
   it("does not commit a pinch while a slow frame holds its next step", async () => {

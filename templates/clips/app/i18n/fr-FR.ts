@@ -320,6 +320,55 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips n’ont pas pu être restaurés",
     clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
     clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
+    deletedMediaPending:
+      "Vidéo retirée de Clips. Vérifications de suppression en cours.",
+    deletedMediaBlocked:
+      "Vidéo retirée de Clips. Impossible de confirmer la suppression des fichiers.",
+    deletedMediaRetained:
+      "Enregistrement supprimé. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    clipsDeletedMediaPending:
+      "Vidéos retirées de Clips : {{count}}. Vérifications de suppression en cours.",
+    clipsDeletedMediaBlocked:
+      "Vidéos retirées de Clips : {{count}}. Impossible de confirmer la suppression des fichiers.",
+    clipsDeletedMediaRetained:
+      "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    deletedMediaFinalizing:
+      "Vidéo retirée de Clips. La mise à jour de l’utilisation du stockage doit être relancée.",
+    clipsDeletedMediaFinalizing:
+      "Vidéos retirées de Clips : {{count}}. La mise à jour de l’utilisation du stockage doit être relancée.",
+    mediaCleanupFinalizing:
+      "La mise à jour de l’utilisation du stockage doit être relancée",
+    mediaCleanupFinalizingHelp:
+      "Les vérifications de suppression des fichiers sont terminées, mais cette vidéo peut encore compter dans votre limite de stockage. Réessayez la mise à jour de l’utilisation pour actualiser votre total de stockage.",
+    mediaCleanupListLabel: "Suppression des fichiers multimédias",
+    mediaCleanupPending: "Vérifications de suppression en cours",
+    mediaCleanupPendingHelp:
+      "Clips poursuit les vérifications en arrière-plan. Vous pouvez quitter cette page et consulter les mises à jour dans la corbeille.",
+    mediaCleanupBlocked:
+      "Impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupBlockedHelp:
+      "Les fichiers vidéo stockés peuvent encore exister. Réessayer la suppression lance une nouvelle tentative. Vous pouvez quitter cette page et consulter le résultat dans la corbeille.",
+    mediaCleanupReconnect:
+      "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
+    mediaCleanupRetained:
+      "Les fichiers multimédias partagés des enregistrements supprimés sont conservés tant que d’autres enregistrements les utilisent",
+    mediaCleanupHelp: "Plus d’informations",
+    mediaCleanupRetryFiles: "Relancer la suppression",
+    mediaCleanupRetryingFiles:
+      "Nouvelle tentative de suppression des fichiers vidéo",
+    mediaCleanupRetryUsage: "Relancer la mise à jour de l’utilisation",
+    mediaCleanupRetryingUsage:
+      "Nouvelle tentative de mise à jour de l’utilisation du stockage",
+    mediaCleanupRemoved: "Fichiers multimédias supprimés",
+    mediaCleanupUsageUpdated: "Utilisation du stockage mise à jour",
+    mediaCleanupStillBlocked:
+      "Toujours impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupStillFinalizing:
+      "La mise à jour de l’utilisation du stockage doit toujours être relancée",
+    mediaCleanupRetryFailed:
+      "Impossible de lancer la nouvelle tentative. Réessayez.",
+    mediaCleanupLoadFailed:
+      "Impossible de charger l’état de suppression des fichiers multimédias",
   },
   recordingRoute: {
     pageTitle: "Enregistrement du clip · Clips",
@@ -1722,10 +1771,10 @@ const messages = {
     openDesktopApp: "Open desktop app (Localisé)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (Localisé)",
+    untitled: "Extrait sans titre",
     renameFailed: "Failed to rename clip (Localisé)",
     emptyTitle: "Title cannot be empty (Localisé)",
-    generatingTitle: "Generating title (Localisé)",
+    generatingTitle: "Génération du titre",
     placeholder: "Clip title (Localisé)",
     editLabel: "Edit clip title (Localisé)",
   },

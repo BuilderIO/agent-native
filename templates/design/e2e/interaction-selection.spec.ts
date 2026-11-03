@@ -322,13 +322,14 @@ async function clickScreenNode(
   );
 }
 
-test("screen plain click selects the containing frame; Cmd-click selects the child", async ({
+// oracle-change: screen clicks now pick the pointed child; board clicks retain container-first selection.
+test("screen plain click selects the child and keeps frame backgrounds selectable", async ({
   app,
 }) => {
   const { id, before } = await openScreenFixture(app);
 
   await clickScreenNode(app, "kid-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
   await app.page.keyboard.press("Escape");
   await expect.poll(() => app.selectedLayers()).toEqual([]);
 
@@ -341,8 +342,10 @@ test("screen plain click selects the containing frame; Cmd-click selects the chi
   await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
 
   await clickScreenNode(app, "kid-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
 
+  await app.page.mouse.click(emptyCardPoint.x, emptyCardPoint.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
   await clickScreenNode(app, "kid-a", ["Meta"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
 
@@ -372,6 +375,41 @@ test.use({ viewport: { width: 1600, height: 1000 } });
 test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
+});
+
+test("double-clicking a board frame title saves its new name", async ({
+  page,
+}) => {
+  const id = await newBoardDesign(page, OVERLAPPING_BOARD_FRAMES);
+  await gotoEditor(page, id);
+  const board = boardIframe(page).contentFrame();
+  await board
+    .locator("[data-agent-native-frame-label]")
+    .filter({ hasText: "Drag frame" })
+    .dblclick();
+  const input = board.locator("[data-agent-native-frame-label-input]");
+  await expect(input).toBeVisible();
+  await input.fill("Workspace");
+  await input.press("Enter");
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(id)}`,
+      );
+      if (!response.ok()) throw new Error(`get-design: ${response.status()}`);
+      const record = await response.json();
+      return record.files.find(
+        (file: { filename: string }) => file.filename === "__board__.html",
+      )?.content;
+    })
+    .toContain('data-agent-native-layer-name="Workspace"');
+  await page.reload();
+  await expect(
+    boardIframe(page)
+      .contentFrame()
+      .locator("[data-agent-native-frame-label]")
+      .filter({ hasText: "Workspace" }),
+  ).toBeVisible();
 });
 
 test("board regression: an overlapping Frame drop into another board Frame persists after reload", async ({

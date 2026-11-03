@@ -1,3 +1,37 @@
+## 0.1.26
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
+## 0.1.25
+
+### Patch Changes
+
+- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
+- Updated dependencies [38ca6fa]
+  - @agent-native/toolkit@0.4.7
+
+## 0.1.24
+
+### Patch Changes
+
+- f43d34c: Add a Microsoft Teams conferencing provider with delegated OAuth and Microsoft Graph meeting creation and cancellation.
+- f43d34c: Batch selected-calendar reads and bound external availability checks to reduce
+  slot lookup latency without overwhelming calendar providers.
+- f43d34c: Add a safe manifest-driven package lifecycle CLI with Scheduling as the first inspectable, installable, and ejectable package.
+- f43d34c: Re-validate availability before creating bookings and make booking writes transactional.
+- Updated dependencies [f43d34c]
+  - @agent-native/toolkit@0.4.6
+
+## 0.1.23
+
+### Patch Changes
+
+- 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
+
 ## 0.1.22
 
 ### Patch Changes

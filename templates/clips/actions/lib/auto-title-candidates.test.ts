@@ -111,13 +111,8 @@ describe("listAutoTitleCandidates", () => {
 
     const candidates = await listAutoTitleCandidates("owner@example.com");
 
-    expect(candidates.map((c) => c.id)).toEqual([
-      "rec_04",
-      "rec_03",
-      "rec_02",
-      "rec_01",
-    ]);
-    expect(candidates[3]).toEqual({
+    expect(candidates.map((c) => c.id)).toEqual(["rec_04", "rec_02", "rec_01"]);
+    expect(candidates[2]).toEqual({
       id: "rec_01",
       createdAt: "2026-09-28T12:00:01.000Z",
     });

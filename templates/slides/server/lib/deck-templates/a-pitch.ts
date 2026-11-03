@@ -36,7 +36,7 @@ export const PITCH_DECK = authoredDeck(
       layout: "title",
       content: slide(
         `${runningHead(1, "Seed round, 20XX")}
-<div style="position:absolute;right:0;top:84px;width:260px;height:330px;background:radial-gradient(circle at 165px 165px,var(--deck-accent) 0 164.5px,transparent 165px);"></div>
+<div style="position:absolute;right:0;top:84px;width:260px;height:330px;background:radial-gradient(circle at 165px 165px,var(--deck-accent) 0 164px,transparent 165px);"></div>
 <h1 style="${display}position:relative;margin-top:44px;font-size:108px;line-height:0.88;max-width:600px;">Make the next step obvious.</h1>
 <div style="${grid}margin-top:auto;padding-top:18px;border-top:1px solid var(--deck-ink);align-items:start;">
 <p style="grid-column:1/7;margin:0;font-size:19px;line-height:1.35;font-weight:500;letter-spacing:-0.01em;">Company Name gives operations teams one place to see, decide, and finish the work in front of them.</p>

@@ -328,6 +328,25 @@ describe("action discovery", () => {
     expect(registry["ui-sync"].agentTool).toBe(false);
   });
 
+  it.each([false, true])(
+    "preserves persistInChatHistory:%s from static entries",
+    (persistInChatHistory) => {
+      const registry = loadActionsFromStaticRegistry({
+        "read-sensitive-record": {
+          default: {
+            tool: { description: "Read a synthetic record", parameters: {} },
+            persistInChatHistory,
+            run: async () => ({ ok: true }),
+          },
+        },
+      });
+
+      expect(registry["read-sensitive-record"].persistInChatHistory).toBe(
+        persistInChatHistory,
+      );
+    },
+  );
+
   it("preserves requiresAuth:false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "public-metadata": {
@@ -598,6 +617,7 @@ describe("action discovery", () => {
         "get-infrastructure-status",
         "list-chatgpt-subscription-accounts",
         "list-workspace-user-groups",
+        "list-workspace-connection-scopes",
       ]) {
         expect(registry[name], `${name} should be merged`).toBeDefined();
         expect(registry[name].persistInBrowser, name).toBe(false);

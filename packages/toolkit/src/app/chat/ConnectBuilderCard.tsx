@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId } from "@agent-native/core/client/browser-tab-id";
 import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { requestDesktopLocalCodeChange } from "@agent-native/core/client/host";
 import { getCallbackOrigin } from "@agent-native/core/client/host";
@@ -120,7 +121,10 @@ export function ConnectBuilderCard({
         new URL(agentNativePath("/_agent-native/builder/run"), origin).href,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-agent-native-browser-tab": getBrowserTabId(),
+          },
           body: JSON.stringify({
             prompt,
             ...(context.trim() ? { context } : {}),

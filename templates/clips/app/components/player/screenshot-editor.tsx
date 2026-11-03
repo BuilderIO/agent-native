@@ -5,7 +5,6 @@ import {
   IconArrowForwardUp,
   IconArrowUpRight,
   IconCheck,
-  IconCopy,
   IconCrop,
   IconDropletFilled,
   IconMaximize,
@@ -1685,7 +1684,6 @@ export function ScreenshotEditor({
               <ContextMenuItem
                 onSelect={() => menuAt.hit && duplicate(menuAt.hit)}
               >
-                <IconCopy className="size-4" />
                 {t("screenshot.duplicate", {
                   kind: t(`screenshot.kind.${menuAt.hit.kind}`),
                 })}
@@ -1695,18 +1693,17 @@ export function ScreenshotEditor({
           ) : null}
           {(
             [
-              ["text", IconTypography, "screenshot.addText"],
-              ["arrow", IconArrowUpRight, "screenshot.addArrow"],
-              ["box", IconSquare, "screenshot.addBox"],
-              ["redact", IconDropletFilled, "screenshot.addRedaction"],
+              ["text", "screenshot.addText"],
+              ["arrow", "screenshot.addArrow"],
+              ["box", "screenshot.addBox"],
+              ["redact", "screenshot.addRedaction"],
             ] as const
-          ).map(([kind, Icon, labelKey]) => (
+          ).map(([kind, labelKey]) => (
             <ContextMenuItem
               key={kind}
               disabled={!menuAt}
               onSelect={() => menuAt && addAt(kind, menuAt.point)}
             >
-              <Icon className="size-4" />
               {t(labelKey)}
             </ContextMenuItem>
           ))}

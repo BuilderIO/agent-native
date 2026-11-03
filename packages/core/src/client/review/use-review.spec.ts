@@ -6,6 +6,7 @@ import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
   insertOptimisticComment,
+  markCommentDeleted,
   proposalDecisionOverlay,
   reconcileSuggestionAmendment,
   replaceOptimisticSuggestion,
@@ -554,3 +555,27 @@ function updateSuggestion(
     suggestions: current.suggestions.map((item) => ({ ...item, ...changes })),
   };
 }
+
+describe("markCommentDeleted", () => {
+  const root = comment("root", "Root");
+  const reply = {
+    ...comment("reply", "Reply"),
+    threadId: root.id,
+    parentCommentId: root.id,
+  };
+  const other = comment("other", "Other thread");
+  const statusById = (comments: ReviewComment[]) =>
+    Object.fromEntries(comments.map((item) => [item.id, item.status]));
+
+  it("deletes the replies with a thread's first comment", () => {
+    expect(
+      statusById(markCommentDeleted([root, reply, other], "root")),
+    ).toEqual({ root: "deleted", reply: "deleted", other: "open" });
+  });
+
+  it("deletes only the reply when a reply is deleted", () => {
+    expect(
+      statusById(markCommentDeleted([root, reply, other], "reply")),
+    ).toEqual({ root: "open", reply: "deleted", other: "open" });
+  });
+});

@@ -31,6 +31,7 @@ spawnSync("git", ["init", "-q", "-b", "main", repo]);
 sh("git", "config", "user.email", "t@example.com");
 sh("git", "config", "user.name", "t");
 write("app.txt", "broken\n");
+write("feature.mjs", "export const value = 'broken';\n");
 write("old.txt", "renamed later\n");
 write("gone.txt", "deleted later\n");
 write("link.txt", "regular file\n");
@@ -39,12 +40,28 @@ sh("git", "commit", "-qm", "base");
 sh("git", "tag", "base");
 writeFileSync(outside, "outside\n");
 write("app.txt", "fixed\n");
+write("feature.mjs", "export const value = 'fixed';\n");
 sh("git", "mv", "old.txt", "new.txt");
 sh("git", "rm", "-q", "gone.txt");
 unlinkSync(join(repo, "link.txt"));
 symlinkSync(outside, join(repo, "link.txt"));
 write("check.sh", "grep -q fixed app.txt\n");
 write("check-input.sh", 'grep -q fixed "$1"\n');
+write("check-log.sh", "touch out.log; grep -q fixed app.txt\n");
+write("interrupted.sh", "exit 130\n");
+write(
+  "assertion.test.js",
+  `import assert from "node:assert/strict";\nimport test from "node:test";\nimport { value } from "./feature.mjs";\ntest("fix assertion", () => assert.equal(value, "fixed"));\n`,
+);
+write(
+  "feature.test.js",
+  `import assert from "node:assert/strict";\nimport test from "node:test";\nimport { value } from "./feature.mjs";\ntest("feature is present", () => assert.equal(value, "fixed"));\n`,
+);
+write("new-feature.mjs", "export const value = 'fixed';\n");
+write(
+  "new-feature.test.js",
+  `import assert from "node:assert/strict";\nimport test from "node:test";\nimport { value } from "./new-feature.mjs";\ntest("new feature is present", () => assert.equal(value, "fixed"));\n`,
+);
 write("input.txt", "fixed\n");
 write("app.test.ts", "check\n");
 sh("git", "add", "-A");
@@ -76,6 +93,20 @@ describe("fix-proof", () => {
     assertBackAtHead();
   });
 
+  it("accepts an actual failing Node test as red proof", () => {
+    const r = proof("node", "--test", "assertion.test.js");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /proven, red at/);
+    assertBackAtHead();
+  });
+
+  it("does not accept a missing module as red test proof", () => {
+    const r = proof("node", "--test", "new-feature.test.js");
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stderr, /did not report a test failure/);
+    assertBackAtHead();
+  });
+
   it("brings back the old path of a rename and a deleted file", () => {
     assert.equal(proof("test", "!", "-f", "old.txt").status, 0);
     assert.equal(proof("test", "!", "-f", "gone.txt").status, 0);
@@ -100,7 +131,7 @@ describe("fix-proof", () => {
   });
 
   it("ignores untracked files the check writes", () => {
-    const r = proof("sh", "-c", "touch out.log; grep -q fixed app.txt");
+    const r = proof("sh", "check-log.sh");
     rmSync(join(repo, "out.log"));
     assert.equal(r.status, 0, r.stdout + r.stderr);
   });
@@ -147,7 +178,17 @@ describe("fix-proof", () => {
   });
 
   it("cannot run when the check was interrupted", () => {
-    assert.equal(proof("sh", "-c", "exit 130").status, 2);
+    const r = proof("sh", "interrupted.sh");
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /interrupted/);
+  });
+
+  it("cannot run a check with an empty or whitespace argument", () => {
+    for (const arg of ["fixed app", ""]) {
+      const r = proof("grep", "-q", arg, "app.txt");
+      assert.equal(r.status, 2);
+      assert.match(r.stderr, /empty or contains whitespace/);
+    }
   });
 
   it("rejects a check that fails on HEAD", () => {
