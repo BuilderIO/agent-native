@@ -4572,7 +4572,10 @@ function TiptapComposerSurface({
       matched += 1;
       if (matched === abandoned.length) {
         if (normalizeVoiceWords(text.charAt(i + 1))) return text;
-        return text.slice(i + 1).trimStart();
+        return text
+          .slice(i + 1)
+          .replace(/^[^\p{L}\p{N}\s]+/u, "")
+          .trimStart();
       }
     }
     return "";
