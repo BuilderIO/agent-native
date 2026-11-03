@@ -17,5 +17,5 @@ export async function readEarlierAudioRemovedAt(
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
-  return rows.length ? rows[0].removedAt : null;
+  return rows[0]?.removedAt ?? null;
 }

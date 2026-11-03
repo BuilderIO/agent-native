@@ -34,14 +34,15 @@ export function speakerLabeledText(
   entries: ReadonlyArray<Record<string, unknown>>,
 ): string {
   const turns: Array<{ speaker: string; text: string }> = [];
+  let last: { speaker: string; text: string } | undefined;
   for (const entry of entries) {
     if (typeof entry.text !== "string" || !entry.text.trim()) continue;
     const speaker = entry.source === "system" ? "Them" : "Me";
-    const last = turns.length - 1;
-    if (last >= 0 && turns[last].speaker === speaker) {
-      turns[last].text += ` ${entry.text}`;
+    if (last?.speaker === speaker) {
+      last.text += ` ${entry.text}`;
     } else {
-      turns.push({ speaker, text: entry.text });
+      last = { speaker, text: entry.text };
+      turns.push(last);
     }
   }
   return turns.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n\n");

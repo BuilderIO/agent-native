@@ -67,14 +67,13 @@ describe("EarlierAudioNotice", () => {
     const onRemove = vi.fn();
     await render({ minutes: 5, onRemove });
 
-    await act(async () => buttonNamed("meetingDetail.remove")[0].click());
+    await act(async () => buttonNamed("meetingDetail.remove")[0]?.click());
     expect(onRemove).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(
       "meetingDetail.removeEarlierAudioTitle",
     );
 
-    const [, confirm] = buttonNamed("meetingDetail.remove");
-    await act(async () => confirm.click());
+    await act(async () => buttonNamed("meetingDetail.remove")[1]?.click());
     expect(onRemove).toHaveBeenCalledOnce();
   });
 });

@@ -201,7 +201,7 @@ describe("meeting transcription pause and resume", () => {
       reason: "user",
       scheduledStart: "2026-10-21T16:00:00.000Z",
     });
-    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+    const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
       .runId as number;
     await act(async () => {
       emitFinal(runId, "the meeting itself");
@@ -250,7 +250,7 @@ describe("meeting transcription pause and resume", () => {
       await settle();
     });
     await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+    const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
       .runId as number;
     await act(async () => {
       emitFinal(runId, "second session");
