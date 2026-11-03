@@ -878,7 +878,7 @@ function formatCandidates(candidates: TargetedCandidate[]): string {
     )
     .join("\n");
   const whitespaceOnly = candidates.some((c) => c.whitespaceOnly)
-    ? "\nA candidate marked (whitespace only) is the stored text with different whitespace: copy it exactly. Do not quote get-deck format=true output."
+    ? "\nA candidate marked (whitespace only) is the slide text this edit matches against, with different whitespace: copy it exactly."
     : "";
   return `${whitespaceOnly}\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
 }
