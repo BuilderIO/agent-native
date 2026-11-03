@@ -256,6 +256,8 @@ export function TrashFilters({
             <span
               className="ms-auto shrink-0"
               tabIndex={showSpaceHint ? 0 : undefined}
+              role={showSpaceHint ? "group" : undefined}
+              aria-label={showSpaceHint ? t("trash.emptyTrash") : undefined}
             >
               <Button
                 ref={emptyTrashRef}
