@@ -210,7 +210,9 @@ export default defineAction({
       downloadUrl:
         presigned?.url ??
         absoluteUrl(`/api/audits/${encodeURIComponent(objectKey)}`),
-      downloadUrlExpiresAt: presigned?.expiresAt ?? null,
+      downloadUrlExpiresAt: /^https?:\/\//i.test(stored.key)
+        ? null
+        : (presigned?.expiresAt ?? null),
       generatedAt: nowIso(),
     };
   },

@@ -61,5 +61,6 @@ describe("export-audit-csv download url", () => {
       expiresInSeconds: 1800,
     });
     expect(result.downloadUrl).toBe("https://cdn.example.test/audit.csv");
+    expect(result.downloadUrlExpiresAt).toBeNull();
   });
 });
