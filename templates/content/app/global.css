@@ -2186,10 +2186,13 @@ audio.media-block__content {
   background: hsl(0 0% 0% / 0.68);
 }
 
+/* The toolkit's dialog overlay sits at z-index 270, so the lightbox goes where
+   the toolkit puts a dialog's content, above it. Under it, the overlay dims
+   the media and takes its clicks. */
 .media-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 251;
+  z-index: 280;
   display: flex;
   align-items: center;
   justify-content: center;
