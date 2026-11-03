@@ -2004,16 +2004,20 @@ describe("the UI capability on writes from the signed-in app", () => {
     );
   });
 
-  it("keeps nothing from a mint the account changed under", async () => {
+  it("aborts and keeps nothing from a mint the account changed under", async () => {
     const stored = stubSessionStorage();
     const remembered = () =>
       [...stored.keys()].filter((key) =>
         key.startsWith("agent-native:ui-capability:"),
       );
     const mints: Array<(response: Response) => void> = [];
-    const fetchMock = routeFetch(
-      () => new Promise<Response>((resolve) => mints.push(resolve)),
-    );
+    const mintSignals: Array<AbortSignal | null | undefined> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url !== MINT) return Promise.resolve(jsonResponse({ ok: true }));
+      mintSignals.push(init?.signal);
+      return new Promise<Response>((resolve) => mints.push(resolve));
+    });
+    vi.stubGlobal("fetch", fetchMock);
     signIn("user-1");
     notifySessionIdentityPublished("user-1\nauth-1\norg-1");
     prepareUiActionCapability();
@@ -2023,6 +2027,7 @@ describe("the UI capability on writes from the signed-in app", () => {
     notifySessionIdentityPublished("user-2\nauth-2\norg-1");
     const write = callAction("delete-file", { id: "file-1" });
     await vi.waitFor(() => expect(mints).toHaveLength(2));
+    expect(mintSignals.map((signal) => signal?.aborted)).toEqual([true, false]);
     mints[0]?.(jsonResponse({ ok: true }));
     // Microtasks, not a timer: an earlier test in this block leaves fake
     // timers on.
@@ -2039,6 +2044,45 @@ describe("the UI capability on writes from the signed-in app", () => {
       MINT,
       "/_agent-native/actions/delete-file",
     ]);
+  });
+
+  it("shares one mint between writes the server refuses together", async () => {
+    signIn();
+    let refusals = 0;
+    let mints = 0;
+    let releaseMint: () => void = () => {};
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === MINT) {
+        mints += 1;
+        if (mints > 1) {
+          await new Promise<void>((resolve) => (releaseMint = resolve));
+        }
+        return jsonResponse({ ok: true });
+      }
+      if (refusals > 0) {
+        refusals -= 1;
+        return jsonResponse(
+          { errorCode: "ui_capability_required" },
+          { status: 403 },
+        );
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await callAction("delete-file", { id: "file-1" });
+
+    refusals = 2;
+    const writes = Promise.all([
+      callAction("delete-file", { id: "file-2" }),
+      callAction("delete-file", { id: "file-3" }),
+    ]);
+    await vi.waitFor(() => expect(refusals).toBe(0));
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+    expect(mints).toBe(2);
+    releaseMint();
+    await writes;
+
+    expect(mints).toBe(2);
   });
 
   it("re-mints when the server rejects a remembered capability", async () => {

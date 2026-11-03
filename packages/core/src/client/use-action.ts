@@ -265,9 +265,10 @@ const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
 const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 
 let uiCapabilityRequest: Promise<void> | undefined;
+let abortUiCapabilityRequest: (() => void) | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
-// Counts forgets, so a mint still in flight when the capability is forgotten
+// Counts session changes, so a mint still in flight when the session changes
 // (a sign-out, or another account or org) neither keeps its answer nor serves
 // the callers that come after.
 let uiCapabilityGeneration = 0;
@@ -337,13 +338,23 @@ function hasFreshUiCapability(): boolean {
 /** Drop the remembered capability so the next call that needs one mints it. */
 export function forgetUiActionCapability(): void {
   uiCapability = null;
-  uiCapabilityGeneration += 1;
-  uiCapabilityRequest = undefined;
   try {
     globalThis.sessionStorage.removeItem(uiCapabilityStorageKey());
   } catch {
     // coercion-ok: storage that can't be reached holds nothing to forget.
   }
+}
+
+// A mint in flight when the session changes was sent with the old session's
+// cookies, and the capability cookie it sets has one name for every session.
+// Aborting it keeps that cookie from replacing the new session's: a response
+// cut off before its headers sets no cookie, and one whose headers arrived
+// first set it before the new session's mint was sent.
+function abandonUiCapabilityMint(): void {
+  uiCapabilityGeneration += 1;
+  abortUiCapabilityRequest?.();
+  abortUiCapabilityRequest = undefined;
+  uiCapabilityRequest = undefined;
 }
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
@@ -356,6 +367,7 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
     const generation = uiCapabilityGeneration;
     const controller =
       typeof AbortController === "undefined" ? null : new AbortController();
+    abortUiCapabilityRequest = () => controller?.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -380,7 +392,10 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
     const settled: Promise<void> = Promise.race([response, timedOut]).finally(
       () => {
         clearTimeout(timer);
-        if (uiCapabilityRequest === settled) uiCapabilityRequest = undefined;
+        if (uiCapabilityRequest === settled) {
+          uiCapabilityRequest = undefined;
+          abortUiCapabilityRequest = undefined;
+        }
       },
     );
     return settled;
@@ -437,6 +452,7 @@ onSessionIdentityPublished((scope) => {
     scope === null ||
     (previous !== undefined && previous !== null && previous !== scope)
   ) {
+    abandonUiCapabilityMint();
     forgetUiActionCapability();
   }
   mintWantedUiCapability();
