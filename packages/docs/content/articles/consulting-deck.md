@@ -6,8 +6,8 @@ seo_title: How to make a consulting deck (with a worked example)
 og_line: A slide from a gym chain's client deck
 meta_description: "Make a consulting deck the way consultants do: write the answer and every slide title first, sketch a ghost deck, then prove each title with one chart."
 og_image: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9cd19510c616430296163a42e79c99a2
-published: 2026-11-03
-updated: 2026-11-03
+published: 2026-11-02
+updated: 2026-11-02
 author:
   name: Vishwas Gopinath
   url: https://x.com/CodevolutionWeb
