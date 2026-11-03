@@ -156,7 +156,7 @@ function readinessSourceKey(
   statusUrl: string,
   source?: AgentEngineReadinessSource,
 ): string {
-  const fetcher = source?.fetch ?? globalThis.fetch;
+  const fetcher = source?.fetch;
   const fetcherKey =
     typeof fetcher === "function" ? sourceIdentityToken(fetcher) : null;
   const credentials = source?.credentials ?? "same-origin";

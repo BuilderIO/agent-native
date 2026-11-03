@@ -126,7 +126,7 @@ function statusRequestKey(
   url: string,
   options?: ClientStatusRequestOptions,
 ): string {
-  const fetcher = options?.fetch ?? globalThis.fetch;
+  const fetcher = options?.fetch;
   const fetcherToken =
     typeof fetcher === "function" ? requestSourceToken(fetcher) : null;
   return JSON.stringify([
