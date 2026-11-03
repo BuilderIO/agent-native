@@ -87,7 +87,7 @@ async function writeResource(
   resourcePath: string,
   owner: string,
   orgId: string | null,
-  range: { offset?: number; length?: number },
+  range: { offset: number | undefined; length: number | undefined },
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
   const { content } = resource;
