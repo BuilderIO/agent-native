@@ -22,6 +22,7 @@ import {
 } from "../org/request-org-cache.js";
 import {
   isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
 import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
@@ -4429,8 +4430,10 @@ function createAuthGuardFn(
         // authenticated app request. Under the open + auto-create policy,
         // initialize the default org here so the check sees it. Closed,
         // non-loopback, non-dev and explicit-personal-scope requests are
-        // untouched, and an initialization failure stays denied.
+        // untouched, and an initialization failure is reported as unavailable
+        // (503), never as a membership denial or a silent success.
         let effectiveOrgId = session.orgId;
+        let orgInitializationFailed = false;
         if (
           effectiveOrgId === undefined &&
           session.emailVerified === true &&
@@ -4441,17 +4444,31 @@ function createAuthGuardFn(
           getAppConfig().access.orgCreation === "open" &&
           getAppConfig().access.autoCreateDefaultOrg
         ) {
-          const { getOrgContext } = await import("../org/context.js");
-          // coercion-ok: a failed default-org initialization must leave the request denied, not granted; null means "no org" and the unchanged ACL then refuses.
-          const org = await getOrgContext(event).catch(() => null);
-          if (org?.orgId) effectiveOrgId = org.orgId;
+          try {
+            const { getOrgContext } = await import("../org/context.js");
+            const org = await getOrgContext(event);
+            if (org?.orgId) effectiveOrgId = org.orgId;
+          } catch (error) {
+            // A broken org-creation path is not a membership denial: report the
+            // check as unavailable (503) instead of a misleading 403, and keep
+            // the underlying failure in the logs.
+            orgInitializationFailed = true;
+            console.error(
+              "[agent-native] default org initialization failed for a loopback dev request",
+              error,
+            );
+          }
         }
-        let workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
-          path: p,
-          method,
-          email: session.email,
-          ...(effectiveOrgId === undefined ? {} : { orgId: effectiveOrgId }),
-        });
+        let workspaceAppAccess = orgInitializationFailed
+          ? workspaceAppAccessUnavailable("local-org-initialization-failed")
+          : await checkWorkspaceAppAccessForRequest({
+              path: p,
+              method,
+              email: session.email,
+              ...(effectiveOrgId === undefined
+                ? {}
+                : { orgId: effectiveOrgId }),
+            });
         if (
           workspaceAppAccess === false &&
           !session.orgId &&

@@ -1,3 +1,4 @@
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../../shared/framework-route-prefix.js";
 import { agentNativePath } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
 import { serverMountReturnPath } from "../sign-in-return.js";
@@ -60,37 +61,46 @@ export function isFramedContext(): boolean {
 }
 
 /**
+ * The completion route the OAuth popup returns to. Written in the
+ * mount-relative, internal `/_agent-native` form: the app's server joins it to
+ * its own mount (see `getAppUrl`), so a path-mounted deployment does not double
+ * the prefix. The completion page posts the workspace-connection message back
+ * to the opener.
+ */
+export const WORKSPACE_CONNECTION_COMPLETION_RETURN = `${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/oauth/popup?complete=workspace-connection`;
+
+/** The origin that will serve the completion page and post the message. */
+function completionOrigin(startUrl: string): string | undefined {
+  if (!URL.canParse(startUrl, window.location.href)) return undefined;
+  return new URL(startUrl, window.location.href).origin;
+}
+
+/**
  * The start URL for a popup that returns to the framework completion page, so
  * an embedded app can learn the flow finished instead of navigating its frame
- * to the provider (which providers refuse to be framed).
+ * to the provider (which providers refuse to be framed). The caller's own
+ * `returnPath` is preserved in the options and applied on completion.
  */
 export function workspaceProviderOAuthPopupStartUrl(
   provider: string,
   options: WorkspaceProviderOAuthOptions,
 ): string {
-  const startUrl = new URL(
-    workspaceProviderOAuthUrl(provider, options),
-    window.location.href,
-  );
-  const completionUrl = new URL(
-    agentNativePath("/_agent-native/oauth/popup"),
-    window.location.href,
-  );
-  completionUrl.searchParams.set("complete", "workspace-connection");
-  startUrl.searchParams.set(
-    "return",
-    `${completionUrl.pathname}${completionUrl.search}`,
-  );
-  return startUrl.href;
+  return workspaceProviderOAuthUrl(provider, {
+    ...options,
+    serverReturnPath: WORKSPACE_CONNECTION_COMPLETION_RETURN,
+  });
 }
 
 /**
  * Resolve when the popup posts the framework completion message, or when it is
- * closed without one. Returns a stop function for the caller to clean up.
+ * closed without one. Accepts the completion page's origin, which can be a
+ * configured API origin distinct from the embedded UI origin, while still
+ * binding to the exact popup window. Returns a stop function.
  */
 export function watchWorkspaceConnectionCompletion(
   popup: Window,
   onComplete: () => void,
+  expectedOrigin?: string,
 ): () => void {
   let closedTicks = 0;
   const stop = () => {
@@ -98,8 +108,10 @@ export function watchWorkspaceConnectionCompletion(
     window.clearInterval(closedTimer);
   };
   const onMessage = (event: MessageEvent<unknown>) => {
-    if (event.origin !== window.location.origin || event.source !== popup)
-      return;
+    const originAccepted =
+      event.origin === window.location.origin ||
+      (expectedOrigin !== undefined && event.origin === expectedOrigin);
+    if (!originAccepted || event.source !== popup) return;
     const data = event.data;
     if (
       typeof data !== "object" ||
@@ -125,23 +137,46 @@ export function watchWorkspaceConnectionCompletion(
   return stop;
 }
 
+/**
+ * Apply the caller's return target on completion, so resume state carried in
+ * `returnPath` survives an embedded flow. Falls back to a reload.
+ */
+function applyReturnPath(options: WorkspaceProviderOAuthOptions): void {
+  if (options.returnPath) {
+    window.location.assign(options.returnPath);
+    return;
+  }
+  window.location.reload();
+}
+
 export function startWorkspaceProviderOAuth(
   provider: string,
   options: WorkspaceProviderOAuthOptions,
 ): void {
   if (isFramedContext()) {
     // Providers refuse to be framed (X-Frame-Options / frame-ancestors), so a
-    // same-window navigation inside Dispatch's iframe shows "refused to
-    // connect". Leave the frame: run the flow in a popup that returns to the
-    // completion page, then reload this app so the new connection appears.
+    // same-window navigation inside Dispatch's iframe is refused. Leave the
+    // frame: run the flow in a popup whose completion page posts back.
+    const startUrl = workspaceProviderOAuthPopupStartUrl(provider, options);
     const popup = openOAuthPopup({
-      initialUrl: workspaceProviderOAuthPopupStartUrl(provider, options),
+      initialUrl: startUrl,
       features: "width=640,height=760",
     });
     if (popup) {
-      watchWorkspaceConnectionCompletion(popup, () => window.location.reload());
+      watchWorkspaceConnectionCompletion(
+        popup,
+        () => applyReturnPath(options),
+        completionOrigin(startUrl),
+      );
       return;
     }
+    // Popup blocked while embedded. Never navigate this frame into the
+    // provider — the frame refuses it and the user cannot connect at all.
+    // Surface the recovery; the caller retries once popups are allowed.
+    console.warn(
+      "[agent-native] OAuth popup was blocked while embedded in another page; allow popups for this site to connect the provider.",
+    );
+    return;
   }
   window.location.assign(workspaceProviderOAuthUrl(provider, options));
 }

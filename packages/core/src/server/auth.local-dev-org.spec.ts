@@ -187,13 +187,12 @@ describe("loopback dev org initialization before the app-access guard", () => {
 
     const event = createMockEvent({ path: "/_agent-native/actions/list" });
     await expect(guard(event)).resolves.toEqual({
-      error: "You do not have access to this workspace app.",
+      error: "Workspace app access is temporarily unavailable.",
+      code: "local-org-initialization-failed",
     });
-    expect(event.res.status).toBe(403);
-    // Initialization was attempted with no org supplied to the ACL.
-    expect(checkAppAccess).toHaveBeenCalledWith("content", {
-      email: "dev@local.test",
-    });
+    expect(event.res.status).toBe(503);
+    // A broken org path is reported as unavailable, not as a membership denial.
+    expect(checkAppAccess).not.toHaveBeenCalled();
   });
 
   it("does not initialize the org outside a dev environment", async () => {
