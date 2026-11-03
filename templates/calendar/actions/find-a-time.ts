@@ -125,14 +125,18 @@ function addCalendarEventBusyBlocks(
   events: CalendarEvent[],
   organizerEmail: string,
   participantEmailSet: Set<string>,
+  ownedAccountSet: Set<string>,
   ignoreStart?: string,
   ignoreEnd?: string,
 ) {
   for (const event of events.filter(eventBlocksAvailability)) {
     if (event.allDay) continue;
+    const eventAccount = event.accountEmail?.toLowerCase();
     const participantEmail = (
       event.overlayEmail ||
-      event.accountEmail ||
+      (eventAccount && ownedAccountSet.has(eventAccount)
+        ? organizerEmail
+        : event.accountEmail) ||
       organizerEmail
     ).toLowerCase();
     if (!participantEmailSet.has(participantEmail)) continue;
@@ -322,6 +326,7 @@ export default defineAction({
         eventResult.events,
         organizerEmail,
         participantEmailSet,
+        new Set(connectedAccounts.map((account) => account.toLowerCase())),
         args.ignoreStart,
         args.ignoreEnd,
       );
