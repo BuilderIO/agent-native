@@ -40,7 +40,11 @@ faqs:
     a: |-
       Ein Consulting-Deck besteht aus fünf Teilen in dieser Reihenfolge:
 
-      Eine Titelfolie, die die Antwort nenntEine Executive Summary mit der Antwort und ihren GründenEin Abschnitt pro Grund, in dem jede Folie einen Aktionstitel belegtDie Empfehlung mit Verantwortlichen und TerminenEin Anhang mit Methoden und vollständigen Daten
+      Eine Titelfolie, die die Antwort nennt
+      Eine Executive Summary mit der Antwort und ihren Gründen
+      Ein Abschnitt pro Grund, in dem jede Folie einen Aktionstitel belegt
+      Die Empfehlung mit Verantwortlichen und Terminen
+      Ein Anhang mit Methoden und vollständigen Daten
   - q: Was ist ein Consulting-Deck?
     a: Ein Consulting-Deck ist die Präsentation, mit der ein Berater dem Kunden die Antwort auf seine Frage, die Ergebnisse dahinter und eine Empfehlung vorlegt. Es beginnt mit der Antwort, gibt jeder Folie einen Titel als ganzen Satz und belegt jede Aussage mit Daten samt Quelle. Es ist so geschrieben, dass man es lesen und präsentieren kann.
   - q: Was ist ein Ghost Deck in der Beratung?

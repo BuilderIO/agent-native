@@ -40,7 +40,11 @@ faqs:
     a: |-
       Una presentación de consultoría tiene cinco partes, en este orden:
 
-      Una portada que dice la respuestaUn resumen ejecutivo de la respuesta y sus razonesUna sección por razón, en la que cada diapositiva demuestra un título de acciónLa recomendación, con responsables y fechasUn anexo con la metodología y los datos completos
+      Una portada que dice la respuesta
+      Un resumen ejecutivo de la respuesta y sus razones
+      Una sección por razón, en la que cada diapositiva demuestra un título de acción
+      La recomendación, con responsables y fechas
+      Un anexo con la metodología y los datos completos
   - q: ¿Qué es una presentación de consultoría?
     a: Una presentación de consultoría es la que un consultor entrega a un cliente con la respuesta a su pregunta, los hallazgos que la sostienen y una recomendación. Empieza por la respuesta, da a cada diapositiva un título que es una frase completa y respalda cada afirmación con datos y su fuente. Se escribe para leerse además de para presentarse.
   - q: ¿Qué es un ghost deck en consultoría?

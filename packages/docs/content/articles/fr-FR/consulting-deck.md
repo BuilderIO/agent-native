@@ -40,7 +40,11 @@ faqs:
     a: |-
       Un deck de conseil se compose de cinq parties, dans cet ordre :
 
-      Une diapositive de titre qui énonce la réponseUne synthèse de la réponse et de ses raisonsUne section par raison, chaque diapositive prouvant un titre-messageLa recommandation, avec les responsables et les datesUne annexe avec la méthode et les données complètes
+      Une diapositive de titre qui énonce la réponse
+      Une synthèse de la réponse et de ses raisons
+      Une section par raison, chaque diapositive prouvant un titre-message
+      La recommandation, avec les responsables et les dates
+      Une annexe avec la méthode et les données complètes
   - q: Qu'est-ce qu'un deck de conseil ?
     a: Un deck de conseil est la présentation qu'un consultant remet à un client avec la réponse à sa question, les constats qui la fondent et une recommandation. Il commence par la réponse, donne à chaque diapositive un titre rédigé en phrase complète et appuie chaque affirmation sur des données sourcées. Il est conçu pour être lu autant que présenté.
   - q: Qu'est-ce qu'un ghost deck en conseil ?
