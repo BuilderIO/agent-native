@@ -915,7 +915,21 @@ export async function runWorkspaceDev(
       );
     }
 
-    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmSpawnTarget(childArgs);
+    let pnpmTarget: ReturnType<typeof pnpmSpawnTarget>;
+    try {
+      pnpmTarget = pnpmSpawnTarget(childArgs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: shouldInstall,
+        output: message,
+        logMessage: message,
+      });
+      return;
+    }
+    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmTarget;
     const child = spawnProcess(pnpmCommand, pnpmArgs, {
       ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
