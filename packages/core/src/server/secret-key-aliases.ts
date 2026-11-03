@@ -33,8 +33,9 @@ export interface ResolvedAliasedSecret extends ResolvedSecretDetail {
  */
 function precedence(detail: ResolvedSecretDetail): number {
   // A personal run reads its org's rows only after the deploy env, so a
-  // deployment key under one name beats the org's key under the other.
-  if (detail.personalRunOrgFallback) return 5;
+  // deployment key under one name beats the org's key under the other. Among
+  // those rows the org still beats its workspace, as it does in any other run.
+  if (detail.personalRunOrgFallback) return detail.source === "org" ? 5 : 6;
   switch (detail.source) {
     case "user":
       return 0;
@@ -45,7 +46,7 @@ function precedence(detail: ResolvedSecretDetail): number {
     case "env":
       return 4;
     default:
-      return 6;
+      return 7;
   }
 }
 
