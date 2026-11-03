@@ -17,6 +17,7 @@ import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
 } from "./hybrid-search.js";
+import { withheldZoomPassageCount } from "./search-index-contracts.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -51,6 +52,7 @@ export interface UniversalSearchResult {
   capturedAt?: string | null;
   location?: string | null;
   content?: string | null;
+  withheldPassages?: number;
 }
 
 export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";
@@ -596,6 +598,7 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
+        withheldPassages: withheldZoomPassageCount(metadata),
       },
     ];
   });
@@ -801,6 +804,7 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
+                withheldPassages: withheldZoomPassageCount(metadata),
               },
             ];
           });

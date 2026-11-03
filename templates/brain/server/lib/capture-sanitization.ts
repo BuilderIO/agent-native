@@ -16,6 +16,7 @@ import {
 } from "./jev-classifier.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
+  BRAIN_WORKSPACE_RULE_SCORE_KEY,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
@@ -92,6 +93,7 @@ export interface CaptureSanitizationResult {
   metadata: Record<string, unknown>;
   classifierFailureReason?: string;
   decision?: BrainSensitivityDecision;
+  withheldDecision?: BrainSensitivityDecision;
 }
 
 export const CLASSIFIER_TRANSIENT_RETRY_MS = 10 * 60 * 1000;
@@ -300,7 +302,8 @@ function sanitizeMetadata(metadata: Record<string, unknown>): {
   const strippedKeys: string[] = [];
 
   for (const [key, value] of Object.entries(metadata)) {
-    if (key === "sanitizeBeforeStorage") continue;
+    if (key === "sanitizeBeforeStorage" || key === "zoomPassageQuarantine")
+      continue;
     if (RAW_METADATA_KEYS.has(key) || PERSONAL_METADATA_KEYS.has(key)) {
       strippedKeys.push(key);
       Object.assign(next, summarizeDroppedMetadata(key, value));
@@ -572,6 +575,114 @@ const deterministicPreScreen = (
   unlessAllowed(fallbackSensitivityDecision(input.title, capturedAt, scope)) ??
   deterministicQuarantineDecision(input.content, capturedAt, scope);
 
+const ZOOM_PASSAGE_MAX_CHARS = 2_000;
+const ZOOM_PASSAGE_LIMIT = 48;
+const ZOOM_PASSAGE_SCREENING_MS = 120_000;
+
+function zoomPassages(content: string): string[] | null {
+  if (content.length > ZOOM_PASSAGE_MAX_CHARS * ZOOM_PASSAGE_LIMIT) return null;
+  const passages: string[] = [];
+  let lines: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (line.length > ZOOM_PASSAGE_MAX_CHARS) return null;
+    if (
+      lines.length &&
+      [...lines, line].join("\n").length > ZOOM_PASSAGE_MAX_CHARS
+    ) {
+      passages.push(lines.join("\n"));
+      lines = [];
+      if (passages.length >= ZOOM_PASSAGE_LIMIT) return null;
+    }
+    lines.push(line);
+  }
+  if (lines.length) passages.push(lines.join("\n"));
+  return passages;
+}
+
+async function retainSafeZoomPassages(
+  input: CaptureSanitizationInput,
+  whole: JevClassificationOutcome,
+): Promise<{
+  decision: BrainSensitivityDecision;
+  totalPassages: number;
+  withheldPassages: number;
+} | null> {
+  const original = whole.decision;
+  if (
+    input.source.provider !== "zoom" ||
+    input.kind !== "transcript" ||
+    !whole.configured ||
+    whole.truncated !== false ||
+    original?.classifier !== "jev" ||
+    original.disposition !== "quarantined" ||
+    original.confidenceBand === "uncertain" ||
+    !original.categories.length ||
+    (original.categoryScores?.[BRAIN_WORKSPACE_RULE_SCORE_KEY] ?? 0) >= 0.6
+  )
+    return null;
+  const passages = zoomPassages(input.content);
+  if (!passages || passages.length < 2) return null;
+  const deadline = Date.now() + ZOOM_PASSAGE_SCREENING_MS;
+  const classify = async (content: string) => {
+    if (Date.now() >= deadline) return null;
+    const outcome = await classifyWithJev({
+      title: input.title,
+      content,
+      capturedAt: input.capturedAt ?? new Date(0).toISOString(),
+      settings: input.settings,
+      ownerEmail: input.source.ownerEmail,
+      ...(input.source.orgId === undefined
+        ? {}
+        : { orgId: input.source.orgId }),
+    });
+    if (outcome.failureReason)
+      throw new BrainClassifierUnavailableError(outcome.failureReason);
+    if (
+      Date.now() >= deadline ||
+      !outcome.configured ||
+      outcome.truncated !== false ||
+      outcome.decision?.classifier !== "jev"
+    )
+      return null;
+    return outcome.decision;
+  };
+  const rejected = new Set<number>();
+  for (let index = 0; index < passages.length; index += 1) {
+    const decision = await classify(
+      passages.slice(Math.max(0, index - 1), index + 2).join("\n"),
+    );
+    if (!decision || decision.confidenceBand === "uncertain") return null;
+    if (decision.disposition !== "allowed") rejected.add(index);
+  }
+  if (!rejected.size) return null;
+  const withheld = new Set<number>();
+  for (const index of rejected) {
+    // Adjacent text can reveal the meaning of a withheld passage even without its words.
+    for (
+      let neighbor = Math.max(0, index - 1);
+      neighbor <= Math.min(passages.length - 1, index + 1);
+      neighbor += 1
+    )
+      withheld.add(neighbor);
+  }
+  if (withheld.size === passages.length) return null;
+  const retained: string[] = [];
+  for (const [index, passage] of passages.entries()) {
+    if (!withheld.has(index)) retained.push(passage);
+    else if (index === 0 || !withheld.has(index - 1)) retained.push("[…]");
+  }
+  const retainedContent = retained
+    .join("\n")
+    .replace(/https:\/\/(?:[\w-]+\.)*zoom\.us\/rec\/[^\s<>"']+/gi, "[…]");
+  const decision = await classify(retainedContent);
+  if (decision?.disposition !== "allowed") return null;
+  return {
+    decision,
+    totalPassages: passages.length,
+    withheldPassages: withheld.size,
+  };
+}
+
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
@@ -651,9 +762,39 @@ export async function sanitizeCaptureForStorage(
     }
   }
 
+  const partial =
+    decision === jev.decision ? await retainSafeZoomPassages(input, jev) : null;
+  const withheldDecision = partial
+    ? { ...decision, safeContent: "", safeSegments: [] }
+    : undefined;
+  if (partial) decision = partial.decision;
+  const partialMetadata = partial
+    ? {
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: partial.totalPassages,
+          withheldPassages: partial.withheldPassages,
+        },
+      }
+    : {};
+  if (partial) {
+    // A link to the full recording would bypass the excerpt's privacy boundary.
+    for (const key of Object.keys(sanitizedMetadata)) {
+      if (
+        ![
+          "provider",
+          "connector",
+          "zoomMeetingId",
+          "zoomMeetingUuid",
+          "syncRunId",
+        ].includes(key)
+      )
+        delete sanitizedMetadata[key];
+    }
+  }
   const sanitizedContent =
     decision.disposition === "allowed"
-      ? sanitizationRequested
+      ? sanitizationRequested && !partial
         ? deterministicSanitizeContent(
             sanitizeSensitiveText(decision.safeContent),
             {
@@ -683,6 +824,7 @@ export async function sanitizeCaptureForStorage(
     metadata: {
       ...sanitizedMetadata,
       ...safeSegmentMetadata,
+      ...partialMetadata,
       captureSanitization: {
         sanitizedBeforeStorage: true,
         rawContentRetained: false,
@@ -705,5 +847,6 @@ export async function sanitizeCaptureForStorage(
       },
     },
     decision,
+    withheldDecision,
   };
 }

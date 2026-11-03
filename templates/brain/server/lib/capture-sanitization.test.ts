@@ -57,6 +57,177 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe("Zoom passage quarantine", () => {
+  const transcript = Array.from(
+    { length: 36 },
+    (_, index) =>
+      `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "PRIVATE_HEALTH_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
+  ).join("\n");
+  const zoomInput = {
+    ...baseInput,
+    title: "Weekly update",
+    source: { ...baseInput.source, provider: "zoom" as const },
+    settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "jev" as const },
+    metadata: {
+      zoomMeetingId: "22222222222",
+      sourceUrl: "https://zoom.us/rec/share/example",
+      transcript: "PRIVATE_HEALTH_DETAIL",
+    },
+    content: transcript,
+  };
+  const classification = (
+    content: string,
+    sensitive = content.includes("PRIVATE_HEALTH_DETAIL"),
+  ) => ({
+    configured: true,
+    truncated: false,
+    decision: jevSensitivityDecision(
+      { "health-accommodation": sensitive ? 0.95 : 0.01 },
+      {
+        judgedContent: content,
+        capturedAt: baseInput.capturedAt,
+        truncated: false,
+      },
+    ),
+  });
+
+  it("retains screened Zoom passages with gaps without persisting withheld text or the full recording link", async () => {
+    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+      classification(content),
+    );
+    const result = await sanitizeCaptureForStorage({
+      ...zoomInput,
+      content: `${transcript}\nhttps://zoom.us/rec/share/example`,
+    });
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("zoom.us/rec");
+    expect(result.content).toContain("PUBLIC_UPDATE_0");
+    expect(result.content).toContain("PUBLIC_UPDATE_35");
+    expect(result.content).toContain("[…]");
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_HEALTH_DETAIL");
+    expect(result.metadata.sourceUrl).toBeUndefined();
+    expect(result.metadata.zoomPassageQuarantine).toMatchObject({ version: 1 });
+    expect(result.withheldDecision?.disposition).toBe("quarantined");
+    expect(result.withheldDecision?.safeContent).toBe("");
+    const finalInput =
+      mocks.classifyWithJev.mock.calls[
+        mocks.classifyWithJev.mock.calls.length - 1
+      ]?.[0];
+    expect(finalInput.content).toBe(result.content);
+  });
+
+  it.each(["slack", "granola"] as const)(
+    "keeps whole-capture quarantine for %s",
+    async (provider) => {
+      mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+        classification(content),
+      );
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        source: { ...zoomInput.source, provider },
+      });
+      expect(result.decision?.disposition).toBe("quarantined");
+      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["truncated", "workspace-rule", "uncertain", "too-large"])(
+    "keeps whole-meeting quarantine when separation is unsafe: %s",
+    async (reason) => {
+      const outcome = classification(transcript);
+      if (reason === "truncated") outcome.truncated = true;
+      if (reason === "workspace-rule")
+        outcome.decision.categoryScores = { "workspace-rule": 0.9 };
+      if (reason === "uncertain") outcome.decision.confidenceBand = "uncertain";
+      mocks.classifyWithJev.mockResolvedValue(outcome);
+      const result = await sanitizeCaptureForStorage({
+        ...zoomInput,
+        content: reason === "too-large" ? transcript.repeat(100) : transcript,
+      });
+      expect(result.decision?.disposition).toBe("quarantined");
+      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("throws on a passage screening outage without returning any partial capture", async () => {
+    mocks.classifyWithJev
+      .mockResolvedValueOnce(classification(transcript))
+      .mockResolvedValue({ configured: true, failureReason: "jev-timeout" });
+    await expect(sanitizeCaptureForStorage(zoomInput)).rejects.toBeInstanceOf(
+      BrainClassifierUnavailableError,
+    );
+  });
+
+  it("quarantines the whole meeting if the retained passages fail the final combined screen", async () => {
+    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+      classification(
+        content,
+        content.includes("PRIVATE_HEALTH_DETAIL") || content.includes("[…]"),
+      ),
+    );
+    const result = await sanitizeCaptureForStorage(zoomInput);
+    expect(result.decision?.disposition).toBe("quarantined");
+    expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+    expect(result.content).not.toContain("PUBLIC_UPDATE_0");
+  });
+
+  it("withholds a sensitive exchange spanning two passage boundaries and its neighboring context", async () => {
+    const content = Array.from(
+      { length: 18 },
+      (_, index) =>
+        `[Speaker 00:${String(index).padStart(2, "0")}:00] ${index === 8 ? "CONTEXT_START" : index === 9 ? "CONTEXT_END" : `UPDATE_${index}`} ${"Product plans remain on track. ".repeat(40).trim()}`,
+    ).join("\n");
+    mocks.classifyWithJev.mockImplementation(async ({ content: body }) =>
+      classification(
+        body,
+        body.includes("CONTEXT_START") && body.includes("CONTEXT_END"),
+      ),
+    );
+    const result = await sanitizeCaptureForStorage({ ...zoomInput, content });
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("UPDATE_0");
+    expect(result.content).toContain("UPDATE_17");
+    expect(result.content).not.toMatch(
+      /CONTEXT_START|CONTEXT_END|UPDATE_7\b|UPDATE_10\b/,
+    );
+  });
+
+  it("keeps the whole meeting quarantined when every passage is sensitive", async () => {
+    mocks.classifyWithJev.mockImplementation(async ({ content }) =>
+      classification(content, true),
+    );
+    const result = await sanitizeCaptureForStorage(zoomInput);
+    expect(result.decision?.disposition).toBe("quarantined");
+    expect(result.withheldDecision).toBeUndefined();
+  });
+
+  it("stops extra passage screening at its time budget without retaining an unchecked remainder", async () => {
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mocks.classifyWithJev.mockImplementation(async ({ content }) => {
+      if (content !== transcript) now = 120_000;
+      return classification(content);
+    });
+    try {
+      const result = await sanitizeCaptureForStorage(zoomInput);
+      expect(result.decision?.disposition).toBe("quarantined");
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+      expect(mocks.classifyWithJev).toHaveBeenCalledTimes(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not carve up credential-bearing Zoom transcripts", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...zoomInput,
+      content: `${transcript}\npassword: not-a-real-value`,
+    });
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+  });
+});
+
 describe("capture sanitization", () => {
   it("suppresses credentials rather than retaining a redacted secret-bearing line", async () => {
     const result = await sanitizeCaptureForStorage({

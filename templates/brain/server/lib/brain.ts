@@ -816,6 +816,16 @@ export async function createCapture(values: {
     });
     throw new BrainCaptureBlockedError(receipt);
   }
+  if (sanitized.withheldDecision) {
+    await recordBlockedCapture({
+      id,
+      existing: null,
+      source,
+      values,
+      decision: sanitized.withheldDecision,
+      retentionHours: settings.quarantineRetentionHours ?? 72,
+    });
+  }
   const nextContentHash = await contentHash(sanitized.content);
   const nextMetadataJson = stableJson(sanitized.metadata);
   const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;

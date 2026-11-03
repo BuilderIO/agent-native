@@ -946,6 +946,7 @@ import {
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
 import { enqueueCaptureInvalidation } from "./ingest-queue.js";
+import * as jevClassifier from "./jev-classifier.js";
 
 function resetMocks() {
   vi.clearAllMocks();
@@ -1641,6 +1642,80 @@ describe("Brain knowledge quality gates", () => {
     ).toMatchObject({
       sourceUrl: "https://docs.example.test/new",
     });
+  });
+
+  it("stores only safe Zoom excerpts and a metadata-only quarantine receipt across resyncs", async () => {
+    seedSource({ provider: "zoom" });
+    Object.assign(mocks.settings, { privacyClassifier: "jev" });
+    const content = Array.from(
+      { length: 36 },
+      (_, index) =>
+        `[Presenter 00:${String(index).padStart(2, "0")}:00] ${index === 17 ? "WITHHELD_PRIVATE_DETAIL" : `PUBLIC_UPDATE_${index}`} ${"The product roadmap is on track. ".repeat(20).trim()}`,
+    ).join("\n");
+    const classifier = vi
+      .spyOn(jevClassifier, "classifyWithJev")
+      .mockImplementation(async (input) => ({
+        configured: true,
+        truncated: false,
+        decision: jevClassifier.jevSensitivityDecision(
+          {
+            "health-accommodation": input.content.includes(
+              "WITHHELD_PRIVATE_DETAIL",
+            )
+              ? 0.95
+              : 0.01,
+          },
+          {
+            judgedContent: input.content,
+            capturedAt: "2026-10-28T10:00:00Z",
+            truncated: false,
+          },
+        ),
+      }));
+    try {
+      const input = {
+        sourceId: "source-1",
+        externalId: "zoom:partial-meeting",
+        title: "Weekly update",
+        kind: "transcript" as const,
+        content,
+      };
+      const capture = await createCapture(input);
+      await createCapture(input);
+      expect(mocks.rows.captures).toHaveLength(1);
+      expect(capture).toMatchObject({ sensitivityDisposition: "allowed" });
+      expect(capture).toHaveProperty(
+        "content",
+        expect.stringContaining("PUBLIC_UPDATE_0"),
+      );
+      expect(capture).toHaveProperty(
+        "content",
+        expect.stringContaining("PUBLIC_UPDATE_35"),
+      );
+      expect(capture).toHaveProperty("content", expect.stringContaining("[…]"));
+      expect(JSON.stringify(mocks.rows)).not.toContain(
+        "WITHHELD_PRIVATE_DETAIL",
+      );
+      expect(mocks.rows.sensitivityEvents).toHaveLength(1);
+      expect(mocks.rows.sensitivityEvents[0]).toMatchObject({
+        disposition: "quarantined",
+        quarantineBlobHandle: null,
+      });
+      const listed = await listCapturesAction.run(
+        {
+          sourceId: "source-1",
+          includeArchivedSources: false,
+          includePreview: true,
+          previewLength: 220,
+          limit: 25,
+        },
+        {} as never,
+      );
+      expect(listed.captures[0]?.withheldPassages).toBeGreaterThan(0);
+      expect(enqueueCaptureInvalidation).toHaveBeenCalledTimes(1);
+    } finally {
+      classifier.mockRestore();
+    }
   });
 
   it("persists and updates classifier failure reasons on blocked events", async () => {

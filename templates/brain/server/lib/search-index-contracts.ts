@@ -1,4 +1,22 @@
+import { z } from "zod";
+
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
+
+const zoomPassageQuarantineSchema = z.object({
+  version: z.literal(1),
+  totalPassages: z.number().int().positive(),
+  withheldPassages: z.number().int().positive(),
+});
+
+export function withheldZoomPassageCount(
+  metadata: Record<string, unknown>,
+): number {
+  return metadata.zoomPassageQuarantine === undefined
+    ? 0
+    : zoomPassageQuarantineSchema.parse(metadata.zoomPassageQuarantine)
+        .withheldPassages;
+}
+
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";
 
 export const BRAIN_SENSITIVITY_CATEGORIES = [

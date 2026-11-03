@@ -113,6 +113,20 @@ Captures use the organization audience. There are no Zoom webhooks. Only
 meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
 read local recordings, live captions, or AI Companion transcripts.
 
+A complete, confident Jev category rejection can retain safe Zoom passages:
+whole transcript lines are grouped into passages of up to 2,000 characters,
+screened with neighboring passages, and rejected passages plus their neighbors
+are withheld. The combined retained text must pass Jev again. `[…]` marks gaps;
+`metadata.zoomPassageQuarantine` records total/withheld passage counts, and
+capture inventory/search return `withheldPassages`. Disclose that these sources
+are incomplete; never reconstruct omitted text. Partial captures omit links to
+the full recording and retain no withheld text or private quarantine blob.
+Credentials, workspace-rule rejection, uncertain/incomplete screening, oversized
+turns, more than 48 passages, or a two-minute extra-screening budget keep
+whole-meeting blocking. Classifier outages still error and retry. This applies
+to newly processed occurrences; old occurrences outside the incremental scan
+window are not automatically recovered.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same

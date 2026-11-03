@@ -814,6 +814,40 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).not.toContain("ava@example.com");
   });
 
+  it("reports withheld Zoom passages in both semantic and keyword capture results", async () => {
+    seedSemanticCapture({
+      id: "capture-partial-zoom",
+      sourceId: "source-slack",
+      metadata: {
+        zoomPassageQuarantine: {
+          version: 1,
+          totalPassages: 12,
+          withheldPassages: 5,
+        },
+      },
+    });
+    const semantic = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(semantic.rows[0]).toMatchObject({
+      id: "capture-partial-zoom",
+      withheldPassages: 5,
+    });
+    mocks.hybridSearchArtifacts.mockResolvedValue({
+      results: [],
+      lanes: OK_LANES,
+    });
+    const keyword = await searchEverythingWithLanes({
+      query: "enterprise onboarding",
+      type: "capture",
+    });
+    expect(keyword.rows[0]).toMatchObject({
+      id: "capture-partial-zoom",
+      withheldPassages: 5,
+    });
+  });
+
   it("uses the Zoom meeting topic as the semantic hit location", async () => {
     mocks.rows.sources.push({
       ...mocks.rows.sources[0],

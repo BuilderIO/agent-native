@@ -10,6 +10,7 @@ import {
   parseJson,
   sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
+import { withheldZoomPassageCount } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
@@ -172,6 +173,7 @@ export default defineAction({
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadataRecord(metadata),
+            withheldPassages: withheldZoomPassageCount(metadata),
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

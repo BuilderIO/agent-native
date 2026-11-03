@@ -89,6 +89,7 @@ export interface JevClassificationOutcome {
   decision?: BrainSensitivityDecision;
   failureReason?: JevFailureReason;
   authSource?: JevAuthSource;
+  truncated?: boolean;
 }
 
 export type JevAuthSource = "stored-key" | "builder-gateway";
@@ -610,6 +611,7 @@ export async function runJevClassification(
   return {
     configured: true,
     authSource: auth.source,
+    truncated,
     decision: jevSensitivityDecision(scores, {
       judgedContent: judgedBody,
       capturedAt: input.capturedAt ?? new Date(0).toISOString(),
