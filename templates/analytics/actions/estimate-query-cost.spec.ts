@@ -579,6 +579,14 @@ describe("estimate-dashboard-cost saved-ID entry point", () => {
     [undefined, 30, "1 enabled daily email report in your org"],
     [null, 30, "1 enabled daily email report in your org"],
     ["", 30, "1 enabled daily email report in your org"],
+    ["   ", 30, "1 enabled daily email report in your org"],
+    [
+      String.fromCharCode(9, 10),
+      30,
+      "1 enabled daily email report in your org",
+    ],
+    [" 0 ", 0, "caller"],
+    [" 12 ", 12, "caller"],
     [0, 0, "caller"],
     [12, 12, "caller"],
   ])(
@@ -599,6 +607,15 @@ describe("estimate-dashboard-cost saved-ID entry point", () => {
       expect(result.runsPerMonthBasis).toBe(basis);
       if (expected === 0) expect(result.total.usdPerMonth).toBe(0);
       else expect(result.total.usdPerMonth).toBeGreaterThan(0);
+    },
+  );
+  it.each([false, true, [], {}].map((value) => ({ value })))(
+    "rejects non-numeric input $value instead of coercing it to zero",
+    ({ value }) => {
+      expect(() =>
+        savedAction.schema.parse({ dashboardId: "d1", runsPerMonth: value }),
+      ).toThrow();
+      expect(mocks.getDashboard).not.toHaveBeenCalled();
     },
   );
 });
