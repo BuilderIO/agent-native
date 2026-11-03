@@ -1924,7 +1924,8 @@ describe("live suggestion presentation", () => {
       expected: { kind: "insert" },
     },
   ])("draws a draft: $label", ({ before, after, expected }) => {
-    const operation = markdownSuggestionOperation(before, after)!;
+    const operation = markdownSuggestionOperation(before, after);
+    if (!operation) throw new Error("expected a suggestion operation");
     const [presentation] = suggestionPresentations(
       { id: "new-line", status: "pending", operations: [operation] },
       before,
@@ -1934,8 +1935,8 @@ describe("live suggestion presentation", () => {
     try {
       expect(
         suggestionHighlightSpec(editor.state.doc, {
-          ...presentation!,
-          anchor: anchor!,
+          ...presentation,
+          anchor,
           presentation: "draft",
         }),
       ).toMatchObject(expected);
