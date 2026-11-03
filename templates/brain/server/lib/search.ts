@@ -706,12 +706,12 @@ export async function searchEverythingRows(
 
 export async function searchEverythingWithLanes(args: {
   query: string;
-  type?: UniversalSearchType | "all";
-  provider?: string;
-  kind?: string;
-  projectId?: string;
-  status?: string;
-  limit?: number;
+  type?: UniversalSearchType | "all" | undefined;
+  provider?: string | undefined;
+  kind?: string | undefined;
+  projectId?: string | undefined;
+  status?: string | undefined;
+  limit?: number | undefined;
 }): Promise<{ rows: UniversalSearchResult[]; lanes: SearchLaneStatuses }> {
   const lanes: SearchLaneStatuses = {
     fts: { status: "ok" },
@@ -984,8 +984,8 @@ async function readDiscoveredAgentCoverage(): Promise<
 
 function buildDelegationHints(args: {
   query: string;
-  provider?: string | null;
-  status?: string | null;
+  provider?: string | null | undefined;
+  status?: string | null | undefined;
 }): FederatedSearchCoverage["delegationHints"] {
   const text = searchSignalText(args);
   return FEDERATED_DELEGATION_TARGETS.map((target) => ({
@@ -1001,8 +1001,8 @@ function buildDelegationHints(args: {
 
 export async function buildFederatedSearchCoverage(args: {
   query: string;
-  provider?: string | null;
-  status?: string | null;
+  provider?: string | null | undefined;
+  status?: string | null | undefined;
 }): Promise<FederatedSearchCoverage> {
   const [brainSourceProviders, workspaceProviderCoverage, discoveredAgents] =
     await Promise.all([
