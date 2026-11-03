@@ -1233,7 +1233,6 @@ export const analyticsBigqueryUsage = table(
     workload: text("workload").notNull(),
     dashboardId: text("dashboard_id"),
     panelId: text("panel_id"),
-    queryHash: text("query_hash").notNull(),
     startedAt: text("started_at").notNull(),
     observedAt: text("observed_at").notNull(),
     submissionState: text("submission_state").notNull(),

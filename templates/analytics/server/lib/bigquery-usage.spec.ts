@@ -72,13 +72,7 @@ import {
 } from "./bigquery-usage";
 
 const ctx = { userEmail: "caller@example.test", orgId: "org-1" };
-const makeUsage = () =>
-  newBigQueryJobUsage(
-    "test-project",
-    "job-1",
-    "SELECT 'private SQL text'",
-    ctx,
-  );
+const makeUsage = () => newBigQueryJobUsage("test-project", "job-1", ctx);
 const metadata = (
   query: Record<string, unknown>,
   status: Record<string, unknown> = { state: "DONE" },
@@ -222,7 +216,7 @@ describe("warehouse job observations", () => {
     },
   );
 
-  it("isolates concurrent server-owned dashboard provenance and never stores SQL", async () => {
+  it("isolates concurrent server-owned dashboard provenance", async () => {
     const records = await Promise.all(
       ["a", "b"].map((dashboardId) =>
         withBigQueryUsageAttribution(
@@ -240,9 +234,7 @@ describe("warehouse job observations", () => {
       orgId: ctx.orgId,
       workload: "dashboard-report",
       panelId: "p",
-      queryHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
-    expect(JSON.stringify(records)).not.toContain("private SQL text");
     expect(makeUsage()).toMatchObject({
       workload: "unattributed",
       dashboardId: null,
@@ -470,59 +462,80 @@ describe("durable warehouse ledger", () => {
       expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
     );
   });
-  it("keeps the real HTTP request pool alive through deferred accounting", async () => {
-    const background: Promise<unknown>[] = [];
-    const request = Object.assign(
-      new Request("https://fixture.test/api/query"),
-      {
-        waitUntil: (work: Promise<unknown>) => {
+  it.each(["platform", "fallback", "aborted"] as const)(
+    "keeps the real HTTP request pool alive through %s accounting",
+    async (mode) => {
+      const background: Promise<unknown>[] = [];
+      const request: Request & {
+        waitUntil?: (work: Promise<unknown>) => void;
+      } = new Request("https://fixture.test/api/query");
+      if (mode === "platform")
+        request.waitUntil = (work) => {
           background.push(work);
-        },
-      },
-    );
-    platformWaitUntil.mockImplementation((candidate) =>
-      candidate === request ? request.waitUntil.bind(request) : undefined,
-    );
-    let release = (_response: Response) => {};
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        () =>
-          new Promise<Response>((resolve) => {
-            release = resolve;
-          }),
-      ),
-    );
-    const pool = { end: vi.fn(async () => {}) };
-    execute.mockImplementation(async ({ sql, args }) => {
-      expect(getOrCreateRequestDbPool("usage-http-test", () => pool)).toBe(
-        pool,
+        };
+      platformWaitUntil.mockImplementation((candidate) =>
+        candidate === request ? request.waitUntil?.bind(request) : undefined,
       );
-      return client.query(sql, args);
-    });
-    const usage = makeUsage();
-    const receipt = await runWithRequestDbPoolScope(true, request, () =>
-      withRequestContextFromEvent({ req: request } as H3Event, async () => {
-        await persistBigQueryJobUsage(usage);
-        return finalizeBigQueryJobUsage(usage, "fake", true);
-      }),
-    );
-    expect(receipt).toMatchObject({ status: "pending" });
-    expect(pool.end).not.toHaveBeenCalled();
-    release(
-      json(
-        metadata({
-          totalBytesProcessed: "123",
-          totalBytesBilled: "10485760",
-          cacheHit: false,
+      let release = (_response: Response) => {};
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              release = resolve;
+            }),
+        ),
+      );
+      let finishClose = () => {};
+      const closed = new Promise<void>((resolve) => {
+        finishClose = resolve;
+      });
+      const pool = {
+        end: vi.fn(async () => {
+          finishClose();
         }),
-      ),
-    );
-    await Promise.all(background);
-    expect(pool.end).toHaveBeenCalledOnce();
-    expect(
-      (await client.query("SELECT usage_status FROM analytics_bigquery_usage"))
-        .rows[0],
-    ).toMatchObject({ usage_status: "complete" });
-  });
+      };
+      execute.mockImplementation(async ({ sql, args }) => {
+        expect(getOrCreateRequestDbPool("usage-http-test", () => pool)).toBe(
+          pool,
+        );
+        return client.query(sql, args);
+      });
+      const usage = makeUsage();
+      const controller = new AbortController();
+      if (mode === "aborted") controller.abort();
+      const receipt = await runWithRequestDbPoolScope(true, request, () =>
+        withRequestContextFromEvent({ req: request } as H3Event, async () => {
+          await persistBigQueryJobUsage(usage);
+          return finalizeBigQueryJobUsage(
+            usage,
+            "fake",
+            true,
+            controller.signal,
+          );
+        }),
+      );
+      expect(receipt).toMatchObject({ status: "pending" });
+      expect(pool.end).not.toHaveBeenCalled();
+      release(
+        json(
+          metadata({
+            totalBytesProcessed: "123",
+            totalBytesBilled: "10485760",
+            cacheHit: false,
+          }),
+        ),
+      );
+      await Promise.all(background);
+      await closed;
+      expect(pool.end).toHaveBeenCalledOnce();
+      expect(
+        (
+          await client.query(
+            "SELECT usage_status FROM analytics_bigquery_usage",
+          )
+        ).rows[0],
+      ).toMatchObject({ usage_status: "complete" });
+    },
+  );
 });

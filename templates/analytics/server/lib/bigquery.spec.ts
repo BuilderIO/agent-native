@@ -2510,7 +2510,6 @@ describe("runQuery cancellation", () => {
       ownerEmail: expect.any(String),
     });
     expect(records[0]).not.toHaveProperty("query");
-    expect(records[0]).toHaveProperty("queryHash");
     persistUsage.mockClear();
     finalizeUsage.mockClear();
     expect((await runQuery("SELECT 987654 AS ledger_cache_test")).cached).toBe(

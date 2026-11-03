@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { getDbExec } from "@agent-native/core/db";
+import { retainRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";
 import {
   getRequestRunContext,
   platformWaitUntil,
@@ -39,7 +39,6 @@ export type BigQueryJobUsage = {
   workload: string;
   dashboardId: string | null;
   panelId: string | null;
-  queryHash: string;
   startedAt: string;
   submissionState: "attempted" | "accepted" | "rejected" | "unknown";
   usageStatus: "pending" | "complete" | "partial" | "unavailable";
@@ -60,7 +59,6 @@ export function usageBytes(value: unknown): string | null {
 export function newBigQueryJobUsage(
   projectId: string,
   jobId: string,
-  query: string,
   ctx: CredentialContext,
 ): BigQueryJobUsage {
   const source = attribution.getStore();
@@ -73,7 +71,6 @@ export function newBigQueryJobUsage(
     workload: source?.workload ?? "unattributed",
     dashboardId: source?.dashboardId ?? null,
     panelId: source?.panelId ?? null,
-    queryHash: createHash("sha256").update(query).digest("hex"),
     startedAt: new Date().toISOString(),
     submissionState: "attempted",
     usageStatus: "pending",
@@ -89,7 +86,7 @@ export function newBigQueryJobUsage(
 export const BIGQUERY_USAGE_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS analytics_bigquery_usage (
   project_id TEXT NOT NULL, job_id TEXT NOT NULL, location TEXT,
   owner_email TEXT NOT NULL, org_id TEXT, credential_scope TEXT NOT NULL,
-  workload TEXT NOT NULL, dashboard_id TEXT, panel_id TEXT, query_hash TEXT NOT NULL,
+  workload TEXT NOT NULL, dashboard_id TEXT, panel_id TEXT,
   started_at TEXT NOT NULL, observed_at TEXT NOT NULL, submission_state TEXT NOT NULL,
   usage_status TEXT NOT NULL, provider_state TEXT, outcome TEXT,
   bytes_processed TEXT, bytes_billed TEXT, provider_cache_hit BOOLEAN,
@@ -108,9 +105,9 @@ export async function persistBigQueryJobUsage(
       maxAttempts: 1,
       sql: `INSERT INTO analytics_bigquery_usage (
         project_id, job_id, location, owner_email, org_id, credential_scope, workload, dashboard_id, panel_id,
-        query_hash, started_at, observed_at, submission_state, usage_status, provider_state, outcome,
+        started_at, observed_at, submission_state, usage_status, provider_state, outcome,
         bytes_processed, bytes_billed, provider_cache_hit
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT (project_id, job_id) DO UPDATE SET
         location = EXCLUDED.location, observed_at = EXCLUDED.observed_at,
         submission_state = EXCLUDED.submission_state, usage_status = EXCLUDED.usage_status,
@@ -129,7 +126,6 @@ export async function persistBigQueryJobUsage(
         usage.workload,
         usage.dashboardId,
         usage.panelId,
-        usage.queryHash,
         usage.startedAt,
         new Date().toISOString(),
         usage.submissionState,
@@ -245,33 +241,35 @@ export async function finalizeBigQueryJobUsage(
     status: initialRecorded ? "pending" : "unavailable",
   };
   // Accounting must outlive a cancelled query, but never hold its response open.
-  const work = (async (): Promise<BigQueryUsageAccounting> => {
-    const deadline = AbortSignal.timeout(2_500);
-    let observed = { ...usage };
-    for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt++) {
-      observed = await observeBigQueryJobUsage(observed, token, deadline);
-      if (observed.usageStatus === "complete") break;
-      if (attempt < 2) {
-        try {
-          await delay(100, undefined, { signal: deadline });
-        } catch {
-          break;
+  const work = retainRequestDbPoolScope(
+    (async (): Promise<BigQueryUsageAccounting> => {
+      const deadline = AbortSignal.timeout(2_500);
+      let observed = { ...usage };
+      for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt++) {
+        observed = await observeBigQueryJobUsage(observed, token, deadline);
+        if (observed.usageStatus === "complete") break;
+        if (attempt < 2) {
+          try {
+            await delay(100, undefined, { signal: deadline });
+          } catch {
+            break;
+          }
         }
       }
-    }
-    const recorded = await persistBigQueryJobUsage(observed);
-    return {
-      ...pending,
-      status: recorded ? "recorded" : "unavailable",
-      usageStatus: observed.usageStatus,
-    };
-  })().catch((): BigQueryUsageAccounting => {
-    console.warn("[bigquery-usage] Finalization failed; usage is unknown", {
-      projectId: usage.projectId,
-      jobId: usage.jobId,
-    });
-    return { ...pending, status: "unavailable" };
-  });
+      const recorded = await persistBigQueryJobUsage(observed);
+      return {
+        ...pending,
+        status: recorded ? "recorded" : "unavailable",
+        usageStatus: observed.usageStatus,
+      };
+    })().catch((): BigQueryUsageAccounting => {
+      console.warn("[bigquery-usage] Finalization failed; usage is unknown", {
+        projectId: usage.projectId,
+        jobId: usage.jobId,
+      });
+      return { ...pending, status: "unavailable" };
+    }),
+  );
   const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
   if (waitUntil) {
     try {

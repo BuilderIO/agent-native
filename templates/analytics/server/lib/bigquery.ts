@@ -1444,7 +1444,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     usage = newBigQueryJobUsage(
       projectId,
       jobId,
-      cacheableSql,
       requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
     );
     usageStarted = await persistBigQueryJobUsage(usage);
