@@ -3,6 +3,20 @@ import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.hoisted(() => vi.fn());
+const getRunContext = vi.hoisted(() =>
+  vi.fn<() => { waitUntil: (work: Promise<unknown>) => void } | undefined>(),
+);
+const platformWaitUntil = vi.hoisted(() =>
+  vi.fn<() => ((work: Promise<unknown>) => void) | undefined>(),
+);
+vi.mock("@agent-native/core/server", () => ({
+  getRequestRunContext: getRunContext,
+  platformWaitUntil,
+}));
+beforeEach(() => {
+  getRunContext.mockReset();
+  platformWaitUntil.mockReset();
+});
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -11,6 +25,7 @@ import {
   BIGQUERY_USAGE_MIGRATION_SQL,
   newBigQueryJobUsage,
   observeBigQueryJobUsage,
+  finalizeBigQueryJobUsage,
   persistBigQueryJobUsage,
   usageBytes,
   withBigQueryUsageAttribution,
@@ -254,5 +269,151 @@ describe("durable warehouse ledger", () => {
       expect.objectContaining({ jobId: "job-1" }),
     );
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private SQL text");
+  });
+  it("follows asynchronous cancellation to terminal usage without holding an aborted query response", async () => {
+    const usage = makeUsage();
+    await persistBigQueryJobUsage(usage);
+    const background: Promise<unknown>[] = [];
+    getRunContext.mockReturnValue({
+      waitUntil: (work) => {
+        background.push(work);
+      },
+    });
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(json(metadata({}, { state: "RUNNING" })))
+      .mockResolvedValueOnce(
+        json(
+          metadata(
+            {
+              totalBytesProcessed: "123",
+              totalBytesBilled: "10485760",
+              cacheHit: false,
+            },
+            { state: "DONE", errorResult: { reason: "stopped" } },
+          ),
+        ),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const controller = new AbortController();
+    controller.abort();
+    expect(
+      await finalizeBigQueryJobUsage(usage, "fake", true, controller.signal),
+    ).toMatchObject({ status: "pending" });
+    expect(background).toHaveLength(1);
+    expect(await background[0]).toMatchObject({
+      status: "recorded",
+      usageStatus: "complete",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      (await client.query("SELECT * FROM analytics_bigquery_usage")).rows[0],
+    ).toMatchObject({
+      outcome: "cancelled",
+      bytes_billed: "10485760",
+      usage_status: "complete",
+    });
+  });
+
+  it("bounds follow-up observations and preserves unresolved usage as unknown", async () => {
+    const usage = makeUsage();
+    await persistBigQueryJobUsage(usage);
+    const background: Promise<unknown>[] = [];
+    getRunContext.mockReturnValue({
+      waitUntil: (work) => {
+        background.push(work);
+      },
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      json(metadata({}, { state: "RUNNING" })),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await finalizeBigQueryJobUsage(usage, "fake", true);
+    expect(await background[0]).toMatchObject({
+      status: "recorded",
+      usageStatus: "partial",
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(
+      (await client.query("SELECT * FROM analytics_bigquery_usage")).rows[0],
+    ).toMatchObject({
+      bytes_billed: null,
+      outcome: null,
+      usage_status: "partial",
+    });
+  });
+
+  it.each([false, true])(
+    "returns before stalled accounting without a platform hook (aborted=%s)",
+    async (aborted) => {
+      const usage = makeUsage();
+      await persistBigQueryJobUsage(usage);
+      let release = (_response: Response) => {};
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      let wrote = () => {};
+      const finishedWrite = new Promise<void>((resolve) => {
+        wrote = resolve;
+      });
+      execute.mockImplementation(async ({ sql, args }) => {
+        const result = await client.query(sql, args);
+        wrote();
+        return result;
+      });
+      const controller = new AbortController();
+      if (aborted) controller.abort();
+      const receipt = await finalizeBigQueryJobUsage(
+        usage,
+        "fake",
+        true,
+        controller.signal,
+      );
+      expect(receipt.status).toBe("pending");
+      expect(fetch).toHaveBeenCalledOnce();
+      release(
+        json(
+          metadata({
+            totalBytesProcessed: "123",
+            totalBytesBilled: "10485760",
+            cacheHit: false,
+          }),
+        ),
+      );
+      await finishedWrite;
+      expect(
+        (await client.query("SELECT * FROM analytics_bigquery_usage")).rows[0],
+      ).toMatchObject({ usage_status: "complete" });
+    },
+  );
+
+  it("exposes an unavailable receipt when both bounded writes fail", async () => {
+    execute.mockRejectedValue(new Error("database unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const usage = makeUsage();
+    const initial = await persistBigQueryJobUsage(usage);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(
+          metadata({
+            totalBytesProcessed: "123",
+            totalBytesBilled: "10485760",
+            cacheHit: false,
+          }),
+        ),
+      ),
+    );
+    expect(
+      await finalizeBigQueryJobUsage(usage, "fake", initial),
+    ).toMatchObject({ status: "unavailable" });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
+    );
   });
 });

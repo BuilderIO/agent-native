@@ -23,7 +23,7 @@ registerIdentityColumns([
     emailChange: "rekey",
     offboard: "retain",
     reason:
-      "Warehouse job provenance remains with the organization for cost accounting.",
+      "Historical query-submitter attribution is retained on offboarding, including personal rows; it is not transferred to a successor.",
   },
   {
     table: "bi_migration_external_dashboards",

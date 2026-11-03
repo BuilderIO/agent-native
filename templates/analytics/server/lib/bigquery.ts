@@ -5,10 +5,11 @@ import { getDbExec } from "@agent-native/core/db";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SourceGenerationResult } from "../../shared/source-generation.js";
+import type { BigQueryUsageAccounting } from "../../shared/sql-query-contract";
 import {
   newBigQueryJobUsage,
   persistBigQueryJobUsage,
-  observeBigQueryJobUsage,
+  finalizeBigQueryJobUsage,
   type BigQueryJobUsage,
 } from "./bigquery-usage";
 import { resolveCredential } from "./credentials";
@@ -929,6 +930,7 @@ function queryBytesProcessed(value: unknown): number | undefined {
 }
 
 export interface QueryResult {
+  usageAccounting?: BigQueryUsageAccounting;
   rows: Record<string, unknown>[];
   totalRows: number;
   schema: { name: string; type: string }[];
@@ -1425,6 +1427,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   }
 
   let usage: BigQueryJobUsage | null = null;
+  let usageStarted = false;
+  let usageAccounting: BigQueryUsageAccounting | undefined;
+  let completedResult: QueryResult | undefined;
   let jobId: string | null = null;
   let jobLocation: string | undefined;
   let jobCreatedAfter = 0;
@@ -1442,7 +1447,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       cacheableSql,
       requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
     );
-    await persistBigQueryJobUsage(usage);
+    usageStarted = await persistBigQueryJobUsage(usage);
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
     const submissionTimeoutController = new AbortController();
     const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
@@ -1655,7 +1660,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.
-    return { ...result, cached: false };
+    completedResult = { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {
@@ -1698,8 +1703,17 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       usage.location = jobLocation;
       if (usage.submissionState === "attempted")
         usage.submissionState = "unknown";
-      const observed = await observeBigQueryJobUsage(usage, token);
-      await persistBigQueryJobUsage(observed);
+      usageAccounting = await finalizeBigQueryJobUsage(
+        usage,
+        token,
+        usageStarted,
+        signal,
+      );
     }
   }
+  if (!completedResult) throw new Error("BigQuery completed without a result");
+  return {
+    ...completedResult,
+    ...(usageAccounting ? { usageAccounting } : {}),
+  };
 }

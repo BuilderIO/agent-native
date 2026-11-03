@@ -1,8 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { getDbExec } from "@agent-native/core/db";
+import {
+  getRequestRunContext,
+  platformWaitUntil,
+} from "@agent-native/core/server";
 
+import type { BigQueryUsageAccounting } from "../../shared/sql-query-contract";
 import type { CredentialContext } from "./credentials-context";
 
 /** Server-owned provenance only. Never accept these fields directly from tool input. */
@@ -98,6 +104,8 @@ export async function persistBigQueryJobUsage(
 ): Promise<boolean> {
   try {
     await getDbExec().execute({
+      timeoutMs: 500,
+      maxAttempts: 1,
       sql: `INSERT INTO analytics_bigquery_usage (
         project_id, job_id, location, owner_email, org_id, credential_scope, workload, dashboard_id, panel_id,
         query_hash, started_at, observed_at, submission_state, usage_status, provider_state, outcome,
@@ -150,6 +158,7 @@ export async function persistBigQueryJobUsage(
 export async function observeBigQueryJobUsage(
   usage: BigQueryJobUsage,
   token: string,
+  signal?: AbortSignal,
 ): Promise<BigQueryJobUsage> {
   const result = {
     ...usage,
@@ -164,7 +173,10 @@ export async function observeBigQueryJobUsage(
     const response = await fetch(
       `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(usage.projectId)}/jobs/${encodeURIComponent(usage.jobId)}?${params}`,
       {
-        signal: AbortSignal.timeout(3_000),
+        signal: AbortSignal.any([
+          AbortSignal.timeout(1_000),
+          ...(signal ? [signal] : []),
+        ]),
         headers: { Authorization: `Bearer ${token}` },
       },
     );
@@ -217,4 +229,72 @@ export async function observeBigQueryJobUsage(
   } catch {
     return result;
   }
+}
+
+/** Bounded follow-ups may still leave unknown usage; this is not an invoice or a recurring reconciliation worker. */
+export async function finalizeBigQueryJobUsage(
+  usage: BigQueryJobUsage,
+  token: string,
+  initialRecorded: boolean,
+  callerSignal?: AbortSignal,
+): Promise<BigQueryUsageAccounting> {
+  const pending: BigQueryUsageAccounting = {
+    projectId: usage.projectId,
+    jobId: usage.jobId,
+    status: initialRecorded ? "pending" : "unavailable",
+  };
+  // Accounting must outlive a cancelled query, but never hold its response open.
+  const work = (async (): Promise<BigQueryUsageAccounting> => {
+    const deadline = AbortSignal.timeout(2_500);
+    let observed = { ...usage };
+    for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt++) {
+      observed = await observeBigQueryJobUsage(observed, token, deadline);
+      if (observed.usageStatus === "complete") break;
+      if (attempt < 2) {
+        try {
+          await delay(100, undefined, { signal: deadline });
+        } catch {
+          break;
+        }
+      }
+    }
+    const recorded = await persistBigQueryJobUsage(observed);
+    return {
+      ...pending,
+      status: recorded ? "recorded" : "unavailable",
+      usageStatus: observed.usageStatus,
+    };
+  })().catch((): BigQueryUsageAccounting => {
+    console.warn("[bigquery-usage] Finalization failed; usage is unknown", {
+      projectId: usage.projectId,
+      jobId: usage.jobId,
+    });
+    return { ...pending, status: "unavailable" };
+  });
+  const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
+  if (waitUntil) {
+    try {
+      waitUntil(work);
+      return pending;
+    } catch {
+      console.warn("[bigquery-usage] Background handoff failed", {
+        projectId: usage.projectId,
+        jobId: usage.jobId,
+      });
+    }
+  }
+  // Long-running local workers can finish after this deadline. A serverless freeze
+  // may stop them; the initial durable row and pending receipt retain that gap.
+  if (callerSignal?.aborted) return pending;
+  return new Promise((resolve) => {
+    const finish = (receipt: BigQueryUsageAccounting) => {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", abort);
+      resolve(receipt);
+    };
+    const abort = () => finish(pending);
+    const timer = setTimeout(abort, 150);
+    callerSignal?.addEventListener("abort", abort, { once: true });
+    void work.then(finish);
+  });
 }

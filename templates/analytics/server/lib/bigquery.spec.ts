@@ -10,13 +10,25 @@ const persistUsage = vi.hoisted(() =>
     return true;
   }),
 );
-const observeUsage = vi.hoisted(() =>
-  vi.fn(async (usage: BigQueryJobUsage) => usage),
+const finalizeUsage = vi.hoisted(() =>
+  vi.fn(
+    async (
+      usage: BigQueryJobUsage,
+      _token: string,
+      recorded: boolean,
+      _signal?: AbortSignal,
+    ) => ({
+      status: recorded ? ("recorded" as const) : ("unavailable" as const),
+      projectId: usage.projectId,
+      jobId: usage.jobId,
+      usageStatus: usage.usageStatus,
+    }),
+  ),
 );
 vi.mock("./bigquery-usage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bigquery-usage")>()),
   persistBigQueryJobUsage: persistUsage,
-  observeBigQueryJobUsage: observeUsage,
+  finalizeBigQueryJobUsage: finalizeUsage,
 }));
 const resolveCredential = vi.fn();
 const getBigQueryAccessToken = vi.fn();
@@ -29,6 +41,7 @@ vi.mock("@agent-native/core/db", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext,
   getRequestRunContext: () => undefined,
+  platformWaitUntil: () => undefined,
 }));
 
 vi.mock("./credentials", () => ({ resolveCredential }));
@@ -295,7 +308,7 @@ describe("runQuery cancellation", () => {
   beforeEach(() => {
     usageWrites.length = 0;
     persistUsage.mockClear();
-    observeUsage.mockClear();
+    finalizeUsage.mockClear();
     execute.mockReset();
     useCacheDatabase();
     getCredentialContext.mockReset();
@@ -355,13 +368,13 @@ describe("runQuery cancellation", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
-    expect(usageWrites).toHaveLength(2);
-    expect(usageWrites[1]).toMatchObject({
+    expect(usageWrites).toHaveLength(1);
+    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
       submissionState: "accepted",
       outcome: null,
       bytesBilled: null,
     });
-    expect(observeUsage).toHaveBeenCalledOnce();
+    expect(finalizeUsage).toHaveBeenCalledOnce();
   });
 
   it("stops waiting when the configured event table credential lookup stalls", async () => {
@@ -477,12 +490,12 @@ describe("runQuery cancellation", () => {
     ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(usageWrites).toHaveLength(2);
-    expect(usageWrites[1]).toMatchObject({
+    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
       submissionState: "rejected",
       outcome: null,
       bytesBilled: null,
     });
-    expect(usageWrites[0].jobId).toBe(usageWrites[1].jobId);
+    expect(usageWrites[0].jobId).toBe(finalizeUsage.mock.calls[0][0].jobId);
   });
 
   it("keeps the submit deadline active while reading the response body", async () => {
@@ -2424,7 +2437,7 @@ describe("runQuery cancellation", () => {
 
   it("records one job across polling and no new job on an app cache read", async () => {
     persistUsage.mockClear();
-    observeUsage.mockClear();
+    finalizeUsage.mockClear();
     useCacheDatabase();
     const fetchMock = mockQueryJobs(
       jsonResponse({ jobComplete: false }),
@@ -2439,7 +2452,7 @@ describe("runQuery cancellation", () => {
     vi.stubGlobal("fetch", fetchMock);
     await runQuery("SELECT 987654 AS ledger_cache_test");
     const records = usageWrites;
-    expect(records).toHaveLength(2);
+    expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       projectId: "test-project",
       submissionState: "attempted",
@@ -2448,20 +2461,46 @@ describe("runQuery cancellation", () => {
     expect(persistUsage.mock.invocationCallOrder[0]).toBeLessThan(
       fetchMock.mock.invocationCallOrder[0],
     );
-    expect(records[0].jobId).toBe(records[1].jobId);
-    expect(records[1]).toMatchObject({
+    expect(records[0].jobId).toBe(finalizeUsage.mock.calls[0][0].jobId);
+    expect(finalizeUsage.mock.calls[0][0]).toMatchObject({
       bytesProcessed: "123",
       providerCacheHit: false,
       ownerEmail: expect.any(String),
     });
-    expect(records[1]).not.toHaveProperty("query");
-    expect(records[1]).toHaveProperty("queryHash");
+    expect(records[0]).not.toHaveProperty("query");
+    expect(records[0]).toHaveProperty("queryHash");
     persistUsage.mockClear();
-    observeUsage.mockClear();
+    finalizeUsage.mockClear();
     expect((await runQuery("SELECT 987654 AS ledger_cache_test")).cached).toBe(
       true,
     );
     expect(persistUsage).not.toHaveBeenCalled();
-    expect(observeUsage).not.toHaveBeenCalled();
+    expect(finalizeUsage).not.toHaveBeenCalled();
+  });
+  it("returns unavailable accounting without retrying a successful warehouse query", async () => {
+    persistUsage.mockResolvedValueOnce(false);
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        totalRows: "1",
+        schema: { fields: [{ name: "value", type: "INT64" }] },
+        rows: [{ f: [{ v: "1" }] }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await runQuery("SELECT 876543 AS accounting_failure_test");
+    expect(result.rows).toEqual([{ value: 1 }]);
+    expect(result.usageAccounting).toMatchObject({
+      status: "unavailable",
+      projectId: "test-project",
+      jobId: expect.any(String),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(finalizeUsage).toHaveBeenCalledWith(
+      expect.any(Object),
+      "test-access-token",
+      false,
+      undefined,
+    );
   });
 });
