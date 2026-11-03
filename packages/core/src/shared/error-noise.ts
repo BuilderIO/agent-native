@@ -580,10 +580,15 @@ const RULES: readonly NoiseRule[] = [
   {
     // The reason AgentKit aborts its in-flight requests with when the client
     // is disposed (route change, unmount). A host promise that rejects with it
-    // after teardown is the abort being observed, not a failure.
+    // after teardown is the abort being observed, not a failure. The same
+    // class is thrown by assertActive() when app code calls a client method
+    // after disposal, which is a lifecycle bug, so a stack naming it is kept.
     reason: "agentkit-disposed",
     surfaces: BROWSER,
-    test: ({ type }) => type === "AgentKitDisposedError",
+    test: ({ type, signal }) =>
+      type === "AgentKitDisposedError" &&
+      !/\bassertActive\b/.test(signal.stack ?? "") &&
+      !signal.frames?.some((f) => f.function?.includes("assertActive")),
   },
   {
     reason: "run-timeout-reconnect",

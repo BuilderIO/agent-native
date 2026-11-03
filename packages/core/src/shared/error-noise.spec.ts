@@ -345,6 +345,16 @@ describe("classifyErrorNoise — browser", () => {
       ),
     ).toBe("agentkit-disposed");
     expect(
+      classifyErrorNoise(
+        browser({
+          type: "AgentKitDisposedError",
+          value: "This AgentKit client has been disposed.",
+          stack:
+            "AgentKitDisposedError: x\n    at AgentKitClient.assertActive (client.js:1:1)",
+        }),
+      ),
+    ).toEqual({ drop: false });
+    expect(
       reason(browser({ type: "AgentAutoContinueSignal", value: "x" })),
     ).toBe("agent-auto-continue");
     expect(reason(browser({ type: "Error", value: "Unauthorized" }))).toBe(
