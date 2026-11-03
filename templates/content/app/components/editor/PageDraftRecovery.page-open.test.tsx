@@ -293,18 +293,6 @@ describe("Page draft recovery on a page open", () => {
     expect(container.querySelector("textarea")).toBeNull();
   });
 
-  it("keeps the page skeleton, with its stall message, in an embedded widget", async () => {
-    embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(true);
-    server.draftResponse = new Promise(() => {});
-
-    await render(createElement("div", { "data-testid": "host-loading" }));
-
-    expect(container.querySelector('[data-testid="host-loading"]')).toBeNull();
-    expect(
-      container.querySelector('[data-testid="editor-skeleton"]'),
-    ).not.toBeNull();
-  });
-
   it("does not release the editor when the reader can no longer edit", async () => {
     server.draftResponse = { editable: false, draft: null };
     startPageOpenDocumentReads(queryClient, "page");

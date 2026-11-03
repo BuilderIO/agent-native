@@ -875,23 +875,22 @@ export function PageDraftRecovery({
     journalState === "checking" ||
     journalState === "promoting"
   )
-    // An embedded widget keeps the skeleton for the stall message it can show.
-    return loading && !widgetBridgeActive ? (
-      loading
-    ) : (
-      <DocumentEditorSkeleton
-        title={document.title}
-        iconRow={readPageIconRowHint(document.id)}
-        shape={readDocumentShapeHint(document)}
-        stalledLoad={
-          widgetBridgeActive
-            ? {
-                stage: t("editor.widgetDraftCheckStage"),
-                action: "get-preview-document-draft",
-              }
-            : undefined
-        }
-      />
+    return (
+      loading ?? (
+        <DocumentEditorSkeleton
+          title={document.title}
+          iconRow={readPageIconRowHint(document.id)}
+          shape={readDocumentShapeHint(document)}
+          stalledLoad={
+            widgetBridgeActive
+              ? {
+                  stage: t("editor.widgetDraftCheckStage"),
+                  action: "get-preview-document-draft",
+                }
+              : undefined
+          }
+        />
+      )
     );
   if (!draft || draftOpenElsewhere) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
