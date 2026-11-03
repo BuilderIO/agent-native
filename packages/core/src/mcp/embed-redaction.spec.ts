@@ -283,7 +283,7 @@ describe("database failure text", () => {
 
   it.each([
     ["57014", "The database query timed out (57014)."],
-    ["CONNECT_TIMEOUT", "The database query timed out (CONNECT_TIMEOUT)."],
+    ["CONNECT_TIMEOUT", "The database call timed out (CONNECT_TIMEOUT)."],
     ["53300", "The database rejected the request (53300)."],
   ])("names driver code %s without the query", (code, text) => {
     const error = failure(Object.assign(new Error("private"), { code }));

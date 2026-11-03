@@ -304,6 +304,42 @@ describe("session replay list page", () => {
     expect(selections).toHaveLength(1);
   });
 
+  it("totals a chosen app apart from the counts for every app", async () => {
+    const rowSelect = vi.fn(() => {
+      throw new Error("Out-of-range recording row query must not run");
+    });
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => {
+        if (!selection) return rowSelect();
+        const rows = selection.app
+          ? [{ app: "clips", count: "137" }]
+          : [{ count: "0" }];
+        const query = {
+          from: () => query,
+          where: () => query,
+          groupBy: () => query,
+          orderBy: () => query,
+          then: (resolve: (value: unknown[]) => void) =>
+            Promise.resolve(rows).then(resolve),
+        };
+        return query;
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordingsPage(
+        { userEmail: "qa@example.test", orgId: null },
+        { app: "slides" },
+      ),
+    ).resolves.toEqual({
+      recordings: [],
+      total: 0,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(rowSelect).not.toHaveBeenCalled();
+  });
+
   it.each(["many", "not a count"])(
     "fails on an unreadable app count of %s",
     async (count) => {
