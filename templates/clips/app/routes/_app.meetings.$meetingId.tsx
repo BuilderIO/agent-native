@@ -1,5 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -951,9 +952,8 @@ export default function MeetingDetailRoute() {
         onError: (err: unknown) => {
           qc.setQueryData(queryKey, previous);
           toast.error(
-            err instanceof Error
-              ? err.message
-              : t("meetingDetail.couldNotRemoveEarlierAudio"),
+            actionErrorMessage(err) ??
+              t("meetingDetail.couldNotRemoveEarlierAudio"),
           );
         },
       },
