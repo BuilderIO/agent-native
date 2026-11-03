@@ -1901,7 +1901,7 @@ async function createServerRecording(
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
   options?: NativeRecordingRequestOptions & {
-    authToken?: string;
+    authToken?: string | undefined;
     signal?: AbortSignal;
     /** Only a start the user is watching may pop the storage banner open. */
     announceStorageSetup?: boolean;
