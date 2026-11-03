@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENTS,
   fingerprintAgentSubmissionAttachment,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import sharp from "sharp";
@@ -6412,6 +6413,104 @@ describe("createProductionAgentHandler", () => {
       }
     },
   );
+
+  it("does not re-validate client fingerprints against the sanitized durable dispatch in the background worker", async () => {
+    const threadId = "thread-worker-sanitized-attachment";
+    const messageId = "message-worker-sanitized-attachment";
+    const clientAttachment = {
+      type: "image",
+      name: "photo.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+      url: "https://files.example.com/photo.png",
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Replace the photo",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: clientAttachment.name,
+          contentType: clientAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(clientAttachment),
+        },
+      ],
+    };
+    const dispatched = JSON.parse(
+      serializeDurableDispatchPayload({
+        message: submissionPayload.text,
+        threadId,
+        submissionPayload,
+        attachments: [clientAttachment],
+      }),
+    ) as Record<string, unknown>;
+    expect(dispatched.attachments).toEqual([
+      expect.not.objectContaining({ data: expect.anything() }),
+    ]);
+    expect(
+      submissionAttachmentsMatch(
+        submissionPayload,
+        dispatched.attachments as unknown[],
+      ),
+    ).toBe(false);
+
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = {
+      ...dispatched,
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-worker-sanitized-attachment",
+        turnId: "turn-worker-sanitized-attachment",
+      },
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(result).not.toMatchObject({
+        code: "submission_payload_attachments_mismatch",
+      });
+      expect(result).not.toMatchObject({
+        code: "submission_payload_attachment_indexes_mismatch",
+      });
+    } finally {
+      preUpload.mockRestore();
+    }
+  });
 
   it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
     const threadId = "thread-attachment-identity-mismatch";
