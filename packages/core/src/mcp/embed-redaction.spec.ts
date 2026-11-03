@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DATABASE_FAILURE_MESSAGE,
+  databaseFailureCode,
+  databaseFailureMessage,
   describeThrownForLog,
   readString,
   redactEmbedText,
@@ -267,4 +270,35 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
       });
     },
   );
+});
+
+describe("database failure text", () => {
+  const failure = (cause?: unknown) =>
+    Object.assign(
+      new Error(
+        "Failed query: select email from users\nparams: a@example.test",
+      ),
+      { cause },
+    );
+
+  it.each([
+    ["57014", "The database query timed out (57014)."],
+    ["CONNECT_TIMEOUT", "The database query timed out (CONNECT_TIMEOUT)."],
+    ["53300", "The database rejected the request (53300)."],
+  ])("names driver code %s without the query", (code, text) => {
+    const error = failure(Object.assign(new Error("private"), { code }));
+    expect(databaseFailureCode(error)).toBe(code);
+    expect(databaseFailureMessage(error)).toBe(text);
+  });
+
+  it.each([
+    ["no cause", undefined],
+    ["no code", new Error("connection lost")],
+    ["a numeric code", { code: 57014 }],
+    ["a code carrying a value", { code: "duplicate a@example.test" }],
+  ])("keeps the plain text for %s", (_label, cause) => {
+    const error = failure(cause);
+    expect(databaseFailureCode(error)).toBeUndefined();
+    expect(databaseFailureMessage(error)).toBe(DATABASE_FAILURE_MESSAGE);
+  });
 });

@@ -21,6 +21,31 @@ export function isDatabaseQueryFailure(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("Failed query:");
 }
 
+// A driver's error code names the failure without any of the query's values.
+// Anything else in that field stays hidden along with the message.
+const DATABASE_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
+// Postgres's query_canceled, raised at statement_timeout, and `withDbTimeout`.
+const DATABASE_TIMEOUT_CODES: ReadonlySet<string> = new Set([
+  "57014",
+  "CONNECT_TIMEOUT",
+]);
+
+export function databaseFailureCode(error: unknown): string | undefined {
+  const code = (error as { cause?: { code?: unknown } }).cause?.code;
+  return typeof code === "string" && DATABASE_ERROR_CODE.test(code)
+    ? code
+    : undefined;
+}
+
+/** The client-safe text for a failure `isDatabaseQueryFailure` recognizes. */
+export function databaseFailureMessage(error: unknown): string {
+  const code = databaseFailureCode(error);
+  if (!code) return DATABASE_FAILURE_MESSAGE;
+  return DATABASE_TIMEOUT_CODES.has(code)
+    ? `The database query timed out (${code}).`
+    : `The database rejected the request (${code}).`;
+}
+
 /** Replaces a value already being serialized higher up the same result. */
 export const CIRCULAR_RESULT = "[circular result]";
 
