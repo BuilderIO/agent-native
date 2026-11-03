@@ -222,7 +222,9 @@ export default defineEventHandler(async (event: H3Event) => {
         plan: plan.value,
         toSourcePlan,
         replan: (actualSourceMs) =>
-          planWithin(fps, timeline.fromSourceMs(actualSourceMs)),
+          timeline.isVisibleSourceMs(actualSourceMs)
+            ? planWithin(fps, timeline.fromSourceMs(actualSourceMs))
+            : null,
       });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);

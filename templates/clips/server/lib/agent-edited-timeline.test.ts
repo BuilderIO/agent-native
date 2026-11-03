@@ -32,7 +32,7 @@ describe("buildAgentEditedTimeline", () => {
     ]);
     const mapped = timeline.mapSegments(segments);
     expect(mapped.map((s) => s.text)).toEqual(["kept before", "kept after"]);
-    expect(mapped[1].startMs).toBe(15_000);
+    expect(mapped[1]?.startMs).toBe(15_000);
   });
 
   it("drops cut chapters and shifts later ones", () => {

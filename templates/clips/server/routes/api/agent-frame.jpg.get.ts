@@ -165,9 +165,11 @@ function redirectToResolvedFrame(
 async function extractFrameWithStaleDurationRecovery({
   mediaPath,
   atMs,
+  isUsableSourceMs,
 }: {
   mediaPath: string;
   atMs: number;
+  isUsableSourceMs: (sourceMs: number) => boolean;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {
     return {
@@ -194,7 +196,7 @@ async function extractFrameWithStaleDurationRecovery({
       0,
     ].filter((candidate, index, values) => values.indexOf(candidate) === index);
     for (const candidate of candidates) {
-      if (candidate === atMs) continue;
+      if (candidate === atMs || !isUsableSourceMs(candidate)) continue;
       try {
         return {
           frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
@@ -293,6 +295,7 @@ export default defineEventHandler(async (event: H3Event) => {
       const resolved = await extractFrameWithStaleDurationRecovery({
         mediaPath: media.path,
         atMs,
+        isUsableSourceMs: timeline.isVisibleSourceMs,
       });
 
       await persistDefaultThumbnailIfMissing(
