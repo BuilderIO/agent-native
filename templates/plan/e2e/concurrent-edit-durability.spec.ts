@@ -690,6 +690,38 @@ test("someone typing in the plan doesn't silence another writer's change to the 
   }
 });
 
+test("typing in another block while someone answers a prompt is kept", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, pageB, planId } = pair;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    const peer = `PEER${Date.now() % 100000}`;
+    await typeAtEndOf(pageB, "Bravo block seed.", ` ${peer}`);
+    await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expect
+      .poll(
+        async () => {
+          const text = await persistedText(pageA, planId);
+          return [theirs, peer].filter((token) => text.includes(token));
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([theirs, peer]);
+    expect(await persistedText(pageA, planId)).not.toContain(mine);
+    await expect(surface(pageA)).toContainText(theirs);
+    await expect(surface(pageA)).toContainText(peer);
+    await expect(surface(pageA)).not.toContainText(mine);
+    await expect(surface(pageB)).toContainText(peer);
+  } finally {
+    await closePair(pair);
+  }
+});
+
 // Holds my save back until a collaborator's save of the same block has landed,
 // so mine is the one that overlaps, with their typing already in my document.
 async function collaboratorSavesFirst(pair: Pair) {
