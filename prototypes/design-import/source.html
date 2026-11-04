@@ -59,17 +59,15 @@ body { font-size: 14px; }
 .tile .lg, .tile svg.i { width: 24px; height: 24px; }
 .tile svg.i { stroke-width: 1.5; }
 .pair { display: flex; align-items: center; gap: 24px; }
-/* Gravity: specks fall from the source into the Design mark, speeding up as they near it. */
-.pull { position: relative; width: 72px; height: 16px; flex: none; }
-.pull i { --d: 0; position: absolute; left: 0; top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--imp-a); opacity: 0; animation: pull 2.5s cubic-bezier(.6, 0, .95, .45) infinite; animation-delay: calc(var(--d) * -.5s); }
-.pull i:nth-child(2) { --d: 1; background: color-mix(in oklab, var(--imp-a), var(--imp-b)); }
-.pull i:nth-child(3) { --d: 2; background: var(--imp-b); }
-.pull i:nth-child(4) { --d: 3; background: var(--imp-blue); }
-.pull i:nth-child(5) { --d: 4; background: color-mix(in oklab, var(--imp-a), var(--imp-b)); }
-.running .pull i { animation-duration: 1s; animation-delay: calc(var(--d) * -.2s); }
-@keyframes pull { 0% { transform: translateX(0) scale(1.15); opacity: 0; } 12% { opacity: .9; } 82% { opacity: .9; } 100% { transform: translateX(68px) scale(.3); opacity: 0; } }
-.hub { position: relative; transition: box-shadow .3s; }
-.running .hub, .hub.absorb { box-shadow: 0 0 0 1px color-mix(in srgb, var(--imp-a) 40%, transparent), 0 0 24px -2px color-mix(in srgb, var(--imp-a) 50%, transparent); }
+/* Three fixed dots light up in turn, left to right, as if data were carried from the source to Design. */
+.relay { display: flex; gap: 8px; flex: none; }
+.relay i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted-foreground); opacity: .35; animation: relay 1.8s ease-in-out infinite; }
+.relay i:nth-child(2) { animation-delay: .3s; }
+.relay i:nth-child(3) { animation-delay: .6s; }
+.running .relay i { animation-duration: .9s; }
+.running .relay i:nth-child(2) { animation-delay: .15s; }
+.running .relay i:nth-child(3) { animation-delay: .3s; }
+@keyframes relay { 0%, 45%, 100% { background: var(--color-muted-foreground); opacity: .35; } 15% { background: color-mix(in oklab, var(--imp-blue), var(--imp-a)); opacity: 1; } }
 /* The picker's sources drift toward the mark and shrink into it, two lanes at one speed so they never bunch. */
 .belt { position: absolute; inset: 0; pointer-events: none; }
 .belt .bi { position: absolute; left: 0; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; display: grid; place-items: center; color: var(--color-foreground); will-change: transform, opacity; }
@@ -189,11 +187,6 @@ a.b { color: inherit; text-decoration: none; }
 .orb .lg { width: 18px; height: 18px; }
 .orb .lg.w { width: 22px; height: 22px; }
 .core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 72px; height: 72px; margin: -36px 0 0 -36px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: radial-gradient(circle at 50% 40%, rgb(255 255 255 / 10%), transparent 70%); }
-.core { transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
-.core.absorb { transform: scale(1.08); }
-.core::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--imp-a) 70%, transparent); opacity: 0; transform: scale(.6); }
-.core.absorb::after { animation: ripple .9s ease-out; }
-@keyframes ripple { 0% { opacity: .9; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.6, 1.3); } }
 .core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 40%, transparent)); }
 .pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
 .pause:hover { background: rgb(255 255 255 / 28%); }
@@ -209,7 +202,7 @@ a.b { color: inherit; text-decoration: none; }
 
 .view { animation: view-in .18s ease-out; }
 @keyframes view-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .pull i, .spin, .core::after { animation: none !important; } .pull i { opacity: .5; } .pull i:nth-child(1) { transform: translateX(8px); } .pull i:nth-child(2) { transform: translateX(24px); } .pull i:nth-child(3) { transform: translateX(40px) scale(.8); } .pull i:nth-child(4) { transform: translateX(54px) scale(.6); } .pull i:nth-child(5) { display: none; } .imd-frame { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .relay i, .spin { animation: none !important; } .imd-frame { transition: none; } }
 @media (max-width: 560px) {
   .grid { grid-template-columns: 1fr; }
   .imb, .ann .imb { padding: 20px; }
@@ -316,7 +309,7 @@ function headPicker() {
 }
 function headPair(id, running) {
   const from = id === "other" ? `<span class="cycle">${PLATFORMS.map((p, i) => logo(p, i === 0 ? "on" : "")).join("")}</span>` : glyph(id);
-  return `<div class="imh ${running ? "running" : ""}"><div class="pair"><span class="tile">${from}</span><span class="pull" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="tile hub">${MARK}</span></div></div>`;
+  return `<div class="imh ${running ? "running" : ""}"><div class="pair"><span class="tile">${from}</span><span class="relay" aria-hidden="true"><i></i><i></i><i></i></span><span class="tile hub">${MARK}</span></div></div>`;
 }
 
 /* ───────── views ───────── */
@@ -580,66 +573,9 @@ const ORBITS = [
   { rx: 154, ry: 70, phase: Math.PI / 6, ids: ["lovable", "figma", "bolt", "squarespace", "base44", "manus"] },
 ];
 function slotAngle(o, i, t) { return (i / o.ids.length) * TAU + (t / ORBIT_PERIOD) * TAU + o.phase; }
-// Every few seconds one logo falls into the mark: it spirals in, speeding up as it nears the center, then
-// rises back into its own slot. A fall is only started on a path that stays clear of every other logo.
-const FALL = { every: 4.5, dur: 1.8, rest: .6, grow: .7, clear: 6 };
-let fall = null, nextFall = 3, recent = [], pulsed = false;
-function orbState(oi, i, t, g, f) {
-  const o = ORBITS[oi];
-  let a = slotAngle(o, i, t), r = 1, shrink = 1, fade = 1, falling = false;
-  if (f && f.oi === oi && f.i === i) {
-    const e = t - f.t0;
-    if (e < FALL.dur) { const u = e / FALL.dur, pull = u * u; a += 1.3 * pull; r = 1 - pull; shrink = .3 + .7 * (1 - pull); falling = true; }
-    else if (e < FALL.dur + FALL.rest) fade = 0;
-    else if (e < FALL.dur + FALL.rest + FALL.grow) { const q = (e - FALL.dur - FALL.rest) / FALL.grow; shrink = q; fade = q; }
-  }
-  const x = Math.cos(a) * o.rx * g.k * r, y = Math.sin(a) * o.ry * g.k * r;
-  const d = Math.hypot(x, y), depth = Math.sin(a);
-  // A falling logo fades as it reaches the mark and passes behind it.
-  if (falling) fade = Math.max(0, Math.min(1, (d - 30 * g.k) / (40 * g.k)));
-  const sc = (.82 + .3 * (depth + 1) / 2) * g.k * shrink;
-  return { x: g.cx + x, y: g.cy + y, s: sc, rad: 20 * sc, d, depth, fade, falling };
-}
 function heroGeo() {
   const hero = $(".hero");
   return hero && { k: Math.min(1, hero.clientWidth / 560), cx: hero.clientWidth / 2, cy: hero.clientHeight / 2 };
-}
-// The tightest gap between a falling candidate and every other logo over the whole fall, while it's still visible.
-function fallClearance(c, t, g) {
-  let worst = Infinity;
-  for (let e = 0; e <= FALL.dur; e += .03) {
-    const p = orbState(c.oi, c.i, t + e, g, { ...c, t0: t });
-    if (p.fade < .05) continue;
-    ORBITS.forEach((o, oi) => o.ids.forEach((_, i) => {
-      if (oi === c.oi && i === c.i) return;
-      const q = orbState(oi, i, t + e, g, null);
-      worst = Math.min(worst, Math.hypot(p.x - q.x, p.y - q.y) - p.rad - q.rad);
-    }));
-  }
-  return worst;
-}
-function pickFall(t, g) {
-  const options = ORBITS.flatMap((o, oi) => o.ids.map((_, i) => ({ oi, i }))).filter((c) => !recent.includes(`${c.oi}:${c.i}`));
-  let best = null, bestGap = -Infinity;
-  for (const c of options) { const gap = fallClearance(c, t, g); if (gap > bestGap) { best = c; bestGap = gap; } }
-  if (!best || bestGap < FALL.clear * g.k) return null;
-  recent = [...recent, `${best.oi}:${best.i}`].slice(-5);
-  return { ...best, t0: t };
-}
-// Advances the orbit by dt seconds of animation time; paused time doesn't count, so a fall freezes mid-air.
-function stepOrbit(dt) {
-  const g = heroGeo();
-  if (!g) return;
-  if (!paused) orbitT += dt;
-  if (!paused && !fall && orbitT >= nextFall) { fall = pickFall(orbitT, g); nextFall = orbitT + (fall ? FALL.every : .5); pulsed = false; }
-  if (fall && orbitT - fall.t0 > FALL.dur + FALL.rest + FALL.grow) fall = null;
-  if (fall && !pulsed && orbitT - fall.t0 > FALL.dur * .9) {
-    pulsed = true;
-    const core = $(".hero .core");
-    core?.classList.remove("absorb"); void core?.offsetWidth; core?.classList.add("absorb");
-    setTimeout(() => core?.classList.remove("absorb"), 900);
-  }
-  placeOrbit(g);
 }
 let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function startOrbit() {
@@ -649,20 +585,24 @@ function startOrbit() {
   syncPause();
   orbitLast = performance.now();
   const frame = (now) => {
-    stepOrbit(Math.min(.1, (now - orbitLast) / 1000));
+    if (!paused) orbitT += Math.min(.1, (now - orbitLast) / 1000);
     orbitLast = now;
+    placeOrbit();
     orbitRaf = requestAnimationFrame(frame);
   };
   cancelAnimationFrame(orbitRaf);
   orbitRaf = requestAnimationFrame(frame);
 }
+// A narrow hero scales the whole orbit, rings and logos alike, so the spacing holds.
 function placeOrbit(g = heroGeo()) {
   if (!g) return;
   for (const orb of $(".hero").querySelectorAll(".orb")) {
-    const st = orbState(+orb.dataset.o, +orb.dataset.i, orbitT, g, fall);
-    orb.style.transform = `translate(${st.x.toFixed(2)}px, ${st.y.toFixed(2)}px) scale(${st.s.toFixed(3)})`;
-    orb.style.opacity = ((.62 + .38 * (st.depth + 1) / 2) * st.fade).toFixed(3);
-    orb.style.zIndex = String(st.falling && st.d < 70 * g.k ? 45 : st.depth > 0 ? 60 + Math.round(st.depth * 10) : 40 + Math.round(st.depth * 10));
+    const o = ORBITS[+orb.dataset.o], a = slotAngle(o, +orb.dataset.i, orbitT);
+    const depth = Math.sin(a); // 1 is nearest the viewer, at the bottom of the ring
+    const sc = (.82 + .3 * (depth + 1) / 2) * g.k;
+    orb.style.transform = `translate(${(g.cx + Math.cos(a) * o.rx * g.k).toFixed(2)}px, ${(g.cy + Math.sin(a) * o.ry * g.k).toFixed(2)}px) scale(${sc.toFixed(3)})`;
+    orb.style.opacity = (.62 + .38 * (depth + 1) / 2).toFixed(3);
+    orb.style.zIndex = String(depth > 0 ? 60 + Math.round(depth * 10) : 40 + Math.round(depth * 10));
   }
 }
 function stopOrbit() { cancelAnimationFrame(orbitRaf); orbitRaf = 0; }
