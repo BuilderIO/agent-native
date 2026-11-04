@@ -1,5 +1,5 @@
 // The plan file: the contract between refactor-plan (writes it) and
-// jira-refactor-findings (files it). Markdown with a flat frontmatter block.
+// findings-upsert (files it). Markdown with a flat frontmatter block.
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { assertRunId, ScriptError } from "./cli.ts";
@@ -18,7 +18,8 @@ export interface PlanMeta {
   runId: string;
   trigger: "nightly" | "bug";
   source: string | null;
-  jira: string | null;
+  /** The tracker ticket the plan was filed as (ENG-123, or a GitHub issue number). */
+  ticket: string | null;
   summary: string;
 }
 
@@ -70,14 +71,14 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     runId: str("runId"),
     trigger: str("trigger") === "bug" ? "bug" : "nightly",
     source: str("source") && str("source") !== "null" ? str("source") : null,
-    jira: str("jira") && str("jira") !== "null" ? str("jira") : null,
+    ticket: str("ticket") && str("ticket") !== "null" ? str("ticket") : null,
     summary: str("summary"),
   };
   for (const key of ["fingerprint", "title", "runId", "summary"] as const) {
     if (!meta[key])
       throw new ScriptError(`${file}: frontmatter is missing ${key}`);
   }
-  // Checked before any caller writes to Jira, not only where artifacts are written.
+  // Checked before any caller writes to the tracker, not only where artifacts are written.
   assertRunId(meta.runId);
   return { meta, body: match[2] };
 }

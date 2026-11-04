@@ -1,22 +1,12 @@
-// Fetches every existing refactor-findings ticket and matches them against
-// the run's targets (targets.json, or --systems/--files), so the caller skips
-// what is already ticketed before spending time on a plan.
+// Fetches every existing refactor-findings ticket from the configured tracker
+// and matches them against the run's targets (targets.json, or
+// --systems/--files), so the caller skips what is already ticketed before
+// spending time on a plan.
 import { existsSync } from "node:fs";
-import path from "node:path";
 
-import {
-  artifact,
-  readTargets,
-  type Target,
-} from "../../fragility-common/lib/artifacts.ts";
-import {
-  argList,
-  main,
-  rel,
-  runId,
-  writeJson,
-} from "../../fragility-common/lib/cli.ts";
-import { isDeclined, isOpen, Jira, overlap } from "./jira.ts";
+import { artifact, readTargets, type Target } from "../lib/artifacts.ts";
+import { argList, main, rel, runId, writeJson } from "../lib/cli.ts";
+import { loadTracker, overlap } from "../lib/findings.ts";
 
 export interface Match {
   system: string;
@@ -24,6 +14,7 @@ export interface Match {
   score: number;
   matches: {
     key: string;
+    url: string;
     summary: string;
     status: string;
     open: boolean;
@@ -35,17 +26,21 @@ export interface Match {
 main(async (args) => {
   if (args.help) {
     console.log(
-      "jira-match --run <id> [--systems a,b --files x,y]   (writes jira-findings.json; matches targets.json, or the given systems and files, into jira-matches.json)",
+      "findings-match --run <id> [--systems a,b --files x,y]   (writes findings.json; matches targets.json, or the given systems and files, into finding-matches.json)",
     );
     return;
   }
   const id = runId(args);
-  const jira = new Jira();
-  const findings = await jira.findings();
-  const findingsFile = artifact(id, "jiraFindings");
-  writeJson(findingsFile, { fetchedAt: new Date().toISOString(), findings });
+  const tracker = (await loadTracker()).createTracker();
+  const findings = await tracker.findings();
+  const findingsFile = artifact(id, "findings");
+  writeJson(findingsFile, {
+    tracker: tracker.name,
+    fetchedAt: new Date().toISOString(),
+    findings,
+  });
   console.log(
-    `${rel(findingsFile)}: ${findings.length} existing ${jira.config.label} tickets`,
+    `${rel(findingsFile)}: ${findings.length} existing ${tracker.label} tickets in ${tracker.name}`,
   );
 
   const targets = targetsFor(
@@ -68,14 +63,15 @@ main(async (args) => {
       .filter(({ why }) => why.length > 0)
       .map(({ f, why }) => ({
         key: f.key,
+        url: f.url,
         summary: f.summary,
         status: f.status,
-        open: isOpen(f),
-        declined: isDeclined(f),
+        open: f.open,
+        declined: f.declined,
         why,
       })),
   }));
-  writeJson(artifact(id, "jiraMatches"), matches);
+  writeJson(artifact(id, "findingMatches"), matches);
   for (const m of matches) {
     const label = m.matches.length
       ? m.matches
@@ -93,7 +89,5 @@ function targetsFor(
 ): Pick<Target, "system" | "files" | "verdict" | "score">[] | null {
   if (systems.length)
     return systems.map((system) => ({ system, files, verdict: "", score: 0 }));
-  return existsSync(path.join(artifact(id, "targets")))
-    ? readTargets(id)
-    : null;
+  return existsSync(artifact(id, "targets")) ? readTargets(id) : null;
 }

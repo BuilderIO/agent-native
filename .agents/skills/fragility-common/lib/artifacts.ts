@@ -9,9 +9,9 @@ export const ARTIFACTS = {
   commits: "commits.json",
   analysis: "analysis.json",
   targets: "targets.json",
-  jiraFindings: "jira-findings.json",
-  jiraMatches: "jira-matches.json",
-  jiraResults: "jira-results.json",
+  findings: "findings.json",
+  findingMatches: "finding-matches.json",
+  findingResults: "finding-results.json",
   decisions: "decisions.json",
   verdicts: "verdict.json",
 } as const;
@@ -55,8 +55,8 @@ export function readTargets(id: string): Target[] {
   return readJson<Target[]>(artifact(id, "targets"));
 }
 
-/** Appended by jira-refactor-findings for every applied ticket action. */
-export interface JiraResult {
+/** Appended by findings-upsert for every applied ticket action. */
+export interface FindingResult {
   action: string;
   key: string;
   url: string;
@@ -67,10 +67,13 @@ export interface JiraResult {
   at: string;
 }
 
-export function readJiraResults(id: string): JiraResult[] {
-  return readJsonOr<JiraResult[]>(artifact(id, "jiraResults"), []);
+export function readFindingResults(id: string): FindingResult[] {
+  return readJsonOr<FindingResult[]>(artifact(id, "findingResults"), []);
 }
 
-export function appendJiraResult(id: string, result: JiraResult): void {
-  writeJson(artifact(id, "jiraResults"), [...readJiraResults(id), result]);
+export function appendFindingResult(id: string, result: FindingResult): void {
+  writeJson(artifact(id, "findingResults"), [
+    ...readFindingResults(id),
+    result,
+  ]);
 }
