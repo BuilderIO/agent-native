@@ -183,6 +183,7 @@ interface EditorToolbarProps {
   onExportPdf?: (signal: AbortSignal) => Promise<void> | void;
   onExportPptx?: (signal: AbortSignal) => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  flushInlineEdit?: () => void;
   onPresent?: (request?: PresentRequest) => boolean | void;
   onDownloadBackup?: () => void;
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
@@ -276,6 +277,7 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  flushInlineEdit,
   onPresent,
   onDownloadBackup,
   onImportDeckBackup,
@@ -1096,6 +1098,7 @@ export default function EditorToolbar({
           onExportPdf={onExportPdf}
           onExportPptx={onExportPptx ?? (() => {})}
           onExportGoogleSlides={onExportGoogleSlides}
+          flushInlineEdit={flushInlineEdit}
         />
         <ExportStatusDialog
           status={exportStatus}

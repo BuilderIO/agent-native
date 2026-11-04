@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconAt,
   IconLock,
@@ -23,6 +24,7 @@ export function MissingDeckAccessPane({
   hasTeamJoinOption,
   orgLoading,
   orgError,
+  loadFailed,
   requestAccessPending,
   accessRequestSent,
   accessRequestNotified,
@@ -48,6 +50,7 @@ export function MissingDeckAccessPane({
   hasTeamJoinOption: boolean;
   orgLoading: boolean;
   orgError: boolean;
+  loadFailed: boolean;
   requestAccessPending: boolean;
   accessRequestSent: boolean;
   accessRequestNotified: boolean;
@@ -80,27 +83,34 @@ export function MissingDeckAccessPane({
   const noAccess = deckAccessDenied || accessCheckFailed;
   const checkingAccess = !noAccess && (accessStatusLoading || orgLoading);
   const Icon =
-    noAccess || (!hasTeamJoinOption && !checkingAccess)
-      ? IconLock
-      : IconUsersGroup;
+    loadFailed && !noAccess && !checkingAccess
+      ? IconAlertTriangle
+      : noAccess || (!hasTeamJoinOption && !checkingAccess)
+        ? IconLock
+        : IconUsersGroup;
   const title = checkingAccess
     ? t("deckEditor.lookingForDeck")
     : noAccess
       ? privateDeck || !deckAccessDenied
         ? t("deckEditor.privateDeckTitle")
         : t("deckEditor.deckUnavailable")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamToOpen")
-        : t("deckEditor.deckUnavailable");
+      : loadFailed
+        ? t("presentation.loadFailed")
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamToOpen")
+          : t("deckEditor.deckUnavailable");
+  // A read failure has no access explanation to give, so the pane carries only the title.
   const description = checkingAccess
     ? t("deckEditor.checkingSharedAccess")
     : noAccess
       ? privateDeck || !deckAccessDenied
         ? t("deckEditor.privateDeckDescription")
         : t("deckEditor.deckUnavailableDescription")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamDescription")
-        : t("deckEditor.deckUnavailableDescription");
+      : loadFailed
+        ? null
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamDescription")
+          : t("deckEditor.deckUnavailableDescription");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
@@ -113,7 +123,11 @@ export function MissingDeckAccessPane({
             <h1 className="text-base font-semibold text-foreground">{title}</h1>
           </div>
         </div>
-        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        {description ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
         {hasOriginalPrompt ? (
           <div className="mt-4 rounded-md border border-border bg-muted/35 px-3 py-2">
             <p className="text-xs font-medium text-muted-foreground">

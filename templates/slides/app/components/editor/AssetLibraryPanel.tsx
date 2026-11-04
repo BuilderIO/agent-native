@@ -21,6 +21,7 @@ interface AssetLibraryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectAsset?: (url: string) => void;
+  deckId?: string;
   anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -28,6 +29,7 @@ export default function AssetLibraryPanel({
   open,
   onOpenChange,
   onSelectAsset,
+  deckId,
   anchorRef,
 }: AssetLibraryPanelProps) {
   const t = useT();
@@ -88,6 +90,7 @@ export default function AssetLibraryPanel({
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
+        if (deckId) form.append("deckId", deckId);
         try {
           const res = await fetch(appApiPath("/api/assets/upload"), {
             method: "POST",

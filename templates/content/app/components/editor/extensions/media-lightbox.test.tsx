@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { act, createElement, type ComponentType } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -156,4 +160,33 @@ describe("media lightbox", () => {
 
     expect(lightbox()).not.toBeNull();
   });
+
+  // The overlay's layer comes from toolkit and the lightbox's from Content's
+  // CSS, so a change on either side can put the media under the overlay.
+  it.each([
+    ["an image", ImageBlock, "image", "diagram.png", "Image"],
+    ["a video", VideoBlock, "video", "demo.mp4", "Video"],
+    ["an audio file", AudioBlock, "audio", "voice.mp3", "Audio"],
+  ] as const)(
+    "shows %s above the dimmed overlay",
+    (_, Block, type, file, kind) => {
+      render(
+        Block as ComponentType<never>,
+        type,
+        `https://cdn.example.test/${file}`,
+      );
+      expand(`editor.media.expand${kind}`);
+
+      const overlay = document.body.querySelector(".media-lightbox__overlay");
+      const overlayZ = overlay?.className.match(/\bz-\[(\d+)\]/)?.[1];
+      const lightboxZ = readFileSync(
+        resolve(dirname(fileURLToPath(import.meta.url)), "../../../global.css"),
+        "utf8",
+      ).match(/(?:^|\n)\.media-lightbox\s*\{[^}]*\bz-index:\s*(\d+);/)?.[1];
+
+      expect(overlayZ).toBeDefined();
+      expect(lightboxZ).toBeDefined();
+      expect(Number(lightboxZ)).toBeGreaterThan(Number(overlayZ));
+    },
+  );
 });

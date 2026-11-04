@@ -135,7 +135,6 @@ function setupFetch(options?: {
   };
   staleContentConflicts?: boolean;
   staleContentFailures?: { deckId: string; count: number };
-  getDeckFailures?: { deckId: string; count: number };
   missingDeckStatus?: number;
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
@@ -173,7 +172,6 @@ function setupFetch(options?: {
   >();
   const patchAttempts = new Map<string, number>();
   const revisionConflictRevisions = new Map<string, string[]>();
-  const getDeckAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
   const cloneDeck = (deck: Deck | null): Deck | null =>
     deck ? (JSON.parse(JSON.stringify(deck)) as Deck) : null;
@@ -461,18 +459,6 @@ function setupFetch(options?: {
         return Promise.reject(new Error("get-deck unavailable"));
       }
       if (accessibleDeck) {
-        const attempts = (getDeckAttempts.get(deckId) ?? 0) + 1;
-        getDeckAttempts.set(deckId, attempts);
-        if (
-          deckId === options?.getDeckFailures?.deckId &&
-          attempts <= options.getDeckFailures.count
-        ) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ error: "Temporary read failure" }), {
-              status: 500,
-            }),
-          );
-        }
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
           const deferredDeck = cloneDeck(accessibleDeck)!;
@@ -5429,30 +5415,30 @@ describe("DeckContext deck creation persistence", () => {
     const deckId = "resolve-latest-pending-fields-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     let safeWriteStartedWithFailedSave = false;
-    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
-      staleContentConflicts: true,
-      getDeckFailures: { deckId, count: 2 },
-      patchResponse: (body: Record<string, unknown>) => {
-        const operations = Array.isArray(body.operations)
-          ? body.operations
-          : [];
-        if (
-          operations.some(
-            (operation: unknown) =>
-              !!operation &&
-              typeof operation === "object" &&
-              "fields" in operation &&
-              !!operation.fields &&
-              typeof operation.fields === "object" &&
-              "notes" in operation.fields &&
-              operation.fields.notes === "Pending local notes",
-          )
-        ) {
-          safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
-        }
-        return { ok: true };
-      },
-    });
+    const { fetchMock, setAccessibleDeck, getPatchAttempts, failNextGetDeck } =
+      setupFetch({
+        staleContentConflicts: true,
+        patchResponse: (body: Record<string, unknown>) => {
+          const operations = Array.isArray(body.operations)
+            ? body.operations
+            : [];
+          if (
+            operations.some(
+              (operation: unknown) =>
+                !!operation &&
+                typeof operation === "object" &&
+                "fields" in operation &&
+                !!operation.fields &&
+                typeof operation.fields === "object" &&
+                "notes" in operation.fields &&
+                operation.fields.notes === "Pending local notes",
+            )
+          ) {
+            safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
+          }
+          return { ok: true };
+        },
+      });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -5486,6 +5472,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
 
+    failNextGetDeck(2);
     act(() => {
       result.current.updateSlide(
         deckId,

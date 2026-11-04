@@ -126,6 +126,8 @@ const deck: Deck = {
   title: "Test deck",
   createdAt: "2026-08-07T00:00:00.000Z",
   updatedAt: "2026-08-07T00:00:00.000Z",
+  canEdit: true,
+  canManage: true,
   slides: [
     {
       id: "slide-1",
@@ -213,6 +215,22 @@ describe("DeckCard delete flow", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onDelete).toHaveBeenCalledOnce();
     expect(onDelete).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("offers no rename or delete to a viewer", () => {
+    render(
+      <DeckCard
+        deck={{ ...deck, canEdit: false, canManage: false }}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("home.renameDeck")).toBeNull();
+    expect(screen.queryByText("home.deleteDeck")).toBeNull();
+    expect(screen.getByText("home.duplicateDeck")).toBeTruthy();
   });
 
   it("renders the first-slide preview returned by the light deck listing", () => {
