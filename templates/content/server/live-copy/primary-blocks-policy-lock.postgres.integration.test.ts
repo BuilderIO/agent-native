@@ -350,6 +350,65 @@ describe.skipIf(!POSTGRES_URL)(
   "a source-policy change and a live-copy primary Blocks write on one page",
   () => {
     it(
+      "lets unrelated pages in one collection reach their own page locks together",
+      async () =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const first = await switchedRowOwnedBySource();
+          const second = await switchedRowOwnedBySource();
+          await unbind(first).promise;
+          await unbind(second).promise;
+          await getDb()
+            .insert(schema.contentDatabaseItems)
+            .values({
+              id: `shared-${second.id}`,
+              ownerEmail: OWNER,
+              databaseId: first.databaseId,
+              documentId: second.id,
+            });
+          const holders = [first, second].map((row) =>
+            holdRow(
+              sql`SELECT id FROM documents WHERE id = ${row.id} FOR UPDATE`,
+            ),
+          );
+          const writes: Tracked[] = [];
+          try {
+            const holderPids = await Promise.all(
+              holders.map((holder) => holder.pid),
+            );
+            const { editContentLiveCopy } = await import("./write.js");
+            const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+            for (const [index, row] of [first, second].entries()) {
+              const holderPid = holderPids[index];
+              if (holderPid === undefined)
+                throw new Error("Missing page holder.");
+              const write = track(
+                editContentLiveCopy(row.id, {
+                  cause: { ctx, operation: "test-independent-page-writes" },
+                  edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+                  input: { expected: await storedBody(row), content: WRITTEN },
+                }),
+              );
+              writes.push(write);
+              await sessionBlockedBy(holderPid, write);
+            }
+          } finally {
+            for (const holder of holders) holder.release();
+            expect(
+              failures(
+                await Promise.allSettled([
+                  ...holders.map((holder) => holder.done),
+                  ...writes.map((write) => write.promise),
+                ]),
+              ),
+            ).toEqual([]);
+          }
+          expect(await storedBody(first)).toBe(WRITTEN);
+          expect(await storedBody(second)).toBe(WRITTEN);
+        }),
+      120_000,
+    );
+
+    it(
       "locks both containing collections in order before the page",
       async () =>
         runWithRequestContext({ userEmail: OWNER }, async () => {

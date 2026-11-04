@@ -222,11 +222,15 @@ async function lockPageForBodyWrite(
   const requiredCollections = [
     ...new Set([...lockCollections, ...memberships.values()]),
   ];
+  const collectionColumns = {
+    id: schema.contentDatabases.id,
+    documentId: schema.contentDatabases.documentId,
+    ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+    ownerEmail: schema.contentDatabases.ownerEmail,
+    deletedAt: schema.contentDatabases.deletedAt,
+  };
   const databases = await db
-    .select({
-      id: schema.contentDatabases.id,
-      documentId: schema.contentDatabases.documentId,
-    })
+    .select(collectionColumns)
     .from(schema.contentDatabases)
     .leftJoin(
       schema.documents,
@@ -248,8 +252,7 @@ async function lockPageForBodyWrite(
           : undefined,
       ),
     )
-    .orderBy(sql`${schema.contentDatabases.id} COLLATE "C"`)
-    .for("update", { of: schema.contentDatabases });
+    .orderBy(sql`${schema.contentDatabases.id} COLLATE "C"`);
   if (databases.filter((row) => row.documentId === documentId).length > 1) {
     scopeChanged(
       "The document's backing collection changed. Read the document again and retry.",
@@ -261,6 +264,29 @@ async function lockPageForBodyWrite(
     scopeChanged(
       "The document's collection changed while it saved. Read the document again and retry.",
     );
+  }
+  for (const database of databases) {
+    const changesCollection =
+      lockCollections.includes(database.id) ||
+      database.documentId === documentId ||
+      database.ownerDocumentId === documentId;
+    // Membership-only collections must fence policy writes without serializing independent page saves.
+    const [locked] = await db
+      .select(collectionColumns)
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, database.id))
+      .for(changesCollection ? "update" : "share");
+    if (
+      !locked ||
+      locked.documentId !== database.documentId ||
+      locked.ownerDocumentId !== database.ownerDocumentId ||
+      locked.ownerEmail !== database.ownerEmail ||
+      locked.deletedAt !== database.deletedAt
+    ) {
+      scopeChanged(
+        "The document's collection changed while it saved. Read the document again and retry.",
+      );
+    }
   }
   await lockDatabaseMemberships(db, [...memberships.keys()]);
   await assertMembershipsLocked(db, documentId, memberships);
