@@ -65,7 +65,7 @@ export async function createWithSavedUnits<T>(input: {
   labels: readonly string[];
   idempotencyKey: string;
   ctx: Parameters<typeof getResourceSuggestionProposalByCreationKey.run>[1];
-  create: (labels: readonly unknown[]) => Promise<T>;
+  create: (labels: readonly unknown[]) => T | Promise<T>;
 }): Promise<T> {
   const { labels, idempotencyKey, ctx, create } = input;
   try {

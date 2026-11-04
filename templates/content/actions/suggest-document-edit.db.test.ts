@@ -147,15 +147,16 @@ describe("suggest-document-edit", () => {
           };
         });
 
-        const [first, second] = (await Promise.all([
+        const [first = null, second = null] = (await Promise.all([
           suggestDocumentEdit.run(args, ctx),
           suggestDocumentEdit.run(args, ctx),
         ])) as { proposalId: string; suggestionIds: string[] }[];
+        if (!first || !second) throw new Error("Both calls return a proposal");
 
         expect(decide).toHaveBeenCalledTimes(2);
-        expect(first?.suggestionIds).toHaveLength(2);
-        expect(second?.proposalId).toBe(first?.proposalId);
-        expect(second?.suggestionIds).toEqual(first?.suggestionIds);
+        expect(first.suggestionIds).toHaveLength(2);
+        expect(second.proposalId).toBe(first.proposalId);
+        expect(second.suggestionIds).toEqual(first.suggestionIds);
       },
     );
   });
