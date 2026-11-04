@@ -93,13 +93,19 @@ export interface OwnBlockSave {
  * What the next save starts from: the newer of what this tab last saved and what
  * the document was last brought up to. A merged save holds more than this tab
  * sent, and the document may not have that yet, so it comes in here instead of
- * being written over.
+ * being written over. Once the document has it, later edits were made on top of
+ * it, so taking it out again is an edit like any other.
  */
 export function startBlockSave(
   own: OwnBlockSave | null,
-  loaded: SavedPlanBlocks | null,
+  documentBase: SavedPlanBlocks | null | undefined,
+  planAsLoaded: SavedPlanBlocks | null,
   blocks: PlanBlock[],
 ): { base: SavedPlanBlocks; mine: PlanBlock[] } {
+  if (documentBase?.revision && documentBase.revision === own?.saved.revision) {
+    return { base: documentBase, mine: blocks };
+  }
+  const loaded = documentBase ?? planAsLoaded;
   if (
     own &&
     (!loaded || (own.saved.revision ?? "") >= (loaded.revision ?? ""))

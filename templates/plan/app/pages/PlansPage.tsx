@@ -4057,10 +4057,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const own = lastBlockSaveRef.current;
     const { base, mine } = startBlockSave(
       own?.planId === planId ? own : null,
-      documentBase ??
-        (plan.content
-          ? { value: plan.content.blocks, revision: plan.updatedAt }
-          : null),
+      documentBase,
+      plan.content
+        ? { value: plan.content.blocks, revision: plan.updatedAt }
+        : null,
       blocks,
     );
     // After a choice the document holds that version, not what this save read.

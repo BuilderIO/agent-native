@@ -527,6 +527,61 @@ test("keeping my version of a block both writers changed saves it, and the other
   await expectPersisted(page, planId, { has: theirs, lacks: mine });
 });
 
+test("deleting what a merged save brought in stays deleted", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  let heldSaves = 0;
+  let releaseMySave = () => {};
+  const mySaveReleased = new Promise<void>((resolve) => {
+    releaseMySave = resolve;
+  });
+  // My save waits for the other write, so it merges with what that brought in.
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await mySaveReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  releaseMySave();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(mine);
+  await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
+  await page.waitForTimeout(2_000); // e2e-harness-ignore: nothing marks the document taking the merged save in
+  await surface(page).getByText(theirs).click();
+  await page.keyboard.press("End");
+  for (let i = 0; i <= theirs.length; i += 1) {
+    await page.keyboard.press("Backspace");
+  }
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+});
+
 test("the other version arriving just after I keep mine doesn't replace my choice", async ({
   page,
 }) => {

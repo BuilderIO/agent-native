@@ -124,20 +124,20 @@ describe("documentHoldsTheirChanges", () => {
 describe("startBlockSave", () => {
   it("starts from what the document was brought up to before any save", () => {
     const blocks = [prose("a", "Alpha. mine"), prose("b", "Bravo.")];
-    expect(startBlockSave(null, loaded, blocks)).toEqual({
+    expect(startBlockSave(null, loaded, null, blocks)).toEqual({
       base: loaded,
       mine: blocks,
     });
   });
 
   it("refuses to save with no revision to save against", () => {
-    expect(() => startBlockSave(null, null, loaded.value)).toThrow(
+    expect(() => startBlockSave(null, null, null, loaded.value)).toThrow(
       "A plan revision is required",
     );
   });
 
   it("keeps what a merged save brought in when the document doesn't have it yet", () => {
-    const start = startBlockSave(own(), loaded, [
+    const start = startBlockSave(own(), loaded, null, [
       prose("a", "Alpha. mine, and more"),
       prose("b", "Bravo."),
     ]);
@@ -149,7 +149,7 @@ describe("startBlockSave", () => {
   });
 
   it("keeps what the document changed since, over what the save brought in", () => {
-    const start = startBlockSave(own(), loaded, [
+    const start = startBlockSave(own(), loaded, null, [
       prose("a", "Alpha. mine"),
       prose("b", "Bravo. newer local"),
     ]);
@@ -162,9 +162,25 @@ describe("startBlockSave", () => {
       revision: "2026-10-01T00:00:09.000Z",
     };
     const blocks = [prose("a", "Alpha. edited"), prose("b", "Bravo.")];
-    expect(startBlockSave(own(), newer, blocks)).toEqual({
+    expect(startBlockSave(own(), newer, null, blocks)).toEqual({
       base: newer,
       mine: blocks,
     });
+  });
+
+  it("lets someone delete what a merged save brought in once the document has it", () => {
+    const blocks = [prose("a", "Alpha. mine"), prose("b", "Bravo.")];
+    expect(startBlockSave(own(), own().saved, null, blocks)).toEqual({
+      base: own().saved,
+      mine: blocks,
+    });
+  });
+
+  it("keeps what a merged save brought in when only the loaded plan has it", () => {
+    const start = startBlockSave(own(), null, own().saved, [
+      prose("a", "Alpha. mine, and more"),
+      prose("b", "Bravo."),
+    ]);
+    expect(start.mine[1]).toEqual(prose("b", "Bravo. theirs"));
   });
 });
