@@ -1111,8 +1111,8 @@ describe("writes through a switched page's live copy", () => {
         cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
           inTransaction(async (tx) => {
             let changed = false;
+            // raw-sql-ok: this test proxy forwards Drizzle's SQL and bound arguments unchanged; it constructs no SQL.
             const spy: DbExec = {
-              // raw-sql-ok: this test proxy forwards Drizzle's SQL and bound arguments unchanged; it constructs no SQL.
               async execute(input) {
                 const sql = (
                   typeof input === "string" ? input : input.sql
