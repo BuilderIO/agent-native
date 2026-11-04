@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Self-contained regression for NEED 4958: a fresh authenticated *loopback dev*
-// request must initialize the default org before the workspace app-access guard
-// runs, so it is not denied for having no org yet. Uses the same lightweight
-// module doubles as auth.additional-session.spec.ts so it can run in the
-// mutation sandbox without the Design template.
+// NEED 4958: a fresh *synthetic loopback dev* session has no org, and the
+// read-only session resolver never creates one. Better Auth's normal auto-dev
+// signup does NOT verify the email, so the org initializer must key off the
+// synthetic dev identity, not `emailVerified`. This spec drives the real guard
+// with the reviewed rules: initialize the policy-controlled default org before
+// the unchanged app-access check, deny protected paths when initialization
+// fails even if an unbound-owner ACL would permit, and keep the null
+// org-recovery exemption. Uses the same lightweight module doubles as
+// auth.additional-session.spec.ts so it runs in the mutation sandbox.
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -41,11 +45,7 @@ function createMockEvent(opts: {
         headers,
         socket: { remoteAddress: "127.0.0.1" },
       },
-      res: {
-        setHeader: vi.fn(),
-        getHeader: vi.fn(),
-        appendHeader: vi.fn(),
-      },
+      res: { setHeader: vi.fn(), getHeader: vi.fn(), appendHeader: vi.fn() },
     },
     headers: requestHeaders,
     context: { ...(opts.context ?? {}) },
@@ -71,6 +71,7 @@ function mockModules(opts: {
       },
     })),
     getBetterAuthSync: vi.fn(() => undefined),
+    isDeployPreview: vi.fn(() => false),
   }));
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => {
@@ -101,8 +102,7 @@ function mockModules(opts: {
     getOrgContext: opts.getOrgContext,
     resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
   }));
-  // The event is a synthetic loopback request; the real h3 IP read cannot see
-  // the socket on the mock event, so pin the peer check on.
+  // The mock event cannot expose a real socket peer, so pin the loopback check.
   vi.doMock("./loopback.js", async (importOriginal) => ({
     ...(await importOriginal<typeof import("./loopback.js")>()),
     isLoopbackRequest: () => true,
@@ -125,6 +125,23 @@ async function mountGuard(opts: {
   return guard as Guard;
 }
 
+async function withDevApp(access: Record<string, unknown> = {}) {
+  vi.stubEnv("NODE_ENV", "development");
+  delete process.env.AUTH_DISABLED;
+  delete process.env.CONTEXT;
+  delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+  delete process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT;
+  const { defineAppConfig } = await import("../app-config/index.js");
+  defineAppConfig({
+    app: { id: "content", workspaceId: "content" },
+    access: {
+      orgCreation: "open",
+      autoCreateDefaultOrg: true,
+      ...access,
+    } as never,
+  });
+}
+
 beforeEach(() => {
   vi.resetModules();
 });
@@ -141,96 +158,101 @@ afterEach(() => {
 });
 
 describe("loopback dev org initialization before the app-access guard", () => {
-  it("initializes the default org, then allows the no-org dev request", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const { defineAppConfig } = await import("../app-config/index.js");
-    defineAppConfig({ app: { id: "content", workspaceId: "content" } });
-
-    // Deny until the request carries an org, exactly like the real ACL.
+  it("creates the default org before access for an unverified synthetic dev session", async () => {
+    await withDevApp();
     const checkAppAccess = vi.fn(
-      async (_appId: string, args: { orgId?: string }) => Boolean(args?.orgId),
+      async (_appId: string, args: { orgId?: string }) =>
+        args.orgId === "org-1",
     );
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
-
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      // Better Auth's auto-dev signup does NOT verify the email.
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
-
     const event = createMockEvent({ path: "/_agent-native/actions/list" });
     await expect(guard(event)).resolves.toBeUndefined();
-
     expect(getOrgContext).toHaveBeenCalledTimes(1);
-    expect(checkAppAccess).toHaveBeenCalledTimes(1);
     expect(checkAppAccess).toHaveBeenCalledWith("content", {
       email: "dev@local.test",
       orgId: "org-1",
     });
   });
 
-  it("stays denied when the org cannot be initialized", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const { defineAppConfig } = await import("../app-config/index.js");
-    defineAppConfig({ app: { id: "content", workspaceId: "content" } });
-
-    const checkAppAccess = vi.fn(async () => false);
+  it("denies when initialization fails even though an unbound-owner ACL permits", async () => {
+    await withDevApp();
+    // The owner ACL would grant the request; a failed init must still deny.
+    const checkAppAccess = vi.fn(async () => true);
     const getOrgContext = vi.fn(async () => {
       throw new Error("no default org");
     });
-
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
-
     const event = createMockEvent({ path: "/_agent-native/actions/list" });
     await expect(guard(event)).resolves.toEqual({
-      error: "Workspace app access is temporarily unavailable.",
-      code: "local-org-initialization-failed",
+      error: "You do not have access to this workspace app.",
     });
-    expect(event.res.status).toBe(503);
-    // A broken org path is reported as unavailable, not as a membership denial.
+    expect(event.res.status).toBe(403);
+    expect(checkAppAccess).toHaveBeenCalledWith("content", {
+      email: "dev@local.test",
+    });
+  });
+
+  it("denies when the initializer yields no org id", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => true);
+    const getOrgContext = vi.fn(async () => ({}));
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: false },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/actions/list" });
+    await expect(guard(event)).resolves.toEqual({
+      error: "You do not have access to this workspace app.",
+    });
+    expect(getOrgContext).toHaveBeenCalledTimes(1);
+    expect(checkAppAccess).toHaveBeenCalledWith("content", {
+      email: "dev@local.test",
+    });
+  });
+
+  it("keeps the null org-recovery exemption reachable", async () => {
+    await withDevApp();
+    const checkAppAccess = vi.fn(async () => true);
+    const getOrgContext = vi.fn(async () => {
+      throw new Error("no default org");
+    });
+    const guard = await mountGuard({
+      session: { email: "dev@local.test", emailVerified: false },
+      checkAppAccess,
+      getOrgContext,
+    });
+    const event = createMockEvent({ path: "/_agent-native/org/me" });
+    await expect(guard(event)).resolves.toBeUndefined();
     expect(checkAppAccess).not.toHaveBeenCalled();
   });
 
-  it("does not initialize the org outside a dev environment", async () => {
+  it("does not initialize outside a dev environment", async () => {
+    await withDevApp();
     vi.stubEnv("NODE_ENV", "production");
-    const { defineAppConfig } = await import("../app-config/index.js");
-    defineAppConfig({ app: { id: "content", workspaceId: "content" } });
-
     const checkAppAccess = vi.fn(async () => false);
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
-
     const guard = await mountGuard({
-      session: { email: "member@example.com", emailVerified: true },
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
-
     const event = createMockEvent({ path: "/_agent-native/actions/list" });
     await expect(guard(event)).resolves.toEqual({
       error: "You do not have access to this workspace app.",
     });
     expect(getOrgContext).not.toHaveBeenCalled();
-    expect(checkAppAccess).toHaveBeenCalledWith("content", {
-      email: "member@example.com",
-    });
   });
-
-  async function withDevApp(access: Record<string, unknown> = {}) {
-    vi.stubEnv("NODE_ENV", "development");
-    const { defineAppConfig } = await import("../app-config/index.js");
-    defineAppConfig({
-      app: { id: "content", workspaceId: "content" },
-      access: {
-        orgCreation: "open",
-        autoCreateDefaultOrg: true,
-        ...access,
-      } as never,
-    });
-  }
 
   it("skips initialization when the session already carries an org", async () => {
     await withDevApp();
@@ -239,7 +261,7 @@ describe("loopback dev org initialization before the app-access guard", () => {
     const guard = await mountGuard({
       session: {
         email: "dev@local.test",
-        emailVerified: true,
+        emailVerified: false,
         orgId: "org-9",
       },
       checkAppAccess,
@@ -259,7 +281,7 @@ describe("loopback dev org initialization before the app-access guard", () => {
     const checkAppAccess = vi.fn(async () => false);
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
@@ -278,7 +300,7 @@ describe("loopback dev org initialization before the app-access guard", () => {
     const checkAppAccess = vi.fn(async () => false);
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
@@ -297,7 +319,7 @@ describe("loopback dev org initialization before the app-access guard", () => {
     const checkAppAccess = vi.fn(async () => false);
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
@@ -313,22 +335,6 @@ describe("loopback dev org initialization before the app-access guard", () => {
     const checkAppAccess = vi.fn(async () => false);
     const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
-      checkAppAccess,
-      getOrgContext,
-    });
-    const event = createMockEvent({ path: "/_agent-native/actions/list" });
-    await expect(guard(event)).resolves.toEqual({
-      error: "You do not have access to this workspace app.",
-    });
-    expect(getOrgContext).not.toHaveBeenCalled();
-  });
-
-  it("skips initialization when the session email is not verified", async () => {
-    await withDevApp();
-    const checkAppAccess = vi.fn(async () => false);
-    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
-    const guard = await mountGuard({
       session: { email: "dev@local.test", emailVerified: false },
       checkAppAccess,
       getOrgContext,
@@ -340,12 +346,12 @@ describe("loopback dev org initialization before the app-access guard", () => {
     expect(getOrgContext).not.toHaveBeenCalled();
   });
 
-  it("passes no org to the ACL when the initializer yields no org id", async () => {
+  it("does not initialize for a real (non-synthetic) account", async () => {
     await withDevApp();
     const checkAppAccess = vi.fn(async () => false);
-    const getOrgContext = vi.fn(async () => ({}));
+    const getOrgContext = vi.fn(async () => ({ orgId: "org-1" }));
     const guard = await mountGuard({
-      session: { email: "dev@local.test", emailVerified: true },
+      session: { email: "member@example.com", emailVerified: false },
       checkAppAccess,
       getOrgContext,
     });
@@ -353,9 +359,6 @@ describe("loopback dev org initialization before the app-access guard", () => {
     await expect(guard(event)).resolves.toEqual({
       error: "You do not have access to this workspace app.",
     });
-    expect(getOrgContext).toHaveBeenCalledTimes(1);
-    expect(checkAppAccess).toHaveBeenCalledWith("content", {
-      email: "dev@local.test",
-    });
+    expect(getOrgContext).not.toHaveBeenCalled();
   });
 });

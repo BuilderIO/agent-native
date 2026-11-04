@@ -22,7 +22,6 @@ import {
 } from "../org/request-org-cache.js";
 import {
   isWorkspaceAppAccessUnavailable,
-  workspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
 import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
@@ -4423,52 +4422,38 @@ function createAuthGuardFn(
     if (session) {
       const method = getMethod(event);
       if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
-        // A fresh authenticated loopback dev request can reach this guard before
-        // any org exists: the org initializer is a client-mount step
-        // (client/org/hooks `useOrg` -> `/_agent-native/org/me`), not a boot
-        // barrier, so the unchanged app-access check would deny every
-        // authenticated app request. Under the open + auto-create policy,
-        // initialize the default org here so the check sees it. Closed,
-        // non-loopback, non-dev and explicit-personal-scope requests are
-        // untouched, and an initialization failure is reported as unavailable
-        // (503), never as a membership denial or a silent success.
-        let effectiveOrgId = session.orgId;
-        let orgInitializationFailed = false;
+        // A fresh loopback dev workspace has no session org yet, and the
+        // read-only session resolver never creates one, so the app-access check
+        // below can deny before the ordinary org initializer runs. Resolve (or
+        // create) the existing default org through the normal policy first and
+        // hand its id to the unchanged check. The check still owns the verdict;
+        // a missing or failed org initialization also denies protected requests,
+        // while null keeps the wrapper's org-recovery exemption.
+        let workspaceOrgId = session.orgId;
+        let workspaceOrgInitializationFailed = false;
         if (
-          effectiveOrgId === undefined &&
-          session.emailVerified === true &&
+          !workspaceOrgId &&
           !hasExplicitPersonalOrgScope(event) &&
-          isDevEnvironment() &&
-          !isHostedPreviewRequest(event) &&
-          isLoopbackRequest(event) &&
+          isSyntheticAutoDevIdentity(session.email) &&
+          isLoopbackDevRequest(event) &&
           getAppConfig().access.orgCreation === "open" &&
           getAppConfig().access.autoCreateDefaultOrg
         ) {
+          const { getOrgContext } = await import("../org/context.js");
           try {
-            const { getOrgContext } = await import("../org/context.js");
             const org = await getOrgContext(event);
-            if (org.orgId) effectiveOrgId = org.orgId;
-          } catch (error) {
-            // A broken org-creation path is not a membership denial: report the
-            // check as unavailable (503) instead of a misleading 403, and keep
-            // the underlying failure in the logs.
-            orgInitializationFailed = true;
-            console.error(
-              "[agent-native] default org initialization failed for a loopback dev request",
-              error,
-            );
+            if (org.orgId) workspaceOrgId = org.orgId;
+            else workspaceOrgInitializationFailed = true;
+          } catch {
+            workspaceOrgInitializationFailed = true;
           }
         }
-        let workspaceAppAccess = orgInitializationFailed
-          ? workspaceAppAccessUnavailable("local-org-initialization-failed")
-          : await checkWorkspaceAppAccessForRequest({
-              path: p,
-              method,
-              email: session.email,
-              ...(effectiveOrgId === undefined
-                ? {}
-                : { orgId: effectiveOrgId }),
-            });
+        let workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+          path: p,
+          method,
+          email: session.email,
+          ...(workspaceOrgId === undefined ? {} : { orgId: workspaceOrgId }),
+        });
         if (
           workspaceAppAccess === false &&
           !session.orgId &&
@@ -4501,7 +4486,10 @@ function createAuthGuardFn(
           setResponseStatus(event, 503);
           return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
-        if (workspaceAppAccess === false) {
+        if (
+          (workspaceOrgInitializationFailed && workspaceAppAccess !== null) ||
+          workspaceAppAccess === false
+        ) {
           setResponseStatus(event, 403);
           return { error: "You do not have access to this workspace app." };
         }
@@ -4707,6 +4695,28 @@ export function isLocalDevAuthAllowed(event: H3Event): boolean {
     process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
     ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
       isBuilderPreviewLocalDevRequest(event))
+  );
+}
+
+/**
+ * A real loopback dev/test request. `isLocalDevAuthAllowed` also admits the
+ * Builder-preview branch, which does not require loopback, so org
+ * auto-initialization additionally requires the actual socket peer and
+ * excludes hosted-preview hosts. Builder preview keeps the ordinary
+ * app-access path.
+ */
+function isLoopbackDevRequest(event: H3Event): boolean {
+  return (
+    isLocalDevAuthAllowed(event) &&
+    isLoopbackRequest(event) &&
+    !isHostedPreviewRequest(event)
+  );
+}
+
+/** The framework's own throwaway local account, never a real signup. */
+function isSyntheticAutoDevIdentity(email: string | undefined): boolean {
+  return (
+    email === AUTO_DEV_ACCOUNT_EMAIL || email === LEGACY_AUTO_DEV_ACCOUNT_EMAIL
   );
 }
 

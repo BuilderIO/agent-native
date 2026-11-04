@@ -7,7 +7,6 @@ const MAX_DETAIL_LENGTH = 160;
 export type WorkspaceAppAccessUnavailableReason =
   | "directory-url-invalid"
   | "org-domain-lookup-failed"
-  | "local-org-initialization-failed"
   | "org-a2a-secret-lookup-failed"
   | "org-domain-missing"
   | "a2a-secret-missing"
