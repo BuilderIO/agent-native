@@ -18,13 +18,13 @@ import {
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
+import { modelUnits } from "../server/lib/suggestion-model-units.js";
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
   markdownSuggestionOperationsForFindReplaceEdits,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
-import { sentenceUnits } from "../shared/suggestion-units.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
@@ -187,7 +187,11 @@ export default defineAction({
         runId: request.runId,
         model: request.model,
       };
-      const units = sentenceUnits(operations, proposed.ranges);
+      const units = await modelUnits({
+        ownerEmail: request.requesterEmail,
+        operations,
+        edits: proposed.ranges,
+      });
       // A Content suggestion holds exactly one edit, so separate changes become
       // one proposal. The receipt links its first edit. Each attempt creates
       // under its own key, because a retry may propose different edits.

@@ -15,6 +15,7 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { modelUnits } from "../server/lib/suggestion-model-units.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -30,7 +31,6 @@ import {
   contentSuggestionPath,
   contentSuggestionReviewPath,
 } from "../shared/suggestion-link.js";
-import { sentenceUnits } from "../shared/suggestion-units.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
@@ -597,10 +597,11 @@ export default defineAction({
     }
 
     const summary = effectiveSummary;
-    // Unit labels come from the creation key, so a retry writes the same ones
-    // and a later call that extends this proposal never joins its units.
+    // Unit labels come from the creation key, so a later call that extends this
+    // proposal never joins its units. A retry replays the first call's proposal,
+    // so it keeps those labels whatever a model answers this time.
     const creationKey = args.idempotencyKey ?? crypto.randomUUID();
-    const units = sentenceUnits(operations);
+    const units = await modelUnits({ ownerEmail: ctx?.userEmail, operations });
 
     const grouped = await createResourceSuggestionProposal.run(
       {

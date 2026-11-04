@@ -1,0 +1,280 @@
+[
+  {
+    "name": "two-typos",
+    "dev": true,
+    "before": "Teh team will recieve the files on Tuesday.",
+    "after": "The team will receive the files on Tuesday.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "date-two-sentences",
+    "dev": true,
+    "before": "The meeting moved to Thursday. Bring the draft on Thursday.",
+    "after": "The meeting moved to Friday. Bring the draft on Friday.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "launch-rewrite",
+    "dev": true,
+    "before": "Our launch plan is ready, but the vendor still has to confirm which plan includes the retry hooks we would use.",
+    "after": "The launch plan is ready. We still need the vendor to confirm that its standard plan includes retries.",
+    "groups": [[0], [1, 2, 3], [4], [5]]
+  },
+  {
+    "name": "budget-rewrite",
+    "dev": true,
+    "before": "The team met on Tuesday and agreed that the budget should stay at sixty dollars for now.",
+    "after": "On Tuesday the team agreed to keep the budget at $60 until the review.",
+    "groups": [[0, 1], [2, 3], [4]]
+  },
+  {
+    "name": "agreement-dogs",
+    "dev": true,
+    "before": "The dog that lives next door barks at every car.",
+    "after": "The dogs that live next door bark at every car.",
+    "groups": [[0, 1, 2]]
+  },
+  {
+    "name": "independent-sentences",
+    "dev": true,
+    "before": "The meeting moved to Thursday. Please bring you're laptop.",
+    "after": "The meeting moved to Friday. Please bring your laptop.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "pronoun-across",
+    "dev": true,
+    "before": "Maria leads the design team. She joined in 2021.",
+    "after": "David leads the design team. He joined in 2021.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "two-facts",
+    "dev": true,
+    "before": "Shipping is free for orders over fifty dollars, and returns are accepted within 30 days.",
+    "after": "Shipping is free for orders over $50, and returns are accepted within 60 days.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "paid-received",
+    "before": "We recieved three invoices and payed two of them yesterday.",
+    "after": "We received three invoices and paid two of them yesterday.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "dashboard-there",
+    "before": "The new dashbord shows revenue by region and lets managers export there reports.",
+    "after": "The new dashboard shows revenue by region and lets managers export their reports.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "isnt-database",
+    "before": "The API returns a 404 when the user is'nt found and a 500 when the databse is down.",
+    "after": "The API returns a 404 when the user isn't found and a 500 when the database is down.",
+    "groups": [[0, 1], [2]]
+  },
+  {
+    "name": "hours",
+    "before": "The office opens at nine and the parking garage closes at midnight.",
+    "after": "The office opens at 8:30 and the parking garage closes at eleven.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "button-color-and-object",
+    "before": "Use the blue button to save your work and the gray button to discard it.",
+    "after": "Use the green button to save your changes and the gray button to discard them.",
+    "groups": [[0], [1, 2]]
+  },
+  {
+    "name": "a-and-an",
+    "before": "We need a engineer and an designer for this project.",
+    "after": "We need an engineer and a designer for this project.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "sales-verbs",
+    "before": "Sales increased in January, decreased in February, and recovered in March.",
+    "after": "Sales rose in January, fell in February, and recovered in April.",
+    "groups": [[0], [1], [2]]
+  },
+  {
+    "name": "if-when",
+    "before": "If the build fails, the pipeline sends an alert.",
+    "after": "When the build fails, the pipeline will send an alert.",
+    "groups": [[0], [1, 2]]
+  },
+  {
+    "name": "fix-estimates",
+    "before": "The quick fix took an hour, and the full fix will take a week.",
+    "after": "The temporary fix took two hours, and the permanent fix will take a month.",
+    "groups": [[0], [1, 2], [3], [4]]
+  },
+  {
+    "name": "trim-and-article",
+    "before": "We should probably think about moving the launch to next quarter because the testing is not finished.",
+    "after": "We should move the launch to next quarter because testing is not finished.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "although-rewrite",
+    "before": "Although the pilot went well, the results were not enough to justify a full rollout this year.",
+    "after": "The pilot went well, but the results do not justify a full rollout this year.",
+    "groups": [[0, 1], [2]]
+  },
+  {
+    "name": "report-plural",
+    "before": "The report, which was written by Dana, is due on Monday.",
+    "after": "The reports, which were written by Dana, are due on Monday.",
+    "groups": [[0, 1, 2]]
+  },
+  {
+    "name": "engineers-laptops",
+    "before": "Each engineer must update the laptop assigned to him before the audit starts.",
+    "after": "All engineers must update the laptops assigned to them before the audit starts.",
+    "groups": [[0, 1, 2, 3]]
+  },
+  {
+    "name": "tense-shift",
+    "before": "She was walking to the store when she noticed the sign.",
+    "after": "She is walking to the store when she notices the sign.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "he-she",
+    "before": "He didn't go to the meeting because he was sick.",
+    "after": "She didn't go to the meeting because she was sick.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "negation-pair",
+    "before": "The feature is not available on mobile, so users cannot try it there.",
+    "after": "The feature is available on mobile, so users can try it there.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "deadline-days",
+    "before": "The deadline is Friday, so we have two days left.",
+    "after": "The deadline is Monday, so we have five days left.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "passive-to-active",
+    "before": "The bug was fixed by the platform team on Wednesday.",
+    "after": "The platform team fixed the bug on Wednesday.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "move-clause",
+    "before": "In the morning, the crew will repair the roof before the rain arrives.",
+    "after": "The crew will repair the roof in the morning before the rain arrives.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "command-pair",
+    "before": "Run `npm install` and then `npm start` to launch the app.",
+    "after": "Run `pnpm install` and then `pnpm start` to launch the app.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "rename-across",
+    "before": "Acme will host the summit this year. Tickets for the Acme summit go on sale in May.",
+    "after": "Apex will host the summit this year. Tickets for the Apex summit go on sale in May.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "count-across",
+    "before": "We hired three engineers this spring. All three start in June.",
+    "after": "We hired four engineers this spring. All four start in June.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "invoice-it-they",
+    "before": "The contractor sent an invoice last week. It is due on the first of the month.",
+    "after": "The contractors sent two invoices last week. They are due on the first of the month.",
+    "groups": [[0], [1, 2, 3]]
+  },
+  {
+    "name": "button-name-across",
+    "before": "Click Save to keep your draft. The Save button is at the top right of the page.",
+    "after": "Click Publish to keep your draft. The Publish button is at the top right of the page.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "time-across",
+    "before": "The call starts at 3 pm Eastern. Join five minutes before 3 pm so we can start on time.",
+    "after": "The call starts at 4 pm Eastern. Join five minutes before 4 pm so we can start on time.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "price-across",
+    "before": "The plan costs $20 per month. That $20 includes two seats.",
+    "after": "The plan costs $25 per month. That $25 includes two seats.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "revenue-season",
+    "before": "Our revenue grew ten percent. Hiring slowed in the fall.",
+    "after": "Our revenue grew twelve percent. Hiring slowed in the winter.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "docs-macos",
+    "before": "The docs is out of date. The installer works on Windows and Mac.",
+    "after": "The docs are out of date. The installer works on Windows and macOS.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "vendor-comments",
+    "before": "Alex reviewed the contract. The vendor replied on Monday with three comments.",
+    "after": "Alex reviewed the contract. The vendor replied on Tuesday with four comments.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "bullets-days",
+    "before": "- Ship the beta on Monday\n- Email the customers on Tuesday\n- Review the feedback on Friday",
+    "after": "- Ship the beta on Tuesday\n- Email the customers on Wednesday\n- Review the feedback on Monday",
+    "groups": [[0], [1], [2]]
+  },
+  {
+    "name": "merge-sentences",
+    "before": "The migration finished on Sunday. It took six hours. Nobody reported any errors.",
+    "after": "The migration finished on Sunday, and it took six hours. Nobody reported any problems.",
+    "groups": [[0, 1], [2]]
+  },
+  {
+    "name": "drop-item-and-price",
+    "before": "We support Windows, Mac, and Linux, and the installer is free.",
+    "after": "We support Windows and Linux, and the installer costs ten dollars.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "guide-name-and-path",
+    "before": "See the setup guide at /docs/setup before you install the agent.",
+    "after": "See the install guide at /docs/install before you install the agent.",
+    "groups": [[0, 1]]
+  },
+  {
+    "name": "two-offices",
+    "before": "The north office closes on Friday. The south office closes on Friday.",
+    "after": "The north office closes on Monday. The south office closes on Tuesday.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "two-drafts",
+    "before": "The first draft is due on Monday. The final draft is due on Friday.",
+    "after": "The first draft is due on Tuesday. The final draft is due on Thursday.",
+    "groups": [[0], [1]]
+  },
+  {
+    "name": "rename-around-a-fix",
+    "before": "The dog barked loudly. The cat slept quietly. The dog ate slowly.",
+    "after": "The puppy barked loudly. The cat slept soundly. The puppy ate slowly.",
+    "groups": [[0, 2], [1]]
+  },
+  {
+    "name": "same-word-different-things",
+    "before": "The north office closes on Friday. The payroll report is due on Friday.",
+    "after": "The north office closes on Monday. The payroll report is due on Monday.",
+    "groups": [[0], [1]]
+  }
+]
