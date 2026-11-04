@@ -226,7 +226,10 @@ describe("createFactoryWorkflowHost", () => {
     createFactoryWorkflowHost(input({ settings }));
 
     expect(captured.executor.mock.calls[0]?.[0].settings).toBe(settings);
-    expect(captured.executor.mock.calls[0]?.[0].deps.builder).toBeUndefined();
+    // The only Builder dependency the host adds is how a start reads the reports it is for; the project and window come from the settings.
+    expect(captured.executor.mock.calls[0]?.[0].deps.builder).toEqual({
+      readReports: expect.any(Function),
+    });
   });
 
   it("leaves the model-call budget to the engine, which makes one per run from the graph's cap", () => {
