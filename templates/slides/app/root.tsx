@@ -222,11 +222,13 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   localizeMessages: (messages) =>
     slidesFirstPaintCopy(messages as typeof slidesEnglish),
   suggestionRole: "general",
+  // Attachments enter through the hydrated composer with Slides' storage policy.
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">
       <PromptComposer
         {...props}
-        attachmentsEnabled
+        attachmentsEnabled={false}
+        inlineTextAttachments={false}
         className="slides-home-prompt-composer-area"
         layoutVariant="hero"
         modelStatusChecksEnabled
