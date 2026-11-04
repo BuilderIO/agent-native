@@ -35,7 +35,7 @@ import type { ContentSidebarSections } from "@shared/content-personal-navigation
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import { buildListRowExcerpt } from "@shared/og-description";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
   hashKey,
   isCancelledError,
@@ -73,9 +73,17 @@ import {
   isDocumentCreationPending,
 } from "../lib/optimistic-document";
 import {
+  pageOpenReadOwner,
+  seedPageOpenCollection,
+  type PageOpenReadAnswer,
+  type PageOpenReadOwner,
+} from "../lib/page-open-collection";
+import {
+  abortedByEither,
   adoptPageOpenRead,
   claimPageOpenRead,
   endPageOpen,
+  invalidatePageOpenReadOnLanding,
   isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
@@ -953,8 +961,15 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
-  // A load's own open, whose read the document head may already have sent.
-  { fromLoad = false }: { fromLoad?: boolean } = {},
+  {
+    fromLoad = false,
+    databaseViewId = null,
+  }: {
+    // A load's own open, whose read the document head may already have sent.
+    fromLoad?: boolean;
+    // The collection view the opened address names, if any.
+    databaseViewId?: string | null;
+  } = {},
 ) {
   trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
@@ -963,19 +978,34 @@ export function startPageOpenDocumentReads(
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const readsDraft =
     !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
-  // One request answers the page and its draft, so the draft read cannot hold
-  // the page back on its own. Each read takes that answer once: a refetch
-  // through either key sends its own request rather than replaying this one.
-  let pageRead: Promise<PageOpenDocumentRead> | null = null;
-  const sendPageRead = (signal?: AbortSignal) =>
-    callAction<PageOpenDocumentRead>(
-      "get-document",
-      {
-        ...documentReadParams(documentId, context),
-        ...(readsDraft ? { includePreviewDraft: true } : {}),
-      },
-      { method: "GET", ...(signal ? { signal } : {}) },
-    );
+  // One request answers the page, its draft and, for a collection's page, the
+  // reads its table sends first, so none of them holds the page back on its
+  // own. Each read takes that answer once: a refetch through any of their keys
+  // sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenReadAnswer> | null = null;
+  // A chat widget's ticket may call only the reads its connector lists, and
+  // get-page-open-read isn't one of them, so a widget reads the page alone.
+  const widgetHost = widgetBridgeActive || isOpenAiMcpAppHost();
+  // The page query's own signal, so a page read it drops is cancelled.
+  const sendPageRead = (signal?: AbortSignal): Promise<PageOpenReadAnswer> =>
+    widgetHost
+      ? callAction<PageOpenReadAnswer["document"]>(
+          "get-document",
+          {
+            ...documentReadParams(documentId, context),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET", ...(signal ? { signal } : {}) },
+        ).then((document) => ({ document }))
+      : callAction<PageOpenReadAnswer>(
+          "get-page-open-read",
+          {
+            ...documentReadParams(documentId, context),
+            ...(databaseViewId ? { databaseViewId } : {}),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET", ...(signal ? { signal } : {}) },
+        );
   // The load's head script may already have sent this read; a failed or
   // stalled one is sent again here, so its error comes from the app's own
   // request. Its age counts from when the script sent it.
@@ -986,11 +1016,28 @@ export function startPageOpenDocumentReads(
   // Who these reads go out as. Each is shown only once that is known to be
   // the session this tab accepts, wherever it was started from.
   const identity = startupRead?.identity ?? sessionReadIdentity();
-  const readPage = () =>
+  const readPage = (signal?: AbortSignal) =>
     (pageRead ??= startupRead
-      ? readFromStartupPageRead(startupRead, sendPageRead)
-      : sendPageRead());
+      ? readFromStartupPageRead(startupRead, (ownSignal) =>
+          sendPageRead(signal ? abortedByEither(signal, ownSignal) : ownSignal),
+        )
+      : sendPageRead(signal));
   let documentTaken = false;
+  let owner: PageOpenReadOwner | undefined;
+  // An answer older than a change sync made to its key since the server read
+  // it lands, and is then read again by whatever watches the key. A fetch
+  // cancelled or replaced meanwhile lands nothing, so it marks nothing.
+  const landsChanged = (
+    key: QueryKey,
+    syncCursor: string | undefined,
+    fetchSignal: AbortSignal,
+  ): void => {
+    if (!owner || fetchSignal.aborted) return;
+    owner.answeredAt(syncCursor);
+    if (owner.invalidatedWhileOut(key)) {
+      invalidatePageOpenReadOnLanding(queryClient, key);
+    }
+  };
   const documentReadStarted = startPageOpenRead(
     queryClient,
     documentId,
@@ -1005,9 +1052,27 @@ export function startPageOpenDocumentReads(
           );
         }
         documentTaken = true;
-        return readPage().then(
-          ({ previewDraft: _previewDraft, ...document }) => document,
+        const readOwner = pageOpenReadOwner(
+          queryClient,
+          queryKey,
+          signal,
+          identity,
+          startedAt,
         );
+        owner = readOwner;
+        return readPage(signal)
+          .then(({ document, collection, syncCursor }) => {
+            landsChanged(queryKey, syncCursor, signal);
+            if (collection) {
+              seedPageOpenCollection(queryClient, documentId, collection, {
+                owner: readOwner,
+                syncCursor,
+              });
+            }
+            const { previewDraft: _previewDraft, ...page } = document;
+            return page;
+          })
+          .finally(readOwner.finished);
       },
       retry: false,
     },
@@ -1031,7 +1096,13 @@ export function startPageOpenDocumentReads(
           // A server without the combined answer, or a page read that failed,
           // leaves the draft to its own request.
           return readPage().then(
-            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            (read) => {
+              if (read.document.previewDraft === undefined) {
+                return draftRead.queryFn(context);
+              }
+              landsChanged(draftRead.queryKey, read.syncCursor, context.signal);
+              return read.document.previewDraft;
+            },
             () => draftRead.queryFn(context),
           );
         },
@@ -1116,10 +1187,6 @@ export interface PreviewDocumentDraftResponse {
   draft: PreviewDocumentDraftRecord | null;
   editable: boolean;
 }
-
-type PageOpenDocumentRead = Document & {
-  previewDraft?: PreviewDocumentDraftResponse;
-};
 
 function previewDocumentDraftReadOptions(
   documentId: string,

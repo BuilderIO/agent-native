@@ -6,6 +6,7 @@ import { buildRecommendedFrames } from "@shared/agent-context";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import {
   fetchRecordingMediaResponse,
   loadAgentTranscript,
@@ -349,20 +350,30 @@ async function claimOrWaitForOtherFill(
 }
 
 /**
- * The timestamps the agent context recommends, clamped as the frame route
- * clamps a request, so each one is the `atMs` a request will arrive with.
+ * The original-recording timestamps the agent context recommends, clamped as
+ * the frame route clamps a request, so each one is the `atMs` the route looks
+ * a stored frame up by. The context recommends them on the edited timeline.
  */
 export async function recommendedAgentFrameTimes(
   recording: PublicAgentRecording,
 ): Promise<number[]> {
-  const durationMs =
+  const sourceDurationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
-  const { agentSegments } = await loadAgentTranscript(recording.id, durationMs);
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    sourceDurationMs,
+  );
+  const { agentSegments } = await loadAgentTranscript(
+    recording.id,
+    sourceDurationMs,
+  );
   const times = buildRecommendedFrames({
-    durationMs: recording.durationMs,
-    chapters: parseAgentChapters(recording),
-    segments: agentSegments,
-  }).map((frame) => clampAgentFrameAtMs(frame.atMs, durationMs));
+    durationMs: timeline.durationMs,
+    chapters: timeline.mapChapters(parseAgentChapters(recording)),
+    segments: timeline.mapSegments(agentSegments),
+  }).map((frame) =>
+    timeline.toSourceMs(clampAgentFrameAtMs(frame.atMs, timeline.durationMs)),
+  );
   return [...new Set(times)];
 }
 

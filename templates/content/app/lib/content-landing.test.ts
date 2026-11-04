@@ -271,14 +271,14 @@ describe("startLoadReads", () => {
     startLoadReads(new QueryClient(), {
       key: "load-1",
       pathname: "/page/NXqMwg3WOBAQ",
-      search: "?databaseId=db-1",
+      search: "?databaseId=db-1&viewId=builder",
     });
 
     expect(pageReads).toHaveBeenCalledWith(
       expect.any(QueryClient),
       "NXqMwg3WOBAQ",
       { databaseId: "db-1", databaseDocumentId: null },
-      { fromLoad: true },
+      { fromLoad: true, databaseViewId: "builder" },
     );
     // Its collab state too, beside the page read rather than after mount.
     expect(collabReads).toHaveBeenCalledWith("NXqMwg3WOBAQ");
@@ -296,7 +296,7 @@ describe("startLoadReads", () => {
       expect.any(QueryClient),
       "last-page",
       { databaseId: null, databaseDocumentId: null },
-      { fromLoad: true },
+      { fromLoad: true, databaseViewId: null },
     );
     expect(collabReads).toHaveBeenCalledWith("last-page");
     expect(landings()).toBe(1);
