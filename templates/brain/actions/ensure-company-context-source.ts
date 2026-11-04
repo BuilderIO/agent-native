@@ -33,6 +33,11 @@ async function readIntakeSource(id: string, orgId: string) {
 export default defineAction({
   description:
     "Return the organization's shared Company Context intake source, creating it on first use. It is a manual, organization-visible source that Brain admins (org owners and admins) reuse for every recurring Markdown upload via import-markdown-files with its sourceId. Admin only.",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   schema: z.object({}),
   outputSchema: z.object({
     created: z.boolean(),

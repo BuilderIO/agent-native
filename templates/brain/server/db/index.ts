@@ -22,20 +22,31 @@ registerShareableResource({
   getDb,
 });
 
-// Every org admin uploads to the one shared Company Context intake source, not
-// only the admin who created it. Editor only (no sharing/visibility control),
-// and every other source falls through to the normal sharing rules.
+// Access to the shared Company Context intake source follows current org admin
+// status, not ownership: every admin gets editor (no sharing/visibility
+// control), and the creating admin loses access once demoted. Every other
+// source falls through to the normal sharing rules.
 registerHostAccessResolver("brain-source", async (source, ctx) => {
-  // Match on the reserved id alone: some core paths load only id/owner/org/
-  // visibility, and create-source refuses ids with this prefix.
-  const { companyContextSourceId } = await import("../lib/brain.js");
+  const { companyContextSourceId, isCompanyContextIntakeConfig } =
+    await import("../lib/brain.js");
   if (!source?.orgId || source.id !== companyContextSourceId(source.orgId)) {
     return undefined;
   }
   const { isBrainAdmin } = await import("../lib/zoom-governance.js");
-  return (await isBrainAdmin(ctx.userEmail, source.orgId))
-    ? "editor"
-    : undefined;
+  if (await isBrainAdmin(ctx.userEmail, source.orgId)) {
+    // Status-only loads omit status/config; create-source reserves the id.
+    const intact =
+      source.visibility === "org" &&
+      source.status !== "archived" &&
+      (source.configJson === undefined ||
+        isCompanyContextIntakeConfig(source.configJson));
+    return intact ? "editor" : undefined;
+  }
+  const isOwner =
+    !!ctx.userEmail &&
+    typeof source.ownerEmail === "string" &&
+    source.ownerEmail.toLowerCase() === ctx.userEmail.toLowerCase();
+  return isOwner ? null : undefined;
 });
 
 registerShareableResource({
