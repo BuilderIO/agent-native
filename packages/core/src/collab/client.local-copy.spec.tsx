@@ -615,6 +615,37 @@ describe("collab local copies", () => {
     expect(stateRequests).toHaveLength(1);
     expect(stateRequests[0]).not.toContain("stateVector=");
     expect(text()).toBe("hello");
+    expect(displaced).toEqual([]);
+  });
+
+  it("reads again for an account the tab comes back to, rather than reusing what the other session read", async () => {
+    await visit();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = store.persistence.read;
+    vi.spyOn(store.persistence, "read").mockImplementationOnce(
+      async (...args) => {
+        await held;
+        return read(...args);
+      },
+    );
+    mount();
+    await advance(0);
+
+    // The tab moves on, so this account's connection lingers while its read
+    // of the copy finishes.
+    act(() => recordSessionIdentity(BOB.email));
+    mount({ user: BOB });
+    release();
+    await advance(50);
+
+    stateRequests = [];
+    act(() => recordSessionIdentity(ADA.email));
+    mount();
+    await advance(50);
+
+    expect(stateRequests).toHaveLength(1);
+    expect(text()).toBe("hello");
   });
 
   it("keeps typing on a copy for the next open when the page closes before the server answers", async () => {

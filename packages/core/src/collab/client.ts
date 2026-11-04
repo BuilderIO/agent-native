@@ -1238,8 +1238,15 @@ class CollabDocConnection {
         local = read.status === "hit" ? read.state : null;
       }
     }
-    if (rejectedLocalCopies.has(this.registryKey) || this.tabLeftThisAccount())
-      local = null;
+    // Any read from here carries the new session's cookie into this account's doc.
+    if (this.tabLeftThisAccount()) {
+      this.supersede(
+        `The session changed while opening the saved copy of collab doc ${this.docId}; opening the server's copy instead.`,
+        "session-changed",
+      );
+      return;
+    }
+    if (rejectedLocalCopies.has(this.registryKey)) local = null;
     if (!local || !this.applyLocalCopy(local)) {
       if (local) deleteCollabLocalCopy(account, key);
       if (request && !request.localState) {
