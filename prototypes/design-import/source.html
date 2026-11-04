@@ -71,7 +71,7 @@ body { font-size: 14px; }
 /* The picker's sources drift toward the mark and shrink into it, two lanes at one speed so they never bunch. */
 .belt { position: absolute; inset: 0; pointer-events: none; }
 .belt .bi { position: absolute; left: 0; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; display: grid; place-items: center; color: var(--color-foreground); will-change: transform, opacity; }
-.belt .bi .lg { width: 20px; height: 20px; opacity: .88; }
+.belt .bi .lg { width: 20px; height: 20px; }
 .belt .bi .lg.w { width: 24px; height: 24px; }
 .imh .hub { z-index: 1; }
 .cycle { position: relative; width: 24px; height: 24px; }
@@ -94,7 +94,7 @@ svg.lg { display: block; fill: currentColor; flex: none; }
 .src:hover { background: color-mix(in srgb, var(--color-accent) 60%, var(--color-background)); border-color: color-mix(in oklab, var(--color-border), var(--color-foreground) 14%); }
 .src:active { transform: scale(.995); }
 .box { width: 40px; height: 40px; flex: none; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; background: var(--color-muted); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border), var(--color-foreground) 6%); color: var(--color-foreground); }
-.box .lg { width: 20px; height: 20px; opacity: .78; }
+.box .lg { width: 20px; height: 20px; }
 .box svg.i { width: 20px; height: 20px; stroke-width: 1.5; opacity: .78; }
 .box.num { font-size: 14px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
 .tt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
@@ -107,7 +107,7 @@ svg.lg { display: block; fill: currentColor; flex: none; }
 .steps { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
 .stack { position: relative; width: 112px; height: 40px; flex: none; }
 .stack span { position: absolute; top: 2px; width: 34px; height: 36px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); color: var(--color-foreground); }
-.stack span .lg { width: 18px; height: 18px; opacity: .78; }
+.stack span .lg { width: 18px; height: 18px; }
 .stack span .lg.w { width: 20px; height: 20px; }
 .stack span:nth-child(1) { left: 0; transform: rotate(-8deg); }
 .stack span:nth-child(2) { left: 26px; transform: rotate(-2deg); }
@@ -233,7 +233,17 @@ const MARK = `__LOGO__`.replace("<svg ", '<svg class="an" ');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // Wordmark-shaped marks read small in a square box, so they draw a size up.
 const WIDE = new Set(["v0", "wix", "webflow"]);
-const logo = (id, cls = "") => { const l = LOGOS[id]; return `<svg class="lg ${cls} ${WIDE.has(id) ? "w" : ""}" viewBox="${l.vb}" aria-hidden="true">${l.body}</svg>`; };
+// Brand marks draw in the brand's own colors (Figma's five, Lovable's gradient, Replit orange, Webflow blue);
+// marks that are black by brand follow the text color, so they turn white in dark mode. The galaxy draws
+// every mark in white on its dark orbs (mono). Lovable's gradient ids get a per-copy suffix, since a
+// duplicate id inside a hidden copy breaks the fill in every copy after it.
+let logoSeq = 0;
+const logo = (id, cls = "", mono = false) => {
+  const l = LOGOS[id], b = !mono && l.brand;
+  const body = b ? b.body.replaceAll("{u}", `-${++logoSeq}`) : l.body;
+  const color = !mono && l.color ? ` style="color:${l.color}"` : "";
+  return `<svg class="lg ${cls} ${WIDE.has(id) ? "w" : ""}" viewBox="${b ? b.vb : l.vb}"${color} aria-hidden="true">${body}</svg>`;
+};
 
 /* ───────── sources ───────── */
 const ZIP_LEAD = "Download your project as a ZIP, then upload it here.";
@@ -366,7 +376,7 @@ const ANN = { title: "Import an existing project", desc: "Bring a project from a
 function viewAnnouncement() {
   return `<div class="hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
   <div class="imb"><h2 id="imd-title">${ANN.title}</h2><p class="lead">Bring a project from another tool into Agent‑Native Design.</p>
-  <ul class="checks"><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Import a Figma file or a GitHub repository</li><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Keep building your project as an agentic app</li></ul>
+  <ul class="checks"><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Import a Figma file or a GitHub repository</li><li><i>${ic("check")}</i>Keep building your project as an agentic app</li></ul>
   <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">${ANN.cta}</button></div></div>`;
 }
 
@@ -581,7 +591,7 @@ let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduc
 function startOrbit() {
   const el = $("#orbit");
   if (!el || el.childElementCount) return;
-  el.innerHTML = ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="orb" data-o="${oi}" data-i="${i}">${logo(id)}</span>`)).join("");
+  el.innerHTML = ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("");
   syncPause();
   orbitLast = performance.now();
   const frame = (now) => {
@@ -704,7 +714,7 @@ const CARD_CSS = `${NEBULA_CSS}
 .an-cta { margin: 8px 0 4px 8px; height: 24px; font-size: 13px; line-height: 16px; font-weight: 500; color: hsl(var(--foreground)); border-radius: 4px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color .15s; cursor: pointer; }
 .an-cta:hover { text-decoration-color: currentColor; }
 .an-cta:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring)); }`;
-const CARD_HTML = `<div class="an-card"><button type="button" class="an-open" data-proto="announce"><span class="an-hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span><span class="an-text"><span class="an-title">${ANN.title}</span><span class="an-desc">${ANN.desc}</span></span></button><button type="button" class="an-cta" data-proto="import">${ANN.cta}</button></div>`;
+const CARD_HTML = `<div class="an-card"><button type="button" class="an-open" data-proto="announce"><span class="an-hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span><span class="an-text"><span class="an-title">${ANN.title}</span><span class="an-desc">${ANN.desc}</span></span></button><button type="button" class="an-cta" data-proto="import">${ANN.cta}</button></div>`;
 // Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
 const ORBITS = ${JSON.stringify(ORBITS)}, ORBIT_PERIOD = ${ORBIT_PERIOD}, TAU = Math.PI * 2;
