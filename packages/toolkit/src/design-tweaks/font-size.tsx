@@ -280,9 +280,9 @@ export function FontSizeField({
     return () => cancelAnimationFrame(frame);
   }, [open, anchorSize]);
 
-  const commit = (next: number) => {
+  const commit = (next: number, previous = value) => {
     setDraft(formatFontSize(next));
-    if (mixed || next !== value) onChange(next, { phase: "commit" });
+    if (mixed || next !== previous) onChange(next, { phase: "commit" });
   };
 
   const commitRelativeDraft = () => {
@@ -335,7 +335,7 @@ export function FontSizeField({
       Number((current + delta).toFixed(FONT_SIZE_PRECISION)),
       bounds,
     );
-    if (next > 0 && next !== current) commit(next);
+    if (next > 0 && next !== current) commit(next, current);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

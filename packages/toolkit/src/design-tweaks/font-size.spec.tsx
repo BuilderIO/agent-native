@@ -195,6 +195,26 @@ describe("FontSizeField", () => {
     expect(input.value).toBe("20.1");
   });
 
+  it("commits every arrow step while the parent value is delayed", () => {
+    const { input, onChange } = renderField({ value: 40 });
+    fireEvent.focus(input);
+
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+
+    expect(input.value).toBe("30");
+    expect(onChange.mock.calls).toEqual([
+      [30, COMMIT],
+      [31, COMMIT],
+      [30, COMMIT],
+      [40, COMMIT],
+      [30, COMMIT],
+    ]);
+  });
+
   it("clamps arrow steps to bounds and rejects non-positive results", () => {
     const { input, onChange } = renderField({ value: 24, min: 8, max: 30 });
     fireEvent.focus(input);
