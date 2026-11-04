@@ -293,6 +293,7 @@ const messages = {
     placeholder: "लिखना शुरू करें या एजेंट से जल्दी स्पीकर नोट्स जनरेट करें",
   },
   editorToolbar: {
+    saving: "सहेजा जा रहा है...",
     layoutTitle: "शीर्षक",
     layoutSection: "सेक्शन डिवाइडर",
     layoutContent: "कंटेंट",

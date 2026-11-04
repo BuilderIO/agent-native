@@ -1314,6 +1314,60 @@ describe("animation target validation", () => {
   });
 });
 
+describe("silent success: reorder and agent field schema", () => {
+  it("rejects reorder-slides ids that name no slide", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    expect(() =>
+      applyOperation(
+        deck,
+        { op: "reorder-slides", orderedIds: ["s2", "ghost"] },
+        { strictReorder: true },
+      ),
+    ).toThrow(/ghost/);
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("ignores stale reorder-slides ids for non-agent callers", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    applyOperation(deck, {
+      op: "reorder-slides",
+      orderedIds: ["s2", "ghost", "s1"],
+    });
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s2", "s1"]);
+  });
+
+  it("agent patch-deck-fields schema does not accept visibility", () => {
+    const parameters = patchDeckAction.tool.parameters as {
+      properties: {
+        operations: {
+          items: {
+            anyOf: Array<{
+              properties?: {
+                op?: { const?: string };
+                fields?: { additionalProperties?: boolean };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const deckFields = parameters.properties.operations.items.anyOf.find(
+      (operation) => operation.properties?.op?.const === "patch-deck-fields",
+    );
+    expect(deckFields?.properties?.fields?.additionalProperties).toBe(false);
+  });
+});
+
 describe("isAgentPatchCaller", () => {
   it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);

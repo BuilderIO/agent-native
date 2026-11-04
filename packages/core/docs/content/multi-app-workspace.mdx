@@ -277,6 +277,8 @@ Unknown IDs in `include` log a warning and are ignored. A standalone app can use
 
 This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and custom connected remote-agent URLs retain priority, and MCP app access stays a separate routing permission.
 
+In Dispatch, organization owners and admins can also hide the offered built-ins under Settings › Organization › Apps (or with `set-hosted-apps-settings`). That removes them from Dispatch's app lists and its agent's app context for the organization; `call-agent` by name still reaches them. Without an organization there is no settings page for it, so only the agent can change it, for that user.
+
 ## Shared MCP servers {#shared-mcp}
 
 The recommended options for sharing MCP servers across workspace apps, in order of preference:

@@ -3052,6 +3052,8 @@ function drainPendingDeckOps(
       } else {
         markDeckSaveFailed(deckId, err);
         deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
+        // The rejected change is still shown locally; re-read so the slide list matches the server.
+        if (isDeckRevisionConflict(err)) requestDeckResync(deckId);
       }
     })
     .finally(() => {
