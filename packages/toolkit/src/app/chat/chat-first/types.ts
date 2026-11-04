@@ -63,8 +63,25 @@ export interface ChatFirstSurfaceTabsProps {
   copy?: ChatFirstCopy;
 }
 
+export interface ChatFirstAppRailSection {
+  id: string;
+  label: string;
+  /** Rows in display order; ids missing from `apps` are skipped. */
+  appIds: readonly string[];
+  /** Rendered at the end of the section header. */
+  action?: ReactNode;
+  /** Shown in place of rows when the section has no apps. */
+  emptyLabel?: string;
+}
+
 export interface ChatFirstAppRailProps {
   apps: readonly ChatFirstAppItem[];
+  /**
+   * Grouped rows, shown in full in both the expanded and collapsed rail. The
+   * host owns the grouping and order, so sectioned rails offer no drag or move
+   * reordering.
+   */
+  sections?: readonly ChatFirstAppRailSection[];
   defaultAppIds?: readonly string[];
   activeAppId?: string;
   activeTab?: ChatFirstPrimaryTab;
@@ -74,6 +91,12 @@ export interface ChatFirstAppRailProps {
   grayscaleInactiveIcons?: boolean;
   layout?: ChatFirstAppLayoutPreference;
   onLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
+  /**
+   * Pin or unpin from the host's latest layout. When set, the rail hands pin
+   * changes to the host instead of `onLayoutChange` with a whole layout built
+   * from its own, possibly stale, copy.
+   */
+  onTogglePinned?: (appId: string) => void;
   onLayoutError?: (reason: "unavailable" | "write-failed") => void;
   onRetry?: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;

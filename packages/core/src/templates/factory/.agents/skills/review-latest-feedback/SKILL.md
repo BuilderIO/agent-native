@@ -159,14 +159,12 @@ Real replies that missed, and what to send instead:
 
 ## Dry run
 
-When the invocation says "dry run", run every step, but nothing reaches a
-reporter, a reviewer, or `main`:
+On "dry run", run every step but send nothing:
 
-- No reactions or replies. Record each reaction you'd add and the exact reply
-  you'd send, linking the fix branch where the PR would go.
-- Treat other runs' claims as unclaimed; still honor Steve's `:mag:` and 👀.
-- Publish each fix group as its own branch; skip PRs, merges, `/ship`, and
-  issue comments.
+- Record each reaction and the exact reply you'd post, linking the fix branch
+  where the PR would go.
+- Treat other runs' claims as unclaimed; honor Steve's `:mag:` and 👀.
+- Publish one branch per fix group; skip PRs, merges, `/ship`, and comments.
 - Skip the Steve profile check; use the state the invocation names.
 
 ## 1. Collect (keep it under ~15 minutes)

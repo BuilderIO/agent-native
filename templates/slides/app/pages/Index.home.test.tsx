@@ -486,9 +486,12 @@ function ActiveIndex() {
   return <Index active={useMatch("/home") !== null} />;
 }
 
+const observedHistoryState = vi.hoisted(() => vi.fn());
+
 function HistoryControls() {
   const location = useLocation();
   const navigate = useNavigate();
+  observedHistoryState(location.state);
   return (
     <>
       <div data-testid="history-path">{location.pathname}</div>
@@ -1511,6 +1514,60 @@ describe("Slides prompt-led home", () => {
     expect(window.localStorage.getItem(signedInNewDeckDraftKey)).toContain(
       prompt,
     );
+  });
+
+  it("keeps text attachment bytes in memory across a failed start and retry", async () => {
+    const data = `data:text/html;base64,${btoa("a".repeat(1_000_000))}`;
+    const attachment = {
+      type: "file" as const,
+      name: "source.html",
+      contentType: "text/html",
+      data,
+    };
+    const uploaded = {
+      path: "uploads/source.html",
+      originalName: attachment.name,
+      filename: attachment.name,
+      type: "text/html",
+      size: 1_000_000,
+    };
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    agentSubmit
+      .mockResolvedValueOnce({
+        delivered: false,
+        reason: "attachment-unreadable",
+      })
+      .mockResolvedValue({ delivered: true });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall?.[0].onSubmit(
+        "Convert this HTML",
+        [uploaded],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [attachment] },
+      );
+    });
+    await waitFor(() => expect(promptProps.mock.lastCall?.[0].open).toBe(true));
+    expect(
+      observedHistoryState.mock.calls.some(([state]) =>
+        JSON.stringify(state).includes(data),
+      ),
+    ).toBe(false);
+    await act(async () => {
+      await promptProps.mock.lastCall?.[0].onSubmit("Convert this HTML", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledTimes(2));
+    expect(agentSubmit.mock.calls[1]?.[2]).toMatchObject({
+      attachments: [attachment],
+    });
   });
 
   it("restores the prompt when saving a source deck rejects", async () => {

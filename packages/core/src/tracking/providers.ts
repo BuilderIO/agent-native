@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
@@ -78,12 +79,15 @@ function drainQueue(): Promise<void[]> {
   const batch = queue.splice(0, queue.length);
   return Promise.all(
     batch.map((item) =>
-      fetch(item.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...item.headers },
-        body: item.body,
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      }).then(
+      // Whichever call's frame drains the queue, the events are not its writes.
+      withoutWriteObservation(() =>
+        fetch(item.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...item.headers },
+          body: item.body,
+          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+        }),
+      ).then(
         () => undefined,
         () => undefined,
       ),

@@ -480,6 +480,8 @@ const messages = {
       liveStarted: "Lauf gestartet.",
       liveFailed: "Der Lauf konnte nicht gestartet werden. {{reason}}",
       enableFailed: "Der Workflow konnte nicht geändert werden. {{reason}}",
+      testNeedsItems:
+        "Dieser Schritt braucht Elemente zum Testen. Führe zuerst einen Probelauf des Workflows aus und teste dann den Schritt.",
     },
     nodePanel: {
       tabsName: "Schrittansichten",
@@ -489,6 +491,8 @@ const messages = {
         "Führe den Workflow einmal aus, damit dieser Schritt Elemente zum Testen hat.",
       testStepSamplesFailed:
         "Die Elemente zum Testen dieses Schritts konnten nicht geladen werden.",
+      testStepOlderSample:
+        "Test mit Elementen aus einem früheren Lauf: Die neuesten Läufe haben diesem Schritt keine geliefert.",
     },
     nodeDetails: {
       dialogName: "Schrittdetails",
@@ -534,6 +538,62 @@ const messages = {
       pathCopyFailed: "Der Pfad konnte nicht kopiert werden",
       dragHint: "Diesen Griff auf ein Feld ziehen, um es zuzuordnen",
       mappedFirstField: "Du hast gerade ein Feld zugeordnet.",
+    },
+    apiRequest: {
+      docs: "Doku",
+      docsFor: "API-Doku von {{provider}}",
+      truncatedNotice:
+        "Die Antwort wurde gekürzt, damit sie passt. Ein einzelner Datensatz kann schon so groß sein. Schränke die Abfrage mit Parametern wie per_page ein oder nutze Paginierung.",
+      cutList: "{{path}}: {{kept}} von {{of}} Einträgen behalten",
+      cutText: "{{path}}: {{kept}} von {{of}} Zeichen behalten",
+      cutKeys_one: "{{path}}: {{count}} Feld weggelassen",
+      cutKeys_other: "{{path}}: {{count}} Felder weggelassen",
+      cutsMore_one: "und {{count}} weitere Kürzung",
+      cutsMore_other: "und {{count}} weitere Kürzungen",
+      tooLargeHint:
+        "Ein Schritt kann insgesamt etwa 64 KB und 100 Elemente weitergeben, einschließlich aller früheren Antworten, die noch an ihnen hängen. Schränke die Abfrage ein, nutze Paginierung oder mache in einem Lauf weniger Aufrufe.",
+      fieldsMissing:
+        "Diese Felder wurden in der Antwort nicht gefunden: {{names}}",
+      fieldsMissingMore: "und {{count}} weitere",
+      cutNotice:
+        "Nur der Anfang der Antwort wird angezeigt: Ein Schritt behält einen kurzen Auszug von dem, was er gelesen hat.",
+      noOutputRecorded:
+        "Dieser Lauf hat für diesen Schritt keine Antwort aufgezeichnet.",
+      liveMark: "HTTP {{status}}, {{ms}} ms",
+      notStored:
+        "Nur hier angezeigt. Die Antwort wird nicht gespeichert, und beim Schließen dieses Fensters wird sie gelöscht.",
+      errorDetails: "Fehlerdetails",
+      detailCode: "Fehlercode",
+      detailStatus: "Status",
+      detailMessage: "Nachricht",
+      heading: {
+        not_connected: "Der Anbieter ist nicht verbunden",
+        access_denied: "Der Anbieter hat den Zugriff der Verbindung abgelehnt",
+        not_found: "Der Anbieter konnte diesen Pfad nicht finden",
+        rate_limited: "Der Anbieter begrenzt die Anfragen",
+        provider_problem: "Beim Anbieter gab es ein Problem",
+        rejected: "Der Anbieter hat die Anfrage abgelehnt",
+        too_large: "Die Antworten waren zu groß, um sie zu speichern",
+        request_failed: "Die Anfrage ist nicht durchgegangen",
+        request_refused:
+          "Die Anfrage wurde abgelehnt, bevor sie gesendet wurde",
+        unreadable: "Die Antwort konnte nicht gelesen werden",
+        expression_failed: "Ein Wert, den dieser Schritt liest, ist leer",
+        test_not_allowed: "Du kannst diesen Schritt nicht testen",
+        failed: "Der Schritt ist fehlgeschlagen",
+        full_url_refused: "Der Pfad ist eine vollständige URL",
+        unsafe_path_value:
+          "Der Pfad kann nicht so gesendet werden, wie eingegeben",
+        invalid_query: "Die Abfrageparameter sind ungültig",
+        invalid_header: "Ein Header ist ungültig",
+        header_denied: "Ein Header kann hier nicht gesetzt werden",
+        invalid_pagination: "Die Paginierungseinstellungen sind ungültig",
+        invalid_timeout: "Das Zeitlimit ist ungültig",
+        incompatible_fields:
+          "Status und Header können nicht mit Paginierung zurückgegeben werden",
+        invalid_fields_to_keep: "Die beizubehaltenden Felder sind ungültig",
+        invalid_field: "Ein Feld ist leer oder ungültig",
+      },
     },
     diagnostics: {
       copy: "Diagnosen kopieren",
@@ -802,6 +862,7 @@ const messages = {
       itemFailures_other: "{{count}} Elemente fehlgeschlagen",
       needsCheck: "{{count}} zu prüfen",
       nothing: "Nichts Neues",
+      primed: "Ab jetzt gestartet",
       summary: "{{head}}: {{parts}}",
     },
     change: {
@@ -909,6 +970,11 @@ const messages = {
       searchApps: "Apps suchen...",
       searchActions: "Aktionen suchen...",
       clearSearch: "Suche löschen",
+      apiRequest: "API-Anfrage",
+      apiRequestLink: "API-Anfrage-Schritt",
+      apiRequestTip:
+        "Jeden Endpunkt einer verbundenen App mit dem {{link}} lesen.",
+      anythingElseCaption: "Sonstiges",
       hint: {
         onSchedule: "Läuft nach Zeitplan, alle paar Minuten oder täglich",
         newFromApp: "Eine neue Nachricht, ein Ticket, ein Lead oder ein Abo",
@@ -918,6 +984,7 @@ const messages = {
         data: "Elemente filtern, aufteilen oder zusammenführen",
         flow: "Element weiterleiten, pausieren oder stoppen",
         describe: "Den Agenten bitten, diesen Schritt zu erstellen",
+        apiRequest: "Jeden Endpunkt einer verbundenen App lesen",
         decideAi: "Eine Frage zu jedem Element beantworten",
         builderStart: "Einen klaren Bug an Builder zum Beheben übergeben",
         builderCheck: "Prüfen, wo eine Builder-Aufgabe gerade steht",
@@ -972,6 +1039,7 @@ const messages = {
       match: "Treffer",
       otherwise: "Sonst",
       limitReached: "Limit erreicht",
+      error: "Fehler",
       replied: "Beantwortet",
       timedOut: "Abgelaufen",
       done: "Erledigt",
@@ -1150,6 +1218,11 @@ const messages = {
       noOperations: "Keine Operationen verfügbar",
       notInCatalog: "{{id}} (nicht im Katalog)",
       resultName: "Ergebnis benennen",
+      onError: {
+        label: "Bei Fehler",
+        stop: "Diesen Eintrag anhalten",
+        route: "An den Fehlerausgang senden",
+      },
       insertPath: "Pfad einfügen",
       searchPaths: "Pfade suchen",
       noPaths: "Kein Pfad passt dazu.",
@@ -1255,6 +1328,7 @@ const messages = {
       combine: {
         mode: "Bündeln zu",
         key: "Gruppieren nach",
+        firstMemberIdentity: "Jede Gruppe nach ihrem ersten Eintrag benennen",
         field: "Dieses Feld sammeln",
         group: "Gruppieren nach",
         value: "Addieren",
@@ -1347,6 +1421,168 @@ const messages = {
           "Ihre {{count}} Verbindungen werden ebenfalls entfernt.",
         confirm: "Route entfernen",
         cancel: "Route behalten",
+      },
+      apiRequest: {
+        importCurl: "cURL importieren",
+        method: "Methode",
+        methodReadOnly:
+          "Dieser Schritt liest nur, daher ist die Methode immer GET.",
+        provider: "Anbieter",
+        path: "Pfad",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "Authentifizierung",
+        authProvider: "Anbieterverbindung",
+        authProviderHint:
+          "Sendet die Zugangsdaten der Verbindung mit der Anfrage",
+        authNone: "Keine",
+        authNoneHint:
+          "Sendet keine Zugangsdaten, für einen öffentlichen Endpunkt",
+        sendQuery: "Abfrageparameter senden",
+        sendHeaders: "Header senden",
+        specifyQuery: "Abfrageparameter angeben",
+        specifyHeaders: "Header angeben",
+        modeFields: "Mit Feldern unten",
+        modeJson: "Mit JSON",
+        name: "Name",
+        value: "Wert",
+        queryJson: "Abfrageparameter als JSON",
+        headersJson: "Header als JSON",
+        addParameter: "Parameter hinzufügen",
+        addHeader: "Header hinzufügen",
+        removeRow: "Entfernen",
+        addOption: "Option hinzufügen",
+        optionTimeout: "Zeitlimit",
+        optionPagination: "Paginierung",
+        optionStatus: "Antwortstatus und Header einbeziehen",
+        optionFieldsToKeep: "Beizubehaltende Felder",
+        optionFieldsToKeepHint:
+          "Behalten Sie nur die Felder, die spätere Schritte verwenden, damit lange Antworten passen.",
+        fieldsPlaceholder:
+          "Geben Sie ein Feld ein, z. B. user.login, und drücken Sie die Eingabetaste",
+        fieldsInputLabel: "Beizubehaltendes Feld hinzufügen",
+        removeField: "{{path}} entfernen",
+        pickFromResponse: "Aus der letzten Antwort auswählen",
+        pickSearch: "Felder durchsuchen",
+        pickNeedsTest:
+          "Führen Sie zuerst „Schritt testen“ aus und wählen Sie dann aus dessen Antwort.",
+        pickRunning: "„Schritt testen“ läuft noch.",
+        pickFailed:
+          "Der letzte Test ist fehlgeschlagen, daher gibt es keine Antwort zum Auswählen.",
+        pickNoFields: "Die Antwort enthält keine Felder zum Auswählen.",
+        pickCutNote:
+          "Die Antwort wurde gekürzt, daher werden Felder, die nur in späteren Einträgen vorkommen, nicht angezeigt.",
+        pickCapped: "Die ersten {{count}} Felder werden angezeigt.",
+        pickKeptNote:
+          "Zeigt die Felder der letzten Antwort. Führen Sie „Schritt testen“ ohne beizubehaltende Felder aus, um alle zu sehen.",
+        optionBlockedByPagination: "Mit Paginierung nicht verfügbar.",
+        optionBlockedByStatus:
+          "Nicht verfügbar, solange Antwortstatus und Header enthalten sind.",
+        removeOption: "{{option}} entfernen",
+        timeoutSeconds: "Zeitlimit (Sekunden)",
+        cursorPath: "Cursor-Pfad",
+        cursorParam: "Cursor-Parameter",
+        itemsPath: "Pfad der Elemente",
+        maxPages: "Höchstzahl Seiten",
+        notice:
+          "Anfragen lesen nur. Sie nutzen die Anbieterverbindung, hier werden keine Zugangsdaten angezeigt oder gespeichert.",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "Gib den Pfad des Endpunkts ein, zum Beispiel repos/acme/web/issues.",
+          fullUrl: "Gib nur den Pfad ein. Der Host kommt von der Verbindung.",
+          useOnlyPath: "Nur den Pfad verwenden",
+          pathQuery:
+            "Trage Abfrageparameter unter „Abfrageparameter senden“ ein, nicht im Pfad.",
+          moveToParameters: "In die Abfrageparameter verschieben",
+          pathFragment:
+            "Entferne den Teil ab dem #: Er wird nie an den Anbieter gesendet.",
+          pathPlaceholder:
+            "Ein {name} im Pfad ist nicht ausgefüllt. Gib den echten Wert ein.",
+          pathSegment:
+            "Der Pfad hat einen leeren Teil, einen Punkt-Teil oder einen Teil mit Steuerzeichen.",
+          pathLength: "Der Pfad ist zu lang.",
+          queryInvalid:
+            "Abfrageparameter brauchen Namen mit Text-, Zahl- oder Listenwerten.",
+          queryName: "Verwende im Namen nur Buchstaben, Ziffern und - _ . [ ].",
+          queryValue:
+            "Ein Wert darf keinen Zeilenumbruch enthalten und nicht so lang sein.",
+          nameMissing: "Gib einen Namen ein oder entferne diese Zeile.",
+          headersInvalid: "Header brauchen Namen mit Textwerten.",
+          headerDenied:
+            "{{name}} wird von der Verbindung gesendet und kann hier nicht gesetzt werden.",
+          headerDeniedRow: "Die Verbindung sendet diesen Header selbst.",
+          headerName: "Das ist kein gültiger Headername.",
+          headerValue:
+            "Ein Wert darf kein Steuerzeichen enthalten und nicht so lang sein.",
+          headerDuplicate: "Dieser Header ist bereits aufgeführt.",
+          timeout: "Verwende eine Anzahl Sekunden von 1 bis 60.",
+          paginationShape: "Prüfe die Paginierungseinstellungen.",
+          paginationCursorPath:
+            "Gib den Pfad zum nächsten Cursor in der Antwort ein, zum Beispiel meta.next_cursor.",
+          paginationCursorParam:
+            "Gib den Abfrageparameter ein, der den Cursor zurücksendet.",
+          paginationItemsPath:
+            "Verwende einen Pfad mit Punkten zur Liste auf jeder Seite, zum Beispiel data.items.",
+          paginationMaxPages: "Verwende eine ganze Zahl von 1 bis 5 Seiten.",
+          statusWithPaging:
+            "Schalte Status und Header oder die Paginierung aus: Nur der Status der letzten Seite ist bekannt.",
+          fieldsToKeepShape:
+            "Beizubehaltende Felder müssen eine Liste von Feldnamen sein.",
+          fieldsToKeepEmpty:
+            "Fügen Sie mindestens ein Feld hinzu oder entfernen Sie diese Option.",
+          fieldsToKeepCount: "Behalten Sie höchstens 50 Felder bei.",
+          fieldsToKeepControl:
+            "Ein Feldname darf kein Steuerzeichen enthalten.",
+          fieldsToKeepSegment:
+            "Benennen Sie jede Ebene zwischen den Punkten, z. B. user.login.",
+          fieldsToKeepLong:
+            "Jede Ebene eines Feldnamens darf höchstens 64 Zeichen lang sein.",
+          fieldsToKeepDeep: "Ein Feld darf höchstens 8 Ebenen tief sein.",
+          fieldsToKeepReserved:
+            "Dieser Name ist reserviert und kann nicht verwendet werden.",
+          fieldsToKeepDuplicate: "Dieses Feld ist bereits aufgeführt.",
+          droppedCredentials:
+            "Weggelassen: {{names}}. Zugangsdaten werden nie in einem Schritt gespeichert.",
+        },
+        importDialog: {
+          title: "cURL-Befehl importieren",
+          label: "cURL-Befehl",
+          placeholder: "cURL-Befehl hier einfügen",
+          warning:
+            "Dadurch werden die Einstellungen dieses Schritts überschrieben.",
+          import: "Importieren",
+          cancel: "Abbrechen",
+          done: "Fertig",
+          providersFailed:
+            "Die Liste der Anbieter konnte nicht geladen werden, daher kann ein Befehl noch nicht zugeordnet werden.",
+          retry: "Erneut versuchen",
+          imported: "Aus cURL importiert",
+          leftOutTitle: "Importiert. Diese wurden weggelassen:",
+          fail: {
+            not_curl: "Das ist kein cURL-Befehl. Er sollte mit curl beginnen.",
+            no_url: "Der Befehl enthält keine URL.",
+            invalid_url:
+              "Die URL konnte nicht gelesen werden. Sie darf keine Variable und keinen Befehl enthalten.",
+            not_https: "Nur https-URLs können importiert werden.",
+            unknown_host: "Diese URL gehört zu keinem verbundenen Anbieter.",
+            unterminated_quote:
+              "Ein Anführungszeichen im Befehl wird nie geschlossen.",
+            method_not_get:
+              "Dieser Schritt liest nur mit GET, der Befehl verlangt aber etwas anderes.",
+          },
+          failFlag:
+            "Dieser Schritt liest nur mit GET, der Befehl verwendet aber {{flag}}.",
+          leftOut: {
+            credentials: "Zugangsdaten, die die Verbindung liefert: {{names}}",
+            headers: "Header, die die Anfrage selbst sendet: {{names}}",
+            bodies: "Der Anfragetext, da dieser Schritt nur liest: {{names}}",
+            flags: "Optionen ohne Wirkung hier: {{names}}",
+            unreadableHeader: "Ein Header, der nicht gelesen werden konnte",
+            extraUrl: "Jede weitere URL nach der ersten",
+            urlUserinfo: "Benutzername und Passwort in der URL",
+          },
+        },
       },
     },
     rejection: {

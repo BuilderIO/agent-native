@@ -3,6 +3,18 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-02
+
+### Fixed
+
+- The desktop app no longer uploads a second copy of a saved recording you already uploaded another way.
+
+## 2026-10-30
+
+### Fixed
+
+- Trash now says whether Clips is still checking a deleted video's files, couldn't confirm they were deleted, or needs to retry a storage usage update, and each retry button retries only that step.
+
 ## 2026-10-29
 
 ### Improved
@@ -1592,28 +1604,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - The desktop countdown now dims the screen until recording starts.
 - Desktop recordings now keep microphone volume clear while recording with live transcription.
-
-## 2026-07-05
-
-### Added
-
-- Desktop Clips can now use a custom global shortcut to start or stop recording.
-
-### Improved
-
-- Mobile clip pages use a tighter viewer layout with inline activity and a reliable preparing overlay.
-- Timeline zoom controls are now visible in the clip editor, support trackpad pinch gestures, and stay anchored while selecting ranges.
-
-### Fixed
-
-- Desktop full-screen recordings with system audio now finalize reliably when the microphone is enabled.
-- Desktop recordings no longer fail when saved capture constraints are stale after an app update.
-- Permanently deleted clips now clean up matching video and thumbnail objects from configured S3-compatible storage.
-
-## 2026-07-03
-
-### Fixed
-
-- Mobile recording pages keep videos in a 16:9 player with activity below.
 
 For the full list of updates, see the [changelog folder](./changelog/).
