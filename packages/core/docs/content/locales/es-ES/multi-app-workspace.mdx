@@ -118,13 +118,13 @@ Cada aplicación ya sabe cómo iniciar sesión, compartir la misma base de datos
 Desde cualquier lugar dentro del espacio de trabajo:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 El CLI muestra nuevamente el selector de plantillas con las aplicaciones que ya ha instalado filtradas. Elija uno o más y se estructurarán en `apps/`. Variante no interactiva:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Cualquier plantilla propia funciona como una aplicación de espacio de trabajo: CLI ejecuta una pequeña transformación **workspacify** en la plantilla que agrega el paquete compartido como depósito y resuelve las referencias de `workspace:*`. No es necesario mantener un andamio paralelo de "aplicación de espacio de trabajo".
@@ -258,6 +258,8 @@ De forma predeterminada, cada espacio de trabajo puede acceder a las aplicacione
 Los IDs desconocidos en `include` registran una advertencia y se ignoran. Una aplicación independiente puede usar la misma clave en su propio `package.json`. `agent-native dev` y los despliegues del espacio de trabajo pasan el valor a cada aplicación como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
 Esta configuración controla la lista de aplicaciones, el descubrimiento de agentes y las llamadas entre agentes. Las aplicaciones montadas en el workspace y las URL personalizadas de agentes remotos conectados conservan prioridad. El acceso de aplicaciones MCP sigue siendo un permiso de enrutamiento independiente.
+
+En Dispatch, los propietarios y administradores de la organización también pueden ocultar las aplicaciones integradas ofrecidas en Configuración › Organización › Aplicaciones (o con `set-hosted-apps-settings`). Así desaparecen de las listas de aplicaciones de Dispatch y del contexto de aplicaciones de su agente para la organización; `call-agent` por nombre sigue llegando a ellas. Sin una organización no hay página de configuración para esto, así que solo el agente puede cambiarlo, para ese usuario.
 
 ## Servidores MCP compartidos {#shared-mcp}
 

@@ -9,6 +9,7 @@ import {
   _appTitleForScaffold,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _getAgentKitDependencyVersion,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
   _getGitHubTemplateRefCandidates,
@@ -482,6 +483,7 @@ describe("materializeTemplate", () => {
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      agentKitDependencyVersion: _getAgentKitDependencyVersion(),
       otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(appDir, "crm", "chat", {

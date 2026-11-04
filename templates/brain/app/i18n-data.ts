@@ -483,6 +483,11 @@ const enUS = {
       "Choose a folder or batch of Markdown files. Each file becomes a searchable document capture and follows this source's access setting.",
     chooseMarkdownFolder: "Choose Markdown folder",
     importMarkdownFiles: "Import Markdown files",
+    companyContextUpload: "Upload company context",
+    companyContextAdminOnly:
+      "Only organization owners and admins can upload company context.",
+    companyContextOpenFailed:
+      "Couldn't open the company context upload. Try again.",
     manualImportNoFiles: "No Markdown files selected",
     manualImportFilesSelected: "{{count}} Markdown files selected",
     manualImportFileLimit:
@@ -3276,6 +3281,10 @@ const exactEnglishDebtOverrides: Partial<
         "اختر مجلدًا أو مجموعة من ملفات Markdown. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
       chooseMarkdownFolder: "اختيار مجلد Markdown",
       importMarkdownFiles: "استيراد ملفات Markdown",
+      companyContextUpload: "رفع سياق الشركة",
+      companyContextAdminOnly:
+        "يمكن فقط لمالكي المؤسسة ومسؤوليها رفع سياق الشركة.",
+      companyContextOpenFailed: "تعذّر فتح رفع سياق الشركة. حاول مرة أخرى.",
       manualImportNoFiles: "لم يتم اختيار ملفات Markdown",
       manualImportFileLimit:
         "سيتم استيراد ملفات .md و.markdown فقط. يقتصر استيراد المجلدات على 100 ملف و4 ملايين حرف.",
@@ -3704,6 +3713,11 @@ const exactEnglishDebtOverrides: Partial<
         "Wählen Sie einen Ordner oder mehrere Markdown-Dateien aus. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
       chooseMarkdownFolder: "Markdown-Ordner auswählen",
       importMarkdownFiles: "Markdown-Dateien importieren",
+      companyContextUpload: "Unternehmenskontext hochladen",
+      companyContextAdminOnly:
+        "Nur Inhaber und Administratoren der Organisation können Unternehmenskontext hochladen.",
+      companyContextOpenFailed:
+        "Der Upload für Unternehmenskontext konnte nicht geöffnet werden. Versuche es erneut.",
       manualImportNoFiles: "Keine Markdown-Dateien ausgewählt",
       manualImportFileLimit:
         "Nur .md- und .markdown-Dateien werden importiert. Ordnerimporte sind auf 100 Dateien und 4 Millionen Zeichen begrenzt.",
@@ -4127,6 +4141,11 @@ const exactEnglishDebtOverrides: Partial<
         "Elige una carpeta o un conjunto de archivos Markdown. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
       chooseMarkdownFolder: "Elegir carpeta de Markdown",
       importMarkdownFiles: "Importar archivos Markdown",
+      companyContextUpload: "Subir contexto de la empresa",
+      companyContextAdminOnly:
+        "Solo los propietarios y administradores de la organización pueden subir contexto de la empresa.",
+      companyContextOpenFailed:
+        "No se pudo abrir la subida de contexto de la empresa. Inténtalo de nuevo.",
       manualImportNoFiles: "No se han seleccionado archivos Markdown",
       manualImportFileLimit:
         "Solo se importan archivos .md y .markdown. Las importaciones de carpetas están limitadas a 100 archivos y 4 millones de caracteres.",
@@ -4555,6 +4574,11 @@ const exactEnglishDebtOverrides: Partial<
         "Choisissez un dossier ou un ensemble de fichiers Markdown. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
       chooseMarkdownFolder: "Choisir un dossier Markdown",
       importMarkdownFiles: "Importer des fichiers Markdown",
+      companyContextUpload: "Importer le contexte d'entreprise",
+      companyContextAdminOnly:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent importer le contexte d'entreprise.",
+      companyContextOpenFailed:
+        "Impossible d'ouvrir l'import du contexte d'entreprise. Réessayez.",
       manualImportNoFiles: "Aucun fichier Markdown sélectionné",
       manualImportFileLimit:
         "Seuls les fichiers .md et .markdown sont importés. Les imports de dossiers sont limités à 100 fichiers et 4 millions de caractères.",
@@ -4948,6 +4972,10 @@ const exactEnglishDebtOverrides: Partial<
         "फ़ोल्डर या Markdown फ़ाइलों का समूह चुनें। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
       chooseMarkdownFolder: "Markdown फ़ोल्डर चुनें",
       importMarkdownFiles: "Markdown फ़ाइलें आयात करें",
+      companyContextUpload: "कंपनी संदर्भ अपलोड करें",
+      companyContextAdminOnly:
+        "केवल संगठन के स्वामी और व्यवस्थापक ही कंपनी संदर्भ अपलोड कर सकते हैं।",
+      companyContextOpenFailed: "कंपनी संदर्भ अपलोड नहीं खुल सका। फिर से कोशिश करें।",
       manualImportNoFiles: "कोई Markdown फ़ाइल नहीं चुनी गई",
       manualImportFileLimit:
         "केवल .md और .markdown फ़ाइलें आयात की जाती हैं। फ़ोल्डर आयात 100 फ़ाइलों और 40 लाख वर्णों तक सीमित हैं।",
@@ -5358,6 +5386,11 @@ const exactEnglishDebtOverrides: Partial<
         "フォルダーまたはMarkdownファイルのまとまりを選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
       chooseMarkdownFolder: "Markdownフォルダーを選択",
       importMarkdownFiles: "Markdownファイルをインポート",
+      companyContextUpload: "会社コンテキストをアップロード",
+      companyContextAdminOnly:
+        "会社コンテキストをアップロードできるのは組織のオーナーと管理者のみです。",
+      companyContextOpenFailed:
+        "会社コンテキストのアップロードを開けませんでした。もう一度お試しください。",
       manualImportNoFiles: "Markdownファイルが選択されていません",
       manualImportFileLimit:
         ".mdと.markdownファイルのみがインポートされます。フォルダーからのインポートは100ファイル、400万文字までです。",
@@ -5760,6 +5793,11 @@ const exactEnglishDebtOverrides: Partial<
         "폴더 또는 Markdown 파일 묶음을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
       chooseMarkdownFolder: "Markdown 폴더 선택",
       importMarkdownFiles: "Markdown 파일 가져오기",
+      companyContextUpload: "회사 컨텍스트 업로드",
+      companyContextAdminOnly:
+        "조직 소유자와 관리자만 회사 컨텍스트를 업로드할 수 있습니다.",
+      companyContextOpenFailed:
+        "회사 컨텍스트 업로드를 열 수 없습니다. 다시 시도하세요.",
       manualImportNoFiles: "선택한 Markdown 파일 없음",
       manualImportFileLimit:
         ".md 및 .markdown 파일만 가져옵니다. 폴더 가져오기는 파일 100개와 400만 자로 제한됩니다.",
@@ -6178,6 +6216,11 @@ const exactEnglishDebtOverrides: Partial<
         "Escolha uma pasta ou um conjunto de arquivos Markdown. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
       chooseMarkdownFolder: "Escolher pasta Markdown",
       importMarkdownFiles: "Importar arquivos Markdown",
+      companyContextUpload: "Enviar contexto da empresa",
+      companyContextAdminOnly:
+        "Somente proprietários e administradores da organização podem enviar contexto da empresa.",
+      companyContextOpenFailed:
+        "Não foi possível abrir o envio de contexto da empresa. Tente novamente.",
       manualImportNoFiles: "Nenhum arquivo Markdown selecionado",
       manualImportFileLimit:
         "Somente arquivos .md e .markdown são importados. As importações de pastas estão limitadas a 100 arquivos e 4 milhões de caracteres.",
@@ -6537,6 +6580,9 @@ const exactEnglishDebtOverrides: Partial<
         "选择一个文件夹或一批 Markdown 文件。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
       chooseMarkdownFolder: "选择 Markdown 文件夹",
       importMarkdownFiles: "导入 Markdown 文件",
+      companyContextUpload: "上传公司上下文",
+      companyContextAdminOnly: "只有组织所有者和管理员可以上传公司上下文。",
+      companyContextOpenFailed: "无法打开公司上下文上传。请重试。",
       manualImportNoFiles: "未选择 Markdown 文件",
       manualImportFileLimit:
         "仅导入 .md 和 .markdown 文件。文件夹导入最多支持 100 个文件和 400 万个字符。",

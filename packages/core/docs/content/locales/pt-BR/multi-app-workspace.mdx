@@ -118,13 +118,13 @@ Todo aplicativo já sabe como fazer login, compartilhar o mesmo banco de dados e
 De qualquer lugar dentro da área de trabalho:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 O CLI mostra o seletor de modelos novamente com os aplicativos que você já instalou filtrados. Escolha um ou mais e eles serão estruturados em `apps/`. Variante não interativa:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Qualquer modelo primário funciona como um aplicativo de espaço de trabalho — o CLI executa uma pequena transformação **workspacify** no modelo que adiciona o pacote compartilhado como uma dependência e resolve referências `workspace:*`. Nenhuma estrutura paralela de "aplicativo de espaço de trabalho" para manter.
@@ -258,6 +258,8 @@ Por padrão, todo workspace pode acessar os apps próprios hospedados (Mail, Cal
 IDs desconhecidos em `include` geram um aviso e são ignorados. Um app independente pode usar a mesma chave no próprio `package.json`. `agent-native dev` e os deploys do workspace repassam o valor a cada app como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
 Essa configuração controla a lista de apps, a descoberta de agentes e as chamadas entre agentes. Apps montados no workspace e URLs personalizadas de agentes remotos conectados mantêm a prioridade. O acesso de apps MCP continua sendo uma permissão de roteamento separada.
+
+No Dispatch, proprietários e administradores da organização também podem ocultar os apps integrados oferecidos em Configurações › Organização › Apps (ou com `set-hosted-apps-settings`). Isso os remove das listas de apps do Dispatch e do contexto de apps do agente dele para a organização; `call-agent` pelo nome continua chegando a eles. Sem uma organização não há página de configurações para isso, então só o agente pode alterá-lo, para esse usuário.
 
 ## Servidores MCP compartilhados {#shared-mcp}
 
