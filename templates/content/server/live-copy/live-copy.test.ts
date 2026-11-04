@@ -1112,6 +1112,7 @@ describe("writes through a switched page's live copy", () => {
           inTransaction(async (tx) => {
             let changed = false;
             const spy: DbExec = {
+              // raw-sql-ok: this test proxy forwards Drizzle's SQL and bound arguments unchanged; it constructs no SQL.
               async execute(input) {
                 const sql = (
                   typeof input === "string" ? input : input.sql
@@ -1156,7 +1157,7 @@ describe("writes through a switched page's live copy", () => {
           }),
         ),
       ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
-      expect((await page(id)).content).toBe("Hello there");
+      expect(await page(id)).toMatchObject({ content: "Hello there" });
     },
   );
 });

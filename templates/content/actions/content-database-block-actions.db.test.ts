@@ -237,10 +237,24 @@ describe("exact Content database block actions", () => {
           anchorBlockId: required(beta).id,
         },
       };
-      const [inserted, concurrentRetry] = await Promise.all([
+      const attempts = await Promise.all([
         asOwner(() => mutateBlock.run(insertInput)),
         asOwner(() => mutateBlock.run(insertInput)),
       ]);
+      // oracle-change: PostgreSQL may lock either request first; exactly one must apply and the other must replay it.
+      expect(
+        attempts.map((attempt) => attempt.receipt.idempotency.result).sort(),
+      ).toEqual(["applied", "replayed"]);
+      const inserted = required(
+        attempts.find(
+          (attempt) => attempt.receipt.idempotency.result === "applied",
+        ),
+      );
+      const concurrentRetry = required(
+        attempts.find(
+          (attempt) => attempt.receipt.idempotency.result === "replayed",
+        ),
+      );
       expect(concurrentRetry.receipt.receiptId).toBe(
         inserted.receipt.receiptId,
       );
