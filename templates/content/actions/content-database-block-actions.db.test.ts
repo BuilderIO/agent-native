@@ -927,6 +927,51 @@ describe("exact Content database block actions", () => {
   });
 
   it.each([false, true])(
+    "reorders identical siblings by ID exactly once (live copy: %s)",
+    async (liveCopy) => {
+      const state = await fixture("Same\nSame\nTail");
+      const { getState } = await import("@agent-native/core/collab");
+      await getState(state.target.rowDocumentId);
+      if (liveCopy)
+        await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const before = await rowBodyState(state.target.rowDocumentId);
+      const [first, second, tail] = state.listed.order;
+      const input = {
+        ...envelope(state, "identical-reorder"),
+        operation: "reorder" as const,
+        blockId: second,
+        position: { placement: "before" as const, anchorBlockId: first },
+      };
+      const result = await asOwner(() => mutateBlock.run(input));
+      expect(result.receipt.outcome).toBe("reordered");
+      expect(result.receipt.readback.order).toEqual([second, first, tail]);
+      expect(result.receipt.revisions.field).toEqual({
+        before: state.listed.fieldRevision,
+        after: state.listed.fieldRevision + 1,
+      });
+      const replay = await asOwner(() => mutateBlock.run(input));
+      expect(replay.receipt).toEqual({
+        ...result.receipt,
+        idempotency: { ...result.receipt.idempotency, result: "replayed" },
+      });
+      await expect(
+        asOwner(() =>
+          mutateBlock.run({
+            ...input,
+            idempotencyKey: "stale-after-identical-reorder",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+      expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+      const current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      expect(current.order).toEqual([second, first, tail]);
+      expect(current.fieldRevision).toBe(state.listed.fieldRevision + 1);
+    },
+  );
+
+  it.each([false, true])(
     "refuses an overtaking title edit before a live block commit (changed: %s)",
     async (changed) => {
       const state = await fixture("Alpha\nBeta");

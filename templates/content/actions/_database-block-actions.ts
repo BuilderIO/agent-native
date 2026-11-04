@@ -951,11 +951,15 @@ async function mutatePrimaryBlockThroughLiveCopy(
           propertyId: input.target.propertyId,
           revision: input.expectedFieldRevision,
         },
-        blocksFieldIdentity: {
-          propertyId: input.target.propertyId,
-          preferredIdsByPath: changed.preferredIdsByPath,
-          rejectCrossFieldIdRemapping: true,
-        },
+        ...(changed.changed
+          ? {
+              blocksFieldIdentity: {
+                propertyId: input.target.propertyId,
+                preferredIdsByPath: changed.preferredIdsByPath,
+                rejectCrossFieldIdRemapping: true as const,
+              },
+            }
+          : {}),
         beforeWrite,
       },
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
@@ -981,14 +985,14 @@ async function mutatePrimaryBlockThroughLiveCopy(
           );
         }
         const now = new Date().toISOString();
-        if (commit.changed)
+        if (changed.changed)
           await touchContentDatabase(tx, input.target.databaseId, now);
         result = await recordBlockMutation({
           tx,
           input,
           inputDigest,
           loaded,
-          changed: { ...changed, changed: commit.changed },
+          changed,
           resolved,
           postIdentity,
           markdown: commit.text,
@@ -1025,6 +1029,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
     );
   }
   if (!result)
+    // guard:allow-bare-error — invariant: a successful edit always awaited the callback that inserts and captures its receipt.
     throw new Error("The live block mutation committed without a receipt.");
   return result;
 }

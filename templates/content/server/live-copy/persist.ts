@@ -813,6 +813,30 @@ export async function persistUnchangedContentBodyEdit(
       );
     }
   }
+  const identity = cause.blocksFieldIdentity;
+  if (identity) {
+    const field = locked.blocksFields.find(
+      (field) => field.propertyId === identity.propertyId,
+    );
+    if (!field)
+      scopeChanged(
+        "Primary Blocks membership changed before the operation completed.",
+      );
+    await persistBlocksFieldIdentity({
+      db,
+      ownerEmail: field.ownerEmail,
+      documentId,
+      propertyId: field.propertyId,
+      previousMarkdown: locked.page.content,
+      markdown: locked.page.content,
+      ...(expected?.propertyId === field.propertyId
+        ? { expectedRevision: expected.revision }
+        : {}),
+      preferredIdsByPath: identity.preferredIdsByPath,
+      rejectCrossFieldIdRemapping: identity.rejectCrossFieldIdRemapping,
+      now: new Date().toISOString(),
+    });
+  }
   if (cause.intent) {
     await recordBodyIntent(db, documentId, locked.page, cause.intent, {
       after: locked.page.content,

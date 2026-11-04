@@ -858,6 +858,7 @@ export async function rowSnapshots(
   ).filter((item) => requested.get(item.id) === item.documentId);
   // DbExec returns objects; a join of both complete rows has duplicate column
   // names, which cannot be mapped back to Drizzle's positional result.
+  // guard:allow-unscoped — exact memberships of an access-checked collection; mutation callers also resolve row access.
   const documents =
     items.length === 0
       ? []
