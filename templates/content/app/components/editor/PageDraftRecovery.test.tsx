@@ -436,6 +436,56 @@ describe("Page draft recovery", () => {
     ).not.toContain("editor.previewDraftConflict");
   });
 
+  it("frees the draft slot when the draft it just resolved was written again", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "other-browser:page",
+      editGeneration: 0,
+    };
+    // Resolving finds the claim that already keeps it, so the row stays.
+    state.refetch.mockImplementation(async () => ({
+      data: { draft: state.draft },
+    }));
+    state.remove.mockImplementation(async () => {
+      state.draft = null;
+      return { status: "deleted" };
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledOnce();
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "delete",
+        documentId: "page",
+        expectedVersion: 3,
+        expectedContent: "Draft body",
+        expectedEditorSessionId: "other-browser:page",
+        expectedEditGeneration: 0,
+      }),
+    );
+  });
+
+  it("keeps a different draft another editor wrote after the one it resolved", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "other-browser:page",
+      editGeneration: 0,
+    };
+    state.refetch.mockResolvedValue({
+      data: { draft: { ...state.draft, content: "Newer body" } },
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalled();
+    expect(state.remove).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "was written on another body at the page's timestamp",

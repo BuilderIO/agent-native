@@ -816,7 +816,18 @@ export function PageDraftRecovery({
         throw new Error("The draft could not be resolved.");
       showDraftFiled(choice, result.urlPath);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
-      await drafts.refetch();
+      const reread = await drafts.refetch();
+      // Another editor can write this exact draft again after it's resolved, as
+      // a second browser filing the same typing does. Resolving it only finds
+      // the claim that already keeps it, so nothing else frees the page's draft
+      // slot and the page would wait on it at every open.
+      const writtenAgain = reread?.data?.draft;
+      if (
+        writtenAgain?.version === draft.version &&
+        writtenAgain.title === draft.title &&
+        writtenAgain.content === draft.content
+      )
+        await discardDraft(writtenAgain);
     } catch {
       setFailure("error");
       await drafts.refetch();
