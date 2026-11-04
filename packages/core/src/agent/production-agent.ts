@@ -14191,19 +14191,26 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    const submissionAttachmentsAreConsistent =
-      submissionPayload !== undefined &&
-      submissionAttachmentsMatch(submissionPayload, requestAttachments);
-    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+    // The worker's body is the foreground's server-built dispatch payload, whose
+    // attachments were sanitized after the client fingerprints were validated, so
+    // they can no longer match those fingerprints.
+    const validateSubmissionAttachments =
+      submissionPayload !== undefined && !isBackgroundWorker;
+    if (
+      submissionPayload &&
+      validateSubmissionAttachments &&
+      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+    ) {
       setResponseStatus(event, 400);
       return {
         error: "submissionPayload does not match this message",
         code: "submission_payload_attachments_mismatch",
       };
     }
-    const submissionRequestAttachmentIndexes = submissionPayload
-      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-      : new Set<number>();
+    const submissionRequestAttachmentIndexes =
+      submissionPayload && validateSubmissionAttachments
+        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+        : new Set<number>();
     if (!submissionRequestAttachmentIndexes) {
       setResponseStatus(event, 400);
       return {
