@@ -3145,13 +3145,13 @@ describe("private preview document drafts", () => {
     const [copy] = await getDb()
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, collaborators.createdDocumentId!));
+      .where(eq(schema.documents.id, collaborators.createdDocumentId ?? ""));
     expect(copy).toMatchObject({
       ownerEmail: COLLABORATOR,
       visibility: "private",
       content: "Collaborator recovery",
     });
-    expect(collaborators.urlPath).toBe(`/page/${copy!.id}`);
+    expect(collaborators.urlPath).toBe(`/page/${copy.id}`);
   });
 
   it("rejects a different terminal recovery choice for an already claimed draft", async () => {
