@@ -384,6 +384,7 @@ import {
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import {
+  refreshedProposalMembers,
   reviewedInThread,
   reviewUnits,
   suggestionSourceThreadId,
@@ -9895,13 +9896,19 @@ function PageEditorSessionBody({
               throw (
                 refreshed.error ?? new Error("Could not refresh proposal edits")
               );
-            currentMembers = refreshed.data.suggestions.filter(
-              (suggestion) =>
-                suggestion.proposalId === proposalId &&
-                suggestion.status === "pending" &&
-                (!exactMembers ||
-                  members.some((member) => member.id === suggestion.id)),
+            const refreshedMembers = refreshedProposalMembers(
+              refreshed.data.suggestions,
+              proposalId,
+              members,
+              exactMembers,
             );
+            if (!refreshedMembers) {
+              toast.error(t("editor.toolbar.conflict"), {
+                description: t("editor.suggestionAmendmentResolved"),
+              });
+              return;
+            }
+            currentMembers = refreshedMembers;
             setPendingProposalDecision((current) =>
               current?.generation === decisionGeneration
                 ? { ...current, members: currentMembers }

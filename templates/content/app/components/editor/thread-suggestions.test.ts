@@ -6,6 +6,7 @@ import {
   proposalGroups,
   receiptSuggestion,
   reviewedInThread,
+  refreshedProposalMembers,
   reviewUnitDiffParts,
   reviewUnitOperations,
   reviewUnits,
@@ -221,6 +222,46 @@ describe("reviewUnitOperations", () => {
       unitOf(swap("Teh", "The"), swap("Keep this line.", "<empty-block/>")),
     );
     expect(operations).toHaveLength(2);
+  });
+});
+
+describe("refreshedProposalMembers", () => {
+  const piece = (id: string, status = "pending", proposalId = "p") =>
+    ({ id, status, proposalId }) as unknown as ResourceSuggestion;
+  const unit = [piece("a"), piece("b")];
+
+  it("keeps an exact set whose pieces are all still pending", () => {
+    const refreshed = [
+      piece("a"),
+      piece("b"),
+      piece("c"),
+      piece("x", "pending", "q"),
+    ];
+    expect(
+      refreshedProposalMembers(refreshed, "p", unit, true)?.map(({ id }) => id),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("refuses an exact set once one of its pieces was decided", () => {
+    expect(
+      refreshedProposalMembers(
+        [piece("a"), piece("b", "accepted")],
+        "p",
+        unit,
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("takes whatever is left of a whole proposal", () => {
+    expect(
+      refreshedProposalMembers(
+        [piece("a", "accepted"), piece("b"), piece("c")],
+        "p",
+        unit,
+        false,
+      )?.map(({ id }) => id),
+    ).toEqual(["b", "c"]);
   });
 });
 

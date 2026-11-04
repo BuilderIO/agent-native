@@ -19,6 +19,30 @@ function push(
   else segments.push({ kind, text });
 }
 
+/**
+ * Words both sides keep, position by position. Their trailing space may differ,
+ * so it's marked as changed and each side still reads as written.
+ */
+function pushSame(
+  segments: WordDiffSegment[],
+  before: readonly string[],
+  after: readonly string[],
+) {
+  for (const [index, token] of after.entries()) {
+    const [beforeToken = token] = before.slice(index, index + 1);
+    const word = token.trimEnd();
+    const beforeSpace = beforeToken.slice(word.length);
+    const afterSpace = token.slice(word.length);
+    push(segments, "same", word);
+    if (beforeSpace === afterSpace) {
+      push(segments, "same", afterSpace);
+    } else {
+      push(segments, "removed", beforeSpace);
+      push(segments, "added", afterSpace);
+    }
+  }
+}
+
 /** Word-level diff of an applied edit, for a compact before → after view. */
 export function wordDiff(before: string, after: string): WordDiffSegment[] {
   const a = before.match(TOKEN) ?? [];
@@ -36,7 +60,7 @@ export function wordDiff(before: string, after: string): WordDiffSegment[] {
   const midA = a.slice(start, endA);
   const midB = b.slice(start, endB);
   const segments: WordDiffSegment[] = [];
-  push(segments, "same", b.slice(0, start).join(""));
+  pushSame(segments, a.slice(0, start), b.slice(0, start));
   if (midA.length * midB.length > MAX_TABLE_CELLS) {
     push(segments, "removed", midA.join(""));
     push(segments, "added", midB.join(""));
@@ -56,7 +80,7 @@ export function wordDiff(before: string, after: string): WordDiffSegment[] {
     let j = 0;
     while (i < midA.length && j < midB.length) {
       if (same(midA[i], midB[j])) {
-        push(segments, "same", midB[j]);
+        pushSame(segments, midA.slice(i, i + 1), midB.slice(j, j + 1));
         i++;
         j++;
       } else if (table[(i + 1) * cols + j] >= table[i * cols + j + 1]) {
@@ -68,7 +92,7 @@ export function wordDiff(before: string, after: string): WordDiffSegment[] {
     push(segments, "removed", midA.slice(i).join(""));
     push(segments, "added", midB.slice(j).join(""));
   }
-  push(segments, "same", b.slice(endB).join(""));
+  pushSame(segments, a.slice(endA), b.slice(endB));
   return consolidateBusyChanges(segments);
 }
 
