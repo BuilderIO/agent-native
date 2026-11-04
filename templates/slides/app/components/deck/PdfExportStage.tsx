@@ -4,8 +4,8 @@ import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 
 import type { DesignSystemData } from "../../../shared/api";
 
-// The PDF exporter captures slides from this stage. Mount it for the whole
-// export: the editor's slide rail and canvas only render slides near the
+// The PDF and PPTX exporters capture slides from this stage. Mount it for the
+// whole export: the editor's slide rail and canvas only render slides near the
 // viewport, so they cannot stand in for it.
 export function PdfExportStage({
   slides,
