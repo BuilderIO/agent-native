@@ -287,9 +287,10 @@ it("rolls source cleanup back when replacement metadata cannot commit", async ()
     ),
   );
   try {
-    await expect(attach(seed)).rejects.toThrow(
-      "synthetic source replacement refusal",
-    );
+    // oracle-change: Drizzle exposes the trigger error as the query error's cause; keep the exact injected refusal and rollback assertion.
+    await expect(attach(seed)).rejects.toMatchObject({
+      cause: { message: "synthetic source replacement refusal" },
+    });
     expect(await snapshot(seed)).toEqual(before);
   } finally {
     await db.execute(
