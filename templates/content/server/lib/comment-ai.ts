@@ -662,22 +662,20 @@ export async function startCommentAiRequest(
     const inserted = await db.transaction(async (tx) => {
       // Locked as delete-comment locks it, so the thread can't be deleted
       // between the check that it's still here and the insert.
-      const root = (
-        await tx
-          .select({ id: schema.documentComments.id })
-          .from(schema.documentComments)
-          .where(
-            and(
-              eq(schema.documentComments.id, args.rootCommentId),
-              eq(schema.documentComments.documentId, args.documentId),
-              eq(schema.documentComments.threadId, args.threadId),
-              isNull(schema.documentComments.parentId),
-            ),
-          )
-          .limit(1)
-          .for("update")
-      ).at(0);
-      if (!root) {
+      const roots = await tx
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.rootCommentId),
+            eq(schema.documentComments.documentId, args.documentId),
+            eq(schema.documentComments.threadId, args.threadId),
+            isNull(schema.documentComments.parentId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (roots.length === 0) {
         throw operationError(
           "root_comment_changed",
           "The selected comment no longer belongs to this Page and thread",

@@ -67,15 +67,13 @@ export default defineAction({
       await db.transaction(async (tx) => {
         // Locked so a delete of the comment either waits and then removes
         // this reaction with the others, or finishes first.
-        const comment = (
-          await tx
-            .select({ id: schema.documentComments.id })
-            .from(schema.documentComments)
-            .where(commentWhere)
-            .limit(1)
-            .for("share")
-        ).at(0);
-        if (!comment) notFound();
+        const comments = await tx
+          .select({ id: schema.documentComments.id })
+          .from(schema.documentComments)
+          .where(commentWhere)
+          .limit(1)
+          .for("share");
+        if (comments.length === 0) notFound();
         await tx
           .insert(schema.documentCommentReactions)
           .values({
@@ -89,14 +87,12 @@ export default defineAction({
           .onConflictDoNothing();
       });
     } else {
-      const comment = (
-        await db
-          .select({ id: schema.documentComments.id })
-          .from(schema.documentComments)
-          .where(commentWhere)
-          .limit(1)
-      ).at(0);
-      if (!comment) notFound();
+      const comments = await db
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(commentWhere)
+        .limit(1);
+      if (comments.length === 0) notFound();
       await db
         .delete(schema.documentCommentReactions)
         .where(
