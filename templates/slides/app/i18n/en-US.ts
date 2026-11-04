@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "No assets yet.",
     assetUploadFailed: "Some uploads failed",
     assetDeleteFailed: "Failed to delete asset",
+    assetDeleteInUse:
+      "This asset is used in a deck. Remove it from the deck first",
+    assetDeleteStorageRemains:
+      "Removed from the library, but the stored file could not be deleted",
     contentMarkdown: "Content (Markdown)",
     speakerNotes: "Speaker Notes",
     speakerNotesForSlide: "Speaker Notes — Slide {{index}} / {{count}}",
@@ -298,6 +302,7 @@ const messages = {
       "Start writing or generate speaker notes quickly with the agent",
   },
   editorToolbar: {
+    saving: "Saving...",
     layoutTitle: "Title",
     layoutSection: "Section Divider",
     layoutContent: "Content",

@@ -120,6 +120,9 @@ const messages = {
     noAssetsYet: "لا توجد أصول بعد.",
     assetUploadFailed: "فشل بعض التحميلات",
     assetDeleteFailed: "فشل حذف الأصل",
+    assetDeleteInUse: "هذا الأصل مستخدم في عرض تقديمي. أزله من العرض أولاً",
+    assetDeleteStorageRemains:
+      "تمت إزالته من المكتبة، لكن تعذر حذف الملف المخزّن",
     contentMarkdown: "المحتوى (Markdown)",
     speakerNotes: "ملاحظات المتحدث",
     speakerNotesForSlide: "ملاحظات المتحدث — الشريحة {{index}} / {{count}}",
@@ -292,6 +295,7 @@ const messages = {
     placeholder: "ابدأ الكتابة أو أنشئ ملاحظات المتحدث بسرعة مع الوكيل",
   },
   editorToolbar: {
+    saving: "جارٍ الحفظ...",
     layoutTitle: "العنوان",
     layoutSection: "فاصل قسم",
     layoutContent: "المحتوى",

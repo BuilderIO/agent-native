@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "아직 에셋이 없습니다.",
     assetUploadFailed: "일부 업로드에 실패했습니다",
     assetDeleteFailed: "에셋 삭제에 실패했습니다",
+    assetDeleteInUse: "이 에셋은 덱에서 사용 중입니다. 먼저 덱에서 제거하세요",
+    assetDeleteStorageRemains:
+      "라이브러리에서 제거했지만 저장된 파일은 삭제하지 못했습니다",
     contentMarkdown: "콘텐츠 (Markdown)",
     speakerNotes: "발표자 노트",
     speakerNotesForSlide: "발표자 노트 — 슬라이드 {{index}} / {{count}}",
@@ -298,6 +301,7 @@ const messages = {
       "직접 작성하거나 에이전트로 발표자 노트를 빠르게 생성해 보세요",
   },
   editorToolbar: {
+    saving: "저장 중...",
     layoutTitle: "제목",
     layoutSection: "섹션 구분",
     layoutContent: "콘텐츠",

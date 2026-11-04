@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "Ainda não há ativos.",
     assetUploadFailed: "Alguns envios falharam",
     assetDeleteFailed: "Falha ao excluir o ativo",
+    assetDeleteInUse:
+      "Este ativo é usado em uma apresentação. Remova-o da apresentação primeiro",
+    assetDeleteStorageRemains:
+      "Removido da biblioteca, mas o arquivo armazenado não pôde ser excluído",
     contentMarkdown: "Conteúdo (Markdown)",
     speakerNotes: "Notas do apresentador",
     speakerNotesForSlide: "Notas do apresentador — Slide {{index}} / {{count}}",
@@ -301,6 +305,7 @@ const messages = {
       "Comece a escrever ou gere notas do apresentador rapidamente com o agente",
   },
   editorToolbar: {
+    saving: "Salvando...",
     layoutTitle: "Título",
     layoutSection: "Divisor de seção",
     layoutContent: "Conteúdo",

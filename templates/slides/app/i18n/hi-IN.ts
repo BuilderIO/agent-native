@@ -120,6 +120,9 @@ const messages = {
     noAssetsYet: "अभी कोई एसेट नहीं है.",
     assetUploadFailed: "कुछ अपलोड विफल हुए",
     assetDeleteFailed: "एसेट हटाने में विफल",
+    assetDeleteInUse: "यह एसेट एक प्रेजेंटेशन में उपयोग हो रहा है। पहले इसे प्रेजेंटेशन से हटाएँ",
+    assetDeleteStorageRemains:
+      "लाइब्रेरी से हटा दिया गया, लेकिन संग्रहीत फ़ाइल नहीं हटाई जा सकी",
     contentMarkdown: "सामग्री (Markdown)",
     speakerNotes: "स्पीकर नोट्स",
     speakerNotesForSlide: "स्पीकर नोट्स — स्लाइड {{index}} / {{count}}",
@@ -293,6 +296,7 @@ const messages = {
     placeholder: "लिखना शुरू करें या एजेंट से जल्दी स्पीकर नोट्स जनरेट करें",
   },
   editorToolbar: {
+    saving: "सहेजा जा रहा है...",
     layoutTitle: "शीर्षक",
     layoutSection: "सेक्शन डिवाइडर",
     layoutContent: "कंटेंट",

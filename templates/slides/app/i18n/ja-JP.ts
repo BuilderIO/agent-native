@@ -123,6 +123,10 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetDeleteInUse:
+      "このアセットはデッキで使用されています。先にデッキから削除してください",
+    assetDeleteStorageRemains:
+      "ライブラリから削除しましたが、保存されたファイルは削除できませんでした",
     contentMarkdown: "コンテンツ (Markdown)",
     speakerNotes: "スピーカーノート",
     speakerNotesForSlide: "スピーカーノート — スライド {{index}} / {{count}}",
@@ -301,6 +305,7 @@ const messages = {
       "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "タイトル",
     layoutSection: "セクション区切り",
     layoutContent: "コンテンツ",

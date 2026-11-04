@@ -36,6 +36,8 @@ import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
 } from "./action-ui.js";
+import { normalizeOptionalToolPlaceholders } from "./agent/optional-placeholders.js";
+import { getStrictToolInputValidator } from "./agent/strict-tool-input.js";
 import type {
   ActionTool,
   AgentChatAttachment,
@@ -1021,6 +1023,12 @@ interface DefineActionWithSchema<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** An empty list on this action sets an option and erases nothing saved, so
+   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
+   *  this off for any action that stores a list: there, `[]` beside a padded
+   *  `null` might be a real clear or padding, so the call is refused rather
+   *  than guessed at. */
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1150,6 +1158,7 @@ interface DefineActionWithParams<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1204,6 +1213,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
   readonly eagerInputStreaming?: boolean;
+  readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -1652,6 +1662,9 @@ export function defineAction(options: any) {
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
       ? { eagerInputStreaming: options.eagerInputStreaming }
+      : {}),
+    ...(typeof options.emptyListsEraseNothing === "boolean"
+      ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
@@ -2759,8 +2772,18 @@ export async function actionCallIntent(
       : undefined;
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
+    const repaired = getStrictToolInputValidator(entry)
+      ? { input, error: undefined }
+      : normalizeOptionalToolPlaceholders(
+          entry.tool?.parameters,
+          coerceGatewayStringifiedArgs(input, entry.tool?.parameters),
+          entry,
+          { nullOnly: true },
+        );
+    if (repaired.error) throw repaired.error;
+    args = repaired.input;
     if (schema) {
-      args = await validateActionArgs(schema, input, entry.tool?.parameters);
+      args = await validateActionArgs(schema, args, entry.tool?.parameters);
     }
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.
