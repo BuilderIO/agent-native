@@ -12,6 +12,7 @@ const context = vi.hoisted(() => ({
   email: "viewer@example.com",
   role: null as "owner" | "editor" | null,
   childReads: vi.fn(),
+  transcriptFailure: null as Error | null,
 }));
 
 const TABLES = vi.hoisted(() => ({
@@ -62,6 +63,26 @@ const makeRealDb = vi.hoisted(() => () => ({
           return { where: async () => [context.recording] };
         }
         context.childReads(table);
+        if (
+          table &&
+          typeof table === "object" &&
+          table.recordingId === "transcripts.recordingId"
+        ) {
+          return {
+            where: async () => {
+              if (context.transcriptFailure) throw context.transcriptFailure;
+              return [
+                {
+                  recordingId: "rec-test",
+                  fullText: "Fake secret spoken words",
+                  segmentsJson: "[]",
+                  status: "ready",
+                  language: "en",
+                },
+              ];
+            },
+          };
+        }
         const rows =
           table === TABLES.recordingBugReports
             ? [
@@ -242,10 +263,6 @@ vi.mock("../shared/browser-diagnostics.js", () => ({
   parseBrowserDiagnosticsRow: () => null,
 }));
 
-vi.mock("./lib/transcript-preview.js", () => ({
-  buildTranscriptPreview: () => null,
-}));
-
 import action from "./view-screen";
 
 describe("view-screen meeting", () => {
@@ -356,8 +373,51 @@ describe("view-screen recording access", () => {
       expiresAt: null,
     };
     context.recording = recording;
+    context.transcriptFailure = null;
   });
 
+  it.each(["viewer", "editor"] as const)(
+    "withholds protected transcript context from a shared %s",
+    async (role) => {
+      context.role = role === "editor" ? role : null;
+      recording.password = "fake-password-digest";
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.transcript).toBeUndefined();
+      expect(screen.transcriptUnavailableReason).toBe("password_required");
+      expect(screen.comments[0].content).toBe("Fake discussion");
+      expect(
+        context.childReads.mock.calls.some(
+          ([table]) =>
+            table &&
+            typeof table === "object" &&
+            table.recordingId === "transcripts.recordingId",
+        ),
+      ).toBe(false);
+      expect(JSON.stringify(screen)).not.toContain("Fake secret spoken words");
+    },
+  );
+  it.each([
+    { email: "OWNER@example.com", password: "fake-password-digest" },
+    { email: "viewer@example.com", password: null },
+    { email: "viewer@example.com", password: "" },
+  ])(
+    "keeps allowed transcript context for $email / $password",
+    async ({ email, password }) => {
+      context.email = email;
+      recording.password = password;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.transcript.fullTextSnippet).toBe(
+        "Fake secret spoken words",
+      );
+      expect(screen.transcriptUnavailableReason).toBeUndefined();
+    },
+  );
+  it("propagates transcript query failures instead of reporting an empty transcript", async () => {
+    const failure = new Error("Fake transcript query failure");
+    context.transcriptFailure = failure;
+    await expect(action.run({})).rejects.toBe(failure);
+  });
   it.each([
     { trashedAt: "2026-01-01T00:00:00Z" },
     { expiresAt: "2020-01-01T00:00:00Z" },

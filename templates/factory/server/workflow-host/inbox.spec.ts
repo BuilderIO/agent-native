@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
 import type { ActionEntry } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -103,6 +104,34 @@ interface Calls {
   calls: GuardedActionCall[];
 }
 
+/**
+ * What the real poll action adds to its answer whenever it is asked to leave
+ * the app's own posts out: how many it left out. A scripted answer says it too,
+ * so a test about something else does not have to.
+ */
+function withSkippedOwn(
+  call: GuardedActionCall,
+  result: GuardedActionResult,
+): GuardedActionResult {
+  if (
+    call.input.skipOwnPosts !== true ||
+    result.status !== "completed" ||
+    !result.output.startsWith("{")
+  ) {
+    return result;
+  }
+  const answer: unknown = JSON.parse(result.output);
+  if (
+    typeof answer !== "object" ||
+    answer === null ||
+    (answer as { ok?: unknown }).ok !== true ||
+    "skippedOwn" in answer
+  ) {
+    return result;
+  }
+  return { ...result, output: JSON.stringify({ ...answer, skippedOwn: 0 }) };
+}
+
 /** A caller that records what it was asked and answers from a script. */
 function scriptedCaller(
   respond: (
@@ -112,7 +141,7 @@ function scriptedCaller(
   const calls: GuardedActionCall[] = [];
   const caller = (async (call: GuardedActionCall) => {
     calls.push(call);
-    return respond(call);
+    return withSkippedOwn(call, await respond(call));
   }) as GuardedActionCaller & Calls;
   caller.calls = calls;
   return caller;
@@ -199,6 +228,58 @@ describe("an inbox poll", () => {
       thread: { channelId: "C1", threadTs: "1760781600.000100" },
       extras: { status: "received", coverage: "complete" },
     });
+  });
+
+  it("names a Slack report by the headline its poll recorded, with who wrote it beside, and by its title when the poll recorded none", async () => {
+    await insertRow({
+      id: "headed",
+      title: "Slack user Pat",
+      summary: "Export is empty. It worked on Monday.",
+      metadataJson: slackMeta({ headline: "Export is empty" }),
+      updatedAt: NOW,
+    });
+    await insertRow({
+      id: "plain",
+      title: "Slack user Sam",
+      metadataJson: slackMeta(),
+      updatedAt: EARLIER,
+    });
+    const caller = scriptedCaller(() => completed({ ok: true, observed: 2 }));
+
+    const taken = await inbox(caller).take(pollRequest({ poller: "slack" }));
+
+    if (!taken.ok) throw new Error("expected items");
+    const [headed, plain] = taken.items;
+    expect(headed).toMatchObject({
+      id: "headed",
+      title: "Export is empty",
+      text: "Export is empty. It worked on Monday.",
+      extras: { authorLabel: "Slack user Pat" },
+    });
+    expect(plain?.title).toBe("Slack user Sam");
+    expect(plain?.extras).not.toHaveProperty("authorLabel");
+    // The row itself is untouched: the Items list still shows who wrote it.
+    const [row] = await db
+      .select()
+      .from(triageItems)
+      .where(eq(triageItems.id, "headed"));
+    expect(row?.title).toBe("Slack user Pat");
+  });
+
+  it("names a report by its headline in a status source too, so a later story's messages name it the same way", async () => {
+    await insertRow({
+      id: "handed",
+      title: "Slack user Pat",
+      status: "automation_started",
+      metadataJson: slackMeta({ headline: "Export is empty" }),
+    });
+
+    const taken = await inbox(scriptedCaller(() => completed({}))).take(
+      statusRequest("automation_started"),
+    );
+
+    if (!taken.ok) throw new Error("expected items");
+    expect(taken.items[0]?.title).toBe("Export is empty");
   });
 
   it("takes only as many items as the source asks for and reports how many there were", async () => {
@@ -571,6 +652,32 @@ describe("a poller that does not deliver", () => {
     );
   });
 
+  // core hands the code on only for a non-recoverable error; the output text always carries it.
+  it.each([undefined, "app_secret_unreadable"])(
+    "says a saved key this deployment cannot decrypt is not retryable and not a missing connection, and names the key (errorCode %s)",
+    async (errorCode) => {
+      const { taken } = await seededTake({
+        status: "failed",
+        output:
+          "Error running poll-slack-channel: SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it, so nothing that needs it can run. Retrying will not help: a person must save it again under Keys in Settings. (errorCode: app_secret_unreadable)",
+        ...(errorCode ? { errorCode } : {}),
+      });
+
+      expect(taken).toMatchObject({
+        ok: false,
+        reason: "poller_failed",
+        code: "provider_error",
+        retryable: false,
+      });
+      expect(taken.ok ? "" : taken.message).toContain(
+        "SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it",
+      );
+      expect(taken.ok ? "" : taken.message).not.toContain(
+        "request-workflow-connection",
+      );
+    },
+  );
+
   it("says a refusal by the workflow gate is a refusal", async () => {
     const { taken } = await seededTake({
       status: "failed",
@@ -891,6 +998,8 @@ describe("source filters", () => {
     expect(caller.calls[0].input).toEqual({
       factoryId: "factory-1",
       channelId: "C9",
+      skipOwnPosts: true,
+      headlines: true,
     });
   });
 });
@@ -1079,6 +1188,176 @@ describe("a row that cannot be read", () => {
         factoryId: SCOPE.factoryId,
       }),
     ).toThrow(/valid item/);
+  });
+});
+
+describe("a Slack source and the app's own posts", () => {
+  /** A caller that answers as the real action does and never goes through `withSkippedOwn`. */
+  const answering = (answer: Record<string, unknown>) => {
+    const calls: GuardedActionCall[] = [];
+    const caller = (async (call: GuardedActionCall) => {
+      calls.push(call);
+      return {
+        status: "completed",
+        output: JSON.stringify({ ok: true, observed: 0, ...answer }),
+      } satisfies GuardedActionResult;
+    }) as GuardedActionCaller & Calls;
+    caller.calls = calls;
+    return caller;
+  };
+
+  const dry = (settings: PollSettings): InboxRequest => ({
+    settings,
+    mode: "dry",
+    signal: new AbortController().signal,
+  });
+
+  it("asks the poller to leave them out unless the source says otherwise", async () => {
+    const left = scriptedCaller(() => completed({ ok: true, observed: 0 }));
+    const included = scriptedCaller(() => completed({ ok: true, observed: 0 }));
+
+    await inbox(left).take(pollRequest({ poller: "slack" }));
+    await inbox(included).take(
+      pollRequest({ poller: "slack", filter: { includeOwnPosts: true } }),
+    );
+    await inbox(left).take(
+      pollRequest({ poller: "slack", filter: { includeOwnPosts: false } }),
+    );
+
+    expect(left.calls[0]?.input).toMatchObject({ skipOwnPosts: true });
+    expect(included.calls[0]?.input).not.toHaveProperty("skipOwnPosts");
+    expect(left.calls[1]?.input).toMatchObject({ skipOwnPosts: true });
+  });
+
+  it("never asks the GitHub or Sentry poller, and refuses to include what they do not have", async () => {
+    const caller = scriptedCaller((call) =>
+      completed(
+        call.name === "poll-github-sources"
+          ? { ok: true, issues: 0, pullRequests: 0 }
+          : { ok: true, observed: 0 },
+      ),
+    );
+
+    await inbox(caller).take(pollRequest({ poller: "github" }));
+    await inbox(caller).take(pollRequest({ poller: "sentry" }));
+    const refused = await inbox(caller).take(
+      pollRequest({ poller: "github", filter: { includeOwnPosts: true } }),
+    );
+
+    expect(caller.calls.map((call) => call.input)).toEqual([
+      { factoryId: "factory-1" },
+      { factoryId: "factory-1" },
+    ]);
+    expect(refused).toMatchObject({
+      ok: false,
+      reason: "filter_invalid",
+      code: "graph_invalid",
+    });
+  });
+
+  it("passes the count on, so the step can say how many it left out", async () => {
+    const caller = answering({ skippedOwn: 2 });
+
+    const live = await inbox(caller).take(pollRequest({ poller: "slack" }));
+    const sample = await inbox(
+      answering({ skippedOwn: 3, preview: true, previewRows: [] }),
+    ).take(dry({ source: "inbox-poll", poller: "slack", takeLimit: 5 }));
+
+    expect(live).toMatchObject({ ok: true, skippedOwn: 2 });
+    expect(sample).toMatchObject({ ok: true, sample: true, skippedOwn: 3 });
+  });
+
+  it("keeps the count on a first read that took only the position", async () => {
+    const taken = await inbox(
+      answering({ primed: true, position: "1760000000.000050", skippedOwn: 0 }),
+    ).take({
+      settings: { source: "inbox-poll", poller: "slack", takeLimit: 5 },
+      mode: "live",
+      signal: new AbortController().signal,
+      start: { kind: "prime" },
+    });
+
+    expect(taken).toMatchObject({ ok: true, primed: true, skippedOwn: 0 });
+  });
+
+  it("fails when the answer does not say how many it left out, since a poller that ignored the ask may have taken them", async () => {
+    await insertRow({ id: "waiting", title: "A real item in the queue" });
+
+    const taken = await inbox(answering({})).take(
+      pollRequest({ poller: "slack" }),
+    );
+
+    expect(taken).toMatchObject({
+      ok: false,
+      reason: "poller_failed",
+      code: "provider_error",
+      retryable: true,
+    });
+    expect(taken.ok ? "" : taken.message).toContain("how many");
+  });
+
+  it.each([-1, 1.5, "2", null])(
+    "does not read %j as a count of own posts",
+    async (skippedOwn) => {
+      const taken = await inbox(answering({ skippedOwn })).take(
+        pollRequest({ poller: "slack" }),
+      );
+
+      expect(taken).toMatchObject({ ok: false, reason: "poller_failed" });
+    },
+  );
+
+  it("does not need the count from a source that asked to include them", async () => {
+    const taken = await inbox(answering({})).take(
+      pollRequest({ poller: "slack", filter: { includeOwnPosts: true } }),
+    );
+
+    expect(taken).toMatchObject({ ok: true });
+    expect(taken.ok ? taken : undefined).not.toHaveProperty("skippedOwn");
+  });
+
+  it.each([
+    ["the failure's own code", "slack_identity_unresolved"],
+    ["only its text", undefined],
+  ])(
+    "fails with a typed error that takes nothing when the app cannot say who it is (%s)",
+    async (_name, errorCode) => {
+      await insertRow({ id: "waiting", title: "A real item in the queue" });
+      const caller = scriptedCaller(() => ({
+        status: "failed",
+        output:
+          "Error running poll-slack-channel: The app's own Slack identity was unreadable (Slack API error: invalid_auth), so the channel was left unread: its own posts cannot be told apart from reports. Nothing was taken. (errorCode: slack_identity_unresolved)",
+        ...(errorCode ? { errorCode } : {}),
+      }));
+
+      const taken = await inbox(caller).take(pollRequest({ poller: "slack" }));
+
+      expect(taken).toMatchObject({
+        ok: false,
+        reason: "identity_unresolved",
+        code: "provider_error",
+        retryable: true,
+      });
+      expect(taken.ok ? "" : taken.message).toContain("took nothing");
+      expect(taken).not.toHaveProperty("items");
+    },
+  );
+
+  it("still says a missing Slack connection is missing when the identity lookup is what found it out", async () => {
+    const taken = await inbox(
+      scriptedCaller(() => ({
+        status: "failed",
+        output:
+          "The app's own Slack identity was unreadable (No Slack bot token configured. Connect Slack in Settings), so the channel was left unread. (errorCode: slack_identity_unresolved)",
+        errorCode: "slack_identity_unresolved",
+      })),
+    ).take(pollRequest({ poller: "slack" }));
+
+    expect(taken).toMatchObject({
+      ok: false,
+      code: "credential_missing",
+      retryable: false,
+    });
   });
 });
 

@@ -11,7 +11,10 @@ import {
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
-import { recordSessionIdentity } from "./session-identity.js";
+import {
+  notifySessionIdentityPublished,
+  recordSessionIdentity,
+} from "./session-identity.js";
 
 export type { AuthSession };
 
@@ -215,6 +218,11 @@ function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
   recordSessionIdentity(identity);
+  notifySessionIdentityPublished(
+    session
+      ? [identity, authUserId ?? "", session.orgId ?? ""].join("\n")
+      : null,
+  );
   if (
     trackedSessionIdentity !== identity ||
     trackedSessionAuthUserId !== authUserId

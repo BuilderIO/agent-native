@@ -325,42 +325,51 @@ a:hover {
   text-decoration: none;
 }
 
-a.campaign-inline-link {
+a.site-content-inline-link {
   text-decoration: underline;
   text-underline-offset: 0.25rem;
 }
 
-.campaign-page {
+.site-content-page {
   --b-font-sans: var(--font-sans);
   --b-font-mono: var(--font-mono);
   font-family: var(--font-sans);
 }
 
-.campaign-articles-page {
-  --docs-accent: var(--b-text-link);
+/* Articles are black and white: links and accents use the text color, not blue. */
+/* Beats ".light .builder-brand-tokens", which sets the site's blue. */
+.site-content-page.site-content-articles-page.builder-brand-tokens {
+  --docs-accent: var(--fg);
+  --b-text-link: var(--fg);
+  --b-text-eyebrow: var(--fg-secondary);
+  --b-action-primary-effect: transparent;
+  --b-action-primary-bg: var(--fg);
+  --b-action-primary-border: var(--fg);
+  --b-action-primary-hover: var(--fg-secondary);
+  --b-action-primary-text: var(--bg);
 }
 
-.campaign-articles-page a.campaign-inline-link,
-.campaign-articles-page nav a,
-.campaign-articles-page a .campaign-card-title {
-  color: var(--b-text-link);
+.site-content-articles-page a.site-content-inline-link,
+.site-content-articles-page nav a,
+.site-content-articles-page a .site-content-card-title {
+  color: var(--fg);
 }
 
-.campaign-page .campaign-section {
+.site-content-page .site-content-section {
   padding-block: var(--spacing-12);
   padding-inline: var(--spacing-8);
 }
 
-.campaign-page .campaign-body {
+.site-content-page .site-content-body {
   font-family: var(--font-sans);
   font-size: var(--b-t-paragraph-2);
   line-height: 1.4;
   color: var(--fg-secondary);
 }
 
-.campaign-page
+.site-content-page
   section
-  h2:not(:where(.campaign-article-content .docs-content h2)) {
+  h2:not(:where(.site-content-article-content .docs-content h2)) {
   font-family: var(--font-sans);
   font-size: var(--b-t-heading-4);
   font-weight: 500;
@@ -368,7 +377,7 @@ a.campaign-inline-link {
   letter-spacing: -0.02em;
 }
 
-.campaign-page .campaign-card-title {
+.site-content-page .site-content-card-title {
   margin: 0;
   font-family: var(--font-sans);
   font-size: var(--b-t-heading-6);
@@ -377,7 +386,7 @@ a.campaign-inline-link {
   letter-spacing: -0.02em;
 }
 
-.campaign-page .campaign-label {
+.site-content-page .site-content-label {
   font-family: var(--font-mono);
   font-size: var(--b-t-label-2);
   font-weight: 400;
@@ -386,17 +395,17 @@ a.campaign-inline-link {
   color: var(--b-text-secondary);
 }
 
-.campaign-page .docs-content {
+.site-content-page .docs-content {
   font-family: var(--font-sans);
 }
 
-.campaign-page .code-block {
+.site-content-page .code-block {
   min-width: 0;
   width: 100%;
   max-width: 100%;
 }
 
-.campaign-page .code-block pre {
+.site-content-page .code-block pre {
   box-sizing: border-box;
   max-width: 100%;
   margin: 0;
@@ -409,7 +418,7 @@ a.campaign-inline-link {
   overflow-x: hidden;
 }
 
-.campaign-page .code-block pre code {
+.site-content-page .code-block pre code {
   padding: 0;
   font-family: inherit;
   font-size: inherit;
@@ -418,7 +427,7 @@ a.campaign-inline-link {
   overflow-wrap: anywhere;
 }
 
-.campaign-page .code-block > button {
+.site-content-page .code-block > button {
   opacity: 1;
 }
 
@@ -647,10 +656,246 @@ hr {
   font-size: 13px;
 }
 
-.campaign-page .campaign-article-content .docs-content table :is(th, td) {
+.site-content-page
+  .site-content-article-content
+  .docs-content
+  table
+  :is(th, td) {
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: var(--b-t-paragraph-2);
+}
+
+/* The article reading column: larger type, more air between sections. */
+.site-content-article-content .docs-content :is(p, li) {
+  font-size: 18px;
+  line-height: 1.75;
+}
+
+.site-content-article-content .docs-content p {
+  margin: 0 0 20px;
+}
+
+.site-content-article-content .docs-content :is(ul, ol) {
+  margin: 0 0 20px;
+}
+
+.site-content-article-content .docs-content li + li {
+  margin-top: 8px;
+}
+
+.site-content-article-content
+  .docs-content
+  a:not([class*="text-"]):not(.heading-anchor) {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-secondary);
+  text-underline-offset: 0.2em;
+}
+
+.site-content-article-content
+  .docs-content
+  a:not([class*="text-"]):not(.heading-anchor):hover {
+  text-decoration-color: var(--fg);
+  text-decoration-thickness: 2px;
+}
+
+/* Every link on article pages: text colour, and on hover an underline (or a darker one). */
+.site-content-articles-page a.site-content-inline-link {
+  text-decoration-color: var(--fg-secondary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.site-content-articles-page a.site-content-inline-link:hover {
+  text-decoration-color: var(--fg);
+  text-decoration-thickness: 2px;
+}
+
+.site-content-articles-page nav a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.site-content-article-content .docs-content .article-table {
+  margin: 24px 0 32px;
+}
+
+.site-content-article-content .docs-content h2 {
+  margin: 72px 0 24px;
+  padding: 0;
+  border: 0;
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.site-content-article-content .docs-content h3 {
+  margin: 48px 0 16px;
+  font-size: 23px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* A step heading leads with its number, "01", quieter than the title. */
+.site-content-article-content .docs-content h3.article-step-heading {
+  align-items: baseline;
+  gap: 16px;
+  margin-top: 64px;
+}
+
+.site-content-article-content .article-step-number {
+  flex-shrink: 0;
+  min-width: 2ch;
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  font-weight: 400;
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The steps at a glance, under the section heading. */
+.site-content-article-content .docs-content ol.article-step-list {
+  display: grid;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  border-block: 1px solid var(--docs-border);
+}
+
+.site-content-article-content .article-step-list li {
+  counter-increment: step;
+  margin: 0;
+  font-size: 17px;
+}
+
+.site-content-article-content .article-step-list li + li {
+  margin: 0;
+  border-top: 1px solid var(--docs-border);
+}
+
+.site-content-article-content
+  .docs-content
+  .article-step-list
+  a:not([class*="text-"]):not(.heading-anchor) {
+  display: flex;
+  gap: 16px;
+  padding: 12px 4px;
+  text-decoration: none;
+}
+
+.site-content-article-content .article-step-list a::before {
+  content: counter(step, decimal-leading-zero);
+  min-width: 2ch;
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+.site-content-article-content
+  .docs-content
+  .article-step-list
+  a:not([class*="text-"]):not(.heading-anchor):hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.site-content-article-content .article-step-list a:hover::before {
+  color: var(--fg);
+}
+
+/* A clicked screenshot: as large as the window allows, at its 16:9 ratio. */
+.article-image-zoom {
+  width: min(calc(100vw - 48px), calc((100vh - 48px) * 16 / 9), 1920px);
+}
+
+.site-content-article-content .docs-content :is(h2, h3) {
+  text-wrap: balance;
+}
+
+/* The questions' heading reads like the article's other "##" headings. */
+.site-content-article-faq section > div > div:first-child > p:empty {
+  display: none;
+}
+
+.site-content-article-faq section h2 {
+  font-size: 32px;
+  letter-spacing: -0.02em;
+}
+
+/* The questions: the same padding at any length, the chevron at the end of the row. */
+.site-content-article-faq button[aria-expanded] {
+  min-height: 0;
+  padding-block: 20px;
+}
+
+.site-content-article-faq button[aria-expanded] > span:first-child {
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+.site-content-article-faq [role="region"] .text-lg {
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+/* Each step's "You end up with" line. */
+.site-content-article-content .docs-content blockquote {
+  margin: 28px 0 0;
+  padding: 16px 20px;
+  border: 1px solid var(--docs-border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.site-content-article-content .docs-content blockquote p {
+  margin: 0;
+  font-size: 17px;
+}
+
+.site-content-article-content .docs-content table :is(th, td) {
+  padding: 12px 16px;
+  font-size: 16px;
+}
+
+/* The app callout after the intro, and the closing band. */
+.site-content-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.site-content-callout-inline {
+  margin: 40px 0 8px;
+  padding: 28px;
+  border: 1px solid var(--fg-secondary);
+  border-radius: 14px;
+}
+
+.site-content-page .site-content-callout .site-content-callout-heading {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.site-content-page .site-content-callout-band .site-content-callout-heading {
+  font-size: var(--b-t-heading-4);
+}
+
+.site-content-page .site-content-callout .site-content-callout-hint {
+  margin: 0;
+  font-size: 15px;
+  color: var(--fg-secondary);
 }
 
 .docs-kbd {
@@ -2705,4 +2950,29 @@ html.dark .shiki span {
     color 150ms ease,
     background-color 150ms ease,
     border-color 150ms ease;
+}
+
+.site-content-article-faq [role="region"] .docs-content > :last-child {
+  margin-bottom: 0;
+}
+
+/* On a phone: a 16px gutter, and headings that fit in two lines. */
+@media (max-width: 639px) {
+  .site-content-articles-page .site-content-section {
+    padding-inline: 16px;
+  }
+
+  .site-content-article-content .docs-content h2,
+  .site-content-article-faq section h2 {
+    margin-top: 56px;
+    font-size: 26px;
+  }
+
+  .site-content-article-content .docs-content h3 {
+    font-size: 21px;
+  }
+
+  .site-content-callout-inline {
+    padding: 20px;
+  }
 }

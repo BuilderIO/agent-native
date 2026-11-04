@@ -146,10 +146,14 @@ export function createSentryClient(options: SentryClientOptions) {
     async listIssues(
       query?: string,
       requestedLimit?: number,
+      options: {
+        /** `new` is newest first by first-seen time; the default is the busiest first. */
+        sort?: "freq" | "new";
+      } = {},
     ): Promise<readonly SentryIssue[]> {
       const params = new URLSearchParams({
         limit: String(limit(requestedLimit)),
-        sort: "freq",
+        sort: options.sort ?? "freq",
       });
       if (query?.trim()) params.set("query", query.trim().slice(0, 500));
       const value = await request<unknown>(

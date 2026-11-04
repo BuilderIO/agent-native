@@ -1,5 +1,6 @@
 import {
   EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
@@ -834,6 +835,22 @@ function requestUrlAndKey(
 
 function requestWidgetSessionRenewal(win: Window): Promise<boolean> {
   if (pendingWidgetSessionRenewal) return pendingWidgetSessionRenewal;
+  const renewInPlace = (win as unknown as Record<string, unknown>)[
+    EMBED_SESSION_RENEWAL_WINDOW_KEY
+  ];
+  if (typeof renewInPlace === "function") {
+    const renewal = Promise.resolve()
+      .then(() => renewInPlace())
+      .then(
+        (renewed) => renewed === true,
+        () => false,
+      )
+      .finally(() => {
+        pendingWidgetSessionRenewal = null;
+      });
+    pendingWidgetSessionRenewal = renewal;
+    return renewal;
+  }
   if (!win.parent || win.parent === win) return Promise.resolve(false);
 
   widgetSessionRenewalRequestId += 1;
