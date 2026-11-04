@@ -3802,6 +3802,45 @@ describe("run() — reveals through an agent content patch", () => {
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
+  it("saves a shape appended at the slide end under a click-reveal on an earlier paragraph", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p></div>',
+          animations: [
+            {
+              id: "reveal-first",
+              elementIndex: 1,
+              elementPath: [1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p><div class="fmd-shape fmd-shape-rectangle" data-slide-shape="rectangle" style="position: absolute; left: 10px; top: 10px; width: 100px; height: 60px"></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(lastUpdatedDeckData).toBeDefined();
+  });
+
   it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
