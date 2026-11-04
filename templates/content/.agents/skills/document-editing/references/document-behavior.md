@@ -84,12 +84,14 @@ sends the file straight to Clips, and only the page's editors can upload.
 An outside agent holding a video file uploads it the same way with
 `create-video-upload`, an MCP-only action (the app's own agent has no files to
 send). The agent picks a new random `uploadKey` for the file, such as a UUID.
-The action checks you can edit the page and returns `chunkUrl`,
+The action checks you can edit the page and returns `chunkUrl`, `headers`,
 `chunkSizeBytes`, `totalChunks`, `clipEmbedTag`, and a `next` line with the
-steps: POST the file's chunks to Clips in order, the last with `isFinal=1`,
-sending a chunk again on a network failure, a 429 or a 5xx, and the last one
-again while it answers `upload_finishing`; then put `clipEmbedTag` in the page
-with `edit-document`. To start the same file again after a failed call or a
+steps: POST the file's chunks to Clips in order with `headers`, the last with
+`isFinal=1`, sending a chunk again on a network failure, a 429 or a 5xx, and
+the last one again while it answers `upload_finishing`; then put
+`clipEmbedTag` in the page with `edit-document`. Clips refuses a chunk typed as
+form data or text, which is what curl's `--data-binary` sends unless given a
+`Content-Type`. To start the same file again after a failed call or a
 lost answer, send the same `uploadKey`, so Clips makes one Clip. When it
 answers `storage_required` or `too_large`, nothing was uploaded; tell the
 user.

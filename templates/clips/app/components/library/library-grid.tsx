@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { sendRecordingBatches } from "@shared/recording-batch";
 import { IconAlertTriangle, IconPhoto } from "@tabler/icons-react";
 import {
   type DragEvent,
@@ -1011,18 +1012,12 @@ export function LibraryGrid({
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
-                    const ids = Array.from(selected);
-                    const results = await Promise.allSettled(
-                      ids.map((id) =>
+                    const { succeededIds, failedCount, firstError } =
+                      await sendRecordingBatches(Array.from(selected), (ids) =>
                         view === "archive"
-                          ? restoreRecording.mutateAsync({ id })
-                          : archiveRecording.mutateAsync({ id }),
-                      ),
-                    );
-                    const succeededIds = ids.filter(
-                      (_, i) => results[i].status === "fulfilled",
-                    );
-                    const failed = ids.length - succeededIds.length;
+                          ? restoreRecording.mutateAsync({ ids })
+                          : archiveRecording.mutateAsync({ ids }),
+                      );
                     if (succeededIds.length > 0) {
                       toast.success(
                         t(
@@ -1038,14 +1033,15 @@ export function LibraryGrid({
                         return next;
                       });
                     }
-                    if (failed > 0) {
+                    if (failedCount > 0) {
                       toast.error(
                         t(
                           view === "archive"
                             ? "trashRoute.clipsRestoreFailed"
                             : "libraryGrid.clipsArchiveFailed",
-                          { count: failed },
+                          { count: failedCount },
                         ),
+                        { description: firstError ?? undefined },
                       );
                     }
                   } finally {
@@ -1055,14 +1051,10 @@ export function LibraryGrid({
                 onTrash={async () => {
                   setIsBulkPending(true);
                   try {
-                    const ids = Array.from(selected);
-                    const results = await Promise.allSettled(
-                      ids.map((id) => trashRecording.mutateAsync({ id })),
-                    );
-                    const succeededIds = ids.filter(
-                      (_, i) => results[i].status === "fulfilled",
-                    );
-                    const failed = ids.length - succeededIds.length;
+                    const { succeededIds, failedCount, firstError } =
+                      await sendRecordingBatches(Array.from(selected), (ids) =>
+                        trashRecording.mutateAsync({ ids }),
+                      );
                     if (succeededIds.length > 0) {
                       toast.success(
                         t("libraryGrid.clipsMovedToTrash", {
@@ -1075,9 +1067,12 @@ export function LibraryGrid({
                         return next;
                       });
                     }
-                    if (failed > 0) {
+                    if (failedCount > 0) {
                       toast.error(
-                        t("libraryGrid.clipsTrashFailed", { count: failed }),
+                        t("libraryGrid.clipsTrashFailed", {
+                          count: failedCount,
+                        }),
+                        { description: firstError ?? undefined },
                       );
                     }
                   } finally {

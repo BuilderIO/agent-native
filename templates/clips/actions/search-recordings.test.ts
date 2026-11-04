@@ -57,7 +57,11 @@ async function seedMatch(
   source: MatchSource,
   id: string,
   expiresAt: string | null,
-  options: { enableComments?: boolean; trashedAt?: string | null } = {},
+  options: {
+    enableComments?: boolean;
+    trashedAt?: string | null;
+    password?: string | null;
+  } = {},
 ) {
   await db.insert(schema.recordings).values({
     id,
@@ -68,6 +72,7 @@ async function seedMatch(
     kind: "video",
     enableComments: options.enableComments ?? true,
     expiresAt,
+    password: options.password ?? null,
     trashedAt: options.trashedAt ?? null,
     createdAt: now,
     updatedAt: now,
@@ -114,6 +119,63 @@ describe("recording search with PostgreSQL queries", () => {
   afterAll(async () => {
     vi.restoreAllMocks();
     await client.close();
+  });
+  describe("password-gated transcripts", () => {
+    it.each([
+      {
+        email: "viewer@example.test",
+        password: "fake-password-digest",
+        visible: false,
+      },
+      {
+        email: "OWNER@example.test",
+        password: "fake-password-digest",
+        visible: true,
+      },
+      { email: "viewer@example.test", password: null, visible: true },
+      { email: "viewer@example.test", password: "", visible: true },
+    ])(
+      "protects transcript matches for $email / $password",
+      async ({ email, password, visible }) => {
+        await seedMatch("transcript", "protected", null, { password });
+        const result = await action.run({ query: "needle", limit: 30 }, {
+          userEmail: email,
+        } as never);
+        expect(result.results.map((row) => row.id)).toEqual(
+          visible ? ["protected"] : [],
+        );
+        if (!visible)
+          expect(JSON.stringify(result)).not.toContain(
+            "Fake needle transcript",
+          );
+      },
+    );
+    it("filters protected transcript matches before the result limit", async () => {
+      await seedMatch("transcript", "protected-first", null, {
+        password: "fake-password-digest",
+      });
+      await seedMatch("transcript", "available-second", null);
+      const result = await action.run({ query: "needle", limit: 1 }, {
+        userEmail: "viewer@example.test",
+      } as never);
+      expect(result.results.map((row) => row.id)).toEqual(["available-second"]);
+    });
+    it("keeps permitted title matches without attaching protected transcript snippets", async () => {
+      await seedMatch("transcript", "protected", null, {
+        password: "fake-password-digest",
+      });
+      await db.update(schema.recordings).set({ title: "Fake needle title" });
+      const result = await action.run({ query: "needle", limit: 30 }, {
+        userEmail: "viewer@example.test",
+      } as never);
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]).toMatchObject({
+        id: "protected",
+        matchType: "title-description",
+        matchPanel: null,
+      });
+      expect(JSON.stringify(result)).not.toContain("Fake needle transcript");
+    });
   });
   for (const source of ["title", "transcript", "comment"] as const)
     describe(source + " matches", () => {
