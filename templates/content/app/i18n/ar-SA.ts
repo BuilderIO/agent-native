@@ -70,7 +70,8 @@ const database = {
     "لا يستطيع حسابك على GitHub فتح «{{repo}}». اطلب الوصول من مالكه.",
   githubLinkTooLarge:
     "يحتوي هذا المجلد على أكثر من {{max}} ملف. اختر مجلدًا أصغر داخله.",
-  githubLinkUnavailable: "تعذّر الوصول إلى GitHub الآن. حاول مرة أخرى بعد دقيقة.",
+  githubLinkUnavailable:
+    "تعذّر الوصول إلى GitHub الآن. حاول مرة أخرى بعد دقيقة.",
   githubLinkBlockedHasRows:
     "تحتوي هذه المجموعة على صفحات الآن، لذا لا يمكن لمجلد GitHub ملؤها.",
   githubLinkBlockedLinked: "تحصل هذه المجموعة على صفحاتها من تطبيق آخر بالفعل.",
@@ -151,7 +152,8 @@ const database = {
   githubSyncedToast: "تم التحديث. تغيّرت {{count}} صفحات.",
   githubSyncPartialToast:
     "جارٍ التحديث: {{done}} من أصل {{total}} ملفات حتى الآن.",
-  githubSyncBusy: "التحقق من التحديثات جارٍ بالفعل. تظهر التغييرات عند انتهائه.",
+  githubSyncBusy:
+    "التحقق من التحديثات جارٍ بالفعل. تظهر التغييرات عند انتهائه.",
   emptyCollectionSourceHint: "أو املأها من مصدر",
   formChecked: "محدد",
   formChooseOption: "اختر خيارا",
@@ -717,7 +719,8 @@ const editor = {
   registryBlockUnreadable: "تعذرت قراءة مصدر الكتلة المحفوظ.",
   blocksFieldEditMovedToEnd:
     "تم تغيير حقل الكتل هذا في مكان آخر أيضًا. نُقل النص الذي كتبته في الموضع نفسه إلى نهاية الحقل.",
-  reconcileConflict: "تم تغيير هذه الصفحة في مكان آخر. لم يتم حفظ تعديلاتك بعد.",
+  reconcileConflict:
+    "تم تغيير هذه الصفحة في مكان آخر. لم يتم حفظ تعديلاتك بعد.",
   reconcileFailed: "تعذّر دمج أحدث التغييرات. لم يتم حفظ تعديلاتك بعد.",
   reconcileSaveFailed: "تعذّر حفظ تعديلاتك. راجعها وحاول مرة أخرى.",
   reconcileSaving: "جارٍ حفظ تعديلاتك…",
@@ -1153,7 +1156,7 @@ const rawLiterals = {
     previewDraftUseSaved: "استخدام الإصدار المحفوظ",
     previewDraftSaveSeparately: "حفظ إصداري كصفحة منفصلة",
     previewDraftSavedToHistory: "تم حفظ تعديلاتك في سجل الإصدارات",
-    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة منفصلة",
+    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة خاصة في مساحتك",
     previewDraftOpenSavedPage: "فتح الصفحة",
     previewDraftMoreOptions: "خيارات إضافية",
     previewDraftViewFullVersions: "عرض النسختين كاملتين",

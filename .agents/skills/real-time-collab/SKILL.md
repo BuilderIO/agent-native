@@ -238,7 +238,8 @@ copy was thrown away, the server deleted the block it went into, or the doc is
 gone) is passed to `onEditsDisplaced` as `{ state, reason }`, where `state` is
 the whole doc as it stood with the typing. None of it is sent, then or by the
 next open. Keep it where the user can find it (Content files it in Version
-History), and never apply it back to the doc: the server's deletions stand.
+History for the page's owner, and as a private page in their own space for
+anyone else), and never apply it back to the doc: the server's deletions stand.
 Server actions file under whoever is signed in, so keep it for the account and
 org that typed it: stop when the editor closes or the session changes.
 `subscribeSessionInvalidation(listener)` from `@agent-native/core/client/hooks`

@@ -100,13 +100,14 @@ describe("Page draft recovery", () => {
     title: "Saved",
     content: "Saved body",
     canEdit: true,
+    accessRole: "owner",
     updatedAt: "v2",
     revision: "saved-body-revision",
     contentHash: "sha256:saved-body",
   } as Document;
-  const render = (documentFresh = true) =>
+  const render = (documentFresh = true, document = page) =>
     root.render(
-      <PageDraftRecovery document={page} documentFresh={documentFresh}>
+      <PageDraftRecovery document={document} documentFresh={documentFresh}>
         <textarea defaultValue="Live editor" />
       </PageDraftRecovery>,
     );
@@ -564,6 +565,28 @@ describe("Page draft recovery", () => {
     });
     expect(container.querySelector("textarea")).not.toBeNull();
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("saves a collaborator's legacy draft as a page of their own, not in History", async () => {
+    state.draft = {
+      title: "Legacy draft",
+      content: "Legacy body",
+      version: 7,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: null,
+      editGeneration: null,
+    };
+    await act(async () =>
+      render(true, { ...page, accessRole: "admin" } as Document),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "save_separately",
+        documentId: "page",
+      }),
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 
   it("keeps a failed legacy draft pending", async () => {

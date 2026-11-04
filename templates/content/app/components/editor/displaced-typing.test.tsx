@@ -6,6 +6,7 @@
  * page, which keeps it in the draft journal; the server's deletion stands.
  * Runs the real collab client with the editor's schema and Yjs binding.
  */
+import type { Document } from "@shared/api";
 import {
   useCollaborativeDoc,
   type DisplacedCollabEdits,
@@ -25,9 +26,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { automaticDraftChoice } from "./automatic-draft-choice";
 import {
   displacedTypingMarkdown,
-  fileDisplacedTypingInHistory,
+  fileDisplacedTyping,
   journalDisplacedTyping,
   keepDisplacedTyping,
   type DisplacedTypingDraft,
@@ -218,13 +220,22 @@ function draftSlot() {
   };
 }
 
+it("keeps History for the page's owner and gives anyone else a page of their own", () => {
+  expect(automaticDraftChoice("owner")).toBe("use_saved");
+  for (const role of ["admin", "editor", "commenter", "viewer", undefined]) {
+    expect(automaticDraftChoice(role as Document["accessRole"])).toBe(
+      "save_separately",
+    );
+  }
+});
+
 it("files displaced typing once the editor's own draft lets go of the page's draft slot", async () => {
   const page = draftSlot();
   page.hold("The editor's own draft");
   const resolve = vi.fn<
     (draft: DisplacedTypingDraft) => Promise<{ status: string }>
   >(async () => ({ status: "resolved" }));
-  const filed = await fileDisplacedTypingInHistory({
+  const filed = await fileDisplacedTyping({
     content: "Typed on the copy",
     slot: {
       current: () => page.held,
@@ -257,7 +268,7 @@ it("tries again when the editor's own draft takes the slot back before the resol
       throw new Error("The saved draft changed during recovery.");
     })
     .mockImplementation(async () => ({ status: "resolved" }));
-  const filed = await fileDisplacedTypingInHistory({
+  const filed = await fileDisplacedTyping({
     content: "Typed on the copy",
     slot: {
       current: () => page.held,
@@ -298,7 +309,7 @@ it("keeps the editor's own draft out of the slot between holding the typing and 
     }
     return { status: "resolved" };
   });
-  const filed = await fileDisplacedTypingInHistory({
+  const filed = await fileDisplacedTyping({
     content: "Typed on the copy",
     slot: {
       current: () => page.held,
@@ -327,7 +338,7 @@ it("leaves the typing to the journal when the slot never frees", async () => {
     (draft: DisplacedTypingDraft) => Promise<{ status: string }>
   >(async () => ({ status: "resolved" }));
   const waits: number[] = [];
-  const filed = await fileDisplacedTypingInHistory({
+  const filed = await fileDisplacedTyping({
     content: "Typed on the copy",
     slot: {
       current: () => page.held,

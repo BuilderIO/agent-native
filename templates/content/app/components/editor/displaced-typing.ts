@@ -16,7 +16,8 @@ import {
 // A page opened from its saved copy takes typing before the server answers.
 // When the server's answer leaves some of it out (the doc was rebuilt, or the
 // block it went into was deleted), the collab client hands it here. The
-// server's doc stays as it is; the typing goes to History.
+// server's doc stays as it is; the typing goes to History for the page's
+// owner, and to a private page of their own for anyone else.
 
 let structuralSchema: Schema | undefined;
 
@@ -59,8 +60,8 @@ function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Files displaced typing in History the way a draft found on open is filed:
- * held as the editor's recovery draft, then resolved keeping the saved page.
+ * Files displaced typing the way a draft found on open is filed: held as the
+ * editor's recovery draft, then resolved keeping the saved page.
  * The page has one draft slot per account. Each try runs as one job on the
  * editor's draft queue (`exclusive`), so the editor's own draft cannot take
  * the slot between the hold and the resolve. While its draft already holds
@@ -72,7 +73,7 @@ function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
  * typing are gone, or `signal` aborts; the journal entry stays for that
  * account's next open.
  */
-export async function fileDisplacedTypingInHistory(input: {
+export async function fileDisplacedTyping(input: {
   content: string;
   slot: {
     current: () => DisplacedTypingDraft | null;
@@ -140,14 +141,14 @@ export async function fileDisplacedTypingInHistory(input: {
 export interface JournaledDisplacedTyping {
   scope: PageDraftJournalScope;
   snapshot: PageDraftJournalSnapshot;
-  /** Lets the next open, here or in another tab, file it in History. */
+  /** Lets the next open, here or in another tab, file it. */
   release: () => void;
 }
 
 /**
  * Keeps displaced typing in the page's draft journal under a writer of its
  * own, held as live until `release` so no other tab files it meanwhile. An
- * entry left behind is filed in History on the next open.
+ * entry left behind is filed on the next open.
  */
 export function journalDisplacedTyping(input: {
   scope: Omit<PageDraftJournalScope, "writerId">;
@@ -160,9 +161,9 @@ export function journalDisplacedTyping(input: {
     writerId: `${input.editorSessionId}:displaced:${crypto.randomUUID()}`,
   };
   const release = holdPageDraftWriter(scope.writerId);
-  // No base a page can be saved against: recovery files the entry in History
-  // and never saves it over the page, where it would bring back what the
-  // server deleted. A page that already holds it just drops it.
+  // No base a page can be saved against: recovery files the entry and never
+  // saves it over the page, where it would bring back what the server deleted.
+  // A page that already holds it just drops it.
   const snapshot: PageDraftJournalSnapshot = {
     title: input.title,
     content: input.content,
@@ -181,14 +182,14 @@ export function journalDisplacedTyping(input: {
 }
 
 type DisplacedTypingFiling = Omit<
-  Parameters<typeof fileDisplacedTypingInHistory>[0],
+  Parameters<typeof fileDisplacedTyping>[0],
   "content"
 >;
 
 /**
- * Keeps displaced typing: in the page's journal at once, then in History.
- * The journal entry goes once History holds the typing, and stays otherwise
- * for the next open to file.
+ * Keeps displaced typing: in the page's journal at once, then filed. The
+ * journal entry goes once the typing is filed, and stays otherwise for the
+ * next open to file.
  */
 export async function keepDisplacedTyping(input: {
   scope: Omit<PageDraftJournalScope, "writerId"> | null;
@@ -217,7 +218,7 @@ export async function keepDisplacedTyping(input: {
   try {
     filed =
       !!editorSessionId &&
-      (await fileDisplacedTypingInHistory({ ...input.filing, content }));
+      (await fileDisplacedTyping({ ...input.filing, content }));
   } catch (error) {
     input.onFilingError?.(error);
   }
@@ -225,8 +226,8 @@ export async function keepDisplacedTyping(input: {
     try {
       clearPageDraftJournal(journaled.scope, journaled.snapshot);
     } catch {
-      // coercion-ok: History holds the typing now; a stale journal entry
-      // only files it there again on the next open.
+      // coercion-ok: the typing is filed now; a stale journal entry only files
+      // it again on the next open.
     }
   }
   journaled?.release();

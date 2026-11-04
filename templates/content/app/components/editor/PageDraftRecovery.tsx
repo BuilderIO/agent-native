@@ -30,6 +30,7 @@ import {
   readPageIconRowHint,
 } from "@/lib/page-startup-hints";
 
+import { automaticDraftChoice } from "./automatic-draft-choice";
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
@@ -140,6 +141,23 @@ export function PageDraftRecovery({
   const update = useUpdateDocument({ saveOrigin: "recovery" });
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
+  const automaticChoice = automaticDraftChoice(document.accessRole);
+  const showDraftFiled = (
+    choice: "keep_mine" | "use_saved" | "save_separately",
+    urlPath: string | undefined,
+  ) => {
+    if (choice === "use_saved")
+      toast.success(t("editor.previewDraftSavedToHistory"));
+    if (choice === "save_separately")
+      toast.success(t("editor.previewDraftSavedSeparately"), {
+        action: urlPath
+          ? {
+              label: t("editor.previewDraftOpenSavedPage"),
+              onClick: () => void navigate(urlPath),
+            }
+          : undefined,
+      });
+  };
   const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);
   const [verifiedScopeKey, setVerifiedScopeKey] = useState<string | null>(null);
   const [verificationRevision, setVerificationRevision] = useState(0);
@@ -422,7 +440,7 @@ export function PageDraftRecovery({
                     journalSnapshot.baseContent === document.content
                       ? document.updatedAt
                       : null),
-                  // Bound for History: only a choice in the chooser puts it
+                  // Bound to be filed: only a choice in the chooser puts it
                   // back on the page.
                   baseContentHash: null,
                   loadedContentWasEmpty: journalSnapshot.baseContent === "",
@@ -436,7 +454,7 @@ export function PageDraftRecovery({
       )
         throw new Error("The journal was not retained for recovery.");
       const preserved = await resolveDraft.mutateAsync({
-        choice: "use_saved",
+        choice: automaticChoice,
         documentId: document.id,
         expectedDraftVersion: retainedDraft.version,
         expectedDraftTitle: retainedDraft.title,
@@ -444,10 +462,10 @@ export function PageDraftRecovery({
         expectedDocumentUpdatedAt: document.updatedAt,
       });
       if (preserved.status !== "resolved")
-        throw new Error("The journal could not be preserved in history.");
+        throw new Error("The journal could not be preserved.");
       if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
-        throw new Error("The journal changed during History preservation.");
-      toast.success(t("editor.previewDraftSavedToHistory"));
+        throw new Error("The journal changed during preservation.");
+      showDraftFiled(automaticChoice, preserved.urlPath);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
       setJournalState("checking");
@@ -796,17 +814,7 @@ export function PageDraftRecovery({
       }
       if (result.status !== "resolved")
         throw new Error("The draft could not be resolved.");
-      if (choice === "use_saved")
-        toast.success(t("editor.previewDraftSavedToHistory"));
-      if (choice === "save_separately")
-        toast.success(t("editor.previewDraftSavedSeparately"), {
-          action: result.urlPath
-            ? {
-                label: t("editor.previewDraftOpenSavedPage"),
-                onClick: () => void navigate(result.urlPath!),
-              }
-            : undefined,
-        });
+      showDraftFiled(choice, result.urlPath);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
     } catch {
@@ -834,7 +842,7 @@ export function PageDraftRecovery({
     const attempt = `${draft.version}:${document.updatedAt}`;
     if (automaticLegacyRecoveryRef.current === attempt) return;
     automaticLegacyRecoveryRef.current = attempt;
-    void resolveConflict("use_saved");
+    void resolveConflict(automaticChoice);
   }, [
     busy,
     decisionsReady,
@@ -891,7 +899,7 @@ export function PageDraftRecovery({
       }
     }
     automaticRecoveryRef.current = attempt;
-    void resolveConflict("use_saved");
+    void resolveConflict(automaticChoice);
   }, [
     bodyWritesThroughLiveCopy,
     busy,

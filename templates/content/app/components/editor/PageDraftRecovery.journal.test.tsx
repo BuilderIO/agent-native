@@ -128,6 +128,7 @@ const page = {
   title: "Saved",
   content: "Saved body",
   canEdit: true,
+  accessRole: "owner",
   updatedAt: "v2",
   contentHash: "sha256:saved-body",
 } as Document;
@@ -1008,6 +1009,53 @@ describe("Page browser journal recovery", () => {
     );
     expect(state.entries).toEqual([]);
     expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("files a collaborator's displaced typing as a private page of their own", async () => {
+    const typed = "Typed into a deleted block\n\nSaved body";
+    const kept = journalDisplacedTyping({
+      scope: {
+        accountId: "writer@example.test",
+        orgId: "org",
+        documentId: "page",
+      },
+      editorSessionId: "closed-editor",
+      title: "Saved",
+      content: typed,
+    });
+    state.entries = [
+      {
+        scope: { ...kept.scope, orgId: "org" },
+        snapshot: kept.snapshot,
+        writtenAt: 1,
+      },
+    ];
+    state.upsert.mockResolvedValue({
+      status: "saved",
+      draft: { title: "Saved", content: typed, version: 1 },
+    });
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      urlPath: "/page/recovery-copy",
+    });
+    await act(async () =>
+      render({ ...page, accessRole: "editor" } as Document),
+    );
+
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "save_separately" }),
+    );
+    expect(state.entries).toEqual([]);
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedSeparately",
+      {
+        action: expect.objectContaining({
+          label: "editor.previewDraftOpenSavedPage",
+        }),
+      },
+    );
   });
 });
 

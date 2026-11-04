@@ -3083,6 +3083,11 @@ describe("private preview document drafts", () => {
     expect(copy).toMatchObject({
       ownerEmail: COLLABORATOR,
       parentId: null,
+      spaceId: (await import("./_content-spaces.js")).personalContentSpaceId(
+        COLLABORATOR,
+      ),
+      orgId: null,
+      visibility: "private",
       content: "Collaborator recovery",
     });
     const sharedHistory = await getDb()

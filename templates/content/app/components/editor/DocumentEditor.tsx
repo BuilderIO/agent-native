@@ -252,6 +252,7 @@ import {
 } from "./database/row-view-layout";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
+import { automaticDraftChoice } from "./automatic-draft-choice";
 import {
   displacedTypingMarkdown,
   keepDisplacedTyping,
@@ -5266,6 +5267,8 @@ function PageEditorSessionBody({
     }
     const filing = new AbortController();
     displacedFilingsRef.current.add(filing);
+    const filingChoice = automaticDraftChoice(document.accessRole);
+    let savedPagePath: string | undefined;
     void keepDisplacedTyping({
       scope: {
         accountId: scope.accountId,
@@ -5281,7 +5284,7 @@ function PageEditorSessionBody({
           error,
         ),
       onFilingError: (error) =>
-        console.error("Could not save displaced typing to History", error),
+        console.error("Could not file displaced typing", error),
       filing: {
         owned: () =>
           editorSessionActiveRef.current &&
@@ -5309,20 +5312,33 @@ function PageEditorSessionBody({
               recoveryDraftRef.current = null;
           },
         },
-        resolve: (draft, expectedDocumentUpdatedAt) =>
-          resolvePreviewDocumentDraft.mutateAsync({
-            choice: "use_saved",
+        resolve: async (draft, expectedDocumentUpdatedAt) => {
+          const result = await resolvePreviewDocumentDraft.mutateAsync({
+            choice: filingChoice,
             documentId,
             expectedDraftVersion: draft.version,
             expectedDraftTitle: draft.title,
             expectedDraftContent: draft.content,
             expectedDocumentUpdatedAt,
-          }),
+          });
+          if (result.status === "resolved") savedPagePath = result.urlPath;
+          return result;
+        },
         documentUpdatedAt: () => documentUpdatedAtRef.current,
       },
     }).then((outcome) => {
       displacedFilingsRef.current.delete(filing);
-      if (outcome === "filed") {
+      if (outcome === "filed" && filingChoice === "save_separately") {
+        const openPath = savedPagePath;
+        toast.success(t("editor.previewDraftSavedSeparately"), {
+          action: openPath
+            ? {
+                label: t("editor.previewDraftOpenSavedPage"),
+                onClick: () => void navigate(openPath),
+              }
+            : undefined,
+        });
+      } else if (outcome === "filed") {
         toast.success(t("editor.previewDraftSavedToHistory"));
       } else if (outcome === "lost") {
         toast.error(t("editor.pageSaveBeforeNavigationFailed"));
