@@ -1349,9 +1349,10 @@ class CollabDocConnection {
     }
     // A server from before diffs carried its vector: ask for the whole state.
     if (!serverVector) {
-      return this.readServerState(
-        requestCollabState(this.baseUrl, this.docId, null),
-      );
+      return this.readServerState({
+        ...requestCollabState(this.baseUrl, this.docId, null),
+        isCurrent: sent.isCurrent,
+      });
     }
     if (!stateVectorCovers(serverVector, localVector)) {
       this.supersede(

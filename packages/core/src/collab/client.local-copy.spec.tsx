@@ -929,6 +929,31 @@ describe("collab local copies", () => {
     expect(text()).toBe("hello");
   });
 
+  it("reads again when the session changes while a boot read's whole-state check is on its way", async () => {
+    await visit();
+    server.getText("content").insert(5, "!");
+    stateRequests = [];
+    stateResponses.push("no-vector");
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+    expect(stateRequests).toHaveLength(1);
+    expect(stateRequests[0]).toContain("stateVector=");
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    expect(stateRequests).toHaveLength(2);
+    expect(stateRequests[1]).not.toContain("stateVector=");
+    const reread = notifySessionInvalidated();
+    release();
+    await advance(50);
+    await reread;
+
+    expect(stateRequests).toHaveLength(3);
+    expect(text()).toBe("hello!");
+    expect(current().isSynced).toBe(true);
+  });
+
   it("keeps the saved copy when the session changes while a boot read built on it is on its way", async () => {
     await visit();
     stateRequests = [];
