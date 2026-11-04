@@ -194,6 +194,25 @@ export function reviewUnitOperations(
   ];
 }
 
+/**
+ * A proposal's pending pieces after a refresh. An exact set is one decision, so
+ * it gives null once any of its pieces was decided elsewhere, not a smaller set.
+ */
+export function refreshedProposalMembers(
+  suggestions: readonly ResourceSuggestion[],
+  proposalId: string,
+  members: readonly ResourceSuggestion[],
+  exactMembers: boolean,
+) {
+  const pending = suggestions.filter(
+    (suggestion) =>
+      suggestion.proposalId === proposalId &&
+      suggestion.status === "pending" &&
+      (!exactMembers || members.some((member) => member.id === suggestion.id)),
+  );
+  return exactMembers && pending.length !== members.length ? null : pending;
+}
+
 const REVIEW_UNIT_DIFF_TYPE = {
   same: "equal",
   removed: "delete",

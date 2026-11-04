@@ -22,15 +22,28 @@ export type UnitGap = {
 
 const hasWord = (text: string) => /[\p{L}\p{N}]/u.test(text);
 
+// The segmenter ends a sentence at any period before a capital, which cuts
+// "Dr. Lee" in two. A wrong join costs a choice but a wrong split breaks text,
+// so a period after one of these never ends a sentence.
+const ABBREVIATION_END =
+  /(?:^|[\s("'])(?:Dr|Mr|Mrs|Ms|Mx|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Corp|[A-Z](?:\.[A-Z])*)\.\s*$/;
+
+/** Where each sentence after the first starts in this text. */
+function sentenceStarts(text: string) {
+  const starts: number[] = [];
+  for (const { index } of sentences.segment(text)) {
+    const tail = text.slice(Math.max(0, index - 16), index);
+    if (index > 0 && !ABBREVIATION_END.test(tail)) starts.push(index);
+  }
+  return starts;
+}
+
 /** Whether the unchanged text between two pieces holds a sentence boundary. */
 function separatesSentences(source: string, from: number, to: number) {
   // What follows decides whether a period ended the sentence.
   const lineEnd = source.indexOf("\n", to);
   const line = source.slice(from, lineEnd < 0 ? undefined : lineEnd);
-  for (const { index } of sentences.segment(line)) {
-    if (index > 0 && index <= to - from) return true;
-  }
-  return false;
+  return sentenceStarts(line).some((index) => index <= to - from);
 }
 
 /** Whether changed text runs across a sentence boundary of the source. */
@@ -39,10 +52,9 @@ function crossesSentence(source: string, from: number, to: number) {
   const start = from === 0 ? 0 : source.lastIndexOf("\n", from - 1) + 1;
   const lineEnd = source.indexOf("\n", to);
   const line = source.slice(start, lineEnd < 0 ? undefined : lineEnd);
-  for (const { index } of sentences.segment(line)) {
-    if (start + index > from && start + index < to) return true;
-  }
-  return false;
+  return sentenceStarts(line).some(
+    (index) => start + index > from && start + index < to,
+  );
 }
 
 /**

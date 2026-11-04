@@ -98,6 +98,15 @@ describe("sentenceUnits", () => {
     ).toEqual([0, 0]);
   });
 
+  it.each([
+    ["Ask Dr. Lee to sign it.", ["Ask", "sign"]],
+    ["Mr. Smith and Mrs. Jones left today.", ["Smith", "left"]],
+    ["Ask the U.S. Senate to sign it.", ["Ask", "sign"]],
+    ["Call J. Smith at Acme Inc. Monday morning.", ["Call", "morning"]],
+  ])("doesn't end a sentence at the abbreviation in %s", (source, phrases) => {
+    expect(sentenceUnits(piecesAt(source, phrases))).toEqual([0, 0]);
+  });
+
   it("keeps clauses of one bullet together", () => {
     const bullet =
       "- **Vendor:** whether to feature signing; which plan includes hooks; and who reviews";
