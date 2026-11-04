@@ -821,7 +821,7 @@ export function PageDraftRecovery({
       // a second browser filing the same typing does. Resolving it only finds
       // the claim that already keeps it, so nothing else frees the page's draft
       // slot and the page would wait on it at every open.
-      const writtenAgain = reread?.data?.draft;
+      const writtenAgain = reread.data?.draft;
       if (
         writtenAgain?.version === draft.version &&
         writtenAgain.title === draft.title &&

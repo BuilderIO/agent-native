@@ -461,7 +461,7 @@ type SentCollabStateRequest = Pick<
   "response" | "withStateVector"
 > & {
   /** For a boot read, whether the session it was made under is still the tab's. */
-  isCurrent?: () => boolean;
+  isCurrent?: (() => boolean) | undefined;
 };
 
 /** Whether a doc at `server` holds every struct a doc at `local` holds. */

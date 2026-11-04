@@ -126,7 +126,7 @@ describe("Page draft recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.draft = null;
-    state.refetch.mockResolvedValue(undefined);
+    state.refetch.mockResolvedValue({ data: undefined });
     state.verify.mockResolvedValue(undefined);
     state.readJournal.mockReturnValue(null);
     state.update.mockResolvedValue({

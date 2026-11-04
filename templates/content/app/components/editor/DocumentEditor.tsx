@@ -194,6 +194,7 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
+import { automaticDraftChoice } from "./automatic-draft-choice";
 import { commentRailThreads } from "./block-field-comment-threads";
 import {
   BlockFieldCommentsProvider,
@@ -252,7 +253,6 @@ import {
 } from "./database/row-view-layout";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
-import { automaticDraftChoice } from "./automatic-draft-choice";
 import {
   displacedTypingMarkdown,
   keepDisplacedTyping,

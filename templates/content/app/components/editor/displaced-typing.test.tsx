@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import {
+  useCollaborativeDoc,
+  type DisplacedCollabEdits,
+  type UseCollaborativeDocResult,
+} from "@agent-native/core/client/collab";
 /**
  * A visited page opens from its saved copy and takes typing before the server
  * answers. Typing into a block the server has deleted since is handed to the
@@ -7,11 +12,6 @@
  * Runs the real collab client with the editor's schema and Yjs binding.
  */
 import type { Document } from "@shared/api";
-import {
-  useCollaborativeDoc,
-  type DisplacedCollabEdits,
-  type UseCollaborativeDocResult,
-} from "@agent-native/core/client/collab";
 import { LIVE_BODY_FIELD } from "@shared/live-body";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { getSchema } from "@tiptap/core";
