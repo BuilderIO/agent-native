@@ -16,6 +16,7 @@ import {
   IconPaperclip,
   IconChevronDown,
   IconDots,
+  IconExternalLink,
   IconLoader2,
   IconTrash,
   IconPlus,
@@ -88,13 +89,6 @@ export interface ComposePaletteCommands {
   sendLater: () => void;
   sendAndMarkDone: () => void;
 }
-
-export type ComposeSendProgress =
-  | { status: "queued"; undo: () => void }
-  | { status: "sending" }
-  | { status: "sent" }
-  | { status: "failed" }
-  | { status: "scheduled"; runAt: number };
 
 function ComposeFieldRow({
   label,
@@ -217,11 +211,8 @@ interface ComposeModalProps {
   onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
   onInitialExpandedConsumed?: () => void;
   presentation?: "window" | "card";
-  // Replaces the send, undo, and schedule toasts, so a caller that shows
-  // progress itself never shows it twice.
-  onSendProgress?: (progress: ComposeSendProgress) => void;
-  // Holds Send and Send later, e.g. until a reply's thread is known.
-  sendDisabled?: boolean;
+  // A card edits the draft and hands it to Mail, which sends it.
+  onSendInMail?: () => void;
 }
 
 function shouldStartComposeExpanded(initialExpanded: boolean) {
@@ -245,15 +236,12 @@ export function ComposeModal({
   onRegisterComposeCommands,
   onInitialExpandedConsumed,
   presentation = "window",
-  onSendProgress,
-  sendDisabled = false,
+  onSendInMail,
 }: ComposeModalProps) {
   const t = useT();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
   const isCard = presentation === "card";
-  // A caller that reports send progress itself replaces the toasts.
-  const showSendToasts = !onSendProgress;
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
     shouldStartComposeExpanded(initialExpanded),
@@ -433,12 +421,14 @@ export function ComposeModal({
     ).some((input) => input.value.trim().length > 0);
 
   const handleSend = async (explicitlyMarkDone = false) => {
-    if (!activeDraft || !activeId || schedulingRef.current || sendDisabled) {
-      return;
-    }
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
+    if (isCard) {
+      onSendInMail?.();
       return;
     }
     if (!activeDraft.to.trim()) {
@@ -478,30 +468,24 @@ export function ComposeModal({
       cancelled = true;
       sendingIdsRef.current.delete(sendingId);
       clearTimeout(sendTimer);
-      if (showSendToasts) toast.dismiss(toastId);
+      toast.dismiss(toastId);
       undoOptimistic?.();
       onRestoreAfterSend(sendingId);
     };
 
-    const toastId = showSendToasts
-      ? toast(t("mail.compose.sending"), {
-          action: { label: t("mail.actions.undo"), onClick: handleUndo },
-          duration: Infinity,
-        })
-      : undefined;
-    onSendProgress?.({ status: "queued", undo: handleUndo });
+    const toastId = toast(t("mail.compose.sending"), {
+      action: { label: t("mail.actions.undo"), onClick: handleUndo },
+      duration: Infinity,
+    });
 
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
       dispatchStarted = true;
       sendingIdsRef.current.delete(sendingId);
-      if (showSendToasts) toast.dismiss(toastId);
-      const sendingToastId = showSendToasts
-        ? toast(t("mail.compose.sending"), {
-            duration: Infinity,
-          })
-        : undefined;
-      onSendProgress?.({ status: "sending" });
+      toast.dismiss(toastId);
+      const sendingToastId = toast(t("mail.compose.sending"), {
+        duration: Infinity,
+      });
       void sendEmail
         .mutateAsync({
           to: expandAliasTokens(draftSnapshot.to, aliases),
@@ -515,13 +499,10 @@ export function ComposeModal({
           attachments: draftSnapshot.attachments,
         })
         .then((result) => {
-          if (sendingToastId !== undefined) {
-            toast(t("mail.toasts.messageSent"), {
-              id: sendingToastId,
-              duration: 3_000,
-            });
-          }
-          onSendProgress?.({ status: "sent" });
+          toast(t("mail.toasts.messageSent"), {
+            id: sendingToastId,
+            duration: 3_000,
+          });
           onDiscard(sendingId);
           if (draftSnapshot.queuedDraftId) {
             updateQueuedDraft.mutate({
@@ -539,11 +520,8 @@ export function ComposeModal({
           }
         })
         .catch(() => {
-          if (showSendToasts) {
-            toast.dismiss(sendingToastId);
-            toast.error(t("mail.toasts.failedToSendEmail"));
-          }
-          onSendProgress?.({ status: "failed" });
+          toast.dismiss(sendingToastId);
+          toast.error(t("mail.toasts.failedToSendEmail"));
           onRestoreAfterSend(sendingId);
         });
     }, SEND_UNDO_WINDOW_MS);
@@ -575,9 +553,7 @@ export function ComposeModal({
   }, [hasActiveDraft, minimized, onRegisterComposeCommands]);
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId || schedulingRef.current || sendDisabled) {
-      return;
-    }
+    if (!activeDraft || !activeId || schedulingRef.current || isCard) return;
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -614,24 +590,18 @@ export function ComposeModal({
       );
       // An edit made while scheduling stays open as a draft, so only the
       // toast says the earlier version is scheduled.
-      const draftKept = Boolean(
-        currentDraft && !isSameScheduledDraft(currentDraft, draftSnapshot),
-      );
-      if (!draftKept) onSendProgress?.({ status: "scheduled", runAt });
-      if (currentDraft && !draftKept) {
+      if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
         onDiscard(schedulingId);
       }
 
-      if (showSendToasts || draftKept) {
-        const scheduledDate = formatters.formatDate(new Date(runAt), {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        });
-        toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
-      }
+      const scheduledDate = formatters.formatDate(new Date(runAt), {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
     } finally {
@@ -902,8 +872,8 @@ export function ComposeModal({
       data-mail-compose
       style={isCard ? undefined : composeStyle}
       onKeyDown={handleKeyDown}
-      onDragOverCapture={handleDragOver}
-      onDropCapture={handleDrop}
+      onDragOverCapture={isCard ? undefined : handleDragOver}
+      onDropCapture={isCard ? undefined : handleDrop}
     >
       {/* Title bar with inline tabs */}
       {!isCard && (
@@ -1102,6 +1072,7 @@ export function ComposeModal({
                 ariaLabel={t("mail.compose.toRecipients")}
                 field="to"
                 onMoveRecipient={moveRecipient}
+                offerSaveAlias={!isCard}
               />
             </ComposeFieldRow>
 
@@ -1115,6 +1086,7 @@ export function ComposeModal({
                   ariaLabel={t("mail.compose.ccRecipients")}
                   field="cc"
                   onMoveRecipient={moveRecipient}
+                  offerSaveAlias={!isCard}
                 />
               </ComposeFieldRow>
             )}
@@ -1128,6 +1100,7 @@ export function ComposeModal({
                   ariaLabel={t("mail.compose.bccRecipients")}
                   field="bcc"
                   onMoveRecipient={moveRecipient}
+                  offerSaveAlias={!isCard}
                 />
               </ComposeFieldRow>
             )}
@@ -1171,7 +1144,7 @@ export function ComposeModal({
           {activeDraft.attachments && activeDraft.attachments.length > 0 && (
             <AttachmentStrip
               attachments={activeDraft.attachments}
-              onRemove={handleRemoveAttachment}
+              onRemove={isCard ? undefined : handleRemoveAttachment}
             />
           )}
 
@@ -1223,21 +1196,25 @@ export function ComposeModal({
                 </TooltipTrigger>
                 <TooltipContent>{t("mail.compose.insertLink")}</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    type="button"
-                    aria-label={t("mail.compose.attachFile")}
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={() => void handleAttach()}
-                  >
-                    <IconPaperclip className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
-              </Tooltip>
+              {!isCard && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      aria-label={t("mail.compose.attachFile")}
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => void handleAttach()}
+                    >
+                      <IconPaperclip className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("mail.compose.attachFile")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               {/* The card has no in-app agent chat to generate with. */}
               {!isCard && <div className="mx-1 h-4 w-px bg-border" />}
@@ -1301,30 +1278,38 @@ export function ComposeModal({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("mail.compose.deleteDraft")}
-                    onClick={() => activeId && onDiscard(activeId)}
-                    className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                  >
-                    <IconTrash className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.compose.deleteDraft")}</TooltipContent>
-              </Tooltip>
-              <SendLaterButton
-                onSend={handleSend}
-                onSendLater={handleSendLater}
-                open={scheduleOpen}
-                onOpenChange={setScheduleOpen}
-                disabled={sendDisabled}
-                isSending={sendEmail.isPending}
-                isScheduling={scheduleEmail.isPending}
-              />
-            </div>
+            {isCard ? (
+              <Button size="sm" type="button" onClick={() => void handleSend()}>
+                {t("mail.draftCard.sendInMail")}
+                <IconExternalLink className="h-3.5 w-3.5 rtl:-scale-x-100" />
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("mail.compose.deleteDraft")}
+                      onClick={() => activeId && onDiscard(activeId)}
+                      className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("mail.compose.deleteDraft")}
+                  </TooltipContent>
+                </Tooltip>
+                <SendLaterButton
+                  onSend={() => void handleSend()}
+                  onSendLater={(runAt) => void handleSendLater(runAt)}
+                  open={scheduleOpen}
+                  onOpenChange={setScheduleOpen}
+                  isSending={sendEmail.isPending}
+                  isScheduling={scheduleEmail.isPending}
+                />
+              </div>
+            )}
           </div>
         </>
       )}
