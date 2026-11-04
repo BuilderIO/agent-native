@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
+import { firstRow } from "../server/lib/first-row.js";
+
 // guard:allow-unscoped — isolated fixtures inspect only the synthetic collection and source records they created.
 
 const TEST_DB_PATH = join(
@@ -125,13 +127,13 @@ async function fixture(
       sourceTable: "original",
     });
   }
-  const [source] = await db
+  const sources = await db
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, sourceId));
   return {
     database: required(database),
-    source: source ?? null,
+    source: firstRow(sources) ?? null,
     sourceId,
     documentId,
     key,

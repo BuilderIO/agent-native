@@ -7552,10 +7552,12 @@ async function deleteSourceChangeSetRecordsInTransaction(
       )
     : eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId);
 
-  const [source] = await tx
-    .select({ databaseId: schema.contentDatabaseSources.databaseId })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+  const source = firstRow(
+    await tx
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId)),
+  );
   if (!source) return references;
   await lockContentDatabaseMutation(tx, source.databaseId);
   await assertNoActiveBuilderSourceExecutions(
