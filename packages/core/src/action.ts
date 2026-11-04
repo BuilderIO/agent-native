@@ -1023,6 +1023,12 @@ interface DefineActionWithSchema<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** An empty list on this action sets an option and erases nothing saved, so
+   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
+   *  this off for any action that stores a list: there, `[]` beside a padded
+   *  `null` might be a real clear or padding, so the call is refused rather
+   *  than guessed at. */
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1152,6 +1158,7 @@ interface DefineActionWithParams<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1206,6 +1213,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
   readonly eagerInputStreaming?: boolean;
+  readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -1654,6 +1662,9 @@ export function defineAction(options: any) {
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
       ? { eagerInputStreaming: options.eagerInputStreaming }
+      : {}),
+    ...(typeof options.emptyListsEraseNothing === "boolean"
+      ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"

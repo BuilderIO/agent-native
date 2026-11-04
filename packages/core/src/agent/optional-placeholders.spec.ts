@@ -76,13 +76,16 @@ describe("normalizeOptionalToolPlaceholders", () => {
     ).toBeUndefined();
   });
 
-  it("treats an empty list as never a clear", () => {
+  it("treats an empty list as a clear unless the action says it erases nothing", () => {
+    const input = { id: "a", title: null, tags: [] };
     expect(
-      normalizeOptionalToolPlaceholders(
-        schema,
-        { id: "a", title: null, tags: [] },
-        write,
-      ).error,
+      normalizeOptionalToolPlaceholders(schema, input, write).error,
+    ).toBeDefined();
+    expect(
+      normalizeOptionalToolPlaceholders(schema, input, {
+        ...write,
+        emptyListsEraseNothing: true,
+      }).error,
     ).toBeUndefined();
   });
 

@@ -2690,13 +2690,13 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       });
     });
 
-    it("never reads an empty list as a clear", async () => {
-      const intent = await actionCallIntent(update, {
-        id: "a",
-        title: null,
-        tags: [],
-      });
-      expect(intent.valid).toBe(true);
+    it("refuses an empty list beside a null unless the action says it erases nothing", async () => {
+      const input = { id: "a", title: null, tags: [] };
+      expect((await actionCallIntent(update, input)).valid).toBe(false);
+      const listsEraseNothing = { ...update, emptyListsEraseNothing: true };
+      expect((await actionCallIntent(listsEraseNothing, input)).valid).toBe(
+        true,
+      );
     });
 
     it("runs a padded call whose empty value equals the schema default", async () => {

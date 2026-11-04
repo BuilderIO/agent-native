@@ -120,7 +120,12 @@ function resolveObjectSchemaBranch(
 function stripOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean; nullOnly: boolean },
+  emptyValues: {
+    valid: boolean;
+    invalid: boolean;
+    nullOnly: boolean;
+    listsEraseNothing: boolean;
+  },
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -175,12 +180,16 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A valid `false` sets a value, and `[]` is what a model that pads every
-      // field sends for an unused list, so neither counts as a clear. An empty
-      // equal to the schema's own default changes nothing either.
+      // A valid `false` sets a value, and `[]` on an action that says an empty
+      // list erases nothing is padding. Elsewhere `[]` could wipe a stored
+      // list. An empty equal to the schema's own default changes nothing.
       if (
         entry !== false &&
-        !(Array.isArray(entry) && entry.length === 0) &&
+        !(
+          emptyValues.listsEraseNothing &&
+          Array.isArray(entry) &&
+          entry.length === 0
+        ) &&
         schemaAcceptsToolValue(propertySchema, entry) &&
         !(
           propertySchema.default !== undefined &&
@@ -226,14 +235,21 @@ export class AmbiguousToolPlaceholdersError extends Error {
 export function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
-  entry: Parameters<typeof actionCallReadOnly>[0],
+  entry: Parameters<typeof actionCallReadOnly>[0] & {
+    emptyListsEraseNothing?: boolean;
+  },
   { nullOnly = false }: { nullOnly?: boolean } = {},
 ): ToolInputRepair {
   if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false, nullOnly };
+  const emptyValues = {
+    valid: false,
+    invalid: false,
+    nullOnly,
+    listsEraseNothing: entry.emptyListsEraseNothing === true,
+  };
   const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
   // Only a declared read is exempt: a dynamic plan-mode effect classifies the
   // raw input, which defaults can turn into a write.

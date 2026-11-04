@@ -1381,6 +1381,8 @@ export interface ActionEntry {
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** See `emptyListsEraseNothing` in `defineAction`. */
+  emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */

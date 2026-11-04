@@ -7,13 +7,20 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
-import { EnvHttpProxyAgent, fetch as fetchWithProxy } from "undici";
+import { fetch as fetchWithProxy } from "undici";
 
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
+import {
+  GIT_SYMLINK_MODE,
+  GitHttpUnavailableError,
+  withGitHttpRemote,
+  type GitHttpOptions,
+} from "./git-http.js";
+import { envProxyDispatcher } from "./http-proxy.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -121,10 +128,7 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   "typescript",
   "typescript-7",
 ];
-const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
-  "*/CLAUDE.md",
-  "*/.claude/skills",
-];
+const FIRST_PARTY_AGENT_LINK_PATHS = ["CLAUDE.md", ".claude/skills"];
 // Workspace-only packages a first-party template uses on its hosted site, with
 // the files that import them. A scaffold cannot install these (a standalone app
 // resolves them from npm, a new workspace has no such package), so it drops the
@@ -2550,7 +2554,6 @@ export {
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
-  githubTarballUrl as _githubTarballUrl,
   findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   startShapePromptOptions as _startShapePromptOptions,
@@ -2571,6 +2574,7 @@ export {
   extractTarball as _extractTarball,
   materializeArchiveSymlinks as _materializeArchiveSymlinks,
   downloadGitHubSubdir as _downloadGitHubSubdir,
+  extractSparseTag as _extractSparseTag,
   findLocalTemplate as _findLocalTemplate,
   templateSourceName as _templateSourceName,
   normalizeTemplateName as _normalizeTemplateName,
@@ -2604,19 +2608,13 @@ function tarExtractArgs(
   tarPath: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
     additionalExcludes?: string[];
   } = {},
 ): string[] {
-  const excludePatterns = [
-    ...(options.skipAgentSymlinks ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES : []),
-    ...(options.additionalExcludes ?? []),
-  ];
-  const excludes = [...new Set(excludePatterns)].flatMap((pattern) => [
-    "--exclude",
-    pattern,
-  ]);
+  const excludes = [...new Set(options.additionalExcludes)].flatMap(
+    (pattern) => ["--exclude", pattern],
+  );
   const safeOwnership = options.untrustedCommunityArchive
     ? ["--no-same-owner", "--no-same-permissions"]
     : [];
@@ -2633,6 +2631,12 @@ function tarExtractArgs(
 
 interface ArchiveSymlink {
   archivePath: string;
+  target: string;
+}
+
+interface ExtractedSymlink {
+  /** Relative to the extraction directory. */
+  path: string;
   target: string;
 }
 
@@ -2667,11 +2671,9 @@ function isPathWithin(root: string, candidate: string): boolean {
 
 function materializeArchiveSymlinks(
   destDir: string,
-  symlinks: ArchiveSymlink[],
+  symlinks: ExtractedSymlink[],
 ): void {
-  const links = new Map(
-    symlinks.map((link) => [archivePathAfterStrip(link.archivePath), link]),
-  );
+  const links = new Map(symlinks.map((link) => [link.path, link]));
   const active = new Set<string>();
 
   const materialize = (relativeLinkPath: string): void => {
@@ -2695,6 +2697,12 @@ function materializeArchiveSymlinks(
     if (!isPathWithin(path.resolve(destDir), resolvedTarget)) {
       throw new Error(
         `Archive symlink "${relativeLinkPath}" points outside the extraction directory.`,
+      );
+    }
+    // Copying a folder into itself recurses until the path is too long.
+    if (isPathWithin(resolvedTarget, linkPath)) {
+      throw new Error(
+        `Archive symlink "${relativeLinkPath}" points at a folder that contains it.`,
       );
     }
 
@@ -2738,14 +2746,12 @@ function extractTarball(
   tarPath: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
   } = {},
 ): void {
-  const symlinks =
-    options.skipAgentSymlinks || options.untrustedCommunityArchive
-      ? archiveSymlinksForExtraction(tarPath)
-      : [];
+  const symlinks = options.untrustedCommunityArchive
+    ? archiveSymlinksForExtraction(tarPath)
+    : [];
   execFileSync(
     resolveTarExecutable(),
     tarExtractArgs(tarPath, destDir, {
@@ -2757,7 +2763,13 @@ function extractTarball(
     },
   );
   if (symlinks.length > 0) {
-    materializeArchiveSymlinks(destDir, symlinks);
+    materializeArchiveSymlinks(
+      destDir,
+      symlinks.map((link) => ({
+        path: archivePathAfterStrip(link.archivePath),
+        target: link.target,
+      })),
+    );
   }
 }
 
@@ -2766,21 +2778,7 @@ export async function _downloadToFile(
   tarPath: string,
   maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
 ): Promise<void> {
-  const fallbackProxy = process.env.all_proxy ?? process.env.ALL_PROXY;
-  const httpProxy = normalizeProxyUrl(
-    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy,
-  );
-  const httpsProxy = normalizeProxyUrl(
-    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy,
-  );
-  const noProxy = process.env.no_proxy ?? process.env.NO_PROXY;
-  const proxyTunnel = new URL(url).protocol === "https:";
-  const dispatcher = new EnvHttpProxyAgent({
-    ...(httpProxy ? { httpProxy } : {}),
-    ...(httpsProxy ? { httpsProxy } : {}),
-    ...(noProxy !== undefined ? { noProxy } : {}),
-    proxyTunnel,
-  });
+  const dispatcher = envProxyDispatcher(url);
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 10_000);
   let downloadTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -2837,17 +2835,10 @@ export async function _downloadToFile(
   }
 }
 
-function normalizeProxyUrl(proxy: string | undefined): string | undefined {
-  const value = proxy?.trim();
-  if (!value) return undefined;
-  return /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
-}
-
 export async function _downloadAndExtract(
   url: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
   } = {},
 ): Promise<void> {
@@ -2996,25 +2987,28 @@ async function downloadGitHubSubdir(
   }
   const errors: string[] = [];
   for (const ref of refs) {
-    const tarUrl = githubTarballUrl(repo, ref, "tag");
     const tmpDir = path.join(
       targetDir,
       "..",
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      await _downloadAndExtract(tarUrl, tmpDir, {
-        skipAgentSymlinks: repo === REPO,
-      });
-      const srcDir = path.join(tmpDir, subdir);
-      if (!fs.existsSync(srcDir)) {
-        throw new Error(
-          `Template directory "${subdir}" not found at ref "${ref}".`,
-        );
-      }
-      copyDir(srcDir, targetDir);
+      await extractSparseTag(
+        `https://github.com/${repo}.git`,
+        ref,
+        subdir,
+        tmpDir,
+        { onRetry: (notice) => console.warn(notice) },
+      );
+      copyDir(path.join(tmpDir, subdir), targetDir);
       return ref;
     } catch (err) {
+      // Every other ref would wait out the same outage.
+      if (err instanceof GitHttpUnavailableError) {
+        throw new Error(
+          `Failed to download templates from ${repo}: ${err.message}`,
+        );
+      }
       errors.push(
         `  ${ref}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
       );
@@ -3024,6 +3018,83 @@ async function downloadGitHubSubdir(
   }
   throw new Error(
     `Failed to download templates from ${repo}. Tried refs:\n${errors.join("\n")}`,
+  );
+}
+
+/**
+ * Writes `subdir` of a tag, plus whatever its symlinks point at, into
+ * `destDir` at their repository paths. Symlinks become copies of their
+ * targets, and regular files at first-party agent link paths are left out.
+ */
+async function extractSparseTag(
+  remoteUrl: string,
+  ref: string,
+  subdir: string,
+  destDir: string,
+  options: GitHttpOptions = {},
+): Promise<void> {
+  await withGitHttpRemote(remoteUrl, options, async (remote) => {
+    const tree = await remote.readTree(await remote.resolveTag(ref));
+    if (!tree.directories.has(subdir)) {
+      throw new Error(
+        `Template directory "${subdir}" not found at ref "${ref}".`,
+      );
+    }
+    fs.mkdirSync(path.join(destDir, subdir), { recursive: true });
+
+    const roots = [subdir];
+    const fetched = new Set<string>();
+    const symlinks: ExtractedSymlink[] = [];
+    let newRoots = [subdir];
+    while (newRoots.length > 0) {
+      const files = tree.files.filter(
+        (file) =>
+          !fetched.has(file.path) &&
+          isWithinGitPaths(file.path, newRoots) &&
+          (file.mode === GIT_SYMLINK_MODE ||
+            !isFirstPartyAgentLinkPath(file.path)),
+      );
+      newRoots = [];
+      for (const { file, content } of await remote.readFiles(files)) {
+        fetched.add(file.path);
+        if (file.mode !== GIT_SYMLINK_MODE) {
+          const filePath = path.join(destDir, file.path);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, content, {
+            mode: Number.parseInt(file.mode, 8) & 0o111 ? 0o755 : 0o644,
+          });
+          continue;
+        }
+        const target = content.toString("utf8");
+        symlinks.push({ path: file.path, target });
+        const resolved = path.posix
+          .join(path.posix.dirname(file.path), target)
+          .replace(/\/+$/, "");
+        if (
+          !path.posix.isAbsolute(target) &&
+          resolved !== ".." &&
+          !resolved.startsWith("../") &&
+          !isWithinGitPaths(resolved, roots)
+        ) {
+          roots.push(resolved);
+          newRoots.push(resolved);
+        }
+      }
+    }
+    materializeArchiveSymlinks(destDir, symlinks);
+  });
+}
+
+function isWithinGitPaths(repoPath: string, roots: string[]): boolean {
+  return roots.some(
+    (root) => repoPath === root || repoPath.startsWith(`${root}/`),
+  );
+}
+
+function isFirstPartyAgentLinkPath(repoPath: string): boolean {
+  const padded = `/${repoPath}/`;
+  return FIRST_PARTY_AGENT_LINK_PATHS.some((linkPath) =>
+    padded.includes(`/${linkPath}/`),
   );
 }
 
@@ -3514,14 +3585,6 @@ function readCommunitySourceIdentity(
   } catch {
     return { appName: fallbackName, appTitle: titleCase(fallbackName) };
   }
-}
-
-function githubTarballUrl(
-  repo: string,
-  ref: string,
-  kind: "branch" | "tag",
-): string {
-  return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

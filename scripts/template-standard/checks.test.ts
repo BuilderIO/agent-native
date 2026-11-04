@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  checkSsrRootRoute,
+  checkSsrRouteHandler,
   computeMajorityValue,
   extractTsconfigExtends,
   hasUnrenderedPlaceholder,
+  isRootSsrRouteReexport,
   packageScriptViolationMessage,
 } from "./checks.ts";
 import { isRetiredCompatibilityTemplate, listTemplates } from "./manifest.ts";
@@ -110,5 +116,74 @@ describe("computeMajorityValue", () => {
 
   it("returns undefined for an empty list", () => {
     assert.equal(computeMajorityValue([]), undefined);
+  });
+});
+
+describe("isRootSsrRouteReexport", () => {
+  it("accepts the catch-all re-export with either quote style", () => {
+    assert.equal(
+      isRootSsrRouteReexport('export { default } from "./[...page].get";\n'),
+      true,
+    );
+    assert.equal(
+      isRootSsrRouteReexport("export { default } from './[...page].get'"),
+      true,
+    );
+  });
+
+  it("rejects a separate root handler", () => {
+    assert.equal(
+      isRootSsrRouteReexport(
+        'import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";\nexport default createH3SSRHandler(() => import("virtual:react-router/server-build"));',
+      ),
+      false,
+    );
+  });
+});
+
+describe("checkSsrRootRoute", () => {
+  function scaffold(rootRoute?: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "ssr-root-route-"));
+    mkdirSync(join(dir, "server", "routes"), { recursive: true });
+    writeFileSync(
+      join(dir, "server", "routes", "[...page].get.ts"),
+      "export default handler;\n",
+    );
+    if (rootRoute !== undefined) {
+      writeFileSync(join(dir, "server", "routes", "index.get.ts"), rootRoute);
+    }
+    return dir;
+  }
+
+  it("distinguishes a missing root route from one that is not a re-export", () => {
+    const missing = scaffold();
+    const wrong = scaffold("export default otherHandler;\n");
+    const ok = scaffold('export { default } from "./[...page].get";\n');
+    try {
+      const messages = checkSsrRootRoute([missing, wrong, ok]).map(
+        (violation) => violation.message,
+      );
+      assert.equal(messages.length, 2);
+      assert.match(messages[0] ?? "", /is missing/);
+      assert.match(messages[1] ?? "", /must only re-export the catch-all/);
+    } finally {
+      for (const dir of [missing, wrong, ok]) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("reports a scaffold source that has no catch-all at all", () => {
+    const empty = mkdtempSync(join(tmpdir(), "ssr-root-route-"));
+    try {
+      assert.deepEqual(
+        [...checkSsrRouteHandler([empty]), ...checkSsrRootRoute([empty])].map(
+          (violation) => violation.rule,
+        ),
+        ["ssr-route-handler", "ssr-root-route"],
+      );
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });
