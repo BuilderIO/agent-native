@@ -325,6 +325,17 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
+  it("accepts a top-level element appended after the slide's content, since no path moves", () => {
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div><div class="fmd-shape"></div></div>`,
+        animations: [reveal],
+        baseline: { content: before, animations: [reveal] },
+      }),
+    ).not.toThrow();
+  });
+
   it("accepts a text edit to the target, which keeps its identity", () => {
     expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
   });
