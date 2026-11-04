@@ -82,6 +82,12 @@ export interface WebContentResult {
    * extracted content. */
   rawBodyFallback?: boolean;
   searchTruncated?: boolean;
+  /** Optional Turndown peer was missing, so markdown conversion did not run.
+   * `mode: "markdown"` is the request, not proof the body is Markdown;
+   * `fullContentFormat` / extracted text is the actual payload. Extracted
+   * searches used plain text and will not include Markdown-only tokens
+   * such as link targets. */
+  markdownUnavailable?: boolean;
 }
 
 const WEB_CONTENT_TRUNCATION_MARKER = "\n... (truncated)";
@@ -270,6 +276,7 @@ export async function processWebContent(
       ? { contentLength: baseContent.length }
       : {}),
     ...(rawBodyFallback ? { rawBodyFallback: true } : {}),
+    ...(extracted?.markdownUnavailable ? { markdownUnavailable: true } : {}),
   };
 
   if (
@@ -355,6 +362,7 @@ export function formatWebContentResult(result: WebContentResult): string {
     if (hasSearchSummary(result)) {
       lines.push("", formatMatches(result));
     }
+    appendMarkdownUnavailableFooter(lines, result);
     return lines.join("\n");
   }
 
@@ -398,6 +406,7 @@ export function formatWebContentResult(result: WebContentResult): string {
     lines.push("", formatMatches(result));
   }
   appendRawTruncationFooter(lines, result);
+  appendMarkdownUnavailableFooter(lines, result);
 
   return lines.join("\n").trim();
 }
@@ -423,6 +432,14 @@ function applyFallbackBody(
   result.truncated = limited.truncated;
   result.contentLength = body.length;
   result.rawBodyFallback = true;
+}
+
+function appendMarkdownUnavailableFooter(
+  lines: string[],
+  result: WebContentResult,
+) {
+  if (!result.markdownUnavailable) return;
+  lines.push("", "Markdown conversion unavailable; showing extracted text.");
 }
 
 function appendRawTruncationFooter(lines: string[], result: WebContentResult) {
@@ -468,13 +485,15 @@ function isHtmlParserRejection(error: unknown): boolean {
   // linkedom surfaces a missing root by destructuring a null
   // `documentElement`. Turndown collapses the same unparseable markup (e.g. a
   // frameset served as text/html) to a null root and throws reading
-  // `firstChild`. Match only those null-root shapes — a message that merely
-  // mentions documentElement is a different failure and must propagate.
+  // `firstChild`. Readability throws reading `tagName` on that clone.
+  // Match only those null-root shapes — a message that merely mentions
+  // documentElement is a different failure and must propagate.
   const message = error.message;
   return (
     /of ['"]documentElement['"] as it is null/i.test(message) ||
     /null \(reading ['"]documentElement['"]\)/i.test(message) ||
-    /null \(reading ['"]firstChild['"]\)/i.test(message)
+    /null \(reading ['"]firstChild['"]\)/i.test(message) ||
+    /null \(reading ['"]tagName['"]\)/i.test(message)
   );
 }
 
@@ -495,6 +514,7 @@ async function safeExtractHtml(
   lang?: string;
   publishedTime?: string;
   agentMetadata?: unknown[];
+  markdownUnavailable?: boolean;
 } | null> {
   try {
     return await extractHtml(body, url, extract, includeMarkdown);
@@ -525,6 +545,7 @@ async function extractHtml(
   lang?: string;
   publishedTime?: string;
   agentMetadata?: unknown[];
+  markdownUnavailable?: boolean;
 }> {
   const { parseHTML } = await loadOptionalPeer(
     "linkedom",
@@ -537,15 +558,30 @@ async function extractHtml(
   const agentMetadata = collectAgentMetadata(document);
   removeNonContentNodes(document);
   const pageTitle = textOrUndefined(document.title);
-  const article =
-    extract === "readability"
-      ? new (
-          await loadOptionalPeer(
-            "@mozilla/readability",
-            () => import("@mozilla/readability"),
-          )
-        ).Readability(document.cloneNode(true) as Document).parse()
-      : null;
+  let article: {
+    content?: string | null;
+    textContent?: string | null;
+    title?: string | null;
+    excerpt?: string | null;
+    byline?: string | null;
+    siteName?: string | null;
+    lang?: string | null;
+    publishedTime?: string | null;
+  } | null = null;
+  if (extract === "readability") {
+    const { Readability } = await loadOptionalPeer(
+      "@mozilla/readability",
+      () => import("@mozilla/readability"),
+    );
+    try {
+      article = new Readability(document.cloneNode(true) as Document).parse();
+    } catch (error) {
+      // Readability throws reading tagName on a frameset clone. Keep the
+      // already-parsed document instead of aborting extractHtml, which
+      // would make safeExtractHtml return null and discard text/links.
+      if (!isHtmlParserRejection(error)) throw error;
+    }
+  }
   const sourceHtml =
     extract === "none"
       ? body
@@ -561,11 +597,13 @@ async function extractHtml(
         document.body?.textContent ||
         document.documentElement.textContent ||
         "";
-  const markdown = includeMarkdown ? await htmlToMarkdown(absoluteHtml) : "";
+  const converted = includeMarkdown
+    ? await htmlToMarkdown(absoluteHtml)
+    : { markdown: "" };
   return {
     html: absoluteHtml,
     text: normalizeWhitespace(sourceText),
-    markdown,
+    markdown: converted.markdown,
     links: mergeLinks(
       alternateLinks,
       collectLinks(absoluteHtml, url, parseDocument),
@@ -577,6 +615,7 @@ async function extractHtml(
     lang: textOrUndefined(article?.lang),
     publishedTime: textOrUndefined(article?.publishedTime),
     ...(agentMetadata.length ? { agentMetadata } : {}),
+    ...(converted.unavailable ? { markdownUnavailable: true } : {}),
   };
 }
 
@@ -664,10 +703,20 @@ function htmlToPlainText(
 ): string {
   const document = parseFullDocument(html, parseDocument);
   removeNonContentNodes(document);
-  return normalizeWhitespace(document.body?.textContent ?? "");
+  const bodyText = normalizeWhitespace(document.body?.textContent ?? "");
+  if (bodyText) return bodyText;
+  // Frameset pages have an empty body. Keep <noframes> so markdown/matches
+  // can share that corpus when Turndown rejects the frameset root.
+  return normalizeWhitespace(
+    [...document.querySelectorAll("noframes")]
+      .map((node) => node.textContent ?? "")
+      .join(" "),
+  );
 }
 
-async function htmlToMarkdown(html: string): Promise<string> {
+async function htmlToMarkdown(
+  html: string,
+): Promise<{ markdown: string; unavailable?: true }> {
   try {
     const { default: TurndownService } = await loadOptionalPeer(
       "turndown",
@@ -680,10 +729,15 @@ async function htmlToMarkdown(html: string): Promise<string> {
       linkStyle: "inlined",
     });
     turndown.remove(["script", "style", "noscript"]);
-    return normalizeMarkdown(turndown.turndown(html));
+    return { markdown: normalizeMarkdown(turndown.turndown(html)) };
   } catch (error) {
     if (isMissingPeer(error, "turndown")) {
-      return "";
+      return { markdown: "", unavailable: true };
+    }
+    if (isHtmlParserRejection(error)) {
+      // Turndown collapsed an unparseable root (e.g. frameset). extractHtml
+      // already has text/links/metadata; only markdown is dropped.
+      return { markdown: "" };
     }
     throw error;
   }

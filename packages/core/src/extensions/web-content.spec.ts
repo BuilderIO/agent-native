@@ -115,6 +115,65 @@ describe("processWebContent", () => {
     },
   );
 
+  it("keeps extracted noframes text when Turndown rejects a frameset", async () => {
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      "<frameset cols='200,*'><frame src='/nav'><frame src='/main'>" +
+      "<noframes><p>Readable fallback with a <a href='https://example.com/alt'>link</a>.</p></noframes>" +
+      "</frameset></html>";
+
+    const markdown = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+      extract: "none",
+      includeLinks: true,
+    });
+    const text = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+      extract: "none",
+    });
+    const matches = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "matches",
+      extract: "none",
+      search: { query: "Readable fallback" },
+    });
+
+    expect(markdown.rawBodyFallback).toBeUndefined();
+    expect(text.rawBodyFallback).toBeUndefined();
+    expect(markdown.content).toContain("Readable fallback");
+    expect(text.content).toContain("Readable fallback");
+    expect(markdown.content).toBe(text.content);
+    expect(markdown.content).not.toContain("<frameset");
+    expect(text.content).not.toContain("<frameset");
+    expect(markdown.title).toBe("Login");
+    expect(
+      markdown.links?.some((link) => link.url === "https://example.com/alt"),
+    ).toBe(true);
+    expect(matches.searchSource).toBe("extracted");
+    expect(matches.matches?.length).toBeGreaterThan(0);
+    expect(formatWebContentResult(matches)).not.toContain("<frameset");
+    expect(formatWebContentResult(markdown)).not.toContain("<frameset");
+
+    const readable = await processWebContent({
+      url: "https://example.com/",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+    });
+    expect(readable.content).toContain("Readable fallback");
+    expect(readable.content).not.toContain("<frameset");
+  });
+
   it("falls back to raw text when a real frameset body makes the HTML-to-markdown parser reject it", async () => {
     const { processWebContent, formatWebContentResult } =
       await import("./web-content.js");
@@ -701,6 +760,7 @@ describe("processWebContent", () => {
     });
 
     expect(result.searchSource).toBe("extracted");
+    expect(result.markdownUnavailable).toBe(true);
     expect(result.matches?.length).toBeGreaterThan(0);
     expect(
       result.matches?.some((match) => match.match === "Readable content"),
@@ -736,7 +796,8 @@ describe("processWebContent", () => {
       (error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
       throw error;
     });
-    const { processWebContent } = await import("./web-content.js");
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
 
     const result = await processWebContent({
       url: "https://example.com/story",
@@ -747,12 +808,57 @@ describe("processWebContent", () => {
     });
 
     expect(result.fullContentFormat).toBe("text");
+    expect(result.markdownUnavailable).toBe(true);
     expect(result.fullContent).toBeTruthy();
     expect(result.fullContent).not.toContain("# Story title");
+    expect(formatWebContentResult(result)).toContain(
+      "Markdown conversion unavailable; showing extracted text.",
+    );
+  });
+
+  it("signals missing Turndown instead of labeling inline markdown as markdown", async () => {
+    vi.doMock("turndown", () => {
+      const error = new Error("Cannot find module 'turndown'");
+      (error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
+      throw error;
+    });
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "markdown",
+    });
+
+    expect(result.mode).toBe("markdown");
+    expect(result.markdownUnavailable).toBe(true);
+    expect(result.rawBodyFallback).toBeUndefined();
+    expect(result.content).toContain("Readable content");
+    expect(result.content).not.toContain("# Story title");
+    expect(formatWebContentResult(result)).toContain(
+      "Markdown conversion unavailable; showing extracted text.",
+    );
   });
 });
 
 describe("formatWebContentResult", () => {
+  it("notes when markdown conversion was unavailable", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const formatted = formatWebContentResult({
+      mode: "markdown",
+      extract: "readability",
+      contentType: "text/html",
+      content: "Readable content.",
+      markdownUnavailable: true,
+    });
+    expect(formatted).toContain("Readable content.");
+    expect(formatted).toContain(
+      "Markdown conversion unavailable; showing extracted text.",
+    );
+  });
+
   it("appends fallback content after links output", async () => {
     const { formatWebContentResult } = await import("./web-content.js");
     expect(

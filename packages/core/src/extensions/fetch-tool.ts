@@ -532,6 +532,7 @@ export function createFetchToolEntry(
           let processedMode = "raw";
           let searchResultsTruncated = false;
           let searchSourceTruncated = false;
+          let markdownUnavailable = false;
           let fileContent = body;
           let fileContentType = contentType;
           let savedContentFormat: "raw" | "markdown" | "text" | undefined;
@@ -564,6 +565,7 @@ export function createFetchToolEntry(
             });
             processedMode = processed.mode;
             searchSourceTruncated = processed.searchTruncated ?? false;
+            markdownUnavailable = processed.markdownUnavailable === true;
             displayBody = formatWebContentResult(processed);
 
             if (saveToFilePath && hasSearch && displayBody.length > maxChars) {
@@ -594,6 +596,7 @@ export function createFetchToolEntry(
                 omittedMatches: undefined,
                 searchSource: undefined,
                 searchTruncated: undefined,
+                markdownUnavailable: undefined,
                 rawBodyFallback: savingRawFallback
                   ? undefined
                   : processed.rawBodyFallback,
@@ -693,6 +696,7 @@ export function createFetchToolEntry(
                 contentType,
                 savedFormat,
                 responseMode: processedMode,
+                ...(markdownUnavailable ? { markdownUnavailable: true } : {}),
                 ...(hasSearch
                   ? {
                       searchResults: displayBody,
