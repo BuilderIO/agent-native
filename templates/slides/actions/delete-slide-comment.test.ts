@@ -78,8 +78,11 @@ vi.mock("../server/db/index.js", () => {
           const orderedLimit = async (n: number) =>
             ordered.slice(0, n).map(project);
           const forUpdate = async () => ordered.map(project);
+          const all = async () => matched.map(project);
           return {
             limit,
+            then: (resolve: (rows: unknown) => unknown, reject?: unknown) =>
+              all().then(resolve, reject as never),
             orderBy: () => ({ limit: orderedLimit, for: forUpdate }),
           };
         },
@@ -148,6 +151,69 @@ describe("delete-slide-comment", () => {
       resourceType: "deck",
       resourceId: "deck-1",
     });
+  });
+
+  it("asks before an agent deletes another person's comment", async () => {
+    const needsApproval = (action as any).needsApproval;
+    expect(
+      await needsApproval({ id: "c-3", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+    expect(
+      await needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "frontend" },
+      ),
+    ).toBe(false);
+  });
+
+  it("asks before an agent deletes a thread root that holds another user's reply", async () => {
+    const needsApproval = (action as any).needsApproval;
+    expect(
+      await needsApproval({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+  });
+
+  it("asks before an agent deletes another user's agent comment", async () => {
+    state.rows.push({
+      id: "c-4",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "other@example.com",
+      authorKind: "agent",
+      threadId: "c-4",
+      parentId: null,
+      createdAt: "2026-01-03T00:00:00.000Z",
+    } as Row);
+    const needsApproval = (action as any).needsApproval;
+    expect(
+      await needsApproval({ id: "c-4", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+  });
+
+  it("does not ask when the agent deletes the user's own agent comment", async () => {
+    state.rows.push({
+      id: "c-5",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "author@example.com",
+      authorKind: "agent",
+      threadId: "c-5",
+      parentId: null,
+      createdAt: "2026-01-03T00:00:00.000Z",
+    } as Row);
+    const needsApproval = (action as any).needsApproval;
+    expect(
+      await needsApproval({ id: "c-5", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(false);
+  });
+
+  it("records the deleted comment as the audit target", () => {
+    expect(
+      (action as any).audit.target(
+        { id: "c-3", deckId: "deck-1" },
+        { ok: true },
+      ),
+    ).toEqual({ type: "slide-comment", id: "c-3" });
   });
 
   it("lets the author delete their own comment with commenter access", async () => {

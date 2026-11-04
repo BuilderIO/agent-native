@@ -5,6 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commentAuthorKind } from "../shared/comment-author.js";
 
 export default defineAction({
   description:
@@ -17,6 +18,50 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
+  audit: {
+    target: (args) => ({ type: "slide-comment", id: args.id }),
+  },
+  needsApproval: async ({ id, deckId }, ctx) => {
+    if (commentAuthorKind(ctx?.caller) !== "agent") return false;
+    const db = getDb();
+    const [target] = await db
+      .select({
+        id: schema.slideComments.id,
+        slideId: schema.slideComments.slideId,
+        threadId: schema.slideComments.threadId,
+      })
+      .from(schema.slideComments)
+      .where(
+        and(
+          eq(schema.slideComments.id, id),
+          eq(schema.slideComments.deckId, deckId),
+        ),
+      )
+      .limit(1);
+    if (!target) return false;
+    const threadRows = await db
+      .select({
+        id: schema.slideComments.id,
+        authorEmail: schema.slideComments.authorEmail,
+      })
+      .from(schema.slideComments)
+      .where(
+        and(
+          eq(schema.slideComments.deckId, deckId),
+          eq(schema.slideComments.slideId, target.slideId),
+          eq(schema.slideComments.threadId, target.threadId),
+        ),
+      );
+    // Deleting a thread root removes its replies too, so their authors count.
+    const removed =
+      target.id === target.threadId
+        ? threadRows
+        : threadRows.filter((row) => row.id === target.id);
+    const viewer = getRequestUserEmail()?.trim().toLowerCase();
+    return removed.some(
+      (row) => row.authorEmail.trim().toLowerCase() !== viewer,
+    );
+  },
   run: async (args) => {
     await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();
