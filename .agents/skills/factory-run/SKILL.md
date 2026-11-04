@@ -303,8 +303,9 @@ this", "try again", "why did you skip this?", or a question).
   otherwise skip the thread (a claim, a stored outcome, `not-actionable`, the
   one-reply limit: use `--again`). It doesn't override the Never list, the
   daily cap, or the endorsement requirement: a feature or UX change still
-  needs Steve's `:yes-party:` or `:upvote:`, or the ask must come from Steve
-  himself; otherwise it's 🎫 and "Steve will decide".
+  needs Steve's `:yes-party:` or `:upvote:`, or the mentioning message's
+  author must be Steve's user ID (`U0GCV21HC`, not a display name); otherwise
+  it's 🎫 and "Steve will decide".
 - Record the thread under its root permalink first, so `factory-slack` can
   reply there and the watcher keeps following it. Check it against work in
   flight (step 3) like any report.
@@ -436,7 +437,7 @@ GitHub or Slack: no approvals, comments, reactions, digest, or recap.
 
 In a sweep with `$FACTORY_PR_REVIEW` on, also find open issues from people
 outside BuilderIO with no reply yet from a member or the bot
-(`gh issue list --state open --json number,author,comments,createdAt`, then
+(`gh issue list --state open --limit 500 --search "sort:created-asc" --json number,author,comments,createdAt`, then
 `factory-github membership`). Handle the oldest 10 per sweep as GitHub issue
 reports through normal triage. Replies say what happens next and who does it,
 never internal process.
