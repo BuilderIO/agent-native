@@ -4,6 +4,8 @@ import { getDb } from "../db/index.js";
 import { readCallingFactoryAutomation } from "../lib/factory-automation-caller.js";
 import { readTriageConfigRow } from "../lib/factory-scope.js";
 import { isSlackChannelId } from "../lib/slack-channel-id.js";
+import { REACTION_NAME } from "../lib/source-reaction.js";
+import { isUnreadableSecret } from "../lib/unreadable-secret.js";
 import { failWorkflowAction } from "../lib/workflow-action-errors.js";
 import {
   WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
@@ -125,6 +127,8 @@ function failSlackStep(
   operation: SlackOperation,
   what: string,
 ): never {
+  // Slack was never asked: the typed failure already names the key, and wrapping it would make it retryable.
+  if (isUnreadableSecret(error)) throw error;
   failIfSlackNotReady(error);
   const code = slackApiCode(error);
   const status = slackHttpStatus(error);
@@ -179,7 +183,10 @@ interface WorkflowThreadMessage {
   isBot: boolean;
   text: string;
   textTruncated?: true;
+  /** Reactions from anyone but this app's own bot. */
   reactions: ThreadReaction[];
+  /** Names of the reactions this app's own bot put on the message; listed here and left out of `reactions`, so its acknowledgement never reads as a person's. */
+  ownReactions?: string[];
 }
 
 interface WorkflowThreadResult {
@@ -194,7 +201,42 @@ interface WorkflowThreadResult {
   nextOldest: string | null;
 }
 
-function shapeMessage(message: SlackMessage): WorkflowThreadMessage {
+/**
+ * What people and other bots reacted with, without this app's own bot. A
+ * workflow that reacts to a report (an `eyes` to say it is looking) must not
+ * find its own reaction on the next read and take it for a person claiming the
+ * report or answering a question. A reactor list Slack cut short that does not
+ * show the bot keeps its count, so a reaction is never dropped on a guess.
+ */
+function shapeReactions(
+  message: SlackMessage,
+  ownUserId: string,
+): Pick<WorkflowThreadMessage, "reactions" | "ownReactions"> {
+  const reactions: ThreadReaction[] = [];
+  const own: string[] = [];
+  for (const reaction of message.reactions ?? []) {
+    const users = reaction.users ?? [];
+    const mine = users.includes(ownUserId);
+    if (mine) own.push(reaction.name);
+    const count = (reaction.count ?? users.length) - (mine ? 1 : 0);
+    if (count <= 0) continue;
+    const others = mine ? users.filter((user) => user !== ownUserId) : users;
+    reactions.push({
+      name: reaction.name,
+      count,
+      users: others.slice(0, REACTION_USERS_LIMIT),
+      ...(others.length > REACTION_USERS_LIMIT
+        ? { usersTruncated: true as const }
+        : {}),
+    });
+  }
+  return { reactions, ...(own.length > 0 ? { ownReactions: own } : {}) };
+}
+
+function shapeMessage(
+  message: SlackMessage,
+  ownUserId: string,
+): WorkflowThreadMessage {
   const text = clipText(message.text ?? "", SLACK_MESSAGE_TEXT_LIMIT);
   return {
     ts: message.ts,
@@ -204,17 +246,7 @@ function shapeMessage(message: SlackMessage): WorkflowThreadMessage {
     isBot: Boolean(message.bot_id),
     text: text.text,
     ...(text.clipped ? { textTruncated: true as const } : {}),
-    reactions: (message.reactions ?? []).map((reaction) => {
-      const users = reaction.users ?? [];
-      return {
-        name: reaction.name,
-        count: reaction.count ?? users.length,
-        users: users.slice(0, REACTION_USERS_LIMIT),
-        ...(users.length > REACTION_USERS_LIMIT
-          ? { usersTruncated: true as const }
-          : {}),
-      };
-    }),
+    ...shapeReactions(message, ownUserId),
   };
 }
 
@@ -230,6 +262,8 @@ export async function readWorkflowSlackThread(
     channel: string;
     threadTs: string;
     oldest?: string;
+    /** The most characters of messages to hand on; the output budget when absent. */
+    budgetChars?: number;
   },
 ): Promise<WorkflowThreadResult> {
   let thread: { messages: SlackMessage[]; hasMore: boolean };
@@ -269,17 +303,24 @@ export async function readWorkflowSlackThread(
       statusCode: 404,
     });
   }
+  let ownUserId: string;
+  try {
+    ownUserId = (await slack.getAgentNativeIdentity(input.workspace)).userId;
+  } catch (error) {
+    return failSlackStep(error, "read", "checking the Slack identity");
+  }
   const { oldest } = input;
   const after = oldest
     ? thread.messages.filter(
         (message) => compareSlackTs(message.ts, oldest) > 0,
       )
     : thread.messages;
-  const shaped = after.map(shapeMessage);
+  const shaped = after.map((message) => shapeMessage(message, ownUserId));
   const { kept, truncated } = takeWithinBudget(
     shaped,
-    WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
+    input.budgetChars ?? WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
     400,
+    { keepFirst: true },
   );
   return {
     channel: input.channel,
@@ -476,4 +517,232 @@ export async function postWorkflowSlackMessage(
     post.permalinkError = slackApiCode(error) ?? "permalink_unavailable";
   }
   return post;
+}
+
+interface WorkflowSlackReaction {
+  channel: string;
+  ts: string;
+  name: string;
+  /** Slack said the bot had already put this reaction on the message: the end state asked for, with nothing changed by this call. */
+  alreadyReacted: boolean;
+  externalRef: string;
+}
+
+/** The emoji name as Slack takes it, without colons. Anything Slack would answer `invalid_name` to is refused before it is sent. */
+function checkReactionName(name: string): string {
+  const bare = name.trim().replace(/^:(.*):$/, "$1");
+  if (!REACTION_NAME.test(bare)) {
+    return failWorkflowAction({
+      message:
+        "The reaction must be an emoji name such as eyes: lowercase letters, digits, _, + and -, without colons.",
+      errorCode: "slack_reaction_invalid",
+      statusCode: 400,
+    });
+  }
+  return bare;
+}
+
+/** What Slack's `ok: false` on a reaction means, when nothing was written. */
+function failReactionRejected(error: SlackWriteError, code: string | null) {
+  const limited =
+    error.retryAfterSeconds !== null ||
+    code === "ratelimited" ||
+    slackHttpStatus(error) === 429;
+  if (limited) {
+    return failWorkflowAction({
+      message: "Slack is rate limiting this workspace while adding a reaction.",
+      errorCode: "slack_rate_limited",
+      statusCode: 429,
+      retryable: true,
+      details: {
+        ...(error.retryAfterSeconds !== null
+          ? { retryAfterSeconds: error.retryAfterSeconds }
+          : {}),
+      },
+    });
+  }
+  if (code && NOT_FOUND_CODES.has(code)) {
+    return failWorkflowAction({
+      message: `Slack could not find the message to react to (${code}). Check the channel id and the message time, and that the bot is in the channel.`,
+      errorCode: "slack_not_found",
+      statusCode: 404,
+      details: { slackError: code },
+    });
+  }
+  if (code && ACCESS_CODES.has(code)) {
+    return failWorkflowAction({
+      message: `Slack refused the connected credential while adding a reaction (${code}).${code === "missing_scope" ? " The Slack app needs the reactions:write scope." : ""}`,
+      errorCode: "slack_access_denied",
+      statusCode: 403,
+      details: { slackError: code },
+    });
+  }
+  return failWorkflowAction({
+    message: `Slack rejected the reaction${code ? ` (${code})` : ""}; nothing was added.`,
+    errorCode: "slack_reaction_rejected",
+    statusCode: 424,
+    details: { ...(code ? { slackError: code } : {}) },
+  });
+}
+
+/**
+ * Puts one reaction on one message, as the bot. Everything before the write
+ * fails with no side effect. Slack answers a repeat with HTTP 200 and
+ * `already_reacted`, which here is a success that says so (`alreadyReacted`),
+ * because the message ends up with the reaction either way; any other
+ * `ok: false` is a rejection, and a failure that may have reached Slack is
+ * `_outcome_unknown`.
+ */
+export async function addWorkflowSlackReaction(
+  slack: SlackReader,
+  input: { workspace: Workspace; channel: string; ts: string; name: string },
+): Promise<WorkflowSlackReaction> {
+  const channel = input.channel.trim();
+  if (!isSlackChannelId(channel)) {
+    return failWorkflowAction({
+      message:
+        "The channel must be a Slack channel id such as C0123ABCD, not a name.",
+      errorCode: "slack_channel_invalid",
+      statusCode: 400,
+    });
+  }
+  const ts = input.ts.trim();
+  if (!isSlackTimestamp(ts)) {
+    return failWorkflowAction({
+      message:
+        "The message time must be a Slack timestamp such as 1700000000.000100.",
+      errorCode: "slack_timestamp_invalid",
+      statusCode: 400,
+    });
+  }
+  const name = checkReactionName(input.name);
+  try {
+    await slack.verifyAgentNativeIdentity(input.workspace);
+  } catch (error) {
+    failSlackStep(error, "post", "checking the Slack identity");
+  }
+
+  let alreadyReacted = false;
+  try {
+    await slack.addReaction(input.workspace, channel, ts, name);
+  } catch (error) {
+    if (!(error instanceof SlackWriteError) || error.delivery !== "rejected") {
+      return failWorkflowAction({
+        message: "Slack did not confirm whether the reaction was added.",
+        errorCode: "slack_reaction_outcome_unknown",
+        statusCode: 424,
+      });
+    }
+    const code = slackApiCode(error);
+    if (code !== "already_reacted") return failReactionRejected(error, code);
+    alreadyReacted = true;
+  }
+  return {
+    channel,
+    ts,
+    name,
+    alreadyReacted,
+    externalRef: `${channel}:${ts}:${name}`,
+  };
+}
+
+interface WorkflowSlackUserEmail {
+  ok: true;
+  userId: string;
+  email: string;
+  /** `slack` when Slack gave the address; `fallback` when the person has none and the caller's fallback was used. */
+  emailSource: "slack" | "fallback";
+}
+
+const EMAIL_SCOPE = "users:read.email";
+
+/**
+ * Reads a Slack member's email, so work started for a report is attributed to
+ * the person who wrote it. Three answers, never blurred:
+ * - Slack gave an address: that is the email.
+ * - The person has no email: the caller's `fallbackEmail`, said so by
+ *   `emailSource`, or a refusal when the caller gave none.
+ * - Slack could not be asked, or its answer cannot tell "no email" from
+ *   "not allowed to see it": a typed failure. `users.info` sends no email when
+ *   the token lacks `users:read.email`, so a missing address counts as the
+ *   person's only when Slack lists that scope among the token's.
+ * A fallback is never taken for a failure: it would attribute the work to the
+ * wrong person.
+ */
+export async function readWorkflowSlackUserEmail(
+  slack: SlackReader,
+  input: { workspace: Workspace; userId: string; fallbackEmail?: string },
+): Promise<WorkflowSlackUserEmail> {
+  const userId = input.userId.trim();
+  if (!SLACK_USER_ID.test(userId)) {
+    return failWorkflowAction({
+      message:
+        "The person must be a Slack user id such as U0123ABCD, not a name or an email.",
+      errorCode: "slack_user_invalid",
+      statusCode: 400,
+    });
+  }
+  let found;
+  try {
+    found = await slack.getUserEmail(input.workspace, userId);
+  } catch (error) {
+    const code = slackApiCode(error);
+    if (code === "user_not_found" || code === "users_not_found") {
+      return failWorkflowAction({
+        message: `Slack has no member with the id ${userId}.`,
+        errorCode: "slack_user_not_found",
+        statusCode: 404,
+      });
+    }
+    if (code === "missing_scope") {
+      return failWorkflowAction({
+        message: `Slack refused the connected credential while reading the reporter's email (missing_scope): it needs the users:read and ${EMAIL_SCOPE} scopes. Reconnect Slack with them.`,
+        errorCode: "slack_access_denied",
+        statusCode: 403,
+        details: { slackError: code },
+      });
+    }
+    return failSlackStep(error, "lookup", "reading the reporter's email");
+  }
+  if (found.email !== null) {
+    if (!EMAIL.test(found.email)) {
+      return failWorkflowAction({
+        message: `Slack gave an email for ${userId} that is not an address, so it cannot be used.`,
+        errorCode: "slack_user_email_unreadable",
+        statusCode: 424,
+      });
+    }
+    return { ok: true, userId, email: found.email, emailSource: "slack" };
+  }
+  if (found.grantedScopes === null) {
+    return failWorkflowAction({
+      message: `Slack sent no email for ${userId} and did not list the credential's scopes, so a person with no email cannot be told from a missing ${EMAIL_SCOPE} scope.`,
+      errorCode: "slack_user_email_unreadable",
+      statusCode: 424,
+    });
+  }
+  if (!found.grantedScopes.includes(EMAIL_SCOPE)) {
+    return failWorkflowAction({
+      message: `Slack sent no email for ${userId} because the connected credential lacks the ${EMAIL_SCOPE} scope. Reconnect Slack with it.`,
+      errorCode: "slack_access_denied",
+      statusCode: 403,
+      details: { slackError: "missing_scope" },
+    });
+  }
+  const fallback = input.fallbackEmail?.trim();
+  if (!fallback) {
+    return failWorkflowAction({
+      message: `${userId} has no email in Slack and no fallback email was given.`,
+      errorCode: "slack_user_email_missing",
+      statusCode: 422,
+    });
+  }
+  if (!EMAIL.test(fallback)) {
+    return failWorkflowAction({
+      message: `${userId} has no email in Slack and the fallback email is not an address.`,
+      errorCode: "slack_user_email_missing",
+      statusCode: 422,
+    });
+  }
+  return { ok: true, userId, email: fallback, emailSource: "fallback" };
 }

@@ -300,6 +300,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -4875,8 +4876,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -7264,7 +7264,11 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      if (schemaAcceptsToolValue(propertySchema, entry))
+      // A valid `false` sets a value, and `[]` is what a model that pads every
+      // field sends for an unused list, so neither counts as a clear.
+      const mayClear =
+        entry !== false && !(Array.isArray(entry) && entry.length === 0);
+      if (mayClear && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(
@@ -12088,8 +12092,7 @@ export function isRecoverableContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -14024,7 +14027,7 @@ export function createProductionAgentHandler(
         body = await readBody(event);
       } catch {
         setResponseStatus(event, 400);
-        return { error: "Invalid request body" };
+        return { error: "Invalid request body", code: "invalid_request_body" };
       }
     }
 
@@ -14108,7 +14111,7 @@ export function createProductionAgentHandler(
     });
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
-      return { error: "engine must be a string" };
+      return { error: "engine must be a string", code: "invalid_engine" };
     }
     setupMark("bodyParsed");
 
@@ -14125,7 +14128,10 @@ export function createProductionAgentHandler(
         Array.isArray(requestedSubmissionPayload)
       ) {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_not_object",
+        };
       }
       const candidate = requestedSubmissionPayload;
       if (
@@ -14134,7 +14140,10 @@ export function createProductionAgentHandler(
         candidate.id !== agentKitMessageId
       ) {
         setResponseStatus(event, 400);
-        return { error: "submissionPayload does not match this message" };
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_message_mismatch",
+        };
       }
       let validatedSubmissionPayload: AgentSubmissionPayload | undefined;
       try {
@@ -14149,11 +14158,17 @@ export function createProductionAgentHandler(
         ).submissionPayload;
       } catch {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_rejected",
+        };
       }
       if (!validatedSubmissionPayload) {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_empty",
+        };
       }
       submissionPayload = validatedSubmissionPayload;
       if (
@@ -14169,7 +14184,10 @@ export function createProductionAgentHandler(
         )
       ) {
         setResponseStatus(event, 400);
-        return { error: "submissionPayload does not match this message" };
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_options_mismatch",
+        };
       }
     }
     let requestMode: AgentExecutionMode =
@@ -14225,12 +14243,16 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 400);
         return {
           error: error instanceof Error ? error.message : "Invalid actionScope",
+          code: "invalid_action_scope",
         };
       }
     }
     if (requestedActionScope && !options.resolveActionSurface) {
       setResponseStatus(event, 400);
-      return { error: "actionScope requires resolveActionSurface" };
+      return {
+        error: "actionScope requires resolveActionSurface",
+        code: "action_scope_unsupported",
+      };
     }
     const bgRunId = isBackgroundWorker
       ? (backgroundRunMarker?.runId as string)
@@ -14382,7 +14404,7 @@ export function createProductionAgentHandler(
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
-      return { error: "message is required" };
+      return { error: "message is required", code: "message_required" };
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
@@ -14391,14 +14413,20 @@ export function createProductionAgentHandler(
       submissionAttachmentsMatch(submissionPayload, requestAttachments);
     if (submissionPayload && !submissionAttachmentsAreConsistent) {
       setResponseStatus(event, 400);
-      return { error: "submissionPayload does not match this message" };
+      return {
+        error: "submissionPayload does not match this message",
+        code: "submission_payload_attachments_mismatch",
+      };
     }
     const submissionRequestAttachmentIndexes = submissionPayload
       ? requestAttachmentIndexes(submissionPayload, requestAttachments)
       : new Set<number>();
     if (!submissionRequestAttachmentIndexes) {
       setResponseStatus(event, 400);
-      return { error: "submissionPayload does not match this message" };
+      return {
+        error: "submissionPayload does not match this message",
+        code: "submission_payload_attachment_indexes_mismatch",
+      };
     }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
@@ -15374,7 +15402,10 @@ export function createProductionAgentHandler(
     );
     if (requestHarness !== undefined && !requestedHostedHarness) {
       setResponseStatus(event, 400);
-      return { error: "Unsupported hosted harness runtime" };
+      return {
+        error: "Unsupported hosted harness runtime",
+        code: "unsupported_hosted_harness",
+      };
     }
     const hostedHarnessPolicy = requestedHostedHarness
       ? await resolveHostedHarnessPolicy({
@@ -15454,7 +15485,10 @@ export function createProductionAgentHandler(
         (!persistedSurface || !("actionScope" in persistedSurface))
       ) {
         setResponseStatus(event, 400);
-        return { error: "Resolved actionScope is required for continuation" };
+        return {
+          error: "Resolved actionScope is required for continuation",
+          code: "continuation_action_scope_missing",
+        };
       }
       const surface =
         persistedSurface !== undefined

@@ -521,6 +521,64 @@ describe("a run the server reaps after its worker died", () => {
     expect(threads.get(thread)).toBe(later);
   });
 
+  it("clears a projection whose prompt never reached the thread", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const earlierReply = {
+      message: {
+        id: `reply-${seq}`,
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+        metadata: { custom: { turnId: `${turn}-earlier` } },
+      },
+    };
+    const saved = JSON.stringify({
+      messages: [userTurn("Bill Ana"), earlierReply],
+    });
+    threads.set(thread, saved);
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(saved);
+    const [row] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(row).toEqual({ thread_projection_pending: false });
+  });
+
+  it("keeps the projection pending when the tail reply has no turn id", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const legacyReply = {
+      message: {
+        id: `reply-${seq}`,
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    };
+    threads.set(
+      thread,
+      JSON.stringify({ messages: [userTurn("Bill Ana"), legacyReply] }),
+    );
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    const [row] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(row).toEqual({ thread_projection_pending: true });
+  });
+
   it("keeps the projection pending when a later prompt arrives before the fold", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;

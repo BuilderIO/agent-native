@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.222.2",
+  "version": "0.223.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -138,6 +138,14 @@
     "./action-ui": {
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
+    },
+    "./save-conflict": {
+      "types": "./dist/save-conflict/index.d.ts",
+      "default": "./dist/save-conflict/index.js"
+    },
+    "./save-conflict/server": {
+      "types": "./dist/save-conflict/server.d.ts",
+      "default": "./dist/save-conflict/server.js"
     },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
@@ -407,6 +415,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/telemetry": {
+      "types": "./dist/cli/telemetry.d.ts",
+      "default": "./dist/cli/telemetry.js"
+    },
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
@@ -423,6 +435,7 @@
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
+    "./collab/outbox-keys": "./dist/collab/outbox-keys.js",
     "./a2a": "./dist/a2a/index.js",
     "./state-machine": "./dist/state-machine/index.js",
     "./action-properties": "./dist/action-properties.js",
