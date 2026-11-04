@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.95
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.94
 
 ### Patch Changes
@@ -657,11 +663,5 @@
 ### Patch Changes
 
 - a485fbe: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
-
-## 0.4.3
-
-### Patch Changes
-
-- 9f2f7a7: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
