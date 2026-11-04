@@ -295,6 +295,7 @@ const messages = {
     placeholder: "लिखना शुरू करें या एजेंट से जल्दी स्पीकर नोट्स जनरेट करें",
   },
   editorToolbar: {
+    saving: "सहेजा जा रहा है...",
     layoutTitle: "शीर्षक",
     layoutSection: "सेक्शन डिवाइडर",
     layoutContent: "कंटेंट",
@@ -832,6 +833,10 @@ const messages = {
     versionRestoredDescription: "डेक को चुने गए स्नैपशॉट पर वापस कर दिया गया।",
     restoreFailed: "बहाल करना विफल",
     restoreFailedDescription: "इस डेक संस्करण को बहाल नहीं किया जा सका।",
+    alreadyAtVersion: "इस संस्करण पर पहले से है",
+    restoreReloadFailed: "डेक ताज़ा नहीं हो सका",
+    restoreReloadFailedDescription:
+      "इस डेक का वर्तमान संस्करण देखने के लिए पेज फिर से लोड करें।",
     backToSavedVersions: "सहेजे गए संस्करणों पर वापस जाएं",
     savedVersions: "सहेजे गए संस्करण",
     description: "सहेजे गए डेक संस्करण ब्राउज़ करें और पिछला स्नैपशॉट बहाल करें।",

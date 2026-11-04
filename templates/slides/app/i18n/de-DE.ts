@@ -307,6 +307,7 @@ const messages = {
       "Schreibe los oder erstelle Sprechernotizen schnell mit dem Agenten",
   },
   editorToolbar: {
+    saving: "Wird gespeichert...",
     layoutTitle: "Titel",
     layoutSection: "Abschnittstrenner",
     layoutContent: "Inhalt",
@@ -870,6 +871,10 @@ const messages = {
     restoreFailed: "Wiederherstellung fehlgeschlagen",
     restoreFailedDescription:
       "Diese Deck-Version konnte nicht wiederhergestellt werden.",
+    alreadyAtVersion: "Bereits bei dieser Version",
+    restoreReloadFailed: "Deck konnte nicht aktualisiert werden",
+    restoreReloadFailedDescription:
+      "Lade die Seite neu, um die aktuelle Version dieses Decks zu sehen.",
     backToSavedVersions: "Zurück zum Verlauf",
     savedVersions: "Verlauf",
     description:

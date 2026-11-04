@@ -306,6 +306,7 @@ const messages = {
       "Commencez à écrire ou générez rapidement des notes du présentateur avec l'agent",
   },
   editorToolbar: {
+    saving: "Enregistrement...",
     layoutTitle: "Titre",
     layoutSection: "Séparateur de section",
     layoutContent: "Contenu",
@@ -881,6 +882,10 @@ const messages = {
       "Le deck a été rétabli à l'instantané sélectionné.",
     restoreFailed: "Échec de la restauration",
     restoreFailedDescription: "Impossible de restaurer cette version du deck.",
+    alreadyAtVersion: "Déjà à cette version",
+    restoreReloadFailed: "Impossible d'actualiser le deck",
+    restoreReloadFailedDescription:
+      "Recharge la page pour voir la version actuelle de ce deck.",
     backToSavedVersions: "Retour à l'historique",
     savedVersions: "Historique",
     description:

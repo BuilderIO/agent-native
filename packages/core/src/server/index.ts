@@ -25,7 +25,7 @@ export {
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
-export { platformWaitUntil } from "./background-work.js";
+export { platformWaitUntil, runInBackground } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -342,6 +342,11 @@ export {
   type GoogleAuthPluginOptions,
 } from "./google-auth-plugin.js";
 export type { GoogleAuthMode } from "./google-auth-mode.js";
+export {
+  discoverAgentContextAgents,
+  registerAgentContextAgentFilter,
+  type AgentContextAgentFilter,
+} from "./agent-context-agents.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
@@ -796,7 +801,9 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
+  type BuilderOAuthRequestAccessState,
 } from "./builder-oauth.js";
 export {
   assertBuilderDesignSystemCodeIndexingAllowed,

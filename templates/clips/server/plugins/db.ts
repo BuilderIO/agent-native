@@ -1404,6 +1404,13 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recordings_source_head_idx
         ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
     },
+    {
+      version: 101,
+      name: "recording-comment-idempotency-key",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_comments_idempotency_key_unique_idx
+        ON recording_comments (author_email, idempotency_key)`,
+    },
   ]),
   { table: "clips_migrations" },
 );

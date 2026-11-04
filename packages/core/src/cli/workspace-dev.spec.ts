@@ -577,10 +577,47 @@ describe("workspace dev startup", () => {
 
     const res = await fetch(`${url}/?builderPreview=1`, {
       redirect: "manual",
+      headers: { accept: "text/html" },
     });
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/dispatch?builderPreview=1");
+  });
+
+  it("answers a non-HTML root request from the default app, not a redirect", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    const notServing = await fetch(`${url}/`, { redirect: "manual" });
+    expect(notServing.status).toBeGreaterThanOrEqual(500);
+
+    const dispatchPort = handle.apps.find((app) => app.id === "dispatch")!.port;
+    const requestedPaths: string[] = [];
+    const appServer = http.createServer((req, res) => {
+      requestedPaths.push(req.url ?? "");
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("dispatch");
+    });
+    await new Promise<void>((resolve) =>
+      appServer.listen(dispatchPort, "127.0.0.1", resolve),
+    );
+    try {
+      const serving = await fetch(`${url}/?builderPreview=1`, {
+        redirect: "manual",
+      });
+      expect(serving.status).toBe(200);
+      expect(await serving.text()).toBe("dispatch");
+      expect(requestedPaths).toContain("/dispatch/?builderPreview=1");
+    } finally {
+      await new Promise((resolve) => appServer.close(resolve));
+    }
   });
 
   it("refreshes the root fallback app list before rendering", async () => {
@@ -785,6 +822,7 @@ describe("workspace dev startup", () => {
         "install",
         "--no-frozen-lockfile",
         "--prefer-offline",
+        "--config.confirmModulesPurge=false",
       ],
     });
     expect(fake.startedApps()).toEqual(["dispatch"]);
@@ -793,6 +831,99 @@ describe("workspace dev startup", () => {
     installCall?.child.emit("exit", 0, null);
 
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
+  });
+
+  it("runs one install for several new apps and starts each when it finishes", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    makeApp(tmpDir, "todo", { installVite: false });
+    makeApp(tmpDir, "notes", { installVite: false });
+
+    await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
+    const res = await fetch(`${url}/notes`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await res.text()).toContain(
+      "installing this app&#39;s dependencies",
+    );
+    const installs = fake
+      .calls()
+      .filter((call) => call.args.includes("install"));
+    expect(installs).toHaveLength(1);
+
+    createViteBin(path.join(tmpDir, "apps", "todo"));
+    createViteBin(path.join(tmpDir, "apps", "notes"));
+    installs[0].child.emit("exit", 0, null);
+
+    expect(fake.startedApps().sort()).toEqual(["dispatch", "notes", "todo"]);
+    expect(
+      fake.calls().filter((call) => call.args.includes("install")),
+    ).toHaveLength(1);
+  });
+
+  it("lets waiting apps go when the running install fails to spawn", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    makeApp(tmpDir, "todo", { installVite: false });
+    makeApp(tmpDir, "notes", { installVite: false });
+
+    await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
+    await fetch(`${url}/notes`, { headers: { accept: "text/html" } });
+    const installs = () =>
+      fake.calls().filter((call) => call.args.includes("install"));
+    expect(installs()).toHaveLength(1);
+
+    const spawnError = Object.assign(new Error("spawn pnpm ENOENT"), {
+      code: "ENOENT",
+      syscall: "spawn pnpm",
+    });
+    installs()[0].child.emit("error", spawnError);
+
+    expect(installs()).toHaveLength(2);
+  });
+
+  it("boots a named default app as soon as it is scaffolded, without Dispatch", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_DEFAULT_APP: "todo" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    expect(fake.calls()).toHaveLength(0);
+
+    for (const accept of ["text/html", "*/*"]) {
+      const root = await fetch(`${url}/`, {
+        redirect: "manual",
+        headers: { accept },
+      });
+      expect(root.status).toBe(200);
+    }
+    expect(fake.calls()).toHaveLength(0);
+
+    makeApp(tmpDir, "todo", { installVite: false });
+    await waitUntil(() => fake.calls().length > 0, 5_000);
+
+    expect(fake.calls()[0].args).toContain("install");
+    createViteBin(path.join(tmpDir, "apps", "todo"));
+    fake.calls()[0].child.emit("exit", 0, null);
+    expect(fake.startedApps()).toEqual(["todo"]);
   });
 
   it("shows the last child-process error while waiting to retry", async () => {
@@ -998,6 +1129,39 @@ describe("workspace dev helpers", () => {
     expect(() => opener!.child.emit("error", err)).not.toThrow();
     expect(errors).toContain("Could not auto-open browser");
     expect((await fetch(`${url}/_workspace/apps`)).ok).toBe(true);
+  });
+
+  it("auto-opens the gateway root, not Dispatch, while the default app is being created", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    const env = {
+      ...testEnv(),
+      DISPLAY: ":0",
+      WORKSPACE_DEFAULT_APP: "todo",
+    };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener?.args).toContain(url);
+    expect(opener?.args.join(" ")).not.toContain("/dispatch");
   });
 
   it.each([

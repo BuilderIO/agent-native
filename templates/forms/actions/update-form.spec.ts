@@ -106,6 +106,7 @@ vi.mock("./patch-form-fields.js", () => ({
 }));
 
 const { default: updateForm } = await import("./update-form.js");
+const { fieldsRevision } = await import("../server/lib/merge-fields.js");
 
 describe("update-form settings", () => {
   beforeEach(() => {
@@ -113,6 +114,7 @@ describe("update-form settings", () => {
     state.returnStaleAfterWrite = false;
     state.writeConflict = false;
     state.existing.status = "draft";
+    state.existing.slug = "feedback-form-1";
     mockAssertAccess.mockClear();
     mockInvalidatePublicFormCache.mockClear();
     mockWithFormLock.mockClear();
@@ -158,6 +160,7 @@ describe("update-form settings", () => {
 
     const result = await updateForm.run({
       id: "form-1",
+      expectedRevision: fieldsRevision(state.existing.fields),
       fields,
     });
 
@@ -173,9 +176,13 @@ describe("update-form settings", () => {
   it("validates field replacements on an already-published form", async () => {
     state.existing.status = "published";
 
-    await expect(updateForm.run({ id: "form-1", fields: [] })).rejects.toThrow(
-      "Cannot publish",
-    );
+    await expect(
+      updateForm.run({
+        id: "form-1",
+        expectedRevision: fieldsRevision(state.existing.fields),
+        fields: [],
+      }),
+    ).rejects.toThrow("Cannot publish");
     expect(state.updated).toBeNull();
   });
 
@@ -185,6 +192,7 @@ describe("update-form settings", () => {
     await expect(
       updateForm.run({
         id: "form-1",
+        expectedRevision: fieldsRevision(state.existing.fields),
         fields: [
           {
             id: "message",
@@ -194,7 +202,74 @@ describe("update-form settings", () => {
           },
         ],
       }),
-    ).rejects.toThrow("changed while this update was in progress");
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "save_conflict",
+      details: {
+        current: JSON.parse(state.existing.fields),
+        currentRevision: fieldsRevision(state.existing.fields),
+      },
+    });
     expect(state.updated).toBeNull();
+  });
+
+  it("doesn't report a fields conflict when a rename loses the race", async () => {
+    state.writeConflict = true;
+
+    await expect(
+      updateForm.run({ id: "form-1", title: "Renamed" }),
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "form_changed" });
+    expect(state.updated).toBeNull();
+  });
+
+  it("refuses to replace the fields without the revision it read", async () => {
+    await expect(
+      updateForm.run({ id: "form-1", fields: [] }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(state.updated).toBeNull();
+  });
+
+  it("refuses to replace fields that changed after the read", async () => {
+    await expect(
+      updateForm.run({
+        id: "form-1",
+        expectedRevision: fieldsRevision("[]"),
+        fields: [
+          { id: "fresh", type: "text", label: "Fresh", required: false },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(state.updated).toBeNull();
+  });
+
+  it("renames a form without asking for a revision or touching a custom slug", async () => {
+    state.existing.slug = "our-custom-link";
+
+    await updateForm.run({ id: "form-1", title: "Renamed" });
+
+    expect(state.updated).toMatchObject({
+      title: "Renamed",
+      slug: "our-custom-link",
+    });
+  });
+
+  it("keeps the slug of a published form when it's renamed", async () => {
+    state.existing.status = "published";
+
+    await updateForm.run({ id: "form-1", title: "Renamed" });
+
+    expect(state.updated).toMatchObject({
+      title: "Renamed",
+      slug: "feedback-form-1",
+    });
+  });
+
+  it("moves a draft's generated slug along with its title", async () => {
+    await updateForm.run({ id: "form-1", title: "Renamed" });
+
+    expect(state.updated).toMatchObject({
+      title: "Renamed",
+      slug: "renamed-form-1",
+    });
   });
 });
