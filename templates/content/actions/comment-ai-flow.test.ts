@@ -528,7 +528,7 @@ describe("comment AI dedicated action boundaries", () => {
       ],
     });
 
-    const result = await run(createSuggestion as any, {
+    const result = await run(createSuggestion as never, {
       summary: "Hyphenate Open-source",
       edits: [
         { find: "Open source and", replace: "Open-source and" },
@@ -536,13 +536,14 @@ describe("comment AI dedicated action boundaries", () => {
       ],
     });
 
-    const [retried] = mocks.createProposal.mock.calls[1]!;
-    expect(
-      retried.suggestions.map(
-        (suggestion: { metadata: { reviewUnit: string } }) =>
-          suggestion.metadata.reviewUnit,
-      ),
-    ).toEqual(["attempt-1:saved", "attempt-1:saved"]);
+    const saved = expect.objectContaining({
+      metadata: expect.objectContaining({ reviewUnit: "attempt-1:saved" }),
+    });
+    expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+    expect(mocks.createProposal).toHaveBeenLastCalledWith(
+      expect.objectContaining({ suggestions: [saved, saved] }),
+      ctx,
+    );
     expect(result).toMatchObject({ status: "suggested" });
   });
 
