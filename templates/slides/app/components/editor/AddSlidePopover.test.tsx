@@ -23,7 +23,11 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
 }));
 vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: PromptComposerProps) => (
-    <button onClick={() => props.onSubmit("Use this image", [image], [], {})}>
+    <button
+      onClick={() => {
+        void props.onSubmit("Use this image", [image], [], {});
+      }}
+    >
       Send reference
     </button>
   ),
