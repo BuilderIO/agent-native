@@ -3,10 +3,46 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-29
+## 2026-11-02
 
 ### Fixed
 
+- Agent edits to slide comment text no longer get silently dropped when the comment is also resolved or reopened.
+
+## 2026-10-30
+
+### Fixed
+
+- Agents on read-only connections can now read decks and design systems, so the share dialog's Open in Claude prompt works for them.
+- Asking to import a file you attached earlier in the chat now finds it, instead of stopping with a setup error.
+- Stars on Home now stay after a reload.
+
+## 2026-10-29
+
+### Added
+
+- Undo the agent's last change from a toast or with Cmd+Z, and review both versions side by side when edits conflict.
+
+### Improved
+
+- Decks open faster, the deck list loads in pages, and collaborators' edits refresh only the slide that changed.
+- Import is one button that opens your files, and pasting a Google Slides link into the home prompt offers to import it.
+- Moving, resizing, drawing and pasting objects snaps to an 8px grid, and inspector values show whole pixels.
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+- Teammates can request edit access, owners choose the role, and presentation links always show the latest on-brand slides.
+- The font menu lists the full Google Fonts library with each font previewed in its own face, and font size offers a type scale.
+
+### Fixed
+
+- Deck actions now return specific errors for missing decks, slides, versions, and comments, and duplicate-deck id collisions no longer expose database details.
+- Fixed text edits saving the editor's height lock into slide HTML, which made edited paragraphs overlap the block below after they grew.
+- Hiding a slide while someone else edits the deck no longer fails to save or loses the slide.
+- Present starts in one click, presentation clickers work, exports warn instead of silently dropping content, images have a Crop button, zoom has Fit to screen and keyboard shortcuts, and new decks no longer report a false failure or generate twice.
+- Pressing Enter on a card edits its first value, new table cells take typing, spreadsheet paste fills table cells, and overflowing text can shrink to fit.
+- Restoring a deck version keeps the deck's design system.
+- Saves keep working after a slide you were editing is deleted elsewhere; the stale edit is dropped instead of blocking every later save.
+- Slides saves edits to large, image-heavy slides when the tab is hidden or closed.
+- Snapshot share links stop working when their deck is deleted or made private, and can be listed and revoked from the share dialog. Snapshot links created before this update are not tied to a deck and stop working; re-share the deck to get a new link.
 - Deck change notifications are now only sent to people who can open the deck, so private decks no longer reveal their ids, slide ids, or editing activity to other users.
 
 ## 2026-10-28
@@ -20,6 +56,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Slides now asks how you want to use an attached file before generating slides when your message doesn't say.
 - Presentation ideas appear right away, with a smoother path from prompt to finished deck.
 - Slides now arrive one at a time as the agent writes them, and the canvas follows along, drawing each element's frame in blue before its content appears
 - Start presentations with ready-to-use role-based prompts, then refine, export, or share your first result from the canvas.

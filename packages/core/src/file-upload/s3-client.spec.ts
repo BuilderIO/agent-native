@@ -64,6 +64,48 @@ describe("presignS3GetUrl", () => {
     ).rejects.toThrow(/need an HTTPS endpoint/);
   });
 
+  it("signs links under an endpoint's base path", async () => {
+    await expect(
+      presignS3GetUrl(
+        {
+          ...credentials,
+          endpoint: "https://proj.storage.supabase.co/storage/v1/s3",
+          bucket: "files",
+          region: "us-east-1",
+        },
+        "replays/a.png",
+        { expiresInSeconds: 60, now },
+      ),
+    ).resolves.toBe(
+      "https://proj.storage.supabase.co/storage/v1/s3/files/replays/a.png" +
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+        "&X-Amz-Credential=test-access-key-id%2F20261021%2Fus-east-1%2Fs3%2Faws4_request" +
+        "&X-Amz-Date=20261021T123456Z&X-Amz-Expires=60&X-Amz-SignedHeaders=host" +
+        "&X-Amz-Signature=a35494af2644c903311a0feaabfbdc971d8de6021ad802ba4587b87629f24f3d",
+    );
+  });
+
+  it("signs links for a plain-HTTP endpoint the deployment trusts", async () => {
+    await expect(
+      presignS3GetUrl(
+        {
+          ...credentials,
+          endpoint: "http://127.0.0.1:9000/minio",
+          bucket: "local",
+          region: "us-east-1",
+        },
+        "a.png",
+        { expiresInSeconds: 60, now, trustedEndpoint: true },
+      ),
+    ).resolves.toBe(
+      "http://127.0.0.1:9000/minio/local/a.png" +
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+        "&X-Amz-Credential=test-access-key-id%2F20261021%2Fus-east-1%2Fs3%2Faws4_request" +
+        "&X-Amz-Date=20261021T123456Z&X-Amz-Expires=60&X-Amz-SignedHeaders=host" +
+        "&X-Amz-Signature=47c063896281396cf546d51fd473ae8486af4b82ed6f4c9fbe8069e10647960e",
+    );
+  });
+
   it("only signs links that last between one second and seven days", async () => {
     for (const expiresInSeconds of [0, 604_801, Number.NaN]) {
       await expect(
@@ -304,6 +346,21 @@ describe("readS3ErrorText", () => {
       readS3ErrorText(new Response(body, { status: 500 })),
     ).resolves.toBe("x".repeat(1024));
     expect(cancelled).toBe(true);
+  });
+
+  it("keeps what arrived when the body fails partway", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("<Error>"));
+      },
+      pull(controller) {
+        controller.error(new Error("connection reset"));
+      },
+    });
+
+    await expect(
+      readS3ErrorText(new Response(body, { status: 403 })),
+    ).resolves.toBe("<Error>");
   });
 
   it("returns a short body whole", async () => {

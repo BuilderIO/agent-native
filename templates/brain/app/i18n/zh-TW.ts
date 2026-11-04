@@ -1,6 +1,7 @@
 const messages = {
   common: {
     saving: "正在儲存",
+    incompleteTranscript: "逐字稿不完整。因隱私保護而隱藏的段落數：{{count}}。",
   },
   routeTitles: {
     extension: "擴充功能 - Brain",
@@ -437,6 +438,9 @@ const messages = {
       "選取資料夾或一批 Markdown 檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
     chooseMarkdownFolder: "選取 Markdown 資料夾",
     importMarkdownFiles: "匯入 Markdown 檔案",
+    companyContextUpload: "上傳公司脈絡",
+    companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
+    companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",
     manualImportNoFiles: "未選取 Markdown 檔案",
     manualImportFilesSelected: "已選取 {{count}} 個 Markdown 檔案",
     manualImportFileLimit:

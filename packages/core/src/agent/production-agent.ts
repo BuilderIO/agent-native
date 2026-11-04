@@ -300,6 +300,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -392,6 +393,13 @@ import {
   hasObservationalMemory,
   serializeObservationalMemoryBlock,
 } from "./observational-memory/index.js";
+import {
+  AmbiguousToolPlaceholdersError,
+  discriminatedBranchIndex,
+  normalizeOptionalToolPlaceholders,
+  schemaAcceptsToolValue,
+  type ToolInputRepair,
+} from "./optional-placeholders.js";
 import {
   ProcessorChain,
   TripWire,
@@ -1373,6 +1381,8 @@ export interface ActionEntry {
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** See `emptyListsEraseNothing` in `defineAction`. */
+  emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -4875,8 +4885,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -7104,209 +7113,6 @@ const rawToolInputValidatorCache = new WeakMap<
   Map<boolean, ValidateFunction>
 >();
 
-const optionalPlaceholderAjv = new Ajv({
-  strict: false,
-  allErrors: false,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
-
-const optionalPlaceholderValidatorCache = new WeakMap<
-  object,
-  ValidateFunction
->();
-
-function isStructurallyEmptyToolValue(value: unknown): boolean {
-  if (value === false) return true;
-  if (value === null) return true;
-  if (typeof value === "string") return value.trim().length === 0;
-  if (Array.isArray(value)) {
-    return (
-      value.length === 0 ||
-      value.every(
-        (item) =>
-          item !== null &&
-          typeof item === "object" &&
-          !Array.isArray(item) &&
-          Object.keys(item).length === 0,
-      )
-    );
-  }
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Object.keys(value).length === 0
-  );
-}
-
-function compileToolValueValidator(schema: object): ValidateFunction | null {
-  const cached = optionalPlaceholderValidatorCache.get(schema);
-  if (cached) return cached;
-  try {
-    const validator = optionalPlaceholderAjv.compile(schema);
-    optionalPlaceholderValidatorCache.set(schema, validator);
-    return validator;
-  } catch {
-    return null;
-  }
-}
-
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? Boolean(validator(value)) : false;
-}
-
-function schemaRejectsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? !validator(value) : false;
-}
-
-function schemaDiscriminatorValue(
-  schema: AgentNativeJsonSchema | undefined,
-): unknown {
-  if (!schema) return undefined;
-  if (schema.const !== undefined) return schema.const;
-  if (Array.isArray(schema.enum) && schema.enum.length === 1) {
-    return schema.enum[0];
-  }
-  return undefined;
-}
-
-function discriminatedBranchIndex(
-  branches: readonly AgentNativeJsonSchema[],
-  value: unknown,
-): number {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return -1;
-  const record = value as Record<string, unknown>;
-  return branches.findIndex((branch) => {
-    const properties = branch.properties;
-    if (!properties) return false;
-    const discriminators = Object.entries(properties).filter(
-      ([, spec]) => schemaDiscriminatorValue(spec) !== undefined,
-    );
-    if (discriminators.length === 0) return false;
-    return discriminators.every(
-      ([key, spec]) => record[key] === schemaDiscriminatorValue(spec),
-    );
-  });
-}
-
-function resolveObjectSchemaBranch(
-  schema: RawJsonSchema,
-  value: unknown,
-): RawJsonSchema | undefined {
-  const branches = schema.oneOf ?? schema.anyOf;
-  if (!branches?.length) return schema;
-  const index = discriminatedBranchIndex(branches, value);
-  return index >= 0 ? branches[index] : undefined;
-}
-
-function stripOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean },
-): { value: unknown; changed: boolean } {
-  if (!schema) return { value, changed: false };
-
-  if (Array.isArray(value)) {
-    const itemSchema = schema.items;
-    if (!itemSchema) return { value, changed: false };
-    let changed = false;
-    const items = value.map((item) => {
-      const result = stripOptionalToolPlaceholders(
-        itemSchema,
-        item,
-        emptyValues,
-      );
-      if (result.changed) changed = true;
-      return result.value;
-    });
-    return changed
-      ? { value: items, changed: true }
-      : { value, changed: false };
-  }
-
-  if (!value || typeof value !== "object") return { value, changed: false };
-
-  const objectSchema = resolveObjectSchemaBranch(schema, value);
-  const properties = objectSchema?.properties;
-  if (!properties) return { value, changed: false };
-
-  const required = new Set(
-    Array.isArray(objectSchema.required) ? objectSchema.required : [],
-  );
-  const record = value as Record<string, unknown>;
-  const placeholders: string[] = [];
-  let normalized: Record<string, unknown> | null = null;
-
-  for (const [key, entry] of Object.entries(record)) {
-    const propertySchema = Object.hasOwn(properties, key)
-      ? properties[key]
-      : undefined;
-    if (!propertySchema) {
-      // Root unions are flattened by providers; an unused branch can arrive as null.
-      const branches = schema.oneOf ?? schema.anyOf;
-      if (
-        entry === null &&
-        objectSchema.additionalProperties === false &&
-        branches?.some((branch) =>
-          branch.properties ? Object.hasOwn(branch.properties, key) : false,
-        )
-      ) {
-        placeholders.push(key);
-      }
-      continue;
-    }
-    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
-      if (schemaRejectsToolValue(propertySchema, entry)) {
-        emptyValues.invalid = true;
-        placeholders.push(key);
-        continue;
-      }
-      if (schemaAcceptsToolValue(propertySchema, entry))
-        emptyValues.valid = true;
-    }
-    const nested = stripOptionalToolPlaceholders(
-      propertySchema,
-      entry,
-      emptyValues,
-    );
-    if (nested.changed) {
-      normalized ??= { ...record };
-      normalized[key] = nested.value;
-    }
-  }
-
-  if (placeholders.length > 0) {
-    normalized ??= { ...record };
-    for (const key of placeholders) delete normalized[key];
-  }
-
-  return normalized
-    ? { value: normalized, changed: true }
-    : { value, changed: false };
-}
-
-class AmbiguousToolPlaceholdersError extends Error {
-  readonly errorCode = "ambiguous_tool_placeholders";
-
-  constructor() {
-    super(
-      "Tool input mixes invalid placeholders with valid empty values, so it is unclear which fields should be cleared. " +
-        "No action was run. Retry the native tool with sparse JSON containing only the intended changes. " +
-        "If the transport keeps adding unused fields, use a dedicated operation that expresses the intended change or report this error. Mutating actions cannot run through run-code.",
-    );
-    this.name = "AmbiguousToolPlaceholdersError";
-  }
-}
-
-interface ToolInputRepair {
-  input: unknown;
-  changed: boolean;
-  error?: AmbiguousToolPlaceholdersError;
-}
-
 /** The repairs the loop makes to a model's tool input before anything reads it. */
 function repairToolCallInput(
   entry: ActionEntry | undefined,
@@ -7315,16 +7121,17 @@ function repairToolCallInput(
   if (!entry || getStrictToolInputValidator(entry)) {
     return { input, changed: false };
   }
+  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
   const placeholders = normalizeOptionalToolPlaceholders(
     entry.tool.parameters,
-    input,
+    json.input,
+    entry,
   );
   if (placeholders.error) return placeholders;
-  const json = coerceStringifiedJsonToolValues(
-    entry.tool.parameters,
-    placeholders.input,
-  );
-  return { input: json.input, changed: placeholders.changed || json.changed };
+  return {
+    input: placeholders.input,
+    changed: json.changed || placeholders.changed,
+  };
 }
 
 /**
@@ -7425,26 +7232,6 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
     args.waitMs > 0 &&
     args.waitMs <= 20_000
   );
-}
-
-function normalizeOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  input: unknown,
-): ToolInputRepair {
-  if (!schema || !input || typeof input !== "object") {
-    return { input, changed: false };
-  }
-  if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false };
-  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
-  if (emptyValues.valid && emptyValues.invalid) {
-    return {
-      input,
-      changed: false,
-      error: new AmbiguousToolPlaceholdersError(),
-    };
-  }
-  return { input: result.value, changed: result.changed };
 }
 
 function coerceStringifiedJsonToolValues(
@@ -12088,8 +11875,7 @@ export function isRecoverableContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -14024,7 +13810,7 @@ export function createProductionAgentHandler(
         body = await readBody(event);
       } catch {
         setResponseStatus(event, 400);
-        return { error: "Invalid request body" };
+        return { error: "Invalid request body", code: "invalid_request_body" };
       }
     }
 
@@ -14108,7 +13894,7 @@ export function createProductionAgentHandler(
     });
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
-      return { error: "engine must be a string" };
+      return { error: "engine must be a string", code: "invalid_engine" };
     }
     setupMark("bodyParsed");
 
@@ -14125,7 +13911,10 @@ export function createProductionAgentHandler(
         Array.isArray(requestedSubmissionPayload)
       ) {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_not_object",
+        };
       }
       const candidate = requestedSubmissionPayload;
       if (
@@ -14134,7 +13923,10 @@ export function createProductionAgentHandler(
         candidate.id !== agentKitMessageId
       ) {
         setResponseStatus(event, 400);
-        return { error: "submissionPayload does not match this message" };
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_message_mismatch",
+        };
       }
       let validatedSubmissionPayload: AgentSubmissionPayload | undefined;
       try {
@@ -14149,11 +13941,17 @@ export function createProductionAgentHandler(
         ).submissionPayload;
       } catch {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_rejected",
+        };
       }
       if (!validatedSubmissionPayload) {
         setResponseStatus(event, 400);
-        return { error: "Invalid submissionPayload" };
+        return {
+          error: "Invalid submissionPayload",
+          code: "submission_payload_empty",
+        };
       }
       submissionPayload = validatedSubmissionPayload;
       if (
@@ -14169,7 +13967,10 @@ export function createProductionAgentHandler(
         )
       ) {
         setResponseStatus(event, 400);
-        return { error: "submissionPayload does not match this message" };
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_options_mismatch",
+        };
       }
     }
     let requestMode: AgentExecutionMode =
@@ -14225,12 +14026,16 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 400);
         return {
           error: error instanceof Error ? error.message : "Invalid actionScope",
+          code: "invalid_action_scope",
         };
       }
     }
     if (requestedActionScope && !options.resolveActionSurface) {
       setResponseStatus(event, 400);
-      return { error: "actionScope requires resolveActionSurface" };
+      return {
+        error: "actionScope requires resolveActionSurface",
+        code: "action_scope_unsupported",
+      };
     }
     const bgRunId = isBackgroundWorker
       ? (backgroundRunMarker?.runId as string)
@@ -14382,23 +14187,36 @@ export function createProductionAgentHandler(
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
-      return { error: "message is required" };
+      return { error: "message is required", code: "message_required" };
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    const submissionAttachmentsAreConsistent =
-      submissionPayload !== undefined &&
-      submissionAttachmentsMatch(submissionPayload, requestAttachments);
-    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+    // The worker's body is the foreground's server-built dispatch payload, whose
+    // attachments were sanitized after the client fingerprints were validated, so
+    // they can no longer match those fingerprints.
+    const validateSubmissionAttachments =
+      submissionPayload !== undefined && !isBackgroundWorker;
+    if (
+      submissionPayload &&
+      validateSubmissionAttachments &&
+      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+    ) {
       setResponseStatus(event, 400);
-      return { error: "submissionPayload does not match this message" };
+      return {
+        error: "submissionPayload does not match this message",
+        code: "submission_payload_attachments_mismatch",
+      };
     }
-    const submissionRequestAttachmentIndexes = submissionPayload
-      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-      : new Set<number>();
+    const submissionRequestAttachmentIndexes =
+      submissionPayload && validateSubmissionAttachments
+        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+        : new Set<number>();
     if (!submissionRequestAttachmentIndexes) {
       setResponseStatus(event, 400);
-      return { error: "submissionPayload does not match this message" };
+      return {
+        error: "submissionPayload does not match this message",
+        code: "submission_payload_attachment_indexes_mismatch",
+      };
     }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
@@ -15374,7 +15192,10 @@ export function createProductionAgentHandler(
     );
     if (requestHarness !== undefined && !requestedHostedHarness) {
       setResponseStatus(event, 400);
-      return { error: "Unsupported hosted harness runtime" };
+      return {
+        error: "Unsupported hosted harness runtime",
+        code: "unsupported_hosted_harness",
+      };
     }
     const hostedHarnessPolicy = requestedHostedHarness
       ? await resolveHostedHarnessPolicy({
@@ -15454,7 +15275,10 @@ export function createProductionAgentHandler(
         (!persistedSurface || !("actionScope" in persistedSurface))
       ) {
         setResponseStatus(event, 400);
-        return { error: "Resolved actionScope is required for continuation" };
+        return {
+          error: "Resolved actionScope is required for continuation",
+          code: "continuation_action_scope_missing",
+        };
       }
       const surface =
         persistedSurface !== undefined

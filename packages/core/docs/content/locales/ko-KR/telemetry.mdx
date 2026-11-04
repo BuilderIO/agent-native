@@ -1,0 +1,156 @@
+---
+title: "텔레메트리"
+description: "Agent-Native CLI가 보고하는 내용, 절대 보내지 않는 내용, 끄는 방법."
+---
+
+# 텔레메트리
+
+명령줄 도구 `@agent-native/core`와 `@agent-native/skills`는 익명 사용 데이터를 수집합니다. CLI의 어떤 부분이 잘 작동하고 사람들이 어디에서 막히는지 파악해 무엇을 고쳐야 할지 알기 위해서입니다.
+
+여기에는 사용자, 프로젝트, 코드를 식별하는 내용이 없으며 명령 하나로 끌 수 있습니다. 이 페이지는 두 CLI를 다루며 보낼 수 있는 모든 것을 나열합니다. 직접 만드는 앱 안의 분석은 별도의 선택 사항으로 직접 구성합니다. [추적](/docs/tracking)을 참고하세요.
+
+## 끄기 {#turn-it-off}
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+이 머신의 두 CLI 모두에 적용되며 크래시 보고서도 중단됩니다.
+
+| 명령                                       | 하는 일                                                    |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `npx @agent-native/core telemetry status`  | 텔레메트리가 켜져 있는지와 어떤 설정이 껐는지 보여 줍니다. |
+| `npx @agent-native/core telemetry disable` | 이 머신에서 텔레메트리를 끕니다.                           |
+| `npx @agent-native/core telemetry enable`  | 다시 켭니다.                                               |
+| `npx @agent-native/core telemetry reset`   | 이 머신의 임의 ID를 새 ID로 바꿉니다.                      |
+
+설정은 `~/.agent-native/telemetry.json`에 저장되며, 임의 ID는 그 옆의 `~/.agent-native/installation-id`에 있습니다.
+
+다음 환경 변수 중 하나로도 끌 수 있으며, 이 변수는 설정보다 우선합니다. CI나 공유 셸 프로필에서 사용하세요.
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## 명령이 보낼 내용 확인하기 {#see-what-a-command-would-send}
+
+`AGENT_NATIVE_TELEMETRY_DEBUG=1`을 설정하면 각 이벤트를 `[telemetry]`로 시작하는 줄로 stderr에 출력하고 아무것도 보내지 않습니다. 텔레메트리가 꺼져 있어도 작동하며 머신 ID를 만들지 않습니다.
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## 알림 {#the-notice}
+
+머신에서 명령이 처음으로 무언가를 보내려고 할 때 stderr에 다음을 출력합니다.
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+머신당 한 번 출력됩니다. CI에서나 텔레메트리가 꺼져 있으면 출력되지 않습니다. CI 실행은 위 변수 중 하나가 설정되지 않는 한 이벤트를 계속 보내며 `ci`로 표시됩니다.
+
+## 보내는 내용 {#what-is-sent}
+
+이벤트는 `analytics.agent-native.com`에 있는 Agent-Native 자체 분석 서비스로 전송되며, CLI 소스에 공개된 쓰기 전용 키를 사용합니다. 이벤트는 백그라운드에서 전송됩니다. 종료 전에 전송을 기다리는 명령은 최대 1.5초까지 기다립니다. 기다리지 않는 짧은 명령은 느리거나 응답 없는 네트워크가 응답하거나 포기할 때까지 열린 상태로 남을 수 있습니다.
+
+각 이벤트에는 이름, 타임스탬프, 머신 ID, 실행 ID와 다음 속성이 있습니다. CLI가 보낼 수 있는 속성이 이 페이지의 영어 버전에 없으면 `packages/core/src/cli/telemetry.spec.ts`의 테스트가 실패합니다.
+
+### 모든 이벤트 {#on-every-event}
+
+| 속성          | 설명                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `cli`         | 보낸 CLI: `core` 또는 `skills-installer`.                                            |
+| `cliVersion`  | CLI 버전.                                                                            |
+| `command`     | `dev` 같은 명령 이름. 오타나 프롬프트처럼 명령이 아닌 것은 `unknown`으로 전송됩니다. |
+| `node`        | Node.js 버전.                                                                        |
+| `platform`    | 운영 체제: `darwin`, `linux` 또는 `win32`.                                           |
+| `ci`          | 명령이 CI에서 실행 중인지 여부.                                                      |
+| `interactive` | 명령이 터미널에서 실행 중인지 여부.                                                  |
+| `installId`   | 머신 ID: 이 머신에서 만들어진 임의 값으로, 다른 어떤 것과도 연결되지 않습니다.       |
+| `runId`       | 명령의 이번 실행에 대한 임의 값.                                                     |
+
+일부 이벤트는 더 새로운 두 번째 이름으로도 전송되며, `canonical_event_name`과 `legacy_event_name`에 두 이름이 기록됩니다.
+
+### 명령 {#commands}
+
+| 이벤트                      | 시점                                   | 속성    |
+| --------------------------- | -------------------------------------- | ------- |
+| `cli.run`                   | 명령이 시작될 때.                      | 없음.   |
+| `cli.crash`                 | 명령이 크래시할 때.                    | `error` |
+| `cli.scaffold.import_error` | 프로젝트 스캐폴더를 불러올 수 없을 때. | `error` |
+
+`error`는 [크래시 보고서](#crash-reports)에 설명된 짧은 메시지 힌트입니다.
+
+### 스킬 설치 {#installing-skills}
+
+이 이벤트는 `skills add`와 `npx @agent-native/skills`의 흐름을 따라가 설치가 어디에서 멈추는지 확인합니다. Agent-Native 자체 카탈로그의 스킬은 이름으로 전송됩니다. 로컬 매니페스트나 다른 저장소 등 그 밖의 스킬은 `custom`으로 전송됩니다.
+
+| 이벤트                                                       | 시점                                  | 속성                                                      |
+| ------------------------------------------------------------ | ------------------------------------- | --------------------------------------------------------- |
+| `skills_cli started`                                         | 명령이 시작될 때.                     | 없음.                                                     |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | 사용 가능한 스킬이 표시될 때.         | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | 스킬을 선택할 때.                     | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | 플랜 모드를 선택할 때.                | `mode`                                                    |
+| `skills_cli clients selected`                                | 코딩 에이전트를 선택할 때.            | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | 프로젝트 또는 전역 설치를 선택할 때.  | `scope`                                                   |
+| `skills_cli install completed`                               | 스킬 파일을 쓸 때.                    | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | 지침 파일을 업데이트할 때.            | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | MCP 커넥터를 등록할 때.               | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | PR Visual Recap 워크플로를 추가할 때. | 없음.                                                     |
+| `skills_cli connect started`, `skills_cli connect completed` | 앱 로그인이 시작되거나 끝날 때.       | 없음.                                                     |
+| `skills_cli connect failed`                                  | 앱 로그인이 실패할 때.                | `error`                                                   |
+| `skills_cli cancelled`                                       | 설치를 취소할 때.                     | `step`                                                    |
+| `skills_cli completed`                                       | 명령이 끝날 때.                       | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | 명령이 실패할 때.                     | `command`, `error`, `durationMs`                          |
+
+### 크래시 보고서 {#crash-reports}
+
+명령이 실패하면 `$exception` 이벤트가 Agent-Native 코드에서 무엇이 잘못되었는지 보고하며, 사용자 코드에 대해서는 아무것도 보고하지 않습니다.
+
+| 속성               | 설명                                                                                                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | `TypeError` 같은 표준 오류 유형. 사용자 정의 오류 클래스 같은 그 밖의 유형은 `Error`로 전송됩니다.                                                                                                         |
+| `exceptionCode`    | `ENOENT` 같은 표준 오류 코드.                                                                                                                                                                              |
+| `exceptionMessage` | 짧은 힌트. Agent-Native 자체의 알려진 오류는 고정 텍스트를 보냅니다. 그 밖의 메시지는 첫 단어들만 최대 20자까지 보내며, 문자 외의 것이 포함된 첫 단어에서, 또는 콜론으로 끝나는 단어 바로 뒤에서 멈춥니다. |
+| `exceptionStack`   | Agent-Native 자체 파일의 스택 프레임으로, 경로는 패키지 기준 상대 경로입니다. 다른 프레임은 모두 제거됩니다.                                                                                               |
+| `handled`          | 오류로 명령이 중단되면 `false`.                                                                                                                                                                            |
+| `level`            | 심각도.                                                                                                                                                                                                    |
+| `occurredAt`       | 발생 시각.                                                                                                                                                                                                 |
+| `release`          | CLI 버전.                                                                                                                                                                                                  |
+| `app`              | 항상 `agent-native-cli`.                                                                                                                                                                                   |
+| `template`         | 항상 `cli`.                                                                                                                                                                                                |
+| `runtime`          | 항상 `cli`.                                                                                                                                                                                                |
+| `source`           | 항상 `cli`.                                                                                                                                                                                                |
+| `exceptionTags`    | 실패가 발생한 위치. 아래를 참고하세요.                                                                                                                                                                     |
+| `exceptionExtra`   | 실패가 끝난 방식. 아래를 참고하세요.                                                                                                                                                                       |
+
+이 두 필드에는 다음 값만 들어 있습니다.
+
+- `exceptionTags`: `source`(실패한 CLI 부분), `buildStep`(저희 빌드 단계 이름 중 하나), `template`(저희 템플릿 이름만), `command`, `handled`(보고한 검사의 레이블).
+- `exceptionExtra`: `exitCode`와 `signal`(빌드 단계가 종료된 방식), `stage`, `durationMs`.
+
+힌트는 메시지의 시작 부분이므로, 프로젝트 이름처럼 사용자의 평범한 단어로 시작하는 메시지는 그 단어를 포함할 수 있습니다. 숫자, 밑줄, 슬래시 또는 기타 기호가 나오면 힌트가 끝나고 너무 긴 단어에서도 끝나므로, 경로, URL, 이메일, 대부분의 토큰은 포함될 수 없습니다.
+
+### Sentry {#sentry}
+
+`@agent-native/core`와 함께 `@sentry/node`가 설치되어 있으면 크래시와 실패한 빌드는 Agent-Native의 Sentry 프로젝트로도 전송되며, 워크스페이스 개발 서버의 경고 두 가지도 마찬가지입니다. 실패한 스킬 명령은 전송되지 않습니다. 이 보고서는 이 페이지의 모든 설정을 따르며 동일한 오류 유형, 힌트, 스택 프레임, `exceptionExtra` 필드와 다음 태그를 포함합니다: 위 `exceptionTags`의 필드, 오류의 `code`, `command` 이름, `nodeVersion`, `platform`. 환경은 항상 `production`입니다. 보고서에는 Sentry의 일반 필드인 이벤트 ID, 타임스탬프, 심각도, CLI 버전, Sentry SDK 이름과 버전도 포함됩니다. CLI는 호스트 이름, 소스 줄, 콘솔 출력, 종속성 목록을 보내지 않습니다.
+
+## 절대 보내지 않는 내용 {#what-is-never-sent}
+
+- 환경 변수
+- 파일 경로, 파일 내용 또는 소스 코드
+- 프로젝트, 저장소, 앱 이름과 git 원격
+- 로그 또는 명령 출력
+- 명령줄 인수 또는 프롬프트
+- 이메일, 사용자 이름 또는 호스트 이름
+- 원본 오류 메시지 또는 사용자 코드의 스택 프레임
+- 프로젝트 ID
+
+이 목록의 유일한 예외는 위에서 설명한 크래시 힌트로, 오류 메시지의 첫 단어들을 포함할 수 있습니다.
+
+이벤트를 받는 서비스는 여느 웹 서버와 마찬가지로 요청의 IP 주소를 볼 수 있습니다. CLI는 이를 이벤트에 넣지 않습니다.

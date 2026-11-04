@@ -7,8 +7,10 @@ import type { DbExec } from "@agent-native/core/db";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
+  BlocksFieldRevisionConflictError,
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
+  readBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import {
@@ -779,6 +781,29 @@ export async function persistUnchangedContentBodyEdit(
     );
   }
   assertEditablePage(locked.page);
+  const expected = cause.expectedBlocksFieldRevision;
+  if (expected) {
+    if (
+      !locked.blocksFields.some(
+        (field) => field.propertyId === expected.propertyId,
+      )
+    ) {
+      scopeChanged(
+        "Primary Blocks membership changed before the operation completed.",
+      );
+    }
+    const { revision } = await readBlocksFieldIdentity({
+      db,
+      documentId,
+      propertyId: expected.propertyId,
+      markdown: locked.page.content,
+    });
+    if (revision !== expected.revision) {
+      throw new BlocksFieldRevisionConflictError(
+        `Blocks field revision conflict: expected ${expected.revision}, current ${revision}`,
+      );
+    }
+  }
   if (cause.intent) {
     await recordBodyIntent(db, documentId, locked.page, cause.intent, {
       after: locked.page.content,

@@ -1,3 +1,4 @@
+import { createReactComponent, type IconNode } from "@tabler/icons-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type TablerIconComponent = ComponentType<
@@ -7,7 +8,7 @@ export type TablerIconComponent = ComponentType<
   }
 >;
 
-type TablerModule = Record<string, unknown>;
+type TablerChunk = Record<string, IconNode>;
 type ViteImportMeta = ImportMeta & { env: { SSR: boolean; MODE: string } };
 
 export const TABLER_ICON_CATEGORIES = [
@@ -63,6 +64,7 @@ export interface TablerCatalogEntry {
 }
 
 let metadataPromise: Promise<TablerCatalogEntry[]> | undefined;
+const loadedTablerIcons = new Map<string, TablerIconComponent>();
 
 export function tablerExportName(name: string): string {
   return `Icon${name
@@ -84,14 +86,27 @@ export async function loadTablerIcon(
   const initial = name.charAt(0).toLowerCase();
   const { default: loaders } = await import("./tabler-chunk-loaders.js");
   const loadChunk = (
-    loaders as Record<string, () => Promise<{ default: TablerModule }>>
+    loaders as Record<string, () => Promise<{ default: TablerChunk }>>
   )[initial];
   if (!loadChunk) return null;
-  const { default: catalog } = await loadChunk();
-  const candidate = catalog[tablerExportName(name)];
-  return typeof candidate === "object" || typeof candidate === "function"
-    ? (candidate as TablerIconComponent)
-    : null;
+  const { default: chunk } = await loadChunk();
+  const loaded = loadedTablerIcons.get(name);
+  if (loaded) return loaded;
+  const node = Object.hasOwn(chunk, name) ? chunk[name] : undefined;
+  if (!node) return null;
+  // The generator strips Tabler's positional element keys and checks that
+  // its modules build each icon from exactly this type and these names.
+  const component = createReactComponent(
+    name.endsWith("-filled") ? "filled" : "outline",
+    name,
+    tablerExportName(name).slice("Icon".length),
+    node.map(([tag, attrs], index): IconNode[number] => [
+      tag,
+      { ...attrs, key: `svg-${index}` },
+    ]),
+  );
+  loadedTablerIcons.set(name, component);
+  return component;
 }
 
 export async function searchTablerIcons(

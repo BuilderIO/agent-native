@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { fieldsRevision } from "../server/lib/merge-fields.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -46,6 +47,7 @@ export default defineAction({
       description: row.description ?? undefined,
       slug: row.slug,
       fields: JSON.parse(row.fields) as FormField[],
+      revision: fieldsRevision(row.fields),
       settings: (canReadPrivateFormData(access.role)
         ? settings
         : toPublicFormSettings(settings)) as FormSettings,

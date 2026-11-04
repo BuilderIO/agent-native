@@ -73,9 +73,8 @@ import { lockDocumentRows } from "./_row-lock-order.js";
  * through its live copy, as edit-document does; the live copy's commit keeps
  * the identity of every primary Blocks field the page has. Returns the body
  * the commit stored, which the live copy writes in its own canonical form.
- * False when the page isn't switched, left its live copy before anything
- * committed, or already has this body, which the legacy path lets through
- * unchanged.
+ * False when the page isn't switched or left its live copy before anything
+ * committed.
  */
 async function setPrimaryBlocksThroughLiveCopy(args: {
   ctx: ActionRunContext | undefined;
@@ -99,7 +98,6 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
       statusCode: 404,
     });
   }
-  if (current.content === args.content) return false;
   assertNoNewlySharedVideoIds(current.content, args.content);
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({

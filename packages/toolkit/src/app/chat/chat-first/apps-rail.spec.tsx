@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defaultChatFirstCopy } from "../chat-first-copy.js";
 import {
   CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
   ChatFirstAppsRail,
@@ -534,5 +535,250 @@ describe("ChatFirstAppsRail", () => {
     });
 
     expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(7);
+  });
+
+  describe("with sections", () => {
+    const apps = [
+      ...Array.from({ length: 7 }, (_, index) => ({
+        id: `app-${index}`,
+        name: `App ${index}`,
+      })),
+      { id: "mail", name: "Mail", source: "builtin" as const },
+      { id: "clips", name: "Clips", source: "builtin" as const },
+    ];
+    const sections = [
+      { id: "pinned", label: "Pinned", appIds: ["clips"] },
+      {
+        id: "apps",
+        label: "Apps",
+        appIds: apps.slice(0, 7).map((app) => app.id),
+      },
+      { id: "hosted", label: "Hosted apps", appIds: ["mail"] },
+    ];
+    const rowIds = (sectionId: string) =>
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          `[data-chat-first-app-section="${sectionId}"] [data-chat-first-app]`,
+        ),
+      ].map((row) => row.dataset.appId);
+
+    function renderRail(
+      props: Partial<React.ComponentProps<typeof ChatFirstAppsRail>> = {},
+    ) {
+      act(() => {
+        root.render(
+          <ChatFirstAppsRail
+            apps={apps}
+            sections={sections}
+            onOpenApp={vi.fn()}
+            renderIcon={(app) => <span>{app.name}</span>}
+            {...props}
+          />,
+        );
+      });
+    }
+
+    it("renders every row of each section in the host's order", () => {
+      renderRail();
+
+      expect(
+        [
+          ...container.querySelectorAll<HTMLElement>(
+            "[data-chat-first-app-section]",
+          ),
+        ].map((section) => section.getAttribute("aria-label")),
+      ).toEqual(["Pinned", "Apps", "Hosted apps"]);
+      expect(rowIds("pinned")).toEqual(["clips"]);
+      expect(rowIds("apps")).toEqual(apps.slice(0, 7).map((app) => app.id));
+      expect(rowIds("hosted")).toEqual(["mail"]);
+      expect(
+        container.querySelector('[data-chat-first-app][draggable="true"]'),
+      ).toBeNull();
+      expect(container.querySelector("button[aria-expanded]")).toBeNull();
+    });
+
+    it("shows the same apps collapsed", () => {
+      renderRail({
+        collapsed: true,
+        sections: [
+          { id: "pinned", label: "Pinned", appIds: ["clips", "mail"] },
+        ],
+      });
+
+      expect(
+        [
+          ...container.querySelectorAll<HTMLElement>("[data-chat-first-app]"),
+        ].map((row) => row.dataset.appId),
+      ).toEqual(["clips", "mail"]);
+      expect(container.querySelector("[data-chat-first-all-apps]")).toBeNull();
+    });
+
+    it("offers pinning but no move actions in the row menu", async () => {
+      const onLayoutChange = vi.fn();
+      renderRail({
+        layout: { pinnedIds: ["clips"], orderedIds: [] },
+        onLayoutChange,
+        copy: (key, values) =>
+          key === "pinApp"
+            ? `Pin ${values?.name}`
+            : defaultChatFirstCopy(key, values),
+      });
+
+      await act(async () => {
+        container
+          .querySelector('[data-chat-first-app-section="hosted"] li')
+          ?.dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              button: 2,
+              clientX: 40,
+              clientY: 40,
+            }),
+          );
+        await Promise.resolve();
+      });
+      const items = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].map((item) => item.textContent?.trim());
+      expect(items).toContain("Pin Mail");
+      expect(items).not.toContain("Pin app to the top");
+      expect(items).not.toContain("Move up");
+      expect(items).not.toContain("Move down");
+
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-chat-first-app-section="hosted"] button[aria-pressed]',
+          )
+          ?.click();
+      });
+      expect(onLayoutChange).toHaveBeenCalledWith({
+        pinnedIds: ["mail", "clips"],
+        orderedIds: [],
+      });
+    });
+
+    it("hands pin changes to the host instead of a whole layout", () => {
+      const onLayoutChange = vi.fn();
+      const onTogglePinned = vi.fn();
+      renderRail({
+        layout: { pinnedIds: ["clips"], orderedIds: [] },
+        onLayoutChange,
+        onTogglePinned,
+      });
+
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-chat-first-app-section="hosted"] button[aria-pressed]',
+          )
+          ?.click();
+      });
+      expect(onTogglePinned).toHaveBeenCalledWith("mail");
+      expect(onLayoutChange).not.toHaveBeenCalled();
+    });
+
+    it("shows the Apps header, empty text and one create trigger with no apps", () => {
+      const createTrigger = <button type="button" data-create-app />;
+      renderRail({
+        apps: [],
+        sections: sections.map((section) =>
+          section.id === "apps"
+            ? { ...section, action: createTrigger, emptyLabel: "No apps yet" }
+            : section,
+        ),
+        createAppTrigger: createTrigger,
+        copy: (key, values) =>
+          key === "workspaceApps"
+            ? "Workspace apps"
+            : defaultChatFirstCopy(key, values),
+      });
+
+      expect(
+        [
+          ...container.querySelectorAll<HTMLElement>(
+            "[data-chat-first-app-section]",
+          ),
+        ].map((section) => section.getAttribute("aria-label")),
+      ).toEqual(["Apps"]);
+      expect(container.textContent).toContain("No apps yet");
+      expect(container.textContent).not.toContain("Workspace apps");
+      expect(container.querySelectorAll("[data-create-app]")).toHaveLength(1);
+    });
+
+    it("shows a section's empty label only when the host passes one", () => {
+      const withEmptyLabel = (emptyLabel?: string) =>
+        sections.map((section) =>
+          section.id === "apps"
+            ? { ...section, appIds: [], ...(emptyLabel ? { emptyLabel } : {}) }
+            : section,
+        );
+      const appsSection = () =>
+        container.querySelector('[data-chat-first-app-section="apps"]');
+
+      renderRail({ sections: withEmptyLabel("No workspace apps") });
+      expect(appsSection()?.textContent).toContain("No workspace apps");
+      expect(rowIds("pinned")).toEqual(["clips"]);
+
+      renderRail({ sections: withEmptyLabel() });
+      expect(appsSection()).toBeNull();
+      expect(container.textContent).not.toContain("No apps yet");
+    });
+  });
+
+  it("keeps the workspace apps header and empty create button without sections", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[]}
+          onOpenApp={vi.fn()}
+          onCreateApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+          copy={(key, values) =>
+            key === "workspaceApps"
+              ? "Workspace apps"
+              : defaultChatFirstCopy(key, values)
+          }
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Workspace apps");
+    expect(container.textContent).toContain("No apps yet");
+    expect(container.textContent).toContain("Create app");
+  });
+
+  it("keeps drag and move controls without sections", async () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "calendar", name: "Calendar" },
+            { id: "mail", name: "Mail" },
+          ]}
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    const row = container.querySelector<HTMLElement>('[data-app-id="mail"]');
+    expect(row?.getAttribute("draggable")).toBe("true");
+    await act(async () => {
+      row?.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          button: 2,
+          clientX: 40,
+          clientY: 40,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+        (item) => item.textContent?.trim(),
+      ),
+    ).toContain("Move up");
   });
 });

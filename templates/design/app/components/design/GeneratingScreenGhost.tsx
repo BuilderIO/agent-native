@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { GeneratingDesignPreview } from "@/components/design/GeneratingDesignPreview";
@@ -32,7 +33,7 @@ export function useSettlingGenerationId(
   return generatingDesignId ?? (heldId === activeDesignId ? heldId : null);
 }
 
-/** The status line above the frame: 16px of text and an 8px gap. */
+/** The status line above the frame: 16px of text and an 8px gap, in canvas units. */
 const LABEL_SPACE = 24;
 
 /**
@@ -43,15 +44,15 @@ const LABEL_SPACE = 24;
 export function GeneratingScreenGhost({
   designId,
   origin,
-  pan,
-  scale,
+  showPendingSkeleton,
 }: {
   designId: string;
   /** Board position where the new screen will land. */
   origin: { x: number; y: number };
-  pan: { x: number; y: number };
-  scale: number;
+  /** Hold a skeleton at the origin until the first call streams. */
+  showPendingSkeleton: boolean;
 }) {
+  const queryClient = useQueryClient();
   const preview = useGeneratingDesignPreview({ designId, generating: true });
   const [settled, setSettled] = useState(false);
   const done = preview?.status === "done";
@@ -68,24 +69,35 @@ export function GeneratingScreenGhost({
   useEffect(() => {
     setSettled(false);
     if (!done) return;
-    const timer = window.setTimeout(
-      () => setSettled(true),
-      GENERATION_DRAFT_SETTLE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [done, preview?.html]);
+    const queryKey = ["action", "get-design", { id: designId }];
+    let cancelled = false;
+    void queryClient.refetchQueries({ queryKey });
+    const timer = window.setTimeout(() => {
+      // A failed refetch keeps the ghost: hiding it would leave an empty canvas.
+      queryClient
+        .refetchQueries({ queryKey }, { throwOnError: true })
+        .then(() => {
+          if (!cancelled) setSettled(true);
+        })
+        .catch(() => {});
+    }, GENERATION_DRAFT_SETTLE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [done, preview?.html, designId, queryClient]);
 
-  if (!preview || settled) return null;
+  if ((!preview && !showPendingSkeleton) || settled) return null;
   return (
     <div
       data-generating-screen-ghost
-      className="pointer-events-none absolute z-20"
+      className="pointer-events-none absolute z-20 [&_.an-generating-label]:inline-block [&_.an-generating-label]:self-start [&_.an-generating-label]:origin-bottom-left [&_.an-generating-label]:[transform:scale(var(--an-chrome-scale,1))]"
       style={{
-        left: pan.x + (SURFACE_PADDING + spot.x) * scale,
-        top: pan.y + (SURFACE_PADDING + spot.y) * scale - LABEL_SPACE,
+        left: SURFACE_PADDING + spot.x,
+        top: SURFACE_PADDING + spot.y - LABEL_SPACE,
       }}
     >
-      <GeneratingDesignPreview preview={preview} canvasScale={scale} />
+      <GeneratingDesignPreview preview={preview} canvasScale={1} />
     </div>
   );
 }
