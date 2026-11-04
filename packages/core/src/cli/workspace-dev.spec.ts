@@ -1,4 +1,8 @@
-import type { ChildProcess, spawn } from "node:child_process";
+import {
+  spawn as spawnReal,
+  type ChildProcess,
+  type spawn,
+} from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http from "node:http";
@@ -28,6 +32,7 @@ import {
   shouldOpenWorkspaceBrowser,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  spawnPnpm,
   workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
@@ -980,7 +985,9 @@ describe("workspace dev startup", () => {
     expect(appCall?.options).toMatchObject({
       detached: process.platform !== "win32",
     });
-    expect(appCall?.options?.shell).toBeUndefined();
+    expect(appCall?.options?.shell).toBe(
+      process.platform === "win32" ? true : undefined,
+    );
     if (process.platform !== "win32") {
       Object.defineProperty(appCall?.child, "pid", {
         configurable: true,
@@ -1059,6 +1066,147 @@ describe("workspace dev startup", () => {
         Object.defineProperty(process, "platform", originalPlatform);
       }
     }
+  });
+});
+
+describe("spawnPnpm", () => {
+  const options = { cwd: "C:\\ws", stdio: "pipe" } as const;
+
+  function recordingSpawn() {
+    const calls: Array<[string, string[], unknown]> = [];
+    const spawnProcess = vi.fn(
+      (command: string, args: string[], opts: unknown) => {
+        calls.push([command, args, opts]);
+        return {} as ChildProcess;
+      },
+    ) as unknown as typeof spawn;
+    return { calls, spawnProcess };
+  }
+
+  it("runs pnpm directly on POSIX platforms", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(
+      spawnProcess,
+      ["--dir", "/ws/my app", "install"],
+      options,
+      "linux",
+    );
+    expect(calls).toEqual([
+      ["pnpm", ["--dir", "/ws/my app", "install"], options],
+    ]);
+  });
+
+  // A pnpm installed by npm, Corepack or `pnpm self-update` is a pnpm.cmd shim on
+  // Windows. Node cannot spawn it without a shell: `spawn pnpm` is ENOENT, and
+  // spawning `pnpm.cmd` itself is EINVAL.
+  it("runs pnpm through the shell on win32 as one quoted command line", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(
+      spawnProcess,
+      [
+        "--dir",
+        "C:\\Users\\Jane Doe\\ws\\apps\\todo",
+        "exec",
+        "vite",
+        "--port",
+        "8101",
+      ],
+      options,
+      "win32",
+    );
+    expect(calls).toEqual([
+      [
+        'pnpm "--dir" "C:\\Users\\Jane Doe\\ws\\apps\\todo" "exec" "vite" "--port" "8101"',
+        [],
+        { ...options, shell: true },
+      ],
+    ]);
+  });
+
+  it("keeps a trailing backslash from escaping the closing quote on win32", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(spawnProcess, ["--dir", "C:\\", "install"], options, "win32");
+    expect(calls[0][0]).toBe('pnpm "--dir" "C:\\\\" "install"');
+  });
+
+  // cmd.exe expands `%NAME%` even inside double quotes, so such an argument is
+  // handed over in a private environment variable instead of in the command line.
+  it("passes a win32 argument containing %NAME% through the environment", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    const dir = "C:\\Users\\%USERNAME%\\ws";
+    spawnPnpm(
+      spawnProcess,
+      ["--dir", dir, "install"],
+      { ...options, env: { KEEP: "1" } },
+      "win32",
+    );
+    expect(calls).toEqual([
+      [
+        'pnpm "--dir" "%AGENT_NATIVE_PNPM_ARG_1%" "install"',
+        [],
+        {
+          ...options,
+          env: { KEEP: "1", AGENT_NATIVE_PNPM_ARG_1: dir },
+          shell: true,
+        },
+      ],
+    ]);
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "delivers arguments to a real pnpm.cmd unchanged, including %NAME%",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spawn-pnpm-"));
+      const out = path.join(dir, "argv.json");
+      fs.writeFileSync(
+        path.join(dir, "record-argv.cjs"),
+        "require('fs').writeFileSync(process.env.PNPM_TEST_OUT, JSON.stringify(process.argv.slice(2)))",
+      );
+      fs.writeFileSync(
+        path.join(dir, "pnpm.cmd"),
+        '@echo off\r\n"%PNPM_TEST_NODE%" "%~dp0record-argv.cjs" %*\r\n',
+      );
+      const args = [
+        "--dir",
+        "C:\\Users\\Jane Doe\\%PNPM_TEST_VAR%\\ws\\",
+        "exec",
+        "vite",
+      ];
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const child = spawnPnpm(
+            spawnReal as typeof spawn,
+            args,
+            {
+              stdio: "ignore",
+              env: {
+                ...process.env,
+                PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+                PNPM_TEST_NODE: process.execPath,
+                PNPM_TEST_OUT: out,
+                PNPM_TEST_VAR: "EXPANDED",
+              },
+            },
+            "win32",
+          );
+          child.on("error", reject);
+          child.on("exit", (code) =>
+            code === 0 ? resolve() : reject(new Error(`exit ${code}`)),
+          );
+        });
+        expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual(args);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("refuses a win32 argument with a double quote, which cmd.exe cannot quote", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    expect(() =>
+      spawnPnpm(spawnProcess, ["--dir", 'a" & calc & "b'], options, "win32"),
+    ).toThrow(/double quote/);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -1381,6 +1529,15 @@ async function waitUntil(
   throw new Error("Timed out waiting for condition");
 }
 
+/** Splits the quoted command line `spawnPnpm` hands to a Windows shell. */
+function shellLineArgv(line: string): string[] {
+  const [command] = line.split(" ");
+  return [
+    command,
+    ...[...line.matchAll(/"([^"]*)"/g)].map((match) => match[1]),
+  ];
+}
+
 function fakeSpawn(pid?: number): {
   spawnProcess: typeof spawn;
   calls: () => Array<{
@@ -1431,9 +1588,13 @@ function fakeSpawn(pid?: number): {
         return true;
       }) as ChildProcess["kill"];
       child.unref = vi.fn() as ChildProcess["unref"];
+      // On Windows pnpm is launched as one quoted command line (see spawnPnpm).
+      const [recordedCommand, ...recordedArgs] = options?.shell
+        ? shellLineArgv(command)
+        : [command, ...args];
       calls.push({
-        command,
-        args,
+        command: recordedCommand,
+        args: recordedArgs,
         options,
         child: child as ChildProcess & EventEmitter,
       });
