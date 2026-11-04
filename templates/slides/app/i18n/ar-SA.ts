@@ -292,6 +292,7 @@ const messages = {
     placeholder: "ابدأ الكتابة أو أنشئ ملاحظات المتحدث بسرعة مع الوكيل",
   },
   editorToolbar: {
+    saving: "جارٍ الحفظ...",
     layoutTitle: "العنوان",
     layoutSection: "فاصل قسم",
     layoutContent: "المحتوى",

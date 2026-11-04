@@ -301,6 +301,7 @@ const messages = {
       "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "タイトル",
     layoutSection: "セクション区切り",
     layoutContent: "コンテンツ",
