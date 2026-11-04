@@ -446,6 +446,16 @@ export function isSlideClipboardStillArmed(
   return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
 }
 
+// A focused thumbnail is the rail's own paste surface and the native marker
+// already proves the copy is current, so only canvas pastes expire.
+export function isSlideClipboardPasteArmed(
+  armedAt: number,
+  hasFocusedThumbnail: boolean,
+  now: number = Date.now(),
+): boolean {
+  return hasFocusedThumbnail || isSlideClipboardStillArmed(armedAt, now);
+}
+
 function isBlockingSlideClipboardPopper(el: Element): boolean {
   return (
     el.matches("[data-radix-popper-content-wrapper]") &&
@@ -4749,12 +4759,15 @@ export default function DeckEditor() {
         return false;
       }
 
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
       const clipboard = syncSlideClipboard();
       const copiedAt = slideClipboardArmedAtRef.current;
       if (
         !clipboard ||
         copiedAt === null ||
-        !isSlideClipboardStillArmed(copiedAt)
+        !isSlideClipboardPasteArmed(copiedAt, Boolean(focusedThumbnail))
       ) {
         return false;
       }
@@ -4790,9 +4803,6 @@ export default function DeckEditor() {
       const isTextEntrySurface =
         isSlideClipboardTextEntrySurface(event.target as Element | null) ||
         isSlideClipboardTextEntrySurface(document.activeElement);
-      const focusedThumbnail = document.activeElement?.closest(
-        "[data-slide-thumbnail-id]",
-      );
       const shouldPasteSlide = shouldHandleSlideClipboardPaste({
         hasMatchingSlideClipboardMarker,
         hasImage,
