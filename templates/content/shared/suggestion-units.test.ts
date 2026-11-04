@@ -216,7 +216,10 @@ describe("unitGaps", () => {
         start: before.indexOf("Open source again"),
       },
     ];
-    const { operations, editOfPiece } = findReplaceEditPieces({ before, edits });
+    const { operations, editOfPiece } = findReplaceEditPieces({
+      before,
+      edits,
+    });
     expect(unitGaps(operations, editOfPiece)).toEqual([
       { apart: true, settled: true },
     ]);
