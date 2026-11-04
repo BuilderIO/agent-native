@@ -1,6 +1,22 @@
 [
   {
     "date": "2026-11-04",
+    "text": "Tightened the announcement: the line under the title reads Bring a project from another tool into Agent-Native Design, and the last check reads Keep building your project as an agentic app"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The announcement's checklist ends with Keep editing, building, and growing your agentic app with Agent-Native Design"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The announcement is titled Import an existing project and says what it does: bring a project from another tool into Agent-Native Design and keep building. The sidebar card says the same"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The announcement's checklist runs Move a project, then Import a Figma file or a GitHub repository, then Paste a URL, and the sidebar card is titled Import an existing project"
+  },
+  {
+    "date": "2026-11-04",
     "text": "The messaging is about turning an imported project into an agentic app built with Agent-Native, whose agent can do anything the UI can: the sidebar card, the announcement, each source's lead, the import steps, and the ready state, which now opens the app"
   },
   {

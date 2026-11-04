@@ -362,11 +362,11 @@ function viewProgress() {
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 // The sidebar card and the dialog share their title and button.
-const ANN = { title: "Import your project", desc: "Bring in an app from another builder and make it agentic.", cta: "Import project" };
+const ANN = { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", cta: "Import project" };
 function viewAnnouncement() {
   return `<div class="hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
-  <div class="imb"><h2 id="imd-title">Turn your project into an agentic app</h2><p class="lead">Import a site or an app and rebuild it with Agent‑Native. Its agent can do anything the UI can, right alongside you.</p>
-  <ul class="checks"><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, GitHub, and more</li><li><i>${ic("check")}</i>Keep building with an agent that uses the same actions as the UI</li></ul>
+  <div class="imb"><h2 id="imd-title">${ANN.title}</h2><p class="lead">Bring a project from another tool into Agent‑Native Design.</p>
+  <ul class="checks"><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Import a Figma file or a GitHub repository</li><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Keep building your project as an agentic app</li></ul>
   <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">${ANN.cta}</button></div></div>`;
 }
 
