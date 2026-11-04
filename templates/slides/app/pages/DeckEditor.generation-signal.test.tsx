@@ -94,7 +94,9 @@ const mocks = vi.hoisted(() => ({
   translate: (key: string) => key,
   toolbarProps: null as null | {
     onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
   },
+  pptxSources: [] as string[],
   renderSlideCanvases: false,
   pdfAddImage: vi.fn(),
   domToJpeg: vi.fn(async (_node: unknown) => "data:image/jpeg;base64,AA=="),
@@ -114,6 +116,23 @@ vi.mock("jspdf", () => ({
   },
 }));
 vi.mock("modern-screenshot", () => ({ domToJpeg: mocks.domToJpeg }));
+// The real PPTX builder needs dom-to-pptx layout; keep its slide lookup.
+vi.mock("@/lib/export-pptx-client", async () => {
+  const { findSlideExportSource } = await import("@/lib/export-pdf-client");
+  return {
+    exportDeckAsPptx: vi.fn(
+      async (_title: string, slides: { id: string }[]) => {
+        slides.forEach((slide, index) => {
+          const source = findSlideExportSource(slide.id, index, slides.length);
+          mocks.pptxSources.push(
+            source.getAttribute("data-slide-canvas") ?? "",
+          );
+        });
+        return { blankShapes: 0 };
+      },
+    ),
+  };
+});
 
 vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
   const original =
@@ -388,6 +407,7 @@ vi.mock("@/components/editor/EditorToolbar", () => ({
   default: (props: {
     canEdit?: boolean;
     onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
   }) => {
     mocks.toolbarProps = props;
     return (
@@ -601,6 +621,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.renderSlideCanvases = false;
     mocks.pdfAddImage.mockClear();
     mocks.domToJpeg.mockClear();
+    mocks.pptxSources = [];
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
     relayTrack.mockClear();
@@ -649,6 +670,29 @@ describe("DeckEditor generation signal wiring", () => {
       ),
     ).toEqual(["slide-1", "slide-2", "slide-3"]);
     expect(mocks.pdfAddImage).toHaveBeenCalledTimes(3);
+    expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
+  });
+
+  it("exports every slide to PPTX even when the sidebar has not rendered them", async () => {
+    mocks.renderSlideCanvases = true;
+    mocks.deck.slides = Array.from({ length: 3 }, (_, i) => ({
+      id: `slide-${i + 1}`,
+      content: `<p>Slide ${i + 1}</p>`,
+    }));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onExportPptx).toBeTruthy());
+    const exportPptx = mocks.toolbarProps?.onExportPptx;
+    if (!exportPptx) throw new Error("the toolbar never received onExportPptx");
+
+    await act(async () => {
+      await exportPptx(new AbortController().signal);
+    });
+
+    expect(mocks.pptxSources).toEqual(["slide-1", "slide-2", "slide-3"]);
     expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
   });
 
