@@ -205,6 +205,20 @@ export function takeCollabStatePrefetch(
   return { request: prefetch.request, isCurrent };
 }
 
+/**
+ * For a read about to go out: whether the tab's session is still the one it
+ * went out under. False once this tab's session is another, or another tab's
+ * changed.
+ */
+export function collabSessionGuard(): () => boolean {
+  watchSession();
+  const identity = currentSessionIdentity();
+  const invalidations = sessionInvalidations;
+  return () =>
+    invalidations === sessionInvalidations &&
+    identity === currentSessionIdentity();
+}
+
 /** Drops every boot read, as signing out does. */
 export function dropCollabStatePrefetches(): void {
   sessionInvalidations += 1;

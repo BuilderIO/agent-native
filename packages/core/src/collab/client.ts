@@ -39,6 +39,7 @@ import {
   COLLAB_VERSIONED_OUTBOX_PREFIX as VERSIONED_OUTBOX_PREFIX,
 } from "./outbox-keys.js";
 import {
+  collabSessionGuard,
   dropCollabStatePrefetches,
   requestCollabState,
   takeCollabStatePrefetch,
@@ -103,8 +104,11 @@ export interface DisplacedCollabEdits {
    * opens again from the server's state alone. `deleted`: the server had
    * since deleted the part of the doc the typing went into. `unavailable`:
    * the server no longer has the doc, or this account cannot open it.
+   * `session-changed`: the tab's session is no longer this account's, before
+   * the server answered. Anything that acts for whoever is signed in would
+   * now act for someone else, so keep it for this account's next open.
    */
-  reason: "superseded" | "deleted" | "unavailable";
+  reason: "superseded" | "deleted" | "unavailable" | "session-changed";
 }
 
 export interface CollabLocalCopyOptions {
@@ -620,6 +624,28 @@ class CollabDocConnection {
     this.sessionIdentity = currentSessionIdentity();
     if (!this.detached) collabConnectionRegistry.set(nextKey, this);
     return true;
+  }
+
+  /**
+   * Every request now carries the tab's new session. A doc still on its saved
+   * copy can't take that session's answers as this account's, and what was
+   * typed on it can't go out under that session, so the copy is given up.
+   */
+  noteSessionIdentity(identity: string | null | undefined): void {
+    if (this.sessionIdentity === undefined) {
+      this.sessionIdentity = identity;
+      return;
+    }
+    if (
+      typeof this.sessionIdentity === "string" &&
+      this.sessionIdentity !== identity &&
+      this.stillAwaitsServerState()
+    ) {
+      this.supersede(
+        `The session changed before the server answered for the saved copy of collab doc ${this.docId}; opening the server's copy instead.`,
+        "session-changed",
+      );
+    }
   }
 
   add(id: symbol, sub: CollabDocSubscription, user?: CollabUser): void {
@@ -1291,13 +1317,14 @@ class CollabDocConnection {
     // Only a doc opened from a saved copy waits for the server's state.
     const localVector = this.localCopyVector;
     if (!localVector) return { status: "unavailable" };
-    const sent: SentCollabStateRequest =
-      prefetched ??
-      requestCollabState(
+    const sent: SentCollabStateRequest = prefetched ?? {
+      ...requestCollabState(
         this.baseUrl,
         this.docId,
         Y.encodeStateVector(this.ydoc),
-      );
+      ),
+      isCurrent: collabSessionGuard(),
+    };
     let res: Response;
     try {
       res = await sent.response;
@@ -1307,8 +1334,8 @@ class CollabDocConnection {
     if (this.disposed || !this.awaitingServerState) {
       return { status: "unavailable" };
     }
-    // The session changed while the boot read was on its way, so its answer
-    // says nothing about this one, not even that the doc is gone.
+    // The session changed while the read was on its way, so its answer says
+    // nothing about this one, not even that the doc is gone.
     if (sent.isCurrent?.() === false) return this.readServerState();
     if (res.status === 404 || res.status === 403) {
       this.forgetLocalCopy();
@@ -1501,7 +1528,7 @@ class CollabDocConnection {
     reason: DisplacedCollabEdits["reason"],
   ): void {
     const deleted =
-      reason === "superseded" &&
+      reason !== "unavailable" &&
       this.typingBaseline !== null &&
       this.deletedOnLocalCopy;
     if (deleted || this.typedOnLocalCopy().length > 0) {
@@ -1559,9 +1586,12 @@ class CollabDocConnection {
    * them on top of state it does not have; typing among them is handed over
    * first.
    */
-  private supersede(warning?: string): void {
+  private supersede(
+    warning?: string,
+    reason: DisplacedCollabEdits["reason"] = "superseded",
+  ): void {
     if (warning) console.warn(warning);
-    this.releaseTypingOnLocalCopy("superseded");
+    this.releaseTypingOnLocalCopy(reason);
     rejectedLocalCopies.add(this.registryKey);
     this.forgetLocalCopy();
     this.localCopyRejected = true;
@@ -2614,8 +2644,12 @@ const displacedTyping = new Map<string, DisplacedCollabEdits[]>();
 const SIGN_OUT_LOCAL_COPY_CLEAR_MS = 2000;
 
 // A sign-out in another tab cleared the stored copies; what this tab holds of
-// them goes once it reads that session.
+// them goes once it reads that session. Docs still on a copy hear first, while
+// their editors are still the account's that typed on them.
 subscribeSessionIdentity((identity) => {
+  for (const connection of [...collabConnectionRegistry.values()]) {
+    connection.noteSessionIdentity(identity);
+  }
   if (identity === null) forgetCollabLocalCopiesInThisTab();
 });
 

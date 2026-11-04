@@ -134,6 +134,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("counts a body cleared in the editor as a body to keep", () => {
+  const ydoc = new Y.Doc();
+  const fragment = ydoc.getXmlFragment(LIVE_BODY_FIELD);
+  prosemirrorJSONToYXmlFragment(
+    schema,
+    schema
+      .nodeFromJSON(nfmToDoc("First paragraph.\nSecond paragraph."))
+      .toJSON(),
+    fragment,
+  );
+  const shown = yXmlFragmentToProseMirrorRootNode(fragment, schema);
+  const cleared = EditorState.create({ doc: shown }).tr.delete(
+    0,
+    shown.content.size,
+  ).doc;
+  updateYFragment(ydoc, fragment, cleared, {
+    mapping: new Map(),
+    isOMark: new Map(),
+  });
+
+  // The editor's schema always holds a block, so "none" is never a cleared page.
+  expect(fragment.length).toBe(1);
+  expect(displacedTypingMarkdown(Y.encodeStateAsUpdate(ydoc))).toBe(
+    "<empty-block/>",
+  );
+  ydoc.destroy();
+});
+
 it("keeps typing that went into a paragraph the server has deleted since, and keeps the deletion", async () => {
   // A first visit leaves the page's copy in this tab.
   act(() => root.render(<Page />));

@@ -545,6 +545,52 @@ describe("collab local copies", () => {
     expect(displaced).toHaveLength(1);
   });
 
+  it("sends nothing and hands the typing over once the tab moves to another account before the server answers", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await visit();
+    const release = holdStateResponses();
+    mount({ durableUpdates: true });
+    await advance(0);
+    expect(current().fromLocalCopy).toBe(true);
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+
+    // Another tab signed in as Bob, so this tab's requests carry his cookie.
+    act(() => recordSessionIdentity(BOB.email));
+    expect(displaced).toHaveLength(1);
+    expect(displaced[0]!.reason).toBe("session-changed");
+    expect(textOf(displaced[0]!.state)).toBe("hello typed");
+
+    release();
+    await advance(3_000);
+    expect(server.getText("content").toString()).toBe("hello");
+    expect(displaced).toHaveLength(1);
+  });
+
+  it("reads again when the session changes while the read that catches up a copy is on its way", async () => {
+    await visit();
+    stateRequests = [];
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    expect(current().fromLocalCopy).toBe(true);
+    expect(stateRequests).toHaveLength(1);
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+
+    // An organization switch: the same account, under another session.
+    const reread = notifySessionInvalidated();
+    release();
+    await advance(50);
+    await reread;
+
+    expect(stateRequests).toHaveLength(2);
+    expect(displaced).toEqual([]);
+    expect(server.getText("content").toString()).toBe("hello typed");
+  });
+
   it("hands over a deletion on a copy the server's doc no longer holds", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await visit();

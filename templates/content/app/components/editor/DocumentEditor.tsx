@@ -5278,7 +5278,9 @@ function PageEditorSessionBody({
       onFilingError: (error) =>
         console.error("Could not file displaced typing", error),
       filing: {
+        // Drafts act for whoever is signed in, which is no longer the typist.
         owned: () =>
+          edits.reason !== "session-changed" &&
           editorSessionActiveRef.current &&
           editorSessionIdRef.current === editorSessionId &&
           sessionScopeRef.current?.email === scope.accountId &&
