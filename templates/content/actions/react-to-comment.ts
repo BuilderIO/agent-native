@@ -52,36 +52,47 @@ export default defineAction({
       });
 
     const db = getDb();
-    const [comment] = await db
-      .select({ id: schema.documentComments.id })
-      .from(schema.documentComments)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.commentId),
-          eq(schema.documentComments.documentId, args.documentId),
-          eq(schema.documentComments.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
-    if (!comment)
+    const commentWhere = and(
+      eq(schema.documentComments.id, args.commentId),
+      eq(schema.documentComments.documentId, args.documentId),
+      eq(schema.documentComments.ownerEmail, ownerEmail),
+    );
+    const notFound = (): never =>
       fail(`Comment not found: ${args.commentId}`, {
         statusCode: 404,
         errorCode: "not_found",
       });
 
     if (args.active) {
-      await db
-        .insert(schema.documentCommentReactions)
-        .values({
-          id: reactionId(args.commentId, actorEmail, args.reaction),
-          ownerEmail,
-          documentId: args.documentId,
-          commentId: args.commentId,
-          actorEmail,
-          reaction: args.reaction,
-        })
-        .onConflictDoNothing();
+      await db.transaction(async (tx) => {
+        // Locked so a delete of the comment either waits and then removes
+        // this reaction with the others, or finishes first.
+        const [comment] = await tx
+          .select({ id: schema.documentComments.id })
+          .from(schema.documentComments)
+          .where(commentWhere)
+          .limit(1)
+          .for("share");
+        if (!comment) notFound();
+        await tx
+          .insert(schema.documentCommentReactions)
+          .values({
+            id: reactionId(args.commentId, actorEmail, args.reaction),
+            ownerEmail,
+            documentId: args.documentId,
+            commentId: args.commentId,
+            actorEmail,
+            reaction: args.reaction,
+          })
+          .onConflictDoNothing();
+      });
     } else {
+      const [comment] = await db
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(commentWhere)
+        .limit(1);
+      if (!comment) notFound();
       await db
         .delete(schema.documentCommentReactions)
         .where(

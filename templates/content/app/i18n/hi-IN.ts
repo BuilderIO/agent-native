@@ -1761,6 +1761,10 @@ const overrides = {
       "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता।",
     delete: "हटाएँ",
     deleting: "हटाया जा रहा है…",
+    deleteRefusedReplied:
+      "किसी और ने जवाब दिया है, इसलिए यह थ्रेड केवल संपादक हटा सकता है।",
+    deleteRefusedNotion: "यह टिप्पणी Notion से सिंक है। इसे Notion में हटाएँ।",
+    deleteRefusedAiWorking: "AI इस थ्रेड पर काम कर रहा है। थ्रेड हटाने से पहले उसे रोकें।",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",

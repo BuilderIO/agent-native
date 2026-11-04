@@ -2086,6 +2086,12 @@ const overrides = {
       "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer.",
     delete: "Eliminar",
     deleting: "Eliminando…",
+    deleteRefusedReplied:
+      "Otra persona respondió, así que solo un editor puede eliminar este hilo.",
+    deleteRefusedNotion:
+      "Este comentario está sincronizado con Notion. Elimínalo en Notion.",
+    deleteRefusedAiWorking:
+      "La IA está trabajando en este hilo. Detenla antes de eliminar el hilo.",
     submit: "Comentar",
     askAi: "Preguntar a la IA",
     aiBadge: "IA",

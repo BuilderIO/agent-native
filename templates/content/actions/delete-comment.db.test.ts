@@ -162,3 +162,65 @@ it("refuses a thread the AI is working on", async () => {
   await expect(remove(commenter, root.id)).rejects.toThrow(/AI/);
   expect(await commentIds(root.id)).toEqual([root.id]);
 });
+
+it("knows an author whose email changed case", async () => {
+  const root = await comment(commenter, "Thread");
+  const mine = await comment(commenter, "My reply", root.id);
+  await dbModule
+    .getDb()
+    .update(dbModule.schema.documentComments)
+    .set({ authorEmail: commenter.toUpperCase() })
+    .where(eq(dbModule.schema.documentComments.id, mine.id));
+
+  const result = await remove(commenter, mine.id);
+
+  expect(result.deletedIds).toEqual([mine.id]);
+});
+
+it("deletes a thread's finished Ask AI requests, which hold copies of it", async () => {
+  const root = await comment(commenter, "Asked the AI");
+  const requestId = crypto.randomUUID();
+  const db = dbModule.getDb();
+  await db.insert(dbModule.schema.commentAiRequests).values({
+    id: requestId,
+    ownerEmail: owner,
+    requesterEmail: commenter,
+    documentId,
+    threadId: root.id,
+    rootCommentId: root.id,
+    fieldId: "body",
+    intent: "reply",
+    status: "replied",
+    threadDigest: "digest",
+    snapshotJson: JSON.stringify([{ content: "Asked the AI" }]),
+    baseRevision: "base",
+    suggestionRevision: "suggestion",
+    resultJson: JSON.stringify({ reply: "An answer" }),
+  });
+  await db.insert(dbModule.schema.commentAiAttempts).values({
+    id: crypto.randomUUID(),
+    ownerEmail: owner,
+    requestId,
+    attemptNumber: 1,
+    status: "completed",
+    sourceRevision: "base",
+    suggestionRevision: "suggestion",
+    threadDigest: "digest",
+    snapshotJson: JSON.stringify([{ content: "Asked the AI" }]),
+  });
+
+  await remove(commenter, root.id);
+
+  expect(
+    await db
+      .select()
+      .from(dbModule.schema.commentAiRequests)
+      .where(eq(dbModule.schema.commentAiRequests.threadId, root.id)),
+  ).toEqual([]);
+  expect(
+    await db
+      .select()
+      .from(dbModule.schema.commentAiAttempts)
+      .where(eq(dbModule.schema.commentAiAttempts.requestId, requestId)),
+  ).toEqual([]);
+});

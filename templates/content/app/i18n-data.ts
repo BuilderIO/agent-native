@@ -1811,6 +1811,12 @@ const enUS = {
       "The thread and its replies are deleted for everyone, and this can't be undone.",
     delete: "Delete",
     deleting: "Deleting…",
+    deleteRefusedReplied:
+      "Someone else replied, so only an editor can delete this thread.",
+    deleteRefusedNotion:
+      "This comment is synced with Notion. Delete it in Notion.",
+    deleteRefusedAiWorking:
+      "The AI is working on this thread. Stop it before deleting the thread.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",

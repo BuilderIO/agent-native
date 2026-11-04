@@ -42,6 +42,13 @@ import {
   useCommentTimestamp,
 } from "./CommentRow";
 
+/** Why delete-comment refused, by its error code. */
+const DELETE_REFUSALS: Record<string, string> = {
+  comment_thread_changed: "comments.deleteRefusedReplied",
+  comment_synced_with_notion: "comments.deleteRefusedNotion",
+  comment_ai_already_active: "comments.deleteRefusedAiWorking",
+};
+
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
 ): "mcp" | "agent" | null {
@@ -193,8 +200,16 @@ export function CommentEntry({
       await remove.mutateAsync({ id: comment.id, documentId });
       setConfirmingDelete(false);
     } catch (error) {
+      const reason =
+        DELETE_REFUSALS[
+          String((error as { errorCode?: unknown } | null)?.errorCode)
+        ];
       toast.error(t("empty.genericError"), {
-        description: error instanceof Error ? error.message : undefined,
+        description: reason
+          ? t(reason)
+          : error instanceof Error
+            ? error.message
+            : undefined,
       });
     }
   };

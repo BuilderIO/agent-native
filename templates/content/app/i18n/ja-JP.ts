@@ -1801,6 +1801,12 @@ const overrides = {
       "スレッドとその返信が全員に対して削除され、元に戻すことはできません。",
     delete: "削除",
     deleting: "削除中…",
+    deleteRefusedReplied:
+      "他の人が返信しているため、このスレッドを削除できるのは編集者だけです。",
+    deleteRefusedNotion:
+      "このコメントは Notion と同期されています。Notion で削除してください。",
+    deleteRefusedAiWorking:
+      "AI がこのスレッドで作業中です。スレッドを削除する前に停止してください。",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

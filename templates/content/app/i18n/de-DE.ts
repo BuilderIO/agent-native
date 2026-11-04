@@ -1845,6 +1845,12 @@ const overrides = {
       "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
     delete: "Löschen",
     deleting: "Wird gelöscht…",
+    deleteRefusedReplied:
+      "Jemand anderes hat geantwortet, daher kann nur ein Bearbeiter diesen Thread löschen.",
+    deleteRefusedNotion:
+      "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
+    deleteRefusedAiWorking:
+      "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",

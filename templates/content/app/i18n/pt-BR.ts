@@ -1837,6 +1837,12 @@ const overrides = {
       "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito.",
     delete: "Excluir",
     deleting: "Excluindo…",
+    deleteRefusedReplied:
+      "Outra pessoa respondeu, então só um editor pode excluir esta conversa.",
+    deleteRefusedNotion:
+      "Este comentário está sincronizado com o Notion. Exclua-o no Notion.",
+    deleteRefusedAiWorking:
+      "A IA está trabalhando nesta conversa. Pare-a antes de excluir a conversa.",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

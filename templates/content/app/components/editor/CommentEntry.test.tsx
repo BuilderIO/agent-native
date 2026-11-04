@@ -10,14 +10,15 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync, createRetry, deleteComment } = vi.hoisted(
-  () => ({
+const { reconcile, mutateAsync, createRetry, deleteComment, toastError } =
+  vi.hoisted(() => ({
     reconcile: vi.fn(),
     mutateAsync: vi.fn(),
     createRetry: vi.fn(),
     deleteComment: vi.fn(),
-  }),
-);
+    toastError: vi.fn(),
+  }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     reconcileAmbiguous: reconcile,
@@ -561,7 +562,11 @@ it("deletes your own reply once you confirm", async () => {
 });
 
 it("keeps the delete dialog open with the error when a delete fails", async () => {
-  deleteComment.mockRejectedValue(new Error("Someone else replied"));
+  deleteComment.mockRejectedValue(
+    Object.assign(new Error("Someone else replied"), {
+      errorCode: "comment_thread_changed",
+    }),
+  );
   await act(async () =>
     root.render(<Harness entry={comment} canDeleteThread />),
   );
@@ -574,6 +579,10 @@ it("keeps the delete dialog open with the error when a delete fails", async () =
     documentId: "doc-1",
   });
   expect(container.querySelector("[role=alertdialog]")).not.toBeNull();
+  // The reason in the reader's language, not the server's English.
+  expect(toastError).toHaveBeenCalledWith("empty.genericError", {
+    description: "comments.deleteRefusedReplied",
+  });
 });
 
 it("offers Delete thread only when the thread can go, and never for a Notion comment or someone else's", async () => {

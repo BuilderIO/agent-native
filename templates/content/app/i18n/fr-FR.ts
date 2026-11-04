@@ -1850,6 +1850,12 @@ const overrides = {
       "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
     delete: "Supprimer",
     deleting: "Suppression…",
+    deleteRefusedReplied:
+      "Quelqu'un d'autre a répondu : seul un éditeur peut supprimer ce fil.",
+    deleteRefusedNotion:
+      "Ce commentaire est synchronisé avec Notion. Supprimez-le dans Notion.",
+    deleteRefusedAiWorking:
+      "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

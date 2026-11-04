@@ -1783,6 +1783,12 @@ const overrides = {
       "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다.",
     delete: "삭제",
     deleting: "삭제 중…",
+    deleteRefusedReplied:
+      "다른 사람이 답글을 달아 이 스레드는 편집자만 삭제할 수 있습니다.",
+    deleteRefusedNotion:
+      "이 댓글은 Notion과 동기화되어 있습니다. Notion에서 삭제하세요.",
+    deleteRefusedAiWorking:
+      "AI가 이 스레드에서 작업 중입니다. 스레드를 삭제하기 전에 중지하세요.",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",

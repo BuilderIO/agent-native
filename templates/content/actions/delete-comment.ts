@@ -52,10 +52,13 @@ export default defineAction({
       authorEmail: schema.documentComments.authorEmail,
       notionCommentId: schema.documentComments.notionCommentId,
     };
-    const userEmail = getRequestUserEmail();
+    // Compared without case, as update-comment and the sidebar compare them.
+    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
     const allTheirs = (targets: { authorEmail: string }[]) =>
       !!userEmail &&
-      targets.every(({ authorEmail }) => authorEmail === userEmail);
+      targets.every(
+        ({ authorEmail }) => authorEmail.trim().toLowerCase() === userEmail,
+      );
 
     const authorOnly = allTheirs(
       await db
@@ -144,6 +147,28 @@ export default defineAction({
             inArray(schema.documentCommentReactions.commentId, ids),
           ),
         );
+      if (deletesThread) {
+        // Each Ask AI request keeps a copy of the thread; none is active.
+        const requestIds = (
+          await tx
+            .select({ id: schema.commentAiRequests.id })
+            .from(schema.commentAiRequests)
+            .where(
+              and(
+                eq(schema.commentAiRequests.documentId, documentId),
+                eq(schema.commentAiRequests.threadId, threadId),
+              ),
+            )
+        ).map(({ id }) => id);
+        if (requestIds.length) {
+          await tx
+            .delete(schema.commentAiAttempts)
+            .where(inArray(schema.commentAiAttempts.requestId, requestIds));
+          await tx
+            .delete(schema.commentAiRequests)
+            .where(inArray(schema.commentAiRequests.id, requestIds));
+        }
+      }
       return ids;
     });
 
