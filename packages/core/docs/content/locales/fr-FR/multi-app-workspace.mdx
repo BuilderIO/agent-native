@@ -296,6 +296,10 @@ Quelques flux d'intégration sont prêts à l'emploi et adaptés à l'espace de 
 
 Les applications du même espace de travail pointent par défaut vers le même `DATABASE_URL`, de sorte que le stockage des informations d'identification du framework peut rendre les informations d'identification disponibles pour chaque application sans configuration par application. Utilisez `@agent-native/core/credentials` directement ou ajoutez un assistant léger dans `packages/shared` si votre espace de travail souhaite une convention de dénomination plus stricte.
 
+## Application par défaut sur `/` {#default-app}
+
+`/` ouvre Dispatch lorsque le workspace contient une app `dispatch`, sinon la première app. Définissez `WORKSPACE_DEFAULT_APP=<app-id>` pour en ouvrir une autre. `agent-native dev` et les déploiements du workspace la lisent d'abord dans l'environnement du processus, puis dans le `.env` à la racine du workspace ; une valeur qui ne correspond à aucune app est ignorée. Les déploiements la lisent au moment du build, définissez-la donc là où vous construisez. Dispatch conserve sa propre redirection `/dispatch`, et `deployment.workspace.rootPage: "directory"` affiche toujours la liste des apps.
+
 ## Jetons de conception partagés {#design-tokens}
 
 Le framework est sur Tailwind v4. Ajoutez un fichier CSS partagé à `packages/shared` uniquement lorsque l'espace de travail a de vrais jetons de marque à partager, puis importez-le depuis le `app/global.css` de chaque application :

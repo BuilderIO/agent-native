@@ -585,6 +585,42 @@ describe("workspace dev startup", () => {
     expect(res.headers.get("location")).toBe("/dispatch?builderPreview=1");
   });
 
+  it("reads WORKSPACE_DEFAULT_APP from the workspace root .env without overriding the environment", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter", "other"]);
+    fs.writeFileSync(
+      path.join(tmpDir, ".env"),
+      "WORKSPACE_DEFAULT_APP=starter\n",
+    );
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const res = await fetch(`${url}/`, {
+      redirect: "manual",
+      headers: { accept: "text/html" },
+    });
+    expect(res.headers.get("location")).toBe("/starter");
+    handle.shutdown();
+
+    const overridden = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_DEFAULT_APP: "other" },
+      spawnProcess: overridden.spawnProcess,
+      openBrowser: false,
+    });
+    const second = await handle.ready;
+    const res2 = await fetch(`${second.url}/`, {
+      redirect: "manual",
+      headers: { accept: "text/html" },
+    });
+    expect(res2.headers.get("location")).toBe("/other");
+  });
+
   it("answers a non-HTML root request from the default app, not a redirect", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
@@ -1282,6 +1318,7 @@ describe("workspace dev helpers", () => {
 function testEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    WORKSPACE_DEFAULT_APP: "",
     WORKSPACE_HOST: "127.0.0.1",
     WORKSPACE_PORT: "0",
     WORKSPACE_APP_PORT_START: "19100",

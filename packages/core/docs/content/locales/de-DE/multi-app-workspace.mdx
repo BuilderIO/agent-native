@@ -296,6 +296,10 @@ Einige Onboarding-Abläufe sind standardmäßig arbeitsbereichsorientiert:
 
 Apps im selben Arbeitsbereich verweisen standardmäßig auf denselben `DATABASE_URL`, sodass die Speicherung von Framework-Anmeldeinformationen Anmeldeinformationen für jede App ohne Konfiguration pro App verfügbar machen kann. Verwenden Sie `@agent-native/core/credentials` direkt oder fügen Sie einen Thin Helper in `packages/shared` hinzu, wenn Ihr Arbeitsbereich eine strengere Namenskonvention erfordert.
 
+## Standard-App unter `/` {#default-app}
+
+`/` öffnet Dispatch, wenn der Workspace eine `dispatch`-App enthält, sonst die erste App. Setze `WORKSPACE_DEFAULT_APP=<app-id>`, um eine andere App zu öffnen. `agent-native dev` und Workspace-Deployments lesen die Variable zuerst aus der Prozessumgebung, dann aus der `.env` im Workspace-Root; ein Wert, der keiner App entspricht, wird ignoriert. Deployments lesen sie zur Build-Zeit, setze sie also dort, wo du baust. Dispatch behält seine eigene Weiterleitung `/dispatch`, und `deployment.workspace.rootPage: "directory"` zeigt weiterhin die App-Liste.
+
 ## Geteilte Design-Tokens {#design-tokens}
 
 Das Framework ist auf Tailwind v4. Fügen Sie eine freigegebene CSS-Datei nur dann zu `packages/shared` hinzu, wenn der Arbeitsbereich über echte Marken-Tokens zum Teilen verfügt, und importieren Sie sie dann aus dem `app/global.css` jeder App:

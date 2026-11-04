@@ -296,6 +296,10 @@ my-company-platform/
 
 동일한 작업 공간에 있는 앱은 기본적으로 동일한 `DATABASE_URL`를 가리키므로 프레임워크 자격 증명 저장소는 앱별 구성 없이 모든 앱에서 자격 증명을 사용할 수 있도록 할 수 있습니다. `@agent-native/core/credentials`를 직접 사용하거나 작업 공간에서 더 엄격한 명명 규칙을 원하는 경우 `packages/shared`에 씬 도우미를 추가하세요.
 
+## `/`의 기본 앱 {#default-app}
+
+워크스페이스에 `dispatch` 앱이 있으면 `/`는 Dispatch를 열고, 없으면 첫 번째 앱을 엽니다. 다른 앱을 열려면 `WORKSPACE_DEFAULT_APP=<app-id>`를 설정하세요. `agent-native dev`와 워크스페이스 배포는 모두 프로세스 환경에서 먼저 읽고, 그다음 워크스페이스 루트의 `.env`에서 읽습니다. 어떤 앱과도 일치하지 않는 값은 무시됩니다. 배포는 빌드 시점에 읽으므로 빌드를 실행하는 곳에서 설정하세요. Dispatch는 자체 `/dispatch` 리디렉션을 유지하며, `deployment.workspace.rootPage: "directory"`는 계속 앱 목록을 표시합니다.
+
 ## 공유 디자인 토큰 {#design-tokens}
 
 프레임워크는 Tailwind v4에 있습니다. 작업 공간에 공유할 실제 브랜드 토큰이 있는 경우에만 공유 CSS 파일을 `packages/shared`에 추가한 다음 각 앱의 `app/global.css`에서 가져옵니다.

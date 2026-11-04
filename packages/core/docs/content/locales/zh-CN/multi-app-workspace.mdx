@@ -296,6 +296,10 @@ my-company-platform/
 
 默认情况下，同一工作区中的应用程序指向同一 `DATABASE_URL`，因此框架凭证存储可以使凭证可供每个应用程序使用，而无需每个应用程序配置。直接使用 `@agent-native/core/credentials`，或者如果您的工作区需要更严格的命名约定，则在 `packages/shared` 中添加瘦助手。
 
+## `/` 的默认应用 {#default-app}
+
+当工作区包含 `dispatch` 应用时，`/` 会打开 Dispatch，否则打开第一个应用。设置 `WORKSPACE_DEFAULT_APP=<app-id>` 可打开其他应用。`agent-native dev` 和工作区部署都会先从进程环境读取，再从工作区根目录的 `.env` 读取；与任何应用都不匹配的值会被忽略。部署在构建时读取该变量，因此请在执行构建的地方设置。Dispatch 保留自己的 `/dispatch` 重定向，`deployment.workspace.rootPage: "directory"` 仍会显示应用列表。
+
 ## 共享设计令牌 {#design-tokens}
 
 该框架基于 Tailwind v4。仅当工作区有真正的品牌令牌可供共享时，才将共享的 CSS 文件添加到 `packages/shared`，然后从每个应用程序的 `app/global.css` 导入它：

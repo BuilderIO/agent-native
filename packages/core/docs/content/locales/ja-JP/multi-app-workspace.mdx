@@ -296,6 +296,10 @@ my-company-platform/
 
 同じワークスペース内のアプリはデフォルトで同じ `DATABASE_URL` を指すため、フレームワーク認証情報ストレージにより、アプリごとの構成を行わずにすべてのアプリで認証情報を利用できるようになります。 `@agent-native/core/credentials` を直接使用するか、ワークスペースでより厳密な命名規則が必要な場合は、`packages/shared` にシン ヘルパーを追加します。
 
+## `/` のデフォルトアプリ {#default-app}
+
+ワークスペースに `dispatch` アプリがある場合、`/` は Dispatch を開き、ない場合は最初のアプリを開きます。別のアプリを開くには `WORKSPACE_DEFAULT_APP=<app-id>` を設定します。`agent-native dev` とワークスペースのデプロイはどちらも、まずプロセス環境から、次にワークスペースルートの `.env` から読み取ります。どのアプリにも一致しない値は無視されます。デプロイはビルド時に読み取るため、ビルドを実行する場所で設定してください。Dispatch は独自の `/dispatch` リダイレクトを維持し、`deployment.workspace.rootPage: "directory"` では引き続きアプリ一覧が表示されます。
+
 ## 共有デザイン トークン {#design-tokens}
 
 フレームワークは Tailwind v4 です。ワークスペースに共有する実際のブランド トークンがある場合にのみ、共有 CSS ファイルを `packages/shared` に追加し、各アプリの `app/global.css` からインポートします。

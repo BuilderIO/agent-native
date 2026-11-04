@@ -19,6 +19,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { withWorkspaceRootEnv } from "../shared/workspace-default-app.js";
 import {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -695,8 +696,8 @@ export async function runWorkspaceDev(
   options: WorkspaceDevOptions = {},
 ): Promise<WorkspaceDevHandle> {
   const args = options.args ?? process.argv.slice(2);
-  const env = options.env ?? process.env;
   const root = options.root ?? process.cwd();
+  const env = options.env ?? process.env;
   const appsDir = path.join(root, "apps");
   const spawnProcess = options.spawnProcess ?? spawn;
   const stdout = options.stdout ?? process.stdout;
@@ -772,7 +773,8 @@ export async function runWorkspaceDev(
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
-  const requestedDefaultApp = env.WORKSPACE_DEFAULT_APP || null;
+  const requestedDefaultApp =
+    withWorkspaceRootEnv(root, env).WORKSPACE_DEFAULT_APP?.trim() || null;
   const explicitDefaultApp =
     requestedDefaultApp && appById.has(requestedDefaultApp)
       ? requestedDefaultApp
