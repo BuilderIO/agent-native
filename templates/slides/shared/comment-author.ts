@@ -1,6 +1,10 @@
-// Only the signed-in person's own UI is "person"; every other caller (tool, MCP, HTTP, A2A) acts on their behalf.
+// Widget callers are the signed-in person clicking inside an embedded view; every other caller acts on their behalf.
+const PERSON_CALLERS = new Set(["frontend", "mcp-widget", "mcp-widget-write"]);
+
 export function commentAuthorKind(
   caller: string | undefined,
 ): "agent" | "person" {
-  return caller === undefined || caller === "frontend" ? "person" : "agent";
+  return caller === undefined || PERSON_CALLERS.has(caller)
+    ? "person"
+    : "agent";
 }
