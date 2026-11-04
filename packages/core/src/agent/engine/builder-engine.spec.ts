@@ -360,6 +360,31 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("says the stored sign-in cannot be read, not that it expired", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    oauthState.resolveAccessState.mockResolvedValueOnce({ kind: "unreadable" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    // The row is intact: only this process's key cannot open it, so "Sign in
+    // again" alone would misname the cause and the legacy key must not stand in.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_credential_unreadable",
+        error: expect.stringContaining("cannot be read"),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "builder_auth_error" }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("reports an unreadable credential store instead of a missing connection", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.stored = true;

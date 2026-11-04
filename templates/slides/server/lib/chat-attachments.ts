@@ -15,13 +15,26 @@ import { parseBase64DataUrl } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import {
-  isSlidesReferenceFileExtension,
   MAX_INLINE_IMAGE_BYTES,
   MAX_REFERENCE_FILES,
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 import { rememberThreadUploads } from "./thread-uploads.js";
+
+// Text files keep their hosted URL readable by core's attachment reader.
+const SLIDES_IMPORT_EXTENSIONS = new Set([
+  ".pptx",
+  ".docx",
+  ".pdf",
+  ".fig",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+]);
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_CHAT_UPLOAD_TOTAL_BYTES = MAX_REFERENCE_FILE_BYTES;
@@ -233,7 +246,7 @@ export async function prepareSlidesChatAttachments(args: {
       typeof attachment.data !== "string" &&
       typeof attachment.url === "string"
     ) {
-      if (isSlidesReferenceFileExtension(ext)) {
+      if (SLIDES_IMPORT_EXTENSIONS.has(ext)) {
         urlOnlyReferenceCount++;
         if (urlOnlyReferenceCount > MAX_REFERENCE_FILES) {
           failed.push({
@@ -296,7 +309,7 @@ export async function prepareSlidesChatAttachments(args: {
     const dataUrl = attachmentDataUrl(attachment);
     if (!dataUrl) continue;
 
-    if (!isSlidesReferenceFileExtension(ext)) continue;
+    if (!SLIDES_IMPORT_EXTENSIONS.has(ext)) continue;
 
     const decoded = decodeDataUrl(dataUrl);
     if (!decoded) continue;

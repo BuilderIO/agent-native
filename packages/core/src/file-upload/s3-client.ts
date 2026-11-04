@@ -51,6 +51,12 @@ export interface PresignS3GetOptions {
   responseCacheControl?: string | undefined;
   /** Signing time; tests pin it. Defaults to now. */
   now?: Date;
+  /**
+   * The deployment configured this endpoint and its keys (not a workspace),
+   * so the link may use plain HTTP, as a local MinIO does. Without it, links
+   * need HTTPS.
+   */
+  trustedEndpoint?: boolean;
 }
 
 const MAX_PRESIGN_SECONDS = 7 * 24 * 60 * 60;
@@ -305,7 +311,8 @@ export async function cancelS3ResponseBody(response: Response): Promise<void> {
 /**
  * The start of an S3 error response's body, for an error message. It reads
  * at most `maxBytes` and cancels the rest, so an endpoint can't make the app
- * hold a huge or endless error body in memory.
+ * hold a huge or endless error body in memory. If the body fails partway, it
+ * returns what arrived, so the caller's error still reports the status.
  */
 export async function readS3ErrorText(
   response: Response,
@@ -324,6 +331,8 @@ export async function readS3ErrorText(
       remaining -= chunk.byteLength;
       text += decoder.decode(chunk, { stream: true });
     }
+  } catch {
+    // coercion-ok: the body only adds detail to a failure the caller reports.
   } finally {
     await reader.cancel().catch(() => undefined);
   }
@@ -540,7 +549,10 @@ export async function presignS3GetUrl(
 ): Promise<string> {
   // Whoever opens the link fetches it directly, so the signature and bytes
   // would cross the network in the clear over plain HTTP.
-  if (new URL(config.endpoint).protocol !== "https:") {
+  if (
+    new URL(config.endpoint).protocol !== "https:" &&
+    !options.trustedEndpoint
+  ) {
     throw new Error("S3 presigned links need an HTTPS endpoint");
   }
   const expires = Math.floor(options.expiresInSeconds);

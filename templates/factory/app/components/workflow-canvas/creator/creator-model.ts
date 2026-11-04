@@ -18,7 +18,12 @@ import {
   type WorkflowNode,
 } from "@/lib/workflow-editor";
 
-import { buildPalette, type PaletteEntry } from "../palette";
+import {
+  buildPalette,
+  isGeneric,
+  type GenericEntry,
+  type PaletteEntry,
+} from "../palette";
 import { providerIdentity } from "../provider-identity";
 import type { WorkflowCanvasStrings } from "../strings";
 
@@ -32,11 +37,15 @@ export type CreatorTarget =
     }
   | { kind: "insert"; edgeId: string };
 
-/** `unknown` is a check that failed or has not run. It is never read as `not connected`. */
-export type ProviderLinkStatus = "connected" | "not connected" | "unknown";
+/** `unknown` is a check that failed or has not run; `unreadable` is a saved key this deployment cannot read. Neither is read as `not connected`. */
+export type ProviderLinkStatus =
+  | "connected"
+  | "not connected"
+  | "unknown"
+  | "unreadable";
 
-/** A deeper list the root can open. `sources` and `actions` list the apps. */
-type ListId = "sources" | "actions" | "ai" | "data" | "flow";
+/** A deeper list the root can open. `sources`, `actions` and `apiRequest` list the apps. */
+type ListId = "sources" | "actions" | "ai" | "data" | "flow" | "apiRequest";
 
 /** What the panel shows: the root list for the target, one deeper list, or one app's steps. */
 export type CreatorView =
@@ -62,6 +71,8 @@ export type CreatorRow =
       label: string;
       kind: NodeKind;
       description?: string;
+      /** What a search matches beyond the label. */
+      keywords?: string;
       view: CreatorView;
     }
   | {
@@ -70,6 +81,14 @@ export type CreatorRow =
       label: string;
       provider: string;
       view: CreatorView;
+    }
+  | {
+      type: "providerStep";
+      id: string;
+      label: string;
+      provider: string;
+      /** A provider row opens the app; this one adds the app's step. */
+      entry: GenericEntry;
     }
   | {
       type: "group";
@@ -81,11 +100,20 @@ export type CreatorRow =
     }
   | { type: "describe"; id: "describe"; label: string; description?: string };
 
-/** One line of a list. Captions and notices are text, so the keyboard skips them. */
+/** One line of a list. Captions, notices and tips are text, so the keyboard skips them. */
 export type CreatorItem =
   | CreatorRow
   | { type: "caption"; id: string; label: string }
-  | { type: "notice"; id: string; label: string };
+  | { type: "notice"; id: string; label: string }
+  /** A sentence with a link in it, which opens `view`. */
+  | {
+      type: "tip";
+      id: string;
+      before: string;
+      link: string;
+      after: string;
+      view: CreatorView;
+    };
 
 export interface CreatorListModel {
   items: CreatorItem[];
@@ -160,6 +188,8 @@ export function listLabel(list: ListId, s: WorkflowCanvasStrings): string {
       return s.creator.data;
     case "flow":
       return s.creator.flow;
+    case "apiRequest":
+      return s.creator.apiRequest;
   }
 }
 
@@ -175,6 +205,8 @@ export function listKind(list: ListId): NodeKind {
       return "combine";
     case "flow":
       return "switch";
+    case "apiRequest":
+      return "lookup";
   }
 }
 
@@ -190,6 +222,8 @@ function listHint(list: ListId): Hint {
       return "data";
     case "flow":
       return "flow";
+    case "apiRequest":
+      return "apiRequest";
   }
 }
 
@@ -303,14 +337,68 @@ function providerRow(provider: string, from: "start" | "next"): CreatorRow {
   };
 }
 
-function listRow(list: ListId, s: WorkflowCanvasStrings): CreatorRow {
+function listRow(
+  list: ListId,
+  s: WorkflowCanvasStrings,
+  keywords?: string,
+): CreatorRow {
   return {
     type: "list",
     id: `list:${list}`,
     label: listLabel(list, s),
     kind: listKind(list),
     description: s.creator.hint[listHint(list)],
+    keywords,
     view: { kind: "list", list },
+  };
+}
+
+/** One row for the API request step every app has. It opens the list of apps, where the person picks one. */
+function apiRequestRow(
+  generic: readonly GenericEntry[],
+  s: WorkflowCanvasStrings,
+): CreatorRow {
+  const keywords = generic.map((entry) => entry.keywords).join(" ");
+  return listRow("apiRequest", s, keywords);
+}
+
+/** Each app's API request step as a row that adds it, connected apps first and each half alphabetical. */
+function apiRequestRows(
+  generic: readonly GenericEntry[],
+  connections: Readonly<Record<string, ProviderLinkStatus>> | undefined,
+): CreatorRow[] {
+  const rows = [...generic]
+    .sort((a, b) =>
+      providerLabel(a.provider).localeCompare(providerLabel(b.provider)),
+    )
+    .map(
+      (entry): CreatorRow => ({
+        type: "providerStep",
+        id: entry.id,
+        label: providerLabel(entry.provider),
+        provider: entry.provider,
+        entry,
+      }),
+    );
+  const connected = (row: CreatorRow) =>
+    row.type === "providerStep" && connections?.[row.provider] === "connected";
+  return [...rows.filter(connected), ...rows.filter((row) => !connected(row))];
+}
+
+// Stands where the translated sentence puts its link, so the sentence can be cut in two around it.
+const LINK_MARK = "\u0001";
+
+/** What to try when a search finds nothing: the API request step, linked from inside a sentence. */
+function apiRequestTip(s: WorkflowCanvasStrings): CreatorItem {
+  const text = s.creator.apiRequestTip(LINK_MARK);
+  const at = text.indexOf(LINK_MARK);
+  return {
+    type: "tip",
+    id: "tip:apiRequest",
+    before: at < 0 ? text : text.slice(0, at),
+    link: s.creator.apiRequestLink,
+    after: at < 0 ? "" : text.slice(at + LINK_MARK.length),
+    view: { kind: "list", list: "apiRequest" },
   };
 }
 
@@ -382,7 +470,10 @@ function rowFields(row: CreatorRow): { label: string; keywords: string } {
     case "entry":
       return { label: row.entry.label, keywords: row.entry.keywords };
     case "provider":
+    case "providerStep":
       return { label: row.label, keywords: row.provider };
+    case "list":
+      return { label: row.label, keywords: row.keywords ?? "" };
     default:
       return { label: row.label, keywords: "" };
   }
@@ -405,18 +496,21 @@ function rank(
 }
 
 /**
- * An empty search that finds nothing says so and offers the agent. The query
- * is the one thing the person typed, so the message does not repeat it.
+ * An empty search that finds nothing says so, adds the tips it was given, and
+ * offers the agent. The query is the one thing the person typed, so the
+ * message does not repeat it.
  */
 function settle(
   items: CreatorItem[],
   searching: boolean,
   describable: boolean,
   s: WorkflowCanvasStrings,
+  tips: CreatorItem[] = [],
 ): CreatorItem[] {
   if (!searching || selectableRows(items).length > 0) return items;
   return [
     { type: "notice", id: "notice", label: s.creator.noResults },
+    ...tips,
     ...(describable ? [describeRow(s)] : []),
   ];
 }
@@ -424,20 +518,28 @@ function settle(
 /** The root: the start list or the next list, or every step matching the query. */
 function rootList(input: {
   entries: PaletteEntry[];
+  generic: GenericEntry[];
   words: string[];
   start: boolean;
   describable: boolean;
   s: WorkflowCanvasStrings;
 }): CreatorListModel {
-  const { entries, words, start, describable, s } = input;
+  const { entries, generic, words, start, describable, s } = input;
+  const apiRequest = generic.length > 0 ? [apiRequestRow(generic, s)] : [];
   if (words.length > 0) {
     const found = rank(
-      entries.map((entry) => entryRow(entry, s, false)),
+      [...entries.map((entry) => entryRow(entry, s, false)), ...apiRequest],
       words,
     );
     return {
       searchable: true,
-      items: settle(found, true, describable, s),
+      items: settle(
+        found,
+        true,
+        describable,
+        s,
+        apiRequest.length > 0 ? [apiRequestTip(s)] : [],
+      ),
     };
   }
   const sourceApps = providersOf(ofKinds(entries, ["source"]));
@@ -460,6 +562,7 @@ function rootList(input: {
           ? [listRow("ai", s)]
           : []),
         ...(actionApps.length > 0 ? [listRow("actions", s)] : []),
+        ...apiRequest,
         ...(ofKinds(entries, ["filter", "split", "combine"]).length > 0
           ? [listRow("data", s)]
           : []),
@@ -476,8 +579,10 @@ function rootList(input: {
 /** Every row a deeper list can show before a search narrows it. */
 function listCandidates(
   entries: readonly PaletteEntry[],
+  generic: readonly GenericEntry[],
   list: ListId,
   s: WorkflowCanvasStrings,
+  connections: Readonly<Record<string, ProviderLinkStatus>> | undefined,
 ): CreatorRow[] {
   switch (list) {
     case "sources":
@@ -500,19 +605,23 @@ function listCandidates(
       return ofKinds(entries, ["switch", "wait", "end"]).map((entry) =>
         entryRow(entry, s, true),
       );
+    case "apiRequest":
+      return apiRequestRows(generic, connections);
   }
 }
 
-/** One deeper list: an intent list of steps, or the apps that have a source or an action. */
+/** One deeper list: an intent list of steps, or the apps that have a source, an action or an API request. */
 function listView(input: {
   entries: PaletteEntry[];
+  generic: GenericEntry[];
   words: string[];
   list: ListId;
+  connections: Readonly<Record<string, ProviderLinkStatus>> | undefined;
   describable: boolean;
   s: WorkflowCanvasStrings;
 }): CreatorListModel {
-  const { entries, words, list, describable, s } = input;
-  const candidates = listCandidates(entries, list, s);
+  const { entries, generic, words, list, connections, describable, s } = input;
+  const candidates = listCandidates(entries, generic, list, s, connections);
   return {
     searchable: candidates.length > SEARCH_THRESHOLD,
     items: settle(rank(candidates, words), words.length > 0, describable, s),
@@ -523,10 +632,12 @@ function listView(input: {
  * Inside a connection into an app's lookups and actions, the two groups list
  * the app's triggers and its actions. The group the person came from opens
  * first. Lookups and actions get small captions only when the app came from
- * the next list, where the split helps.
+ * the next list, where the split helps. The app's API request step comes
+ * last, under a caption of its own when the others have one.
  */
 function actionItems(
   rows: CreatorRow[],
+  pinned: CreatorRow[],
   from: "start" | "next",
   s: WorkflowCanvasStrings,
 ): CreatorItem[] {
@@ -535,7 +646,7 @@ function actionItems(
   const lookups = rows.filter(isKind("lookup"));
   const actions = rows.filter(isKind("action"));
   if (from === "start" || lookups.length === 0 || actions.length === 0) {
-    return rows;
+    return [...rows, ...pinned];
   }
   return [
     {
@@ -550,11 +661,22 @@ function actionItems(
       label: s.creator.sendOrChangeCaption,
     },
     ...actions,
+    ...(pinned.length > 0
+      ? [
+          {
+            type: "caption" as const,
+            id: "caption:apiRequest",
+            label: s.creator.anythingElseCaption,
+          },
+          ...pinned,
+        ]
+      : []),
   ];
 }
 
 function appView(input: {
   entries: PaletteEntry[];
+  generic: GenericEntry[];
   words: string[];
   provider: string;
   from: "start" | "next";
@@ -562,17 +684,20 @@ function appView(input: {
   describable: boolean;
   s: WorkflowCanvasStrings;
 }): CreatorListModel {
-  const { entries, words, provider, from, open, describable, s } = input;
+  const { entries, generic, words, provider, from, open, describable, s } =
+    input;
   const own = entries.filter((entry) => entry.provider === provider);
-  const triggers = ofKinds(own, ["source"]).map((entry) =>
-    entryRow(entry, s, false, provider),
-  );
-  const actions = ofKinds(own, ["lookup", "action"]).map((entry) =>
-    entryRow(entry, s, false, provider),
-  );
+  const rowsOf = (of: readonly PaletteEntry[]) =>
+    rank(
+      of.map((entry) => entryRow(entry, s, false, provider)),
+      words,
+    );
+  const actions = rowsOf(ofKinds(own, ["lookup", "action"]));
+  // Ranked on its own, so a search never moves it off the end.
+  const pinned = rowsOf(generic.filter((entry) => entry.provider === provider));
   const shown: Record<AppGroup, CreatorRow[]> = {
-    triggers: rank(triggers, words),
-    actions: rank(actions, words),
+    triggers: rowsOf(ofKinds(own, ["source"])),
+    actions: [...actions, ...pinned],
   };
   const primary: AppGroup = from === "start" ? "triggers" : "actions";
   const primaryEmpty = shown[primary].length === 0;
@@ -596,7 +721,9 @@ function appView(input: {
       open: expanded,
     });
     if (expanded) {
-      items.push(...(group === "actions" ? actionItems(rows, from, s) : rows));
+      items.push(
+        ...(group === "actions" ? actionItems(actions, pinned, from, s) : rows),
+      );
     }
   }
   return {
@@ -615,6 +742,7 @@ export function creatorList({
   catalog,
   target,
   hasTrigger,
+  connections,
   view,
   query,
   open,
@@ -624,6 +752,8 @@ export function creatorList({
   catalog: WorkflowCatalog;
   target: CreatorTarget;
   hasTrigger: boolean;
+  /** Each provider's status for this person. The list of apps for an API request puts the connected ones first. */
+  connections?: Readonly<Record<string, ProviderLinkStatus>>;
   view: CreatorView;
   query: string;
   /** The groups the person opened or closed inside an app. A group left out takes its default. */
@@ -633,23 +763,30 @@ export function creatorList({
   strings: WorkflowCanvasStrings;
 }): CreatorListModel {
   const words = queryWords(query);
-  const entries = buildPalette(catalog, { hasTrigger: false }, s)
+  const start = isStartList(target, hasTrigger);
+  const offered = buildPalette(catalog, { hasTrigger: false }, s)
     .flatMap((section) => section.entries)
     .filter((entry) => allowedAt(entry.kind, target, hasTrigger));
+  // Every app has an API request step. The lists show them as one, and only after a step: a lookup cannot start a workflow.
+  const generic = start ? [] : offered.filter(isGeneric);
+  const entries = offered.filter((entry) => !isGeneric(entry));
   switch (view.kind) {
     case "root":
-      return rootList({
+      return rootList({ entries, generic, words, start, describable, s });
+    case "list":
+      return listView({
         entries,
+        generic,
         words,
-        start: isStartList(target, hasTrigger),
+        list: view.list,
+        connections,
         describable,
         s,
       });
-    case "list":
-      return listView({ entries, words, list: view.list, describable, s });
     case "app":
       return appView({
         entries,
+        generic,
         words,
         provider: view.provider,
         from: view.from,
@@ -663,7 +800,7 @@ export function creatorList({
 export function selectableRows(items: readonly CreatorItem[]): CreatorRow[] {
   return items.filter(
     (item): item is CreatorRow =>
-      item.type !== "caption" && item.type !== "notice",
+      item.type !== "caption" && item.type !== "notice" && item.type !== "tip",
   );
 }
 
