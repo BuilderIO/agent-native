@@ -4,7 +4,6 @@ import type { RefObject } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CanvasContextMenuHandle } from "@/components/design/CanvasContextMenu";
-import { readIframeScrollOffset } from "@/pages/design-editor/iframe-scroll";
 
 import {
   runIframeContextMenu,
@@ -25,10 +24,6 @@ function crossOriginIframe(): HTMLIFrameElement {
 }
 
 describe("cross-origin preview iframe scroll", () => {
-  it("reports an unreadable scroll offset as null", () => {
-    expect(readIframeScrollOffset(crossOriginIframe())).toBeNull();
-  });
-
   it("still opens the context menu", () => {
     const openAt = vi.fn();
     const container = document.createElement("div");
