@@ -3857,7 +3857,9 @@ describe("run() — reveals through an agent content patch", () => {
   });
 
   it("saves a shape appended at the slide end under a click-reveal on an earlier paragraph", async () => {
-    mockDeckRow!.data = JSON.stringify({
+    const row = mockDeckRow;
+    if (!row) throw new Error("mockDeckRow is not set");
+    row.data = JSON.stringify({
       title: "Deck",
       updatedAt: "2026-01-01T00:00:00.000Z",
       slides: [
