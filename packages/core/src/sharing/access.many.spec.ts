@@ -16,6 +16,7 @@ const ownerEmail = "owner+qa@example.com";
 const viewerEmail = "viewer+qa@example.com";
 const adminEmail = "admin+qa@example.com";
 const outsiderEmail = "outsider+qa@example.com";
+const otherMemberEmail = "other-member+qa@example.com";
 const orgId = "org-qa";
 
 const apps = table("qa_batch_apps", {
@@ -62,8 +63,17 @@ async function seedApps(count: number) {
   await pglite.query(
     `INSERT INTO org_members (id, org_id, email, role, joined_at)
      VALUES ('m-owner', ?, ?, 'owner', 0), ('m-viewer', ?, ?, 'member', 0),
-            ('m-admin', ?, ?, 'admin', 0)`,
-    [orgId, ownerEmail, orgId, viewerEmail, orgId, adminEmail],
+            ('m-admin', ?, ?, 'admin', 0), ('m-other', ?, ?, 'member', 0)`,
+    [
+      orgId,
+      ownerEmail,
+      orgId,
+      viewerEmail,
+      orgId,
+      adminEmail,
+      orgId,
+      otherMemberEmail,
+    ],
   );
   await pglite.query(
     `INSERT INTO workspace_user_groups
@@ -222,6 +232,41 @@ describe("resolveAccessMany", () => {
       }
     });
   }
+
+  it("opens exactly the apps shared with the viewer, and no others", async () => {
+    await seedApps(30);
+    const resolved = await manyVisible(viewers["org member"], 30);
+    // Even apps are org-visible; odd ones are private, and every odd app but
+    // those ending in 7 (mod 8) is shared by user, org, or group.
+    const expected = Array.from({ length: 30 }, (_, i) => i)
+      .filter((i) => i % 2 === 0 || i % 8 !== 7)
+      .map((i) => `app-${i}`)
+      .sort();
+    expect([...resolved.keys()].sort()).toEqual(expected);
+  });
+
+  it("does not open a group share to a member outside the group", async () => {
+    await seedApps(30);
+    const resolved = await manyVisible(
+      { userEmail: otherMemberEmail, orgId },
+      30,
+    );
+    expect(resolved.has("app-3")).toBe(true);
+    expect(resolved.has("app-5")).toBe(false);
+    expect(resolved.has("app-1")).toBe(false);
+  });
+
+  it("opens nothing for an empty list or a signed-out viewer", async () => {
+    await seedApps(4);
+    const [none, signedOut] = await withDbExec(countingExec, () =>
+      Promise.all([
+        resolveAccessMany(resourceType, [], { userEmail: ownerEmail, orgId }),
+        resolveAccessMany(resourceType, ["app-0", "app-1"], {}),
+      ]),
+    );
+    expect(none.size).toBe(0);
+    expect(signedOut.size).toBe(0);
+  });
 
   it("leaves out ids that do not exist", async () => {
     await seedApps(4);
