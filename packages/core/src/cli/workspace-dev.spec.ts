@@ -23,6 +23,7 @@ import {
   DEFAULT_PROXY_READY_TIMEOUT_MS,
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
+  pnpmSpawnTarget,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
   shouldOpenWorkspaceBrowser,
@@ -1455,3 +1456,55 @@ function fakeSpawn(pid?: number): {
         .map((call) => path.basename(call.args[1])),
   };
 }
+
+describe("workspace app spawn on Windows", () => {
+  it("runs pnpm through a shell so a pnpm.cmd shim resolves", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: testEnv(),
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      const { url } = await handle.ready;
+      await fetch(`${url}/dispatch`, { headers: { accept: "text/html" } });
+      const call = fake.calls().at(-1);
+      expect(call?.options?.shell).toBe(true);
+      expect(call?.command).toMatch(/^pnpm /);
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  });
+});
+
+describe("pnpmSpawnTarget", () => {
+  it("passes args through untouched off Windows", () => {
+    expect(pnpmSpawnTarget(["a b"], "linux")).toEqual(["pnpm", ["a b"], false]);
+  });
+
+  it("quotes args with spaces on Windows", () => {
+    const [command, args, shell] = pnpmSpawnTarget(
+      ["--dir", "C:\\My Apps\\x"],
+      "win32",
+    );
+    expect(command).toBe('pnpm --dir "C:\\My Apps\\x"');
+    expect(args).toEqual([]);
+    expect(shell).toBe(true);
+  });
+
+  it("refuses Windows args containing percent signs or quotes", () => {
+    expect(() => pnpmSpawnTarget(["C:\\%TEMP%\\x"], "win32")).toThrow(
+      /path contains/,
+    );
+    expect(() => pnpmSpawnTarget(['a"b'], "win32")).toThrow(/path contains/);
+  });
+
+  it("doubles trailing backslashes so they cannot escape the closing quote", () => {
+    const [command] = pnpmSpawnTarget(["C:\\My Apps\\"], "win32");
+    expect(command).toBe('pnpm "C:\\My Apps\\\\"');
+  });
+});
