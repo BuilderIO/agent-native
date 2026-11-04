@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 從工作區內的任何位置：
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI 再次顯示範本選取器，其中已過濾掉您已安裝的應用程式。選取一個或多個，它們就會被搭建在 `apps/` 下。非互動式變體：
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 任何第一方範本都可以用作工作區應用程式 - CLI 在範本上執行一個小型 **workspacify** 轉換，將共用包新增為 dep 並解析 `workspace:*` 引用。無需維護並行的“工作空間應用程式”腳手架。
@@ -258,6 +258,8 @@ pnpm dev
 `include` 中的未知 ID 會記錄警告並被忽略。獨立應用程式可以在自己的 `package.json` 中使用相同的鍵。`agent-native dev` 與工作區部署會將此值以 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 傳給每個應用程式。
 
 此設定控制應用程式清單、代理探索與代理間呼叫。已掛載的工作區應用程式以及已連線遠端代理的自訂 URL 保持優先。MCP 應用程式存取仍是獨立的路由權限。
+
+在 Dispatch 中，組織擁有者與管理員也可以在 設定 › 組織 › 應用程式 中（或使用 `set-hosted-apps-settings`）隱藏所提供的內建應用程式。隱藏後，它們會從該組織的 Dispatch 應用程式清單及其代理的應用程式脈絡中移除；以名稱使用 `call-agent` 仍可存取它們。沒有組織時沒有對應的設定頁面，只能由代理為該使用者變更。
 
 ## 共用 MCP 伺服器 {#shared-mcp}
 

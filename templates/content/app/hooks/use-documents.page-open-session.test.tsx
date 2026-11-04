@@ -81,15 +81,20 @@ vi.mock("@agent-native/core/client/hooks", () => {
     if (name === "get-preview-document-draft") {
       return Promise.resolve({ editable: true, draft: `${account}'s draft` });
     }
+    const page = { id: params.id, title: `${account}'s page`, canEdit: true };
+    if (name === "get-page-open-read") {
+      // The reader's draft comes back only when the read asks for it.
+      return Promise.resolve({
+        document: params.includePreviewDraft
+          ? {
+              ...page,
+              previewDraft: { editable: true, draft: `${account}'s draft` },
+            }
+          : page,
+      });
+    }
     if (name !== "get-document") return Promise.resolve({ account });
-    return Promise.resolve({
-      id: params.id,
-      title: `${account}'s page`,
-      canEdit: true,
-      ...(params.includePreviewDraft
-        ? { previewDraft: { editable: true, draft: `${account}'s draft` } }
-        : {}),
-    });
+    return Promise.resolve(page);
   };
   return {
     callAction,
@@ -198,7 +203,8 @@ describe("a page read sent before the session is known", () => {
       title: "a's page",
       draft: "a's draft",
     });
-    expect(reads("get-document")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
+    expect(reads("get-document")).toBe(0);
     expect(reads("get-preview-document-draft")).toBe(0);
     // Comments and suggestions wait for the session, then start at once.
     expect(reads("list-comments")).toBe(1);
@@ -231,17 +237,19 @@ describe("a page read sent before the session is known", () => {
           async () =>
             new Response(
               JSON.stringify({
-                id: "doc-1",
-                title: "a's page",
-                canEdit: true,
-                previewDraft: { editable: true, draft: "a's draft" },
+                document: {
+                  id: "doc-1",
+                  title: "a's page",
+                  canEdit: true,
+                  previewDraft: { editable: true, draft: "a's draft" },
+                },
               }),
               { status: 200, headers: { "content-type": "application/json" } },
             ),
         ),
       );
       new Function(
-        startupPageReadScript("/_agent-native/actions/get-document"),
+        startupPageReadScript("/_agent-native/actions/get-page-open-read"),
       )();
     });
 
@@ -260,6 +268,7 @@ describe("a page read sent before the session is known", () => {
         title: "a's page",
         draft: "a's draft",
       });
+      expect(reads("get-page-open-read")).toBe(0);
       expect(reads("get-document")).toBe(0);
       expect(reads("get-preview-document-draft")).toBe(0);
     });
@@ -294,7 +303,7 @@ describe("a page read sent before the session is known", () => {
       );
       unsubscribe();
       expect(seen.join("\n")).not.toContain("a's");
-      expect(reads("get-document")).toBe(1);
+      expect(reads("get-page-open-read")).toBe(1);
     });
 
     it("does not hold the editor when it never answers", async () => {
@@ -305,7 +314,7 @@ describe("a page read sent before the session is known", () => {
         vi.fn(() => new Promise<Response>(() => {})),
       );
       new Function(
-        startupPageReadScript("/_agent-native/actions/get-document"),
+        startupPageReadScript("/_agent-native/actions/get-page-open-read"),
       )();
       const takenAt = Date.now();
 
@@ -331,7 +340,7 @@ describe("a page read sent before the session is known", () => {
         { timeout: 5_000 },
       );
       expect(Date.now() - takenAt).toBeLessThan(5_000);
-      expect(reads("get-document")).toBe(1);
+      expect(reads("get-page-open-read")).toBe(1);
     });
 
     it("is read again when the app takes it after its freshness ran out", async () => {
@@ -344,7 +353,7 @@ describe("a page read sent before the session is known", () => {
         await loadAndMount();
         await act(async () => session.set("first-read"));
 
-        expect(reads("get-document")).toBe(1);
+        expect(reads("get-page-open-read")).toBe(1);
         expect(last).toMatchObject({ fetchedForThisOpen: true });
       } finally {
         dateNow.mockRestore();

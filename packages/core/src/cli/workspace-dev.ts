@@ -33,6 +33,27 @@ import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
 
+// Windows only resolves `pnpm.cmd` shims through a shell, and the shell needs
+// the command line quoted because app directories may contain spaces.
+export function pnpmSpawnTarget(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return ["pnpm", args, false];
+  const quoted = args.map((arg) => {
+    // cmd.exe has no reliable way to escape these inside a quoted argument.
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run pnpm on Windows: path contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
+  return [["pnpm", ...quoted].join(" "), [], true];
+}
+
 export interface WorkspaceApp {
   id: string;
   name: string;
@@ -751,14 +772,23 @@ export async function runWorkspaceDev(
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
+  const requestedDefaultApp = env.WORKSPACE_DEFAULT_APP || null;
   const explicitDefaultApp =
-    env.WORKSPACE_DEFAULT_APP && appById.has(env.WORKSPACE_DEFAULT_APP)
-      ? env.WORKSPACE_DEFAULT_APP
+    requestedDefaultApp && appById.has(requestedDefaultApp)
+      ? requestedDefaultApp
       : null;
+  // A default app that isn't scaffolded yet (a new app being created): boot
+  // nothing now and start it the moment it appears, instead of booting
+  // dispatch, which competes with that app's install and dev server.
+  let pendingDefaultApp = explicitDefaultApp ? null : requestedDefaultApp;
   const hasDispatch = appById.has("dispatch");
   const defaultApp =
     explicitDefaultApp ?? (hasDispatch ? "dispatch" : apps[0].id);
   const redirectRootToDefault = Boolean(explicitDefaultApp || hasDispatch);
+  // One root `pnpm install` at a time: it installs every app, so apps that
+  // also need one wait for it instead of racing it with their own.
+  let installingApp: WorkspaceApp | undefined;
+  const appsAwaitingInstall = new Set<WorkspaceApp>();
 
   let syncTimer: NodeJS.Timeout | undefined;
   let syncInFlight: Promise<void> | undefined;
@@ -821,6 +851,10 @@ export async function runWorkspaceDev(
         apps.sort(compareApps);
         appById.set(next.id, next);
         stdout.write(`[workspace] Detected new app: /${next.id}\n`);
+        if (next.id === pendingDefaultApp) {
+          pendingDefaultApp = null;
+          if (workspaceStarted && !shuttingDown) startApp(next);
+        }
       }
     })();
     syncInFlight = run;
@@ -864,17 +898,44 @@ export async function runWorkspaceDev(
       : null;
   }
 
+  function releaseAppsAwaitingInstall(): void {
+    const waiting = [...appsAwaitingInstall];
+    appsAwaitingInstall.clear();
+    for (const waitingApp of waiting) {
+      waitingApp.installing = false;
+      if (!shuttingDown) startApp(waitingApp);
+    }
+  }
+
   function startApp(app: WorkspaceApp): void {
     if (app.process && !app.process.killed) return;
     if (app.restartTimer) return;
+    if (appsAwaitingInstall.has(app)) return;
     app.lastFailure = undefined;
     app.outputTail = undefined;
 
     const basePath = `/${app.id}`;
     const shouldInstall =
       !app.installAttempted && !hasLocalBin(app.dir, "vite");
+    if (shouldInstall && installingApp && installingApp !== app) {
+      app.installing = true;
+      appsAwaitingInstall.add(app);
+      stdout.write(
+        `[workspace] Waiting for the running install before starting /${app.id}\n`,
+      );
+      return;
+    }
     const childArgs = shouldInstall
-      ? ["--dir", root, "install", "--no-frozen-lockfile", "--prefer-offline"]
+      ? [
+          "--dir",
+          root,
+          "install",
+          "--no-frozen-lockfile",
+          "--prefer-offline",
+          // Without a TTY pnpm aborts instead of asking to recreate
+          // node_modules, and the retry loop then never gets anywhere.
+          "--config.confirmModulesPurge=false",
+        ]
       : [
           "--dir",
           app.dir,
@@ -894,7 +955,23 @@ export async function runWorkspaceDev(
       );
     }
 
-    const child = spawnProcess("pnpm", childArgs, {
+    let pnpmTarget: ReturnType<typeof pnpmSpawnTarget>;
+    try {
+      pnpmTarget = pnpmSpawnTarget(childArgs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: shouldInstall,
+        output: message,
+        logMessage: message,
+      });
+      return;
+    }
+    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmTarget;
+    const child = spawnProcess(pnpmCommand, pnpmArgs, {
+      ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
@@ -937,6 +1014,7 @@ export async function runWorkspaceDev(
     });
     app.process = child;
     app.installing = shouldInstall;
+    if (shouldInstall) installingApp = app;
 
     const prefix = `[${app.id}]`;
     const stableTimer = setTimeout(() => {
@@ -963,6 +1041,10 @@ export async function runWorkspaceDev(
       app.installing = false;
       app.ready = false;
       app.readinessProbe = undefined;
+      if (installingApp === app) {
+        installingApp = undefined;
+        releaseAppsAwaitingInstall();
+      }
       if (app.restartTimer) return;
       if (code === 0 || shuttingDown) {
         if (wasInstalling && code === 0 && !shuttingDown) {
@@ -978,6 +1060,31 @@ export async function runWorkspaceDev(
         installing: wasInstalling === true,
         output: app.outputTail ?? "",
         logMessage: `exited with code ${code}`,
+      });
+    });
+    // A failed spawn emits `error` and no `exit`: treat it as a failed start,
+    // or the install gate stays held and the app never retries.
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      if (!err.syscall?.startsWith("spawn") || app.process !== child) {
+        stderr.write(`${prefix} ${err.message}\n`);
+        return;
+      }
+      clearTimeout(stableTimer);
+      const wasInstalling = app.installing;
+      delete app.process;
+      app.installing = false;
+      app.ready = false;
+      delete app.readinessProbe;
+      if (installingApp === app) {
+        installingApp = undefined;
+        releaseAppsAwaitingInstall();
+      }
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: wasInstalling === true,
+        output: err.message,
+        logMessage: `failed to start: ${err.message}`,
       });
     });
   }
@@ -1324,7 +1431,7 @@ export async function runWorkspaceDev(
       apps,
       defaultApp,
       eager,
-      redirectRootToDefault,
+      redirectRootToDefault && !pendingDefaultApp,
     )) {
       const app = appById.get(id);
       if (app) startApp(app);
@@ -1397,16 +1504,29 @@ export async function runWorkspaceDev(
 
     if (pathname === "/" || pathname === "/index.html") {
       await syncApps().catch(() => {});
-      const currentDefaultApp =
-        explicitDefaultApp && appById.has(explicitDefaultApp)
-          ? explicitDefaultApp
-          : appById.has("dispatch")
-            ? "dispatch"
-            : defaultApp;
+      const hasRequestedDefaultApp = Boolean(
+        requestedDefaultApp && appById.has(requestedDefaultApp),
+      );
+      const currentDefaultApp = hasRequestedDefaultApp
+        ? (requestedDefaultApp as string)
+        : appById.has("dispatch")
+          ? "dispatch"
+          : defaultApp;
       const shouldRedirectRoot =
-        Boolean(explicitDefaultApp && appById.has(explicitDefaultApp)) ||
-        appById.has("dispatch");
+        !pendingDefaultApp &&
+        (hasRequestedDefaultApp || appById.has("dispatch"));
       if (shouldRedirectRoot) {
+        // Readiness probes ask for `/` without HTML and count the redirect as
+        // "up" before the app can serve. Answer them from the default app,
+        // which waits until it serves. While a requested default app is still
+        // being scaffolded there is nothing to wait for, and redirecting to
+        // dispatch would boot it, so `/` lists the apps until it appears.
+        const rootApp = appById.get(currentDefaultApp);
+        if (!wantsHtml(req) && rootApp) {
+          req.url = `/${rootApp.id}/${parsedUrl.search}`;
+          proxyHttp(rootApp, req, res);
+          return;
+        }
         res.writeHead(302, {
           location: `/${currentDefaultApp}${parsedUrl.search}`,
         });
@@ -1482,9 +1602,13 @@ export async function runWorkspaceDev(
           `[workspace] Gateway port ${requestedPort} was in use; listening on ${actualPort} instead — the URLs below are the real ones.\n`,
         );
       }
-      stdout.write(
-        `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
-      );
+      // While a requested default app is still being created, point at the
+      // gateway root (the app list), not dispatch, which a visit would boot.
+      const defaultAppUrl =
+        redirectRootToDefault && !pendingDefaultApp
+          ? `${gatewayUrl}/${defaultApp}`
+          : gatewayUrl;
+      stdout.write(`[workspace] Default: ${defaultAppUrl}\n`);
       stdout.write(`[workspace] Gateway: ${gatewayUrl}\n`);
       const prewarming = shouldPrewarmWorkspaceApps(args, env);
       stdout.write(
@@ -1507,9 +1631,7 @@ export async function runWorkspaceDev(
           );
         });
       }
-      openBrowser(
-        redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl,
-      );
+      openBrowser(defaultAppUrl);
       readyResolve({ port: actualPort, url: gatewayUrl });
     });
   }

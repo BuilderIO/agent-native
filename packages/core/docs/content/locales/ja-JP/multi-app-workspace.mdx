@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 ワークスペース内のどこからでも:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI では、既にインストールされているアプリがフィルターされて除外されたテンプレート ピッカーが再度表示されます。 1 つ以上を選択すると、`apps/` の下に足場が作成されます。非対話型のバリエーション:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 すべてのファーストパーティ テンプレートはワークスペース アプリとして機能します。CLI は、共有パッケージを dep として追加し、`workspace:*` 参照を解決するテンプレート上で小さな **workspacify** 変換を実行します。維持する必要のある並列「ワークスペース アプリ」スキャフォールドはありません。
@@ -258,6 +258,8 @@ pnpm dev
 `include` 内の不明な ID は警告を出して無視されます。スタンドアロンアプリは自身の `package.json` で同じキーを使えます。`agent-native dev` とワークスペースのデプロイは、この値を `AGENT_NATIVE_BUILTIN_AGENTS_JSON` として各アプリに渡します。
 
 この設定は、アプリ一覧、エージェントの検出、エージェント間の呼び出しを制御します。マウントされたワークスペースアプリと接続済みリモートエージェントのカスタム URL が優先されます。MCP アプリアクセスは別のルーティング権限のままです。
+
+Dispatch では、組織のオーナーと管理者は 設定 › 組織 › アプリ（または `set-hosted-apps-settings`）で、提供中の組み込みアプリを非表示にすることもできます。非表示にすると、その組織では Dispatch のアプリ一覧とエージェントのアプリコンテキストから外れます。名前を指定した `call-agent` では引き続き呼び出せます。組織がない場合は設定ページがないため、エージェントだけがそのユーザーに対して変更できます。
 
 ## 共有 MCP サーバー {#shared-mcp}
 

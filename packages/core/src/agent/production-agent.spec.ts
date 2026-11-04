@@ -21,6 +21,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
   fail,
+  noteExternalWrite,
   type ActionRunContext,
 } from "../action.js";
 import {
@@ -16695,7 +16696,17 @@ describe("runAgentLoop", () => {
     });
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
-      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      // The runtime sends its request with `fetch`, which is where the write is seen.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status: 400 })),
+      );
+      const executeRequest = vi.fn(async () => {
+        await fetch("https://api.github.com/repos/acme/app/issues", {
+          method: "POST",
+        });
+        return rejected;
+      });
       // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
       const create = (title: string) => ({
         provider: "github",
@@ -16704,14 +16715,19 @@ describe("runAgentLoop", () => {
         body: { title },
       });
 
-      const events = await runToolCallSequence(
-        [
-          { name: "provider-api-request", input: create("a@example.com") },
-          { name: "provider-api-request", input: create("b@example.com") },
-          { name: "provider-api-request", input: create("a@example.com") },
-        ],
-        { "provider-api-request": providerRequestAction(executeRequest) },
-      );
+      let events: AgentChatEvent[];
+      try {
+        events = await runToolCallSequence(
+          [
+            { name: "provider-api-request", input: create("a@example.com") },
+            { name: "provider-api-request", input: create("b@example.com") },
+            { name: "provider-api-request", input: create("a@example.com") },
+          ],
+          { "provider-api-request": providerRequestAction(executeRequest) },
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
       const done = events.filter(
@@ -21235,7 +21251,7 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("strips null placeholders beside an empty list and runs the tool", async () => {
+  it("runs null placeholders beside an empty list when the action says it erases nothing", async () => {
     const run = vi.fn(async (input: unknown) => input);
     const action = defineAction({
       description: "Generate a design",
@@ -21250,6 +21266,7 @@ describe("runAgentLoop", () => {
           )
           .optional(),
       }),
+      emptyListsEraseNothing: true,
       run,
     });
     const result = await executeAgentToolCall({
@@ -21270,6 +21287,28 @@ describe("runAgentLoop", () => {
       devices: [],
       canvasFrames: [{ filename: "index.html" }],
     });
+  });
+
+  it("refuses null placeholders beside an empty list on an action that may store it", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "Update a saved view",
+      schema: z.object({
+        viewId: z.string(),
+        name: z.string().optional(),
+        hiddenColumns: z.array(z.string()).optional(),
+      }),
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "update-view": action as unknown as ActionEntry },
+      name: "update-view",
+      callId: "padded-stored-list",
+      input: { viewId: "view-1", name: null, hiddenColumns: [] },
+    });
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("No action was run");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("still refuses null placeholders beside an empty string the schema accepts", async () => {
@@ -22987,6 +23026,7 @@ describe("runAgentLoop", () => {
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });
