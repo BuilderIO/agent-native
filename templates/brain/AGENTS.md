@@ -35,6 +35,7 @@ Use `tool-search` for the full action catalog.
 | `get-knowledge` / `list-knowledge` / `get-capture` / `list-captures` | Read distilled knowledge or captures |
 | `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or bounded Markdown batches |
 | `ensure-company-context-source` | Admin-only: get or create the shared org-visible Company Context source; pass its id to `import-markdown-files` for every recurring upload |
+| `get-brain-admin-status` | Whether the current user is a Brain admin (org owner/admin) |
 | `enqueue-distillation` / `mark-capture-distilled` / `write-knowledge` | Queue, finish, or publish knowledge |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes create none |
 | `set-knowledge-canonical` | Mirror published knowledge to workspace resources |

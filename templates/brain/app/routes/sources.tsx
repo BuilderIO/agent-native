@@ -2233,6 +2233,13 @@ export default function SourcesRoute() {
     {} as any,
     { resources: ["brain-connection-provider"] },
   );
+  // Separate from the provider list so the intake controls don't wait on
+  // credential checks or disappear when they fail.
+  const adminStatusQuery = useActionQuery<{ isAdmin: boolean }>(
+    "get-brain-admin-status",
+    {},
+  );
+  const isBrainAdmin = adminStatusQuery.data?.isAdmin === true;
   const healthQuery = useActionQuery<BrainHealthResponse>(
     "get-brain-health" as any,
     {} as any,
@@ -2572,7 +2579,7 @@ export default function SourcesRoute() {
               <IconSettings2 className="size-4" />
               {t("sources.advanced")}
             </Button>
-            {canManageZoom === true ? (
+            {isBrainAdmin ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -2624,12 +2631,12 @@ export default function SourcesRoute() {
                 }
                 onSync={() => syncSource.mutate({ sourceId: source.id })}
                 onTune={
-                  isCompanyContextIntake(source) && canManageZoom !== true
+                  isCompanyContextIntake(source) && !isBrainAdmin
                     ? undefined
                     : () => afterBodyPointerUnlock(() => openEdit(source))
                 }
                 onImportMarkdown={
-                  isCompanyContextIntake(source) && canManageZoom !== true
+                  isCompanyContextIntake(source) && !isBrainAdmin
                     ? undefined
                     : () => setMarkdownImportSource(source)
                 }
