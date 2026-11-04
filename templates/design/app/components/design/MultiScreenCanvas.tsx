@@ -123,6 +123,7 @@ import {
   penPathScreenContentOffset,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import { CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS } from "@/pages/design-editor/commands/cross-screen-insert-timeout";
+import { readIframeScrollOffset } from "@/pages/design-editor/iframe-scroll";
 import { getMarqueeScreenSelectionIds } from "@/pages/design-editor/selection-state";
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
@@ -11369,8 +11370,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (!offset || iframe.clientWidth <= 0 || iframe.clientHeight <= 0) return;
     const renderedScale = rect.width / iframe.clientWidth;
     if (!Number.isFinite(renderedScale) || renderedScale <= 0) return;
-    const scrollX = iframe.contentWindow?.scrollX ?? 0;
-    const scrollY = iframe.contentWindow?.scrollY ?? 0;
+    const iframeScroll = readIframeScrollOffset(iframe);
+    if (!iframeScroll) return;
+    const scrollX = iframeScroll.left;
+    const scrollY = iframeScroll.top;
     const toCanvasPoint = (point: { x: number; y: number }) => {
       const clientX =
         rect.left + (offset.x + point.x - scrollX) * renderedScale;

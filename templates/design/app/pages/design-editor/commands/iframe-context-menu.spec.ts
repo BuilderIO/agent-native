@@ -234,3 +234,25 @@ describe("runIframeContextMenu", () => {
     });
   });
 });
+
+describe("runIframeContextMenu cross-origin preview", () => {
+  it("opens the menu without a canvas point when the iframe scroll is unreadable", () => {
+    const { args, openAt } = harness();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    Object.defineProperty(iframe, "contentWindow", {
+      get: () => ({
+        get scrollX(): number {
+          throw new DOMException("Blocked a frame", "SecurityError");
+        },
+      }),
+    });
+    args.canvasContainerRef.current!.appendChild(iframe);
+
+    expect(() =>
+      runIframeContextMenu(args, { clientX: 20, clientY: 30 }),
+    ).not.toThrow();
+    expect(openAt).toHaveBeenCalledTimes(1);
+    expect(openAt.mock.calls[0]![0]).not.toHaveProperty("canvasX");
+  });
+});

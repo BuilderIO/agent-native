@@ -22,6 +22,7 @@ import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/command
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { escapeHtmlAttributeValue } from "@/pages/design-editor/dom-utils";
+import { readIframeScrollOffset } from "@/pages/design-editor/iframe-scroll";
 import {
   findScreenFrameAtCanvasPoint,
   getAllScreenFrameEntries,
@@ -653,18 +654,16 @@ export function runPastedImageFiles(
     const iframe = canvasContainerRef.current?.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
+    const iframeScroll = readIframeScrollOffset(iframe);
     insertFilesAtPoint(
       targetFileId,
-      clientAnchor && iframe
+      clientAnchor && iframe && iframeScroll
         ? getScreenContentPointFromClient(
             clientAnchor.clientX,
             clientAnchor.clientY,
             iframe.getBoundingClientRect(),
             { width: iframe.offsetWidth, height: iframe.offsetHeight },
-            {
-              left: iframe.contentWindow?.scrollX ?? 0,
-              top: iframe.contentWindow?.scrollY ?? 0,
-            },
+            iframeScroll,
           )
         : getCenter,
     );
