@@ -38,6 +38,12 @@
  *
  *       // observed-write-ok: <why this write is temp-only or retry-idempotent>
  *
+ * `noteExternalWrite` counts only when it is the framework's: imported (or
+ * loaded with `require` / `import()`) from `@agent-native/core`, or a bare call
+ * the file never declares itself. `logger.noteExternalWrite()` observes nothing.
+ * An fs `open` with anything but a read-only flag is itself a write, as is a
+ * write method on an opened or `FileHandle`-typed handle.
+ *
  * Comments and string contents are not code, so they never match.
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
@@ -266,6 +272,23 @@ interface ModuleBindings {
   namespaces: string[];
 }
 
+/** The module named by `require("x")` or `import("x")`, with any `await` around it. */
+function requiredModule(expression: ts.Expression): string | undefined {
+  let call: ts.Expression = expression;
+  while (ts.isAwaitExpression(call) || ts.isParenthesizedExpression(call)) {
+    call = call.expression;
+  }
+  if (!ts.isCallExpression(call)) return undefined;
+  const callee = call.expression;
+  const loads =
+    callee.kind === ts.SyntaxKind.ImportKeyword ||
+    (ts.isIdentifier(callee) && callee.text === "require");
+  const [specifier] = call.arguments;
+  return loads && specifier && ts.isStringLiteralLike(specifier)
+    ? specifier.text
+    : undefined;
+}
+
 function importedBindings(
   sourceFile: ts.SourceFile,
   module: RegExp,
@@ -299,6 +322,30 @@ function importedBindings(
       }
     }
   }
+  // `const disk = require("node:fs")`, `const { writeFile: persist } = await
+  // import("node:fs/promises")`: loaded anywhere in the file, not only on top.
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const loaded = requiredModule(node.initializer);
+      if (loaded !== undefined && module.test(loaded)) {
+        if (ts.isIdentifier(node.name)) namespaces.push(node.name.text);
+        if (ts.isObjectBindingPattern(node.name)) {
+          for (const element of node.name.elements) {
+            const imported = element.propertyName ?? element.name;
+            if (
+              ts.isIdentifier(element.name) &&
+              (ts.isIdentifier(imported) || ts.isStringLiteral(imported)) &&
+              exported.includes(imported.text)
+            ) {
+              calls.push(element.name.text);
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return { calls, namespaces };
 }
 
@@ -328,33 +375,55 @@ function importedCallPatterns(
   return patterns;
 }
 
-/**
- * A FileHandle's own write methods, on a variable this file binds from an
- * `open` of the fs module: `const handle = await fsp.open(path, "w")`.
- */
-function fileHandlePatterns(sourceFile: ts.SourceFile): RegExp[] {
-  const opened = importedBindings(sourceFile, FS_MODULE, ["open"]);
+/** Recognizes `open(...)`, `fs.open(...)` and `fsp.openSync(...)` on the fs module, under any name this file gives it. */
+function fsOpenMatcher(
+  sourceFile: ts.SourceFile,
+): (call: ts.CallExpression) => boolean {
+  const opened = importedBindings(sourceFile, FS_MODULE, ["open", "openSync"]);
   const fsNamespace = new RegExp(
     `(?:^|\\.)(?:fs|fsp|fsPromises|promises|[\\w$]*Fs${opened.namespaces.map((name) => `|${escapeRegExp(name)}`).join("")})$`,
   );
+  return (call) => {
+    const callee = call.expression;
+    return ts.isPropertyAccessExpression(callee)
+      ? (callee.name.text === "open" || callee.name.text === "openSync") &&
+          fsNamespace.test(callee.expression.getText(sourceFile))
+      : ts.isIdentifier(callee) && opened.calls.includes(callee.text);
+  };
+}
+
+function isFileHandleType(type: ts.TypeNode): boolean {
+  if (!ts.isTypeReferenceNode(type)) return false;
+  const name = type.typeName;
+  return (ts.isIdentifier(name) ? name : name.right).text === "FileHandle";
+}
+
+/**
+ * A FileHandle's own write methods, on a variable this file binds from an
+ * `open` of the fs module (`const handle = await fsp.open(path, "w")`) or a
+ * variable or parameter it types as a `FileHandle` (`writeAll(handle:
+ * FileHandle)`), which a helper receives from its caller.
+ */
+function fileHandlePatterns(sourceFile: ts.SourceFile): RegExp[] {
+  const isFsOpen = fsOpenMatcher(sourceFile);
   const handles: string[] = [];
   const visit = (node: ts.Node) => {
     if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer
+      (ts.isVariableDeclaration(node) || ts.isParameter(node)) &&
+      ts.isIdentifier(node.name)
     ) {
-      let init: ts.Expression = node.initializer;
-      while (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init)) {
+      let init: ts.Expression | undefined = node.initializer;
+      while (
+        init !== undefined &&
+        (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init))
+      ) {
         init = init.expression;
       }
-      if (ts.isCallExpression(init)) {
-        const callee = init.expression;
-        const opens = ts.isPropertyAccessExpression(callee)
-          ? callee.name.text === "open" &&
-            fsNamespace.test(callee.expression.getText(sourceFile))
-          : ts.isIdentifier(callee) && opened.calls.includes(callee.text);
-        if (opens) handles.push(node.name.text);
+      if (
+        (init && ts.isCallExpression(init) && isFsOpen(init)) ||
+        (node.type !== undefined && isFileHandleType(node.type))
+      ) {
+        handles.push(node.name.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -366,6 +435,65 @@ function fileHandlePatterns(sourceFile: ts.SourceFile): RegExp[] {
       `(?<![\\w$.])(?:${handles.map(escapeRegExp).join("|")})\\.(?:${FILE_HANDLE_METHODS.join("|")})\\s*\\(`,
     ),
   ];
+}
+
+/** Whether an fs `open` can create, truncate or write: anything but a read-only flag string. */
+function opensForWrite(call: ts.CallExpression): boolean {
+  const flags = call.arguments[1];
+  if (flags === undefined || ts.isFunctionLike(flags)) return false;
+  return ts.isStringLiteralLike(flags)
+    ? !/^(?:r|rs|sr)$/.test(flags.text)
+    : true;
+}
+
+/**
+ * Writes a regex over one line cannot see, keyed by the 1-based line the call
+ * starts on: an fs `open` that can create or truncate a file (`"w"`, `"a"`,
+ * `"r+"`, or flags the guard cannot read), and a write method called directly
+ * on an opened handle, `(await fsp.open(path, "r")).write(buffer)`.
+ */
+function openWriteSites(sourceFile: ts.SourceFile): Map<number, WriteMatch> {
+  const isFsOpen = fsOpenMatcher(sourceFile);
+  const sites = new Map<number, WriteMatch>();
+  const add = (node: ts.Node, matched: string) => {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+      node.getStart(sourceFile),
+    );
+    if (!sites.has(line + 1)) {
+      sites.set(line + 1, {
+        matched,
+        channel: "local-disk",
+        kind: "call",
+        column: character,
+      });
+    }
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      if (isFsOpen(node) && opensForWrite(node)) {
+        add(node, "open(…) with write flags");
+      }
+      const callee = node.expression;
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        FILE_HANDLE_METHODS.includes(callee.name.text)
+      ) {
+        let target: ts.Expression = callee.expression;
+        while (
+          ts.isAwaitExpression(target) ||
+          ts.isParenthesizedExpression(target)
+        ) {
+          target = target.expression;
+        }
+        if (ts.isCallExpression(target) && isFsOpen(target)) {
+          add(node, `open(…).${callee.name.text}(`);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return sites;
 }
 
 function filePatterns(sourceFile: ts.SourceFile, lines: readonly string[]) {
@@ -486,13 +614,34 @@ function isFunctionScope(node: ts.Node): boolean {
   );
 }
 
-function isNoteExternalWrite(node: ts.CallExpression): boolean {
-  const callee = node.expression;
-  return (
-    (ts.isIdentifier(callee) && callee.text === "noteExternalWrite") ||
-    (ts.isPropertyAccessExpression(callee) &&
-      callee.name.text === "noteExternalWrite")
-  );
+const CORE_ACTION_MODULE = /^@agent-native\/core(?:\/action)?$/;
+
+/**
+ * Whether a call is the framework's `noteExternalWrite`: a name this file
+ * imports (or loads with `require` / `import()`) from `@agent-native/core`, a
+ * method on a namespace of it, or a bare `noteExternalWrite` the file never
+ * declares itself. A local function or a `logger.noteExternalWrite()` that
+ * only shares the name observes nothing.
+ */
+function frameworkNoteMatcher(
+  sourceFile: ts.SourceFile,
+  declared: ReadonlyMap<string, number>,
+): (node: ts.CallExpression) => boolean {
+  const core = importedBindings(sourceFile, CORE_ACTION_MODULE, [
+    "noteExternalWrite",
+  ]);
+  const bare = new Set(core.calls);
+  if (!declared.has("noteExternalWrite")) bare.add("noteExternalWrite");
+  return (node) => {
+    const callee = node.expression;
+    if (ts.isIdentifier(callee)) return bare.has(callee.text);
+    return (
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "noteExternalWrite" &&
+      ts.isIdentifier(callee.expression) &&
+      core.namespaces.includes(callee.expression.text)
+    );
+  };
 }
 
 /** The call with any `await` or parentheses around it. */
@@ -631,6 +780,7 @@ function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
   visit(sourceFile);
 
   const declared = declarationCounts(sourceFile);
+  const isNoteExternalWrite = frameworkNoteMatcher(sourceFile, declared);
   // `immediate`: the helper has noted by the time it returns control. `awaited`:
   // an `await` comes first, so only a caller that awaits it can count on it.
   const helpers = new Map<string, "immediate" | "awaited">();
@@ -719,12 +869,14 @@ export function findUnobservedWrites(
   const notes = noteExternalWriteCalls(sourceFile);
   const functions = functionRanges(sourceFile);
   const patterns = filePatterns(sourceFile, lines);
+  const openSites = openWriteSites(sourceFile);
 
   const findings: UnobservedWriteFinding[] = [];
   for (const lineNo of [...addedLines].sort((a, b) => a - b)) {
     const text = lines[lineNo - 1];
     if (text === undefined) continue;
-    const match = matchUnobservedWrite(text, patterns);
+    const match =
+      matchUnobservedWrite(text, patterns) ?? openSites.get(lineNo) ?? null;
     if (match === null || hasPragma(lines, lineNo)) continue;
     // A note covers the write only when it ends before the write call starts,
     // so `write(); note();` on one line is not covered.

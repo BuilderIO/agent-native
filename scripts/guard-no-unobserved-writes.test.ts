@@ -78,6 +78,7 @@ describe("unobserved write guard: filesystem writes", () => {
       "6:local-disk",
       "7:local-disk",
       "8:local-disk",
+      "9:local-disk",
       "10:local-disk",
     ]);
   });
@@ -101,10 +102,63 @@ describe("unobserved write guard: filesystem writes", () => {
       "3:local-disk",
       "4:local-disk",
       "5:local-disk",
+      "6:local-disk",
       "7:local-disk",
       "8:local-disk",
       "9:local-disk",
+      "10:local-disk",
       "11:local-disk",
+    ]);
+  });
+
+  it("treats an fs open that can create or truncate as a write, and a read-only open as none", () => {
+    const source = [
+      'import { open, openSync } from "node:fs";',
+      'import * as fsp from "node:fs/promises";',
+      'const a = await fsp.open(path, "w");',
+      'const b = await fsp.open(path, "r+");',
+      "const c = openSync(path, flags);",
+      'const d = await fsp.open(path, "r");',
+      "const e = await fsp.open(path);",
+      "open(path, (error, fd) => done(fd));",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "3:local-disk",
+      "4:local-disk",
+      "5:local-disk",
+    ]);
+  });
+
+  it("flags a write method called directly on an opened handle, and on a handle typed FileHandle", () => {
+    const source = [
+      'import type { FileHandle } from "node:fs/promises";',
+      'await (await fsp.open(path, "r")).write(buffer);',
+      "async function writeAll(handle: FileHandle, data: Buffer) {",
+      "  await handle.write(data);",
+      "}",
+      "async function readAll(socket: Socket) {",
+      "  await socket.write(data);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["2:local-disk", "4:local-disk"]);
+  });
+
+  it("follows require and dynamic import bindings of the fs module", () => {
+    const source = [
+      'const disk = require("node:fs");',
+      'const { writeFile: persist } = require("fs");',
+      'const fs2 = await import("node:fs/promises");',
+      "disk.writeFileSync(path, data);",
+      "await persist(path, data);",
+      "await fs2.rm(path);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "4:local-disk",
+      "5:local-disk",
+      "6:local-disk",
     ]);
   });
 
@@ -552,8 +606,50 @@ describe("unobserved write guard: passes", () => {
     assert.deepEqual(flagged(source), ["6:local-disk", "10:local-disk"]);
   });
 
+  it("counts only the framework's noteExternalWrite: an alias, a namespace, a dynamic import, not a logger", () => {
+    const source = [
+      'import { noteExternalWrite as noted } from "@agent-native/core/action";',
+      "export async function viaAlias(path) {",
+      '  noted("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function viaLogger(path) {",
+      '  logger.noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function viaDynamic(path) {",
+      '  const { noteExternalWrite: mark } = await import("@agent-native/core/action");',
+      '  mark("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["8:local-disk"]);
+  });
+
+  it("does not count a noteExternalWrite the file declares or imports from elsewhere", () => {
+    const local = [
+      "function noteExternalWrite() {}",
+      "export async function save(path) {",
+      '  noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+    assert.deepEqual(flagged(local), ["4:local-disk"]);
+
+    const foreign = [
+      'import { noteExternalWrite } from "./my-logger";',
+      "export async function save(path) {",
+      '  noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+    assert.deepEqual(flagged(foreign), ["4:local-disk"]);
+  });
+
   it("accepts a note called through a namespace", () => {
     const source = [
+      'import * as core from "@agent-native/core/action";',
       "export async function save(path, body) {",
       '  core.noteExternalWrite("local-disk");',
       "  await writeFile(path, body);",
