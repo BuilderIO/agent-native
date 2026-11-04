@@ -30,6 +30,10 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
+  createPromptChatAttachments,
+  type PromptChatAttachment,
+} from "@/lib/prompt-chat-attachments";
+import {
   deleteUploadedPromptFile,
   formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
@@ -62,74 +66,6 @@ export type {
 } from "./use-prompt-import";
 
 export type { UploadedFile } from "@/lib/prompt-file-uploads";
-
-export interface PromptChatAttachment {
-  type: "file";
-  name: string;
-  contentType?: string;
-  displayOnly: true;
-  text?: string;
-}
-export async function createPromptChatAttachments(
-  attachments: ReadonlyArray<unknown> | undefined,
-  uploaded: UploadedFile[],
-): Promise<PromptChatAttachment[]> {
-  const result: PromptChatAttachment[] = [];
-  let uploadedIndex = 0;
-
-  for (const raw of attachments ?? []) {
-    const attachment = raw as {
-      name?: unknown;
-      contentType?: unknown;
-      file?: File;
-    };
-    const name =
-      typeof attachment.name === "string"
-        ? attachment.name
-        : attachment.file?.name;
-    if (!name) continue;
-
-    if (name.startsWith("pasted-text-")) {
-      let text: string | undefined;
-      try {
-        text = await attachment.file?.text();
-      } catch {
-        text = undefined;
-      }
-      result.push({
-        type: "file",
-        name,
-        contentType:
-          typeof attachment.contentType === "string"
-            ? attachment.contentType
-            : "text/plain",
-        displayOnly: true,
-        ...(text !== undefined ? { text } : {}),
-      });
-      continue;
-    }
-
-    const uploadedFile = uploaded[uploadedIndex++];
-    const isImage =
-      uploadedFile?.type.startsWith("image/") ||
-      Boolean(attachment.file?.type.startsWith("image/"));
-    if (uploadedFile && isImage && (uploadedFile.url || uploadedFile.dataUrl)) {
-      continue;
-    }
-    result.push({
-      type: "file",
-      name: uploadedFile?.originalName ?? name,
-      contentType:
-        uploadedFile?.type ??
-        (typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined),
-      displayOnly: true,
-    });
-  }
-
-  return result;
-}
 
 export interface PromptAttachmentActions {
   commit: () => void;
@@ -825,6 +761,7 @@ export default function PromptPopover({
                 voiceChatEnabled={false}
                 attachmentsEnabled={active && fileStorageConfigured}
                 attachmentAdapter={slidesPromptAttachmentAdapter}
+                inlineTextAttachments={false}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 requireAgentEngine={requireAgentEngine}

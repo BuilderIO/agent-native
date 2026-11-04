@@ -252,6 +252,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 }));
 
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createPromptChatAttachments } from "@/lib/prompt-chat-attachments";
 import {
   addInlineImageFallbacks,
   formatPromptUploadFailure,
@@ -265,16 +266,41 @@ import {
 } from "@/lib/prompt-file-uploads";
 
 import { SLIDES_REFERENCE_FILE_ACCEPT } from "../../../shared/upload-types";
-import PromptPopover, {
-  createPromptChatAttachments,
-  type PromptPopoverHandle,
-} from "./PromptDialog";
+import PromptPopover, { type PromptPopoverHandle } from "./PromptDialog";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
 
 const uploadPromptFiles = (files: File[]) =>
   uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
+  it("sends complete HTML as a readable attachment, including content beyond the prompt cap", async () => {
+    const html =
+      "<!doctype html><style>" +
+      " ".repeat(70_000) +
+      "</style><body>Final slide</body>";
+    const file = new File([html], "reference.html", { type: "text/html" });
+    const result = await createPromptChatAttachments(
+      [{ name: file.name, contentType: file.type, file }],
+      [
+        {
+          path: "uploads/reference.html",
+          originalName: file.name,
+          filename: file.name,
+          type: file.type,
+          size: file.size,
+        },
+      ],
+    );
+    expect(result).toEqual([
+      {
+        type: "file",
+        name: file.name,
+        contentType: "text/html",
+        data: `data:text/html;base64,${btoa(html)}`,
+      },
+    ]);
+  });
+
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
     const result = await createPromptChatAttachments(
       [
@@ -960,7 +986,11 @@ describe("uploadPromptFiles", () => {
     );
 
     expect(promptComposerProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ layoutVariant: "hero", voiceEnabled: true }),
+      expect.objectContaining({
+        layoutVariant: "hero",
+        voiceEnabled: true,
+        inlineTextAttachments: false,
+      }),
     );
     expect(
       screen

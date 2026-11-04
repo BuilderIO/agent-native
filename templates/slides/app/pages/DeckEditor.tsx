@@ -218,6 +218,7 @@ import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
+import type { PromptChatAttachment } from "@/lib/prompt-chat-attachments";
 import {
   NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
@@ -936,9 +937,13 @@ export default function DeckEditor() {
   }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
   const sawGeneratingRef = useRef(false);
   const submitAddSlideAgent = useCallback(
-    (message: string, context: string) => {
+    (
+      message: string,
+      context: string,
+      attachments: ReadonlyArray<PromptChatAttachment>,
+    ) => {
       addSlideRequestSentRef.current = true;
-      addSlideAgentSubmit(message, context);
+      addSlideAgentSubmit(message, context, { attachments });
     },
     [addSlideAgentSubmit],
   );

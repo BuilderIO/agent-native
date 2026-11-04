@@ -86,7 +86,6 @@ import {
 import PromptPopover, {
   type PromptAttachmentActions,
   type PromptImportSelection,
-  type PromptChatAttachment,
   type PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
@@ -175,6 +174,7 @@ import {
   resolveRetryReferenceDeckSelection,
   withoutAutomaticReferenceDeck,
 } from "@/lib/new-deck-reference-selection";
+import type { PromptChatAttachment } from "@/lib/prompt-chat-attachments";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
