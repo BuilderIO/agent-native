@@ -82,8 +82,8 @@ Workspace 밖에서 `create`는 선택한 source 앱을 standalone으로 만듭�
 대화형으로 선택하려면 `?app`을 생략하고, scriptable install에는 포함하세요.
 
 ```bash
-npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+pnpm exec agent-native add-app my-app --template community:owner/repo#v1.2.0
+pnpm exec agent-native add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
 ```
 
 공개 GitHub repositories만 허용됩니다. Private repositories, GitHub가 아닌

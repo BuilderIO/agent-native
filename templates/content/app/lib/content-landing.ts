@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-documents";
 
 import { readLastLocationHintForAnyAccount } from "./last-location-hint";
+import { addressDatabaseViewId } from "./page-open-collection";
 
 export const CONTENT_LANDING_PATH = "/home";
 
@@ -71,7 +72,10 @@ export function startLoadReads(
       databaseId: search.get("databaseId"),
       databaseDocumentId: search.get("databaseDocumentId"),
     },
-    { fromLoad: true },
+    {
+      fromLoad: true,
+      databaseViewId: addressDatabaseViewId(location.search),
+    },
   );
 }
 

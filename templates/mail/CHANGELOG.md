@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-03
+
+### Improved
+
+- Opening Gmail messages is faster.
+- Opening Gmail threads is faster.
+
 ## 2026-10-30
 
 ### Fixed

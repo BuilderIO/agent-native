@@ -944,8 +944,8 @@ describe("writes through a switched page's live copy", () => {
       const lower = statement.toLowerCase();
       const update = /^\s*update "([^"]+)"/.exec(lower);
       if (update) return update[1];
-      if (!/ for update/.test(lower)) return undefined;
-      return (/ for update of "([^"]+)"/.exec(lower) ??
+      if (!/ for (?:update|share)/.test(lower)) return undefined;
+      return (/ for (?:update|share) of "([^"]+)"/.exec(lower) ??
         / from "([^"]+)"/.exec(lower))?.[1];
     };
 
@@ -979,6 +979,8 @@ describe("writes through a switched page's live copy", () => {
 
     // After the page lock, only writes to rows already locked.
     expect(locks).toEqual([
+      "content_databases",
+      "content_databases",
       "content_databases",
       "content_database_items",
       "documents",
@@ -1051,14 +1053,15 @@ describe("writes through a switched page's live copy", () => {
       liveCopy: "unchanged",
     });
     const locks = statements
-      .filter((sql) => / for update|^\s*update /.test(sql))
+      .filter((sql) => / for (?:update|share)|^\s*update /.test(sql))
       .map(
         (sql) =>
           (/^\s*update "([^"]+)"/.exec(sql) ??
-            / for update of "([^"]+)"/.exec(sql) ??
+            / for (?:update|share) of "([^"]+)"/.exec(sql) ??
             / from "([^"]+)"/.exec(sql))?.[1],
       );
     expect(locks).toEqual([
+      "content_databases",
       "content_databases",
       "content_database_items",
       "documents",
