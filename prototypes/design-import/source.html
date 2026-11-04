@@ -315,7 +315,7 @@ function headPair(id, running) {
 /* ───────── views ───────── */
 function viewPicker() {
   const tile = (id) => `<button class="src" data-src="${id}"><span class="box">${glyph(id)}</span><span class="tt"><b>${SRC[id].name}</b><small>${SRC[id].sub}</small></span></button>`;
-  return headPicker() + `<div class="imb"><h2 id="imd-title">What are you importing?</h2><p class="lead">Pick where it lives now, and we'll show you how to bring it over.</p>
+  return headPicker() + `<div class="imb"><h2 id="imd-title">What are you importing?</h2><p class="lead">Pick where your project lives now, and we'll show you how to import it.</p>
     <div class="sec"><h3>App builders</h3><div class="grid">${BUILDERS.map(tile).join("")}</div></div>
     <div class="sec"><h3>Other ways to import</h3><div class="grid">${OTHERS.map(tile).join("")}
       <button class="src wide" data-src="other"><span class="stack" aria-hidden="true">${PLATFORMS.map((p) => `<span>${logo(p)}</span>`).join("")}</span><span class="tt"><b>${SRC.other.name}</b><small>${SRC.other.sub}</small></span></button>
