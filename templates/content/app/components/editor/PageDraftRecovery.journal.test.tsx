@@ -185,7 +185,10 @@ describe("Page browser journal recovery", () => {
       status: "saved",
       draft: { title: "Saved", content: "Local", version: 1 },
     });
-    state.resolve.mockResolvedValue({ status: "resolved" });
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "use_saved",
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -270,7 +273,7 @@ describe("Page browser journal recovery", () => {
     expect(state.live).toHaveBeenCalled();
     if (settled)
       expect(state.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
     else {
       expect(state.resolve).not.toHaveBeenCalled();
@@ -512,7 +515,7 @@ describe("Page browser journal recovery", () => {
     );
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
-        choice: "use_saved",
+        choice: "automatic",
         expectedDraftTitle: localRename,
         expectedDraftContent: "Local",
       }),
@@ -835,7 +838,7 @@ describe("Page browser journal recovery", () => {
     state.rebase.mockResolvedValue({ status: "conflict" });
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved", documentId: "page" }),
+      expect.objectContaining({ choice: "automatic", documentId: "page" }),
     );
     expect(state.cleared).toHaveBeenCalledWith("first");
     expect(state.entries).toEqual([]);
@@ -942,7 +945,7 @@ describe("Page browser journal recovery", () => {
     await act(async () => renderLive());
 
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
   });
 
@@ -959,7 +962,7 @@ describe("Page browser journal recovery", () => {
       }),
     );
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
     expect(state.entries).toEqual([]);
     expect(toast.success).toHaveBeenCalledTimes(1);
@@ -1005,7 +1008,7 @@ describe("Page browser journal recovery", () => {
       }),
     );
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
     expect(state.entries).toEqual([]);
     expect(container.querySelector("textarea")).not.toBeNull();
@@ -1036,15 +1039,15 @@ describe("Page browser journal recovery", () => {
     });
     state.resolve.mockResolvedValue({
       status: "resolved",
+      choice: "save_separately",
       urlPath: "/page/recovery-copy",
     });
-    await act(async () =>
-      render({ ...page, accessRole: "editor" } as Document),
-    );
+    // The server decides who owns the page; the role read with it can be old.
+    await act(async () => render({ ...page, accessRole: "owner" } as Document));
 
     expect(state.update).not.toHaveBeenCalled();
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "save_separately" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
     expect(state.entries).toEqual([]);
     expect(toast.success).toHaveBeenCalledOnce();

@@ -2,6 +2,7 @@
 import type { Document } from "@shared/api";
 import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -135,7 +136,10 @@ describe("Page draft recovery", () => {
       content: "Draft body",
     });
     state.remove.mockResolvedValue({ status: "deleted" });
-    state.resolve.mockResolvedValue({ status: "resolved" });
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "use_saved",
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -165,7 +169,7 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(container.querySelector("textarea")).toBeNull();
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
   });
 
@@ -224,7 +228,7 @@ describe("Page draft recovery", () => {
       await act(async () => render());
       expect(container.querySelector("textarea")).toBeNull();
       expect(state.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
     });
 
@@ -251,7 +255,7 @@ describe("Page draft recovery", () => {
       await act(async () => render());
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
-          choice: "use_saved",
+          choice: "automatic",
           expectedDraftContent: "Draft body",
         }),
       );
@@ -307,7 +311,7 @@ describe("Page draft recovery", () => {
 
       await act(async () => render(true));
       expect(state.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
     });
 
@@ -322,7 +326,7 @@ describe("Page draft recovery", () => {
 
       await act(async () => render(true));
       expect(state.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
     });
   });
@@ -424,7 +428,7 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(state.update).not.toHaveBeenCalled();
     expect(state.resolve).toHaveBeenCalledWith({
-      choice: "use_saved",
+      choice: "automatic",
       documentId: "page",
       expectedDraftVersion: 3,
       expectedDraftTitle: "Draft",
@@ -509,7 +513,7 @@ describe("Page draft recovery", () => {
       expect(state.update).not.toHaveBeenCalled();
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
-          choice: "use_saved",
+          choice: "automatic",
           expectedDraftContent: "Draft body",
           expectedDocumentUpdatedAt: "v2",
         }),
@@ -580,7 +584,7 @@ describe("Page draft recovery", () => {
     });
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
     expect(state.remove).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -606,7 +610,7 @@ describe("Page draft recovery", () => {
     };
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith({
-      choice: "use_saved",
+      choice: "automatic",
       documentId: "page",
       expectedDraftVersion: 7,
       expectedDraftTitle: "Legacy draft",
@@ -627,14 +631,25 @@ describe("Page draft recovery", () => {
       editorSessionId: null,
       editGeneration: null,
     };
-    await act(async () =>
-      render(true, { ...page, accessRole: "admin" } as Document),
-    );
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "save_separately",
+      urlPath: "/page/recovery-copy",
+    });
+    await act(async () => render(true));
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
-        choice: "save_separately",
+        choice: "automatic",
         documentId: "page",
       }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedSeparately",
+      {
+        action: expect.objectContaining({
+          label: "editor.previewDraftOpenSavedPage",
+        }),
+      },
     );
     expect(container.querySelector("textarea")).not.toBeNull();
   });
@@ -689,7 +704,7 @@ describe("Page draft recovery", () => {
       expect(state.update).not.toHaveBeenCalled();
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
-          choice: "use_saved",
+          choice: "automatic",
           expectedDraftVersion: 3,
           expectedDraftContent: "Draft body",
         }),
@@ -710,7 +725,7 @@ describe("Page draft recovery", () => {
       });
       expect(state.resolve).toHaveBeenCalledTimes(2);
       expect(state.resolve).toHaveBeenLastCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
       expect(state.update).not.toHaveBeenCalled();
     });

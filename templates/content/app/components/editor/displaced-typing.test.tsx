@@ -11,7 +11,6 @@ import {
  * page, which keeps it in the draft journal; the server's deletion stands.
  * Runs the real collab client with the editor's schema and Yjs binding.
  */
-import type { Document } from "@shared/api";
 import { LIVE_BODY_FIELD } from "@shared/live-body";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { getSchema } from "@tiptap/core";
@@ -26,7 +25,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-import { automaticDraftChoice } from "./automatic-draft-choice";
 import {
   displacedTypingMarkdown,
   fileDisplacedTyping,
@@ -219,15 +217,6 @@ function draftSlot() {
     },
   };
 }
-
-it("keeps History for the page's owner and gives anyone else a page of their own", () => {
-  expect(automaticDraftChoice("owner")).toBe("use_saved");
-  for (const role of ["admin", "editor", "commenter", "viewer", undefined]) {
-    expect(automaticDraftChoice(role as Document["accessRole"])).toBe(
-      "save_separately",
-    );
-  }
-});
 
 it("files displaced typing once the editor's own draft lets go of the page's draft slot", async () => {
   const page = draftSlot();

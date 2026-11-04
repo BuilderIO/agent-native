@@ -195,7 +195,6 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
-import { automaticDraftChoice } from "./automatic-draft-choice";
 import { commentRailThreads } from "./block-field-comment-threads";
 import {
   BlockFieldCommentsProvider,
@@ -5260,7 +5259,7 @@ function PageEditorSessionBody({
     }
     const filing = new AbortController();
     displacedFilingsRef.current.add(filing);
-    const filingChoice = automaticDraftChoice(document.accessRole);
+    let filedAs: "keep_mine" | "use_saved" | "save_separately" | undefined;
     let savedPagePath: string | undefined;
     void keepDisplacedTyping({
       scope: {
@@ -5307,21 +5306,24 @@ function PageEditorSessionBody({
         },
         resolve: async (draft, expectedDocumentUpdatedAt) => {
           const result = await resolvePreviewDocumentDraft.mutateAsync({
-            choice: filingChoice,
+            choice: "automatic",
             documentId,
             expectedDraftVersion: draft.version,
             expectedDraftTitle: draft.title,
             expectedDraftContent: draft.content,
             expectedDocumentUpdatedAt,
           });
-          if (result.status === "resolved") savedPagePath = result.urlPath;
+          if (result.status === "resolved") {
+            filedAs = result.choice;
+            savedPagePath = result.urlPath;
+          }
           return result;
         },
         documentUpdatedAt: () => documentUpdatedAtRef.current,
       },
     }).then((outcome) => {
       displacedFilingsRef.current.delete(filing);
-      if (outcome === "filed" && filingChoice === "save_separately") {
+      if (outcome === "filed" && filedAs === "save_separately") {
         const openPath = savedPagePath;
         toast.success(t("editor.previewDraftSavedSeparately"), {
           action: openPath

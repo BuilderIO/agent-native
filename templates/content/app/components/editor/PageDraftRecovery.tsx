@@ -30,7 +30,6 @@ import {
   readPageIconRowHint,
 } from "@/lib/page-startup-hints";
 
-import { automaticDraftChoice } from "./automatic-draft-choice";
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
@@ -141,9 +140,8 @@ export function PageDraftRecovery({
   const update = useUpdateDocument({ saveOrigin: "recovery" });
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
-  const automaticChoice = automaticDraftChoice(document.accessRole);
   const showDraftFiled = (
-    choice: "keep_mine" | "use_saved" | "save_separately",
+    choice: "keep_mine" | "use_saved" | "save_separately" | undefined,
     urlPath: string | undefined,
   ) => {
     if (choice === "use_saved")
@@ -454,7 +452,7 @@ export function PageDraftRecovery({
       )
         throw new Error("The journal was not retained for recovery.");
       const preserved = await resolveDraft.mutateAsync({
-        choice: automaticChoice,
+        choice: "automatic",
         documentId: document.id,
         expectedDraftVersion: retainedDraft.version,
         expectedDraftTitle: retainedDraft.title,
@@ -465,7 +463,7 @@ export function PageDraftRecovery({
         throw new Error("The journal could not be preserved.");
       if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
         throw new Error("The journal changed during preservation.");
-      showDraftFiled(automaticChoice, preserved.urlPath);
+      showDraftFiled(preserved.choice, preserved.urlPath);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
       setJournalState("checking");
@@ -788,7 +786,7 @@ export function PageDraftRecovery({
   }
 
   async function resolveConflict(
-    choice: "keep_mine" | "use_saved" | "save_separately",
+    choice: "keep_mine" | "use_saved" | "save_separately" | "automatic",
   ) {
     if (!draft || busy) return;
     setBusy(true);
@@ -814,7 +812,7 @@ export function PageDraftRecovery({
       }
       if (result.status !== "resolved")
         throw new Error("The draft could not be resolved.");
-      showDraftFiled(choice, result.urlPath);
+      showDraftFiled(result.choice, result.urlPath);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       const reread = await drafts.refetch();
       // Another editor can write this exact draft again after it's resolved, as
@@ -853,7 +851,7 @@ export function PageDraftRecovery({
     const attempt = `${draft.version}:${document.updatedAt}`;
     if (automaticLegacyRecoveryRef.current === attempt) return;
     automaticLegacyRecoveryRef.current = attempt;
-    void resolveConflict(automaticChoice);
+    void resolveConflict("automatic");
   }, [
     busy,
     decisionsReady,
@@ -910,7 +908,7 @@ export function PageDraftRecovery({
       }
     }
     automaticRecoveryRef.current = attempt;
-    void resolveConflict(automaticChoice);
+    void resolveConflict("automatic");
   }, [
     bodyWritesThroughLiveCopy,
     busy,
