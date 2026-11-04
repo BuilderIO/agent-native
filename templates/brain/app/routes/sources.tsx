@@ -2247,7 +2247,7 @@ export default function SourcesRoute() {
   const ensureCompanyContextSource = useActionMutation<
     { created: boolean; source: BrainSource },
     Record<string, never>
-  >("ensure-company-context-source" as any);
+  >("ensure-company-context-source");
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }

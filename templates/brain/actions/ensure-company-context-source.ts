@@ -12,6 +12,7 @@ import {
   companyContextSourceId,
   createSource,
   isCompanyContextIntakeSource,
+  nowIso,
   serializeSource,
 } from "../server/lib/brain.js";
 import { isBrainAdmin } from "../server/lib/zoom-governance.js";
@@ -20,14 +21,14 @@ import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
 async function readIntakeSource(id: string, orgId: string) {
   // guard:allow-unscoped — admins may not own the shared intake source; access
   // is re-checked with assertAccess before it is returned.
-  const [source] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.brainSources)
     .where(
       and(eq(schema.brainSources.id, id), eq(schema.brainSources.orgId, orgId)),
     )
     .limit(1);
-  return source;
+  return rows.length > 0 ? rows[0] : undefined;
 }
 
 export default defineAction({
@@ -69,7 +70,7 @@ export default defineAction({
     let source = await readIntakeSource(id, orgId);
     if (!source) {
       try {
-        source = await createSource({
+        await createSource({
           id,
           title: "Company context",
           provider: "manual",
@@ -79,19 +80,28 @@ export default defineAction({
         created = true;
       } catch (error) {
         // Another admin created it concurrently; reuse theirs.
-        source = await readIntakeSource(id, orgId);
-        if (!source) throw error;
+        if (!(await readIntakeSource(id, orgId))) throw error;
       }
+      source = await readIntakeSource(id, orgId);
     }
-    if (
-      !isCompanyContextIntakeSource(source) ||
-      source.status === "archived" ||
-      source.visibility !== "org"
-    ) {
-      fail(
-        "The Company Context source is archived or no longer visible to the organization. Restore it to active and organization-visible before uploading.",
-        { errorCode: "company_context_intake_unavailable", statusCode: 409 },
-      );
+    if (!source || !isCompanyContextIntakeSource(source)) {
+      fail("The Company Context source could not be set up.", {
+        errorCode: "company_context_intake_unavailable",
+        statusCode: 409,
+      });
+    }
+    if (source.status === "archived" || source.visibility !== "org") {
+      // Admins own this source collectively, so any of them can restore it
+      // even when its creator has since been demoted.
+      await getDb()
+        .update(schema.brainSources)
+        .set({ status: "active", visibility: "org", updatedAt: nowIso() })
+        .where(
+          and(
+            eq(schema.brainSources.id, id),
+            eq(schema.brainSources.orgId, orgId),
+          ),
+        );
     }
     const access = await assertAccess("brain-source", id, "editor");
     return { created, source: serializeSource(access.resource) };

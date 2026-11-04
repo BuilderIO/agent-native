@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(() => "org-1"),
   getRequestUserEmail: vi.fn(() => "admin@example.test"),
   rows: [] as unknown[][],
+  updateSet: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -29,6 +30,12 @@ vi.mock("../server/db/index.js", () => ({
       from: () => ({
         where: () => ({ limit: async () => mocks.rows.shift() ?? [] }),
       }),
+    }),
+    update: () => ({
+      set: (values: unknown) => {
+        mocks.updateSet(values);
+        return { where: async () => undefined };
+      },
     }),
   }),
   schema: { brainSources: { id: "id", orgId: "orgId" } },
@@ -78,6 +85,7 @@ describe("ensure-company-context-source", () => {
   });
 
   it("creates one org-visible source under the deterministic id", async () => {
+    mocks.rows = [[], [intake()]];
     mocks.createSource.mockResolvedValue(intake());
     await expect(ensure.run()).resolves.toEqual({
       created: true,
@@ -104,21 +112,29 @@ describe("ensure-company-context-source", () => {
   });
 
   it("reuses the concurrently created source when insert collides", async () => {
-    mocks.rows = [[], [intake()]];
+    mocks.rows = [[], [intake()], [intake()]];
     mocks.createSource.mockRejectedValue(new Error("duplicate key"));
     await expect(ensure.run()).resolves.toMatchObject({ created: false });
   });
 
-  it("refuses to reuse a source made private or archived", async () => {
-    mocks.rows = [[intake({ visibility: "private" })]];
-    await expect(ensure.run()).rejects.toMatchObject({
-      errorCode: "company_context_intake_unavailable",
-    });
-    mocks.rows = [[intake({ status: "archived" })]];
-    await expect(ensure.run()).rejects.toMatchObject({
-      errorCode: "company_context_intake_unavailable",
-    });
-    expect(mocks.assertAccess).not.toHaveBeenCalled();
+  it("restores a source that was made private or archived", async () => {
+    for (const overrides of [
+      { visibility: "private" },
+      { status: "archived" },
+    ]) {
+      mocks.updateSet.mockClear();
+      mocks.rows = [[intake(overrides)]];
+      await expect(ensure.run()).resolves.toMatchObject({ created: false });
+      expect(mocks.updateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "active", visibility: "org" }),
+      );
+    }
+  });
+
+  it("does not touch an intact source", async () => {
+    mocks.rows = [[intake()]];
+    await ensure.run();
+    expect(mocks.updateSet).not.toHaveBeenCalled();
   });
 });
 
