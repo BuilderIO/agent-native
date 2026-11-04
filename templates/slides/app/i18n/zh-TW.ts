@@ -289,6 +289,7 @@ const messages = {
     placeholder: "開始輸入，或讓代理快速產生講者備忘稿",
   },
   editorToolbar: {
+    saving: "儲存中...",
     layoutTitle: "標題",
     layoutSection: "分節頁面",
     layoutContent: "內容",
@@ -816,6 +817,9 @@ const messages = {
     versionRestoredDescription: "幻燈片已回滾到所選快照。",
     restoreFailed: "恢復失敗",
     restoreFailedDescription: "無法恢復此幻燈片版本。",
+    alreadyAtVersion: "已是此版本",
+    restoreReloadFailed: "無法重新整理幻燈片",
+    restoreReloadFailedDescription: "請重新整理頁面查看此簡報的目前版本。",
     backToSavedVersions: "返回已儲存版本",
     savedVersions: "已儲存版本",
     description: "瀏覽已儲存的幻燈片版本並恢復以前的快照。",

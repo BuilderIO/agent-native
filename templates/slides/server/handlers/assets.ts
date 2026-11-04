@@ -28,6 +28,8 @@ import {
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
+  assertDeckEditableForUpload,
+  withSlidesRequestContext,
 } from "./request-auth-context.js";
 
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
@@ -154,6 +156,29 @@ async function requireSession(
     return { session: null, error: "Unauthorized" };
   }
   return { session: auth.context as AuthedSlidesSession, error: null };
+}
+
+// Kept outside the upload try blocks: their catch maps any error without a status to
+// 400, which would report a failed permission lookup as a malformed upload.
+async function deckUploadRefusal(
+  event: Parameters<typeof withSlidesRequestContext>[0],
+  session: AuthedSlidesSession,
+  parts: Awaited<ReturnType<typeof readBoundedMultipartFormData>>,
+): Promise<{ error: string } | null> {
+  try {
+    await assertDeckEditableForUpload(
+      event,
+      session,
+      new TextDecoder().decode(
+        parts?.find((part) => part.name === "deckId")?.data,
+      ),
+    );
+    return null;
+  } catch (error) {
+    if ((error as { statusCode?: number }).statusCode !== 403) throw error;
+    setResponseStatus(event, 403);
+    return { error: (error as Error).message };
+  }
 }
 
 function isImageAssetExtension(ext: string): boolean {
@@ -2043,6 +2068,9 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
     return { error: "Video too large (max 50 MB)" };
   }
 
+  const refusal = await deckUploadRefusal(event, session, parts);
+  if (refusal) return refusal;
+
   try {
     return await uploadVideoAsset({
       email: session.email,
@@ -2186,6 +2214,9 @@ export const uploadAsset = defineEventHandler(async (event) => {
     setResponseStatus(event, 413);
     return { error: "File too large (max 10 MB)" };
   }
+
+  const refusal = await deckUploadRefusal(event, session, parts);
+  if (refusal) return refusal;
 
   try {
     return await uploadImageAsset({

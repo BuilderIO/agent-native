@@ -31,7 +31,6 @@ import {
   _getCorePackageVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
-  _githubTarballUrl,
   _findLocalTemplateFrom,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
@@ -800,6 +799,7 @@ function runPnpm(
     encoding: "utf-8",
     timeout,
     env: { ...process.env },
+    shell: process.platform === "win32",
   });
   return {
     status: res.status,
@@ -1650,17 +1650,8 @@ describe("template/core version compatibility", () => {
     expect(candidates).not.toContain("main");
   });
 
-  it("downloads GitHub tarballs from codeload instead of the GitHub API", () => {
-    expect(
-      _githubTarballUrl(
-        "BuilderIO/agent-native",
-        "@agent-native/core@0.101.13",
-        "tag",
-      ),
-    ).toBe(
-      "https://codeload.github.com/BuilderIO/agent-native/tar.gz/refs/tags/%40agent-native%2Fcore%400.101.13",
-    );
-  });
+  // oracle-change: first-party templates no longer download codeload
+  // tarballs, so the tarball URL builder and its test are gone.
 });
 
 describe("workspace scaffold defaults", () => {
@@ -1840,19 +1831,11 @@ describe("workspace scaffold defaults", () => {
     ).toBe(false);
   });
 
-  it("can skip first-party agent symlinks while extracting GitHub tarballs", () => {
-    expect(
-      _tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out", {
-        skipAgentSymlinks: true,
-      }),
-    ).toEqual([
+  it("extracts archives without exclusions by default", () => {
+    expect(_tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out")).toEqual([
       "xzf",
       "/tmp/archive.tar.gz",
       "--strip-components=1",
-      "--exclude",
-      "*/CLAUDE.md",
-      "--exclude",
-      "*/.claude/skills",
       "-C",
       "/tmp/out",
     ]);
