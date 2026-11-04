@@ -39,6 +39,7 @@ server/                # Nitro API server
   routes/
     api/               # Route-only endpoints (uploads, webhooks, OAuth, streaming)
     [...page].get.ts   # SSR catch-all (delegates to React Router)
+    index.get.ts       # Root SSR route (re-exports the catch-all)
   plugins/             # Server plugins (startup logic)
   lib/                 # Shared server modules
 
