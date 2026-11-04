@@ -36,6 +36,7 @@ import {
 } from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import {
   IconArrowRight,
   IconComponents,
@@ -600,6 +601,12 @@ export default function Root() {
           persistPreference={false}
         >
           <Outlet />
+          <Toaster
+            richColors
+            position="bottom-left"
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
         </AgentNativeI18nProvider>
       </QueryClientProvider>
     );
