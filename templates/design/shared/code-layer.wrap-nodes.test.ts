@@ -9,8 +9,8 @@ const THREE_SIBLINGS = `<body>
 </body>`;
 
 describe("applyWrapNodes (Cmd+G group)", () => {
-  it("ungroup rebases measured in-flow children back to world coordinates", () => {
-    const content = `<body>
+  it("ungroup returns measured in-flow children to a flex-column body's flow", () => {
+    const content = `<body style="display:flex;flex-direction:column;gap:20px">
   <div data-agent-native-node-id="first" style="width:100px;height:40px">First</div>
   <div data-agent-native-node-id="second" style="width:100px;height:40px">Second</div>
 </body>`;
@@ -29,16 +29,25 @@ describe("applyWrapNodes (Cmd+G group)", () => {
       targetId: grouped.result.wrapperNodeId ?? "",
     });
     expect(ungrouped.result.status).toBe("applied");
-    expect(ungrouped.content).toContain("left: 12px");
-    expect(ungrouped.content).toContain("top: 80px");
-    expect(ungrouped.content).toContain("top: 140px");
+    expect(ungrouped.content).not.toContain("position: absolute");
+    expect(ungrouped.content).not.toContain("left:");
+    expect(ungrouped.content).not.toContain("top:");
   });
 
-  it.each(["display:flex;gap:20px", "display:grid;gap:20px"])(
-    "ungroup returns measured in-flow children to a %s parent's flow",
-    (parentStyle) => {
-      const content = `<body>
-  <div data-agent-native-node-id="row" style="${parentStyle}">
+  it.each([
+    ["an inline flex", 'style="display:flex;gap:20px"', ""],
+    ["an inline grid", 'style="display:grid;gap:20px"', ""],
+    ["a block", 'style="padding:8px"', ""],
+    [
+      "a stylesheet-defined flex",
+      'class="row"',
+      "<style>.row{display:flex;gap:20px}</style>",
+    ],
+  ])(
+    "ungroup returns measured in-flow children to %s parent's flow",
+    (_name, parentAttributes, styleSheet) => {
+      const content = `${styleSheet}<body>
+  <div data-agent-native-node-id="row" ${parentAttributes}>
     <div data-agent-native-node-id="card-a" style="width:100px;height:40px">A</div>
     <div data-agent-native-node-id="card-b" style="width:100px;height:40px">B</div>
     <div data-agent-native-node-id="card-c" style="width:100px;height:40px">C</div>
@@ -73,6 +82,37 @@ describe("applyWrapNodes (Cmd+G group)", () => {
       expect([...order].sort((a, b) => a - b)).toEqual(order);
     },
   );
+
+  it("ungroup restores the inline margins that grouping removed from a child", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="row" style="display:flex">
+    <div data-agent-native-node-id="card-a" style="width:100px;height:40px;margin:0 20px 0 0">A</div>
+    <div data-agent-native-node-id="card-b" style="width:100px;height:40px;margin-right:12px !important">B</div>
+  </div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["card-a", "card-b"],
+      sizeHints: {
+        "card-a": { width: 100, height: 40, left: 0, top: 0 },
+        "card-b": { width: 100, height: 40, left: 120, top: 0 },
+      },
+    });
+    expect(grouped.result.status).toBe("applied");
+
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+
+    expect(ungrouped.result.status).toBe("applied");
+    expect(ungrouped.content).toContain("margin: 0 20px 0 0");
+    expect(ungrouped.content).toContain("margin-right: 12px !important");
+    expect(ungrouped.content).not.toContain(
+      "data-agent-native-group-flow-margin",
+    );
+    expect(ungrouped.content).not.toContain("position: absolute");
+  });
 
   it("ungroup keeps children pinned when the group itself was nudged in a flex parent", () => {
     const content = `<body>

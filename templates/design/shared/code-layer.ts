@@ -8605,6 +8605,8 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
+const MEASURED_FLOW_MARGIN_ATTR = "data-agent-native-group-flow-margin";
+
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
   "left",
@@ -8796,16 +8798,28 @@ function rebaseMeasuredFlowChild(
   top: number,
 ): string {
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const margins = declarations.declarations
+    .filter((declaration) =>
+      cssPropertyKey(declaration.prop).startsWith("margin"),
+    )
+    .map(
+      (declaration) =>
+        `${declaration.prop}: ${declaration.value}${declaration.important ? " !important" : ""}`,
+    );
   removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
   setStyleDeclaration(declarations, "position", "absolute");
   setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
   setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
-  return replaceOrInsertAttribute(
-    html,
-    child,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_MARGIN_ATTR]:
+          margins.length > 0 ? margins.join("; ") : null,
+      },
+    },
+  ]);
 }
 
 function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
@@ -8814,12 +8828,25 @@ function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
   }
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
   removeStyleDeclarations(declarations, ["position", "left", "top"]);
-  return replaceOrInsertAttribute(
-    html,
-    child,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  const savedMargins = attributeValue(child, MEASURED_FLOW_MARGIN_ATTR);
+  if (savedMargins) {
+    for (const margin of parseStyleDeclarations(savedMargins).declarations) {
+      setStyleDeclaration(
+        declarations,
+        margin.prop,
+        `${margin.value}${margin.important ? " !important" : ""}`,
+      );
+    }
+  }
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_MARGIN_ATTR]: null,
+      },
+    },
+  ]);
 }
 
 function nextSequentialWrapperName(
@@ -10454,15 +10481,9 @@ function applyUnwrap(
   const hasMeasuredFlowOrigin =
     measuredGroupLeft !== null || measuredGroupTop !== null;
   const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
-  // A pinned child is out of flow, so left in a flex or grid parent it stops
-  // taking part in the row and its siblings reflow around the gap.
-  const releaseIntoFlow =
-    hasMeasuredFlowOrigin &&
-    !hasPositionedOffset &&
-    (node.layout.parentDisplay === "flex" ||
-      node.layout.parentDisplay === "inline-flex" ||
-      node.layout.parentDisplay === "grid" ||
-      node.layout.parentDisplay === "inline-grid");
+  // A measured-flow group only exists around children that were in flow, and
+  // a pinned child is out of flow, so its siblings would reflow around the gap.
+  const releaseIntoFlow = hasMeasuredFlowOrigin && !hasPositionedOffset;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
   if (releaseIntoFlow) {
