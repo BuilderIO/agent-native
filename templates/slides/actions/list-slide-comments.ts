@@ -93,6 +93,7 @@ export default defineAction({
           viewerEmail,
         ),
         author_email: row.authorEmail,
+        author_kind: row.authorKind,
         author_name: resolveUserProfileName(
           row.authorEmail,
           row.authorName,

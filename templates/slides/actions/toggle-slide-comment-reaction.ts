@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commentAuthorKind } from "../shared/comment-author.js";
 import {
   parseSlideCommentReactionBuckets,
   serializeSlideCommentReactionBuckets,
@@ -30,7 +31,10 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
-  run: async ({ commentId, deckId, emoji }) => {
+  audit: {
+    target: (args) => ({ type: "slide-comment", id: args.commentId }),
+  },
+  run: async ({ commentId, deckId, emoji }, ctx) => {
     const viewerEmail = getRequestUserEmail()?.trim().toLowerCase();
     if (!viewerEmail) {
       fail("Sign in required to react to comments.", {
@@ -40,6 +44,12 @@ export default defineAction({
     }
     await assertAccess("deck", deckId, "commenter");
     const normalizedEmoji = emoji.trim();
+    // The agent runs as the signed-in user, so its reactions need their own key
+    // or the user's toggle would remove them.
+    const actor =
+      commentAuthorKind(ctx?.caller) === "agent"
+        ? `agent:${viewerEmail}`
+        : viewerEmail;
 
     const db = getDb();
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
@@ -65,12 +75,10 @@ export default defineAction({
       const previousJson = comment.emojiReactionsJson || "{}";
       const reactions = parseSlideCommentReactionBuckets(previousJson);
       const bucket = reactions[normalizedEmoji] ?? [];
-      const had = bucket.some(
-        (email) => email.trim().toLowerCase() === viewerEmail,
-      );
+      const had = bucket.some((email) => email.trim().toLowerCase() === actor);
       const nextBucket = had
-        ? bucket.filter((email) => email.trim().toLowerCase() !== viewerEmail)
-        : [...bucket, viewerEmail];
+        ? bucket.filter((email) => email.trim().toLowerCase() !== actor)
+        : [...bucket, actor];
       const next = { ...reactions };
       if (nextBucket.length === 0) delete next[normalizedEmoji];
       else next[normalizedEmoji] = nextBucket;

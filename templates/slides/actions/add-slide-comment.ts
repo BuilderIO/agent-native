@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { commentAuthorKind } from "../shared/comment-author.js";
 import {
   serializeSlideCommentAnchor,
   slideCommentAnchorSchema,
@@ -65,6 +66,12 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
+  audit: {
+    target: (_args, result) => ({
+      type: "slide-comment",
+      id: (result as { id: string }).id,
+    }),
+  },
   run: async (args, ctx) => {
     const {
       deckId,
@@ -95,8 +102,9 @@ export default defineAction({
     const threadId = requestedThreadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
+    const authorKind = commentAuthorKind(ctx?.caller);
     const authorName =
-      ctx?.caller === "tool"
+      authorKind === "agent"
         ? "AI Agent"
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
@@ -183,6 +191,7 @@ export default defineAction({
         anchor: serializeSlideCommentAnchor(anchor),
         authorEmail,
         authorName,
+        authorKind,
       });
     });
 
