@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findReplaceEditPieces,
   markdownSuggestionOperations,
-  markdownSuggestionOperationsForFindReplaceEdits,
   type MarkdownSuggestionOperation,
 } from "./suggestion-diff.js";
 import { sentenceUnits } from "./suggestion-units.js";
@@ -122,13 +122,28 @@ describe("sentenceUnits", () => {
         start: before.indexOf("Open source again"),
       },
     ];
-    const operations = markdownSuggestionOperationsForFindReplaceEdits({
+    const { operations, editOfPiece } = findReplaceEditPieces({
       before,
       edits,
     });
     expect(operations).toHaveLength(2);
     expect(sentenceUnits(operations)).toEqual([0, 0]);
-    expect(sentenceUnits(operations, edits)).toEqual([0, 1]);
+    expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
+  });
+
+  it("keeps separate edits apart when one starts where the other ends", () => {
+    const { operations, editOfPiece } = findReplaceEditPieces({
+      before: "bad blue.",
+      edits: [
+        { find: "bad ", replace: "good ", start: 0 },
+        { find: "blue.", replace: "very blue.", start: 4 },
+      ],
+    });
+    expect(operations.map(({ anchor }) => [anchor.from, anchor.to])).toEqual([
+      [0, 3],
+      [4, 4],
+    ]);
+    expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
   });
 
   it("still joins the pieces within one of an agent's edits", () => {
@@ -141,10 +156,10 @@ describe("sentenceUnits", () => {
       },
       { find: "Keep", replace: "Hold", start: before.indexOf("Keep") },
     ];
-    const operations = markdownSuggestionOperationsForFindReplaceEdits({
+    const { operations, editOfPiece } = findReplaceEditPieces({
       before,
       edits,
     });
-    expect(sentenceUnits(operations, edits)).toEqual([0, 0, 1]);
+    expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 0, 1]);
   });
 });

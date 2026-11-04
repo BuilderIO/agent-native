@@ -46,23 +46,19 @@ function separatesSentences(source: string, from: number, to: number) {
  * reviewer takes or leaves together, so no sentence is half taken. A piece
  * that crosses a sentence boundary has no unchanged text there, so it joins
  * the sentences it touches. Pieces of an agent's separate edits never join,
- * since the agent split them on purpose.
+ * since the agent split them on purpose: `editOfPiece` says which edit each
+ * piece came from.
  */
 export function sentenceUnits(
   operations: readonly Pick<MarkdownSuggestionOperation, "before" | "anchor">[],
-  edits: readonly { start: number; find: string }[] = [],
+  editOfPiece: readonly number[] = [],
 ): number[] {
-  const editOf = ({ anchor }: Pick<MarkdownSuggestionOperation, "anchor">) =>
-    edits.findIndex(
-      ({ start, find }) =>
-        anchor.from >= start && anchor.to <= start + find.length,
-    );
   let unit = 0;
   return operations.map((operation, index) => {
     const previous = index > 0 ? operations[index - 1] : undefined;
     if (
       previous &&
-      (editOf(previous) !== editOf(operation) ||
+      (editOfPiece[index - 1] !== editOfPiece[index] ||
         separatesSentences(
           operation.before.markdown,
           previous.anchor.to,

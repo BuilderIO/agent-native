@@ -21,7 +21,7 @@ import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edi
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
-  markdownSuggestionOperationsForFindReplaceEdits,
+  findReplaceEditPieces,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
 import { sentenceUnits } from "../shared/suggestion-units.js";
@@ -152,7 +152,7 @@ export default defineAction({
         payload.edits,
       );
       if (!proposed.ok) throw targetError(proposed.error.kind);
-      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+      const { operations, editOfPiece } = findReplaceEditPieces({
         before: verification.source.document.content,
         edits: proposed.ranges,
       });
@@ -187,7 +187,7 @@ export default defineAction({
         runId: request.runId,
         model: request.model,
       };
-      const units = sentenceUnits(operations, proposed.ranges);
+      const units = sentenceUnits(operations, editOfPiece);
       // A Content suggestion holds exactly one edit, so separate changes become
       // one proposal. The receipt links its first edit. Each attempt creates
       // under its own key, because a retry may propose different edits.

@@ -12,6 +12,7 @@ import {
   reviewUnits,
   suggestionLineExcerpt,
   suggestionsByThread,
+  withWholeReviewUnits,
 } from "./thread-suggestions";
 
 const suggestion = (
@@ -138,6 +139,21 @@ describe("reviewUnits", () => {
       ["a", ["a"]],
       ["b", ["b"]],
     ]);
+  });
+
+  it("brings the rest of a unit along with a piece a filter kept", () => {
+    const all = [
+      piece("a", "k:0"),
+      piece("b", "k:1"),
+      piece("c", "k:0"),
+      piece("d", null),
+      piece("e", "k:0", "stale"),
+    ];
+    const [, , kept = null] = all;
+    if (!kept) throw new Error("The list has a third piece");
+    expect(
+      withWholeReviewUnits([kept], all).map((member) => member.id),
+    ).toEqual(["a", "c"]);
   });
 });
 
