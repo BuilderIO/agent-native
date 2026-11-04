@@ -796,12 +796,12 @@ const messages = {
     draftCard: {
       loadFailed: "Não foi possível carregar este rascunho.",
       notFoundTitle: "Rascunho não encontrado",
+      goneTitle: "Este rascunho foi enviado ou excluído.",
       threadUnavailable:
         "Não foi possível carregar as mensagens anteriores desta conversa.",
-      threadLookupFailed:
-        "Não foi possível encontrar a conversa desta resposta, então ela ainda não pode ser enviada.",
       earlierMessages: "Mensagens anteriores ({{count}})",
-      deleted: "Rascunho excluído.",
+      sendInMail: "Enviar no Mail",
+      openBlocked: "Seu navegador bloqueou a nova aba.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

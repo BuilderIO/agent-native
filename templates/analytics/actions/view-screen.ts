@@ -137,8 +137,11 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const navigation = await readAppStateForCurrentTab("navigation");
-    const url = (await readAppStateForCurrentTab("__url__")) as {
+    const [navigation, urlState] = await Promise.all([
+      readAppStateForCurrentTab("navigation"),
+      readAppStateForCurrentTab("__url__"),
+    ]);
+    const url = urlState as {
       pathname?: string;
       search?: string;
       searchParams?: Record<string, string>;

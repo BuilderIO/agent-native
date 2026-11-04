@@ -6,6 +6,11 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  sessionReadIdentity,
+  sessionReadIdentityStatus,
+  subscribeSessionReadIdentity,
+} from "@agent-native/core/client/use-session";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItemsPageResponse,
@@ -38,7 +43,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
@@ -70,9 +75,14 @@ import {
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
+  endPageOpen,
+  isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
   startPageOpenRead,
+  readFromStartupPageRead,
+  takeStartupPageRead,
+  whenReadIdentityCurrent,
   type PageOpenRead,
   type PageOpenReadAdoption,
 } from "../lib/page-open-reads";
@@ -869,7 +879,9 @@ export function useDocument(
 // The page editor's read of its document. When a read started for this page
 // open has already landed, it counts as fetched for this mount instead of
 // being discarded and read again. Only the first mount can adopt; a later
-// document switch reads fresh.
+// document switch reads fresh. A read whose session is still being read is
+// adopted too, but counts as fetched only once that is known to be the
+// session this tab accepts: until then it may be another account's page.
 export function usePageOpenDocument(
   documentId: string,
   context: DocumentQueryContext,
@@ -891,6 +903,16 @@ export function usePageOpenDocument(
   }
   const claim = claimRef.current;
   const { adoption } = claim;
+  // Re-renders when the session changes; a read sent as someone else is
+  // dropped (and read again) before this runs.
+  const readIdentityStatus = () =>
+    claim.read ? sessionReadIdentityStatus(claim.read.identity) : "none";
+  useSyncExternalStore(
+    subscribeSessionReadIdentity,
+    readIdentityStatus,
+    readIdentityStatus,
+  );
+  const awaitingSession = isAwaitingSession(claim.read);
   const cachedDocument = queryClient.getQueryData<Document>(queryKey);
   const query = useDocument(documentId, context, {
     enabled: !(
@@ -908,9 +930,20 @@ export function usePageOpenDocument(
       releasePageOpenRead(queryClient, claim.queryKey, claim.read);
     }
   }, [claim, queryClient]);
+  // Leaving the page ends its open: work still waiting on the session for it,
+  // such as its comment and suggestion reads, is not run.
+  useEffect(
+    () => () => endPageOpen(queryClient, documentId),
+    [documentId, queryClient],
+  );
+  // A read dropped as not this session's counts once it has been read again.
+  const readAgain = claim.read?.readAgain ?? "no";
   return {
     query,
-    fetchedForThisOpen: query.isFetchedAfterMount || adoption === "fresh",
+    fetchedForThisOpen:
+      !awaitingSession &&
+      (query.isFetchedAfterMount ||
+        (readAgain === "no" ? adoption === "fresh" : readAgain === "landed")),
     // The open's own reads, draft included, already started elsewhere.
     readsStartedEarly: adoption !== "none",
   };
@@ -920,7 +953,8 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
-  { beforeSession = false }: { beforeSession?: boolean } = {},
+  // A load's own open, whose read the document head may already have sent.
+  { fromLoad = false }: { fromLoad?: boolean } = {},
 ) {
   trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
@@ -933,15 +967,29 @@ export function startPageOpenDocumentReads(
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
   let pageRead: Promise<PageOpenDocumentRead> | null = null;
-  const readPage = () =>
-    (pageRead ??= callAction<PageOpenDocumentRead>(
+  const sendPageRead = (signal?: AbortSignal) =>
+    callAction<PageOpenDocumentRead>(
       "get-document",
       {
         ...documentReadParams(documentId, context),
         ...(readsDraft ? { includePreviewDraft: true } : {}),
       },
-      { method: "GET" },
-    ));
+      { method: "GET", ...(signal ? { signal } : {}) },
+    );
+  // The load's head script may already have sent this read; a failed or
+  // stalled one is sent again here, so its error comes from the app's own
+  // request. Its age counts from when the script sent it.
+  const startupRead = fromLoad
+    ? takeStartupPageRead(documentId, context)
+    : null;
+  const startedAt = startupRead?.startedAt;
+  // Who these reads go out as. Each is shown only once that is known to be
+  // the session this tab accepts, wherever it was started from.
+  const identity = startupRead?.identity ?? sessionReadIdentity();
+  const readPage = () =>
+    (pageRead ??= startupRead
+      ? readFromStartupPageRead(startupRead, sendPageRead)
+      : sendPageRead());
   let documentTaken = false;
   const documentReadStarted = startPageOpenRead(
     queryClient,
@@ -963,7 +1011,7 @@ export function startPageOpenDocumentReads(
       },
       retry: false,
     },
-    { beforeSession },
+    { identity, ...(startedAt === undefined ? {} : { startedAt }) },
   );
   if (widgetBridgeActive) return;
   if (readsDraft) {
@@ -988,14 +1036,21 @@ export function startPageOpenDocumentReads(
           );
         },
       },
-      { beforeSession },
+      { identity, ...(startedAt === undefined ? {} : { startedAt }) },
     );
   }
-  // The review reads are not tracked as this open's reads, so one sent before
-  // the session could not be dropped if another account answers it.
-  if (!beforeSession && cached?.source?.mode !== "local-files") {
-    startPageOpenReviewReads(queryClient, documentId);
-  }
+  // The review reads are not tracked as this open's reads, so one sent as
+  // someone else could not be dropped: they start once the session this tab
+  // accepts is the one the page read was sent as.
+  const startReviewReads = () => {
+    const known = queryClient.getQueryData<Document>(queryKey) ?? cached;
+    if (known?.source?.mode !== "local-files") {
+      startPageOpenReviewReads(queryClient, documentId);
+    }
+  };
+  whenReadIdentityCurrent(queryClient, identity, startReviewReads, {
+    documentId,
+  });
 }
 
 // Open comments and suggestions hold the review margin open beside the page,
@@ -1032,7 +1087,12 @@ export function startPageOpenCompanionReads(
   if (isEmbedMcpChatBridgeActive()) return;
   startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
   if (knownDocument?.source?.mode !== "local-files") {
-    startPageOpenReviewReads(queryClient, documentId);
+    whenReadIdentityCurrent(
+      queryClient,
+      sessionReadIdentity(),
+      () => startPageOpenReviewReads(queryClient, documentId),
+      { documentId },
+    );
   }
 }
 

@@ -5639,7 +5639,9 @@ export function DeckProvider({
     [],
   );
 
-  useEffect(() => {
+  // Layout phase: the grid's passive effect asks for previews in the commit
+  // that first shows its decks, and reads this ref to pick which to fetch.
+  useLayoutEffect(() => {
     decksRef.current = decks;
   }, [decks]);
 
@@ -6741,6 +6743,7 @@ export function DeckProvider({
     setUndoAvailability({});
     lastExternalUpdateRef.current = Date.now();
     decksRef.current = [];
+    requestedPreviewRevisionsRef.current.clear();
     setDeckScopeOrgId(nextOrgId);
     setDecks([]);
     setLoadError(false);

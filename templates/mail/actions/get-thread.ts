@@ -111,14 +111,17 @@ export default defineAction({
       throw new Error("Requested Google account is not connected.");
     }
 
-    const labelMap = await fetchLabelMap(account.accessToken);
+    const [labelMap, threadResult] = await Promise.all([
+      fetchLabelMap(account.accessToken),
+      gmailGetThread(account.accessToken, args.id, "full").then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ),
+    ]);
 
     try {
-      const threadRes = await gmailGetThread(
-        account.accessToken,
-        args.id,
-        "full",
-      );
+      if (threadResult.ok === false) throw threadResult.error;
+      const threadRes = threadResult.value;
       const messages = (threadRes.messages || [])
         .map((m: any) =>
           gmailToEmailMessage(
