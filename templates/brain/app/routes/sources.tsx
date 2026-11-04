@@ -2244,6 +2244,10 @@ export default function SourcesRoute() {
   const deleteSource = useActionMutation<unknown, { id: string }>(
     "delete-source" as any,
   );
+  const ensureCompanyContextSource = useActionMutation<
+    { created: boolean; source: BrainSource },
+    Record<string, never>
+  >("ensure-company-context-source");
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }
@@ -2478,6 +2482,13 @@ export default function SourcesRoute() {
     }
   }
 
+  function openCompanyContextIntake() {
+    ensureCompanyContextSource.mutate(
+      {},
+      { onSuccess: (result) => setMarkdownImportSource(result.source) },
+    );
+  }
+
   async function confirmArchiveSource() {
     if (!archiveSource) return;
     await deleteSource.mutateAsync({ id: archiveSource.id });
@@ -2547,6 +2558,19 @@ export default function SourcesRoute() {
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              disabled={ensureCompanyContextSource.isPending}
+              onClick={openCompanyContextIntake}
+            >
+              {ensureCompanyContextSource.isPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconFolderOpen className="size-4" />
+              )}
+              {t("sources.companyContextUpload")}
+            </Button>
+            <Button
+              size="sm"
               disabled={createSource.isPending}
               onClick={() => openCreate()}
             >
@@ -2609,6 +2633,15 @@ export default function SourcesRoute() {
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
               detail={t("sources.actionFailedDetail")}
+            />
+          </div>
+        ) : null}
+
+        {ensureCompanyContextSource.error ? (
+          <div>
+            <EmptyActionState
+              title={t("sources.actionFailedTitle")}
+              detail={ensureCompanyContextSource.error.message}
             />
           </div>
         ) : null}
@@ -2866,6 +2899,18 @@ export default function SourcesRoute() {
                             <p className="mt-2 truncate text-sm font-medium">
                               {capture.title}
                             </p>
+                            {capture.withheldPassages === null ||
+                            (capture.withheldPassages ?? 0) > 0 ? (
+                              <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-destructive">
+                                <IconAlertTriangle
+                                  aria-hidden="true"
+                                  className="mt-0.5 size-3.5 shrink-0"
+                                />
+                                {t("common.incompleteTranscript", {
+                                  count: capture.withheldPassages ?? "?",
+                                })}
+                              </p>
+                            ) : null}
                             {capture.preview ? (
                               <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
                                 {capture.preview}

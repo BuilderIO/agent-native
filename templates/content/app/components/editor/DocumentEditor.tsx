@@ -159,6 +159,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
+import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -1279,6 +1280,7 @@ export function shouldAttestUnchangedEditorSave(args: {
   contentChanged: boolean;
   editorSessionId?: string;
   editGeneration?: number;
+  confirmedEditGeneration: number;
   isLinkedLocalSource: boolean;
   isLocalFile: boolean;
 }) {
@@ -1286,10 +1288,12 @@ export function shouldAttestUnchangedEditorSave(args: {
     !args.hasUpdates &&
     !args.contentChanged &&
     !!args.editorSessionId &&
-    // Generation 0 is an editor that never edited the page: closing it has
-    // nothing to settle, and the write would claim the stored page as its own.
+    // Only a generation the server has not confirmed has anything to settle.
+    // Generation 0 is the page as loaded: attesting it would claim the stored
+    // page as this editor's. A confirmed generation sent only its changed
+    // fields, and the server refuses it again with a different field set.
     args.editGeneration !== undefined &&
-    args.editGeneration > 0 &&
+    args.editGeneration > args.confirmedEditGeneration &&
     !args.isLinkedLocalSource &&
     !args.isLocalFile
   );
@@ -3289,20 +3293,12 @@ function PageEditorSessionBody({
     setAdditionalBlockContents({});
   }, [documentId]);
 
-  useEffect(() => {
-    if (host !== "page") return;
-    const nextTitle = `${normalizeDocumentTitle(
-      localTitle,
-      t("sidebar.untitled"),
-    )} — Content`;
-    const previousTitle = window.document.title;
-    window.document.title = nextTitle;
-    return () => {
-      if (window.document.title === nextTitle) {
-        window.document.title = previousTitle;
-      }
-    };
-  }, [host, localTitle, t]);
+  usePageTabTitle(
+    host === "page"
+      ? `${normalizeDocumentTitle(localTitle, t("sidebar.untitled"))} — Content`
+      : null,
+    documentFresh,
+  );
 
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
@@ -3506,6 +3502,7 @@ function PageEditorSessionBody({
   const confirmedContentEditVersionRef = useRef(0);
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
+  const confirmedEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const authoredContentBaseRef = useRef(createAuthoredContentBase());
   const authoredContentBase = useCallback(
@@ -4663,6 +4660,10 @@ function PageEditorSessionBody({
       const settleConfirmedEdit = () => {
         if (contentEditVersionRef.current !== contentEditVersion) return;
         confirmedContentEditVersionRef.current = contentEditVersion;
+        confirmedEditGenerationRef.current = Math.max(
+          confirmedEditGenerationRef.current,
+          editorEditGeneration,
+        );
         clearConfirmedDraftJournal(editorEditGeneration);
       };
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
@@ -4737,6 +4738,7 @@ function PageEditorSessionBody({
           contentChanged,
           editorSessionId: options.editorSessionId,
           editGeneration: options.editGeneration,
+          confirmedEditGeneration: confirmedEditGenerationRef.current,
           isLinkedLocalSource: isLinkedLocalSourceDocument,
           isLocalFile: isLocalFileDocument,
         })

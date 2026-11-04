@@ -1385,9 +1385,16 @@ export function App({
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
   // Hosted per-clip cap from the last storage probe; null for own storage.
   const hostedClipLimitMsRef = useRef<number | null>(null);
+  // The server and account the newest probe found configured. The cached
+  // "configured" is enough to record, but saved files upload on their own
+  // only after a probe of the current server and account.
+  const [videoStorageProbedIdentity, setVideoStorageProbedIdentity] = useState<
+    string | null
+  >(null);
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
     hostedClipLimitMsRef.current = null;
+    setVideoStorageProbedIdentity(null);
     setVideoStorageStatus(
       signedInAs &&
         loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
@@ -1401,6 +1408,7 @@ export function App({
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
+      setVideoStorageProbedIdentity(null);
       setVideoStorageStatus("configured");
       return true;
     }
@@ -1415,6 +1423,9 @@ export function App({
     );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
+    setVideoStorageProbedIdentity(
+      probe === "configured" ? probedIdentity : null,
+    );
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
@@ -4827,11 +4838,19 @@ export function App({
       recordFirstPending > 0 &&
       authStatus === "authed" &&
       videoStorageStatus === "configured" &&
+      videoStorageProbedIdentity === videoStorageIdentity &&
       !recorder
     ) {
       void uploadRecordFirstFilesRef.current();
     }
-  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
+  }, [
+    authStatus,
+    recorder,
+    recordFirstPending,
+    videoStorageIdentity,
+    videoStorageProbedIdentity,
+    videoStorageStatus,
+  ]);
 
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;

@@ -155,6 +155,7 @@ import {
   permanentPreconditionRemedy,
   permanentPreconditionReason,
   normalizeToolErrorForBreaker,
+  executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
@@ -21178,6 +21179,141 @@ describe("runAgentLoop", () => {
         completedSideEffect: false,
       }),
     );
+  });
+
+  it("strips null placeholders beside a chosen false and runs the tool", async () => {
+    const optionSchema = z.object({
+      label: z.string().min(1),
+      color: z.string().optional(),
+      recommended: z.boolean().optional(),
+    });
+    const questionsSchema = z.object({
+      designId: z.string(),
+      questions: z.array(
+        z.object({
+          id: z.string().min(1),
+          options: z.array(optionSchema).optional(),
+          choices: z.array(optionSchema).optional(),
+          multiSelect: z.boolean().optional(),
+          min: z.number().optional(),
+        }),
+      ),
+    });
+    const run = vi.fn(async (input: z.infer<typeof questionsSchema>) => input);
+    const action = defineAction({
+      description: "Show questions",
+      schema: questionsSchema,
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "show-questions": action as unknown as ActionEntry },
+      name: "show-questions",
+      callId: "strict-mode-nulls",
+      input: {
+        designId: "design-1",
+        questions: [
+          {
+            id: "form_factor",
+            options: [{ label: "Website", color: null, recommended: false }],
+            choices: null,
+            multiSelect: false,
+            min: null,
+          },
+        ],
+      },
+    });
+    expect(result.status).toBe("completed");
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      designId: "design-1",
+      questions: [
+        {
+          id: "form_factor",
+          options: [{ label: "Website", recommended: false }],
+          multiSelect: false,
+        },
+      ],
+    });
+  });
+
+  it("runs null placeholders beside an empty list when the action says it erases nothing", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const action = defineAction({
+      description: "Generate a design",
+      schema: z.object({
+        designId: z.string(),
+        contextPackId: z.string().optional(),
+        primaryViewport: z.enum(["mobile", "desktop"]).optional(),
+        devices: z.array(z.enum(["mobile", "desktop"])).optional(),
+        canvasFrames: z
+          .array(
+            z.object({ filename: z.string(), fileId: z.string().optional() }),
+          )
+          .optional(),
+      }),
+      emptyListsEraseNothing: true,
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "generate-design": action as unknown as ActionEntry },
+      name: "generate-design",
+      callId: "padded-lists",
+      input: {
+        designId: "design-1",
+        contextPackId: null,
+        primaryViewport: null,
+        devices: [],
+        canvasFrames: [{ filename: "index.html", fileId: null }],
+      },
+    });
+    expect(result.status).toBe("completed");
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      designId: "design-1",
+      devices: [],
+      canvasFrames: [{ filename: "index.html" }],
+    });
+  });
+
+  it("refuses null placeholders beside an empty list on an action that may store it", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "Update a saved view",
+      schema: z.object({
+        viewId: z.string(),
+        name: z.string().optional(),
+        hiddenColumns: z.array(z.string()).optional(),
+      }),
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "update-view": action as unknown as ActionEntry },
+      name: "update-view",
+      callId: "padded-stored-list",
+      input: { viewId: "view-1", name: null, hiddenColumns: [] },
+    });
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("No action was run");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still refuses null placeholders beside an empty string the schema accepts", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "Update a design",
+      schema: z.object({
+        designId: z.string(),
+        note: z.string().optional(),
+        primaryViewport: z.enum(["mobile", "desktop"]).optional(),
+      }),
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "update-design": action as unknown as ActionEntry },
+      name: "update-design",
+      callId: "padded-string",
+      input: { designId: "design-1", note: "", primaryViewport: null },
+    });
+    expect(result.status).toBe("failed");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SOURCE_HEAD_SHA256_PATTERN } from "../../shared/source-fingerprint.js";
 import { RECORDING_TITLE_SOURCES } from "../../shared/title-source.js";
 import { MAX_UPLOAD_BYTES } from "../../shared/upload-limits.js";
 
@@ -117,6 +118,13 @@ export const createRecordingSchema = z.object({
     .optional()
     .describe(
       "Refuse to create the recording unless the signed-in account is this one. Recorders pass the account a local copy was recorded under, so it never uploads into another account.",
+    ),
+  sourceHeadSha256: z
+    .string()
+    .regex(SOURCE_HEAD_SHA256_PATTERN)
+    .optional()
+    .describe(
+      "Lowercase hex SHA-256 of the file's first 1 MiB (the whole file when shorter). Pass it when retrying a saved file automatically: if the signed-in account already has an uploaded clip of that file, nothing is created and that clip comes back with existingRecording: true.",
     ),
   streamingUploadClient: z
     .enum(["desktop-native"])
