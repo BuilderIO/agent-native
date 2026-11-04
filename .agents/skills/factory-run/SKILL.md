@@ -349,9 +349,11 @@ before the first PR of a run.
 **Which PRs.** A `pr` event, or in a sweep every open PR updated in the window
 that isn't a draft, a bot's, `steve8708`'s, or the factory's own
 (`gh pr list --state open --json number,author,isDraft,updatedAt`). Skip one
-whose report already covers its current head with no newer human commit,
-review, or comment. Record each before acting, keyed by its URL, `source`
-`github`, title "PR #<n> <app>: <title>".
+with no human commit, review, or comment since its report's `updatedAt`, and
+member PRs under "One approval per PR" below. Record each before acting,
+keyed by its URL, `source` `github`, title "PR #<n> <app>: <title>". In live
+mode only a real approval sets `triage` `approved`; a dry or rehearsal
+"would approve" is `needs-person` with the note "would approve <sha>".
 
 **Who wrote it.** `factory-github membership <login>`, and
 `gh pr view <n> --json isCrossRepository,assignees`:
@@ -375,7 +377,11 @@ review, or comment. Record each before acting, keyed by its URL, `source`
   `github-token` needs org Members: read.
 - **Fork PR assigned to a BuilderIO member**: that member owns it. Leave it
   out entirely.
-- **Fork PR, unassigned**: `community-prs`, with its factory exception: the
+- **Fork PR from a BuilderIO member**: not an outside contribution
+  (`community-prs`' test needs both a fork and a non-member). Review it like
+  any member PR, but `factory-github approve` refuses forks, so a PR that
+  passes is `needs-person` "member fork PR, ready for a person's approval".
+- **Fork PR from a non-member, unassigned**: `community-prs`, with its factory exception: the
   factory posts the replies itself and keeps the 2-business-day clock, and a
   person makes every trust call. Apply the external-contribution scope gate
   (work needing Steve: tell the contributor maintainers are checking
