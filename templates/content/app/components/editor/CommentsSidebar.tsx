@@ -180,6 +180,7 @@ import {
   reviewUnits,
   suggestionSourceThreadId,
   suggestionsByThread,
+  withWholeReviewUnits,
   type ReviewUnit,
 } from "./thread-suggestions";
 import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
@@ -1774,7 +1775,7 @@ export function CommentsSidebar({
     !historyMentionsMe;
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
-    return suggestions.filter((suggestion) => {
+    const matches = suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
       const unresolved =
@@ -1789,6 +1790,7 @@ export function CommentsSidebar({
         return false;
       return suggestionMatchesSearch(suggestion, historySearch);
     });
+    return withWholeReviewUnits(matches, suggestions);
   }, [
     embeddedSuggestionIds,
     historyAuthor,

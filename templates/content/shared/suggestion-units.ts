@@ -61,19 +61,14 @@ function crossesSentence(source: string, from: number, to: number) {
  * What the rules say about each gap between neighboring pieces. Pieces with no
  * unchanged word between them only make sense together, wherever they fall.
  * Pieces of an agent's separate edits never join, since the agent split them on
- * purpose, and a line break always ends a unit. Changed text that crosses a
- * sentence boundary has no unchanged text there, so it holds the sentences it
- * touches in one unit.
+ * purpose: `editOfPiece` says which edit each piece came from. A line break
+ * always ends a unit. Changed text that crosses a sentence boundary has no
+ * unchanged text there, so it holds the sentences it touches in one unit.
  */
 export function unitGaps(
   operations: readonly UnitPiece[],
-  edits: readonly { start: number; find: string }[] = [],
+  editOfPiece: readonly number[] = [],
 ): UnitGap[] {
-  const editOf = ({ anchor }: UnitPiece) =>
-    edits.findIndex(
-      ({ start, find }) =>
-        anchor.from >= start && anchor.to <= start + find.length,
-    );
   const gaps: UnitGap[] = [];
   let previous: UnitPiece | null = null;
   let changeFrom = 0;
@@ -85,14 +80,14 @@ export function unitGaps(
     }
     crossed = false;
   };
-  for (const operation of operations) {
+  for (const [index, operation] of operations.entries()) {
     const source = operation.before.markdown;
     const { from, to } = operation.anchor;
     if (previous) {
       const between = source.slice(previous.anchor.to, from);
       const word = hasWord(between);
       const gap =
-        editOf(previous) !== editOf(operation)
+        editOfPiece[index - 1] !== editOfPiece[index]
           ? { apart: true, settled: true }
           : !word
             ? { apart: false, settled: true }
@@ -128,11 +123,13 @@ export function unitsFromGaps(apart: readonly boolean[]): number[] {
  */
 export function sentenceUnits(
   operations: readonly UnitPiece[],
-  edits: readonly { start: number; find: string }[] = [],
+  editOfPiece: readonly number[] = [],
 ): number[] {
   return operations.length === 0
     ? []
-    : unitsFromGaps(unitGaps(operations, edits).map(({ apart }) => apart));
+    : unitsFromGaps(
+        unitGaps(operations, editOfPiece).map(({ apart }) => apart),
+      );
 }
 
 type UnitOperation = Pick<

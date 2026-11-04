@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  findReplaceEditPieces,
   markdownSuggestionOperations,
-  markdownSuggestionOperationsForFindReplaceEdits,
 } from "../../shared/suggestion-diff.js";
 import { sentenceUnits } from "../../shared/suggestion-units.js";
 import { modelUnits } from "./suggestion-model-units.js";
@@ -101,11 +101,7 @@ describe("modelUnits", () => {
     await expect(
       modelUnits({
         ownerEmail,
-        operations: markdownSuggestionOperationsForFindReplaceEdits({
-          before,
-          edits,
-        }),
-        edits,
+        ...findReplaceEditPieces({ before, edits }),
       }),
     ).resolves.toEqual([0, 1]);
     expect(decide).not.toHaveBeenCalled();

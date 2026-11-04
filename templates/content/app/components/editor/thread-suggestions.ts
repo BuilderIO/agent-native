@@ -104,24 +104,43 @@ export function reviewUnitLabel(
 }
 
 /**
- * The units a proposal's edits are reviewed in, in the order given. A suggestion
- * with no unit label, as one staged before units, is a unit of its own. Pieces
- * that ended differently no longer decide together.
+ * What a piece is reviewed with. A suggestion with no unit label, as one staged
+ * before units, is a unit of its own. Pieces that ended differently no longer
+ * decide together.
  */
+function reviewUnitKey(suggestion: ResourceSuggestion) {
+  const label = reviewUnitLabel(suggestion);
+  return label
+    ? `unit:${suggestion.proposalId}:${label}:${suggestion.status}`
+    : suggestion.id;
+}
+
+/** The units a proposal's edits are reviewed in, in the order given. */
 export function reviewUnits(
   suggestions: readonly ResourceSuggestion[],
 ): ReviewUnit[] {
   const units = new Map<string, ReviewUnit>();
   for (const suggestion of suggestions) {
-    const label = reviewUnitLabel(suggestion);
-    const key = label
-      ? `unit:${suggestion.proposalId}:${label}:${suggestion.status}`
-      : suggestion.id;
+    const key = reviewUnitKey(suggestion);
     const unit = units.get(key);
     if (unit) unit.members.push(suggestion);
     else units.set(key, { leader: suggestion, members: [suggestion] });
   }
   return [...units.values()];
+}
+
+/**
+ * These suggestions with the rest of their units, so a filter that matches one
+ * piece never offers to decide that piece alone.
+ */
+export function withWholeReviewUnits(
+  matches: readonly ResourceSuggestion[],
+  suggestions: readonly ResourceSuggestion[],
+) {
+  const keys = new Set(matches.map(reviewUnitKey));
+  return suggestions.filter((suggestion) =>
+    keys.has(reviewUnitKey(suggestion)),
+  );
 }
 
 function placedPiece(operation: ResourceSuggestion["operations"][number]) {

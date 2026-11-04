@@ -199,6 +199,45 @@ describe("ThreadSuggestionBody", () => {
     expect(onDecide).not.toHaveBeenCalled();
   });
 
+  it("shows every change of a unit it can't read as one", () => {
+    const source = "Remove this.\nTeh team will recieve.\n";
+    const pieces = markdownSuggestionOperationsForFindReplaceEdits({
+      before: source,
+      edits: [
+        {
+          find: source,
+          replace: "<empty-block/>\nThe team will receive.\n",
+          start: 0,
+        },
+      ],
+    }).map(
+      (operation, index) =>
+        ({
+          id: `piece-${index}`,
+          proposalId: "proposal-1",
+          proposalSummary: "Tidy the note",
+          summary: `Piece ${index}`,
+          status: "pending",
+          createdAt: "2026-10-19T17:00:00.000Z",
+          metadata: { reviewUnit: "key:0" },
+          operations: [{ ...operation, ordinal: 0 }],
+        }) as unknown as ResourceSuggestion,
+    );
+    expect(pieces.length).toBeGreaterThan(1);
+    const onDecideUnit = vi.fn();
+    render(pieces, { onDecideUnit });
+
+    expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(1);
+    const shown = [
+      ...host.querySelectorAll("[data-thread-suggestion-diff]"),
+    ].map((diff) => diff.textContent);
+    expect(shown.join(" ")).toContain("Remove this.");
+    expect(shown.join(" ")).toContain("receive");
+
+    act(() => button("editor.acceptSuggestion").click());
+    expect(onDecideUnit).toHaveBeenCalledWith(pieces, "accepted");
+  });
+
   it("counts units, and decides each one apart, when a proposal has several", () => {
     const [first = null, second = null] = proposal();
     if (!first || !second) throw new Error("The proposal has two edits");

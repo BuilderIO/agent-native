@@ -22,7 +22,7 @@ import { modelUnits } from "../server/lib/suggestion-model-units.js";
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
-  markdownSuggestionOperationsForFindReplaceEdits,
+  findReplaceEditPieces,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
@@ -152,7 +152,7 @@ export default defineAction({
         payload.edits,
       );
       if (!proposed.ok) throw targetError(proposed.error.kind);
-      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+      const { operations, editOfPiece } = findReplaceEditPieces({
         before: verification.source.document.content,
         edits: proposed.ranges,
       });
@@ -190,7 +190,7 @@ export default defineAction({
       const units = await modelUnits({
         ownerEmail: request.requesterEmail,
         operations,
-        edits: proposed.ranges,
+        editOfPiece,
       });
       // A Content suggestion holds exactly one edit, so separate changes become
       // one proposal. The receipt links its first edit. Each attempt creates

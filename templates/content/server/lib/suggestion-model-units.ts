@@ -20,11 +20,11 @@ const MODEL_UNITS_TIMEOUT_MS = 4_000;
 export async function modelUnits(input: {
   ownerEmail: string | null | undefined;
   operations: readonly MarkdownSuggestionOperation[];
-  edits?: readonly { start: number; find: string }[];
+  editOfPiece?: readonly number[];
 }): Promise<number[]> {
-  const { ownerEmail, operations, edits } = input;
+  const { ownerEmail, operations, editOfPiece } = input;
   if (operations.length === 0) return [];
-  const gaps = unitGaps(operations, edits);
+  const gaps = unitGaps(operations, editOfPiece);
   const sentenceUnits = unitsFromGaps(gaps.map(({ apart }) => apart));
   const pairs = unitPairs(operations, gaps);
   if (!ownerEmail || pairs.length === 0) return sentenceUnits;

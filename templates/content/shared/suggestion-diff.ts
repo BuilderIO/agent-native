@@ -1016,22 +1016,35 @@ export function markdownSuggestionOperationsForFindReplace(input: {
  * Splits several non-overlapping find/replace edits against one source the
  * way one edit is split. Each operation's anchor context stops at its
  * neighbors, so accepting one never rewrites the text another is found by.
+ * Also says which edit each piece came from: edits can touch, so a piece's
+ * position alone can't.
  */
-export function markdownSuggestionOperationsForFindReplaceEdits(input: {
+export function findReplaceEditPieces(input: {
   before: string;
   edits: ReadonlyArray<{ find: string; replace: string; start: number }>;
-}): MarkdownSuggestionOperation[] {
-  return isolateSiblingAnchorContexts(
-    input.edits
-      .flatMap((edit) =>
-        markdownSuggestionOperationsForFindReplace({
-          before: input.before,
-          ...edit,
-        }),
-      )
-      .sort((left, right) => left.anchor.from - right.anchor.from)
-      .map((operation, ordinal) => ({ ...operation, ordinal })),
-  );
+}): { operations: MarkdownSuggestionOperation[]; editOfPiece: number[] } {
+  const pieces = input.edits
+    .flatMap((edit, editIndex) =>
+      markdownSuggestionOperationsForFindReplace({
+        before: input.before,
+        ...edit,
+      }).map((operation) => ({ operation, editIndex })),
+    )
+    .sort(
+      (left, right) => left.operation.anchor.from - right.operation.anchor.from,
+    );
+  return {
+    operations: isolateSiblingAnchorContexts(
+      pieces.map(({ operation }, ordinal) => ({ ...operation, ordinal })),
+    ),
+    editOfPiece: pieces.map(({ editIndex }) => editIndex),
+  };
+}
+
+export function markdownSuggestionOperationsForFindReplaceEdits(
+  input: Parameters<typeof findReplaceEditPieces>[0],
+): MarkdownSuggestionOperation[] {
+  return findReplaceEditPieces(input).operations;
 }
 
 /**

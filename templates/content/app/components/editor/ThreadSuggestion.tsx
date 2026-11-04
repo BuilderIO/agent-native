@@ -96,7 +96,7 @@ function ThreadSuggestionEdit({
   showStatus,
 }: {
   suggestion: ResourceSuggestion;
-  /** What the edit changes, read as one even when it takes several pieces. */
+  /** What the edit changes: usually one, or each piece that can't read as one. */
   operations: ResourceSuggestion["operations"];
   canDecide: boolean;
   busy: boolean;
@@ -106,20 +106,23 @@ function ThreadSuggestionEdit({
 }) {
   const t = useT();
   const statusLabel = useStatusLabel();
-  const excerpt = useMemo(
-    () => suggestionLineExcerpt(operations),
-    [operations],
-  );
-  const segments = useMemo(
+  const diffs = useMemo(
     () =>
-      excerpt ? trimDiffContext(wordDiff(excerpt.before, excerpt.after)) : [],
-    [excerpt],
+      operations
+        .map((operation) => {
+          const excerpt = suggestionLineExcerpt([operation]);
+          return excerpt
+            ? trimDiffContext(wordDiff(excerpt.before, excerpt.after))
+            : [];
+        })
+        .filter((segments) => segments.length > 0),
+    [operations],
   );
   const pending = suggestion.status === "pending";
   const decidable = pending && canDecide;
   const conflicted = conflict || suggestion.status === "stale";
   if (
-    !segments.length &&
+    !diffs.length &&
     !conflicted &&
     !decidable &&
     !(showStatus && statusLabel(suggestion.status))
@@ -140,8 +143,9 @@ function ThreadSuggestionEdit({
           />
         </div>
       ) : null}
-      {segments.length ? (
+      {diffs.map((segments, diffIndex) => (
         <p
+          key={diffIndex}
           aria-label={t("comments.suggestedChange")}
           className={cn(
             "whitespace-pre-wrap break-words leading-6",
@@ -169,7 +173,7 @@ function ThreadSuggestionEdit({
             ),
           )}
         </p>
-      ) : null}
+      ))}
       {conflicted ? (
         <p role="alert" className="mt-1 text-xs text-destructive">
           {t("editor.toolbar.conflict")}
