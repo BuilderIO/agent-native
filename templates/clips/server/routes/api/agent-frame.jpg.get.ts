@@ -17,6 +17,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import {
   describeFrameFailure,
   frameFailureStatus,
@@ -164,9 +165,11 @@ function redirectToResolvedFrame(
 async function extractFrameWithStaleDurationRecovery({
   mediaPath,
   atMs,
+  lastVisibleSourceMs,
 }: {
   mediaPath: string;
   atMs: number;
+  lastVisibleSourceMs: (sourceMs: number) => number | null;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {
     return {
@@ -191,7 +194,12 @@ async function extractFrameWithStaleDurationRecovery({
       Math.max(0, actualDurationMs - 1),
       Math.max(0, actualDurationMs - 1000),
       0,
-    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+    ]
+      .map(lastVisibleSourceMs)
+      .filter(
+        (candidate, index, values): candidate is number =>
+          candidate !== null && values.indexOf(candidate) === index,
+      );
     for (const candidate of candidates) {
       if (candidate === atMs) continue;
       try {
@@ -234,13 +242,22 @@ export default defineEventHandler(async (event: H3Event) => {
       return sendFrameJson(event, status, describeFrameFailure(err, status));
     }
   }
-  const durationMs =
-    typeof recording.durationMs === "number" ? recording.durationMs : 0;
+  // atMs is on the edited timeline the context reports; the media and the
+  // stored frames are in the original recording.
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    typeof recording.durationMs === "number" ? recording.durationMs : 0,
+  );
   const requestedMs = parseTimestampMs(
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
+  const atMs = timeline.toSourceMs(
+    clampAgentFrameAtMs(
+      parseTimestampMs(queryString(query.atMs), queryString(query.tSeconds)),
+      timeline.durationMs,
+    ),
+  );
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -284,6 +301,7 @@ export default defineEventHandler(async (event: H3Event) => {
       const resolved = await extractFrameWithStaleDurationRecovery({
         mediaPath: media.path,
         atMs,
+        lastVisibleSourceMs: timeline.lastVisibleSourceMs,
       });
 
       await persistDefaultThumbnailIfMissing(
@@ -294,7 +312,11 @@ export default defineEventHandler(async (event: H3Event) => {
       );
 
       if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(event, access, resolved.atMs);
+        return redirectToResolvedFrame(
+          event,
+          access,
+          timeline.fromSourceMs(resolved.atMs),
+        );
       }
 
       await claim?.fill(

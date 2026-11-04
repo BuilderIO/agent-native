@@ -43,6 +43,7 @@ vi.mock("h3", () => ({
   },
 }));
 
+import { saveRevisionOf } from "../save-conflict/index.js";
 import { getSession } from "../server/auth.js";
 import {
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
@@ -57,6 +58,7 @@ import {
   listComposeDrafts,
   getComposeDraft,
   putComposeDraft,
+  saveComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
 } from "./handlers.js";
@@ -696,6 +698,105 @@ describe("application-state handlers", () => {
           { id: "1", subject: "Hello" },
           { id: "2", subject: "World" },
         ]);
+      });
+    });
+
+    describe("saveComposeDraft", () => {
+      const stored = { id: "draft-1", subject: "Hello", body: "Stored" };
+      const next = { subject: "Hello", body: "Mine" };
+      const event = (expectedRevision: string | null | undefined) => ({
+        _params: { id: "draft-1" },
+        _headers: { "x-request-source": "tab-1" },
+        _body: { expectedRevision, next },
+      });
+
+      it("writes when the stored draft is still the one the writer read", async () => {
+        mockAppStateGet.mockResolvedValue(stored);
+        mockAppStateCompareAndSet.mockResolvedValue(true);
+
+        const result = await saveComposeDraft(
+          event(saveRevisionOf(stored)) as never,
+        );
+
+        const state = { ...next, id: "draft-1" };
+        expect(mockAppStateCompareAndSet).toHaveBeenCalledWith(
+          "user@example.com",
+          "compose-draft-1",
+          stored,
+          state,
+          { requestSource: "tab-1" },
+        );
+        expect(result).toEqual({
+          value: state,
+          revision: saveRevisionOf(state),
+        });
+      });
+
+      it("creates a draft only if nothing is stored there", async () => {
+        mockAppStateGet.mockResolvedValue(null);
+        mockAppStateCompareAndSet.mockResolvedValue(true);
+
+        await saveComposeDraft(event(null) as never);
+
+        expect(mockAppStateCompareAndSet.mock.calls[0][2]).toBeNull();
+      });
+
+      it("answers a stale write with the typed conflict and the current draft", async () => {
+        mockAppStateGet.mockResolvedValue(stored);
+
+        const result = await saveComposeDraft(event("rev_stale") as never);
+
+        expect(lastStatus).toBe(409);
+        expect(result).toMatchObject({
+          errorCode: "save_conflict",
+          details: {
+            current: stored,
+            currentRevision: saveRevisionOf(stored),
+          },
+        });
+        expect(mockAppStateCompareAndSet).not.toHaveBeenCalled();
+      });
+
+      it("treats a draft deleted since the read as a conflict", async () => {
+        mockAppStateGet.mockResolvedValue(null);
+
+        const result = await saveComposeDraft(
+          event(saveRevisionOf(stored)) as never,
+        );
+
+        expect(lastStatus).toBe(409);
+        expect(result).toMatchObject({
+          errorCode: "save_conflict",
+          details: { current: null, currentRevision: null },
+        });
+      });
+
+      it("applies a repeated save once, such as one sent as a tab closes", async () => {
+        const state = { ...next, id: "draft-1" };
+        mockAppStateGet.mockResolvedValue(state);
+
+        const result = await saveComposeDraft(
+          event(saveRevisionOf(stored)) as never,
+        );
+
+        expect(mockAppStateCompareAndSet).not.toHaveBeenCalled();
+        expect(result).toEqual({
+          value: state,
+          revision: saveRevisionOf(state),
+        });
+      });
+
+      it("rejects a body missing the revision or the draft's text", async () => {
+        const noRevision = await saveComposeDraft(event(undefined) as never);
+        expect(lastStatus).toBe(400);
+        expect(noRevision).toMatchObject({ error: expect.any(String) });
+
+        lastStatus = 200;
+        await saveComposeDraft({
+          _params: { id: "draft-1" },
+          _body: { expectedRevision: null, next: { subject: "No body" } },
+        } as never);
+        expect(lastStatus).toBe(400);
       });
     });
 

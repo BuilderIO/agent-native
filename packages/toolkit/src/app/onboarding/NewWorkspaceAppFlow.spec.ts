@@ -281,7 +281,9 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain("There is no separate workspace app registry");
     expect(message).toContain("apps/quality/package.json exists");
     expect(message).toContain("Do not hardcode localhost");
-    expect(message).toContain("appBasePath()");
+    expect(message).toContain(
+      "Keep the configureClientRouterBasename() call in app/entry.client.tsx so the app hydrates at /quality.",
+    );
     expect(message).toContain(
       'Use <Link to="/review"> and navigate("/review"), not "/quality/review"',
     );

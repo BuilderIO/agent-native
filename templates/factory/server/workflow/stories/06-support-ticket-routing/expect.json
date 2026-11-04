@@ -827,5 +827,400 @@
         "ended@done:done"
       ]
     }
+  },
+  "a-burst-of-twenty-tickets-is-taken-eight-a-run-and-every-ticket-once": {
+    "ticks": [
+      {
+        "label": "first run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 8, "done": 8, "modelCalls": 9 }
+        },
+        "nodes": {
+          "classify": { "in": 8, "ports": { "out": 8 } },
+          "done": { "in": 8, "ports": {} },
+          "route": { "in": 8, "ports": { "otherwise": 8 } },
+          "suggest": { "in": 8, "ports": { "out": 8 } },
+          "thread": { "in": 8, "ports": { "out": 8 } },
+          "tickets": { "in": 0, "ports": { "out": 8 }, "truncatedFrom": 20 }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 8,
+          "pylon.addNote": 8
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "suggest",
+            "item": "t-a1",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a1",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-1" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a2",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a2",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-2" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a3",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a3",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-3" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a4",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a4",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-4" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a5",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a5",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-5" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a6",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a6",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-6" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a7",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a7",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-7" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-a8",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-a8",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-8" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": [
+              "t-a1",
+              "t-a2",
+              "t-a3",
+              "t-a4",
+              "t-a5",
+              "t-a6",
+              "t-a7",
+              "t-a8"
+            ]
+          },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a1"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a2"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a3"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a4"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a5"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a6"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a7"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-a8"] }
+        ]
+      },
+      {
+        "label": "second run",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 8, "done": 8, "modelCalls": 9 }
+        },
+        "nodes": {
+          "classify": { "in": 8, "ports": { "out": 8 } },
+          "done": { "in": 8, "ports": {} },
+          "route": { "in": 8, "ports": { "otherwise": 8 } },
+          "suggest": { "in": 8, "ports": { "out": 8 } },
+          "thread": { "in": 8, "ports": { "out": 8 } },
+          "tickets": { "in": 0, "ports": { "out": 8 }, "truncatedFrom": 12 }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 8,
+          "pylon.addNote": 8
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "suggest",
+            "item": "t-b1",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b1",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-9" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b2",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b2",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-10" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b3",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b3",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-11" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b4",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b4",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-12" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b5",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b5",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-13" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b6",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b6",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-14" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b7",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b7",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-15" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-b8",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-b8",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-16" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": [
+              "t-b1",
+              "t-b2",
+              "t-b3",
+              "t-b4",
+              "t-b5",
+              "t-b6",
+              "t-b7",
+              "t-b8"
+            ]
+          },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b1"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b2"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b3"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b4"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b5"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b6"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b7"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-b8"] }
+        ]
+      },
+      {
+        "label": "third run",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 4, "done": 4, "modelCalls": 5 }
+        },
+        "nodes": {
+          "classify": { "in": 4, "ports": { "out": 4 } },
+          "done": { "in": 4, "ports": {} },
+          "route": { "in": 4, "ports": { "otherwise": 4 } },
+          "suggest": { "in": 4, "ports": { "out": 4 } },
+          "thread": { "in": 4, "ports": { "out": 4 } },
+          "tickets": { "in": 0, "ports": { "out": 4 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 4,
+          "pylon.addNote": 4
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "suggest",
+            "item": "t-c1",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-c1",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-17" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-c2",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-c2",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-18" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-c3",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-c3",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-19" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-c4",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-c4",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-20" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": ["t-c1", "t-c2", "t-c3", "t-c4"]
+          },
+          { "node": "suggest", "mode": "perItem", "items": ["t-c1"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-c2"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-c3"] },
+          { "node": "suggest", "mode": "perItem", "items": ["t-c4"] }
+        ]
+      },
+      {
+        "label": "fourth run",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "pylon.newTickets": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "t-a1": "resolved",
+      "t-a2": "resolved",
+      "t-a3": "resolved",
+      "t-a4": "resolved",
+      "t-a5": "resolved",
+      "t-a6": "resolved",
+      "t-a7": "resolved",
+      "t-a8": "resolved",
+      "t-b1": "resolved",
+      "t-b2": "resolved",
+      "t-b3": "resolved",
+      "t-b4": "resolved",
+      "t-b5": "resolved",
+      "t-b6": "resolved",
+      "t-b7": "resolved",
+      "t-b8": "resolved",
+      "t-c1": "resolved",
+      "t-c2": "resolved",
+      "t-c3": "resolved",
+      "t-c4": "resolved"
+    },
+    "cursors": { "tickets": "2026-10-19T11:24:00Z" },
+    "journeys": {
+      "t-a1": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a2": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a3": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a4": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a5": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a6": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a7": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-a8": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b1": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b2": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b3": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b4": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b5": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b6": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b7": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-b8": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-c1": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-c2": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-c3": ["decision@route:otherwise", "effect@suggest", "ended@done:done"],
+      "t-c4": ["decision@route:otherwise", "effect@suggest", "ended@done:done"]
+    }
   }
 }
