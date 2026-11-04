@@ -34,6 +34,7 @@ import {
   type DocumentHistoryCause,
 } from "../lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../lib/document-updated-at.js";
+import { firstRow } from "../lib/first-row.js";
 import {
   isLinkedToLocalFile,
   liveBodyWriterFlagsOn,
@@ -271,11 +272,13 @@ async function lockPageForBodyWrite(
       database.documentId === documentId ||
       database.ownerDocumentId === documentId;
     // Membership-only collections must fence policy writes without serializing independent page saves.
-    const [locked] = await db
-      .select(collectionColumns)
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, database.id))
-      .for(changesCollection ? "update" : "share");
+    const locked = firstRow(
+      await db
+        .select(collectionColumns)
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, database.id))
+        .for(changesCollection ? "update" : "share"),
+    );
     if (
       !locked ||
       locked.documentId !== database.documentId ||
