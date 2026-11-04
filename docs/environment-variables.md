@@ -155,22 +155,24 @@ many small, independently deployable controls. The exact keys are scanned by
 `guard:env-documentation`, so adding a new key still requires it to fit an
 existing documented family or be added as an exact entry here.
 
-| Namespace / pattern                        | Scope                                                                                                                                           |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_*`                           | Core framework feature flags, build metadata, URLs, timeouts, telemetry, security opt-ins, MCP, A2A, realtime, workspace, and desktop controls. |
-| `AGENT_*`                                  | Agent engine, model, loop, terminal, run-retention, identity, and CLI controls.                                                                 |
-| `VITE_AGENT_NATIVE_*`                      | Public browser mirrors of framework configuration.                                                                                              |
-| `VITE_APP_*`                               | Public app name, template, URL, and base-path configuration.                                                                                    |
-| `AGENT_NATIVE_ANALYTICS_*`                 | Framework analytics endpoint, public key, and flush behavior.                                                                                   |
-| `AGENT_NATIVE_WORKSPACE_*`                 | Workspace app identity, audience, paths, and discovery metadata.                                                                                |
-| `AGENT_NATIVE_MCP_*` / `MCP_*`             | MCP catalog, hub, client, OAuth, server, and debug behavior.                                                                                    |
-| `AGENT_NATIVE_REALTIME_*`                  | Realtime gateway, transport, and public connection configuration.                                                                               |
-| `AGENT_NATIVE_CODE_*`                      | Code-agent profile, usage-file, home-directory, and test-response controls.                                                                     |
-| `AGENT_NATIVE_OM_*`                        | Observational-memory thresholds and recent-message limits.                                                                                      |
-| `AGENT_NATIVE_BUILD_*`                     | Build/deploy metadata and public analytics identifiers.                                                                                         |
-| `WORKSPACE_*`                              | Local workspace runner, proxy, prewarm, app lifecycle, OAuth, and shared-vault controls.                                                        |
-| `AGENT_NATIVE_GUARD_*` / `GUARD_*`         | Guard-runner concurrency and local guard tooling.                                                                                               |
-| `AGENT` / `HAS_*` / `HEAD` / `PR_AUTHOR_*` | Visual recap CLI and workflow input metadata.                                                                                                   |
+| Namespace / pattern                                | Scope                                                                                                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_*`                                   | Core framework feature flags, build metadata, URLs, timeouts, telemetry, security opt-ins, MCP, A2A, realtime, workspace, and desktop controls. |
+| `AGENT_*`                                          | Agent engine, model, loop, terminal, run-retention, identity, and CLI controls.                                                                 |
+| `VITE_AGENT_NATIVE_*`                              | Public browser mirrors of framework configuration.                                                                                              |
+| `VITE_APP_*`                                       | Public app name, template, URL, and base-path configuration.                                                                                    |
+| `AGENT_NATIVE_ANALYTICS_*`                         | Framework analytics endpoint, public key, and flush behavior.                                                                                   |
+| `AGENT_NATIVE_TELEMETRY_DISABLED` / `DO_NOT_TRACK` | Turn off CLI telemetry and the CLI's Sentry reports. See `packages/core/docs/content/telemetry.mdx`.                                            |
+| `AGENT_NATIVE_TELEMETRY_DEBUG`                     | Print each CLI telemetry event to stderr and send nothing.                                                                                      |
+| `AGENT_NATIVE_WORKSPACE_*`                         | Workspace app identity, audience, paths, and discovery metadata.                                                                                |
+| `AGENT_NATIVE_MCP_*` / `MCP_*`                     | MCP catalog, hub, client, OAuth, server, and debug behavior.                                                                                    |
+| `AGENT_NATIVE_REALTIME_*`                          | Realtime gateway, transport, and public connection configuration.                                                                               |
+| `AGENT_NATIVE_CODE_*`                              | Code-agent profile, usage-file, home-directory, and test-response controls.                                                                     |
+| `AGENT_NATIVE_OM_*`                                | Observational-memory thresholds and recent-message limits.                                                                                      |
+| `AGENT_NATIVE_BUILD_*`                             | Build/deploy metadata and public analytics identifiers.                                                                                         |
+| `WORKSPACE_*`                                      | Local workspace runner, proxy, prewarm, app lifecycle, OAuth, and shared-vault controls.                                                        |
+| `AGENT_NATIVE_GUARD_*` / `GUARD_*`                 | Guard-runner concurrency and local guard tooling.                                                                                               |
+| `AGENT` / `HAS_*` / `HEAD` / `PR_AUTHOR_*`         | Visual recap CLI and workflow input metadata.                                                                                                   |
 
 ## Authentication, provider, and integration variables
 
@@ -286,7 +288,7 @@ production deployment:
 | `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME` / `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                                                                                  | Tool-host or development-environment detection.                                                                                                                                    |
 | `GIT_*`                                                                                                                                                                               | Git's own environment. `create` clears git's `local_repo_env` set before shelling out so an inherited repository context cannot capture a new scaffold; this repo never sets them. |
 | `DEV` / `MODE` / `SSR`                                                                                                                                                                | Vite-provided build-mode flags exposed through `import.meta.env`.                                                                                                                  |
-| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                                                                              | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.                                                                                        |
+| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `ENABLE_*` / `PI_*`                                                                                               | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.                                                                                        |
 | `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME`                                                        | Local coding-agent, shell, package-manager, and test-lane tooling.                                                                                                                 |
 | `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`                                                                                                                               | Proxy settings used by Core CLI archive downloads. Lowercase forms are also supported.                                                                                             |
 

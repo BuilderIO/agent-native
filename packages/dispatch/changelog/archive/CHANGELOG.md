@@ -1,3 +1,9 @@
+## 0.31.3
+
+### Patch Changes
+
+- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
+
 ## 0.31.2
 
 ### Patch Changes

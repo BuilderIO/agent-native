@@ -3,6 +3,8 @@ import { parseHTML } from "linkedom/worker";
 
 import {
   animationElementKey,
+  findLegacyAnimationContainer,
+  getElementPath,
   getElementPreview,
   resolveRevealSteps,
   type AnimationTarget,
@@ -110,6 +112,17 @@ function structureOf(root: Element): string {
     .join("|");
 }
 
+// Only top-level additions keep every baseline reveal path: a deeper or earlier
+// sibling shifts element indexes even when tags match, so tag/class alone cannot tell.
+function appendsOnlyAtSlideEnd(baselineRoot: Element, root: Element): boolean {
+  const before = Array.from(baselineRoot.children, (child) => child.outerHTML);
+  const after = Array.from(root.children, (child) => child.outerHTML);
+  return (
+    after.length >= before.length &&
+    before.every((html, index) => html === after[index])
+  );
+}
+
 function tagAndClass(element: Element): string {
   return JSON.stringify([
     element.tagName.toLowerCase(),
@@ -145,15 +158,26 @@ function targetTextAccountedFor(
   return occurrences(root, before) === 0;
 }
 
+// A reveal without an elementPath resolves through the slide's last multi-child
+// container, so an appended container retargets it even though no path shifts.
+function legacyContainerMoved(baselineRoot: Element, root: Element): boolean {
+  const pathOf = (slide: Element) => {
+    const container = findLegacyAnimationContainer(slide);
+    return container ? getElementPath(slide, container) : null;
+  };
+  return JSON.stringify(pathOf(baselineRoot)) !== JSON.stringify(pathOf(root));
+}
+
 /**
  * The index of the first kept reveal that may now target a different element, or -1.
- * A kept reveal has the same id, index, and path as a baseline reveal. When every
- * element keeps its tag and class in document order, a kept path resolves to the same
- * element, and a text change must be an edit of the target itself (see
- * targetTextAccountedFor). Any structure change makes identity a guess, so every kept
- * reveal on the slide is refused. A baseline reveal that did not resolve has no target
- * to keep, so once it resolves under the same path, the content moved in. A baseline
- * with no slide root has no targets at all, so every such reveal counts as unresolved.
+ * A kept reveal has the same id, index, and path as a baseline reveal. When the
+ * slide only gains top-level elements at its end (see appendsOnlyAtSlideEnd), a kept
+ * path resolves to the same element, and a text change must be an edit of the target
+ * itself (see targetTextAccountedFor). Any other structure change makes identity a
+ * guess, so every kept reveal on the slide is refused. A baseline reveal that did not
+ * resolve has no target to keep, so once it resolves under the same path, the content
+ * moved in. A baseline with no slide root has no targets at all, so every such reveal
+ * counts as unresolved.
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
@@ -168,7 +192,11 @@ function retargetedRevealIndex(
         outcome.ok && baselineIds.has(revealIdentity(animations[index]!)),
     );
   }
-  const structureChanged = structureOf(baselineRoot) !== structureOf(root);
+  const structureChanged =
+    (structureOf(baselineRoot) !== structureOf(root) &&
+      !appendsOnlyAtSlideEnd(baselineRoot, root)) ||
+    (animations.some((animation) => !Array.isArray(animation.elementPath)) &&
+      legacyContainerMoved(baselineRoot, root));
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(

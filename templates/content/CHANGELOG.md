@@ -3,6 +3,40 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-02
+
+### Improved
+
+- A row opened from a view lists its properties in that view's order, with the ones the view hides under a Hidden in this view line, in the row panel and on full pages.
+
+## 2026-11-01
+
+### Fixed
+
+- Cleared pages stay empty when another editor opens them after a saved version has been synchronized.
+- Edited collection rows close without a save error after their changes have saved
+- A list item with a second paragraph or a line of code under its first line keeps all its text beside the bullet, instead of squeezing it into a narrow column.
+
+## 2026-10-31
+
+### Added
+
+- Agents connected over MCP can upload a video file into a page as a Clip, which follows the page's sharing like one you upload
+
+### Improved
+
+- Adding a filter on a status, select, multi-select or person property that already has a chip now opens that chip, so a second value joins it, and two chips that mean the same thing fold into one.
+
+### Fixed
+
+- Expanding or double-clicking an image, video or audio file opens it full screen again instead of crashing the page
+
+## 2026-10-30
+
+### Added
+
+- Public pages have a reader view for people without an account, with the page's path, links to its public sub-pages, and a way to sign up or sign in
+
 ## 2026-10-29
 
 ### Added
@@ -26,6 +60,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Comment AI can shorten selected paragraphs on pages with large images while preserving surrounding content
 - Choosing Use saved after an interrupted recovery no longer lets the discarded edits come back later
 - Renaming a page while an agent edits it no longer stops your typing from saving or undoes the agent's edit on reload
 

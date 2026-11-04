@@ -209,6 +209,20 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   return {
     ...actual,
     resolveAccess: (...args: any[]) => mocks.resolveAccess(...args),
+    // core's own tests prove resolveAccessMany agrees with resolveAccess, so
+    // this double answers through the same per-app mock the cases configure.
+    resolveAccessMany: async (
+      resourceType: string,
+      resourceIds: string[],
+      ...rest: any[]
+    ) => {
+      const access = new Map<string, unknown>();
+      for (const id of resourceIds) {
+        const resolved = await mocks.resolveAccess(resourceType, id, ...rest);
+        if (resolved) access.set(id, resolved);
+      }
+      return access;
+    },
   };
 });
 

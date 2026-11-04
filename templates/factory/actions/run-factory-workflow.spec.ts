@@ -56,7 +56,13 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
 import { WORKFLOW_JOB_APP_ID } from "../server/lib/factory-workflow-runner.js";
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
 import { WORKFLOW_STORE_LIMITS } from "../server/workflow/adapter.js";
-import { STORY_GRAPHS } from "../server/workflow/story-graphs.fixture.js";
+import {
+  STORY_GRAPHS,
+  buildGraph,
+  fixed,
+  fromPath,
+  rule,
+} from "../server/workflow/story-graphs.fixture.js";
 import runWorkflow from "./run-factory-workflow.js";
 import save from "./save-factory-workflow.js";
 import setEnabled from "./set-factory-workflow-enabled.js";
@@ -380,6 +386,69 @@ describe("run-factory-workflow", () => {
     });
   });
 
+  describe("needsConnection when a step fails for a credential", () => {
+    // The post step reads the digest's text from the model and sends it to Slack.
+    const credentialFailure = (
+      nodeId: string,
+      fields: Record<string, unknown> | null,
+    ) => ({
+      nodeId,
+      nodeName: nodeId,
+      nodeKind: "action",
+      status: "failed",
+      fields,
+      error: { code: "credential_missing", message: "no credential" },
+    });
+
+    async function finishedWith(steps: unknown[]) {
+      const created = await runSave(
+        {
+          factoryId: kit.FACTORY_ID,
+          name: "Digest",
+          graph: STORY_GRAPHS["morning-digest"],
+        },
+        kit.context,
+      );
+      getRunMock.mockResolvedValueOnce(null).mockResolvedValue({
+        run: {
+          id: "run-9",
+          mode: "dry",
+          status: "failed",
+          graphVersion: 1,
+          counts: { itemFailures: 0 },
+        },
+        steps,
+        stepsTruncated: false,
+      });
+      return request(created.workflowId, { waitSeconds: 5 });
+    }
+
+    it("names the model's provider, not the step's own, when the AI turn that writes its argument has no credential", async () => {
+      const result = await finishedWith([
+        credentialFailure("post", { credentialProvider: "builder" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["builder"] });
+    });
+
+    it("still names the step's own provider when its operation had no credential", async () => {
+      const result = await finishedWith([
+        credentialFailure("post", { operation: "slack.postMessage" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["slack"] });
+    });
+
+    it("names both when one step lacked the model's credential and another its own", async () => {
+      const result = await finishedWith([
+        credentialFailure("commits", null),
+        credentialFailure("post", { credentialProvider: "builder" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["github", "builder"] });
+    });
+  });
+
   it("with waitSeconds, answers still_running with both ids when the run does not end in time", async () => {
     const created = await createWorkflow();
     getRunMock.mockResolvedValue({
@@ -684,5 +753,142 @@ describe("run-factory-workflow: what the tripwires record", () => {
       errorCode: "run_dispatch_failed",
       statusCode: 502,
     });
+  });
+});
+
+describe("run-factory-workflow: a test with nothing to run the step on", () => {
+  /** trigger, a status source, an API request, a filter, a post, two Ends: one of each kind a test can aim at. */
+  const graphOf = (fetchArgs: Record<string, unknown>) =>
+    buildGraph({
+      nodes: [
+        ["start", "trigger", { schedule: { every: "15m" } }],
+        [
+          "src",
+          "source",
+          { source: "status", status: "received", takeLimit: 5 },
+        ],
+        [
+          "fetch",
+          "lookup",
+          { operation: "github.apiRequest", args: fetchArgs },
+        ],
+        [
+          "check",
+          "filter",
+          { combinator: "all", rules: [rule("item.title", "isEmpty")] },
+        ],
+        [
+          "post",
+          "action",
+          {
+            operation: "slack.postMessage",
+            args: { to: fixed("C0123ABCD"), text: fixed("hi") },
+          },
+        ],
+        ["done", "end", { outcome: "done" }],
+        ["skipped", "end", { outcome: "dismissed", reason: "no" }],
+      ],
+      edges: [
+        ["start", "out", "src"],
+        ["src", "out", "fetch"],
+        ["fetch", "out", "check"],
+        ["check", "match", "post"],
+        ["check", "otherwise", "skipped"],
+        ["post", "out", "done"],
+      ],
+    });
+
+  async function saved(fetchArgs: Record<string, unknown>) {
+    const created = await runSave(
+      {
+        factoryId: kit.FACTORY_ID,
+        name: "Reads",
+        graph: graphOf(fetchArgs),
+      },
+      kit.context,
+    );
+    return created.workflowId as string;
+  }
+
+  const itemPath = { path: fromPath("item.extras.endpoint") };
+
+  it("refuses, with a typed answer and nothing queued, for a step that reads the item", async () => {
+    const workflowId = await saved(itemPath);
+
+    const refused = await kit.failureOf(() =>
+      request(workflowId, { mode: "test", testNodeId: "fetch" }),
+    );
+
+    expect(refused).toMatchObject({
+      errorCode: "test_needs_items",
+      statusCode: 409,
+      details: { workflowId, nodeId: "fetch", nodeKind: "lookup" },
+    });
+    expect(refused.message).toContain('"fetch"');
+    expect(refused.message).toContain("sampleItemIds");
+    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
+    expect((await claim(workflowId)).claimed).toBeNull();
+  });
+
+  it("refuses every kind of step that takes items, not only a lookup", async () => {
+    const workflowId = await saved(itemPath);
+
+    for (const [nodeId, nodeKind] of [
+      ["check", "filter"],
+      ["post", "action"],
+      ["done", "end"],
+    ] as const) {
+      const refused = await kit.failureOf(() =>
+        request(workflowId, { mode: "test", testNodeId: nodeId }),
+      );
+      expect(refused, nodeId).toMatchObject({
+        errorCode: "test_needs_items",
+        details: { nodeId, nodeKind },
+      });
+    }
+    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
+  });
+
+  it("queues the same step once items are pinned", async () => {
+    const workflowId = await saved(itemPath);
+
+    const result = await request(workflowId, {
+      mode: "test",
+      testNodeId: "fetch",
+      sampleItemIds: ["item-1"],
+    });
+
+    expect(
+      await kit.currentStore().getRunRequest(scope, result.requestId),
+    ).toMatchObject({ testNodeId: "fetch", sampleItemIds: ["item-1"] });
+  });
+
+  it("queues a lookup that reads nothing about an item, with none pinned: it runs once on its own", async () => {
+    const workflowId = await saved({ path: fixed("repos/acme/web/labels") });
+
+    const result = await request(workflowId, {
+      mode: "test",
+      testNodeId: "fetch",
+    });
+
+    expect(
+      await kit.currentStore().getRunRequest(scope, result.requestId),
+    ).toMatchObject({ testNodeId: "fetch", sampleItemIds: [] });
+    expect(queueAutomationRunNowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues a trigger or a source with none pinned, which make their own items", async () => {
+    const workflowId = await saved(itemPath);
+
+    for (const nodeId of ["start", "src"]) {
+      await request(workflowId, { mode: "test", testNodeId: nodeId });
+    }
+    expect(queueAutomationRunNowMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a dry run alone: it needs no items pinned", async () => {
+    const workflowId = await saved(itemPath);
+    await request(workflowId, { mode: "dry" });
+    expect(queueAutomationRunNowMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -902,7 +902,6 @@ export default defineAction({
     activeBreakpoint: z
       .enum(TAILWIND_PREFIXES)
       .optional()
-      .nullable()
       .describe(
         "Active canvas breakpoint prefix. When set and the intent is a 'class' edit, the change is written as a breakpoint-scoped Tailwind class (e.g. 'md:text-lg') instead of a global class. 'base' writes an unprefixed class (same as omitting this field). Takes priority over activeFrameWidthPx.",
       ),
@@ -911,7 +910,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped. When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
       ),
@@ -920,7 +918,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),
