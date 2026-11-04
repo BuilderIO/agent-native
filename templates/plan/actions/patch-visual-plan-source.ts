@@ -26,6 +26,7 @@ import {
   planPath,
   writeEvent,
 } from "../server/plans.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   getPlanContentValidationMessage,
   type PlanContent,
@@ -248,6 +249,13 @@ export default defineAction({
       .describe(
         "Revision from the latest plan read. Required for replace-file and checked before source patching so stale full-file replacements cannot overwrite newer work.",
       ),
+    expectedRevision: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+      ),
     allowDestructive: z
       .boolean()
       .optional()
@@ -267,6 +275,13 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("Revision from the latest plan read when required."),
+    expectedRevision: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+      ),
     allowDestructive: z
       .boolean()
       .optional()
@@ -293,18 +308,14 @@ export default defineAction({
     const hasReplaceFile = args.patches.some(
       (patch) => patch.op === "replace-file",
     );
-    if (hasReplaceFile && !args.expectedUpdatedAt) {
+    const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+    if (hasReplaceFile && !expectedRevision) {
       throw new Error(
         "replace-file requires expectedUpdatedAt from the latest plan read. Reload the plan and retry with its current updatedAt value.",
       );
     }
-    if (
-      args.expectedUpdatedAt &&
-      args.expectedUpdatedAt !== bundle.plan.updatedAt
-    ) {
-      throw new Error(
-        "Plan changed since the source was read. Reload the plan and retry against its current updatedAt value.",
-      );
+    if (expectedRevision && expectedRevision !== bundle.plan.updatedAt) {
+      throw await planSaveConflict(args.planId);
     }
     const referencedBlockIds = referencedBlockIdsForPlanComments(
       bundle.comments,
@@ -366,9 +377,7 @@ export default defineAction({
       .returning({ id: schema.plans.id });
 
     if (updatedRows.length === 0) {
-      throw new Error(
-        "Plan changed while source patches were being applied. Reload the plan and retry your patch.",
-      );
+      throw await planSaveConflict(args.planId);
     }
 
     await writeEvent({

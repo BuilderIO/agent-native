@@ -1,75 +1,63 @@
-import { mergePlanBlocks } from "@shared/plan-blocks-merge";
+import {
+  rebaseOntoSaved,
+  type SavedRecord,
+  type SaveOverlap,
+  type SaveWithMergeOptions,
+} from "@agent-native/core/save-conflict";
 import type { PlanBlock } from "@shared/plan-content";
 
-/** The saved plan content at one revision. */
-export type PlanBlocksRevision = {
-  updatedAt: string;
-  blocks: PlanBlock[];
-};
+/** A plan's saved blocks at one revision. */
+export type SavedPlanBlocks = SavedRecord<PlanBlock[]>;
 
-// Each conflict means another writer saved while this one was merging, so a
-// plan under heavy concurrent editing can need a few rounds. Past the cap the
-// 409 reaches the caller instead of looping.
-const MAX_CONFLICT_MERGES = 3;
+export type PlanBlocksOverlapResolver = NonNullable<
+  SaveWithMergeOptions<PlanBlock[]>["resolveOverlap"]
+>;
 
 /**
- * The pending edit and another writer's edit changed the same thing. Nothing
- * was saved; retrying on a timer would only overwrite their work, so this one
- * waits for the person to decide.
+ * Whether the live document already settled this overlap, so there's nothing to
+ * ask. While someone else is in it, it merges what they type with what this tab
+ * types, so a save of theirs overlaps with a document that already holds their
+ * text. Structured data isn't in the document, so it can still really overlap.
  */
-export class PlanBlocksOverlapError extends Error {
-  constructor(readonly conflict: unknown) {
-    super("Another writer changed the same part of this plan.");
-    this.name = "PlanBlocksOverlapError";
-  }
+export function liveDocumentSettledOverlap(
+  { fields, mine, theirs }: SaveOverlap<PlanBlock[]>,
+  otherEditorIsLive: boolean,
+): boolean {
+  if (!otherEditorIsLive) return false;
+  return fields.every((path) => {
+    const id = path.split(".")[0];
+    const block = [...mine, ...theirs].find((candidate) => candidate.id === id);
+    return !block || block.type === "rich-text";
+  });
 }
 
-export function isPlanRevisionConflict(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    (error as { errorCode?: unknown }).errorCode === "plan_revision_conflict"
-  );
+/** This tab's last save: what it was given, and what came back. */
+export interface OwnBlockSave {
+  planId: string;
+  sent: PlanBlock[];
+  saved: SavedPlanBlocks;
 }
 
 /**
- * Saves `blocks` against `base`. When another writer got there first, merges
- * the pending edit onto the content they saved and saves again, so a concurrent
- * edit is never overwritten and never dropped. Throws `PlanBlocksOverlapError`
- * when the edits overlap and rethrows the original conflict when the retry
- * budget runs out.
+ * What the next save starts from: the newer of what this tab last saved and what
+ * the document was last brought up to. A merged save holds more than this tab
+ * sent, and the document may not have that yet, so it comes in here instead of
+ * being written over.
  */
-export async function saveBlocksMergingConflicts({
-  base,
-  blocks,
-  save,
-  readLatest,
-}: {
-  base: PlanBlocksRevision | null;
-  blocks: PlanBlock[];
-  save: (
-    blocks: PlanBlock[],
-    expectedUpdatedAt: string,
-  ) => Promise<PlanBlocksRevision>;
-  readLatest: () => Promise<PlanBlocksRevision>;
-}): Promise<PlanBlocksRevision> {
-  if (!base) throw new Error("A plan revision is required to save blocks.");
-  let attempt = { base, blocks };
-  for (let merges = 0; ; merges += 1) {
-    try {
-      return await save(attempt.blocks, attempt.base.updatedAt);
-    } catch (error) {
-      if (!isPlanRevisionConflict(error) || merges >= MAX_CONFLICT_MERGES) {
-        throw error;
-      }
-      const latest = await readLatest();
-      const merged = mergePlanBlocks(
-        attempt.base.blocks,
-        attempt.blocks,
-        latest.blocks,
-      );
-      if (!merged) throw new PlanBlocksOverlapError(error);
-      attempt = { base: latest, blocks: merged };
-    }
+export function startBlockSave(
+  own: OwnBlockSave | null,
+  loaded: SavedPlanBlocks | null,
+  blocks: PlanBlock[],
+): { base: SavedPlanBlocks; mine: PlanBlock[] } {
+  if (
+    own &&
+    (!loaded || (own.saved.revision ?? "") >= (loaded.revision ?? ""))
+  ) {
+    return {
+      base: own.saved,
+      mine: rebaseOntoSaved(own.sent, blocks, own.saved.value),
+    };
   }
+  if (!loaded) throw new Error("A plan revision is required to save blocks.");
+  return { base: loaded, mine: blocks };
 }

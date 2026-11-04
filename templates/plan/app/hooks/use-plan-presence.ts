@@ -14,6 +14,8 @@ export interface UsePlanPresenceResult {
   activeUsers: CollabUser[];
   agentPresent: boolean;
   agentActive: boolean;
+  /** Someone else, not the agent, has this plan's live document open. */
+  anotherEditorIsLive: boolean;
   recentEdits: AttributedRecentEdit[];
   collabDoc: Pick<
     UseCollaborativeDocResult,
@@ -62,6 +64,7 @@ export function usePlanPresence(options: {
     activeUsers,
     agentPresent,
     agentActive,
+    anotherEditorIsLive: others.some((other) => !other.isAgent),
     recentEdits,
     collabDoc: {
       ydoc,

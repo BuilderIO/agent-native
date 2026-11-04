@@ -25,6 +25,10 @@ immediately before the write and pass its `plan.updatedAt` as
 `expectedUpdatedAt`. Never reuse a revision from an earlier read. Prefer
 targeted content or source patches whenever they can express the edit.
 
+A stale write fails with `errorCode: "save_conflict"` and writes nothing. Redo
+your edit on `details.current`, the plan's current content, and resend with
+`details.currentRevision` as the revision.
+
 ## Verify After Every Write
 
 After every hosted-plan write, call `get-visual-plan` again and verify the

@@ -59,6 +59,13 @@ describe("adoptSnapshot", () => {
     const adopted = adoptSnapshot(base, live, snapshot);
     expect(adopted.target).toEqual(live);
     expect(adopted.keptLiveEdits).toBe(true);
+    expect(adopted.overlapped).toBe(true);
+  });
+
+  it("doesn't call a clean merge an overlap", () => {
+    const live = [prose("a", "Alpha. mine"), base[1]];
+    const snapshot = [prose("a", "Alpha."), callout("c", "Theirs.")];
+    expect(adoptSnapshot(base, live, snapshot).overlapped).toBe(false);
   });
 });
 

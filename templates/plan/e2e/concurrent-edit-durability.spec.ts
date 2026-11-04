@@ -332,6 +332,13 @@ test("concurrent edits to different blocks both reach SQL and survive reload", a
   }
 });
 
+// Typing together in one block is what the live document is for, so saves that
+// race there never ask anyone anything.
+async function expectNoPrompt(pair: Pair) {
+  await expect(pair.pageA.getByRole("alertdialog")).toHaveCount(0);
+  await expect(pair.pageB.getByRole("alertdialog")).toHaveCount(0);
+}
+
 test("concurrent edits to the same block keep both users' text", async ({
   browser,
 }) => {
@@ -346,6 +353,7 @@ test("concurrent edits to the same block keep both users' text", async ({
       typeAtEndOf(pageB, "Alpha block seed.", tokenB),
     ]);
     await expectEveryViewHas(pair, [tokenA.trim(), tokenB.trim()]);
+    await expectNoPrompt(pair);
   } finally {
     await closePair(pair);
   }
@@ -434,6 +442,84 @@ test("an edit another writer saves to a different block while someone types is k
   } finally {
     await closePair(pair);
   }
+});
+
+// Types in a block while a write that doesn't go through the live document, as an
+// agent's doesn't, changes the same block, so the prompt comes up.
+async function overlapOnFirstBlock(page: Page, planId: string) {
+  const mine = ` MINE${Date.now() % 100000}`;
+  const theirs = `THEIRS${Date.now() % 100000}`;
+  const seed = "Alpha block seed.";
+  const otherWrite = page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: TWO_BLOCKS[0].id,
+            markdown: `${seed} ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  await Promise.all([
+    typeAtEndOf(page, seed, mine),
+    otherWrite.then(async (res) => {
+      expect(res.ok(), `update-rich-text: ${await res.text()}`).toBeTruthy();
+    }),
+  ]);
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  return { mine: mine.trim(), theirs, prompt };
+}
+
+async function expectPersisted(
+  page: Page,
+  planId: string,
+  { has, lacks }: { has: string; lacks: string },
+) {
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(has);
+  // The editor must not bring the version given up back with a later save.
+  await page.waitForTimeout(2_500);
+  const text = await persistedText(page, planId);
+  expect(text).toContain(has);
+  expect(text).not.toContain(lacks);
+  await expect(surface(page)).toContainText(has);
+  await expect(surface(page)).not.toContainText(lacks);
+}
+
+test("choosing their version of a block both writers changed replaces mine, and stays", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
+  await page.reload();
+  await expect(surface(page)).toContainText(theirs, { timeout: 25_000 });
+  await expect(surface(page)).not.toContainText(mine);
+});
+
+test("keeping my version of a block both writers changed saves it, and the other comes back on request", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
 });
 
 test("opening a plan in two editors at once seeds it and its callouts exactly once", async ({

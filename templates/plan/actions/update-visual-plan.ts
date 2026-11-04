@@ -1,5 +1,6 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { countSaveOutcome } from "@agent-native/core/save-conflict/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -50,6 +51,7 @@ import {
   planStatusSchema,
   sectionInputSchema,
 } from "../server/plans.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
   assertPlanContentAuthoringInput,
@@ -539,6 +541,12 @@ const updateVisualPlanSchema = z.object({
     .describe(
       "Required optimistic-concurrency base revision for full content replacement and replace-blocks. Read the latest plan, copy plan.updatedAt exactly, and do not reuse a revision after another write succeeds. Granular patches do not require it.",
     ),
+  expectedRevision: z
+    .string()
+    .optional()
+    .describe(
+      "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+    ),
   allowDestructive: z
     .boolean()
     .optional()
@@ -742,19 +750,17 @@ export default defineAction({
     }
 
     if (isDestructiveStructuredWrite) {
-      if (!args.expectedUpdatedAt) {
+      const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+      if (!expectedRevision) {
         fail(
           "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
           { errorCode: "expected_updated_at_required", statusCode: 422 },
         );
       }
-      if (bundleAtLoad?.plan.updatedAt !== args.expectedUpdatedAt) {
-        fail(
-          "This destructive update was prepared from an outdated plan revision. Reload the plan and retry with the latest expectedUpdatedAt.",
-          { errorCode: "plan_revision_conflict", statusCode: 409 },
-        );
+      if (bundleAtLoad?.plan.updatedAt !== expectedRevision) {
+        throw await planSaveConflict(args.planId);
       }
-      versionAtLoad = args.expectedUpdatedAt;
+      versionAtLoad = expectedRevision;
     }
 
     if (args.content !== undefined) {
@@ -1041,7 +1047,8 @@ export default defineAction({
       });
     }
 
-    await db.transaction(async (tx) => {
+    let lostSaveRace = false;
+    const planWrite = db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
       //
@@ -1071,9 +1078,9 @@ export default defineAction({
           .returning({ id: schema.plans.id });
 
         if (updatedRows.length === 0) {
-          fail(
-            "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
-            { errorCode: "plan_revision_conflict", statusCode: 409 },
+          lostSaveRace = true;
+          throw new Error(
+            "The plan changed while this save was being written.",
           );
         }
       }
@@ -1220,6 +1227,10 @@ export default defineAction({
         });
       }
     });
+    await planWrite.catch(async (error) => {
+      throw lostSaveRace ? await planSaveConflict(args.planId) : error;
+    });
+    if (hasPlanAuthoringChanges) countSaveOutcome("plan_content", "written");
 
     if (isAgentCaller && hasPlanAuthoringChanges) {
       try {

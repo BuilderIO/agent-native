@@ -56,7 +56,7 @@ import { encodeStateAsUpdate } from "yjs";
 import { Button } from "@/components/ui/button";
 
 import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
-import type { PlanBlocksRevision } from "../../lib/plan-block-save";
+import type { SavedPlanBlocks } from "../../lib/plan-block-save";
 import { PlanBlockView } from "../plan/DocumentArea";
 import {
   findPlanBlock,
@@ -711,6 +711,7 @@ export function PlanDocumentEditor({
   onVisualQuestionsSubmit,
   sharedCollabDoc,
   blocksReaderRef,
+  documentWriterRef,
 }: {
   content: PlanContent;
   contentUpdatedAt?: string | null;
@@ -719,7 +720,7 @@ export function PlanDocumentEditor({
   editable: boolean;
   onBlocksChange: (
     blocks: PlanBlock[],
-    base: PlanBlocksRevision | null,
+    base: SavedPlanBlocks | null,
   ) => void | Promise<void>;
   onVisualQuestionsSubmit?: (summary: string) => void;
   /**
@@ -728,6 +729,14 @@ export function PlanDocumentEditor({
    */
   blocksReaderRef?: MutableRefObject<
     ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+  >;
+  /**
+   * Filled, while mounted, with a writer that puts a version the person chose
+   * into the live document, replacing the version they gave up and keeping
+   * anything the document gained on top of it.
+   */
+  documentWriterRef?: MutableRefObject<
+    ((gaveUp: PlanBlock[], chosen: PlanBlock[]) => void) | null
   >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
@@ -812,21 +821,30 @@ export function PlanDocumentEditor({
   // The saved revision this document's blocks were last brought up to. A save
   // is a three-way merge against it, so it must follow what the document
   // adopted, not whatever the query cache has fetched since.
-  const adoptedRevisionRef = useRef<PlanBlocksRevision | null>(
+  const adoptedRevisionRef = useRef<SavedPlanBlocks | null>(
     contentUpdatedAt
-      ? { updatedAt: contentUpdatedAt, blocks: content.blocks }
+      ? { revision: contentUpdatedAt, value: content.blocks }
       : null,
   );
+  const latestContentRef = useRef({ blocks: content.blocks, contentUpdatedAt });
+  latestContentRef.current = { blocks: content.blocks, contentUpdatedAt };
+  const hasSeededRef = useRef(false);
   useEffect(() => {
     if (!contentUpdatedAt) return;
-    if (adoptedRevisionRef.current?.updatedAt === contentUpdatedAt) return;
+    if (adoptedRevisionRef.current?.revision === contentUpdatedAt) return;
+    // Until the document holds this version, a save starting from it would write
+    // over it. `setContent` moves this on once it has been merged in.
+    const editor = editorRef.current;
+    if (editor && !editor.isDestroyed) {
+      const live = proseJSONToBlocks(editor.getJSON(), blocksRef.current);
+      const hydrated = live.length > 0 || hasSeededRef.current;
+      if (hydrated && documentIsAheadOfSaved(live, content.blocks)) return;
+    }
     adoptedRevisionRef.current = {
-      updatedAt: contentUpdatedAt,
-      blocks: content.blocks,
+      revision: contentUpdatedAt,
+      value: content.blocks,
     };
   }, [contentUpdatedAt, content.blocks]);
-
-  const hasSeededRef = useRef(false);
 
   const commit = (next: PlanBlock[]) => {
     if (!collabEnabled && !isRestoringRef.current) {
@@ -1071,18 +1089,38 @@ export function PlanDocumentEditor({
         }
         let parsed = snapshot;
         let keptLiveEdits = false;
+        let overlapped = false;
         if (collabEnabledRef.current) {
           const live = proseJSONToBlocks(editor.getJSON(), blocksRef.current);
           // An editor still waiting for its first content is empty, which is
           // not someone deleting every block.
           const hydrated = live.length > 0 || hasSeededRef.current;
-          ({ target: parsed, keptLiveEdits } = adoptSnapshot(
+          ({
+            target: parsed,
+            keptLiveEdits,
+            overlapped,
+          } = adoptSnapshot(
             docBaseRef.current,
             hydrated ? live : null,
             snapshot,
           ));
         }
-        docBaseRef.current = snapshot;
+        // After an overlap the document still lacks this snapshot, and adopting
+        // it again must not read as there being nothing new in it.
+        if (!overlapped) {
+          docBaseRef.current = snapshot;
+          const latest = latestContentRef.current;
+          if (
+            latest.contentUpdatedAt &&
+            latest.contentUpdatedAt !== adoptedRevisionRef.current?.revision &&
+            nextValue === JSON.stringify(latest.blocks)
+          ) {
+            adoptedRevisionRef.current = {
+              revision: latest.contentUpdatedAt,
+              value: snapshot,
+            };
+          }
+        }
         // The merged document holds more than the saved copy, which nobody
         // else will save: the collaborators' editors did not change it.
         if (keptLiveEdits) commitRef.current(parsed);
@@ -1340,6 +1378,27 @@ export function PlanDocumentEditor({
       if (blocksReaderRef) blocksReaderRef.current = null;
     },
     [blocksReaderRef],
+  );
+
+  const writeChosenVersion = (gaveUp: PlanBlock[], chosen: PlanBlock[]) => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) return;
+    // Merging against what was given up makes the chosen version replace it.
+    docBaseRef.current = gaveUp;
+    rememberEmitted(JSON.stringify(chosen));
+    blocksRef.current = chosen;
+    setBlocks(chosen);
+    setContent(editor, JSON.stringify(chosen), {
+      emitUpdate: false,
+      addToHistory: false,
+    });
+  };
+  if (documentWriterRef) documentWriterRef.current = writeChosenVersion;
+  useEffect(
+    () => () => {
+      if (documentWriterRef) documentWriterRef.current = null;
+    },
+    [documentWriterRef],
   );
 
   const legacyCtxRef = useRef({ contentUpdatedAt, planId, collabUser });

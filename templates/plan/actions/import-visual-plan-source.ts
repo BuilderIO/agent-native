@@ -36,6 +36,7 @@ import {
   planStatusSchema,
   writeEvent,
 } from "../server/plans.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import { type PlanContent } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
 
@@ -74,6 +75,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Existing plan ID to replace. Omit to create a new plan."),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+      ),
     expectedUpdatedAt: z
       .string()
       .optional()
@@ -165,21 +172,20 @@ export default defineAction({
         content = applyImportedAssets(content, srcByFilename);
       }
 
-      if (args.expectedUpdatedAt) {
+      const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+      if (expectedRevision) {
         const updatedRows = await db
           .update(schema.plans)
-          .set({ updatedAt: args.expectedUpdatedAt })
+          .set({ updatedAt: expectedRevision })
           .where(
             and(
               eq(schema.plans.id, args.planId),
-              eq(schema.plans.updatedAt, args.expectedUpdatedAt),
+              eq(schema.plans.updatedAt, expectedRevision),
             ),
           )
           .returning({ id: schema.plans.id });
         if (updatedRows.length === 0) {
-          throw new Error(
-            "Plan changed while the source import was being prepared. Reload the plan and retry.",
-          );
+          throw await planSaveConflict(args.planId);
         }
       }
 

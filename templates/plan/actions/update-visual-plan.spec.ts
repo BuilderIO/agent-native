@@ -1479,11 +1479,9 @@ describe("update-visual-plan comments", () => {
           consumedCommentIds: [],
         }),
       ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          "prepared from an outdated plan revision",
-        ),
-        errorCode: "plan_revision_conflict",
+        errorCode: "save_conflict",
         statusCode: 409,
+        details: { currentRevision: expect.any(String) },
       });
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
@@ -1825,7 +1823,7 @@ describe("update-visual-plan comments", () => {
       }),
     ).rejects.toMatchObject({
       actionContractError: true,
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
     });
   });
@@ -1947,9 +1945,9 @@ describe("update-visual-plan comments", () => {
         consumedCommentIds: [],
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("updated by someone else"),
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
+      details: { currentRevision: expect.any(String) },
     });
   });
 
