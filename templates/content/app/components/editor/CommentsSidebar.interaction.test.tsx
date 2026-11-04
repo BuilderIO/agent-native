@@ -159,6 +159,7 @@ function proposalSuggestion(
 }
 
 let panel: ReturnType<typeof useCommentPanelSession>;
+let replyState: ReturnType<typeof useCommentReplyDrafts>;
 let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
   replyDraft = useCommentDraft("reply:fixture:one");
@@ -195,6 +196,7 @@ function SidebarOwner({
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
+  replyState = replies;
   const pending = usePendingCommentDraft("fixture");
   useEffect(() => {
     pending.setPendingComment(
@@ -489,6 +491,73 @@ describe("comment review interactions", () => {
       const card = container.querySelector("[data-suggestion-id='one']");
       expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
       expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+    });
+
+    it("opens a unit's card when a later piece is commented on", () => {
+      render(null, [], "inline", {
+        suggestions: [
+          piece("one", "k:0", "Teh"),
+          piece("two", "k:0", "recieve"),
+          piece("three", "k:1", "files"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const closedCard = () =>
+        container.querySelector(
+          "[data-suggestion-id='one'].cursor-pointer, [data-suggestion-id='one'] .cursor-pointer",
+        );
+      expect(closedCard()).not.toBeNull();
+      act(() => replyState.setOpenReply("suggestion-two", "two"));
+      expect(closedCard()).toBeNull();
+    });
+
+    it("keeps a unit whole when a history search matches one of its pieces", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "history", {
+        suggestions: members,
+        onDecideSuggestionProposal,
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit two" }));
+      expect(
+        container.querySelector("[data-suggestion-id='three']"),
+      ).toBeNull();
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members.slice(0, 2),
+        true,
+      );
+    });
+
+    it("counts a proposal in units when history shows only some of them", () => {
+      const accepted = (id: string, reviewUnit: string, find: string) => ({
+        ...piece(id, reviewUnit, find),
+        status: "accepted" as const,
+      });
+      render(null, [], "history", {
+        suggestions: [
+          accepted("one", "k:0", "Teh"),
+          accepted("two", "k:0", "team"),
+          accepted("three", "k:1", "will"),
+          accepted("four", "k:1", "recieve"),
+          piece("five", "k:2", "the"),
+          piece("six", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ status: "resolved" }));
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:3");
     });
 
     it("marks a unit's change by whole words", () => {

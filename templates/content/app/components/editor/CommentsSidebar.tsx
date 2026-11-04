@@ -3293,7 +3293,9 @@ export function CommentsSidebar({
             activeSuggestionId === member.id ||
             hoveredSuggestionId === member.id,
         )}
-        expandRequested={expandedSuggestionId === suggestion.id}
+        expandRequested={unit.members.some(
+          (member) => member.id === expandedSuggestionId,
+        )}
         focusRequested={unit.members.some(
           (member) => focusSuggestionId === member.id,
         )}
@@ -3337,6 +3339,13 @@ export function CommentsSidebar({
       proposalId={proposalId}
       summary={members[0]?.proposalSummary || members[0]?.summary || ""}
       totalCount={proposalMemberCounts.get(proposalId) ?? members.length}
+      totalUnits={
+        reviewUnits(
+          suggestions.filter(
+            (suggestion) => suggestion.proposalId === proposalId,
+          ),
+        ).length
+      }
       members={members}
       active={members.some(
         (member) =>

@@ -14,7 +14,7 @@ const sentences = new (
 // "Dr. Lee" in two. A wrong join costs a choice but a wrong split breaks text,
 // so a period after one of these never ends a sentence.
 const ABBREVIATION_END =
-  /(?:^|[\s("'])(?:Dr|Mr|Mrs|Ms|Mx|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Corp|[A-Z](?:\.[A-Z])*)\.\s*$/;
+  /(?:^|[\s("'])(?:Dr|Mr|Mrs|Ms|Mx|Prof|Sr|Jr|St|Gov|Sen|Rep|Gen|Col|Capt|Lt|Sgt|Rev|Hon|vs|etc|Inc|Ltd|Corp|[A-Z](?:\.[A-Z])*|[a-z](?:\.[a-z])+)\.\s*$/;
 
 /** Where each sentence after the first starts in this text. */
 function sentenceStarts(text: string) {
@@ -35,10 +35,16 @@ function separatesSentences(source: string, from: number, to: number) {
   const between = source.slice(from, to);
   if (!/[\p{L}\p{N}]/u.test(between)) return false;
   if (between.includes("\n")) return true;
-  // What follows decides whether a period ended the sentence.
+  // The whole line: what comes before says whether a period ended an
+  // abbreviation, and what follows whether it ended a sentence. A boundary counts
+  // only after unchanged text, since a piece may be changing that very period.
+  const start = from === 0 ? 0 : source.lastIndexOf("\n", from - 1) + 1;
   const lineEnd = source.indexOf("\n", to);
-  const line = source.slice(from, lineEnd < 0 ? undefined : lineEnd);
-  return sentenceStarts(line).some((index) => index <= between.length);
+  const line = source.slice(start, lineEnd < 0 ? undefined : lineEnd);
+  return sentenceStarts(line).some(
+    (index) =>
+      start + index <= to && source.slice(from, start + index).trim() !== "",
+  );
 }
 
 /**

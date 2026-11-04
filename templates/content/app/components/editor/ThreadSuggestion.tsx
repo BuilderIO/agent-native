@@ -246,6 +246,7 @@ export function ThreadSuggestionBody({
           proposalId={first.proposalId ?? first.id}
           summary={summary}
           totalCount={suggestions.length}
+          totalUnits={units.length}
           members={suggestions}
           active={false}
           expanded={expanded}

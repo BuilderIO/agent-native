@@ -79,6 +79,7 @@ export function ProposalGroup({
   proposalId,
   summary,
   totalCount,
+  totalUnits,
   members,
   active,
   expanded,
@@ -93,6 +94,8 @@ export function ProposalGroup({
   proposalId: string;
   summary: string;
   totalCount: number;
+  /** The whole proposal's units, when `members` may be only some of them. */
+  totalUnits: number;
   members: ResourceSuggestion[];
   active: boolean;
   expanded: boolean;
@@ -124,10 +127,8 @@ export function ProposalGroup({
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
   const undecided = pending.length === totalCount;
-  // Pieces reviewed together count once; any edit not listed here, once each.
-  const editCount =
-    reviewUnits(pending).length ||
-    totalCount - members.length + reviewUnits(members).length;
+  // Pieces reviewed together count once.
+  const editCount = reviewUnits(pending).length || totalUnits;
   return (
     <div
       ref={groupRef}
