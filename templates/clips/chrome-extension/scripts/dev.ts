@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { watch } from "node:fs";
 import http from "node:http";
 import { dirname, resolve } from "node:path";
@@ -58,6 +58,7 @@ function notifyReload(): void {
 
 const vite = spawn("pnpm", ["exec", "vite", "build", "--watch"], {
   cwd: root,
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 vite.on("exit", (code) => {
@@ -80,7 +81,14 @@ startWatchingDist();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    vite.kill();
+    if (process.platform === "win32" && vite.pid) {
+      // Vite runs under a cmd.exe wrapper there, so stop the whole tree.
+      spawnSync("taskkill", ["/pid", String(vite.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+    } else {
+      vite.kill();
+    }
     server.close();
     process.exit(0);
   });

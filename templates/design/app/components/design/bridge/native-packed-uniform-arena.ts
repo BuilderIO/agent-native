@@ -143,6 +143,15 @@ export class NativePackedUniformArena<Buffer> {
     this.phase = null;
   }
 
+  // Offsets restart at zero, so every binding handed out earlier is invalid.
+  reset(): void {
+    if (this.frame !== null)
+      throw new NativePackedUniformArenaError("uniform-arena-frame-active");
+    this.staging.fill(0, 0, this.allocatedEnd);
+    this.slots.clear();
+    this.allocatedEnd = 0;
+  }
+
   private assertFrame(frame: NativePackedUniformFrame): void {
     if (this.frame !== frame)
       throw new NativePackedUniformArenaError("uniform-arena-frame-stale");

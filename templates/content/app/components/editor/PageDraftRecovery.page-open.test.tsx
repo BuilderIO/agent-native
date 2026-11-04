@@ -72,6 +72,9 @@ vi.mock("@agent-native/core/client/hooks", () => {
   return {
     callAction,
     getBrowserTabId: () => "tab-1",
+    // The page asks for the UI write capability early; the mocked session
+    // has nothing to mint.
+    prepareUiActionCapability: vi.fn(),
     useDbSync: vi.fn(),
     useSession: () => ({ session: server.session }),
     setClientAppState: vi.fn(() => Promise.resolve()),

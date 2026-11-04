@@ -42,6 +42,9 @@ export interface ShareableResourceRegistration {
    * when changing visibility must share a transaction with another invariant,
    * such as reserving a human-readable name before the row becomes visible.
    * The generic action falls back to a direct update when this is omitted.
+   * It must write all of its change or none of it: when a later resource in
+   * a batch fails, the action undoes earlier ones by calling it again with
+   * their previous visibility, unless another change has replaced its own.
    */
   persistVisibilityChange?: (args: {
     resource: any;
