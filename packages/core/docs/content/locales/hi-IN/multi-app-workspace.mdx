@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 कार्यस्थान के अंदर कहीं से भी:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI आपके द्वारा पहले से इंस्टॉल किए गए ऐप्स को फ़िल्टर करके फिर से टेम्पलेट पिकर दिखाता है। एक या अधिक चुनें और वे `apps/` के अंतर्गत आ जाएंगे। गैर-संवादात्मक संस्करण:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 कोई भी प्रथम-पक्ष टेम्पलेट वर्कस्पेस ऐप के रूप में काम करता है - CLI टेम्पलेट पर एक छोटा **workspacify** ट्रांसफॉर्म चलाता है जो साझा पैकेज को एक डिप के रूप में जोड़ता है और `workspace:*` संदर्भों को हल करता है। बनाए रखने के लिए कोई समानांतर "वर्कस्पेस-ऐप" मचान नहीं।

@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 작업공간 내부 어디에서나:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI는 이미 설치한 앱을 필터링하여 템플릿 선택기를 다시 표시합니다. 하나 이상을 선택하면 `apps/` 아래에 비계가 설치됩니다. 비대화형 변형:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 모든 자사 템플릿은 작업 공간 앱으로 작동합니다. CLI는 공유 패키지를 dep으로 추가하고 `workspace:*` 참조를 확인하는 템플릿에서 작은 **workspacify** 변환을 실행합니다. 유지 관리할 병렬 "작업 공간 앱" 스캐폴드가 없습니다.

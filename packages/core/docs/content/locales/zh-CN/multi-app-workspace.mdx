@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 从工作区内的任何位置：
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI 再次显示模板选择器，其中已过滤掉您已安装的应用程序。选择一个或多个，它们就会被搭建在 `apps/` 下。非交互式变体：
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 任何第一方模板都可以用作工作区应用程序 - CLI 在模板上运行一个小型 **workspacify** 转换，将共享包添加为 dep 并解析 `workspace:*` 引用。无需维护并行的“工作空间应用程序”脚手架。

@@ -118,13 +118,13 @@ Chaque application sait déjà comment se connecter, partager la même base de d
 Depuis n'importe où dans l'espace de travail :
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 Le CLI affiche à nouveau le sélecteur de modèles avec les applications que vous avez déjà installées filtrées. Choisissez-en un ou plusieurs et ils seront échafaudés sous `apps/`. Variante non interactive :
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Tout modèle propriétaire fonctionne comme une application d'espace de travail : le CLI exécute une petite transformation **workspacify** sur le modèle qui ajoute le package partagé en tant que dépôt et résout les références `workspace:*`. Aucun échafaudage « espace de travail-application » parallèle à maintenir.

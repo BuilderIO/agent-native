@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 من أي مكان داخل مساحة العمل:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 يعرض CLI منتقي القوالب مرة أخرى مع تصفية التطبيقات التي قمت بتثبيتها بالفعل. اختر واحدًا أو أكثر وسيتم تثبيتهم تحت `apps/`. البديل غير التفاعلي:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 يعمل أي قالب للطرف الأول كتطبيق مساحة عمل - يقوم CLI بتشغيل تحويل صغير **workspacify** على القالب الذي يضيف الحزمة المشتركة كإقلاع ويحل مراجع `workspace:*`. لا توجد سقالة موازية "لتطبيق مساحة العمل" يجب صيانتها.
