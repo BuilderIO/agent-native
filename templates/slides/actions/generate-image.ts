@@ -307,6 +307,7 @@ Options:
     successfulVariations++;
     if (outputPrefix) {
       const filePath = `${outputPrefix}-v${i + 1}.png`;
+      noteExternalWrite("local-disk");
       writeFileSync(filePath, result.imageData);
       generatedFiles.push(filePath);
       console.log(

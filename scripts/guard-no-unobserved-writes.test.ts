@@ -58,6 +58,39 @@ describe("unobserved write guard: filesystem writes", () => {
     assert.deepEqual(flagged(namespaced), ["1:local-disk", "2:local-disk"]);
   });
 
+  it("flags writes through an import alias, a namespace import or a file handle", () => {
+    const source = [
+      'import { writeFile as persist, rm as remove } from "node:fs/promises";',
+      'import * as disk from "node:fs";',
+      'import nodeFs, { truncate } from "fs";',
+      "await persist(path, body);",
+      "await remove(dir);",
+      "disk.writeFileSync(path, body);",
+      "nodeFs.rmSync(dir);",
+      "await truncate(path, 0);",
+      'const handle = await fsp.open(path, "w");',
+      "await handle.writeFile(body);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "4:local-disk",
+      "5:local-disk",
+      "6:local-disk",
+      "7:local-disk",
+      "8:local-disk",
+      "10:local-disk",
+    ]);
+  });
+
+  it("does not flag a same-named function imported from another module", () => {
+    const source = [
+      'import { writeFile as persist } from "./store";',
+      "await persist(path, body);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
   it("does not flag method calls on unrelated objects or names that only contain a write name", () => {
     const source = [
       "const matches = regex.exec(text);",
@@ -89,6 +122,15 @@ describe("unobserved write guard: child processes", () => {
     assert.deepEqual(flagged(namespace), ["2:child-process"]);
 
     assert.deepEqual(flagged('spawn("ls");\nexec("ls");'), []);
+  });
+
+  it("flags a call through an import alias", () => {
+    const source = [
+      'import { spawn as launch } from "node:child_process";',
+      'launch("git", ["status"]);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["2:child-process"]);
   });
 });
 
@@ -243,6 +285,65 @@ describe("unobserved write guard: passes", () => {
     assert.deepEqual(flagged(source), ["2:local-disk", "7:local-disk"]);
   });
 
+  it("does not let a note that runs only on some paths cover a write", () => {
+    const source = [
+      "export async function ifOnly(path, flag) {",
+      '  if (flag) noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function and(path, flag) {",
+      '  flag && noteExternalWrite("local-disk");',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function ternary(path, flag) {",
+      '  flag ? noteExternalWrite("local-disk") : undefined;',
+      "  await writeFile(path, body);",
+      "}",
+      "export async function braced(path, flag) {",
+      '  if (flag) { noteExternalWrite("local-disk"); }',
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "3:local-disk",
+      "7:local-disk",
+      "11:local-disk",
+      "15:local-disk",
+    ]);
+  });
+
+  it("covers a write that follows its note in the same branch and no other", () => {
+    const source = [
+      "export async function save(path, flag) {",
+      "  if (flag) {",
+      '    noteExternalWrite("local-disk");',
+      "    await writeFile(path, body);",
+      "  } else {",
+      "    await rm(path);",
+      "  }",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["6:local-disk"]);
+  });
+
+  it("compares a note with where the write call starts, not with its line", () => {
+    const source = [
+      "export async function late(path) {",
+      '  await writeFile(path, body); noteExternalWrite("local-disk");',
+      "}",
+      "export async function early(path) {",
+      '  noteExternalWrite("local-disk"); await writeFile(path, body);',
+      "}",
+      "export async function commented(path) {",
+      '  /* a comment that is longer than the call after it */ noteExternalWrite("local-disk"); await rm(path);',
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["2:local-disk"]);
+  });
+
   it("lets a note anywhere in the file cover an HTTP client or vendor SDK import", () => {
     const source = [
       'import Stripe from "stripe";',
@@ -297,6 +398,38 @@ describe("unobserved write guard: passes", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source), ["9:local-disk", "12:local-disk"]);
+  });
+
+  it("does not treat a helper that notes only on some paths as one that notes", () => {
+    const source = [
+      "async function maybeNote(flag) {",
+      '  if (flag) noteExternalWrite("local-disk");',
+      "}",
+      "export async function save(path) {",
+      "  await maybeNote(true);",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["6:local-disk"]);
+  });
+
+  it("does not resolve a helper name that the file declares twice", () => {
+    const source = [
+      "async function noteDiskWrite() {",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "export async function shadowed(path, noteDiskWrite) {",
+      "  await noteDiskWrite();",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function plain(path) {",
+      "  await noteDiskWrite();",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["6:local-disk", "10:local-disk"]);
   });
 
   it("accepts a note called through a namespace", () => {

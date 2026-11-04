@@ -101,6 +101,7 @@ Keep everything else about the image the same - same style, same composition, sa
 
               if (outputPrefix) {
                 const filePath = `${outputPrefix}-v${i + 1}.${ext}`;
+                noteExternalWrite("local-disk");
                 writeFileSync(filePath, buffer);
                 generatedFiles.push(filePath);
                 console.log(

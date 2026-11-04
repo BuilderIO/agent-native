@@ -20,13 +20,15 @@
  *   - vendor SDK imports known to write externally (stripe, googleapis, …)
  *
  * A flagged line passes when:
- *   - a `noteExternalWrite(` call comes before it in the same function (or in
- *     one that contains it, or at module level for code outside any function).
- *     A call to a function in the same file that itself calls
- *     `noteExternalWrite(` counts as one. A note in another function, after the
- *     write, or inside a callback beside it covers nothing. An import of an
- *     HTTP client or vendor SDK has no write site to place a call before, so it
- *     passes when the file calls `noteExternalWrite(` anywhere, or
+ *   - a `noteExternalWrite(` call comes before the write call as a statement of
+ *     a block that contains it (or at module level, for code outside any
+ *     function). A call to a function in the same file that notes on every path
+ *     counts as one; a name declared twice in the file is not resolved to a
+ *     helper. A note in another function, after the write, inside a callback
+ *     beside it, or only on some paths (`if (x) note();`, `x && note()`)
+ *     covers nothing. An import of an HTTP client or vendor SDK has no write
+ *     site to place a call before, so it passes when the file calls
+ *     `noteExternalWrite(` anywhere, or
  *   - the line or the line above carries an opt-out with a reason:
  *
  *       // observed-write-ok: <why this write is temp-only or retry-idempotent>
@@ -112,7 +114,10 @@ const CHILD_PROCESS_CALL = new RegExp(
   `(?:(?<![\\w$.])|(?<![\\w$])(?:child_process|childProcess|cp)\\.)(?:${CHILD_PROCESS_CALLS.join("|")})\\s*\\(`,
 );
 const HTTP_REQUEST_CALL = /(?<![\w$])(?:https?|http2)\.request\s*\(/;
+// A FileHandle (`(await fsp.open(p, "w")).writeFile(...)`) has no namespace name.
+const FILE_HANDLE_CALL = /\.\s*(?:writeFile|appendFile)\s*\(/;
 
+const FS_MODULE = /^(?:node:)?fs(?:\/promises)?$/;
 const CHILD_PROCESS_MODULE = /^(?:node:)?child_process$/;
 const HTTP_CLIENT_MODULE =
   /^(?:node:)?(?:https?|http2)$|^(?:undici|axios|got|node-fetch|superagent)(?:\/|$)/;
@@ -174,7 +179,8 @@ function codeOf(line: string): string {
     if (ch === "/" && line[i + 1] === "*") {
       const end = line.indexOf("*/", i + 2);
       if (end === -1) break;
-      code += " ";
+      // Same width, so a match's column is its column in the line.
+      code += " ".repeat(end + 2 - i);
       i = end + 1;
       continue;
     }
@@ -209,11 +215,115 @@ interface WriteMatch {
   channel: string;
   /** An import has no write site, so only a call in the file can cover it. */
   kind: "import" | "call";
+  /** Where the write call starts in the line; a note must come before it. */
+  column: number;
+}
+
+/** What a file's own imports add to the call patterns: aliases and namespace names. */
+interface FilePatterns {
+  fs: readonly RegExp[];
+  childProcess: readonly RegExp[];
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Calls to a module's write functions under the names this file binds them to:
+ * `import { writeFile as persist } from "node:fs/promises"` is `persist(`, and
+ * `import * as disk from "node:fs"` is `disk.writeFile(`.
+ */
+function importedCallPatterns(
+  sourceFile: ts.SourceFile,
+  module: RegExp,
+  exported: readonly string[],
+): RegExp[] {
+  const calls: string[] = [];
+  const namespaces: string[] = [];
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !module.test(statement.moduleSpecifier.text)
+    ) {
+      continue;
+    }
+    const clause = statement.importClause;
+    if (!clause || clause.isTypeOnly) continue;
+    if (clause.name) namespaces.push(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      namespaces.push(bindings.name.text);
+    }
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if (
+          !element.isTypeOnly &&
+          exported.includes((element.propertyName ?? element.name).text)
+        ) {
+          calls.push(element.name.text);
+        }
+      }
+    }
+  }
+  const named = (list: readonly string[]) => list.map(escapeRegExp).join("|");
+  const patterns: RegExp[] = [];
+  if (calls.length > 0) {
+    patterns.push(new RegExp(`(?<![\\w$.])(?:${named(calls)})\\s*\\(`));
+  }
+  if (namespaces.length > 0) {
+    patterns.push(
+      new RegExp(
+        `(?<![\\w$])(?:${named(namespaces)})\\.(?:${exported.join("|")})\\s*\\(`,
+      ),
+    );
+  }
+  return patterns;
+}
+
+function filePatterns(sourceFile: ts.SourceFile, lines: readonly string[]) {
+  const importsChildProcess = lines.some((line) => {
+    const module = importedModule(line);
+    return module !== null && CHILD_PROCESS_MODULE.test(module);
+  });
+  return {
+    fs: [
+      FS_CALL,
+      FILE_HANDLE_CALL,
+      ...importedCallPatterns(sourceFile, FS_MODULE, [
+        ...FS_WRITE_CALLS,
+        ...FS_NAMESPACE_ONLY_CALLS,
+      ]),
+    ],
+    childProcess: importsChildProcess
+      ? [
+          CHILD_PROCESS_CALL,
+          ...importedCallPatterns(
+            sourceFile,
+            CHILD_PROCESS_MODULE,
+            CHILD_PROCESS_CALLS,
+          ),
+        ]
+      : [],
+  } satisfies FilePatterns;
+}
+
+function earliestMatch(
+  code: string,
+  patterns: readonly RegExp[],
+): RegExpExecArray | null {
+  let first: RegExpExecArray | null = null;
+  for (const pattern of patterns) {
+    const found = pattern.exec(code);
+    if (found && (first === null || found.index < first.index)) first = found;
+  }
+  return first;
 }
 
 function matchUnobservedWrite(
   line: string,
-  importsChildProcess: boolean,
+  patterns: FilePatterns,
 ): WriteMatch | null {
   const module = importedModule(line);
   if (module !== null) {
@@ -222,6 +332,7 @@ function matchUnobservedWrite(
         matched: `import "${module}"`,
         channel: "node-http",
         kind: "import",
+        column: 0,
       };
     }
     if (VENDOR_SDK_MODULE.test(module)) {
@@ -229,28 +340,27 @@ function matchUnobservedWrite(
         matched: `import "${module}"`,
         channel: "vendor-sdk",
         kind: "import",
+        column: 0,
       };
     }
   }
 
   const code = codeOf(line);
-  const fsCall = FS_CALL.exec(code);
-  if (fsCall) {
-    return { matched: fsCall[0].trim(), channel: "local-disk", kind: "call" };
-  }
-  if (importsChildProcess) {
-    const childCall = CHILD_PROCESS_CALL.exec(code);
-    if (childCall) {
+  const channels: Array<[string, readonly RegExp[]]> = [
+    ["local-disk", patterns.fs],
+    ["child-process", patterns.childProcess],
+    ["node-http", [HTTP_REQUEST_CALL]],
+  ];
+  for (const [channel, candidates] of channels) {
+    const found = earliestMatch(code, candidates);
+    if (found) {
       return {
-        matched: childCall[0].trim(),
-        channel: "child-process",
+        matched: found[0].trim(),
+        channel,
         kind: "call",
+        column: found.index,
       };
     }
-  }
-  const httpCall = HTTP_REQUEST_CALL.exec(code);
-  if (httpCall) {
-    return { matched: httpCall[0].trim(), channel: "node-http", kind: "call" };
   }
   return null;
 }
@@ -271,10 +381,13 @@ function hasEmptyPragma(lines: readonly string[], lineNo: number): boolean {
 interface NoteCall {
   /** Where the call ends: a write is covered only by a call before it. */
   end: number;
-  /** The function the call is in, or the file, which covers writes inside it. */
-  scopeStart: number;
-  scopeEnd: number;
-  /** In no function: it covers only code that is in none either. */
+  /**
+   * Where its cover ends: the block it is a statement of. A call that runs
+   * only on some paths (`if (x) note();`, `x && note()`, an argument, a callback
+   * body) is not a statement of a block, so it covers nothing after itself.
+   */
+  coverEnd: number;
+  /** A statement of the file itself covers only code that is in no function. */
   moduleLevel: boolean;
 }
 
@@ -286,10 +399,84 @@ function isFunctionScope(node: ts.Node): boolean {
   );
 }
 
-function calleeName(node: ts.CallExpression): string | undefined {
+function isNoteExternalWrite(node: ts.CallExpression): boolean {
   const callee = node.expression;
-  if (ts.isIdentifier(callee)) return callee.text;
-  return ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+  return (
+    (ts.isIdentifier(callee) && callee.text === "noteExternalWrite") ||
+    (ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "noteExternalWrite")
+  );
+}
+
+/** The call with any `await` or parentheses around it. */
+function outermost(call: ts.CallExpression): ts.Node {
+  let top: ts.Node = call;
+  while (
+    ts.isAwaitExpression(top.parent) ||
+    ts.isParenthesizedExpression(top.parent)
+  ) {
+    top = top.parent;
+  }
+  return top;
+}
+
+/** The block, file or case a call is a whole statement of, if it is one. */
+function statementList(call: ts.CallExpression): ts.Node | undefined {
+  const statement = outermost(call).parent;
+  if (!ts.isExpressionStatement(statement)) return undefined;
+  const list = statement.parent;
+  return ts.isBlock(list) ||
+    ts.isSourceFile(list) ||
+    ts.isCaseClause(list) ||
+    ts.isDefaultClause(list) ||
+    ts.isModuleBlock(list)
+    ? list
+    : undefined;
+}
+
+/** Whether a call in `scope` runs on every path through it. */
+function runsEveryTime(call: ts.CallExpression, scope: ts.Node): boolean {
+  const body = ts.isSourceFile(scope)
+    ? scope
+    : "body" in scope
+      ? scope.body
+      : undefined;
+  return (
+    body !== undefined &&
+    (statementList(call) === body || outermost(call) === body)
+  );
+}
+
+/**
+ * How many times each name is declared in the file, at any depth. A call to a
+ * name declared twice may reach a shadowing no-op, so it is not a helper.
+ */
+function declarationCounts(sourceFile: ts.SourceFile): Map<string, number> {
+  const counts = new Map<string, number>();
+  const add = (name: ts.Node | undefined) => {
+    if (name !== undefined && ts.isIdentifier(name)) {
+      counts.set(name.text, (counts.get(name.text) ?? 0) + 1);
+    }
+  };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node) ||
+      ts.isVariableDeclaration(node) ||
+      ts.isParameter(node) ||
+      ts.isBindingElement(node) ||
+      ts.isImportClause(node) ||
+      ts.isImportSpecifier(node) ||
+      ts.isNamespaceImport(node)
+    ) {
+      add(node.name);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return counts;
 }
 
 /** The name a function is declared or bound to, for a call to find it by. */
@@ -308,8 +495,8 @@ function boundName(fn: ts.Node): string | undefined {
 
 /**
  * Every `noteExternalWrite(` call, and every call to a function in this file
- * that makes one (a helper such as `noteLocalFileWrite()`), with the function
- * it sits in. A helper that calls such a helper makes one too.
+ * that makes one on every path (a helper such as `noteLocalFileWrite()`). A
+ * helper that calls such a helper makes one too.
  */
 function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
   const calls: Array<{ node: ts.CallExpression; scope: ts.Node }> = [];
@@ -323,32 +510,38 @@ function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
   };
   visit(sourceFile);
 
-  const noting = new Set(["noteExternalWrite"]);
+  const declared = declarationCounts(sourceFile);
+  const helpers = new Set<string>();
+  const isNote = (node: ts.CallExpression) =>
+    isNoteExternalWrite(node) ||
+    (ts.isIdentifier(node.expression) && helpers.has(node.expression.text));
   for (let grew = true; grew; ) {
     grew = false;
     for (const { node, scope } of calls) {
       const name = boundName(scope);
-      const callee = calleeName(node);
       if (
         name !== undefined &&
-        callee !== undefined &&
-        noting.has(callee) &&
-        !noting.has(name)
+        !helpers.has(name) &&
+        (declared.get(name) ?? 0) <= 1 &&
+        isNote(node) &&
+        runsEveryTime(node, scope)
       ) {
-        noting.add(name);
+        helpers.add(name);
         grew = true;
       }
     }
   }
 
   return calls
-    .filter(({ node }) => noting.has(calleeName(node) ?? ""))
-    .map(({ node, scope }) => ({
-      end: node.getEnd(),
-      scopeStart: scope.getStart(sourceFile),
-      scopeEnd: scope.getEnd(),
-      moduleLevel: ts.isSourceFile(scope),
-    }));
+    .filter(({ node }) => isNote(node))
+    .map(({ node }) => {
+      const list = statementList(node);
+      return {
+        end: node.getEnd(),
+        coverEnd: list ? list.getEnd() : node.getEnd(),
+        moduleLevel: list !== undefined && ts.isSourceFile(list),
+      };
+    });
 }
 
 /** The start of every function body in the file, to tell code in none from code in one. */
@@ -378,38 +571,28 @@ export function findUnobservedWrites(
   );
   const notes = noteExternalWriteCalls(sourceFile);
   const functions = functionRanges(sourceFile);
-  const importsChildProcess = lines.some((line) => {
-    const module = importedModule(line);
-    return module !== null && CHILD_PROCESS_MODULE.test(module);
-  });
+  const patterns = filePatterns(sourceFile, lines);
 
   const findings: UnobservedWriteFinding[] = [];
   for (const lineNo of [...addedLines].sort((a, b) => a - b)) {
     const text = lines[lineNo - 1];
     if (text === undefined) continue;
-    const match = matchUnobservedWrite(text, importsChildProcess);
+    const match = matchUnobservedWrite(text, patterns);
     if (match === null || hasPragma(lines, lineNo)) continue;
-    // A note counts up to the end of the write's line, so a call earlier on the
-    // same line still covers it; the write belongs to the scope it starts in.
-    const starts = sourceFile.getPositionOfLineAndCharacter(
-      lineNo - 1,
-      text.length - text.trimStart().length,
-    );
-    const ends = sourceFile.getPositionOfLineAndCharacter(
-      lineNo - 1,
-      text.length,
-    );
+    // A note covers the write only when it ends before the write call starts,
+    // so `write(); note();` on one line is not covered.
+    const writeAt =
+      sourceFile.getPositionOfLineAndCharacter(lineNo - 1, 0) + match.column;
     const inFunction = functions.some(
-      ([start, end]) => start <= starts && starts < end,
+      ([start, end]) => start <= writeAt && writeAt < end,
     );
     const noted =
       match.kind === "import"
         ? notes.length > 0
         : notes.some(
             (note) =>
-              note.end <= ends &&
-              note.scopeStart <= starts &&
-              starts < note.scopeEnd &&
+              note.end <= writeAt &&
+              writeAt < note.coverEnd &&
               !(note.moduleLevel && inFunction),
           );
     if (noted) continue;
@@ -477,9 +660,9 @@ function main() {
   }
   console.error(
     "noteExternalWrite is exported from @agent-native/core/action. The guard\n" +
-      "accepts a call that comes before the write in the same function, or in a\n" +
-      "function that contains it, or a call to a helper in this file that makes\n" +
-      "one, so place it in the function that makes the write.\n",
+      "accepts a call that is a statement of a block containing the write and\n" +
+      "comes before it, or a call to a helper in this file that notes on every\n" +
+      "path, so place it unconditionally in the function that makes the write.\n",
   );
   process.exit(1);
 }

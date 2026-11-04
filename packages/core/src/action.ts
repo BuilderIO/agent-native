@@ -502,6 +502,16 @@ export function noteExternalWrite(channel: string): void {
   noteObservedWrite(channel);
 }
 
+/**
+ * A `fetch` that cannot be wrapped hides every HTTP write, so a call that
+ * cannot be watched counts as having sent one and its failure stays `unknown`.
+ */
+function noteUnwatchedFetch(
+  status: ReturnType<typeof observeOutboundWrites>,
+): void {
+  if (status === "fetch-unwritable") noteObservedWrite("http-unwatched");
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -2529,7 +2539,7 @@ function wrapRunWithExecutionBoundary(
 ): ActionExecutionRun {
   const boundaryRun: ActionExecutionRun = async (args, ctx) => {
     if (!actionExecutionStorage) return run(args, ctx);
-    observeOutboundWrites();
+    const fetchStatus = observeOutboundWrites();
     const parent = actionExecutionStorage.getStore();
     const frame: ActionExecutionFrame =
       parent?.frame?.boundaryPending &&
@@ -2552,6 +2562,7 @@ function wrapRunWithExecutionBoundary(
       failures: parent?.failures ?? new WeakMap(),
     };
     return actionExecutionStorage.run(state, async () => {
+      noteUnwatchedFetch(fetchStatus);
       try {
         return await run(args, ctx);
       } catch (error) {
@@ -2581,7 +2592,7 @@ export async function runActionWithExecutionOutcome(
   // A mutable async stack cannot safely attribute overlapping invocations,
   // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
-  observeOutboundWrites();
+  const fetchStatus = observeOutboundWrites();
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
@@ -2610,6 +2621,7 @@ export async function runActionWithExecutionOutcome(
     failures: parent?.failures ?? new WeakMap(),
   };
   return actionExecutionStorage.run(state, async () => {
+    noteUnwatchedFetch(fetchStatus);
     try {
       return await run(args, ctx);
     } catch (error) {

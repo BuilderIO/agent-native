@@ -258,6 +258,23 @@ describe("installing the observation", () => {
     await fetch("https://api.test/read");
     expect(stub).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a failed write unknown when fetch cannot be wrapped, since its writes go unseen", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    Object.defineProperty(globalThis, "fetch", {
+      value: vi.fn(async () => new Response("{}")),
+      writable: false,
+      configurable: true,
+    });
+    const action = write(async () => {
+      fail("Nothing matched.");
+    });
+
+    expect((await failureEffect(action)).effect).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
 });
 
 describe("provider-api-request", () => {
