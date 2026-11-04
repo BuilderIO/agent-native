@@ -218,7 +218,7 @@ import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
-import type { PromptChatAttachment } from "@/lib/prompt-chat-attachments";
+import type { PromptChatSubmissionOptions } from "@/lib/prompt-chat-attachments";
 import {
   NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
@@ -940,10 +940,10 @@ export default function DeckEditor() {
     (
       message: string,
       context: string,
-      attachments: ReadonlyArray<PromptChatAttachment>,
+      options: PromptChatSubmissionOptions,
     ) => {
       addSlideRequestSentRef.current = true;
-      addSlideAgentSubmit(message, context, { attachments });
+      addSlideAgentSubmit(message, context, options);
     },
     [addSlideAgentSubmit],
   );

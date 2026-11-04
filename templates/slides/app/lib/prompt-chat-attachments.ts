@@ -1,3 +1,9 @@
+import {
+  AGENT_PROMPT_MAX_TEXT_FILE_BYTES,
+  isInlineableAgentPromptFile,
+} from "@agent-native/toolkit/composer";
+
+import type { UploadedImageAgentOptions } from "@/lib/create-deck-generation";
 import { readFileAsDataUrl } from "@/lib/image-drop-to-agent";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 
@@ -9,9 +15,14 @@ export interface PromptChatAttachment {
   data?: string;
   text?: string;
 }
+export type PromptChatSubmissionOptions = UploadedImageAgentOptions & {
+  attachments: ReadonlyArray<PromptChatAttachment>;
+};
+
 export async function createPromptChatAttachments(
   attachments: ReadonlyArray<unknown> | undefined,
   uploaded: UploadedFile[],
+  textFileTooLargeMessage = "attachment_too_large",
 ): Promise<PromptChatAttachment[]> {
   const result: PromptChatAttachment[] = [];
   let uploadedIndex = 0;
@@ -48,7 +59,7 @@ export async function createPromptChatAttachments(
       continue;
     }
 
-    const uploadedFile = uploaded[uploadedIndex++];
+    const uploadedFile = uploaded.at(uploadedIndex++);
     const isImage =
       uploadedFile?.type.startsWith("image/") ||
       Boolean(attachment.file?.type.startsWith("image/"));
@@ -56,11 +67,10 @@ export async function createPromptChatAttachments(
       continue;
     }
     const file = attachment.file;
-    if (
-      file &&
-      (file.type.startsWith("text/") ||
-        /\.(txt|md|markdown|html?|csv|json)$/i.test(file.name))
-    ) {
+    if (file && isInlineableAgentPromptFile(file)) {
+      if (file.size > AGENT_PROMPT_MAX_TEXT_FILE_BYTES) {
+        throw new RangeError(textFileTooLargeMessage);
+      }
       result.push({
         type: "file",
         name,
@@ -69,14 +79,15 @@ export async function createPromptChatAttachments(
       });
       continue;
     }
+    const contentType =
+      uploadedFile?.type ??
+      (typeof attachment.contentType === "string"
+        ? attachment.contentType
+        : undefined);
     result.push({
       type: "file",
       name: uploadedFile?.originalName ?? name,
-      contentType:
-        uploadedFile?.type ??
-        (typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined),
+      ...(contentType !== undefined ? { contentType } : {}),
       displayOnly: true,
     });
   }

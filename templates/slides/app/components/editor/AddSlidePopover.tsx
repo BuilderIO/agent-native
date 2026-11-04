@@ -19,6 +19,7 @@ import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import {
+  getUploadedImageAgentOptions,
   NO_UPLOADED_FILES_CONTEXT,
   WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
@@ -26,7 +27,7 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   createPromptChatAttachments,
-  type PromptChatAttachment,
+  type PromptChatSubmissionOptions,
 } from "@/lib/prompt-chat-attachments";
 import {
   deleteUploadedPromptFile,
@@ -109,7 +110,7 @@ export function AddSlidePopover({
   agentSubmit: (
     message: string,
     context: string,
-    attachments: ReadonlyArray<PromptChatAttachment>,
+    options: PromptChatSubmissionOptions,
   ) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
@@ -278,14 +279,21 @@ export function AddSlidePopover({
           const started = await agentSubmit(
             addSlideAgentMessage(text),
             context,
-            await createPromptChatAttachments(
-              files.map((file) => ({
-                name: file.name,
-                contentType: file.type,
-                file,
-              })),
-              uploaded,
-            ),
+            {
+              ...getUploadedImageAgentOptions(uploaded),
+              attachments: await createPromptChatAttachments(
+                files.map((file) => ({
+                  name: file.name,
+                  contentType: file.type,
+                  file,
+                })),
+                uploaded,
+                t("agentChat.composer.attachmentTooLarge", {
+                  // i18n-key-ignore: shared Toolkit catalogs provide this key in every supported locale.
+                  defaultValue: "File is over 8 MB",
+                }),
+              ),
+            },
           );
           if (!started) {
             discardFiles(files);

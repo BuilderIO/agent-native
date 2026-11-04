@@ -273,6 +273,21 @@ const uploadPromptFiles = (files: File[]) =>
   uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
+  it("rejects oversized text before reading or encoding its bytes", async () => {
+    const file = new File(["small"], "oversized.html", { type: "text/html" });
+    Object.defineProperty(file, "size", { value: 8 * 1024 * 1024 + 1 });
+    const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+    await expect(
+      createPromptChatAttachments(
+        [{ name: file.name, file }],
+        [],
+        "File is over 8 MB",
+      ),
+    ).rejects.toThrow("File is over 8 MB");
+    expect(read).not.toHaveBeenCalled();
+    read.mockRestore();
+  });
+
   it("sends complete HTML as a readable attachment, including content beyond the prompt cap", async () => {
     const html =
       "<!doctype html><style>" +
