@@ -23,10 +23,15 @@
  *   - a `noteExternalWrite(` call comes before the write call as a statement of
  *     a block that contains it (or at module level, for code outside any
  *     function). A call to a function in the same file that notes on every path
- *     counts as one; a name declared twice in the file is not resolved to a
- *     helper. A note in another function, after the write, inside a callback
- *     beside it, or only on some paths (`if (x) note();`, `x && note()`)
- *     covers nothing. An import of an HTTP client or vendor SDK has no write
+ *     counts as one: its note is a top-level statement that no earlier `return`
+ *     can skip. If an earlier `await` can delay it, only a call that awaits the
+ *     helper counts. A name declared twice in the
+ *     file is not resolved to a helper. A note in another function, after the
+ *     write, inside a callback beside it, or only on some paths (`if (x)
+ *     note();`, `x && note()`) covers nothing. Neither does a note outside the
+ *     function declaration that holds the write, because a declaration is
+ *     hoisted and may run before the note. An import of an HTTP client or
+ *     vendor SDK has no write
  *     site to place a call before, so it passes when the file calls
  *     `noteExternalWrite(` anywhere, or
  *   - the line or the line above carries an opt-out with a reason:
@@ -85,13 +90,28 @@ const FS_WRITE_CALLS = [
 // Ordinary words in application code (a string helper is often named
 // `truncate`), so these match only as a call on an fs namespace.
 const FS_NAMESPACE_ONLY_CALLS = [
+  "write",
   "writeSync",
+  "writev",
+  "writevSync",
   "rmdir",
   "rmdirSync",
   "truncate",
   "truncateSync",
+  "ftruncate",
+  "ftruncateSync",
   "symlink",
   "symlinkSync",
+  "link",
+  "linkSync",
+  "chmod",
+  "chmodSync",
+  "chown",
+  "chownSync",
+  "utimes",
+  "utimesSync",
+  "mkdtemp",
+  "mkdtempSync",
 ];
 const CHILD_PROCESS_CALLS = [
   "spawn",
@@ -114,8 +134,18 @@ const CHILD_PROCESS_CALL = new RegExp(
   `(?:(?<![\\w$.])|(?<![\\w$])(?:child_process|childProcess|cp)\\.)(?:${CHILD_PROCESS_CALLS.join("|")})\\s*\\(`,
 );
 const HTTP_REQUEST_CALL = /(?<![\w$])(?:https?|http2)\.request\s*\(/;
-// A FileHandle (`(await fsp.open(p, "w")).writeFile(...)`) has no namespace name.
-const FILE_HANDLE_CALL = /\.\s*(?:writeFile|appendFile)\s*\(/;
+// A FileHandle (`(await fsp.open(p, "w")).writeFile(...)`) has no namespace
+// name. `write` and the rest are common words on other objects (`res.write`),
+// so a handle's own are matched only on a variable bound from `fs.open`.
+const FILE_HANDLE_CALL = /\.\s*(?:writeFile|appendFile|writev)\s*\(/;
+const FILE_HANDLE_METHODS = [
+  "write",
+  "writev",
+  "truncate",
+  "chmod",
+  "chown",
+  "utimes",
+];
 
 const FS_MODULE = /^(?:node:)?fs(?:\/promises)?$/;
 const CHILD_PROCESS_MODULE = /^(?:node:)?child_process$/;
@@ -229,16 +259,18 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Calls to a module's write functions under the names this file binds them to:
- * `import { writeFile as persist } from "node:fs/promises"` is `persist(`, and
- * `import * as disk from "node:fs"` is `disk.writeFile(`.
- */
-function importedCallPatterns(
+interface ModuleBindings {
+  /** Local names of the listed exports. */
+  calls: string[];
+  /** Local names of the whole module. */
+  namespaces: string[];
+}
+
+function importedBindings(
   sourceFile: ts.SourceFile,
   module: RegExp,
   exported: readonly string[],
-): RegExp[] {
+): ModuleBindings {
   const calls: string[] = [];
   const namespaces: string[] = [];
   for (const statement of sourceFile.statements) {
@@ -267,6 +299,20 @@ function importedCallPatterns(
       }
     }
   }
+  return { calls, namespaces };
+}
+
+/**
+ * Calls to a module's write functions under the names this file binds them to:
+ * `import { writeFile as persist } from "node:fs/promises"` is `persist(`, and
+ * `import * as disk from "node:fs"` is `disk.writeFile(`.
+ */
+function importedCallPatterns(
+  sourceFile: ts.SourceFile,
+  module: RegExp,
+  exported: readonly string[],
+): RegExp[] {
+  const { calls, namespaces } = importedBindings(sourceFile, module, exported);
   const named = (list: readonly string[]) => list.map(escapeRegExp).join("|");
   const patterns: RegExp[] = [];
   if (calls.length > 0) {
@@ -282,6 +328,46 @@ function importedCallPatterns(
   return patterns;
 }
 
+/**
+ * A FileHandle's own write methods, on a variable this file binds from an
+ * `open` of the fs module: `const handle = await fsp.open(path, "w")`.
+ */
+function fileHandlePatterns(sourceFile: ts.SourceFile): RegExp[] {
+  const opened = importedBindings(sourceFile, FS_MODULE, ["open"]);
+  const fsNamespace = new RegExp(
+    `(?:^|\\.)(?:fs|fsp|fsPromises|promises|[\\w$]*Fs${opened.namespaces.map((name) => `|${escapeRegExp(name)}`).join("")})$`,
+  );
+  const handles: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      let init: ts.Expression = node.initializer;
+      while (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init)) {
+        init = init.expression;
+      }
+      if (ts.isCallExpression(init)) {
+        const callee = init.expression;
+        const opens = ts.isPropertyAccessExpression(callee)
+          ? callee.name.text === "open" &&
+            fsNamespace.test(callee.expression.getText(sourceFile))
+          : ts.isIdentifier(callee) && opened.calls.includes(callee.text);
+        if (opens) handles.push(node.name.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (handles.length === 0) return [];
+  return [
+    new RegExp(
+      `(?<![\\w$.])(?:${handles.map(escapeRegExp).join("|")})\\.(?:${FILE_HANDLE_METHODS.join("|")})\\s*\\(`,
+    ),
+  ];
+}
+
 function filePatterns(sourceFile: ts.SourceFile, lines: readonly string[]) {
   const importsChildProcess = lines.some((line) => {
     const module = importedModule(line);
@@ -295,6 +381,7 @@ function filePatterns(sourceFile: ts.SourceFile, lines: readonly string[]) {
         ...FS_WRITE_CALLS,
         ...FS_NAMESPACE_ONLY_CALLS,
       ]),
+      ...fileHandlePatterns(sourceFile),
     ],
     childProcess: importsChildProcess
       ? [
@@ -434,8 +521,8 @@ function statementList(call: ts.CallExpression): ts.Node | undefined {
     : undefined;
 }
 
-/** Whether a call in `scope` runs on every path through it. */
-function runsEveryTime(call: ts.CallExpression, scope: ts.Node): boolean {
+/** Whether a call is a top-level statement of the body of `scope`. */
+function isTopLevelOf(call: ts.CallExpression, scope: ts.Node): boolean {
   const body = ts.isSourceFile(scope)
     ? scope
     : "body" in scope
@@ -445,6 +532,39 @@ function runsEveryTime(call: ts.CallExpression, scope: ts.Node): boolean {
     body !== undefined &&
     (statementList(call) === body || outermost(call) === body)
   );
+}
+
+/** Whether a call is the operand of an `await`, so its caller waits for it. */
+function isAwaited(call: ts.CallExpression): boolean {
+  let up: ts.Node = call.parent;
+  while (ts.isParenthesizedExpression(up)) up = up.parent;
+  return ts.isAwaitExpression(up);
+}
+
+/**
+ * What the code before a call can do to it: `leaves` when a `return` can skip
+ * it, `waits` when an `await` can delay it past a caller that does not await.
+ * A statement that wraps the call, such as `await note()`, runs the call first.
+ */
+function flowBefore(
+  call: ts.CallExpression,
+  scope: ts.Node,
+): { leaves: boolean; waits: boolean } {
+  const flow = { leaves: false, waits: false };
+  const visit = (node: ts.Node) => {
+    if (node.getStart() >= call.getStart() || ts.isFunctionLike(node)) return;
+    const wrapsCall =
+      node.getStart() <= call.getStart() && node.getEnd() >= call.getEnd();
+    if (!wrapsCall) {
+      if (ts.isReturnStatement(node)) flow.leaves = true;
+      else if (ts.isAwaitExpression(node) || ts.isYieldExpression(node)) {
+        flow.waits = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(scope, visit);
+  return flow;
 }
 
 /**
@@ -511,29 +631,45 @@ function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
   visit(sourceFile);
 
   const declared = declarationCounts(sourceFile);
-  const helpers = new Set<string>();
-  const isNote = (node: ts.CallExpression) =>
-    isNoteExternalWrite(node) ||
-    (ts.isIdentifier(node.expression) && helpers.has(node.expression.text));
+  // `immediate`: the helper has noted by the time it returns control. `awaited`:
+  // an `await` comes first, so only a caller that awaits it can count on it.
+  const helpers = new Map<string, "immediate" | "awaited">();
+  const notes = (
+    node: ts.CallExpression,
+  ): "immediate" | "awaited" | undefined => {
+    if (isNoteExternalWrite(node)) return "immediate";
+    const mode = ts.isIdentifier(node.expression)
+      ? helpers.get(node.expression.text)
+      : undefined;
+    if (mode === "immediate") return mode;
+    return mode === "awaited" && isAwaited(node) ? "awaited" : undefined;
+  };
   for (let grew = true; grew; ) {
     grew = false;
     for (const { node, scope } of calls) {
       const name = boundName(scope);
+      const how = notes(node);
       if (
-        name !== undefined &&
-        !helpers.has(name) &&
-        (declared.get(name) ?? 0) <= 1 &&
-        isNote(node) &&
-        runsEveryTime(node, scope)
+        name === undefined ||
+        how === undefined ||
+        (declared.get(name) ?? 0) > 1 ||
+        helpers.get(name) === "immediate" ||
+        !isTopLevelOf(node, scope)
       ) {
-        helpers.add(name);
+        continue;
+      }
+      const flow = flowBefore(node, scope);
+      if (flow.leaves) continue;
+      const mode = how === "awaited" || flow.waits ? "awaited" : "immediate";
+      if (helpers.get(name) !== mode) {
+        helpers.set(name, mode);
         grew = true;
       }
     }
   }
 
   return calls
-    .filter(({ node }) => isNote(node))
+    .filter(({ node }) => notes(node) !== undefined)
     .map(({ node }) => {
       const list = statementList(node);
       return {
@@ -544,12 +680,23 @@ function noteExternalWriteCalls(sourceFile: ts.SourceFile): NoteCall[] {
     });
 }
 
-/** The start of every function body in the file, to tell code in none from code in one. */
-function functionRanges(sourceFile: ts.SourceFile): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
+interface FunctionRange {
+  start: number;
+  end: number;
+  /** A declaration is hoisted: it can run before the code above it. */
+  hoisted: boolean;
+}
+
+/** Every function in the file, to tell code in none from code in one. */
+function functionRanges(sourceFile: ts.SourceFile): FunctionRange[] {
+  const ranges: FunctionRange[] = [];
   const visit = (node: ts.Node) => {
     if (isFunctionScope(node) && !ts.isSourceFile(node)) {
-      ranges.push([node.getStart(sourceFile), node.getEnd()]);
+      ranges.push({
+        start: node.getStart(sourceFile),
+        end: node.getEnd(),
+        hoisted: ts.isFunctionDeclaration(node),
+      });
     }
     ts.forEachChild(node, visit);
   };
@@ -583,8 +730,13 @@ export function findUnobservedWrites(
     // so `write(); note();` on one line is not covered.
     const writeAt =
       sourceFile.getPositionOfLineAndCharacter(lineNo - 1, 0) + match.column;
-    const inFunction = functions.some(
-      ([start, end]) => start <= writeAt && writeAt < end,
+    const enclosing = functions.filter(
+      ({ start, end }) => start <= writeAt && writeAt < end,
+    );
+    const inFunction = enclosing.length > 0;
+    const innermost = enclosing.reduce<FunctionRange | undefined>(
+      (best, fn) => (best === undefined || fn.start > best.start ? fn : best),
+      undefined,
     );
     const noted =
       match.kind === "import"
@@ -593,7 +745,13 @@ export function findUnobservedWrites(
             (note) =>
               note.end <= writeAt &&
               writeAt < note.coverEnd &&
-              !(note.moduleLevel && inFunction),
+              !(note.moduleLevel && inFunction) &&
+              // A declaration can run before a note above it, so only a note
+              // inside the declaration itself is known to come first.
+              !(
+                innermost?.hoisted &&
+                !(innermost.start <= note.end && note.end <= innermost.end)
+              ),
           );
     if (noted) continue;
     findings.push({

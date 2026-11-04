@@ -82,6 +82,43 @@ describe("unobserved write guard: filesystem writes", () => {
     ]);
   });
 
+  it("flags fs.write and writev, and the write methods of a file handle opened from fs", () => {
+    const source = [
+      'import * as fs from "node:fs";',
+      'import { open } from "node:fs/promises";',
+      "fs.write(fd, buffer);",
+      "fs.writevSync(fd, buffers);",
+      "fs.chmodSync(path, 0o600);",
+      'const handle = await open(path, "w");',
+      "await handle.write(buffer);",
+      "await handle.truncate(0);",
+      "await handle.writev(buffers);",
+      'const stream = await fsp.open(path, "a");',
+      "await stream.write(chunk);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "3:local-disk",
+      "4:local-disk",
+      "5:local-disk",
+      "7:local-disk",
+      "8:local-disk",
+      "9:local-disk",
+      "11:local-disk",
+    ]);
+  });
+
+  it("does not flag write on a stream, response or a socket that is not an fs handle", () => {
+    const source = [
+      "res.write(chunk);",
+      "process.stdout.write(text);",
+      "const socket = net.open(port);",
+      "socket.write(data);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
   it("does not flag a same-named function imported from another module", () => {
     const source = [
       'import { writeFile as persist } from "./store";',
@@ -412,6 +449,89 @@ describe("unobserved write guard: passes", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source), ["6:local-disk"]);
+  });
+
+  it("does not credit a helper that can return before its note, or an unawaited call to one that notes after an await", () => {
+    const source = [
+      "async function skipping(skip) {",
+      "  if (skip) return;",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "async function delayed() {",
+      "  await ready();",
+      '  noteExternalWrite("local-disk");',
+      "}",
+      "export async function a(path) {",
+      "  await skipping(false);",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function b(path) {",
+      "  delayed();",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function c(path) {",
+      "  await delayed();",
+      "  await writeFile(path, body);",
+      "}",
+      "async function outer() {",
+      "  await delayed();",
+      "}",
+      "export async function d(path) {",
+      "  outer();",
+      "  await writeFile(path, body);",
+      "}",
+      "export async function e(path) {",
+      "  await outer();",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [
+      "11:local-disk",
+      "15:local-disk",
+      "26:local-disk",
+    ]);
+  });
+
+  it("credits an async helper that notes before its first await, even when the caller does not await it", () => {
+    const source = [
+      "async function noteDiskWrite() {",
+      '  noteExternalWrite("local-disk");',
+      "  await flush();",
+      "}",
+      "export async function save(path) {",
+      "  noteDiskWrite();",
+      "  await writeFile(path, body);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("does not let a note outside a hoisted declaration cover a write inside it", () => {
+    const source = [
+      "export async function save(path) {",
+      "  await run();",
+      '  noteExternalWrite("local-disk");',
+      "  function run() {",
+      "    return writeFile(path, body);",
+      "  }",
+      "}",
+      "export async function safe(path) {",
+      "  async function run() {",
+      '    noteExternalWrite("local-disk");',
+      "    return writeFile(path, body);",
+      "  }",
+      "  await run();",
+      "}",
+      "export async function arrow(path) {",
+      '  noteExternalWrite("local-disk");',
+      "  const run = () => writeFile(path, body);",
+      "  await run();",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["5:local-disk"]);
   });
 
   it("does not resolve a helper name that the file declares twice", () => {

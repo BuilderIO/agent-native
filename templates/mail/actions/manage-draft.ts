@@ -1,10 +1,5 @@
 import { embedApp, isOutsideAgentCall } from "@agent-native/core";
-import {
-  defineAction,
-  fail,
-  NoWriteError,
-  noteExternalWrite,
-} from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   compareAndSetAppState,
@@ -196,8 +191,6 @@ async function readConfiguredSignature(): Promise<string | undefined> {
  * instead of stopping because it can't tell whether the draft saved.
  */
 async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
-  // Gmail is outside the database, so the framework cannot see this write.
-  noteExternalWrite("gmail");
   try {
     return await work();
   } catch (error) {
