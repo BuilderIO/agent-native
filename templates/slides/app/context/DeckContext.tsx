@@ -5739,7 +5739,11 @@ export function DeckProvider({
         resultingDecks = nextDecks;
       }
       const didApply = appliedOps.length > 0 || restoredStaleDrafts;
-      if (!didApply) return true;
+      // Consumed on purpose so older steps stay reachable; say so rather than go silent.
+      if (!didApply) {
+        toast.error(tRef.current("deckEditor.historyStepFailed"));
+        return true;
+      }
       // Nothing consumes the reveal without a mounted editor, and a
       // multi-slide step makes the diff expensive.
       const reveal =
