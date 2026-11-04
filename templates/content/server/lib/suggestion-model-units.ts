@@ -1,4 +1,6 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { decide } from "@agent-native/core/decisions";
+import getResourceSuggestionProposalByCreationKey from "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key";
 
 import type { MarkdownSuggestionOperation } from "../../shared/suggestion-diff.js";
 import {
@@ -50,5 +52,38 @@ export async function modelUnits(input: {
   } catch (error) {
     console.warn("[suggestion-model-units] decision threw", error);
     return sentenceUnits;
+  }
+}
+
+/**
+ * Saves a proposal under a model's unit labels. A repeat under one key has to
+ * match the first request, labels included, and a model can answer differently
+ * the second time. So a conflict tries once more with the labels saved first,
+ * and anything else that differs still conflicts.
+ */
+export async function createWithSavedUnits<T>(input: {
+  labels: readonly string[];
+  idempotencyKey: string;
+  ctx: Parameters<typeof getResourceSuggestionProposalByCreationKey.run>[1];
+  create: (labels: readonly unknown[]) => Promise<T>;
+}): Promise<T> {
+  const { labels, idempotencyKey, ctx, create } = input;
+  try {
+    return await create(labels);
+  } catch (error) {
+    if (
+      !isActionContractError(error) ||
+      error.errorCode !== "idempotency_conflict"
+    ) {
+      throw error;
+    }
+    const saved = await getResourceSuggestionProposalByCreationKey.run(
+      { idempotencyKey },
+      ctx,
+    );
+    if (!saved) throw error;
+    return create(
+      saved.suggestions.map(({ metadata }) => metadata?.reviewUnit),
+    );
   }
 }

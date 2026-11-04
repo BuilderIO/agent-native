@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   editDocument: vi.fn(),
   createSuggestion: vi.fn(),
   createProposal: vi.fn(),
+  savedProposal: vi.fn(),
   listSuggestions: vi.fn(),
   assertSourceUnchanged: vi.fn(),
   requireRequest: vi.fn(),
@@ -134,6 +135,13 @@ vi.mock(
   "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal",
   () => ({
     default: { run: (...args: unknown[]) => mocks.createProposal(...args) },
+  }),
+);
+
+vi.mock(
+  "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key",
+  () => ({
+    default: { run: (...args: unknown[]) => mocks.savedProposal(...args) },
   }),
 );
 
@@ -502,6 +510,41 @@ describe("comment AI dedicated action boundaries", () => {
       });
     },
   );
+
+  it("keeps an attempt's saved units when a retry gets a different answer", async () => {
+    state.request.intent = "suggest";
+    state.source.document.content = "Open source and Open source again.";
+    state.earlierRequests = [];
+    mocks.createProposal.mockRejectedValueOnce(
+      Object.assign(new Error("Idempotency key was already used"), {
+        actionContractError: true,
+        errorCode: "idempotency_conflict",
+      }),
+    );
+    mocks.savedProposal.mockResolvedValue({
+      suggestions: [
+        { metadata: { reviewUnit: "attempt-1:saved" } },
+        { metadata: { reviewUnit: "attempt-1:saved" } },
+      ],
+    });
+
+    const result = await run(createSuggestion as any, {
+      summary: "Hyphenate Open-source",
+      edits: [
+        { find: "Open source and", replace: "Open-source and" },
+        { find: "Open source again", replace: "Open-source again" },
+      ],
+    });
+
+    const [retried] = mocks.createProposal.mock.calls[1]!;
+    expect(
+      retried.suggestions.map(
+        (suggestion: { metadata: { reviewUnit: string } }) =>
+          suggestion.metadata.reviewUnit,
+      ),
+    ).toEqual(["attempt-1:saved", "attempt-1:saved"]);
+    expect(result).toMatchObject({ status: "suggested" });
+  });
 
   it("replaces the requester's earlier edits on this comment with the new proposal", async () => {
     state.request.intent = "suggest";

@@ -58,12 +58,13 @@ function crossesSentence(source: string, from: number, to: number) {
 }
 
 /**
- * What the rules say about each gap between neighboring pieces. Pieces with no
- * unchanged word between them only make sense together, wherever they fall.
- * Pieces of an agent's separate edits never join, since the agent split them on
- * purpose: `editOfPiece` says which edit each piece came from. A line break
- * always ends a unit. Changed text that crosses a sentence boundary has no
- * unchanged text there, so it holds the sentences it touches in one unit.
+ * What the rules say about each gap between neighboring pieces. Pieces of an
+ * agent's separate edits never join, since the agent split them on purpose:
+ * `editOfPiece` says which edit each piece came from. Pieces with no unchanged
+ * word between them only make sense together, wherever they fall, even across
+ * lines. Otherwise a line break ends a unit. Changed text that crosses a sentence
+ * boundary has no unchanged text there, so it holds the sentences it touches in
+ * one unit.
  */
 export function unitGaps(
   operations: readonly UnitPiece[],

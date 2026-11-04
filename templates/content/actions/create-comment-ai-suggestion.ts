@@ -18,7 +18,10 @@ import {
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
-import { modelUnits } from "../server/lib/suggestion-model-units.js";
+import {
+  createWithSavedUnits,
+  modelUnits,
+} from "../server/lib/suggestion-model-units.js";
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
@@ -207,21 +210,24 @@ export default defineAction({
               ctx,
             )
           : (
-              await createSuggestionProposal.run(
-                {
-                  ...proposal,
-                  idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
-                  suggestions: operations.map((operation, index) => ({
-                    summary: markdownSuggestionOperationSummary(operation),
-                    operations: [{ ...operation, ordinal: 0 }],
-                    metadata: {
-                      ...metadata,
-                      reviewUnit: `${args.attemptId}:${units[index]}`,
-                    },
-                  })),
-                },
+              await createWithSavedUnits({
+                labels: units.map((unit) => `${args.attemptId}:${unit}`),
+                idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
                 ctx,
-              )
+                create: (labels) =>
+                  createSuggestionProposal.run(
+                    {
+                      ...proposal,
+                      idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
+                      suggestions: operations.map((operation, index) => ({
+                        summary: markdownSuggestionOperationSummary(operation),
+                        operations: [{ ...operation, ordinal: 0 }],
+                        metadata: { ...metadata, reviewUnit: labels[index] },
+                      })),
+                    },
+                    ctx,
+                  ),
+              })
             ).suggestions[0]!;
       await updateCommentAiRequest(request, {
         status: "running",

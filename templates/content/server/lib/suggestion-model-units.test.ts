@@ -5,10 +5,15 @@ import {
   markdownSuggestionOperations,
 } from "../../shared/suggestion-diff.js";
 import { sentenceUnits } from "../../shared/suggestion-units.js";
-import { modelUnits } from "./suggestion-model-units.js";
+import { createWithSavedUnits, modelUnits } from "./suggestion-model-units.js";
 
 const decide = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/decisions", () => ({ decide }));
+const savedProposal = vi.hoisted(() => vi.fn());
+vi.mock(
+  "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key",
+  () => ({ default: { run: savedProposal } }),
+);
 
 const ownerEmail = "writer@example.com";
 const answered = (answers: Record<string, unknown>) => ({
@@ -31,6 +36,65 @@ const rename = markdownSuggestionOperations(
   "Acme will host the summit. Tickets for the Acme summit go on sale in May.",
   "Apex will host the summit. Tickets for the Apex summit go on sale in May.",
 );
+
+describe("createWithSavedUnits", () => {
+  const conflict = Object.assign(new Error("key used"), {
+    actionContractError: true,
+    errorCode: "idempotency_conflict",
+  });
+  const save = (create: (labels: readonly unknown[]) => Promise<string>) =>
+    createWithSavedUnits({
+      labels: ["k:0", "k:1"],
+      idempotencyKey: "k",
+      ctx: { userEmail: ownerEmail } as never,
+      create,
+    });
+
+  beforeEach(() => savedProposal.mockReset());
+
+  it("saves the labels it was given", async () => {
+    const create = vi.fn().mockResolvedValue("saved");
+    await expect(save(create)).resolves.toBe("saved");
+    expect(create.mock.calls).toEqual([[["k:0", "k:1"]]]);
+    expect(savedProposal).not.toHaveBeenCalled();
+  });
+
+  it("repeats with the labels saved first after a conflict", async () => {
+    savedProposal.mockResolvedValue({
+      suggestions: [
+        { metadata: { reviewUnit: "k:0" } },
+        { metadata: { reviewUnit: "k:0" } },
+      ],
+    });
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce("replayed");
+    await expect(save(create)).resolves.toBe("replayed");
+    expect(create).toHaveBeenLastCalledWith(["k:0", "k:0"]);
+  });
+
+  it("gives up when the repeat conflicts too, so other differences still fail", async () => {
+    savedProposal.mockResolvedValue({
+      suggestions: [{ metadata: { reviewUnit: "k:0" } }],
+    });
+    const create = vi.fn().mockRejectedValue(conflict);
+    await expect(save(create)).rejects.toBe(conflict);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves any other failure, or a conflict with no receipt, alone", async () => {
+    const other = new Error("database down");
+    const create = vi.fn().mockRejectedValue(other);
+    await expect(save(create)).rejects.toBe(other);
+    expect(savedProposal).not.toHaveBeenCalled();
+
+    savedProposal.mockResolvedValue(null);
+    await expect(save(vi.fn().mockRejectedValue(conflict))).rejects.toBe(
+      conflict,
+    );
+  });
+});
 
 describe("modelUnits", () => {
   beforeEach(() => {
