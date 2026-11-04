@@ -616,6 +616,99 @@ test("someone idle in the plan doesn't silence an edit that what I typed happens
   }
 });
 
+test("someone typing in the plan doesn't silence another writer's change to the same block", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, pageB, planId } = pair;
+    const peer = `PEER${Date.now() % 100000}`;
+    await typeAtEndOf(pageB, "Bravo block seed.", ` ${peer}`);
+    await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
+// Holds my save back until a collaborator's save of the same block has landed,
+// so mine is the one that overlaps, with their typing already in my document.
+async function collaboratorSavesFirst(pair: Pair) {
+  const { pageA, pageB, planId } = pair;
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const peer = `PEER${stamp}`;
+  let heldSaves = 0;
+  let releaseMySave = () => {};
+  const mySaveReleased = new Promise<void>((resolve) => {
+    releaseMySave = resolve;
+  });
+  await pageA.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await mySaveReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(pageA, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect(surface(pageB)).toContainText(mine, { timeout: 20_000 });
+  await typeAtEndOf(pageB, "Alpha block seed.", ` ${peer}`);
+  await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+  await expect
+    .poll(() => persistedText(pageB, planId), { timeout: 20_000 })
+    .toContain(peer);
+  return { mine, peer, releaseMySave };
+}
+
+test("a save that overlaps a collaborator's settles itself once the document has both", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { mine, peer, releaseMySave } = await collaboratorSavesFirst(pair);
+    const mySave = pair.pageA.waitForResponse(
+      (res) => res.url().includes("update-visual-plan") && res.ok(),
+      { timeout: 30_000 },
+    );
+    releaseMySave();
+    await mySave;
+    await expectNoPrompt(pair);
+    await expectEveryViewHas(pair, [mine, peer]);
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("a document that can't catch up asks about an overlap instead of settling it", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA } = pair;
+    const { releaseMySave } = await collaboratorSavesFirst(pair);
+    await pageA.route("**/_agent-native/collab/**/state*", (route) =>
+      route.fulfill({ status: 503, body: "unavailable" }),
+    );
+    releaseMySave();
+    await expect(pageA.getByRole("alertdialog")).toContainText(
+      "Someone else changed this too",
+      { timeout: 20_000 },
+    );
+  } finally {
+    await closePair(pair);
+  }
+});
+
 test("opening a plan in two editors at once seeds it and its callouts exactly once", async ({
   browser,
 }) => {

@@ -356,8 +356,9 @@ export function PlanContentRenderer({
   // already has their text, which can still be on its way here.
   const documentSettledOverlap = async (overlap: SaveOverlap<PlanBlock[]>) => {
     if (!anotherEditorIsLive) return false;
-    // coercion-ok: out of reach, the check reads the copy here and at worst asks.
-    await collabDoc.requestSync().catch(() => null);
+    const sync = await collabDoc.requestSync();
+    // A document that couldn't catch up can't settle this, so the person decides.
+    if (sync.status !== "synced") return false;
     // Someone idle has no typing here, so this overlap isn't with them.
     if (!collaboratorJustTyped()) return false;
     const live = editorBlocksRef.current?.(overlap.mine);
