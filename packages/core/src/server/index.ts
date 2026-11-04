@@ -25,7 +25,7 @@ export {
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
-export { platformWaitUntil } from "./background-work.js";
+export { platformWaitUntil, runInBackground } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
