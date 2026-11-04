@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { deleteUploadedFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { buildRecommendedFrames } from "@shared/agent-context";
+import {
+  buildRecommendedFrames,
+  formatAgentTimestamp,
+  type AgentFrameSuggestion,
+} from "@shared/agent-context";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -355,15 +359,33 @@ async function claimOrWaitForOtherFill(
 export async function recommendedAgentFrameTimes(
   recording: PublicAgentRecording,
 ): Promise<number[]> {
+  return (await recommendedAgentFrames(recording)).map((frame) => frame.atMs);
+}
+
+/** The recommended frames with their reasons, at the timestamps `recommendedAgentFrameTimes` returns. */
+export async function recommendedAgentFrames(
+  recording: PublicAgentRecording,
+): Promise<AgentFrameSuggestion[]> {
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const { agentSegments } = await loadAgentTranscript(recording.id, durationMs);
-  const times = buildRecommendedFrames({
+  const seen = new Set<number>();
+  const frames: AgentFrameSuggestion[] = [];
+  for (const frame of buildRecommendedFrames({
     durationMs: recording.durationMs,
     chapters: parseAgentChapters(recording),
     segments: agentSegments,
-  }).map((frame) => clampAgentFrameAtMs(frame.atMs, durationMs));
-  return [...new Set(times)];
+  })) {
+    const atMs = clampAgentFrameAtMs(frame.atMs, durationMs);
+    if (seen.has(atMs)) continue;
+    seen.add(atMs);
+    frames.push({
+      ...frame,
+      atMs,
+      timestamp: formatAgentTimestamp(atMs),
+    });
+  }
+  return frames;
 }
 
 async function isRecommendedAgentFrame(

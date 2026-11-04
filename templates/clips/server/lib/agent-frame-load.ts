@@ -1,0 +1,175 @@
+/**
+ * Frame bytes for the agent frame surfaces: the single-frame route
+ * (/api/agent-frame.jpg) and the MCP get-recording-frames action. Both serve
+ * a stored frame when there is one, and otherwise cut it from the clip's media.
+ */
+
+import { loadStoredAgentFrame } from "./agent-frame-store.js";
+import {
+  loadRecordingMediaFile,
+  loadScreenshotImage,
+  type PublicAgentRecording,
+} from "./public-agent-context.js";
+import {
+  convertImageToJpeg,
+  extractJpegFrameFromFile,
+  probeMediaDurationMsFromFile,
+  VideoFrameExtractionError,
+} from "./video-frame.js";
+
+// A screenshot at or under this goes out as stored; the MCP image limit is
+// 2,000,000 base64 characters.
+const MAX_PASSTHROUGH_JPEG_BYTES = 1_400_000;
+
+/**
+ * The clip's media on disk, downloaded on first use and shared by every frame
+ * a caller cuts from it. The caller cleans it up.
+ */
+export type AgentFrameMediaSource = {
+  load(): ReturnType<typeof loadRecordingMediaFile>;
+  cleanup(): Promise<void>;
+};
+
+export function createAgentFrameMediaSource(
+  recording: PublicAgentRecording,
+): AgentFrameMediaSource {
+  let loading: ReturnType<typeof loadRecordingMediaFile> | null = null;
+  return {
+    load: () => (loading ??= loadRecordingMediaFile(recording)),
+    cleanup: async () => {
+      const media = await loading?.catch(() => null);
+      await media?.cleanup().catch(() => {});
+    },
+  };
+}
+
+export async function extractFrameWithStaleDurationRecovery({
+  mediaPath,
+  atMs,
+}: {
+  mediaPath: string;
+  atMs: number;
+}): Promise<{ frame: Uint8Array; atMs: number }> {
+  try {
+    return {
+      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
+      atMs,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof VideoFrameExtractionError) ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
+      atMs <= 0
+    ) {
+      throw error;
+    }
+
+    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    if (actualDurationMs === null || actualDurationMs > atMs + 1) {
+      throw error;
+    }
+
+    const candidates = [
+      Math.max(0, actualDurationMs - 1),
+      Math.max(0, actualDurationMs - 1000),
+      0,
+    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+    for (const candidate of candidates) {
+      if (candidate === atMs) continue;
+      try {
+        return {
+          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
+          atMs: candidate,
+        };
+      } catch (candidateError) {
+        if (
+          !(candidateError instanceof VideoFrameExtractionError) ||
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
+        ) {
+          throw candidateError;
+        }
+      }
+    }
+    throw error;
+  }
+}
+
+export type LoadedAgentFrame = {
+  frame: Uint8Array;
+  /** Where the frame was cut: not the request's `atMs` when the stored duration ran past the media. */
+  atMs: number;
+  /** The frame was cut elsewhere than asked, and was not stored under the request's `atMs`. */
+  moved: boolean;
+};
+
+/**
+ * One frame of a video clip at `atMs` (already clamped to its duration): the
+ * stored frame, or one cut from the media. A cut frame fills the clip's other
+ * recommended frames too, unless its timestamp had to move. `onFrame` sees the
+ * frame and the mime type of the video it came from before it is returned.
+ * Failures throw; `frameFailureStatus` and `describeFrameFailure` classify them.
+ */
+export async function loadAgentFrame(
+  recording: PublicAgentRecording,
+  atMs: number,
+  {
+    media: mediaSource,
+    onFrame,
+  }: {
+    media: AgentFrameMediaSource;
+    onFrame?: (frame: Uint8Array, mimeType: string) => Promise<void>;
+  },
+): Promise<LoadedAgentFrame> {
+  const storedMimeType =
+    recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
+  const lookup = await loadStoredAgentFrame(recording, atMs);
+  if ("frame" in lookup) {
+    await onFrame?.(lookup.frame, storedMimeType);
+    return { frame: lookup.frame, atMs, moved: false };
+  }
+  const { claim } = lookup;
+
+  try {
+    const media = await mediaSource.load();
+    const resolved = await extractFrameWithStaleDurationRecovery({
+      mediaPath: media.path,
+      atMs,
+    });
+    await onFrame?.(resolved.frame, media.mimeType);
+
+    if (resolved.atMs !== atMs) {
+      return { frame: resolved.frame, atMs: resolved.atMs, moved: true };
+    }
+
+    await claim?.fill(
+      (frameAtMs) =>
+        extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
+      { atMs, frame: resolved.frame },
+    );
+    return { frame: resolved.frame, atMs, moved: false };
+  } finally {
+    // Whatever ended the request, requests waiting on this clip's frames must
+    // not wait on it any longer.
+    await claim?.release();
+  }
+}
+
+/**
+ * A screenshot's picture as a JPEG an agent can be handed: as stored when it
+ * is a JPEG of sane size, otherwise converted at the frame size cap.
+ */
+export async function loadScreenshotJpeg(
+  recording: PublicAgentRecording,
+): Promise<Uint8Array> {
+  const image = await loadScreenshotImage(recording);
+  if (
+    image.mimeType === "image/jpeg" &&
+    image.bytes.byteLength <= MAX_PASSTHROUGH_JPEG_BYTES
+  ) {
+    return image.bytes;
+  }
+  return convertImageToJpeg({
+    imageBytes: image.bytes,
+    mimeType: image.mimeType,
+  });
+}

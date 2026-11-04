@@ -237,19 +237,26 @@ context instead of stopping at the share page or transcript preview:
    in the Share menu, save, then create and send a new **Share with agents**
    link. Never claim to have seen frames that were not returned as images.
 
-The JSON discovery payload and HTTP endpoints work without browser tools. A
-WebMCP-capable browser is optional; its frame tool returns a URL, so the agent
-must still fetch that URL as an image.
+The JSON discovery payload and HTTP endpoints work without browser tools. An
+agent that cannot open frame URLs as images (claude.ai, a ChatGPT custom
+connector) calls the `get-recording-frames` MCP tool instead, once Clips is
+connected as an MCP connector (`apis.mcp.connectUrl`). It takes the
+`recordingId` plus up to four `atMs` values, and returns the frames as image
+blocks; without `atMs` it returns the first four recommended frames and lists
+all of them. It checks only the connected user's own access (owner, share,
+organization, public); an `agent_access` token does not grant it. A
+password-protected clip fails with `password_required` for anyone but its
+owner.
 
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
-| Endpoint                                          | Meaning                                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
-| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells |
+| Endpoint                                                                 | Meaning                                                                                                                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip metadata, transcript summary, recommended frames, and API discovery links                                                                                                          |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | JPEG frame extracted from the video at the requested original-video timestamp                                                                                                           |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells                                      |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:
@@ -319,11 +326,11 @@ URL-only clients without loading the share page.
 When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
 WebMCP-capable browser, the page also registers these read-only tools:
 
-| WebMCP tool | Purpose |
-| --- | --- |
-| `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
+| WebMCP tool            | Purpose                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `clips-get-context`    | Clip metadata, readiness, transcript status, and HTTP API URLs                                         |
 | `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
-| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+| `clips-get-frame`      | An existing authenticated JPEG frame URL for `atMs`                                                    |
 
 For any client, fetch the agent context URL and use its HTTP API URLs. For
 complete transcript text, use `apis.transcript`. If the page is already open
@@ -335,8 +342,8 @@ that value back as `startIndex` so overlapping transcript segments are not
 skipped.
 The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
 `endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
-returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
-rather than expecting WebMCP to carry binary bytes. WebMCP is optional
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image,
+or call `get-recording-frames` when the client cannot. WebMCP is optional
 progressive enhancement and page-local. HTTP access remains first-class and
 browser-independent: use the existing `agentContextUrl`, `apis.transcript`,
 and `apis.frame` URLs above. These URLs, password handling, scoped
