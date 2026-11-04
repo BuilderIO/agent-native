@@ -356,7 +356,7 @@ describe("generate-design action tool schema", () => {
       "null",
     );
     expect(parameters.properties.designSystemId?.description).toContain(
-      "update-design",
+      "cannot unlink",
     );
     expect(JSON.stringify(parameters.properties.tweaks)).toContain(
       '"minItems":1',

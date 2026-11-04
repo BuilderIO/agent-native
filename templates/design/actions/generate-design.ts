@@ -504,7 +504,7 @@ const agentDesignSystemIdField = z
   .string()
   .optional()
   .describe(
-    "Optional design system ID used for generation. To unlink one, use update-design.",
+    "Optional design system ID used for generation. It cannot unlink a design system.",
   );
 
 const projectTypeField = z
