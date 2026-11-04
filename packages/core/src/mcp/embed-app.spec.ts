@@ -2,8 +2,10 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
+import { fetchTransport } from "../client/fetch-transport.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
   EMBED_SESSION_RENEWAL_WINDOW_KEY,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -475,7 +477,9 @@ describe("embedApp", () => {
       pathname: "/deck/reports",
       search: "",
     };
+    const announced: string[] = [];
     const windowObject: Record<string, unknown> = {
+      dispatchEvent: (event: Event) => announced.push(event.type),
       location: locationObject,
       history: {
         state: null,
@@ -544,10 +548,15 @@ describe("embedApp", () => {
       },
     });
 
+    // The app reads its session again over the runtime's fetch.
+    expect(announced).toEqual([FETCH_TRANSPORT_CHANGED_EVENT]);
     const installedFetch = windowObject.fetch as (
       input: string | Request,
       init?: RequestInit,
     ) => Promise<Response>;
+    // On the target's mount its reads are signed: a transport of their own.
+    const signedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(typeof signedTransport).toBe("object");
     await installedFetch(
       new Request("https://host.example/deck/_agent-native/actions/save", {
         method: "POST",
@@ -668,6 +677,19 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    // Off the target's mount its reads go out unsigned, still without
+    // cookies: neither the signed transport nor the page's.
+    const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(unsignedTransport).not.toBe(signedTransport);
+    expect(unsignedTransport).not.toBe(fetch);
+    expect(typeof unsignedTransport).toBe("object");
+
+    locationObject.pathname = "/deck/reports";
+    locationObject.href = "https://host.example/deck/reports";
+    expect(fetchTransport(installedFetch as typeof fetch)).toBe(
+      signedTransport,
+    );
   });
 
   it("tells a blocked tab from an opened one", () => {
