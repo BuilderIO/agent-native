@@ -7264,8 +7264,11 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A valid `false` sets a value; only null, "", [] and {} can clear one.
-      if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
+      // A valid `false` sets a value, and `[]` is what a model that pads every
+      // field sends for an unused list, so neither counts as a clear.
+      const mayClear =
+        entry !== false && !(Array.isArray(entry) && entry.length === 0);
+      if (mayClear && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(

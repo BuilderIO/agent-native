@@ -189,6 +189,7 @@ describe("useClipCommentWrites", () => {
       recordingId: "rec_1",
       content: "Here",
       videoTimestampMs: 5_000,
+      idempotencyKey: "op1",
     });
 
     // The read after the write is still on its way.
@@ -260,6 +261,7 @@ describe("useClipCommentWrites", () => {
       recordingId: "rec_1",
       content: "Agreed",
       threadId: "c1",
+      idempotencyKey: "op2",
     });
 
     await act(async () => {

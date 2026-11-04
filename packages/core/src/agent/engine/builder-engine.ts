@@ -93,6 +93,10 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
 const BUILDER_RECONNECT_MESSAGE =
   "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).";
+const BUILDER_CREDENTIAL_UNREADABLE_ERROR_CODE =
+  "builder_credential_unreadable";
+const BUILDER_CREDENTIAL_UNREADABLE_MESSAGE =
+  "The saved Builder.io sign-in cannot be read with this deployment's encryption key, so it is not known to be expired. Run with the key that saved it, or sign in to Builder.io again in Settings.";
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
@@ -253,6 +257,16 @@ class BuilderEngine implements AgentEngine {
         return;
       }
       hasStoredOAuth = accessState.kind !== "not_connected";
+      if (accessState.kind === "unreadable") {
+        yield gatewayErrorStop(
+          {
+            error: BUILDER_CREDENTIAL_UNREADABLE_MESSAGE,
+            errorCode: BUILDER_CREDENTIAL_UNREADABLE_ERROR_CODE,
+          },
+          false,
+        );
+        return;
+      }
       if (accessState.kind === "available") {
         oauthAccess = accessState.access;
       } else if (hasStoredOAuth) {

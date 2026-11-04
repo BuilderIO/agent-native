@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
@@ -942,6 +943,64 @@ describe("embed auth client", () => {
           "*",
         );
       } finally {
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
+        } else {
+          delete (window as unknown as { parent?: Window }).parent;
+        }
+      }
+    });
+
+    it("renews through the shell when the app runs in the shell's own window", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      let writeAttempts = 0;
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(async () => {
+          writeAttempts += 1;
+          return writeAttempts === 1
+            ? new Response("Expired", {
+                status: 401,
+                headers: { [MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER]: "1" },
+              })
+            : new Response("ok");
+        }),
+      });
+      window.history.replaceState(
+        {},
+        "",
+        `/?embedded=1&__an_embed_token=${encodeURIComponent(oldToken)}&__an_mcp_chat_bridge=1`,
+      );
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+      const renew = vi.fn(async () => true);
+      const windowHooks = window as unknown as Record<string, unknown>;
+      windowHooks[EMBED_SESSION_RENEWAL_WINDOW_KEY] = renew;
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+        expect(response.status).toBe(200);
+        expect(writeAttempts).toBe(2);
+        expect(renew).toHaveBeenCalledTimes(1);
+        expect(parentWindow.postMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: "agentNative.embedSessionExpired" }),
+          "*",
+        );
+      } finally {
+        delete windowHooks[EMBED_SESSION_RENEWAL_WINDOW_KEY];
         if (originalParent) {
           Object.defineProperty(window, "parent", originalParent);
         } else {

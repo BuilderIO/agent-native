@@ -31,6 +31,8 @@ export function fetchTransportScript(fetchExpression: string): string {
 }
 export const MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER =
   "x-agent-native-widget-session-expired";
+export const EMBED_SESSION_RENEWAL_WINDOW_KEY =
+  "__AGENT_NATIVE_RENEW_EMBED_SESSION__";
 
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX =
   "capability:mcp-directory-widget-read:";
