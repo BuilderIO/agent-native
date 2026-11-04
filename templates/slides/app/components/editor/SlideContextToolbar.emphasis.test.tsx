@@ -134,7 +134,7 @@ describe("contextual toolbar font size field", () => {
     expect(options.at(0)?.getAttribute("data-current")).toBe("true");
   });
 
-  it("steps a mixed selection from the block size to the next size on the scale", () => {
+  it("steps a mixed selection one pixel from the block size", () => {
     const onChange = renderToolbar(
       textSnapshot({ fontSize: 40, mixedTextStyles: ["fontSize"] }),
     );
@@ -144,7 +144,7 @@ describe("contextual toolbar font size field", () => {
     fireEvent.focus(input);
     fireEvent.keyDown(input, { key: "ArrowUp" });
 
-    expect(onChange).toHaveBeenCalledWith({ fontSize: "48px" });
+    expect(onChange).toHaveBeenCalledWith({ fontSize: "41px" });
   });
 
   it("writes a typed size on Enter", () => {

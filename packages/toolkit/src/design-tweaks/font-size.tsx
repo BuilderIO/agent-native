@@ -96,17 +96,21 @@ export function parseFontSizeInput(
   return clampFontSize(parsed.value, options);
 }
 
-/** `value` moved by `delta`, kept positive and inside `bounds`; null when it cannot move. */
+/** The next size on the scale above (1) or below (-1) `value`, if any. */
 export function stepFontSize(
   value: number,
-  delta: number,
+  scale: readonly number[],
+  direction: 1 | -1,
   bounds: FontSizeBounds = {},
 ): number | null {
-  const next = clampFontSize(
-    Number((value + delta).toFixed(FONT_SIZE_PRECISION)),
-    bounds,
-  );
-  return next > 0 && next !== value ? next : null;
+  const steps = [...new Set(scale)]
+    .filter((size) => clampFontSize(size, bounds) === size)
+    .sort((a, b) => a - b);
+  const next =
+    direction > 0
+      ? steps.find((size) => size > value)
+      : steps.reverse().find((size) => size < value);
+  return next ?? null;
 }
 
 export interface FontSizeChangeMeta {
@@ -326,8 +330,12 @@ export function FontSizeField({
             ...bounds,
             ...(unit ? { unit } : {}),
           });
-    const next = stepFontSize(typed ?? value, delta, bounds);
-    if (next !== null) commit(next);
+    const current = typed ?? value;
+    const next = clampFontSize(
+      Number((current + delta).toFixed(FONT_SIZE_PRECISION)),
+      bounds,
+    );
+    if (next > 0 && next !== current) commit(next);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -338,7 +346,9 @@ export function FontSizeField({
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
-      step((event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 10 : 1));
+      step(
+        (event.key === "ArrowUp" ? 1 : -1) * getScrubStepFromEvent(event, 1),
+      );
       event.currentTarget.select();
       return;
     }

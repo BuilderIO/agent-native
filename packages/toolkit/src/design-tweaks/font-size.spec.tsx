@@ -146,11 +146,12 @@ describe("FontSizeField", () => {
   });
 
   it("opens the scale with Alt+ArrowDown", () => {
-    const { input } = renderField();
+    const { input, onChange } = renderField();
 
     fireEvent.keyDown(input, { key: "ArrowDown", altKey: true });
 
     expect(screen.getAllByRole("option")).toHaveLength(SCALE.length);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("commits a picked size and closes the list", () => {
@@ -190,6 +191,25 @@ describe("FontSizeField", () => {
     expect(input.value).toBe("30");
     fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
     expect(input.value).toBe("20");
+    fireEvent.keyDown(input, { key: "ArrowUp", altKey: true });
+    expect(input.value).toBe("20.1");
+  });
+
+  it("clamps arrow steps to bounds and rejects non-positive results", () => {
+    const { input, onChange } = renderField({ value: 24, min: 8, max: 30 });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith(30, COMMIT);
+
+    fireEvent.change(input, { target: { value: "9" } });
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith(8, COMMIT);
+    cleanup();
+
+    const unbounded = renderField({ value: 5, min: undefined });
+    fireEvent.focus(unbounded.input);
+    fireEvent.keyDown(unbounded.input, { key: "ArrowDown", shiftKey: true });
+    expect(unbounded.onChange).not.toHaveBeenCalled();
   });
 
   it("shows the mixed label and applies a picked size to all", () => {
@@ -423,11 +443,12 @@ describe("font size helpers", () => {
     expect(parseFontSizeInput("0.5", 16, { min: 1 })).toBe(1);
   });
 
-  it("steps by the delta within the caller's bounds", () => {
-    expect(stepFontSize(24, 1)).toBe(25);
-    expect(stepFontSize(24, -10)).toBe(14);
-    expect(stepFontSize(5, -10)).toBeNull();
-    expect(stepFontSize(24, 10, { max: 30 })).toBe(30);
-    expect(stepFontSize(30, 1, { max: 30 })).toBeNull();
+  it("steps within the caller's bounds and stops at the ends of the scale", () => {
+    expect(stepFontSize(24, SCALE, 1)).toBe(32);
+    expect(stepFontSize(25, SCALE, -1)).toBe(24);
+    expect(stepFontSize(48, SCALE, 1)).toBeNull();
+    expect(stepFontSize(24, SCALE, 1, { max: 30 })).toBeNull();
+    expect(stepFontSize(24, [48, 16, 32, 32], 1)).toBe(32);
+    expect(stepFontSize(32, [48, 16, 32, 32], -1, { min: 20 })).toBeNull();
   });
 });
