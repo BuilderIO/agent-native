@@ -193,6 +193,63 @@ beforeEach(() => {
   mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
+describe("update-slide silent success", () => {
+  it("accepts notes in the action schema", async () => {
+    const result = await action.schema["~standard"].validate({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Say this",
+      fullContent: "<div>New</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+    expect(result.issues).toBeUndefined();
+    expect(result.value.notes).toBe("Say this");
+  });
+
+  it("saves notes together with a content edit", async () => {
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>New</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
+        notes: "Say this",
+      },
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0]).toMatchObject({
+      content: "<div>New</div>",
+      notes: "Say this",
+    });
+  });
+
+  it("saves notes alone", async () => {
+    await action.run(
+      { deckId: "deck-1", slideId: "slide-1", notes: "Only notes" },
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0].notes).toBe("Only notes");
+  });
+
+  it("writes nothing when a find miss would also save notes", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-1",
+          find: "absent text",
+          replace: "x",
+          notes: "Say this",
+        },
+        { caller: "mcp" },
+      ),
+    ).rejects.toThrow(/text not found/);
+    expect(lastUpdateSet).toBeUndefined();
+  });
+});
+
 describe("update-slide", () => {
   it("uses a full-content repair for verified layout overflow", () => {
     expect(action.tool.description).toContain(

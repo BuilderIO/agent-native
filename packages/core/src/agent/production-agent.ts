@@ -1374,6 +1374,8 @@ export interface ActionEntry {
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** See `emptyListsEraseNothing` in `defineAction`. */
+  emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -7202,10 +7204,16 @@ function resolveObjectSchemaBranch(
   return index >= 0 ? branches[index] : undefined;
 }
 
+interface EmptyToolValues {
+  valid: boolean;
+  invalid: boolean;
+  readonly listsEraseNothing: boolean;
+}
+
 function stripOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean },
+  emptyValues: EmptyToolValues,
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -7264,10 +7272,16 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A valid `false` sets a value, and `[]` is what a model that pads every
-      // field sends for an unused list, so neither counts as a clear.
+      // A valid `false` sets a value, so it doesn't count as a clear. Neither
+      // does `[]` on an action that says an empty list erases nothing; on any
+      // other action, `[]` could wipe a stored list.
       const mayClear =
-        entry !== false && !(Array.isArray(entry) && entry.length === 0);
+        entry !== false &&
+        !(
+          emptyValues.listsEraseNothing &&
+          Array.isArray(entry) &&
+          entry.length === 0
+        );
       if (mayClear && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
@@ -7322,6 +7336,7 @@ function repairToolCallInput(
   const placeholders = normalizeOptionalToolPlaceholders(
     entry.tool.parameters,
     input,
+    entry.emptyListsEraseNothing === true,
   );
   if (placeholders.error) return placeholders;
   const json = coerceStringifiedJsonToolValues(
@@ -7434,12 +7449,13 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
+  listsEraseNothing: boolean,
 ): ToolInputRepair {
   if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false };
+  const emptyValues = { valid: false, invalid: false, listsEraseNothing };
   const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
   if (emptyValues.valid && emptyValues.invalid) {
     return {

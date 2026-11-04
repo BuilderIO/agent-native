@@ -304,6 +304,7 @@ const messages = {
       "Commencez à écrire ou générez rapidement des notes du présentateur avec l'agent",
   },
   editorToolbar: {
+    saving: "Enregistrement...",
     layoutTitle: "Titre",
     layoutSection: "Séparateur de section",
     layoutContent: "Contenu",

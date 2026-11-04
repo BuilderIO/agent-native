@@ -259,6 +259,8 @@ Unbekannte IDs in `include` erzeugen eine Warnung und werden ignoriert. Eine Sta
 
 Diese Konfiguration steuert die App-Liste, die Agent-Erkennung und Aufrufe zwischen Agents. Eingebundene Workspace-Apps und benutzerdefinierte URLs verbundener Remote-Agents behalten Vorrang. Der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
 
+In Dispatch können Organisationsinhaber und -admins die angebotenen integrierten Apps zusätzlich unter Einstellungen › Organisation › Apps (oder mit `set-hosted-apps-settings`) ausblenden. Dadurch verschwinden sie für die Organisation aus den App-Listen von Dispatch und aus dem App-Kontext seines Agents; `call-agent` erreicht sie per Name weiterhin. Ohne Organisation gibt es dafür keine Einstellungsseite; nur der Agent kann es dann ändern, für diesen Benutzer.
+
 ## Freigegebene MCP-Server {#shared-mcp}
 
 Die empfohlenen Optionen für die gemeinsame Nutzung von MCP-Servern über Workspace-Apps hinweg, in der Reihenfolge ihrer Präferenz:
