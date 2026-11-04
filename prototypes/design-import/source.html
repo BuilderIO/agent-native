@@ -266,10 +266,10 @@ const SRC = {
   replit: { name: "Replit", sub: "Download a ZIP", kind: "steps", site: "replit.com", title: "Download your project from Replit", lead: ZIP_LEAD, steps: [["Open your project in Replit."], ["In the <b>Files</b> panel, select the three-dot menu.", "It's at the top of the file list."], ["Select <b>Download as zip</b>."]], next: "upload" },
   base44: { name: "Base44", sub: "Download a ZIP", kind: "steps", site: "app.base44.com", title: "Download your app from Base44", lead: ZIP_LEAD, steps: [["Open your app in Base44."], ["Select <b>More actions</b> (⋯).", "It's in the top-right corner of the editor."], ["Select <b>Export project as ZIP</b>.", "Needs a Builder plan or higher on Base44."]], next: "upload" },
   manus: { name: "Manus", sub: "Ask Manus for a ZIP", kind: "steps", site: "manus.im", title: "Ask Manus for a ZIP", lead: "Manus packages your project when you ask. Then upload the ZIP here.", steps: [["Open your project in Manus.", "Use the chat inside the project so Manus can see your code."], ["Copy the prompt below and send it in that chat."], ["Download the ZIP Manus sends back.", "It can take a few minutes."]], prompt: MANUS_PROMPT, next: "upload" },
-  website: { name: "Website", icon: "world", sub: "Paste a URL", kind: "url", field: "web", title: "Import a website", lead: "Each page becomes a screen you can edit.", cta: "Import website" },
+  website: { name: "Website", icon: "world", sub: "Paste a URL", kind: "url", field: "web", title: "Import a website", lead: "We rebuild its pages as an agentic app you can keep building.", cta: "Import website" },
   upload: { name: "Upload code", icon: "file-zip", sub: "Upload a ZIP", kind: "upload", file: "zip", title: "Upload your code", lead: "Upload a ZIP of your project. From GitHub, select <b>Code</b>, then <b>Download ZIP</b>." },
-  figma: { name: "Figma", sub: "Upload a .fig file", kind: "upload", file: "fig", title: "Import a Figma file", lead: "Each frame becomes a screen you can edit." },
-  github: { name: "GitHub", sub: "Paste a repository URL", kind: "url", field: "repo", title: "Import from GitHub", lead: "Paste a repository URL to bring in its pages and components.", cta: "Import repository" },
+  figma: { name: "Figma", sub: "Upload a .fig file", kind: "upload", file: "fig", title: "Import a Figma file", lead: "We turn its frames into an agentic app you can keep building." },
+  github: { name: "GitHub", sub: "Paste a repository URL", kind: "url", field: "repo", title: "Import from GitHub", lead: "Paste a repository URL to rebuild that app with Agent-Native.", cta: "Import repository" },
   other: { name: "Other site builders", sub: "Wix, Squarespace, Webflow, Framer, and more", kind: "url", field: "web", title: "Import a site from another builder", lead: "Paste your site's live URL. Works with Wix, Squarespace, Webflow, Framer, and more.", cta: "Import website" },
 };
 const BUILDERS = ["lovable", "v0", "bolt", "replit", "base44", "manus"];
@@ -356,17 +356,17 @@ function viewProgress() {
     return `<li class="${st}"><span class="st">${mark}</span>${esc(p)}</li>`;
   }).join("");
   const pct = j.failed ? (j.step / j.phases.length) * 100 : done ? 100 : ((j.step + .5) / j.phases.length) * 100;
-  if (done) return headPair(j.src) + `<div class="imb"><h2 id="imd-title">${esc(j.name)} is ready</h2><p class="lead">${j.screens} screens you can edit.</p><div class="ready" aria-hidden="true">${"<span></span>".repeat(4)}</div><div class="foot"><button class="b ghost" data-act="again">Import another</button><button class="b primary" data-act="open-design">Open design</button></div></div>`;
+  if (done) return headPair(j.src) + `<div class="imb"><h2 id="imd-title">${esc(j.name)} is ready</h2><p class="lead">${j.screens} pages, with an agent that can do anything their UI can.</p><div class="ready" aria-hidden="true">${"<span></span>".repeat(4)}</div><div class="foot"><button class="b ghost" data-act="again">Import another</button><button class="b primary" data-act="open-design">Open app</button></div></div>`;
   const foot = j.failed ? `<div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="retry">Try again</button></div>` : "";
   const err = j.failed ? `<div class="after"><p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(j.error)}</span></p></div>` : "";
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 // The sidebar card and the dialog share their title and button.
-const ANN = { title: "Import a website or app", desc: "Turn a site, a Figma file, or an app into screens you can edit.", cta: "Import project" };
+const ANN = { title: "Import your project", desc: "Bring in an app from another builder and make it agentic.", cta: "Import project" };
 function viewAnnouncement() {
   return `<div class="hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
-  <div class="imb"><h2 id="imd-title">${ANN.title}</h2><p class="lead">Bring an existing site or project into Agent‑Native Design as screens you can edit.</p>
-  <ul class="checks"><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Upload a Figma file or a GitHub repository</li></ul>
+  <div class="imb"><h2 id="imd-title">Turn your project into an agentic app</h2><p class="lead">Import a site or an app and rebuild it with Agent‑Native. Its agent can do anything the UI can, right alongside you.</p>
+  <ul class="checks"><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, GitHub, and more</li><li><i>${ic("check")}</i>Keep building with an agent that uses the same actions as the UI</li></ul>
   <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">${ANN.cta}</button></div></div>`;
 }
 
@@ -516,7 +516,7 @@ root.addEventListener("click", (e) => {
   else if (act === "start-file") start(S.from || S.src, S.file.name.replace(/\.(zip|fig)$/i, ""), SRC[S.src].file === "fig" ? "fig" : "code");
   else if (act === "retry") start(S.job.src, S.job.name, S.job.kind, S.job.back);
   else if (act === "again") { S.job = null; go("picker", { src: null, from: null, file: null, value: "" }); }
-  else if (act === "open-design") { const n = S.job.name; S.job = null; close(); toast(`Opens ${n} in the editor`); }
+  else if (act === "open-design") { const n = S.job.name; S.job = null; close(); toast(`Opens ${n} in Design`); }
 });
 document.addEventListener("keydown", (e) => {
   if (!S.open) return;
@@ -532,10 +532,10 @@ document.addEventListener("keydown", (e) => {
 
 /* ───────── the simulated import ───────── */
 const PHASES = {
-  code: ["Reading your files", "Finding pages and components", "Building screens", "Matching fonts and colors"],
-  repo: ["Reading the repository", "Finding pages and components", "Building screens", "Matching fonts and colors"],
-  web: (n) => [`Opening ${n}`, "Reading each page", "Building screens", "Matching fonts and colors"],
-  fig: ["Reading your file", "Turning frames into screens", "Matching fonts and colors"],
+  code: ["Reading your files", "Finding pages and data", "Rebuilding with Agent-Native", "Giving the agent every action"],
+  repo: ["Reading the repository", "Finding pages and data", "Rebuilding with Agent-Native", "Giving the agent every action"],
+  web: (n) => [`Opening ${n}`, "Reading each page", "Rebuilding with Agent-Native", "Giving the agent every action"],
+  fig: ["Reading your file", "Turning frames into pages", "Rebuilding with Agent-Native", "Giving the agent every action"],
 };
 const ERRORS = {
   code: "Make sure the ZIP has your whole project, then try again.",

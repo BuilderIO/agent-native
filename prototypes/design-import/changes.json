@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-04",
+    "text": "The messaging is about turning an imported project into an agentic app built with Agent-Native, whose agent can do anything the UI can: the sidebar card, the announcement, each source's lead, the import steps, and the ready state, which now opens the app"
+  },
+  {
+    "date": "2026-11-04",
     "text": "The picker's line under its title reads \"Pick where your project lives now, and we'll show you how to import it.\""
   },
   {

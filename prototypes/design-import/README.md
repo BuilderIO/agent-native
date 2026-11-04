@@ -1,6 +1,6 @@
 # Design import
 
-Importing a website or a project from another builder into Design, on the shipped dashboard.
+Importing a website or a project from another builder into Design and turning it into an agentic app built with Agent-Native, on the shipped dashboard.
 
 Artifact: https://claude.ai/artifact/VsZSNrkQEQrBbHUk31cA32
 
