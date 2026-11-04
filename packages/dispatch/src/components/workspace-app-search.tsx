@@ -1,10 +1,15 @@
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@agent-native/toolkit/ui/input-group";
 import { IconSearch, IconX } from "@tabler/icons-react";
-import { useId } from "react";
+import { useId, useRef } from "react";
 
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 
 export function WorkspaceAppSearch({
   query,
@@ -17,6 +22,7 @@ export function WorkspaceAppSearch({
 }) {
   const t = useT();
   const inputId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
   const label = t("dispatch.pages.searchApps", {
     defaultValue: "Search apps",
   });
@@ -24,43 +30,44 @@ export function WorkspaceAppSearch({
     defaultValue: "Search apps",
   });
 
+  const clearLabel = t("dispatch.pages.clearAppSearch", {
+    defaultValue: "Clear search",
+  });
+
   return (
-    <div role="search" className={cn("flex items-center gap-2", className)}>
-      <div className="relative min-w-0 flex-1">
-        <label htmlFor={inputId} className="sr-only">
-          {label}
-        </label>
-        <IconSearch
-          size={16}
-          aria-hidden="true"
-          className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
+    <div role="search" className={cn("flex items-center", className)}>
+      <label htmlFor={inputId} className="sr-only">
+        {label}
+      </label>
+      <InputGroup size="sm" className="min-w-0 flex-1">
+        <InputGroupAddon>
+          <IconSearch aria-hidden="true" />
+        </InputGroupAddon>
+        <InputGroupInput
+          ref={inputRef}
           id={inputId}
-          size="sm"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={placeholder}
-          className="bg-background ps-9"
           autoComplete="off"
         />
-      </div>
-      {query ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-1.5 text-muted-foreground"
-          onClick={() => onQueryChange("")}
-        >
-          <IconX size={14} aria-hidden="true" />
-          <span>
-            {t("dispatch.pages.clearAppSearch", {
-              defaultValue: "Clear",
-            })}
-          </span>
-        </Button>
-      ) : null}
+        {query ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              size="icon-xs"
+              aria-label={clearLabel}
+              title={clearLabel}
+              onClick={() => {
+                onQueryChange("");
+                // The button unmounts once the query is empty.
+                inputRef.current?.focus();
+              }}
+            >
+              <IconX aria-hidden="true" />
+            </InputGroupButton>
+          </InputGroupAddon>
+        ) : null}
+      </InputGroup>
     </div>
   );
 }

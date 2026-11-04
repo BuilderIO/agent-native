@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 
-import { filterStrictDiagnostics, oxlintArgs } from "./guard-strict-lint.ts";
+import {
+  filterStrictDiagnostics,
+  lintBatches,
+  oxlintArgs,
+} from "./guard-strict-lint.ts";
+import { pnpmCommand, WINDOWS_COMMAND_LINE_LIMIT } from "./lib/pnpm-command.ts";
 
 const cwd = "/repo";
 const file = "templates/mail/app/x.ts";
@@ -74,4 +79,25 @@ test("oxlint args deny all seven rules through the repo config", () => {
   assert.equal(args.filter((a) => a === "-D").length, 7);
   assert.ok(args.includes("--type-aware") && args.includes(".oxlintrc.json"));
   assert.equal(args.at(-1), "a.ts");
+});
+
+test("lint runs hold 400 files, and fit cmd.exe's command line on Windows", () => {
+  const files = Array.from(
+    { length: 900 },
+    (_, i) => `templates/content/app/components/editor/file-${i}.tsx`,
+  );
+  assert.deepEqual(
+    lintBatches(files, "linux").map((batch) => batch.length),
+    [400, 400, 100],
+  );
+
+  const windows = lintBatches(files, "win32");
+  assert.deepEqual(windows.flat(), files);
+  assert.ok(windows.length > 3);
+  for (const batch of windows) {
+    assert.ok(
+      pnpmCommand(oxlintArgs(batch), "win32").command.length <=
+        WINDOWS_COMMAND_LINE_LIMIT,
+    );
+  }
 });
