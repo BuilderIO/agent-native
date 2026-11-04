@@ -194,7 +194,7 @@ export default defineAction({
         label: "Before source import",
         createdBy: "agent",
       });
-      await db
+      const importedRows = await db
         .update(schema.plans)
         .set({
           title,
@@ -212,7 +212,18 @@ export default defineAction({
           updatedAt: now,
           approvedAt: args.status === "approved" ? now : null,
         })
-        .where(eq(schema.plans.id, args.planId));
+        .where(
+          and(
+            eq(schema.plans.id, args.planId),
+            ...(expectedRevision
+              ? [eq(schema.plans.updatedAt, expectedRevision)]
+              : []),
+          ),
+        )
+        .returning({ id: schema.plans.id });
+      if (expectedRevision && importedRows.length === 0) {
+        throw await planSaveConflict(args.planId);
+      }
 
       await writeEvent({
         planId: args.planId,

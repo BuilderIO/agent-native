@@ -1924,6 +1924,33 @@ describe("update-visual-plan comments", () => {
     });
   });
 
+  it("returns a typed conflict for a granular patch that sent a stale revision", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedRevision: "2020-01-01T00:00:00.000Z",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+    });
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when another writer wins the revision CAS", async () => {
     request.email = "editor@example.com";
     const { returningMock } = useSuccessfulDb();

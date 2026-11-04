@@ -4063,12 +4063,19 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           : null),
       blocks,
     );
+    // After a choice the document holds that version, not what this save read.
+    let sent = mine;
     const saved = await saveWithMerge<PlanBlock[]>({
       base,
       mine,
       merge: mergePlanBlocks,
       parseCurrent: (current) => (current as PlanContent).blocks,
-      resolveOverlap,
+      resolveOverlap:
+        resolveOverlap &&
+        (async (overlap, finished) => {
+          sent = await resolveOverlap(overlap, finished);
+          return sent;
+        }),
       save: async ({ value, revision }) => {
         const result = await savePlanBlocks.mutateAsync({
           planId,
@@ -4085,7 +4092,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         };
       },
     });
-    lastBlockSaveRef.current = { planId, sent: mine, saved };
+    lastBlockSaveRef.current = { planId, sent, saved };
   };
 
   const patchStructuredContent = async (

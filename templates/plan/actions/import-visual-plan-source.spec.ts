@@ -149,10 +149,12 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     }));
     updateMock.mockImplementation(() => ({
       set: (values: { content?: string }) => ({
-        where: async () => {
-          if (values.content) state.content = JSON.parse(values.content);
-          return [];
-        },
+        where: () => ({
+          returning: async () => {
+            if (values.content) state.content = JSON.parse(values.content);
+            return [{ id: "plan-legacy" }];
+          },
+        }),
       }),
     }));
     assertPlanEditorMock.mockReset().mockResolvedValue(undefined);
@@ -186,6 +188,35 @@ describe("import-visual-plan-source stored legacy defaults", () => {
         { id: "model", type: "data-model", data: { entities: [] } },
       ],
     });
+  });
+
+  it("doesn't import over a save that lands while the snapshot is being made", async () => {
+    const content = legacyContent();
+    const mdx = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Legacy plan",
+      planId: "plan-legacy",
+    });
+    const contentBefore = state.content;
+    updateMock.mockImplementation(() => ({
+      set: (values: { content?: string }) => ({
+        where: () => ({
+          // The revision check passes, then the write itself finds it has moved on.
+          returning: async () =>
+            values.content ? [] : [{ id: "plan-legacy" }],
+        }),
+      }),
+    }));
+
+    await expect(
+      runAction({ planId: "plan-legacy", mdx, expectedRevision: "revision-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: { currentRevision: "revision-1" },
+    });
+    expect(state.content).toBe(contentBefore);
+    expect(writeEventMock).not.toHaveBeenCalled();
   });
 
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {

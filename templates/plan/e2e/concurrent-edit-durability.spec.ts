@@ -522,6 +522,36 @@ test("keeping my version of a block both writers changed saves it, and the other
   await expectPersisted(page, planId, { has: theirs, lacks: mine });
 });
 
+test("getting my version back after choosing theirs saves mine", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+});
+
+test("someone idle in the plan doesn't silence another writer's change to the same block", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, planId } = pair;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
 test("opening a plan in two editors at once seeds it and its callouts exactly once", async ({
   browser,
 }) => {

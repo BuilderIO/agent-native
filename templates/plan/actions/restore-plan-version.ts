@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -92,8 +92,9 @@ export default defineAction({
         .returning({ id: schema.plans.id });
 
       if (updatedRows.length === 0) {
-        throw new Error(
+        fail(
           "This plan was updated by someone else while the restore was being prepared. Reload the plan and try restoring again.",
+          { errorCode: "save_conflict", statusCode: 409 },
         );
       }
 

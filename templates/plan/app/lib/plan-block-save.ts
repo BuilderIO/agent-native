@@ -13,21 +13,78 @@ export type PlanBlocksOverlapResolver = NonNullable<
   SaveWithMergeOptions<PlanBlock[]>["resolveOverlap"]
 >;
 
+const MARKDOWN_PATH = ".data.markdown";
+
+function markdownOf(blocks: PlanBlock[], id: string): string | null {
+  const block = blocks.find((candidate) => candidate.id === id);
+  return block?.type === "rich-text" ? block.data.markdown : null;
+}
+
+/** The span of `before` that was replaced to get `after`, and what replaced it. */
+function changedSpan(before: string, after: string) {
+  const shorter = Math.min(before.length, after.length);
+  let start = 0;
+  while (start < shorter && before[start] === after[start]) start += 1;
+  let tail = 0;
+  while (
+    tail < shorter - start &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+  return {
+    start,
+    end: before.length - tail,
+    inserted: after.slice(start, after.length - tail),
+  };
+}
+
+function containsInOrder(text: string, characters: string): boolean {
+  let found = 0;
+  for (let i = 0; i < text.length && found < characters.length; i += 1) {
+    if (text[i] === characters[found]) found += 1;
+  }
+  return found === characters.length;
+}
+
 /**
- * Whether the live document already settled this overlap, so there's nothing to
- * ask. While someone else is in it, it merges what they type with what this tab
- * types, so a save of theirs overlaps with a document that already holds their
- * text. Structured data isn't in the document, so it can still really overlap.
+ * Whether `live` has the change that turned `base` into `theirs`. Their copy can
+ * hold part of what this tab typed, with the rest landing in between, so their
+ * text only has to appear in order among what `live` changed.
  */
-export function liveDocumentSettledOverlap(
-  { fields, mine, theirs }: SaveOverlap<PlanBlock[]>,
-  otherEditorIsLive: boolean,
+function holdsChange(base: string, live: string, theirs: string): boolean {
+  const { start, end, inserted } = changedSpan(base, theirs);
+  const removalNotApplied =
+    end > start &&
+    (live.startsWith(base.slice(0, end)) || live.endsWith(base.slice(start)));
+  return (
+    !removalNotApplied &&
+    containsInOrder(changedSpan(base, live).inserted, inserted)
+  );
+}
+
+/**
+ * Whether the live document already has the other writer's side of this overlap.
+ * A save from someone typing in the same document overlaps with a copy that has
+ * their text, so there's nothing to ask. An agent's write isn't in the document,
+ * and only prose is merged there, so anything else is a real overlap.
+ */
+export function documentHoldsTheirChanges(
+  { fields, base, theirs }: SaveOverlap<PlanBlock[]>,
+  live: PlanBlock[],
 ): boolean {
-  if (!otherEditorIsLive) return false;
   return fields.every((path) => {
-    const id = path.split(".")[0];
-    const block = [...mine, ...theirs].find((candidate) => candidate.id === id);
-    return !block || block.type === "rich-text";
+    if (!path.endsWith(MARKDOWN_PATH)) return false;
+    const id = path.slice(0, -MARKDOWN_PATH.length);
+    const before = markdownOf(base, id);
+    const held = markdownOf(live, id);
+    const other = markdownOf(theirs, id);
+    return (
+      before !== null &&
+      held !== null &&
+      other !== null &&
+      holdsChange(before, held, other)
+    );
   });
 }
 

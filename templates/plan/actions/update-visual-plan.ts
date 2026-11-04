@@ -749,14 +749,18 @@ export default defineAction({
       );
     }
 
-    if (isDestructiveStructuredWrite) {
-      const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
-      if (!expectedRevision) {
-        fail(
-          "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
-          { errorCode: "expected_updated_at_required", statusCode: 422 },
-        );
-      }
+    const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+    if (isDestructiveStructuredWrite && !expectedRevision) {
+      fail(
+        "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+        { errorCode: "expected_updated_at_required", statusCode: 422 },
+      );
+    }
+    // A targeted patch needs no revision, but one that was sent is checked.
+    if (
+      expectedRevision &&
+      (isDestructiveStructuredWrite || args.contentPatches.length > 0)
+    ) {
       if (bundleAtLoad?.plan.updatedAt !== expectedRevision) {
         throw await planSaveConflict(args.planId);
       }
@@ -1079,6 +1083,7 @@ export default defineAction({
 
         if (updatedRows.length === 0) {
           lostSaveRace = true;
+          // guard:allow-bare-error — invariant: only rolls back the transaction; replaced by the typed conflict once it ends
           throw new Error(
             "The plan changed while this save was being written.",
           );

@@ -62,6 +62,13 @@ describe("adoptSnapshot", () => {
     expect(adopted.overlapped).toBe(true);
   });
 
+  it("calls a chosen version an overlap if the document changed that block too", () => {
+    const atSave = [prose("a", "Alpha. mine"), base[1]];
+    const live = [prose("a", "Alpha. mine and more"), base[1]];
+    const chosen = [prose("a", "Alpha. theirs"), base[1]];
+    expect(adoptSnapshot(atSave, live, chosen).overlapped).toBe(true);
+  });
+
   it("doesn't call a clean merge an overlap", () => {
     const live = [prose("a", "Alpha. mine"), base[1]];
     const snapshot = [prose("a", "Alpha."), callout("c", "Theirs.")];

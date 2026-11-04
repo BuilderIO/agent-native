@@ -4,7 +4,10 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { SaveOverlapError } from "@agent-native/core/save-conflict";
+import {
+  SaveOverlapError,
+  type SaveOverlap,
+} from "@agent-native/core/save-conflict";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import {
@@ -40,7 +43,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
 import {
-  liveDocumentSettledOverlap,
+  documentHoldsTheirChanges,
   type PlanBlocksOverlapResolver,
   type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
@@ -317,7 +320,7 @@ export function PlanContentRenderer({
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
   const editorDocumentWriterRef = useRef<
-    ((gaveUp: PlanBlock[], chosen: PlanBlock[]) => void) | null
+    ((documentAtSave: PlanBlock[], chosen: PlanBlock[]) => boolean) | null
   >(null);
   const editorBlocksRef = useRef<
     ((pending: PlanBlock[]) => PlanBlock[] | null) | null
@@ -343,18 +346,31 @@ export function PlanContentRenderer({
       replaceBlocksRef.current(restored);
     },
   });
-  // The person's choice goes into the live document first: nothing else would
-  // replace the text they gave up, and collaborators' editors must have it
-  // before the saved copy reaches them, or they insert the text twice.
-  const resolveOverlap: PlanBlocksOverlapResolver = async (
-    overlap,
-    finished,
+  // A save from someone else in the live document overlaps with a copy that
+  // already has their text, which can still be on its way here.
+  const documentSettledOverlap = async (overlap: SaveOverlap<PlanBlock[]>) => {
+    if (!anotherEditorIsLive) return false;
+    await collabDoc.requestSync().catch(() => null);
+    const live = editorBlocksRef.current?.(overlap.mine);
+    return !!live && documentHoldsTheirChanges(overlap, live);
+  };
+  // The version to keep goes into the live document first: nothing else would
+  // replace the text given up, and collaborators' editors must have it before
+  // the saved copy reaches them, or they insert the text twice.
+  const resolveOverlap = async (
+    overlap: SaveOverlap<PlanBlock[]>,
+    finished: Promise<boolean>,
+    documentAtSave: PlanBlock[],
   ) => {
-    if (liveDocumentSettledOverlap(overlap, anotherEditorIsLive)) {
-      return overlap.keepMine;
+    const chosen = (await documentSettledOverlap(overlap))
+      ? overlap.keepMine
+      : await saveConflictPrompt.resolveOverlap(overlap, finished);
+    const writeToDocument = editorDocumentWriterRef.current;
+    // Someone typed in the same place while this was being decided, so neither
+    // version holds their text. Nothing saves until the person retries and sees it.
+    if (writeToDocument && !writeToDocument(documentAtSave, chosen)) {
+      throw new SaveOverlapError(overlap);
     }
-    const chosen = await saveConflictPrompt.resolveOverlap(overlap, finished);
-    editorDocumentWriterRef.current?.(overlap.mine, chosen);
     if (!(await flushCollabUpdatesRef.current())) {
       throw new Error("Live edits have not reached the server yet.");
     }
@@ -364,7 +380,11 @@ export function PlanContentRenderer({
     onContentPatch
       ? onContentPatch(
           { op: "replace-blocks", blocks: nextBlocks },
-          { base, resolveOverlap },
+          {
+            base,
+            resolveOverlap: (overlap, finished) =>
+              resolveOverlap(overlap, finished, nextBlocks),
+          },
         )
       : onContentChange?.({ ...content, blocks: nextBlocks });
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});

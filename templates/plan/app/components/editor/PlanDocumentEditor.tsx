@@ -731,12 +731,12 @@ export function PlanDocumentEditor({
     ((pending: PlanBlock[]) => PlanBlock[] | null) | null
   >;
   /**
-   * Filled, while mounted, with a writer that puts a version the person chose
-   * into the live document, replacing the version they gave up and keeping
-   * anything the document gained on top of it.
+   * Filled, while mounted, with a writer that puts a chosen version into the live
+   * document in place of what a save read from it, keeping anything the document
+   * gained since. Returns false, writing nothing, if that overlaps with the choice.
    */
   documentWriterRef?: MutableRefObject<
-    ((gaveUp: PlanBlock[], chosen: PlanBlock[]) => void) | null
+    ((documentAtSave: PlanBlock[], chosen: PlanBlock[]) => boolean) | null
   >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
@@ -1380,11 +1380,16 @@ export function PlanDocumentEditor({
     [blocksReaderRef],
   );
 
-  const writeChosenVersion = (gaveUp: PlanBlock[], chosen: PlanBlock[]) => {
+  const writeChosenVersion = (
+    documentAtSave: PlanBlock[],
+    chosen: PlanBlock[],
+  ) => {
     const editor = editorRef.current;
-    if (!editor || editor.isDestroyed) return;
-    // Merging against what was given up makes the chosen version replace it.
-    docBaseRef.current = gaveUp;
+    if (!editor || editor.isDestroyed) return false;
+    const live = proseJSONToBlocks(editor.getJSON(), blocksRef.current);
+    if (adoptSnapshot(documentAtSave, live, chosen).overlapped) return false;
+    // Merging against what the save read makes the chosen version replace it.
+    docBaseRef.current = documentAtSave;
     rememberEmitted(JSON.stringify(chosen));
     blocksRef.current = chosen;
     setBlocks(chosen);
@@ -1392,6 +1397,7 @@ export function PlanDocumentEditor({
       emitUpdate: false,
       addToHistory: false,
     });
+    return true;
   };
   if (documentWriterRef) documentWriterRef.current = writeChosenVersion;
   useEffect(
