@@ -240,9 +240,7 @@ describe("session replay list page", () => {
       const db = {
         select: vi.fn((selection?: Record<string, unknown>) => {
           if (!selection) return rowSelect();
-          const rows = selection.app
-            ? [{ app: "clips", count: "137" }]
-            : [{ count: String(total) }];
+          const rows = total ? [{ app: "clips", count: String(total) }] : [];
           const query = {
             from: () => query,
             where: () => query,
@@ -264,9 +262,103 @@ describe("session replay list page", () => {
       ).resolves.toEqual({
         recordings: [],
         total,
-        appCounts: [{ app: "clips", count: 137 }],
+        appCounts: total ? [{ app: "clips", count: total }] : [],
       });
       expect(rowSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it("totals every app's recordings from one read when no app is chosen", async () => {
+    const selections: Record<string, unknown>[] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => {
+        if (selection) selections.push(selection);
+        const rows = selection
+          ? [
+              { app: "clips", count: "137" },
+              { app: null, count: "3" },
+            ]
+          : [];
+        const query = {
+          from: () => query,
+          where: () => query,
+          groupBy: () => query,
+          orderBy: () => query,
+          limit: () => query,
+          offset: async () => rows,
+          then: (resolve: (value: unknown[]) => void) =>
+            Promise.resolve(rows).then(resolve),
+        };
+        return query;
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordingsPage({ userEmail: "qa@example.test", orgId: null }),
+    ).resolves.toEqual({
+      recordings: [],
+      total: 140,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(selections).toHaveLength(1);
+  });
+
+  it("totals a chosen app apart from the counts for every app", async () => {
+    const rowSelect = vi.fn(() => {
+      throw new Error("Out-of-range recording row query must not run");
+    });
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => {
+        if (!selection) return rowSelect();
+        const rows = selection.app
+          ? [{ app: "clips", count: "137" }]
+          : [{ count: "0" }];
+        const query = {
+          from: () => query,
+          where: () => query,
+          groupBy: () => query,
+          orderBy: () => query,
+          then: (resolve: (value: unknown[]) => void) =>
+            Promise.resolve(rows).then(resolve),
+        };
+        return query;
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordingsPage(
+        { userEmail: "qa@example.test", orgId: null },
+        { app: "slides" },
+      ),
+    ).resolves.toEqual({
+      recordings: [],
+      total: 0,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(rowSelect).not.toHaveBeenCalled();
+  });
+
+  it.each(["many", "not a count"])(
+    "fails on an unreadable app count of %s",
+    async (count) => {
+      const query = {
+        from: () => query,
+        where: () => query,
+        groupBy: () => query,
+        orderBy: () => query,
+        then: (resolve: (value: unknown[]) => void) =>
+          Promise.resolve([{ app: "clips", count }]).then(resolve),
+      };
+      getDbMock.mockReturnValue({ select: vi.fn(() => query) });
+
+      await expect(
+        listSessionRecordingsPage({
+          userEmail: "qa@example.test",
+          orgId: null,
+        }),
+      ).rejects.toThrow("invalid count");
     },
   );
 
@@ -385,7 +477,7 @@ describe("session replay list page", () => {
       { sessionId: "s-observed", query: "s-observed" },
     );
 
-    expect(conditions).toHaveLength(3);
+    expect(conditions).toHaveLength(2);
     const where = conditions.map(conditionText).join(" ");
     expect(where).toContain("session_recording_session_associations");
     expect(where).toContain("not exists");

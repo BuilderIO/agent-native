@@ -10,11 +10,18 @@ import type {
   NodeKind,
   RejectionCode,
   StepStatus,
-  WorkflowIssue,
   WorkflowIssueCode,
 } from "@/lib/workflow-editor";
+import type {
+  AnnotatedIssue,
+  ApiRequestProblem,
+  RowProblem,
+} from "@/lib/workflow-editor/api-request";
+import type { CurlImportResult } from "@/lib/workflow-editor/curl-import";
 
 type CanvasKey = NamespaceKey<"workflowCanvas">;
+
+type CurlFailureReason = Extract<CurlImportResult, { ok: false }>["reason"];
 
 const WAIT_TIME_KEYS = {
   minutes: "workflowCanvas.summary.waitMinutes",
@@ -47,6 +54,7 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         match: t("workflowCanvas.port.match"),
         otherwise: t("workflowCanvas.port.otherwise"),
         limitReached: t("workflowCanvas.port.limitReached"),
+        error: t("workflowCanvas.port.error"),
         replied: t("workflowCanvas.port.replied"),
         timedOut: t("workflowCanvas.port.timedOut"),
         done: t("workflowCanvas.port.done"),
@@ -120,7 +128,7 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
     issue: () => ({
       edge: (from: string, to: string) =>
         t("workflowCanvas.issue.edge", { from, to }),
-      sentence: (issue: WorkflowIssue, portLabel?: string) =>
+      sentence: (issue: AnnotatedIssue, portLabel?: string) =>
         issueSentence(t, issue, portLabel),
     }),
     palette: () => ({
@@ -169,6 +177,11 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       searchApps: t("workflowCanvas.creator.searchApps"),
       searchActions: t("workflowCanvas.creator.searchActions"),
       clearSearch: t("workflowCanvas.creator.clearSearch"),
+      apiRequest: t("workflowCanvas.creator.apiRequest"),
+      apiRequestLink: t("workflowCanvas.creator.apiRequestLink"),
+      apiRequestTip: (link: string) =>
+        t("workflowCanvas.creator.apiRequestTip", { link }),
+      anythingElseCaption: t("workflowCanvas.creator.anythingElseCaption"),
       hint: {
         onSchedule: t("workflowCanvas.creator.hint.onSchedule"),
         newFromApp: t("workflowCanvas.creator.hint.newFromApp"),
@@ -178,6 +191,7 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         data: t("workflowCanvas.creator.hint.data"),
         flow: t("workflowCanvas.creator.hint.flow"),
         describe: t("workflowCanvas.creator.hint.describe"),
+        apiRequest: t("workflowCanvas.creator.hint.apiRequest"),
         decideAi: t("workflowCanvas.creator.hint.decideAi"),
         builderStart: t("workflowCanvas.creator.hint.builderStart"),
         builderCheck: t("workflowCanvas.creator.hint.builderCheck"),
@@ -256,6 +270,11 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       notInCatalog: (id: string) =>
         t("workflowCanvas.inspector.notInCatalog", { id }),
       resultName: t("workflowCanvas.inspector.resultName"),
+      onError: {
+        label: t("workflowCanvas.inspector.onError.label"),
+        stop: t("workflowCanvas.inspector.onError.stop"),
+        route: t("workflowCanvas.inspector.onError.route"),
+      },
       pathExample: "item.title",
       insertPath: t("workflowCanvas.inspector.insertPath"),
       searchPaths: t("workflowCanvas.inspector.searchPaths"),
@@ -375,6 +394,9 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       combine: {
         mode: t("workflowCanvas.inspector.combine.mode"),
         key: t("workflowCanvas.inspector.combine.key"),
+        firstMemberIdentity: t(
+          "workflowCanvas.inspector.combine.firstMemberIdentity",
+        ),
         field: t("workflowCanvas.inspector.combine.field"),
         group: t("workflowCanvas.inspector.combine.group"),
         value: t("workflowCanvas.inspector.combine.value"),
@@ -468,6 +490,183 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         confirm: t("workflowCanvas.inspector.switchRoutes.confirm"),
         cancel: t("workflowCanvas.inspector.switchRoutes.cancel"),
       },
+      apiRequest: {
+        importCurl: t("workflowCanvas.inspector.apiRequest.importCurl"),
+        method: t("workflowCanvas.inspector.apiRequest.method"),
+        methodReadOnly: t("workflowCanvas.inspector.apiRequest.methodReadOnly"),
+        provider: t("workflowCanvas.inspector.apiRequest.provider"),
+        path: t("workflowCanvas.inspector.apiRequest.path"),
+        pathPlaceholder: t(
+          "workflowCanvas.inspector.apiRequest.pathPlaceholder",
+        ),
+        authentication: t("workflowCanvas.inspector.apiRequest.authentication"),
+        authProvider: t("workflowCanvas.inspector.apiRequest.authProvider"),
+        authProviderHint: t(
+          "workflowCanvas.inspector.apiRequest.authProviderHint",
+        ),
+        authNone: t("workflowCanvas.inspector.apiRequest.authNone"),
+        authNoneHint: t("workflowCanvas.inspector.apiRequest.authNoneHint"),
+        sendQuery: t("workflowCanvas.inspector.apiRequest.sendQuery"),
+        sendHeaders: t("workflowCanvas.inspector.apiRequest.sendHeaders"),
+        specifyQuery: t("workflowCanvas.inspector.apiRequest.specifyQuery"),
+        specifyHeaders: t("workflowCanvas.inspector.apiRequest.specifyHeaders"),
+        modeFields: t("workflowCanvas.inspector.apiRequest.modeFields"),
+        modeJson: t("workflowCanvas.inspector.apiRequest.modeJson"),
+        name: t("workflowCanvas.inspector.apiRequest.name"),
+        value: t("workflowCanvas.inspector.apiRequest.value"),
+        queryJson: t("workflowCanvas.inspector.apiRequest.queryJson"),
+        headersJson: t("workflowCanvas.inspector.apiRequest.headersJson"),
+        addParameter: t("workflowCanvas.inspector.apiRequest.addParameter"),
+        addHeader: t("workflowCanvas.inspector.apiRequest.addHeader"),
+        removeRow: t("workflowCanvas.inspector.apiRequest.removeRow"),
+        addOption: t("workflowCanvas.inspector.apiRequest.addOption"),
+        optionTimeout: t("workflowCanvas.inspector.apiRequest.optionTimeout"),
+        optionPagination: t(
+          "workflowCanvas.inspector.apiRequest.optionPagination",
+        ),
+        optionStatus: t("workflowCanvas.inspector.apiRequest.optionStatus"),
+        optionFieldsToKeep: t(
+          "workflowCanvas.inspector.apiRequest.optionFieldsToKeep",
+        ),
+        optionFieldsToKeepHint: t(
+          "workflowCanvas.inspector.apiRequest.optionFieldsToKeepHint",
+        ),
+        fieldsPlaceholder: t(
+          "workflowCanvas.inspector.apiRequest.fieldsPlaceholder",
+        ),
+        fieldsInputLabel: t(
+          "workflowCanvas.inspector.apiRequest.fieldsInputLabel",
+        ),
+        removeField: (path: string) =>
+          t("workflowCanvas.inspector.apiRequest.removeField", { path }),
+        pickFromResponse: t(
+          "workflowCanvas.inspector.apiRequest.pickFromResponse",
+        ),
+        pickSearch: t("workflowCanvas.inspector.apiRequest.pickSearch"),
+        pickNeedsTest: t("workflowCanvas.inspector.apiRequest.pickNeedsTest"),
+        pickRunning: t("workflowCanvas.inspector.apiRequest.pickRunning"),
+        pickFailed: t("workflowCanvas.inspector.apiRequest.pickFailed"),
+        pickNoFields: t("workflowCanvas.inspector.apiRequest.pickNoFields"),
+        pickCutNote: t("workflowCanvas.inspector.apiRequest.pickCutNote"),
+        pickCapped: (count: number) =>
+          t("workflowCanvas.inspector.apiRequest.pickCapped", { count }),
+        pickKeptNote: t("workflowCanvas.inspector.apiRequest.pickKeptNote"),
+        optionBlockedByPagination: t(
+          "workflowCanvas.inspector.apiRequest.optionBlockedByPagination",
+        ),
+        optionBlockedByStatus: t(
+          "workflowCanvas.inspector.apiRequest.optionBlockedByStatus",
+        ),
+        removeOption: (option: string) =>
+          t("workflowCanvas.inspector.apiRequest.removeOption", { option }),
+        timeoutSeconds: t("workflowCanvas.inspector.apiRequest.timeoutSeconds"),
+        cursorPath: t("workflowCanvas.inspector.apiRequest.cursorPath"),
+        cursorParam: t("workflowCanvas.inspector.apiRequest.cursorParam"),
+        itemsPath: t("workflowCanvas.inspector.apiRequest.itemsPath"),
+        maxPages: t("workflowCanvas.inspector.apiRequest.maxPages"),
+        notice: t("workflowCanvas.inspector.apiRequest.notice"),
+        cardSubtitle: (path: string) =>
+          path === ""
+            ? t("workflowCanvas.inspector.apiRequest.cardSubtitleEmpty")
+            : t("workflowCanvas.inspector.apiRequest.cardSubtitle", { path }),
+        problem: {
+          sentence: (problem: ApiRequestProblem) =>
+            apiRequestSentence(t, problem),
+          row: (problem: RowProblem) => apiRequestRowSentence(t, problem),
+          useOnlyPath: t(
+            "workflowCanvas.inspector.apiRequest.problem.useOnlyPath",
+          ),
+          moveToParameters: t(
+            "workflowCanvas.inspector.apiRequest.problem.moveToParameters",
+          ),
+          droppedCredentials: (names: string) =>
+            t(
+              "workflowCanvas.inspector.apiRequest.problem.droppedCredentials",
+              { names },
+            ),
+        },
+        importDialog: {
+          title: t("workflowCanvas.inspector.apiRequest.importDialog.title"),
+          label: t("workflowCanvas.inspector.apiRequest.importDialog.label"),
+          placeholder: t(
+            "workflowCanvas.inspector.apiRequest.importDialog.placeholder",
+          ),
+          warning: t(
+            "workflowCanvas.inspector.apiRequest.importDialog.warning",
+          ),
+          import: t("workflowCanvas.inspector.apiRequest.importDialog.import"),
+          cancel: t("workflowCanvas.inspector.apiRequest.importDialog.cancel"),
+          done: t("workflowCanvas.inspector.apiRequest.importDialog.done"),
+          providersFailed: t(
+            "workflowCanvas.inspector.apiRequest.importDialog.providersFailed",
+          ),
+          retry: t("workflowCanvas.inspector.apiRequest.importDialog.retry"),
+          imported: t(
+            "workflowCanvas.inspector.apiRequest.importDialog.imported",
+          ),
+          leftOutTitle: t(
+            "workflowCanvas.inspector.apiRequest.importDialog.leftOutTitle",
+          ),
+          fail: {
+            not_curl: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.not_curl",
+            ),
+            no_url: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.no_url",
+            ),
+            invalid_url: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.invalid_url",
+            ),
+            not_https: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.not_https",
+            ),
+            unknown_host: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.unknown_host",
+            ),
+            unterminated_quote: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.unterminated_quote",
+            ),
+            method_not_get: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.fail.method_not_get",
+            ),
+          } satisfies Record<CurlFailureReason, string>,
+          failFlag: (flag: string) =>
+            t("workflowCanvas.inspector.apiRequest.importDialog.failFlag", {
+              flag,
+            }),
+          leftOut: {
+            credentials: (names: string) =>
+              t(
+                "workflowCanvas.inspector.apiRequest.importDialog.leftOut.credentials",
+                { names },
+              ),
+            headers: (names: string) =>
+              t(
+                "workflowCanvas.inspector.apiRequest.importDialog.leftOut.headers",
+                { names },
+              ),
+            bodies: (names: string) =>
+              t(
+                "workflowCanvas.inspector.apiRequest.importDialog.leftOut.bodies",
+                { names },
+              ),
+            flags: (names: string) =>
+              t(
+                "workflowCanvas.inspector.apiRequest.importDialog.leftOut.flags",
+                { names },
+              ),
+            unreadableHeader: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.leftOut.unreadableHeader",
+            ),
+            extraUrl: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.leftOut.extraUrl",
+            ),
+            urlUserinfo: t(
+              "workflowCanvas.inspector.apiRequest.importDialog.leftOut.urlUserinfo",
+            ),
+          },
+        },
+      },
     }),
     rejection: () =>
       ({
@@ -515,11 +714,143 @@ export function useWorkflowCanvasStrings(): WorkflowCanvasStrings {
   return useMemo(() => createWorkflowCanvasStrings(t), [t]);
 }
 
+/** A refused field of an API request in plain words, from the code the engine would refuse it with. */
+function apiRequestSentence(
+  t: Translate<CanvasKey>,
+  problem: ApiRequestProblem,
+): string {
+  switch (problem.field) {
+    case "path":
+      if (problem.code === "invalid_field") {
+        return t("workflowCanvas.inspector.apiRequest.problem.pathEmpty");
+      }
+      if (problem.code === "full_url_refused") {
+        return t("workflowCanvas.inspector.apiRequest.problem.fullUrl");
+      }
+      switch (problem.reason) {
+        case "query":
+          return t("workflowCanvas.inspector.apiRequest.problem.pathQuery");
+        case "fragment":
+          return t("workflowCanvas.inspector.apiRequest.problem.pathFragment");
+        case "placeholder":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.pathPlaceholder",
+          );
+        case "segment":
+          return t("workflowCanvas.inspector.apiRequest.problem.pathSegment");
+        case "length":
+          return t("workflowCanvas.inspector.apiRequest.problem.pathLength");
+      }
+    case "query":
+      return t("workflowCanvas.inspector.apiRequest.problem.queryInvalid");
+    case "headers":
+      if (problem.code === "header_denied") {
+        return problem.name === undefined
+          ? t("workflowCanvas.inspector.apiRequest.problem.headerDeniedRow")
+          : t("workflowCanvas.inspector.apiRequest.problem.headerDenied", {
+              name: problem.name,
+            });
+      }
+      return t("workflowCanvas.inspector.apiRequest.problem.headersInvalid");
+    case "timeoutSeconds":
+      return t("workflowCanvas.inspector.apiRequest.problem.timeout");
+    case "includeStatus":
+      return t("workflowCanvas.inspector.apiRequest.problem.statusWithPaging");
+    case "fieldsToKeep":
+      switch (problem.reason) {
+        case "shape":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepShape",
+          );
+        case "empty":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepEmpty",
+          );
+        case "count":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepCount",
+          );
+        case "control":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepControl",
+          );
+        case "segment":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepSegment",
+          );
+        case "long":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepLong",
+          );
+        case "deep":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepDeep",
+          );
+        case "reserved":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepReserved",
+          );
+        case "duplicate":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepDuplicate",
+          );
+      }
+    case "pagination":
+      switch (problem.part) {
+        case "cursorPath":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.paginationCursorPath",
+          );
+        case "cursorParam":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.paginationCursorParam",
+          );
+        case "itemsPath":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.paginationItemsPath",
+          );
+        case "maxPages":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.paginationMaxPages",
+          );
+        case "shape":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.paginationShape",
+          );
+      }
+  }
+}
+
+/** A refused row of query parameters or headers in plain words. */
+function apiRequestRowSentence(
+  t: Translate<CanvasKey>,
+  problem: RowProblem,
+): string {
+  const headers = problem.code !== "invalid_query";
+  switch (problem.part) {
+    case "nameMissing":
+      return t("workflowCanvas.inspector.apiRequest.problem.nameMissing");
+    case "denied":
+      return t("workflowCanvas.inspector.apiRequest.problem.headerDeniedRow");
+    case "duplicate":
+      return t("workflowCanvas.inspector.apiRequest.problem.headerDuplicate");
+    case "name":
+      return headers
+        ? t("workflowCanvas.inspector.apiRequest.problem.headerName")
+        : t("workflowCanvas.inspector.apiRequest.problem.queryName");
+    case "value":
+      return headers
+        ? t("workflowCanvas.inspector.apiRequest.problem.headerValue")
+        : t("workflowCanvas.inspector.apiRequest.problem.queryValue");
+  }
+}
+
 function issueSentence(
   t: Translate<CanvasKey>,
-  issue: WorkflowIssue,
+  issue: AnnotatedIssue,
   portLabel?: string,
 ): string | undefined {
+  if (issue.apiProblem) return apiRequestSentence(t, issue.apiProblem);
   const detail = issue.detail ?? "";
   const sentences: Record<WorkflowIssueCode, () => string> = {
     trigger_count: () => t("workflowCanvas.issue.graph.trigger_count"),

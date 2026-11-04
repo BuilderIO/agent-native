@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "아직 에셋이 없습니다.",
     assetUploadFailed: "일부 업로드에 실패했습니다",
     assetDeleteFailed: "에셋 삭제에 실패했습니다",
+    assetDeleteInUse: "이 에셋은 덱에서 사용 중입니다. 먼저 덱에서 제거하세요",
+    assetDeleteStorageRemains:
+      "라이브러리에서 제거했지만 저장된 파일은 삭제하지 못했습니다",
     contentMarkdown: "콘텐츠 (Markdown)",
     speakerNotes: "발표자 노트",
     speakerNotesForSlide: "발표자 노트 — 슬라이드 {{index}} / {{count}}",
@@ -298,6 +301,7 @@ const messages = {
       "직접 작성하거나 에이전트로 발표자 노트를 빠르게 생성해 보세요",
   },
   editorToolbar: {
+    saving: "저장 중...",
     layoutTitle: "제목",
     layoutSection: "섹션 구분",
     layoutContent: "콘텐츠",
@@ -844,6 +848,10 @@ const messages = {
     versionRestoredDescription: "덱을 선택한 스냅샷으로 되돌렸습니다.",
     restoreFailed: "복원 실패",
     restoreFailedDescription: "이 덱 버전을 복원할 수 없습니다.",
+    alreadyAtVersion: "이미 이 버전입니다",
+    restoreReloadFailed: "덱을 새로고침하지 못했습니다",
+    restoreReloadFailedDescription:
+      "페이지를 새로고침해 이 덱의 현재 버전을 확인하세요.",
     backToSavedVersions: "기록으로 돌아가기",
     savedVersions: "기록",
     description: "덱 기록을 살펴보고 이전 스냅샷을 복원하세요.",
