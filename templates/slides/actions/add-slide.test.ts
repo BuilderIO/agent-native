@@ -215,6 +215,37 @@ beforeEach(() => {
   updatedFields = undefined;
 });
 
+describe("add-slide silent success", () => {
+  it("rejects a slideId another slide already uses", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: "<div>Clash</div>",
+      }),
+    ).rejects.toThrow(/slide-1/);
+    expect(updatedFields).toBeUndefined();
+  });
+
+  it("saves background, transition, and skipped from the add-slide fields", async () => {
+    await action.run({
+      deckId: "deck-1",
+      content: "<div>Two copy</div>",
+      background: "#112233",
+      transition: "fade",
+      transitionSpeed: 20,
+      skipped: true,
+    });
+    const saved = JSON.parse(String(updatedFields?.data));
+    expect(saved.slides.at(-1)).toMatchObject({
+      background: "#112233",
+      transition: "fade",
+      transitionSpeed: 20,
+      skipped: true,
+    });
+  });
+});
+
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
