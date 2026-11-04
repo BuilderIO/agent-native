@@ -1238,7 +1238,8 @@ class CollabDocConnection {
         local = read.status === "hit" ? read.state : null;
       }
     }
-    if (rejectedLocalCopies.has(this.registryKey)) local = null;
+    if (rejectedLocalCopies.has(this.registryKey) || this.tabLeftThisAccount())
+      local = null;
     if (!local || !this.applyLocalCopy(local)) {
       if (local) deleteCollabLocalCopy(account, key);
       if (request && !request.localState) {
@@ -1638,6 +1639,13 @@ class CollabDocConnection {
     }, LOCAL_COPY_SAVE_DELAY_MS);
   };
 
+  private tabLeftThisAccount(): boolean {
+    return (
+      typeof this.sessionIdentity === "string" &&
+      this.sessionIdentity !== currentSessionIdentity()
+    );
+  }
+
   /**
    * Saves the doc's state as this browser's copy, only while the server holds
    * all of it: synced, and none of this tab's edits waiting for an
@@ -1658,12 +1666,8 @@ class CollabDocConnection {
       this.snapshot.updatesRefused
     )
       return false;
-    // The tab has moved to another account, whose copies this write would evict.
-    if (
-      typeof this.sessionIdentity === "string" &&
-      this.sessionIdentity !== currentSessionIdentity()
-    )
-      return false;
+    // The other account's copies are what this write would evict.
+    if (this.tabLeftThisAccount()) return false;
     saveCollabLocalCopy(
       this.actorIdentity,
       collabLocalCopyKey(this.baseUrl, this.docId),

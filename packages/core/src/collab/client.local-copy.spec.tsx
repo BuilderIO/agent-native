@@ -280,6 +280,7 @@ describe("collab local copies", () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(navigator, "locks");
     act(() => root.unmount());
     container.remove();
     _resetCollabDocRegistryForTests();
@@ -589,6 +590,77 @@ describe("collab local copies", () => {
     expect(stateRequests).toHaveLength(2);
     expect(displaced).toEqual([]);
     expect(server.getText("content").toString()).toBe("hello typed");
+  });
+
+  it("doesn't open a copy for an account the tab left while reading it", async () => {
+    await visit();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = store.persistence.read;
+    vi.spyOn(store.persistence, "read").mockImplementationOnce(
+      async (...args) => {
+        await held;
+        return read(...args);
+      },
+    );
+    stateRequests = [];
+    mount();
+    await advance(0);
+
+    act(() => recordSessionIdentity(BOB.email));
+    release();
+    await advance(50);
+
+    expect(current().fromLocalCopy).toBe(false);
+    expect(stateRequests).toHaveLength(1);
+    expect(stateRequests[0]).not.toContain("stateVector=");
+    expect(text()).toBe("hello");
+  });
+
+  it("keeps typing on a copy for the next open when the page closes before the server answers", async () => {
+    // The stored outbox changes hands under this browser lock.
+    const held = new Set<string>();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: {
+        request: async (
+          name: string,
+          optionsOrCallback: unknown,
+          callback?: (lock: unknown) => unknown,
+        ) => {
+          const run = (callback ?? optionsOrCallback) as (
+            lock: unknown,
+          ) => unknown;
+          if (held.has(name)) return run(null);
+          held.add(name);
+          try {
+            return await run({ name });
+          } finally {
+            held.delete(name);
+          }
+        },
+      },
+    });
+    await visit({ durableUpdates: true });
+    const release = holdStateResponses();
+    mount({ durableUpdates: true });
+    await advance(0);
+    expect(current().fromLocalCopy).toBe(true);
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    await leave();
+    release();
+    await advance(1_100);
+    expect(server.getText("content").toString()).toBe("hello");
+
+    mount({ durableUpdates: true });
+    await advance(3_000);
+    expect(server.getText("content").toString()).toBe("hello typed");
+    expect(displaced).toEqual([]);
   });
 
   it("hands over a deletion on a copy the server's doc no longer holds", async () => {
