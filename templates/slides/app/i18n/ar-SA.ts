@@ -857,6 +857,10 @@ const messages = {
     versionRestoredDescription: "تمت إعادة العرض إلى اللقطة المحددة.",
     restoreFailed: "تعذّرت الاستعادة",
     restoreFailedDescription: "تعذّرت استعادة هذا الإصدار من العرض.",
+    alreadyAtVersion: "هذا هو الإصدار الحالي بالفعل",
+    restoreReloadFailed: "تعذّر تحديث العرض",
+    restoreReloadFailedDescription:
+      "أعد تحميل الصفحة لرؤية النسخة الحالية من هذا العرض.",
     backToSavedVersions: "العودة إلى السجل",
     savedVersions: "السجل",
     description: "تصفّح سجل العرض واستعد لقطة سابقة.",

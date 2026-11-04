@@ -56,6 +56,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { recordSourceHeadFromFirstChunk } from "../../../../lib/source-fingerprint.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   markHostedCleanupConfirmed,
@@ -1107,6 +1108,13 @@ export async function handleRecordingChunk(
       if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
     }
 
     if (total > 0) {
@@ -1943,6 +1951,15 @@ async function handleResumableChunk(
           error: lease.failureReason ?? "Recording upload has already failed.",
         };
       }
+      // Here and not before the replay check: a committed chunk's replay is
+      // acked without storing its bytes, so it must not change the fingerprint.
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
       const start = session.bytesUploaded;
       const end = start + bytes.byteLength - 1;
       const contentRange = isFinal

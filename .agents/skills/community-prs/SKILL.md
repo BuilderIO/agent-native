@@ -199,6 +199,12 @@ and the reply template in `review-prs` is the baseline when there's no history.
 
 Drafts for each moment, and what to avoid: `references/replies.md`.
 
+**Factory exception.** On an unassigned outside PR, the factory (`factory-run`)
+posts these replies itself as its GitHub bot, so no contributor waits on
+silence. It keeps the time limits without assigning anyone, and leaves every
+trust call (approve, finish, rebuild, decline, close) to a person. Once a
+member is assigned, the factory stands down.
+
 ## Gotchas
 
 - An addressed `CHANGES_REQUESTED` review still blocks merging (#7168). Ask

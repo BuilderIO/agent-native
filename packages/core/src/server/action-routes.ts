@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   createError,
   defineEventHandler,
@@ -2013,6 +2015,20 @@ function buildWebMcpCompatibilityManifest(
   };
 }
 
+function webMcpManifestEtag(manifest: unknown): string {
+  return `"${createHash("sha256").update(JSON.stringify(manifest)).digest("base64url").slice(0, 32)}"`;
+}
+
+function ifNoneMatchIncludes(
+  header: string | undefined,
+  etag: string,
+): boolean {
+  if (!header) return false;
+  return header
+    .split(",")
+    .some((tag) => tag.trim().replace(/^W\//, "") === etag);
+}
+
 export function mountWebMcpActionRoutes(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -2117,7 +2133,6 @@ export function mountWebMcpActionRoutes(
       ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
-      setResponseHeader(event, "Cache-Control", "no-store");
       const visible = directoryWidgetSession
         ? visibleDirectoryWidgetReadActions
         : authCapability?.startsWith("capability:visual-edit:")
@@ -2125,13 +2140,25 @@ export function mountWebMcpActionRoutes(
           : authenticated
             ? eligible
             : { ...publicEligible, ...visibleCapabilityActions };
-      return Object.entries(visible).map(([name, entry]) => ({
+      const manifest = Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),
         description: entry.tool.description,
         inputSchema: entry.tool.parameters,
         readOnly: entry.readOnly === true,
       }));
+      // The manifest is hundreds of KB and changes only with the build or the
+      // caller's access, so the browser revalidates it instead of downloading
+      // it again. The tag hashes the body this caller would get, which makes
+      // a 304 correct across sign-in changes without caching per user.
+      const etag = webMcpManifestEtag(manifest);
+      setResponseHeader(event, "Cache-Control", "private, no-cache");
+      setResponseHeader(event, "ETag", etag);
+      if (ifNoneMatchIncludes(getHeader(event, "if-none-match"), etag)) {
+        setResponseStatus(event, 304);
+        return null;
+      }
+      return manifest;
     }),
   );
 

@@ -880,6 +880,10 @@ const messages = {
       "Le deck a été rétabli à l'instantané sélectionné.",
     restoreFailed: "Échec de la restauration",
     restoreFailedDescription: "Impossible de restaurer cette version du deck.",
+    alreadyAtVersion: "Déjà à cette version",
+    restoreReloadFailed: "Impossible d'actualiser le deck",
+    restoreReloadFailedDescription:
+      "Recharge la page pour voir la version actuelle de ce deck.",
     backToSavedVersions: "Retour à l'historique",
     savedVersions: "Historique",
     description:

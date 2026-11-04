@@ -142,6 +142,8 @@ type PatchDeckTopLevelFields = Partial<
     | "createdAt"
     | "updatedAt"
     | "createdByMe"
+    | "canEdit"
+    | "canManage"
     | "designSystemId"
     | "tweaks"
     | "aspectRatio"
@@ -459,6 +461,9 @@ export interface Deck {
   shareToken?: string;
   visibility?: "private" | "org" | "public";
   createdByMe?: boolean;
+  /** Set on list rows. Cards hide edit and manage controls unless these are `true`. */
+  canEdit?: boolean;
+  canManage?: boolean;
   widgetAccessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   designSystemId?: string;
   tweaks?: Record<string, string | number | boolean>;
@@ -4715,8 +4720,9 @@ export async function includeOpenDeckIfMissing(
 /**
  * The baseline for the current route. On a deck route the open deck alone is
  * enough to render the editor, so the list is not awaited; the caller merges
- * it in afterwards. A deck that cannot be read falls back to the list, which
- * the access probe then explains.
+ * it in afterwards. A deck the server says is gone or forbidden falls back to
+ * the list, which the access probe then explains. A transient read failure
+ * returns null instead, so the editor shows an error rather than an empty deck.
  */
 export async function fetchDecksForCurrentRoute(
   openDeckRead?: Promise<DeckRead>,
@@ -4725,9 +4731,11 @@ export async function fetchDecksForCurrentRoute(
 ): Promise<{ decks: Deck[]; listPending: boolean } | null> {
   const currentOpenDeckId = currentOpenDeckIdFromWindow();
   if (currentOpenDeckId) {
-    const directDeck = deckOrNull(
-      await (openDeckRead ?? readDeck(currentOpenDeckId)),
-    );
+    const openDeckResult = await (openDeckRead ?? readDeck(currentOpenDeckId));
+    // A transient failure must not fall through to a list that omits the open
+    // deck: the editor would open empty with no error and no retry.
+    if (openDeckResult.status === "unavailable") return null;
+    const directDeck = deckOrNull(openDeckResult);
     if (directDeck) return { decks: [directDeck], listPending: true };
   }
   const listRead = await readList();
@@ -5641,7 +5649,9 @@ export function DeckProvider({
     [],
   );
 
-  useEffect(() => {
+  // Layout phase: the grid's passive effect asks for previews in the commit
+  // that first shows its decks, and reads this ref to pick which to fetch.
+  useLayoutEffect(() => {
     decksRef.current = decks;
   }, [decks]);
 
@@ -6123,12 +6133,21 @@ export function DeckProvider({
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshById = new Map(fresh.map((d) => [d.id, d]));
+    // A list row has no slide bodies, so while the open deck's full read has
+    // never landed the row must not stand in for it: the editor would open empty.
+    const openDeckId = currentOpenDeckIdFromWindow();
+    const openDeckPending =
+      openDeckId !== null &&
+      !currentIds.has(openDeckId) &&
+      !appliedServerRevisionsRef.current.has(openDeckId);
     const addedIds = fresh
-      .filter((d) => !currentIds.has(d.id))
+      .filter(
+        (d) =>
+          !currentIds.has(d.id) && !(openDeckPending && d.id === openDeckId),
+      )
       .map((d) => d.id);
     // A list that omits the open deck cannot tell revoked from deleted; the
     // deck's own read decides, and keeps the local copy while it does.
-    const openDeckId = currentOpenDeckIdFromWindow();
     const removed = currentDecks.filter(
       (d) =>
         !freshById.has(d.id) &&
@@ -6166,7 +6185,7 @@ export function DeckProvider({
       removed.length === 0 &&
       changedMetadataIds.length === 0
     ) {
-      setLoadError(false);
+      if (!openDeckPending) setLoadError(false);
       return "ok";
     }
 
@@ -6193,7 +6212,7 @@ export function DeckProvider({
       }
       return next;
     });
-    setLoadError(false);
+    if (!openDeckPending) setLoadError(false);
     return "ok";
   }, [isNewerThanSnapshot]);
 
@@ -6743,6 +6762,7 @@ export function DeckProvider({
     setUndoAvailability({});
     lastExternalUpdateRef.current = Date.now();
     decksRef.current = [];
+    requestedPreviewRevisionsRef.current.clear();
     setDeckScopeOrgId(nextOrgId);
     setDecks([]);
     setLoadError(false);
@@ -7434,6 +7454,8 @@ export function DeckProvider({
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdByMe: true,
+        canEdit: true,
+        canManage: true,
         designSystemId: options?.designSystemId ?? undefined,
         slides: options?.noDefaultSlides
           ? []
@@ -7597,6 +7619,8 @@ export function DeckProvider({
         updatedAt: now,
         visibility: "private",
         createdByMe: true,
+        canEdit: true,
+        canManage: true,
         shareToken: undefined,
       };
       delete optimistic.previewSlide;
