@@ -123,6 +123,7 @@ export interface ComposerBuilderConnectPopoverProps {
   }>;
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: MouseEventHandler<HTMLElement>;
+  keepOpenOnFocusOutside?: boolean;
 }
 
 export interface AgentChatContextItem {

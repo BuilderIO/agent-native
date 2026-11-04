@@ -296,6 +296,23 @@ describe("combine and split", () => {
       true,
     );
     expect(accepts("combine", { mode: "count", key: "item.task" })).toBe(false);
+    expect(
+      accepts("combine", {
+        mode: "groupBy",
+        key: "item.task",
+        identity: "firstMember",
+      }),
+    ).toBe(true);
+    expect(
+      accepts("combine", {
+        mode: "groupBy",
+        key: "item.task",
+        identity: "lastMember",
+      }),
+    ).toBe(false);
+    expect(accepts("combine", { mode: "list", identity: "firstMember" })).toBe(
+      false,
+    );
     expect(accepts("combine", { mode: "count", field: "item.task" })).toBe(
       false,
     );

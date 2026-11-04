@@ -496,6 +496,36 @@ describe("OAuth credential lifecycle", () => {
     });
   });
 
+  it("tells ciphertext this key cannot open from a row with the wrong shape", async () => {
+    await saveOAuthCredential(identity, credential());
+    const row = [...state.rows.values()][0];
+    // The store reads ciphertext it cannot decrypt as an empty object.
+    row.tokens = {};
+    row.storageVersion = "v1:00:00:00";
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "malformed",
+      reason: "unreadable",
+    });
+
+    row.storageVersion = "storage-plain";
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "malformed",
+      reason: "structure",
+    });
+  });
+
+  it("still deletes a stored grant that cannot be read when it is revoked", async () => {
+    await saveOAuthCredential(identity, credential());
+    const row = [...state.rows.values()][0];
+    row.tokens = {};
+    row.storageVersion = "v1:00:00:00";
+
+    await expect(revokeOAuthCredential(identity)).resolves.toMatchObject({
+      local: "deleted",
+    });
+    expect(state.rows.size).toBe(0);
+  });
+
   it("redeems one rotating refresh token and makes concurrent waiters reload the winner", async () => {
     await saveOAuthCredential(
       identity,

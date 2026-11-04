@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.223.1
+
+### Patch Changes
+
+- 0d88792: Restore the feedback form on negative chat ratings.
+- 10735e3: Point to the Connect AI card when clicking anywhere in its chat field.
+- 70c5c8f: Keep the Connect AI setup card inside narrow chat panels and phone screens: its buttons wrap onto a second line instead of overflowing, a connect error wraps under the buttons instead of pushing Custom keys out of the card, and a long "Connected to" workspace name truncates. The Waiting, Cancel, and Custom keys buttons now share one size while a Builder.io connection is in progress. `BuilderConnectPopover` accepts `cancelSize` so the Cancel button can match its trigger.
+- Release all public npm packages with a patch version bump.
+- 110efd1: Add Content creator, Student and Educator to the onboarding role question.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.1
+
 ## 0.223.0
 
 ### Minor Changes
@@ -1568,11 +1580,5 @@
 
 - 73c4a97: Align chat history rail overflow actions with trailing timestamps.
 - 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.0
-
-### Minor Changes
-
-- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

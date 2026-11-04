@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.41.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
 ## 0.41.0
 
 ### Minor Changes
@@ -1463,11 +1475,5 @@
   blocks new ones.
 - Updated dependencies [10de7b9]
   - @agent-native/toolkit@0.16.9
-
-## 0.31.3
-
-### Patch Changes
-
-- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

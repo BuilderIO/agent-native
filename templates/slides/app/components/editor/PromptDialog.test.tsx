@@ -252,6 +252,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 }));
 
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createPromptChatAttachments } from "@/lib/prompt-chat-attachments";
 import {
   addInlineImageFallbacks,
   formatPromptUploadFailure,
@@ -265,16 +266,73 @@ import {
 } from "@/lib/prompt-file-uploads";
 
 import { SLIDES_REFERENCE_FILE_ACCEPT } from "../../../shared/upload-types";
-import PromptPopover, {
-  createPromptChatAttachments,
-  type PromptPopoverHandle,
-} from "./PromptDialog";
+import PromptPopover, { type PromptPopoverHandle } from "./PromptDialog";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
 
 const uploadPromptFiles = (files: File[]) =>
   uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
+  it("normalizes a CSV reported with an Excel MIME type to readable text", async () => {
+    const text = "name,value\nexample,1";
+    const file = new File([text], "source.csv", {
+      type: "application/vnd.ms-excel",
+    });
+    await expect(
+      createPromptChatAttachments([{ name: file.name, file }], []),
+    ).resolves.toEqual([
+      {
+        type: "file",
+        name: file.name,
+        contentType: "text/plain",
+        data: `data:text/plain;base64,${btoa(text)}`,
+      },
+    ]);
+  });
+
+  it("rejects oversized text before reading or encoding its bytes", async () => {
+    const file = new File(["small"], "oversized.html", { type: "text/html" });
+    Object.defineProperty(file, "size", { value: 8 * 1024 * 1024 + 1 });
+    const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+    await expect(
+      createPromptChatAttachments(
+        [{ name: file.name, file }],
+        [],
+        "File is over 8 MB",
+      ),
+    ).rejects.toThrow("File is over 8 MB");
+    expect(read).not.toHaveBeenCalled();
+    read.mockRestore();
+  });
+
+  it("sends complete HTML as a readable attachment, including content beyond the prompt cap", async () => {
+    const html =
+      "<!doctype html><style>" +
+      " ".repeat(70_000) +
+      "</style><body>Final slide</body>";
+    const file = new File([html], "reference.html", { type: "text/html" });
+    const result = await createPromptChatAttachments(
+      [{ name: file.name, contentType: file.type, file }],
+      [
+        {
+          path: "uploads/reference.html",
+          originalName: file.name,
+          filename: file.name,
+          type: file.type,
+          size: file.size,
+        },
+      ],
+    );
+    expect(result).toEqual([
+      {
+        type: "file",
+        name: file.name,
+        contentType: "text/html",
+        data: `data:text/html;base64,${btoa(html)}`,
+      },
+    ]);
+  });
+
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
     const result = await createPromptChatAttachments(
       [
@@ -960,7 +1018,11 @@ describe("uploadPromptFiles", () => {
     );
 
     expect(promptComposerProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ layoutVariant: "hero", voiceEnabled: true }),
+      expect.objectContaining({
+        layoutVariant: "hero",
+        voiceEnabled: true,
+        inlineTextAttachments: false,
+      }),
     );
     expect(
       screen
