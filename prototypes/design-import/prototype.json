@@ -1,1 +1,4 @@
-{ "template": "design" }
+{
+  "template": "design",
+  "tokens": ["packages/docs/app/components/website-redesign/tokens.css .builder-brand-tokens"]
+}

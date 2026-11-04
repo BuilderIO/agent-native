@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-04",
+    "text": "The header and announcement gradients use the Agent-Native brand blue and teal, and the announcement's logos orbit at one speed, six per ring, so they never overlap"
+  },
+  {
+    "date": "2026-11-04",
     "text": "Added the import workflow. The dashboard opens with an announcement, and Import now opens a picker for Lovable, v0, Bolt, Replit, Base44, Manus, a website, a ZIP, a Figma file, GitHub and other site builders, each with its own steps, then a progress and ready state"
   }
 ]

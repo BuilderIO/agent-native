@@ -50,7 +50,7 @@ function loadChanges(): Change[] {
 // viewer's color scheme or the review strip's Theme switch instead of a class.
 const repo = join(kit, "../..");
 // A prototype adds sources beyond the template's global.css with "tokens" in prototype.json (Clips desktop
-// reads its renderer's own CSS).
+// reads its renderer's own CSS). "path .scope" reads a class-scoped palette, like the website's brand tokens.
 const TOKEN_SOURCES = (template: string, extra: string[] = []) => [
   "packages/toolkit/src/app/styles/tokens/agent-kit.css",
   "packages/toolkit/src/app/styles/agent-native.css",
@@ -98,7 +98,9 @@ function tokensCss(template: string, extra: string[] = []): string {
   const dark: string[] = [];
   const supports: string[] = [];
   for (const source of TOKEN_SOURCES(template, extra)) {
-    const css = read(join(repo, source)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // "path .scope" reads a palette the code scopes to a class (the website's `.builder-brand-tokens`) as :root.
+    const [file, scope] = source.split(" ");
+    const css = read(join(repo, file)).replace(/\/\*[\s\S]*?\*\//g, "");
     const root: string[] = [];
     const lightOnly: string[] = [];
     const darkOnly: string[] = [];
@@ -106,6 +108,7 @@ function tokensCss(template: string, extra: string[] = []): string {
       // AgentKit scopes its chat tokens to `:where(.agentkit-chat)`; they're var() chains, so :root is safe.
       if (
         rule.selector === ":root" ||
+        (scope && rule.selector === scope) ||
         rule.selector === ":where(.agentkit-chat)" ||
         rule.selector.startsWith("@theme")
       )

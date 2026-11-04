@@ -14,9 +14,10 @@ __KIT_HEAD__
 <style>
 :root {
   --kit-accent: var(--design-editor-accent-color);
-  /* The two Design editor colors the import surfaces are tinted with. */
-  --imp-a: var(--design-editor-accent-color);
-  --imp-b: var(--design-editor-component-color);
+  /* The Agent-Native brand's blue and teal (the website's brand tokens), which tint the import surfaces. */
+  --imp-blue: var(--c-blue-600);
+  --imp-a: var(--c-blue-500);
+  --imp-b: var(--c-green-400);
   --imp-ring: hsl(var(--ring));
   --imp-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
 }
@@ -42,11 +43,11 @@ body { font-size: 14px; }
 .ann .imd-x { border-radius: 50%; color: #fff; background: rgb(255 255 255 / 16%); backdrop-filter: blur(8px); }
 .ann .imd-x:hover { background: rgb(255 255 255 / 26%); color: #fff; }
 
-/* Header: 128px, the accent and component colors fading into the page. */
+/* Header: 128px, the brand blue to teal fading into the page. */
 .imh { position: relative; height: 128px; flex: none; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--color-border);
   background:
     linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-background) 92%, transparent) 100%),
-    linear-gradient(100deg, color-mix(in oklab, var(--imp-a) 34%, var(--color-background)) 0%, color-mix(in oklab, color-mix(in oklab, var(--imp-a), var(--imp-b)) 26%, var(--color-background)) 52%, color-mix(in oklab, var(--imp-b) 34%, var(--color-background)) 100%); }
+    linear-gradient(100deg, color-mix(in oklab, var(--imp-blue) 30%, var(--color-background)) 0%, color-mix(in oklab, var(--imp-a) 28%, var(--color-background)) 50%, color-mix(in oklab, var(--imp-b) 30%, var(--color-background)) 100%); }
 .imh-row { display: flex; align-items: center; gap: 24px; color: var(--color-foreground); }
 .imh-row > span { display: grid; place-items: center; }
 .imh-row > span > .lg { width: 20px; height: 20px; opacity: .88; }
@@ -166,19 +167,20 @@ a.b { color: inherit; text-decoration: none; }
 .ready span::after { content: ""; position: absolute; inset: 34% 10% 12%; border-radius: 4px; background: linear-gradient(135deg, color-mix(in oklab, var(--imp-a) 22%, transparent), color-mix(in oklab, var(--imp-b) 22%, transparent)); }
 
 /* Announcement: the hero is dark in both themes. */
-.hero { position: relative; height: 288px; flex: none; overflow: hidden; background: #000; isolation: isolate; }
+.hero { position: relative; height: 288px; flex: none; overflow: hidden; background: var(--c-neutral-950); isolation: isolate; }
 .hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background:
-  radial-gradient(70% 55% at 50% 118%, color-mix(in oklab, var(--imp-b) 80%, #fff 10%) 0%, transparent 70%),
-  radial-gradient(60% 50% at 18% 112%, var(--imp-a) 0%, transparent 70%),
-  radial-gradient(55% 48% at 86% 114%, color-mix(in oklab, var(--imp-b), #ff7ab6 30%) 0%, transparent 72%); opacity: .95; }
-.hero::after { content: ""; position: absolute; inset: auto 0 0; height: 2px; background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--imp-a), #fff 30%), color-mix(in oklab, var(--imp-b), #fff 30%), transparent); opacity: .7; }
+  radial-gradient(72% 58% at 50% 120%, var(--imp-a) 0%, transparent 70%),
+  radial-gradient(58% 50% at 14% 114%, var(--imp-b) 0%, transparent 70%),
+  radial-gradient(56% 50% at 88% 116%, var(--imp-blue) 0%, transparent 72%),
+  linear-gradient(to bottom, transparent 40%, var(--c-blue-900)); opacity: .95; }
+.hero::after { content: ""; position: absolute; inset: auto 0 0; height: 2px; background: linear-gradient(90deg, transparent, var(--c-blue-100), var(--imp-a), var(--imp-b), transparent); opacity: .7; }
 .hero svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 14%); stroke-width: 1; }
 .orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 16%); box-shadow: 0 6px 16px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 255 255 / 8%); will-change: transform, opacity; }
 .orb .lg { width: 18px; height: 18px; }
 .orb .lg.w { width: 22px; height: 22px; }
 .core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 72px; height: 72px; margin: -36px 0 0 -36px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: radial-gradient(circle at 50% 40%, rgb(255 255 255 / 10%), transparent 70%); }
-.core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 45%, transparent)); }
+.core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 40%, transparent)); }
 .pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
 .pause:hover { background: rgb(255 255 255 / 28%); }
 .pause svg.i { width: 12px; height: 12px; }
@@ -334,7 +336,7 @@ function viewProgress() {
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? "Import stopped" : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "This takes about a minute. You can close this window."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 function viewAnnouncement() {
-  return `<div class="hero"><svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="100"/><ellipse cx="280" cy="144" rx="154" ry="66"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
+  return `<div class="hero"><svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
   <div class="imb"><h2 id="imd-title">Import your website or project</h2><p class="lead">Bring an existing website or project into Design and keep building.</p>
   <ul class="checks"><li><i>${ic("check")}</i>Import a live website from its URL</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, and more</li><li><i>${ic("check")}</i>Bring in Figma files and GitHub repositories</li></ul>
   <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">Import now</button></div></div>`;
@@ -529,9 +531,13 @@ function start(src, name, kind, back) {
 }
 
 /* ───────── announcement orbit ───────── */
+// Both rings turn at one speed with six logos each, the inner set 30° behind the outer, so the layout only
+// rotates and no two logos ever touch (the closest pair stays 13px apart). Different speeds or counts let
+// logos pass over each other where the rings run close at the top and bottom.
+const ORBIT_PERIOD = 80;
 const ORBITS = [
-  { rx: 240, ry: 100, period: 90, ids: ["webflow", "v0", "framer", "replit", "github", "wix", "squarespace"] },
-  { rx: 154, ry: 66, period: 64, ids: ["base44", "lovable", "figma", "manus", "bolt"] },
+  { rx: 240, ry: 104, phase: 0, ids: ["github", "v0", "webflow", "replit", "wix", "framer"] },
+  { rx: 154, ry: 70, phase: Math.PI / 6, ids: ["lovable", "figma", "bolt", "squarespace", "base44", "manus"] },
 ];
 let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function startOrbit() {
@@ -552,13 +558,14 @@ function startOrbit() {
 function placeOrbit() {
   const hero = $(".hero");
   if (!hero) return;
-  const k = hero.clientWidth / 560, cx = hero.clientWidth / 2, cy = hero.clientHeight / 2;
+  // A narrow hero scales the whole orbit, rings and logos alike, so the spacing holds.
+  const k = Math.min(1, hero.clientWidth / 560), cx = hero.clientWidth / 2, cy = hero.clientHeight / 2;
   for (const orb of hero.querySelectorAll(".orb")) {
     const o = ORBITS[+orb.dataset.o], n = o.ids.length, i = +orb.dataset.i;
-    const a = (i / n) * Math.PI * 2 + (orbitT / o.period) * Math.PI * 2 + (+orb.dataset.o ? .5 : 0);
-    const x = cx + Math.cos(a) * o.rx * k, y = cy + Math.sin(a) * o.ry * Math.min(1, k * 1.15);
+    const a = (i / n) * Math.PI * 2 + (orbitT / ORBIT_PERIOD) * Math.PI * 2 + o.phase;
+    const x = cx + Math.cos(a) * o.rx * k, y = cy + Math.sin(a) * o.ry * k;
     const depth = Math.sin(a); // 1 is nearest the viewer, at the bottom of the ring
-    const s = (.82 + .3 * (depth + 1) / 2) * Math.min(1, .7 + k * .3);
+    const s = (.82 + .3 * (depth + 1) / 2) * k;
     orb.style.transform = `translate(${x}px, ${y}px) scale(${s.toFixed(3)})`;
     orb.style.opacity = (.62 + .38 * (depth + 1) / 2).toFixed(3);
     orb.style.zIndex = String(depth > 0 ? 60 + Math.round(depth * 10) : 40 + Math.round(depth * 10));
