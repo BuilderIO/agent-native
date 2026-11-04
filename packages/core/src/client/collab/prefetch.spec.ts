@@ -15,7 +15,10 @@ import {
   dropCollabStatePrefetches,
   takeCollabStatePrefetch,
 } from "../../collab/state-prefetch.js";
-import { recordSessionIdentity } from "../session-identity.js";
+import {
+  announceSessionInvalidated,
+  recordSessionIdentity,
+} from "../session-identity.js";
 import { prefetchCollabState } from "./prefetch.js";
 
 afterEach(() => {
@@ -95,4 +98,26 @@ it("gives a boot read up once the tab's session changes", async () => {
   // Any change gives it up for good, even back to the session it was made under.
   recordSessionIdentity("ada@example.com");
   expect(taken?.isCurrent()).toBe(false);
+});
+
+it("gives a taken read up on an organization switch, however long it has been out", () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    recordSessionIdentity("ada@example.com");
+    prefetchCollabState("doc-1", { baseUrl: "/collab" });
+    const taken = takeCollabStatePrefetch("/collab", "doc-1");
+
+    vi.advanceTimersByTime(60_000);
+    expect(taken?.isCurrent()).toBe(true);
+
+    // The account stays the same, so only the invalidation can tell.
+    announceSessionInvalidated();
+    expect(taken?.isCurrent()).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });

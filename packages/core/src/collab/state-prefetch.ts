@@ -73,6 +73,8 @@ interface CollabStatePrefetch {
   request: Promise<CollabStateRequest>;
   identity: string | null | undefined;
   dropped: boolean;
+  /** `sessionInvalidations` when the read was made. */
+  invalidations: number;
 }
 
 /** A boot read the editor took, with whether its session is still the tab's. */
@@ -85,6 +87,9 @@ export interface TakenCollabStatePrefetch {
 const prefetches = new Map<string, CollabStatePrefetch>();
 // Reads not yet answered or expired, taken or not: an account change drops them all.
 const unexpired = new Set<CollabStatePrefetch>();
+// Sign-outs and organization switches so far. A taken read can stay out longer
+// than `unexpired` tracks it, and it checks this itself.
+let sessionInvalidations = 0;
 let sessionWatchInstalled = false;
 
 function dropPrefetch(prefetch: CollabStatePrefetch): void {
@@ -162,7 +167,12 @@ export function prefetchCollabState(
   // A read nobody takes fails quietly; whoever takes one hears it from these
   // same promises.
   void request.then((sent) => sent.response).catch(() => {});
-  const prefetch: CollabStatePrefetch = { request, identity, dropped: false };
+  const prefetch: CollabStatePrefetch = {
+    request,
+    identity,
+    dropped: false,
+    invalidations: sessionInvalidations,
+  };
   prefetches.set(key, prefetch);
   unexpired.add(prefetch);
   setTimeout(() => {
@@ -185,6 +195,7 @@ export function takeCollabStatePrefetch(
   prefetches.delete(key);
   const isCurrent = () =>
     !prefetch.dropped &&
+    prefetch.invalidations === sessionInvalidations &&
     typeof prefetch.identity === "string" &&
     prefetch.identity === currentSessionIdentity();
   if (!isCurrent()) {
@@ -196,6 +207,7 @@ export function takeCollabStatePrefetch(
 
 /** Drops every boot read, as signing out does. */
 export function dropCollabStatePrefetches(): void {
+  sessionInvalidations += 1;
   for (const prefetch of [...unexpired]) dropPrefetch(prefetch);
   for (const prefetch of prefetches.values()) prefetch.dropped = true;
   prefetches.clear();
