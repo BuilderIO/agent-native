@@ -304,7 +304,8 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
+import { discoverAgentContextAgents } from "./agent-context-agents.js";
+import { getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -7173,9 +7174,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId, {
-                    includePersonalAgents: true,
-                  });
+                  const agents = await discoverAgentContextAgents(
+                    options?.appId,
+                    { includePersonalAgents: true },
+                  );
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,

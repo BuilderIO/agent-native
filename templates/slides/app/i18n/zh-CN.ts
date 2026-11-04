@@ -289,6 +289,7 @@ const messages = {
     placeholder: "开始输入，或让智能体快速生成演讲者备注",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "标题",
     layoutSection: "分节页",
     layoutContent: "内容",
@@ -816,6 +817,9 @@ const messages = {
     versionRestoredDescription: "幻灯片已回滚到所选快照。",
     restoreFailed: "恢复失败",
     restoreFailedDescription: "无法恢复此幻灯片版本。",
+    alreadyAtVersion: "已是此版本",
+    restoreReloadFailed: "无法刷新幻灯片",
+    restoreReloadFailedDescription: "请刷新页面查看该幻灯片的当前版本。",
     backToSavedVersions: "返回已保存版本",
     savedVersions: "已保存版本",
     description: "浏览已保存的幻灯片版本并恢复以前的快照。",

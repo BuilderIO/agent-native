@@ -27,6 +27,7 @@ interface ImageOverlayProps {
   onToggleObjectFit: () => void;
   onChangeObjectPosition: (objectPosition: ImageObjectPosition) => void;
   onClose: () => void;
+  readOnly?: boolean;
 }
 
 export default function ImageOverlay({
@@ -41,6 +42,7 @@ export default function ImageOverlay({
   onToggleObjectFit,
   onChangeObjectPosition,
   onClose,
+  readOnly = false,
 }: ImageOverlayProps) {
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -92,36 +94,40 @@ export default function ImageOverlay({
       className="image-overlay-menu"
       style={{ top, left, width: menuWidth }}
     >
-      <button
-        onClick={() => {
-          onGenerate();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconPhoto className="w-3.5 h-3.5 text-[#609FF8]" />
-        Generate
-      </button>
-      <button
-        onClick={() => {
-          onLibrary();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconFolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
-        {t("editorToolbar.assetLibrary")}
-      </button>
-      <button
-        onClick={() => {
-          onUpload();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
-        Upload
-      </button>
+      {!readOnly && (
+        <>
+          <button
+            onClick={() => {
+              onGenerate();
+              onClose();
+            }}
+            className="image-overlay-btn"
+          >
+            <IconPhoto className="w-3.5 h-3.5" />
+            Generate
+          </button>
+          <button
+            onClick={() => {
+              onLibrary();
+              onClose();
+            }}
+            className="image-overlay-btn"
+          >
+            <IconFolderOpen className="w-3.5 h-3.5" />
+            {t("editorToolbar.assetLibrary")}
+          </button>
+          <button
+            onClick={() => {
+              onUpload();
+              onClose();
+            }}
+            className="image-overlay-btn"
+          >
+            <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
+            Upload
+          </button>
+        </>
+      )}
       <button
         onClick={() => {
           onDownload();
@@ -133,7 +139,7 @@ export default function ImageOverlay({
         <IconDownload className="w-3.5 h-3.5 text-muted-foreground" />
         Download
       </button>
-      {!isPlaceholder && (
+      {!isPlaceholder && !readOnly && (
         <>
           <div className="mx-1.5 border-t border-border" />
           <button onClick={onToggleObjectFit} className="image-overlay-btn">

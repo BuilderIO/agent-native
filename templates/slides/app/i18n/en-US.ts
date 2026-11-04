@@ -298,6 +298,7 @@ const messages = {
       "Start writing or generate speaker notes quickly with the agent",
   },
   editorToolbar: {
+    saving: "Saving...",
     layoutTitle: "Title",
     layoutSection: "Section Divider",
     layoutContent: "Content",
@@ -841,6 +842,10 @@ const messages = {
       "The deck was rolled back to the selected snapshot.",
     restoreFailed: "Restore failed",
     restoreFailedDescription: "Could not restore this deck version.",
+    alreadyAtVersion: "Already at this version",
+    restoreReloadFailed: "Couldn't refresh the deck",
+    restoreReloadFailedDescription:
+      "Reload the page to see this deck's current version.",
     backToSavedVersions: "Back to history",
     savedVersions: "History",
     description: "Browse deck history and restore a previous snapshot.",

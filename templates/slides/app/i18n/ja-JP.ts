@@ -301,6 +301,7 @@ const messages = {
       "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "タイトル",
     layoutSection: "セクション区切り",
     layoutContent: "コンテンツ",
@@ -854,6 +855,10 @@ const messages = {
       "デッキを選択したスナップショットに戻しました。",
     restoreFailed: "復元に失敗しました",
     restoreFailedDescription: "このデッキのバージョンを復元できませんでした。",
+    alreadyAtVersion: "すでにこのバージョンです",
+    restoreReloadFailed: "デッキを更新できませんでした",
+    restoreReloadFailedDescription:
+      "ページを再読み込みして、このデッキの現在のバージョンを確認してください。",
     backToSavedVersions: "履歴に戻る",
     savedVersions: "履歴",
     description: "デッキの履歴を表示して、以前のスナップショットを復元します。",
