@@ -394,6 +394,8 @@ mode only a real approval sets `triage` `approved`; a dry or rehearsal
   app-owner map). Finish, rebuild, decline, and close are a person's call:
   `needs-person` with your recommendation. Never approve, assign, push to,
   merge, or close a fork PR.
+- **Anything else** (for example a non-member's branch in this repo):
+  `needs-person` with what you found; no approval and no reply.
 - **Replies** (live mode, `gh pr comment <url> --body-file …`) follow
   `community-prs`' Replies and `references/replies.md`, only at a state
   change, after reading the thread. Dry mode records `wouldReply`.
