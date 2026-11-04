@@ -598,7 +598,10 @@ describe("workspace dev startup", () => {
       openBrowser: false,
     });
     const { url } = await handle.ready;
-    const res = await fetch(`${url}/`, { redirect: "manual" });
+    const res = await fetch(`${url}/`, {
+      redirect: "manual",
+      headers: { accept: "text/html" },
+    });
     expect(res.headers.get("location")).toBe("/starter");
     handle.shutdown();
 
@@ -610,7 +613,10 @@ describe("workspace dev startup", () => {
       openBrowser: false,
     });
     const second = await handle.ready;
-    const res2 = await fetch(`${second.url}/`, { redirect: "manual" });
+    const res2 = await fetch(`${second.url}/`, {
+      redirect: "manual",
+      headers: { accept: "text/html" },
+    });
     expect(res2.headers.get("location")).toBe("/other");
   });
 
