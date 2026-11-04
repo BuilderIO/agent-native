@@ -807,7 +807,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       !isHome ||
       !showNewDeckPrompt ||
       !firstPaintPrompt?.submitted ||
-      !firstPaintPrompt.text.trim() ||
+      (!firstPaintPrompt.text.trim() && !firstPaintPrompt.files?.length) ||
       !quickActionsEnabled ||
       firstRunOwnsSurface ||
       !homeComposerReady ||

@@ -130,6 +130,17 @@ describe("AppShellSkeleton home layout", () => {
       initialTextOverridesSavedDraft: true,
       suppressInitialTextChange: true,
     });
+    const file = new File(["<main>Source</main>"], "source.html", {
+      type: "text/html",
+    });
+    void composerProps?.onSubmit("", [file], [], {});
+    expect(
+      consumeFirstPaintPromptDraft("design", "viewer-a:org-a"),
+    ).toMatchObject({
+      status: "present",
+      draft: { text: "", files: [file], submitted: true },
+    });
+
     expect(shell.querySelectorAll("[data-home-suggestion-id]")).toHaveLength(3);
     expect(
       shell

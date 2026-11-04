@@ -437,6 +437,8 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
     return null;
   },
 }));
+const submitFirstPaintSource = vi.hoisted(() => vi.fn());
+
 vi.mock("@/components/editor/PromptDialog", () => ({
   default: function PromptDialogMock(
     props: ComponentProps<typeof PromptPopover>,
@@ -444,7 +446,8 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     promptProps(props);
     useImperativeHandle(props.controllerRef, () => ({
       focus: vi.fn(),
-      submitSource: vi.fn(async (prompt: string) => {
+      submitSource: vi.fn(async (prompt: string, files: File[] = []) => {
+        submitFirstPaintSource(prompt, files);
         if (homeSuggestionSubmit.invokeSubmit) {
           await props.onSubmit(
             prompt,
@@ -2584,6 +2587,22 @@ describe("Slides prompt-led home", () => {
     expect(trackEvent).toHaveBeenCalledWith(
       "generation_started",
       expect.objectContaining({ source: "home_suggestion" }),
+    );
+  });
+
+  it("hands a file-only first-paint submission to the hydrated composer", async () => {
+    const file = new File(["<main>Source</main>"], "source.html", {
+      type: "text/html",
+    });
+    writeFirstPaintPromptDraft("slides", "", "composer", {
+      submitted: true,
+      files: [file],
+      scope: JSON.stringify(["viewer-a", "org-a"]),
+    });
+    renderHome();
+    await completeFirstRun();
+    await waitFor(() =>
+      expect(submitFirstPaintSource).toHaveBeenCalledWith("", [file]),
     );
   });
 

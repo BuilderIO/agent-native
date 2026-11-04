@@ -477,7 +477,7 @@ function FirstPaintPromptLibrary({
       });
     },
     onSubmit: (text, files) => {
-      if (!text.trim()) return;
+      if (!text.trim() && files.length === 0) return;
       submittedRef.current = true;
       writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
         files,

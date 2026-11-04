@@ -227,6 +227,7 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
       <PromptComposer
         {...props}
         attachmentsEnabled
+        inlineTextAttachments={false}
         className="slides-home-prompt-composer-area"
         layoutVariant="hero"
         modelStatusChecksEnabled
