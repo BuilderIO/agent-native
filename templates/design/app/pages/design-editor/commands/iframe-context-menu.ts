@@ -149,8 +149,8 @@ export function runIframeContextMenu(
       ? {
           canvasX: canvasPoint.x + scroll.left,
           canvasY: canvasPoint.y + scroll.top,
-          ...(contextScreenId ? { screenId: contextScreenId } : {}),
         }
       : {}),
+    ...(contextScreenId ? { screenId: contextScreenId } : {}),
   });
 }
