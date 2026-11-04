@@ -2079,13 +2079,17 @@ function DatabaseTable({
   }
 
   // A press or a rest on another row, or on an arrow: the switch is likely, so
-  // the row's reads start now rather than after it.
+  // the reads it draws from start now rather than after it.
   const prepareRowForPreview = useStableCallback((documentId: string) => {
     if (documentId === previewDocumentId) return;
     const item = screenVisibleItems.find(
       (candidate) => candidate.document.id === documentId,
     );
-    if (item) startDatabaseItemPreviewReads(queryClient, item, document.id);
+    if (item) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id, {
+        reviewReads: false,
+      });
+    }
   });
 
   // Opens the row with its Comments showing, from a count or a cell marker.
@@ -2129,14 +2133,20 @@ function DatabaseTable({
     },
   );
 
+  function previewRowAfterDelete(item: ContentDatabaseItem | null | undefined) {
+    if (item) startDatabaseItemPreviewReads(queryClient, item, document.id);
+    setPreviewDocumentId(item?.document.id ?? null);
+  }
+
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
     if (previewState.documentId !== item.document.id) return false;
-    const nextPreviewItem = databaseItemPreviewFallbackAfterDelete(
-      previewState.visibleItems,
-      item.document.id,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterDelete(
+        previewState.visibleItems,
+        item.document.id,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 
@@ -2149,12 +2159,13 @@ function DatabaseTable({
     ) {
       return false;
     }
-    const nextPreviewItem = databaseItemPreviewFallbackAfterBulkDelete(
-      previewState.visibleItems,
-      previewState.documentId,
-      deletedDocumentIds,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterBulkDelete(
+        previewState.visibleItems,
+        previewState.documentId,
+        deletedDocumentIds,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 

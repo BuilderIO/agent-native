@@ -385,6 +385,31 @@ describe("page open document reads", () => {
     expect(reads("get-document")).toBe(1);
   });
 
+  it("leaves a row's comments and suggestions to the switch when reading ahead", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page", {
+      reviewReads: false,
+    });
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reads("get-document")).toBe(1);
+    expect(reads("list-comments")).toBe(0);
+    expect(reads("list-resource-suggestions")).toBe(0);
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-comments")).toBe(1));
+    expect(reads("list-resource-suggestions")).toBe(1);
+    expect(reads("get-document")).toBe(1);
+  });
+
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {
     startPageOpenDocumentReads(
       queryClient,

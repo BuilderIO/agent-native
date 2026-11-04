@@ -811,17 +811,21 @@ export function seedDatabaseItemDocumentCaches(
 }
 
 // A row's panel starts its reads ahead of the switch, so a read that lands in
-// time lets the switch go straight to the finished page.
+// time lets the switch go straight to the finished page. A rest on a row may
+// never become a switch, so it leaves the review reads to the switch.
 export function startDatabaseItemPreviewReads(
   queryClient: QueryClient,
   item: ContentDatabaseItem,
   databaseDocumentId: string,
+  { reviewReads = true }: { reviewReads?: boolean } = {},
 ) {
   seedDatabaseItemDocumentCaches(queryClient, item);
-  startPageOpenDocumentReads(queryClient, item.document.id, {
-    databaseId: item.databaseId,
-    databaseDocumentId,
-  });
+  startPageOpenDocumentReads(
+    queryClient,
+    item.document.id,
+    { databaseId: item.databaseId, databaseDocumentId },
+    { reviewReads },
+  );
   void queryClient.prefetchQuery({
     queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
     queryFn: ({ signal }) =>
@@ -947,7 +951,10 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
-  { beforeSession = false }: { beforeSession?: boolean } = {},
+  {
+    beforeSession = false,
+    reviewReads = true,
+  }: { beforeSession?: boolean; reviewReads?: boolean } = {},
 ) {
   trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
@@ -1020,7 +1027,7 @@ export function startPageOpenDocumentReads(
   }
   // The review reads are not tracked as this open's reads, so one sent before
   // the session could not be dropped if another account answers it.
-  if (!beforeSession && cached?.source?.mode !== "local-files") {
+  if (reviewReads && !beforeSession && cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
   }
 }
