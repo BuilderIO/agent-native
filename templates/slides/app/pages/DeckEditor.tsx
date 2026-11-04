@@ -5211,14 +5211,18 @@ export default function DeckEditor() {
     );
   }
 
+  // Unsaved inline text lives in latestSlideContentRef, not in the render-time deck.
+  const slidesWithLatestContent = () =>
+    deck.slides.map((slide) => {
+      const content = latestSlideContentRef.current.get(slide.id);
+      return content === undefined ? slide : { ...slide, content };
+    });
+
   const handleDownloadDeckBackup = () => {
     inlineEditFlushRef.current?.();
     const backupDeck: Deck = {
       ...deck,
-      slides: deck.slides.map((slide) => {
-        const content = latestSlideContentRef.current.get(slide.id);
-        return content === undefined ? slide : { ...slide, content };
-      }),
+      slides: slidesWithLatestContent(),
     };
     try {
       downloadDeckBackup(backupDeck);
@@ -5576,7 +5580,7 @@ export default function DeckEditor() {
             template_name: "slides",
             format: "pdf",
           });
-          const exportSlides = deck.slides;
+          const exportSlides = slidesWithLatestContent();
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
@@ -5585,6 +5589,7 @@ export default function DeckEditor() {
             signal,
           });
         }}
+        flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {
           trackEvent("slide_export_started", {
             app_name: "slides",
