@@ -1,11 +1,30 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { commentAuthorKind } from "../shared/comment-author.js";
+
+type ThreadRow = { id: string; authorEmail: string };
+
+// Deleting a thread root removes the whole thread. Approval and the locked re-check must see the same rows.
+function removedRows<T extends ThreadRow>(
+  threadRows: T[],
+  comment: { id: string; threadId: string },
+): T[] {
+  const rootId = (
+    threadRows.find((row) => row.id === comment.threadId) ?? threadRows[0]
+  )?.id;
+  return rootId === comment.id
+    ? threadRows
+    : threadRows.filter((row) => row.id === comment.id);
+}
+
+function isOtherPerson(authorEmail: string, viewerEmail: string | undefined) {
+  return authorEmail.trim().toLowerCase() !== viewerEmail;
+}
 
 export default defineAction({
   description:
@@ -20,6 +39,8 @@ export default defineAction({
   }),
   audit: {
     target: (args) => ({ type: "slide-comment", id: args.id }),
+    summary: (_args, result) =>
+      `Deleted ${(result as { removedIds: string[] }).removedIds.length} comment(s)`,
   },
   needsApproval: async ({ id, deckId }, ctx) => {
     if (commentAuthorKind(ctx?.caller) !== "agent") return false;
@@ -51,18 +72,17 @@ export default defineAction({
           eq(schema.slideComments.slideId, target.slideId),
           eq(schema.slideComments.threadId, target.threadId),
         ),
+      )
+      .orderBy(
+        asc(schema.slideComments.createdAt),
+        asc(schema.slideComments.id),
       );
-    // Deleting a thread root removes its replies too, so their authors count.
-    const removed =
-      target.id === target.threadId
-        ? threadRows
-        : threadRows.filter((row) => row.id === target.id);
     const viewer = getRequestUserEmail()?.trim().toLowerCase();
-    return removed.some(
-      (row) => row.authorEmail.trim().toLowerCase() !== viewer,
+    return removedRows(threadRows, target).some((row) =>
+      isOtherPerson(row.authorEmail, viewer),
     );
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();
     const [comment] = await db
@@ -96,10 +116,11 @@ export default defineAction({
       await assertAccess("deck", comment.deckId, "editor");
     }
 
-    await db.transaction(async (tx) => {
+    const removedIds = await db.transaction(async (tx) => {
       const threadRows = await tx
         .select({
           id: schema.slideComments.id,
+          authorEmail: schema.slideComments.authorEmail,
           createdAt: schema.slideComments.createdAt,
         })
         .from(schema.slideComments)
@@ -121,28 +142,30 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      const canonicalRoot = threadRows.find(
-        (row) => row.id === comment.threadId,
-      );
-      const rootId = canonicalRoot?.id ?? threadRows[0]?.id;
-      const isRoot = rootId === comment.id;
+      const removed = removedRows(threadRows, comment);
+      // The approval was for the thread as it was before this lock; a reply that landed since needs asking again.
+      if (
+        commentAuthorKind(ctx?.caller) === "agent" &&
+        removed.some((row) => isOtherPerson(row.authorEmail, userEmail))
+      ) {
+        fail(
+          "This thread now holds another person's reply. Ask the user before deleting it.",
+          { errorCode: "approval_required", statusCode: 409 },
+        );
+      }
 
+      const ids = removed.map((row) => row.id);
       await tx
         .delete(schema.slideComments)
         .where(
-          isRoot
-            ? and(
-                eq(schema.slideComments.deckId, comment.deckId),
-                eq(schema.slideComments.slideId, comment.slideId),
-                eq(schema.slideComments.threadId, comment.threadId),
-              )
-            : and(
-                eq(schema.slideComments.id, args.id),
-                eq(schema.slideComments.deckId, comment.deckId),
-              ),
+          and(
+            eq(schema.slideComments.deckId, comment.deckId),
+            inArray(schema.slideComments.id, ids),
+          ),
         );
+      return ids;
     });
 
-    return { ok: true };
+    return { ok: true, removedIds };
   },
 });

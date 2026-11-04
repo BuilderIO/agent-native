@@ -26,6 +26,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __and: conds }),
   eq: (col: unknown, value: unknown) => ({ __eq: [col, value] }),
   asc: (column: unknown) => ({ __asc: column }),
+  inArray: (col: unknown, values: unknown[]) => ({ __in: [col, values] }),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     values,
@@ -38,6 +39,11 @@ function matches(row: Row, cond: any): boolean {
     const [col, value] = cond.__eq;
     const key = String(col).split(".").pop() as keyof Row;
     return row[key] === value;
+  }
+  if (cond.__in) {
+    const [col, values] = cond.__in;
+    const key = String(col).split(".").pop() as keyof Row;
+    return values.includes(row[key]);
   }
   return true;
 }
@@ -83,7 +89,12 @@ vi.mock("../server/db/index.js", () => {
             limit,
             then: (resolve: (rows: unknown) => unknown, reject?: unknown) =>
               all().then(resolve, reject as never),
-            orderBy: () => ({ limit: orderedLimit, for: forUpdate }),
+            orderBy: () => ({
+              limit: orderedLimit,
+              for: forUpdate,
+              then: (resolve: (rows: unknown) => unknown, reject?: unknown) =>
+                forUpdate().then(resolve, reject as never),
+            }),
           };
         },
       }),
@@ -107,8 +118,8 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./delete-slide-comment";
 
-function run(args: { id: string; deckId: string }) {
-  return (action as any).run(args);
+function run(args: { id: string; deckId: string }, ctx?: { caller: string }) {
+  return (action as any).run(args, ctx);
 }
 
 beforeEach(() => {
@@ -219,13 +230,20 @@ describe("delete-slide-comment", () => {
   it("lets the author delete their own comment with commenter access", async () => {
     const result = await run({ id: "c-1", deckId: "deck-1" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, removedIds: ["c-1", "c-2"] });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "deck",
       "deck-1",
       "commenter",
     );
     expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
+  });
+
+  it("refuses an agent delete whose thread now holds another person's reply", async () => {
+    await expect(
+      run({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
+    ).rejects.toThrow("Ask the user");
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 
   it("requires editor access to delete someone else's comment", async () => {
