@@ -565,6 +565,7 @@ export default defineAction({
           transition: s.transition,
           transitionSpeed: s.transitionSpeed,
           isBlank: !isRealSlide(s),
+          skipped: s.skipped === true,
           animations: compactAnimationSummary(
             s.animations,
             typeof s.content === "string" ? s.content : "",
@@ -601,6 +602,8 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      canEdit: ["owner", "admin", "editor"].includes(accessRole),
+      canManage: ["owner", "admin"].includes(accessRole),
       ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       ...(includeAgentContext ? { designSystem } : {}),

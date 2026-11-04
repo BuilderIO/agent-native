@@ -35,7 +35,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 import { ForbiddenError } from "@agent-native/core/sharing";
 
-import { authorizeDispatchAdmin } from "./app-roles.js";
+import {
+  authorizeDispatchAdmin,
+  authorizeOrgOwnerOrAdmin,
+} from "./app-roles.js";
 
 const context = {
   caller: "http" as const,
@@ -161,6 +164,50 @@ describe("authorizeDispatchAdmin", () => {
   it("denies an unauthenticated caller", async () => {
     await expect(
       authorizeDispatchAdmin({}, { ...context, userEmail: undefined }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("authorizeOrgOwnerOrAdmin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.isStandaloneDispatchRuntime.mockReturnValue(false);
+  });
+
+  it("denies a Dispatch admin who is only an organization member", async () => {
+    mocks.roles = ["admin"];
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: true, role: "member" },
+    );
+    await expect(authorizeOrgOwnerOrAdmin({}, context)).rejects.toThrow(
+      "Only organization owners and admins",
+    );
+  });
+
+  it.each(["owner", "admin"])("allows an organization %s", async (role) => {
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: true, role },
+    );
+    await expect(
+      authorizeOrgOwnerOrAdmin({}, context),
+    ).resolves.toBeUndefined();
+  });
+
+  it("denies an inactive membership", async () => {
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: false, role: null },
+    );
+    await expect(authorizeOrgOwnerOrAdmin({}, context)).rejects.toThrow(
+      "requires active organization membership",
+    );
+  });
+
+  it("lets a signed-in user without an organization manage their own scope", async () => {
+    await expect(
+      authorizeOrgOwnerOrAdmin({}, { ...context, orgId: null } as never),
+    ).resolves.toBeUndefined();
+    await expect(
+      authorizeOrgOwnerOrAdmin({}, { ...context, userEmail: "" }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
