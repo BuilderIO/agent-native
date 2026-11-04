@@ -969,8 +969,7 @@ function PromptComposerInner({
     : undefined;
   const composerModelListLoading =
     showModelSelector &&
-    (modelListLoading ??
-      (availableModels ? availableModels.length === 0 : models.isLoading));
+    (modelListLoading ?? (availableModels ? false : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
