@@ -471,8 +471,6 @@ const UNRENDERABLE_GEOMETRIES = new Set([
   "rightBracket",
 ]);
 
-const DEFAULT_CORNER_ADJUSTMENT = 0.16667;
-
 const diamondPoints = (w: number, h: number): [number, number][] => [
   [w / 2, 0],
   [w, h / 2],
@@ -882,19 +880,20 @@ function geometryCss(
   const adjustments = element.shapeAdjustments;
   if (!shapeType) return "";
   const shortest = Math.min(widthPx, heightPx);
-  const corner = round3(shortest * DEFAULT_CORNER_ADJUSTMENT);
+  const corner = (adjustment: number) =>
+    round3((shortest * pin(0, adjustment, 50000)) / 100000);
   switch (shapeType) {
     case "ellipse":
     case "smileyFace":
       return "border-radius: 50%;";
     case "roundRect":
-      return `border-radius: ${round3((shortest * pin(0, adjustments?.adj ?? 16667, 50000)) / 100000)}px;`;
+      return `border-radius: ${corner(adjustments?.adj ?? 16667)}px;`;
     case "round1Rect":
-      return `border-radius: 0 ${corner}px 0 0;`;
+      return `border-radius: 0 ${corner(adjustments?.adj ?? 16667)}px 0 0;`;
     case "round2SameRect":
-      return `border-radius: ${corner}px ${corner}px 0 0;`;
+      return `border-radius: ${corner(adjustments?.adj1 ?? 16667)}px ${corner(adjustments?.adj1 ?? 16667)}px ${corner(adjustments?.adj2 ?? 0)}px ${corner(adjustments?.adj2 ?? 0)}px;`;
     case "round2DiagRect":
-      return `border-radius: ${corner}px 0 ${corner}px 0;`;
+      return `border-radius: ${corner(adjustments?.adj1 ?? 16667)}px ${corner(adjustments?.adj2 ?? 0)}px ${corner(adjustments?.adj1 ?? 16667)}px ${corner(adjustments?.adj2 ?? 0)}px;`;
     case "flowChartTerminator":
       return `border-radius: ${round3(shortest / 2)}px;`;
     case "blockArc": {

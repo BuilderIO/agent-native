@@ -276,6 +276,21 @@ describe("convertToSlideHtml shape geometry", () => {
     }
   });
 
+  it.each([
+    ["round1Rect", { adj: 5000 }, "0 4.8px 0 0"],
+    ["round2SameRect", { adj1: 5000, adj2: 10000 }, "4.8px 4.8px 9.6px 9.6px"],
+    ["round2DiagRect", { adj1: 5000, adj2: 10000 }, "4.8px 9.6px 4.8px 9.6px"],
+  ])(
+    "preserves %s corner adjustments",
+    (shapeType, shapeAdjustments, radius) => {
+      const style = styleAttr(
+        convertToSlideHtml(shapeSlide({ shapeType, shapeAdjustments })),
+        "shape",
+      );
+      expect(style).toContain(`border-radius: ${radius}`);
+    },
+  );
+
   it("clips polygonal presets instead of leaving them as their bounding rectangle", () => {
     for (const shapeType of [
       "triangle",
