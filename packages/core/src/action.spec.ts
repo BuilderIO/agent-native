@@ -2668,6 +2668,8 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         title: z.string().optional(),
         note: z.string().nullable().optional(),
         tags: z.array(z.string()).optional(),
+        label: z.string().optional(),
+        meta: z.record(z.string(), z.string()).optional(),
         limit: z.number().optional().default(10),
         items: z.array(z.string()).optional().default([]),
       }),
@@ -2688,6 +2690,15 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       });
     });
 
+    it("never reads an empty list as a clear", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        tags: [],
+      });
+      expect(intent.valid).toBe(true);
+    });
+
     it("runs a padded call whose empty value equals the schema default", async () => {
       const intent = await actionCallIntent(update, {
         id: "a",
@@ -2698,7 +2709,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
 
     it.each([
-      { id: "a", title: null, tags: [] },
+      { id: "a", title: null, label: "" },
       { id: "a", title: null, note: null },
     ])("refuses a padded call that could clear data: %j", async (input) => {
       const intent = await actionCallIntent(update, input);
@@ -2713,7 +2724,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         description: "dynamic",
         schema: z.object({
           mode: z.enum(["read", "write"]).default("write"),
-          tags: z.array(z.string()).optional(),
+          label: z.string().optional(),
           title: z.string().optional(),
         }),
         planMode: {
@@ -2723,7 +2734,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       });
       const intent = await actionCallIntent(publish, {
         title: null,
-        tags: [],
+        label: "",
       });
       expect(intent).toMatchObject({
         valid: false,
@@ -2735,7 +2746,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       const intent = await actionCallIntent(update, {
         id: "a",
         title: null,
-        tags: "[]",
+        meta: "{}",
       });
       expect(intent).toMatchObject({
         valid: false,

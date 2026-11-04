@@ -582,6 +582,39 @@ describe("parseProviderResponse for a source", () => {
     expect(item.text?.length).toBeLessThanOrEqual(2048);
   });
 
+  it("carries a security alert's package, manifest and fixed version, and leaves the version out when none is out yet", () => {
+    const alert = (patched: unknown) => ({
+      number: 7,
+      html_url: "https://github.com/acme/app/security/dependabot/7",
+      created_at: "2026-10-17T10:00:00Z",
+      security_advisory: {
+        summary: "Prototype pollution",
+        description: "Upgrade to a patched release.",
+        severity: "high",
+        ghsa_id: "GHSA-aaaa",
+      },
+      security_vulnerability: { first_patched_version: patched },
+      dependency: {
+        package: { name: "lodash", ecosystem: "npm" },
+        manifest_path: "package.json",
+      },
+    });
+    const [patched, unpatched] =
+      parseSource(op("github.listSecurityAlerts"), [
+        alert({ identifier: "4.17.21" }),
+        { ...alert(null), number: 8 },
+      ]).items ?? [];
+    expect(patched?.extras).toEqual({
+      severity: "high",
+      package: "lodash",
+      ecosystem: "npm",
+      manifestPath: "package.json",
+      ghsaId: "GHSA-aaaa",
+      fixedVersion: "4.17.21",
+    });
+    expect(unpatched?.extras).not.toHaveProperty("fixedVersion");
+  });
+
   it("reads BigQuery's cell-by-cell rows", () => {
     const parsed = parseSource(op("bigquery.billingQuery"), {
       rows: [

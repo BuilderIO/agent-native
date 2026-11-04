@@ -168,7 +168,7 @@ describe("root-union tool placeholders", () => {
         schema: z.object({
           id: z.string(),
           name: z.string().optional(),
-          tags: z.array(z.string()).optional().default(["a"]),
+          tags: z.string().optional().default("a"),
         }),
         run,
       });
@@ -176,7 +176,7 @@ describe("root-union tool placeholders", () => {
         actions: { update: action as unknown as ActionEntry },
         name: "update",
         callId: "differs",
-        input: { id: "1", name: null, tags: [] },
+        input: { id: "1", name: null, tags: "" },
       });
       expect(result.status).toBe("failed");
       expect(run).not.toHaveBeenCalled();
@@ -204,11 +204,32 @@ describe("root-union tool placeholders", () => {
       expect(run.mock.calls[0]?.[0]).toMatchObject({ ids: [] });
     });
 
+    it("sees an empty value that arrives as a stringified object", async () => {
+      const run = vi.fn(async (args: Record<string, unknown>) => args);
+      const action = defineAction({
+        description: "Update a thing",
+        schema: z.object({
+          id: z.string(),
+          name: z.string().optional(),
+          meta: z.record(z.string(), z.string()).optional(),
+        }),
+        run,
+      });
+      const result = await executeAgentToolCall({
+        actions: { update: action as unknown as ActionEntry },
+        name: "update",
+        callId: "stringified",
+        input: { id: "1", name: null, meta: "{}" },
+      });
+      expect(result.status).toBe("failed");
+      expect(run).not.toHaveBeenCalled();
+    });
+
     it("still refuses a write whose empty value has no default", async () => {
       const writeSchema = z.object({
         id: z.string(),
         name: z.string().optional(),
-        hidden: z.array(z.string()).optional(),
+        hidden: z.string().optional(),
       });
       const run = vi.fn(async (args: Record<string, unknown>) => args);
       const action = defineAction({
@@ -220,7 +241,7 @@ describe("root-union tool placeholders", () => {
         actions: { update: action as unknown as ActionEntry },
         name: "update",
         callId: "write",
-        input: { id: "1", name: null, hidden: [] },
+        input: { id: "1", name: null, hidden: "" },
       });
       expect(result.status).toBe("failed");
       expect(result.output).toContain("No action was run");

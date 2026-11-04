@@ -1,5 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+// oracle-change: the deleted Slides 2 template no longer has an inline app, and Mail's manage-draft now has one
 exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
 {
   "analytics": [
@@ -140,6 +141,44 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "title": "Export coding handoff",
       },
       "name": "export-coding-handoff",
+    },
+  ],
+  "mail": [
+    {
+      "_meta": {
+        "openai/outputTemplate": "ui://mail/manage-draft/shell-v65",
+        "openai/toolInvocation/invoked": "Review email draft ready",
+        "openai/toolInvocation/invoking": "Opening Review email draft",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://mail/manage-draft/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://mail/manage-draft/shell-v65",
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Manage draft",
+      },
+      "name": "manage-draft",
     },
   ],
   "slides": [

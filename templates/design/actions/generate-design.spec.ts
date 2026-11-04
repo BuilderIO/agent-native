@@ -1,4 +1,3 @@
-import { actionCallIntent } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -277,6 +276,10 @@ vi.mock("@agent-native/creative-context/server", () => ({
   },
 }));
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./generate-design.js";
 
@@ -348,11 +351,68 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
       ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
-    // oracle-change: designSystemId is a plain optional string; unlinking moved to update-design.
-    expect(parameters.properties.designSystemId?.type).toBe("string");
+    // oracle-change: the agent no longer unlinks a design system through generate-design (update-design does), so a padded null is a dropped placeholder, not an unlink.
+    expect(JSON.stringify(parameters.properties.designSystemId)).not.toContain(
+      "null",
+    );
+    expect(parameters.properties.designSystemId?.description).toContain(
+      "cannot unlink",
+    );
+    expect(JSON.stringify(parameters.properties.tweaks)).toContain(
+      '"minItems":1',
+    );
     expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
       '"off"',
     );
+  });
+
+  it("runs a call whose unused fields are padded with null and empty lists", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const padded = {
+      ...validInput(),
+      designSystemId: null,
+      projectType: "prototype",
+      tweaks: [],
+      canvasFrames: [
+        {
+          filename: "index.html",
+          fileId: null,
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          z: null,
+          rotation: null,
+        },
+      ],
+      contextPackId: null,
+      reuseLabels: [],
+      primaryViewport: null,
+      devices: [],
+    };
+
+    const result = await executeAgentToolCall({
+      actions: {
+        "generate-design": { ...action, run } as unknown as ActionEntry,
+      },
+      name: "generate-design",
+      callId: "padded-by-model",
+      input: padded,
+    });
+
+    expect(result.status).toBe("completed");
+    const received = run.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(received).toMatchObject({ devices: [], reuseLabels: [] });
+    for (const dropped of [
+      "designSystemId",
+      "tweaks",
+      "contextPackId",
+    ] as const) {
+      expect(received[dropped], dropped).toBeUndefined();
+    }
+    expect(received.canvasFrames).toEqual([
+      { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+    ]);
   });
 
   it("offers the model only filename, content, and fileType per file", () => {
@@ -398,6 +458,7 @@ describe("generate-design action tool schema", () => {
   it("still accepts structured fields sent as JSON strings", () => {
     const parsed = (action as any).schema.safeParse({
       ...validInput(),
+      designSystemId: null,
       files: JSON.stringify(validInput().files),
       tweaks: JSON.stringify([
         {
@@ -410,7 +471,7 @@ describe("generate-design action tool schema", () => {
     });
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data.designSystemId).toBeUndefined();
+    expect(parsed.data.designSystemId).toBeNull();
     expect(parsed.data.files).toEqual(validInput().files);
     expect(parsed.data.tweaks).toHaveLength(1);
   });
@@ -3115,81 +3176,6 @@ describe("generate-design: rejected input in the agent loop", () => {
       ),
     ).toBe(false);
     expect(mocks.seededCollabText.size).toBe(1);
-  });
-
-  it.each([
-    {
-      designSystemId: null,
-      projectType: "prototype",
-      tweaks: [],
-      canvasFrames: null,
-      contextPackId: null,
-      reuseLabels: null,
-      primaryViewport: "desktop",
-      devices: ["desktop", "mobile"],
-    },
-    {
-      designSystemId: null,
-      tweaks: [],
-      canvasFrames: [],
-      contextPackId: null,
-      contextModeOverride: "off",
-      reuseLabels: [],
-      primaryViewport: null,
-      devices: null,
-    },
-  ])(
-    "saves a call whose unused optional fields are null or empty: %j",
-    async (padding) => {
-      const { runAgentLoop } = await import("@agent-native/core/server");
-      const events: Array<Record<string, unknown>> = [];
-      await runAgentLoop({
-        engine: scriptedEngine([
-          {
-            designId: "design-1",
-            prompt: "Make a design",
-            files: [
-              {
-                filename: "index.html",
-                fileType: "html",
-                content: "<main>Hi</main>",
-              },
-            ],
-            ...padding,
-          },
-        ]) as never,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [
-          { role: "user", content: [{ type: "text", text: "Make a design" }] },
-        ],
-        actions: { "generate-design": action as never },
-        send: (event) => {
-          events.push(event as unknown as Record<string, unknown>);
-        },
-        signal: new AbortController().signal,
-      });
-      const done = events.filter((event) => event.type === "tool_done");
-      expect(done).toHaveLength(1);
-      expect(done[0]).toMatchObject({ completedSideEffect: true });
-      expect(done[0]?.errorClass).toBeUndefined();
-      expect(mocks.seededCollabText.size).toBe(1);
-    },
-  );
-
-  it("refuses a padded call whose empty devices could clear fixed artwork", async () => {
-    const intent = await actionCallIntent(action as never, {
-      designId: "design-1",
-      prompt: "Make a design",
-      files: [{ filename: "index.html", content: "<main>Hi</main>" }],
-      designSystemId: null,
-      devices: [],
-    });
-    expect(intent.valid).toBe(false);
-    expect((intent as { error: { errorCode?: string } }).error.errorCode).toBe(
-      "ambiguous_tool_placeholders",
-    );
   });
 
   it("lets a corrected call run after a filename path rejection", async () => {

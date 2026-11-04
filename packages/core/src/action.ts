@@ -2761,12 +2761,11 @@ export async function actionCallIntent(
       : undefined;
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
-    const coerced = coerceGatewayStringifiedArgs(input, entry.tool?.parameters);
     const repaired = getStrictToolInputValidator(entry)
-      ? { input: coerced, error: undefined }
+      ? { input, error: undefined }
       : normalizeOptionalToolPlaceholders(
           entry.tool?.parameters,
-          coerced,
+          coerceGatewayStringifiedArgs(input, entry.tool?.parameters),
           entry,
           { nullOnly: true },
         );

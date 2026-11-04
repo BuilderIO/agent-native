@@ -175,10 +175,12 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      // A valid `false` sets a value; only null, "", [] and {} can clear one. An
-      // empty equal to the schema's own default changes nothing either.
+      // A valid `false` sets a value, and `[]` is what a model that pads every
+      // field sends for an unused list, so neither counts as a clear. An empty
+      // equal to the schema's own default changes nothing either.
       if (
         entry !== false &&
+        !(Array.isArray(entry) && entry.length === 0) &&
         schemaAcceptsToolValue(propertySchema, entry) &&
         !(
           propertySchema.default !== undefined &&

@@ -490,9 +490,21 @@ const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
 
 const designSystemIdField = z
   .string()
+  .nullable()
   .optional()
   .describe(
-    "Optional design system ID used for generation. Omit to keep the current link.",
+    "Optional design system ID used for generation. Pass null to unlink.",
+  );
+
+// The agent's copies of `designSystemId` and `tweaks` reject null and []. A
+// model that pads every field sends both for fields it is not using, and
+// accepted they would unlink the design system and replace its tweaks; rejected
+// they are dropped as placeholders. `update-design` unlinks.
+const agentDesignSystemIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Optional design system ID used for generation. It cannot unlink a design system.",
   );
 
 const projectTypeField = z
@@ -500,11 +512,17 @@ const projectTypeField = z
   .optional()
   .describe("Optional project type hint.");
 
+const tweaksDescription =
+  "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.";
+
 const tweaksField = tweakDefinitionsSchema
-  .default([])
-  .describe(
-    "Optional tweak definitions (omit or pass [] to keep the current ones) (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
-  );
+  .optional()
+  .describe(tweaksDescription);
+
+const agentTweaksField = tweakDefinitionsSchema
+  .min(1)
+  .optional()
+  .describe(tweaksDescription);
 
 // Reject two placements for the same target in one call. Without this,
 // mergeCanvasFramePlacements folds both entries into a single
@@ -538,7 +556,7 @@ const canvasFramesField = z
       seen.set(key, index);
     });
   })
-  .default([])
+  .optional()
   .describe(
     "Optional overview-canvas placements keyed by filename or fileId. " +
       "Pass explicit x/y/width/height for every generated screen as numbers. " +
@@ -662,8 +680,10 @@ const generateDesignAction = defineAction({
     files: z.preprocess(jsonField("files"), filesField),
     designSystemId: designSystemIdField,
     projectType: projectTypeField,
-    tweaks: z.preprocess(jsonField("tweaks"), tweaksField),
-    canvasFrames: z.preprocess(jsonField("canvasFrames"), canvasFramesField),
+    tweaks: z.preprocess(jsonField("tweaks"), tweaksField).optional(),
+    canvasFrames: z
+      .preprocess(jsonField("canvasFrames"), canvasFramesField)
+      .optional(),
     contextPackId: contextPackIdField,
     contextModeOverride: contextModeOverrideField,
     reuseLabels: z.preprocess(jsonField("reuseLabels"), reuseLabelsField),
@@ -674,9 +694,9 @@ const generateDesignAction = defineAction({
     designId: designIdField,
     prompt: promptField,
     files: filesField,
-    designSystemId: designSystemIdField,
+    designSystemId: agentDesignSystemIdField,
     projectType: projectTypeField,
-    tweaks: tweaksField,
+    tweaks: agentTweaksField,
     canvasFrames: canvasFramesField,
     contextPackId: contextPackIdField,
     contextModeOverride: contextModeOverrideField,
@@ -1037,12 +1057,10 @@ const generateDesignAction = defineAction({
       fixedSize: boolean;
       contentDriven: boolean;
     }> = [];
-    const normalizedTweaks = tweaks.length
-      ? tweaks.map((tweak) => ({
-          ...tweak,
-          type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
-        }))
-      : undefined;
+    const normalizedTweaks = tweaks?.map((tweak) => ({
+      ...tweak,
+      type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
+    }));
     const exactFixedCanvasOutput =
       canvasIntent.kind === "fixed" &&
       (canvasIntent.source === "explicit-dimensions" ||

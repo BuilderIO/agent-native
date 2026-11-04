@@ -15,6 +15,7 @@ const schema: AgentNativeJsonSchema = {
     title: { type: "string" },
     note: { anyOf: [{ type: "string" }, { type: "null" }] },
     tags: { type: "array", items: { type: "string" } },
+    label: { type: "string" },
     flag: { type: "boolean" },
     items: { type: "array", items: { type: "string" }, default: [] },
     status: { type: "string", enum: ["open", "done"] },
@@ -55,7 +56,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
   });
 
   it.each([
-    { id: "a", title: null, tags: [] },
+    { id: "a", title: null, label: "" },
     { id: "a", title: null, note: null },
   ])("refuses a padded write that could clear data: %j", (input) => {
     const result = normalizeOptionalToolPlaceholders(schema, input, write);
@@ -75,6 +76,16 @@ describe("normalizeOptionalToolPlaceholders", () => {
     ).toBeUndefined();
   });
 
+  it("treats an empty list as never a clear", () => {
+    expect(
+      normalizeOptionalToolPlaceholders(
+        schema,
+        { id: "a", title: null, tags: [] },
+        write,
+      ).error,
+    ).toBeUndefined();
+  });
+
   it("treats false as never a clear", () => {
     expect(
       normalizeOptionalToolPlaceholders(
@@ -89,7 +100,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
     expect(
       normalizeOptionalToolPlaceholders(
         schema,
-        { id: "a", title: null, tags: [] },
+        { id: "a", title: null, label: "" },
         read,
       ).error,
     ).toBeUndefined();
@@ -100,7 +111,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
     expect(
       normalizeOptionalToolPlaceholders(
         schema,
-        { id: "a", title: null, tags: [] },
+        { id: "a", title: null, label: "" },
         entry as never,
       ).error,
     ).toBeInstanceOf(AmbiguousToolPlaceholdersError);

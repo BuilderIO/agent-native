@@ -7119,17 +7119,17 @@ function repairToolCallInput(
   if (!entry || getStrictToolInputValidator(entry)) {
     return { input, changed: false };
   }
+  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
   const placeholders = normalizeOptionalToolPlaceholders(
     entry.tool.parameters,
-    input,
+    json.input,
     entry,
   );
   if (placeholders.error) return placeholders;
-  const json = coerceStringifiedJsonToolValues(
-    entry.tool.parameters,
-    placeholders.input,
-  );
-  return { input: json.input, changed: placeholders.changed || json.changed };
+  return {
+    input: placeholders.input,
+    changed: json.changed || placeholders.changed,
+  };
 }
 
 /**
