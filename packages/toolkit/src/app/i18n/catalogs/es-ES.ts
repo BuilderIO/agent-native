@@ -3598,6 +3598,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Quitar la aplicación del espacio de trabajo",
   "chatFirst.showMore": "Mostrar más",
   "chatFirst.showLess": "Mostrar menos",
+  "chatFirst.showMoreCount": "Mostrar {{count}} más",
   "chatFirst.appOrderUnavailable":
     "No se pudo guardar el orden de las aplicaciones en este dispositivo.",
   "chatFirst.openSideSurfaces": "Abrir paneles laterales",

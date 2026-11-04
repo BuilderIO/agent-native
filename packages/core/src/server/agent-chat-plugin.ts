@@ -304,7 +304,8 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
+import { discoverAgentContextAgents } from "./agent-context-agents.js";
+import { getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -5428,7 +5429,7 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 
 1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
 2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent-Native Desktop, Claude Code, or Codex in the project directory.
-3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core@latest add-app\` in this workspace directory as the CLI path.
+3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`pnpm exec agent-native add-app\` in this workspace directory as the CLI path.
 
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
@@ -7173,9 +7174,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId, {
-                    includePersonalAgents: true,
-                  });
+                  const agents = await discoverAgentContextAgents(
+                    options?.appId,
+                    { includePersonalAgents: true },
+                  );
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,

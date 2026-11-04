@@ -288,8 +288,9 @@ Read the exact HTML and use an ordered edits batch that removes or replaces
 only the matching style declarations. Do not use fullContent, an unrelated
 layout repair, or unresolved placeholder markers such as __RIGHT_CARD__ as a
 shortcut or stand-in for content. For code-style or structural edits, request
-compact=false and format=true, then call update-slide with that slide's
-contentHash as baseContentHash and an ordered edits list. A request about
+compact=false without format and quote every find from that unformatted HTML
+(format=true rewrites spacing, so its text can miss), then call update-slide
+with that slide's contentHash as baseContentHash and an ordered edits list. A request about
 order, relative position, duplication, or consistency may have multiple
 representations in the HTML, such as a bullet list and a table; inspect the
 exact source and update every affected representation in one hash-guarded
@@ -315,8 +316,10 @@ get-deck again for that slide with compact=false and verify the requested
 text, ordering, relationships, counts, and style scope. If the readback is wrong,
 rebase against its returned hash and correct it; if any action returns an
 error, that change is not complete and must not be reported as done. Set
-format=true on update-slide when readable line breaks should be persisted. Use
-fullContent only for an intentional full rewrite. Pass compact=true when you
+format=true on update-slide with edits or objectId only when every find was
+quoted from a get-deck format=true read: it formats the stored HTML before
+matching and persists readable line breaks. Otherwise leave it off; it does not
+format fullContent writes. Use fullContent only for an intentional full rewrite. Pass compact=true when you
 only need a lightweight check of that slide. Content writes return immediately
 after persistence with layoutFit.status=pending, the resulting content hash,
 and a write-specific layoutFitRevision. Do not wait for fit checks between

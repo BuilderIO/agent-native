@@ -344,6 +344,11 @@ export {
 } from "./google-auth-plugin.js";
 export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
+  discoverAgentContextAgents,
+  registerAgentContextAgentFilter,
+  type AgentContextAgentFilter,
+} from "./agent-context-agents.js";
+export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
   loadResourcesForPrompt,
