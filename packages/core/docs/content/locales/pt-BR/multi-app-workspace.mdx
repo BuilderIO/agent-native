@@ -259,6 +259,8 @@ IDs desconhecidos em `include` geram um aviso e são ignorados. Um app independe
 
 Essa configuração controla a lista de apps, a descoberta de agentes e as chamadas entre agentes. Apps montados no workspace e URLs personalizadas de agentes remotos conectados mantêm a prioridade. O acesso de apps MCP continua sendo uma permissão de roteamento separada.
 
+No Dispatch, proprietários e administradores da organização também podem ocultar os apps integrados oferecidos em Configurações › Organização › Apps (ou com `set-hosted-apps-settings`). Isso os remove das listas de apps do Dispatch e do contexto de apps do agente dele para a organização; `call-agent` pelo nome continua chegando a eles. Sem uma organização não há página de configurações para isso, então só o agente pode alterá-lo, para esse usuário.
+
 ## Servidores MCP compartilhados {#shared-mcp}
 
 As opções recomendadas para compartilhar servidores MCP entre aplicativos de espaço de trabalho, em ordem de preferência:

@@ -3576,6 +3576,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "App aus dem Workspace entfernen",
   "chatFirst.showMore": "Mehr anzeigen",
   "chatFirst.showLess": "Weniger anzeigen",
+  "chatFirst.showMoreCount": "{{count}} weitere anzeigen",
   "chatFirst.appOrderUnavailable":
     "Die App-Reihenfolge konnte auf diesem Gerät nicht gespeichert werden.",
   "chatFirst.openSideSurfaces": "Seitenbereiche öffnen",
