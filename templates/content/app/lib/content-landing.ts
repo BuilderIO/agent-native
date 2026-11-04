@@ -72,7 +72,7 @@ export function startLoadReads(
       databaseId: search.get("databaseId"),
       databaseDocumentId: search.get("databaseDocumentId"),
     },
-    { beforeSession: true },
+    { fromLoad: true },
   );
   // Its collab state too, built on this browser's saved copy of it.
   prefetchCollabState(documentId);
