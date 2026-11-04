@@ -1526,6 +1526,7 @@ const messages = {
   transcriptBubbles: {
     listening: "يستمع…",
     noTranscript: "لا يوجد نص بعد.",
+    unreadable: "تعذّرت قراءة هذا النص المكتوب.",
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",

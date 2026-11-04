@@ -1458,6 +1458,7 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
+            unreadable={data?.earlierAudioMinutes === null}
             participants={meeting.participants ?? []}
             ownerEmail={meeting.ownerEmail}
             registerScrollTo={(fn) => {

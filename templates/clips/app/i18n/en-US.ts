@@ -1452,6 +1452,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Listening…",
     noTranscript: "No transcript yet.",
+    unreadable: "Couldn't read this transcript.",
     liveTranscriptDescription:
       "The live transcript will appear here once notes start.",
     me: "Me",

@@ -1540,6 +1540,7 @@ const messages = {
   transcriptBubbles: {
     listening: "聞き取り中…",
     noTranscript: "文字起こしはまだありません。",
+    unreadable: "この文字起こしを読み込めませんでした。",
     liveTranscriptDescription:
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",

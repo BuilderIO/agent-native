@@ -1563,6 +1563,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Ouvindo…",
     noTranscript: "Ainda não há transcrição.",
+    unreadable: "Não foi possível ler esta transcrição.",
     liveTranscriptDescription:
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",

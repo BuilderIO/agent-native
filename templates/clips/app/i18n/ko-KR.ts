@@ -1518,6 +1518,7 @@ const messages = {
   transcriptBubbles: {
     listening: "듣는 중…",
     noTranscript: "아직 기록이 없습니다.",
+    unreadable: "이 스크립트를 읽을 수 없습니다.",
     liveTranscriptDescription:
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",

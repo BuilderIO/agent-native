@@ -1449,6 +1449,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆聽…",
     noTranscript: "還沒有轉錄。",
+    unreadable: "無法讀取此逐字稿。",
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",

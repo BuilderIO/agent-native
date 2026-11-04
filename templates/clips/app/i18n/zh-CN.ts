@@ -1447,6 +1447,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆听…",
     noTranscript: "还没有转录。",
+    unreadable: "无法读取此转录。",
     liveTranscriptDescription: "开始记录后，实时转录会显示在这里。",
     me: "我",
     them: "对方",
