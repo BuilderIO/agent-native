@@ -42,7 +42,8 @@ export async function modelUnits(input: {
     }
     const dependence = new Map<number, number>();
     for (const { gap } of pairs) {
-      const answer = result.answers[`pair_${gap}`];
+      const answer: (typeof result.answers)[string] | undefined =
+        result.answers[`pair_${gap}`];
       if (answer?.type === "predicate") dependence.set(gap, answer.probability);
     }
     return unitsFromAnswers(gaps, dependence) ?? sentenceUnits;
