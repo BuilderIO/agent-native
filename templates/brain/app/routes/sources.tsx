@@ -2625,7 +2625,6 @@ export default function SourcesRoute() {
         updateSource.isError ||
         createSource.isError ||
         rotateSourceIngestToken.isError ||
-        ensureCompanyContextSource.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ||
@@ -2633,10 +2632,16 @@ export default function SourcesRoute() {
           <div>
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
-              detail={
-                ensureCompanyContextSource.error?.message ??
-                t("sources.actionFailedDetail")
-              }
+              detail={t("sources.actionFailedDetail")}
+            />
+          </div>
+        ) : null}
+
+        {ensureCompanyContextSource.error ? (
+          <div>
+            <EmptyActionState
+              title={t("sources.actionFailedTitle")}
+              detail={ensureCompanyContextSource.error.message}
             />
           </div>
         ) : null}
