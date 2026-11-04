@@ -282,9 +282,9 @@ describe("database failure text", () => {
     );
 
   it.each([
-    ["57014", "The database query timed out (57014)."],
-    ["CONNECT_TIMEOUT", "The database call timed out (CONNECT_TIMEOUT)."],
-    ["53300", "The database rejected the request (53300)."],
+    ["57014", "The database request failed (57014)."],
+    ["CONNECT_TIMEOUT", "The database request failed (CONNECT_TIMEOUT)."],
+    ["ECONNRESET", "The database request failed (ECONNRESET)."],
   ])("names driver code %s without the query", (code, text) => {
     const error = failure(Object.assign(new Error("private"), { code }));
     expect(databaseFailureCode(error)).toBe(code);

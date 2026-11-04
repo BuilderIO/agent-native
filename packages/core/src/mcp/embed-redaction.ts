@@ -24,13 +24,6 @@ export function isDatabaseQueryFailure(error: unknown): boolean {
 // A driver's error code names the failure without any of the query's values.
 // Anything else in that field stays hidden along with the message.
 const DATABASE_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
-const DATABASE_TIMEOUT_TEXT: ReadonlyMap<string, string> = new Map([
-  // Postgres's query_canceled, raised at statement_timeout.
-  ["57014", "The database query timed out"],
-  // `withDbTimeout` and the driver's connection wait share this code, so it
-  // can't say the query itself was what ran out of time.
-  ["CONNECT_TIMEOUT", "The database call timed out"],
-]);
 
 export function databaseFailureCode(error: unknown): string | undefined {
   const code = (error as { cause?: { code?: unknown } }).cause?.code;
@@ -39,14 +32,17 @@ export function databaseFailureCode(error: unknown): string | undefined {
     : undefined;
 }
 
-/** The client-safe text for a failure `isDatabaseQueryFailure` recognizes. */
+/**
+ * The client-safe text for a failure `isDatabaseQueryFailure` recognizes. It
+ * names the code without saying what it means, because one code has several
+ * causes: 57014 is any cancellation, and CONNECT_TIMEOUT is `withDbTimeout` or
+ * the driver's wait for a connection.
+ */
 export function databaseFailureMessage(error: unknown): string {
   const code = databaseFailureCode(error);
-  if (!code) return DATABASE_FAILURE_MESSAGE;
-  const timeout = DATABASE_TIMEOUT_TEXT.get(code);
-  return timeout
-    ? `${timeout} (${code}).`
-    : `The database rejected the request (${code}).`;
+  return code
+    ? `The database request failed (${code}).`
+    : DATABASE_FAILURE_MESSAGE;
 }
 
 /** Replaces a value already being serialized higher up the same result. */
