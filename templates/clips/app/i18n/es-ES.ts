@@ -670,7 +670,7 @@ const messages = {
       "No se pudo comprobar si esta transcripción incluye audio anterior",
     removeEarlierAudioTitle: "¿Quitar el audio anterior?",
     removeEarlierAudioDescription:
-      "Se quitará de la transcripción y se volverán a generar el resumen, las tareas y la descripción del clip, aunque hayas escrito tú esa descripción. También se regenerará un título generado automáticamente; el que hayas elegido se conserva.",
+      "Se quitará de la transcripción y se volverán a generar el resumen, las tareas y la descripción del clip, aunque hayas escrito tú esa descripción. También se regenerará un título generado automáticamente; el que hayas elegido se conserva. También se eliminarán los capítulos.",
     couldNotRemoveEarlierAudio: "No se pudo quitar el audio anterior",
     generateNotesFailed: "No se pudo generar el resumen. Intentar otra vez.",
     attendee_one: "asistente {{count}}",

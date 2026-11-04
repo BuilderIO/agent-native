@@ -669,7 +669,7 @@ const messages = {
       "Impossible de vérifier si cette transcription contient de l'audio antérieur",
     removeEarlierAudioTitle: "Supprimer l'audio antérieur ?",
     removeEarlierAudioDescription:
-      "Il sera retiré de la transcription, et le résumé, les actions et la description du clip seront recréés, même si vous avez rédigé cette description vous-même. Un titre généré sera aussi recréé ; celui que vous avez choisi est conservé.",
+      "Il sera retiré de la transcription, et le résumé, les actions et la description du clip seront recréés, même si vous avez rédigé cette description vous-même. Un titre généré sera aussi recréé ; celui que vous avez choisi est conservé. Les chapitres éventuels seront aussi supprimés.",
     couldNotRemoveEarlierAudio: "Impossible de supprimer l'audio antérieur",
     generateNotesFailed: "Impossible de générer le résumé. Essayer à nouveau.",
     attendee_one: "participant {{count}}",

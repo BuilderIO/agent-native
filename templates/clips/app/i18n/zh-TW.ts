@@ -603,7 +603,7 @@ const messages = {
     earlierAudioUnreadable: "無法檢查此逐字稿是否包含開始前的音訊",
     removeEarlierAudioTitle: "移除開始前的音訊嗎？",
     removeEarlierAudioDescription:
-      "這會將其從逐字稿中移除，並重新產生摘要、待辦事項和片段描述，即使描述是你自己寫的也一樣。自動產生的標題也會重新產生；你選擇的標題會保留。",
+      "這會將其從逐字稿中移除，並重新產生摘要、待辦事項和片段描述，即使描述是你自己寫的也一樣。自動產生的標題也會重新產生；你選擇的標題會保留。章節也會被刪除。",
     couldNotRemoveEarlierAudio: "無法移除開始前的音訊",
     generateNotesFailed: "無法產生摘要。請再試一次。",
     attendee_one: "{{count}} 與會者",

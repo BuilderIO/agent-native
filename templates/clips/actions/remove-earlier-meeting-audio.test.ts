@@ -198,6 +198,7 @@ describe("remove-earlier-meeting-audio", () => {
 
     expect(writesTo("recordings")[0].patch).toMatchObject({
       description: "",
+      chaptersJson: "[]",
       title: "Weekly sync",
       titleSource: "default",
     });

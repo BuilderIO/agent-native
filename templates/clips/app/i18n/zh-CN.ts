@@ -601,7 +601,7 @@ const messages = {
     earlierAudioUnreadable: "无法检查此转录是否包含开始前的音频",
     removeEarlierAudioTitle: "移除开始前的音频吗？",
     removeEarlierAudioDescription:
-      "这会将其从转录中移除，并重新生成摘要、待办事项和片段描述，即使描述是你自己写的也一样。自动生成的标题也会重新生成；你选择的标题会保留。",
+      "这会将其从转录中移除，并重新生成摘要、待办事项和片段描述，即使描述是你自己写的也一样。自动生成的标题也会重新生成；你选择的标题会保留。章节也会被删除。",
     couldNotRemoveEarlierAudio: "无法移除开始前的音频",
     generateNotesFailed: "无法生成摘要。再试一次。",
     attendee_one: "{{count}} 与会者",

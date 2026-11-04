@@ -65,7 +65,7 @@ function logDispatchFailure(recordingId: string, err: unknown) {
 
 export default defineAction({
   description:
-    "Remove the audio recovered from before the user started recording from a meeting. Takes its segments out of the transcript and its saved versions, clears the notes built from it, and rebuilds the notes and the linked Clip's generated title and description from what remains; a hand-written description is replaced too because descriptions don't record their source. `notes` reports the outcome: `regenerated`, `regenerating`, `failed` (run finalize-meeting with force to retry), `live` (notes build when the meeting ends), `empty` (no transcript remains), or `unchanged` (no earlier audio). A running capture can't add it back. Editor access to the meeting, its recording, and any other ended meeting on that recording required; without it nothing is removed.",
+    "Remove the audio recovered from before the user started recording from a meeting. Takes its segments out of the transcript and its saved versions, clears the notes built from it, and rebuilds the notes and the linked Clip's generated title and description from what remains; a hand-written description is replaced too and the Clip's chapters are deleted, because neither records its source. `notes` reports the outcome: `regenerated`, `regenerating`, `failed` (run finalize-meeting with force to retry), `live` (notes build when the meeting ends), `empty` (no transcript remains), or `unchanged` (no earlier audio). A running capture can't add it back. Editor access to the meeting, its recording, and any other ended meeting on that recording required; without it nothing is removed.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
   }),
@@ -214,11 +214,13 @@ export default defineAction({
       }
 
       // Finalize feeds the Clip's description back in as context, so keeping
-      // it would carry the removed audio into the rebuilt summary.
+      // it would carry the removed audio into the rebuilt summary. Chapter
+      // titles come from the same transcript, and nothing records who wrote them.
       await tx
         .update(schema.recordings)
         .set({
           description: "",
+          chaptersJson: "[]",
           ...(recording.titleSource === "ai" ||
           recording.titleSource === "context"
             ? { title: meeting.title, titleSource: "default" as const }

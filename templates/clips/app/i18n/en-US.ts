@@ -576,7 +576,7 @@ const messages = {
     earlierAudioUnreadable: "Couldn't check this transcript for earlier audio",
     removeEarlierAudioTitle: "Remove earlier audio?",
     removeEarlierAudioDescription:
-      "This takes it out of the transcript and rebuilds the summary, action items, and Clip description, even if you wrote that description yourself. A generated title is rebuilt too; one you chose stays.",
+      "This takes it out of the transcript and rebuilds the summary, action items, and Clip description, even if you wrote that description yourself. A generated title is rebuilt too; one you chose stays. Any chapters are deleted too.",
     couldNotRemoveEarlierAudio: "Couldn't remove earlier audio",
     generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",
