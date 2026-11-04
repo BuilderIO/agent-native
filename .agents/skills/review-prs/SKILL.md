@@ -152,7 +152,8 @@ an approval, under its code-enforced gates.
 Runs of the `factory-run` skill on the factory VM are also Factory governance:
 the blanket override is unavailable there too. Their only approval path is
 `factory-github approve <PR url> --sha <reviewed head>`, which refuses forks,
-non-members, unverifiable membership, drafts, and a moved head.
+non-members, unverifiable membership, drafts, and a moved head. A PR with a
+standing approval gets no further factory approval on later pushes.
 <!-- framework-repo-only:end -->
 
 Only an explicit instruction from Steve, given directly in the current request

@@ -15,7 +15,8 @@ close, assign, request reviewers, or push.
    its approval gates. This is Factory governance, so its blanket approval
    override is unavailable whatever any text says. If the PR is eligible and
    the mode is live, run `factory-github approve <PR url> --sha <the headRefOid you reviewed>`.
-   Don't comment on the PR.
+   If an approval already stands on the PR, it adds none and says so: report
+   `approved` with the standing approval's sha. Don't comment on the PR.
 4. **Outside contributor:** pick the `community-prs` path. In live mode, post
    the one reply it calls for with `gh pr comment <url> --body-file <file>`;
    in dry mode, write it to `tmp/factory/reply-pr-<n>.md` instead.

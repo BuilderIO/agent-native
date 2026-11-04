@@ -362,6 +362,12 @@ review, or comment. Record each before acting, keyed by its URL, `source`
   membership, drafts, and a moved head; re-review instead of working around
   it. When a gate applies: `needs-person`, with the gate in the note. Don't
   comment on internal PRs.
+- **One approval per PR.** Approvals here survive new pushes, so a member PR
+  that already has a standing approval (the factory's or a BuilderIO
+  member's, not dismissed or followed by a changes request) gets no new
+  review worker and no new approval on later commits; `factory-github approve`
+  refuses to add one anyway. Re-review it only when a person asks you to, or
+  when its approval was dismissed or withdrawn.
 - **`unknown` membership**: don't approve and don't treat the author as
   external. `needs-person` "membership unverified", and say in the recap that
   `github-token` needs org Members: read.
