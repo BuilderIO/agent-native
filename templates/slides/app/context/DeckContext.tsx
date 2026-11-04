@@ -1465,6 +1465,62 @@ function requestDeckResync(deckId: string) {
   for (const handler of deckResyncHandlers) handler(deckId);
 }
 
+// The editor holds the local deck, so only it can put a refused slide back to the server copy.
+const slideRollbackHandlers = new Set<
+  (deckId: string, slideId: string, remoteSlide: Slide) => void
+>();
+
+function slideAnimationRefusalSlideId(error: unknown): string | null {
+  if (!error || typeof error !== "object" || !("errorCode" in error)) {
+    return null;
+  }
+  const { errorCode, details } = error as {
+    errorCode?: unknown;
+    details?: unknown;
+  };
+  if (
+    typeof errorCode !== "string" ||
+    !errorCode.startsWith("slide_animation_")
+  ) {
+    return null;
+  }
+  const slideId =
+    details && typeof details === "object"
+      ? (details as { slideId?: unknown }).slideId
+      : undefined;
+  return typeof slideId === "string" ? slideId : null;
+}
+
+// Only the refused slide reverts. Other slides' edits in the same batch are re-queued,
+// because the server rejects the whole batch.
+async function rollBackRefusedSlide(
+  deckId: string,
+  slideId: string,
+  cause: unknown,
+  ops: GranularOp[],
+  isCurrent: () => boolean,
+): Promise<void> {
+  const latest = deckOrNull(await readDeckFromAPI(deckId));
+  if (!isCurrent()) return;
+  const remoteSlide = latest?.slides.find((slide) => slide.id === slideId);
+  const keep = (op: GranularOp) =>
+    !(op.op === "patch-slide" && op.slideId === slideId);
+  const rest = [
+    ...ops.filter(keep),
+    ...(pendingOpsQueue.get(deckId) ?? []).filter(keep),
+  ];
+  if (rest.length > 0) pendingOpsQueue.set(deckId, rest);
+  else pendingOpsQueue.delete(deckId);
+  sentSlideContent.get(deckId)?.delete(slideId);
+  if (remoteSlide) {
+    for (const handler of slideRollbackHandlers) {
+      handler(deckId, slideId, remoteSlide);
+    }
+  }
+  markDeckSaveFailed(deckId, cause);
+  if (rest.length > 0) void drainPendingDeckOps(deckId).catch(() => {});
+}
+
 // Told when another writer deleted slides this client still had edits queued
 // for, so the slides leave the editor with a notice instead of silently.
 const slidesDeletedElsewhereHandlers = new Set<(deckId: string) => void>();
@@ -2315,6 +2371,13 @@ function drainPendingDeckOps(
         replayedByKeepalive = keepaliveResult?.status === "fulfilled";
       }
       if (!isCurrentGeneration()) return;
+      const refusedSlideId = slideAnimationRefusalSlideId(err);
+      if (refusedSlideId !== null) {
+        await rollBackRefusedSlide(deckId, refusedSlideId, err, ops, () =>
+          isCurrentGeneration(),
+        );
+        return;
+      }
       const handledConflict =
         Boolean(
           err &&
@@ -7100,6 +7163,23 @@ export function DeckProvider({
       deckResyncHandlers.delete(resync);
     };
   }, [refetchOpenDeckIfChanged]);
+
+  useEffect(() => {
+    const rollBack = (deckId: string, slideId: string, remoteSlide: Slide) => {
+      const local = decksRef.current.find((deck) => deck.id === deckId);
+      if (!local) return;
+      applyRemoteDeckUpdate({
+        ...local,
+        slides: local.slides.map((slide) =>
+          slide.id === slideId ? remoteSlide : slide,
+        ),
+      });
+    };
+    slideRollbackHandlers.add(rollBack);
+    return () => {
+      slideRollbackHandlers.delete(rollBack);
+    };
+  }, [applyRemoteDeckUpdate]);
 
   useEffect(() => {
     const notify = (deckId: string) => {
