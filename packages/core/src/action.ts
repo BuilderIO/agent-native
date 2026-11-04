@@ -16,8 +16,10 @@ import {
   actionExecutionStorage,
   endInvocationEvidence,
   holdInvocationEvidence,
+  noteObservedWrite,
   runOutsideActionInvocation,
   takeVouchedEvidence,
+  withoutWriteObservation,
   type ActionExecutionFrame,
   type ActionExecutionRun,
   type ActionExecutionState,
@@ -66,6 +68,7 @@ import {
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { observeOutboundWrites } from "./outbound-write-observation.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -95,7 +98,7 @@ export type {
   ActionReceiptProvenance,
   CommitActionOptions,
 } from "./action-receipt.js";
-export { ACTION_EXECUTION_KEY };
+export { ACTION_EXECUTION_KEY, withoutWriteObservation };
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -340,13 +343,14 @@ export function defineActionErrors<const TCode extends string>(
 }
 
 /**
- * A rejection raised before the action's first write: a missing target, an
- * edit that matches nothing, a patch identical to what is saved. A caller may
- * then retry with corrected arguments instead of treating the call as
- * possibly applied. The framework accepts the claim only for the call that
- * raised it, and only when no write action nested in that call entered its
- * handler; otherwise it reads as any other failure. It cannot see the
- * handler's own database or provider writes, so throw it before the first.
+ * A rejection raised before the action saved anything that matters, so a
+ * caller can retry with corrected arguments. The framework reads a failure
+ * from the writes it saw, so most rejections need no label. This one is an
+ * override that wins over an observed write, for example when the only thing
+ * written first is something a retry harmlessly repeats, such as uploads
+ * nobody has referenced yet. The framework accepts the claim only for the call
+ * that raised it, and only when no write action nested in that call entered
+ * its handler; otherwise it reads as any other failure.
  */
 export class NoWriteError extends ActionContractError {
   readonly noWrite = true;
@@ -488,6 +492,28 @@ function readableFailure(error: unknown): unknown {
   }
 }
 
+/**
+ * Record that the running action call wrote somewhere the framework cannot
+ * watch, such as a socket, a file or a vendor SDK that does not use `fetch`, so
+ * that a later failure of the call is not read as one that saved nothing. Call
+ * it before the write is sent. It only adds evidence: nothing it records can be
+ * cleared, and outside an action call it does nothing. Database writes and
+ * `fetch` requests that are not GET, HEAD or OPTIONS need no call.
+ */
+export function noteExternalWrite(channel: string): void {
+  noteObservedWrite(channel);
+}
+
+/**
+ * A `fetch` that cannot be wrapped hides every HTTP write, so a call that
+ * cannot be watched counts as having sent one and its failure stays `unknown`.
+ */
+function noteUnwatchedFetch(
+  status: ReturnType<typeof observeOutboundWrites>,
+): void {
+  if (status === "fetch-unwritable") noteObservedWrite("http-unwatched");
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -506,6 +532,15 @@ export interface InvocationEffect {
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
  * call raised itself may narrow. A refused call is settled before its error is
  * read.
+ *
+ * A recorded call that threw by itself needs a write the framework saw it
+ * send as well, not just a write handler having started: a rejection raised
+ * before anything was saved is `none`. Seeing a write only narrows what
+ * entered, so a call declared read-only that writes anyway is no more suspect
+ * than before. A call whose result never came may still be running and write
+ * later, so observing nothing proves nothing and it keeps the entered
+ * evidence alone. So does `changed`: a refresh nothing needed costs less than
+ * a missed one.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -537,16 +572,25 @@ export function invocationEffect(
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
+  const enteredNested =
+    evidence?.writeEntered && (evidence.nestedWriteEntered || !record)
+      ? evidence
+      : undefined;
+  const enteredOwn = record ? record.evidence.writeEntered : readOnly !== true;
+  const changed = enteredNested
+    ? enteredNested.changeEntered
+    : record
+      ? record.evidence.changeEntered && !(failed && typed === "none")
+      : entry.changeEvents !== false &&
+        (failed ? typed === "committed" : enteredOwn);
+  const observed = record !== undefined && failed !== undefined && !failed.lost;
+  if (enteredNested && (!observed || enteredNested.nestedWriteObserved)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
-      changed: evidence.changeEntered,
+      changed,
     };
   }
-  const wrote = record ? record.evidence.writeEntered : readOnly !== true;
-  const changed = record
-    ? record.evidence.changeEntered && !(failed && typed === "none")
-    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+  const wrote = enteredOwn && (!observed || record.evidence.writeObserved);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
       ? "committed"
@@ -2415,6 +2459,10 @@ export interface ActionCallEvidence {
   readonly changeEntered: boolean;
   /** One of those writes was nested in the call, not the call's own. */
   readonly nestedWriteEntered?: boolean;
+  /** The framework saw the call, or one nested in it, send a write. */
+  readonly writeObserved: boolean;
+  /** One of those observed writes was nested in the call, not the call's own. */
+  readonly nestedWriteObserved?: boolean;
   /**
    * The failure this call raised or rebuilt itself; only its typed effect
    * speaks for the call. Its own, so another call throwing it again cannot
@@ -2504,6 +2552,7 @@ function wrapRunWithExecutionBoundary(
 ): ActionExecutionRun {
   const boundaryRun: ActionExecutionRun = async (args, ctx) => {
     if (!actionExecutionStorage) return run(args, ctx);
+    const fetchStatus = observeOutboundWrites();
     const parent = actionExecutionStorage.getStore();
     const frame: ActionExecutionFrame =
       parent?.frame?.boundaryPending &&
@@ -2516,6 +2565,7 @@ function wrapRunWithExecutionBoundary(
             handlerEntered: false,
             writeEntered: false,
             changeEntered: false,
+            writeObserved: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
@@ -2525,6 +2575,7 @@ function wrapRunWithExecutionBoundary(
       failures: parent?.failures ?? new WeakMap(),
     };
     return actionExecutionStorage.run(state, async () => {
+      noteUnwatchedFetch(fetchStatus);
       try {
         return await run(args, ctx);
       } catch (error) {
@@ -2554,6 +2605,7 @@ export async function runActionWithExecutionOutcome(
   // A mutable async stack cannot safely attribute overlapping invocations,
   // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
+  const fetchStatus = observeOutboundWrites();
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
@@ -2568,6 +2620,7 @@ export async function runActionWithExecutionOutcome(
     handlerEntered: true,
     writeEntered: false,
     changeEntered: false,
+    writeObserved: false,
     boundaryPending: true,
     outcome,
   };
@@ -2581,6 +2634,7 @@ export async function runActionWithExecutionOutcome(
     failures: parent?.failures ?? new WeakMap(),
   };
   return actionExecutionStorage.run(state, async () => {
+    noteUnwatchedFetch(fetchStatus);
     try {
       return await run(args, ctx);
     } catch (error) {

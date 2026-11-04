@@ -14,6 +14,7 @@ import {
   actionCallIntent,
   ActionInputValidationError,
   defineAction,
+  fail,
   failedCallEmitsChange,
   telemetryInvalidPaths,
   ActionContractError,
@@ -23,6 +24,8 @@ import {
   runActionWithExecutionOutcome,
   stripUnsupportedSchemaKeywords,
   invocationEffect,
+  NoWriteError,
+  noteExternalWrite,
   DEFAULT_TOOL_RESULT_CHARS,
   resolveToolMaxResultChars,
   type ActionExecutionOutcome,
@@ -3572,7 +3575,10 @@ describe("defineAction — authorize", () => {
     const save = defineAction({
       description: "Child write",
       schema: z.object({}),
-      run: async () => "saved",
+      run: async () => {
+        noteExternalWrite("test");
+        return "saved";
+      },
     });
     const write = (nested: boolean) =>
       defineAction({
@@ -3864,6 +3870,236 @@ describe("defineAction — authorize", () => {
       action.run({ id: 42 } as never, { caller: "http" }),
     ).rejects.toThrow(/Invalid action parameters/);
     expect(authorize).not.toHaveBeenCalled();
+  });
+});
+
+describe("invocationEffect — writes the framework observed", () => {
+  const tool: ActionRunContext = { caller: "tool" };
+
+  async function failedEffect(
+    action: Parameters<typeof dispatch>[0] & { changeEvents?: boolean },
+    options: { retrySafe?: boolean } = {},
+  ) {
+    const { outcome, error } = await dispatch(action, {}, tool);
+    expect(error).toBeDefined();
+    return invocationEffect(action, outcome, {
+      ...options,
+      failed: { error },
+    });
+  }
+
+  const write = (
+    run: (args: unknown, ctx?: ActionRunContext) => Promise<unknown>,
+    extra: { retrySafe?: boolean; readOnly?: boolean } = {},
+  ) =>
+    defineAction({
+      description: "Write",
+      schema: z.object({}),
+      ...extra,
+      run,
+    });
+
+  it("reads a write rejected before anything was saved as none, and still refreshes", async () => {
+    const rejected = write(async () => fail("Not a valid email template."));
+    expect(await failedEffect(rejected)).toEqual({
+      effect: "none",
+      changed: true,
+    });
+  });
+
+  it("reads a write that failed after it was seen to write as unknown", async () => {
+    const saved = write(async () => {
+      noteExternalWrite("test");
+      fail("Failed after saving.");
+    });
+    expect(await failedEffect(saved)).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
+  it("reads a failure after a nested write was seen as unknown", async () => {
+    const child = write(async () => {
+      noteExternalWrite("test");
+      return "saved";
+    });
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      fail("Failed after the child saved.");
+    });
+    const { outcome, error } = await dispatch(parent, {}, tool);
+    expect(outcome.evidence).toMatchObject({
+      writeObserved: true,
+      nestedWriteObserved: true,
+    });
+    expect(invocationEffect(parent, outcome, { failed: { error } })).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
+  it("reads a nested write that entered but was rejected before writing as none", async () => {
+    const child = write(async () => fail("Rejected before saving."));
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      return "unreachable";
+    });
+    const { outcome, error } = await dispatch(parent, {}, tool);
+    expect(outcome.evidence).toMatchObject({
+      writeEntered: true,
+      nestedWriteEntered: true,
+      writeObserved: false,
+    });
+    expect(invocationEffect(parent, outcome, { failed: { error } })).toEqual({
+      effect: "none",
+      changed: true,
+    });
+  });
+
+  it("reads a rejected parent beside a nested write that only read as none", async () => {
+    const lookup = defineAction({
+      description: "Look up",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "found",
+    });
+    const parent = write(async (_args, ctx) => {
+      await lookup.run({}, ctx);
+      fail("Rejected after the lookup.");
+    });
+    expect((await failedEffect(parent)).effect).toBe("none");
+  });
+
+  it("keeps a call whose result never came unknown, however little was seen", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const slow = write(async () => {
+      entered();
+      await held;
+      return "saved";
+    });
+    const outcome: ActionExecutionOutcome = { refused: false };
+    const running = runActionWithExecutionOutcome(
+      slow.run,
+      {},
+      tool,
+      outcome,
+      slow,
+    );
+    await started;
+    expect(outcome.evidence).toMatchObject({ writeObserved: false });
+    expect(invocationEffect(slow, outcome, { failed: { lost: true } })).toEqual(
+      { effect: "unknown", changed: true },
+    );
+    release();
+    await running;
+  });
+
+  it("keeps a successful call exactly as it was", async () => {
+    const quiet = write(async () => "ok");
+    const { outcome } = await dispatch(quiet, {}, tool);
+    expect(invocationEffect(quiet, outcome, {})).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+    expect(
+      invocationEffect(quiet, outcome, { receipt: { changed: false } }),
+    ).toEqual({ effect: "none", changed: true });
+  });
+
+  it("lets a typed committed effect win over a write nothing saw", async () => {
+    const broken = defineAction({
+      description: "Write",
+      schema: z.object({}),
+      outputSchema: z.literal("ok"),
+      outputErrorStrategy: "strict",
+      run: async () => "bad" as never,
+    });
+    expect(await failedEffect(broken)).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("keeps a NoWriteError's claim for the call that raised it, and refuses it after a nested write", async () => {
+    const rejected = write(async () => {
+      throw new NoWriteError("Nothing matched.");
+    });
+    expect(await failedEffect(rejected)).toEqual({
+      effect: "none",
+      changed: false,
+    });
+    const child = write(async () => {
+      noteExternalWrite("test");
+      return "saved";
+    });
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      throw new NoWriteError("Nothing matched.");
+    });
+    expect((await failedEffect(parent)).effect).toBe("unknown");
+  });
+
+  it("lets retrySafe make a write that was seen safe to run again", async () => {
+    const saved = write(
+      async () => {
+        noteExternalWrite("test");
+        fail("Failed after saving.");
+      },
+      { retrySafe: true },
+    );
+    expect((await failedEffect(saved, { retrySafe: true })).effect).toBe(
+      "none",
+    );
+  });
+
+  it("is no more suspect of a call declared read-only that writes anyway", async () => {
+    const read = write(
+      async () => {
+        noteExternalWrite("test");
+        fail("Failed after a write nothing declared.");
+      },
+      { readOnly: true },
+    );
+    expect(await failedEffect(read)).toEqual({
+      effect: "none",
+      changed: false,
+    });
+  });
+
+  it("decides an untracked entry by its declaration, whatever was seen", async () => {
+    const plain = {
+      run: async () => {
+        throw new Error("Failed.");
+      },
+    };
+    const { outcome, error } = await dispatch(plain, {}, tool);
+    expect(outcome.record).toBeUndefined();
+    expect(invocationEffect(plain, outcome, { failed: { error } })).toEqual({
+      effect: "unknown",
+      changed: false,
+    });
+    expect(
+      invocationEffect(plain, outcome, {
+        readOnly: true,
+        failed: { error },
+      }),
+    ).toEqual({ effect: "none", changed: false });
+    const sawWrite = {
+      run: async () => {
+        noteExternalWrite("test");
+        throw new Error("Failed.");
+      },
+    };
+    const seen = await dispatch(sawWrite, {}, tool);
+    expect(
+      invocationEffect(sawWrite, seen.outcome, {
+        readOnly: true,
+        failed: { error: seen.error },
+      }),
+    ).toEqual({ effect: "none", changed: false });
   });
 });
 

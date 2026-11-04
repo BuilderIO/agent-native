@@ -32,6 +32,7 @@ import {
   assertHostedRuntimeDatabase,
 } from "./client.js";
 import type { DbExec, DbExecInput } from "./client.js";
+import { noteSqlStatement } from "./note-sql-statement.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
@@ -270,11 +271,17 @@ function scopeDrizzlePreparedQuery(
         (prop === "execute" || prop === "all" || prop === "values") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          // A driver-level hook cannot see this: inside a transaction the
+          // driver is handed a raw client, so the statement is read here.
+          noteSqlStatement(
+            (prepareArgs[0] as { sql?: unknown } | undefined)?.sql,
+          );
+          return withDrizzleTransactionQuery(queue, () => {
             const current = resolvePrepared(target);
             return current[prop].apply(current, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -307,12 +314,14 @@ function scopeDrizzleSessionQueries(
         (prop === "query" || prop === "queryObjects") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          noteSqlStatement(args[0]);
+          return withDrizzleTransactionQuery(queue, () => {
             const activeScope = activeDrizzleTransactionScopeForQueue(queue);
             const querySession = activeScope?.transaction.session ?? target;
             return querySession[prop].apply(querySession, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(receiver) : value;
     },

@@ -21,6 +21,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
   fail,
+  noteExternalWrite,
   type ActionRunContext,
 } from "../action.js";
 import {
@@ -16695,7 +16696,17 @@ describe("runAgentLoop", () => {
     });
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
-      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      // The runtime sends its request with `fetch`, which is where the write is seen.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status: 400 })),
+      );
+      const executeRequest = vi.fn(async () => {
+        await fetch("https://api.github.com/repos/acme/app/issues", {
+          method: "POST",
+        });
+        return rejected;
+      });
       // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
       const create = (title: string) => ({
         provider: "github",
@@ -16704,14 +16715,19 @@ describe("runAgentLoop", () => {
         body: { title },
       });
 
-      const events = await runToolCallSequence(
-        [
-          { name: "provider-api-request", input: create("a@example.com") },
-          { name: "provider-api-request", input: create("b@example.com") },
-          { name: "provider-api-request", input: create("a@example.com") },
-        ],
-        { "provider-api-request": providerRequestAction(executeRequest) },
-      );
+      let events: AgentChatEvent[];
+      try {
+        events = await runToolCallSequence(
+          [
+            { name: "provider-api-request", input: create("a@example.com") },
+            { name: "provider-api-request", input: create("b@example.com") },
+            { name: "provider-api-request", input: create("a@example.com") },
+          ],
+          { "provider-api-request": providerRequestAction(executeRequest) },
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
       const done = events.filter(
@@ -23010,6 +23026,7 @@ describe("runAgentLoop", () => {
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });

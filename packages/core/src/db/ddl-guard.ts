@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   getDbExec,
   isProductionServerlessFunctionRuntime,
@@ -42,18 +43,22 @@ function schemaEnsureDisabled(): boolean {
   return schemaEnsureSkipRequested();
 }
 
+// The ensure* helpers run their DDL through here. It is idempotent setup the
+// first action to need it happens to run, so it never counts as that action's
+// write.
 async function withLegacyServerlessSchemaDdl<T>(
   run: () => Promise<T>,
 ): Promise<T> {
+  const exempt = () => withoutWriteObservation(run);
   if (
     !isMigrationExecutingRuntime() &&
     !appMigratesAtRelease() &&
     (isHostedFunctionInvocationRuntime() ||
       isProductionServerlessFunctionRuntime())
   ) {
-    return withMigrationExecutionRuntime(run);
+    return withMigrationExecutionRuntime(exempt);
   }
-  return run();
+  return exempt();
 }
 
 type SchemaSnapshot = {

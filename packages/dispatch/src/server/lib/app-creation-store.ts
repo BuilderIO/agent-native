@@ -11,6 +11,7 @@ import {
 import {
   ActionContractError,
   isActionContractError,
+  noteExternalWrite,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getAppConfig } from "@agent-native/core/app-config";
@@ -2829,6 +2830,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2845,6 +2847,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2885,6 +2888,7 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
+    noteExternalWrite("child-process");
     // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
     // shell. The app id is validated and the template comes from an allowlist,
     // so one joined command line is safe there.
