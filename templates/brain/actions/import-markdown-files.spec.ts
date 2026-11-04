@@ -102,13 +102,12 @@ describe("import-markdown-files", () => {
     });
   });
 
-  it("records the original format of text, PDF, and Word imports", async () => {
+  it("imports plain text files and records their format", async () => {
     await action.run({
       sourceId: "source-1",
       files: [
         { path: "notes/plan.txt", content: "Plan" },
-        { path: "decks/q3.pdf", content: "Q3 review" },
-        { path: "memos/offsite.DOCX", content: "Offsite memo" },
+        { path: "notes/RETRO.TXT", content: "Retro" },
       ],
       enqueueDistillation: true,
     });
@@ -117,8 +116,7 @@ describe("import-markdown-files", () => {
       mocks.createCapture.mock.calls.map(([input]) => input.metadata),
     ).toEqual([
       { path: "notes/plan.txt", sourceFormat: "text" },
-      { path: "decks/q3.pdf", sourceFormat: "pdf" },
-      { path: "memos/offsite.DOCX", sourceFormat: "docx" },
+      { path: "notes/RETRO.TXT", sourceFormat: "text" },
     ]);
   });
 
@@ -126,7 +124,7 @@ describe("import-markdown-files", () => {
     const result = await action.run({
       sourceId: "source-1",
       files: [
-        { path: "docs/sheet.xlsx", content: "not supported" },
+        { path: "docs/deck.pdf", content: "not supported" },
         { path: "docs/empty.md", content: "   " },
       ],
       enqueueDistillation: true,
@@ -136,10 +134,9 @@ describe("import-markdown-files", () => {
     expect(result.source).toBeUndefined();
     expect(result.files).toEqual([
       {
-        path: "docs/sheet.xlsx",
+        path: "docs/deck.pdf",
         status: "failed",
-        error:
-          "Only .md, .markdown, .txt, .pdf, and .docx files are supported.",
+        error: "Only .md, .markdown, and .txt files are supported.",
       },
       {
         path: "docs/empty.md",

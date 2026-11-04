@@ -129,9 +129,7 @@ import { cn } from "@/lib/utils";
 
 import {
   documentImportFormat,
-  MAX_DOCUMENT_IMPORT_FILE_BYTES,
-  MAX_DOCUMENT_IMPORT_FILE_CHARS,
-  type DocumentImportFormat,
+  DOCUMENT_IMPORT_EXTENSIONS,
 } from "../../shared/document-import";
 import {
   sourceListValues,
@@ -1713,19 +1711,7 @@ function ingestSourceKey(source: BrainSource) {
 type MarkdownFileSelection = {
   path: string;
   file: File;
-  format: DocumentImportFormat;
 };
-
-type DocumentReadFailure = {
-  path: string;
-  reason:
-    | "sources.manualImportNoText"
-    | "sources.manualImportTooLong"
-    | "sources.manualImportTooLarge"
-    | "sources.manualImportUnreadable";
-};
-
-const DOCUMENT_IMPORT_ACCEPT = ".md,.markdown,.txt,.pdf,.docx";
 
 function actionErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -1749,8 +1735,6 @@ function MarkdownImportDialog({
   const [skippedFileCount, setSkippedFileCount] = useState(0);
   const [result, setResult] = useState<MarkdownImportResponse | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
-  const [readFailures, setReadFailures] = useState<DocumentReadFailure[]>([]);
-  const [reading, setReading] = useState(false);
   const importMarkdownFiles = useActionMutation<
     MarkdownImportResponse,
     {
@@ -1766,7 +1750,6 @@ function MarkdownImportDialog({
       setSkippedFileCount(0);
       setResult(null);
       setReadError(null);
-      setReadFailures([]);
     }
   }, [open]);
 
@@ -1775,51 +1758,25 @@ function MarkdownImportDialog({
     const byPath = new Map<string, MarkdownFileSelection>();
     for (const file of selected) {
       const path = file.webkitRelativePath || file.name;
-      const format = documentImportFormat(path);
-      if (format) byPath.set(path, { path, file, format });
+      if (documentImportFormat(path)) byPath.set(path, { path, file });
     }
     setFiles(Array.from(byPath.values()));
     setSkippedFileCount(selected.length - byPath.size);
     setResult(null);
     setReadError(null);
-    setReadFailures([]);
     event.currentTarget.value = "";
   }
 
   async function submitImport() {
     if (!source || !files.length) return;
     setReadError(null);
-    setReadFailures([]);
-    setResult(null);
-    setReading(true);
-    const payload: Array<{ path: string; content: string }> = [];
-    const failures: DocumentReadFailure[] = [];
     try {
-      const { extractDocumentText } =
-        await import("@/lib/document-text.client");
-      // Sequential so a folder of large PDFs doesn't hold every buffer at once.
-      for (const { path, file, format } of files) {
-        if (file.size > MAX_DOCUMENT_IMPORT_FILE_BYTES) {
-          failures.push({ path, reason: "sources.manualImportTooLarge" });
-          continue;
-        }
-        let content: string;
-        try {
-          content = await extractDocumentText(file, format);
-        } catch {
-          failures.push({ path, reason: "sources.manualImportUnreadable" });
-          continue;
-        }
-        if (!content.trim()) {
-          failures.push({ path, reason: "sources.manualImportNoText" });
-        } else if (content.length > MAX_DOCUMENT_IMPORT_FILE_CHARS) {
-          failures.push({ path, reason: "sources.manualImportTooLong" });
-        } else {
-          payload.push({ path, content });
-        }
-      }
-      setReadFailures(failures);
-      if (!payload.length) return;
+      const payload = await Promise.all(
+        files.map(async ({ path, file }) => ({
+          path,
+          content: await file.text(),
+        })),
+      );
       const nextResult = await importMarkdownFiles.mutateAsync({
         sourceId: source.id,
         files: payload,
@@ -1829,8 +1786,6 @@ function MarkdownImportDialog({
       onComplete();
     } catch (error) {
       setReadError(actionErrorMessage(error));
-    } finally {
-      setReading(false);
     }
   }
 
@@ -1866,7 +1821,7 @@ function MarkdownImportDialog({
               ref={filesInputRef}
               type="file"
               multiple
-              accept={DOCUMENT_IMPORT_ACCEPT}
+              accept={DOCUMENT_IMPORT_EXTENSIONS.join(",")}
               className="sr-only"
               onChange={handleFileSelection}
             />
@@ -1887,7 +1842,6 @@ function MarkdownImportDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={reading}
                   onClick={() => filesInputRef.current?.click()}
                 >
                   <IconFileText className="size-4" />
@@ -1896,7 +1850,6 @@ function MarkdownImportDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={reading}
                   onClick={() => inputRef.current?.click()}
                 >
                   <IconFolderOpen className="size-4" />
@@ -1960,24 +1913,6 @@ function MarkdownImportDialog({
               </div>
             ) : null}
 
-            {readFailures.length ? (
-              <div className="grid gap-1 rounded-md border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
-                {readFailures.slice(0, 5).map((failure) => (
-                  <p key={failure.path}>
-                    <span className="font-mono">{failure.path}</span>:{" "}
-                    {t(failure.reason)}
-                  </p>
-                ))}
-                {readFailures.length > 5 ? (
-                  <p>
-                    {t("sources.manualImportMoreIssues", {
-                      count: (readFailures.length - 5).toLocaleString(),
-                    })}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
             {readError ? (
               <p className="text-sm leading-6 text-destructive">{readError}</p>
             ) : null}
@@ -1993,12 +1928,10 @@ function MarkdownImportDialog({
             </Button>
             <Button
               type="button"
-              disabled={
-                !files.length || reading || importMarkdownFiles.isPending
-              }
+              disabled={!files.length || importMarkdownFiles.isPending}
               onClick={() => void submitImport()}
             >
-              {reading || importMarkdownFiles.isPending ? (
+              {importMarkdownFiles.isPending ? (
                 <IconLoader2 className="size-4 animate-spin" />
               ) : (
                 <IconFolderOpen className="size-4" />

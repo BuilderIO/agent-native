@@ -435,7 +435,7 @@ const messages = {
     manualSync: "手動同步",
     manualImportTitle: "將文件匯入 {{source}}",
     manualImportDescription:
-      "選取資料夾或檔案：Markdown、文字、PDF 或 Word。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+      "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
     companyContextUpload: "上傳公司脈絡",
@@ -444,12 +444,8 @@ const messages = {
     manualImportNoFiles: "未選取文件",
     manualImportFilesSelected: "已選取 {{count}} 份文件",
     manualImportFileLimit:
-      "支援 .md、.markdown、.txt、.pdf 和 .docx。每次匯入上限為 100 個檔案和 400 萬個文字字元。",
+      "支援 .md、.markdown 和 .txt。每次匯入上限為 100 個檔案和 400 萬個字元。",
     chooseDocumentFiles: "選取檔案",
-    manualImportNoText: "找不到文字。不支援沒有文字層的掃描版 PDF。",
-    manualImportTooLong: "此檔案的文字超過 250,000 個字元。",
-    manualImportTooLarge: "此檔案大於 25 MB。",
-    manualImportUnreadable: "無法讀取此檔案。",
     manualImportSkippedFiles: "將略過 {{count}} 個不支援的檔案。",
     manualImportMoreFiles: "+{{count}} 個其他檔案",
     manualImportResult:

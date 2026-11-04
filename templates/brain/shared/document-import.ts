@@ -1,23 +1,12 @@
-export type DocumentImportFormat = "markdown" | "text" | "pdf" | "docx";
+export type DocumentImportFormat = "markdown" | "text";
 
-export const MAX_DOCUMENT_IMPORT_FILE_CHARS = 250_000;
-export const MAX_DOCUMENT_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+export const DOCUMENT_IMPORT_EXTENSIONS = [".md", ".markdown", ".txt"];
 
 export function documentImportFormat(
   path: string,
 ): DocumentImportFormat | null {
   const extension = path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
-  switch (extension) {
-    case "md":
-    case "markdown":
-      return "markdown";
-    case "txt":
-      return "text";
-    case "pdf":
-      return "pdf";
-    case "docx":
-      return "docx";
-    default:
-      return null;
-  }
+  if (extension === "md" || extension === "markdown") return "markdown";
+  if (extension === "txt") return "text";
+  return null;
 }

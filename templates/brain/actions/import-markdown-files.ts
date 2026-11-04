@@ -9,12 +9,10 @@ import {
   serializeSource,
 } from "../server/lib/brain.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
-import {
-  documentImportFormat,
-  MAX_DOCUMENT_IMPORT_FILE_CHARS,
-} from "../shared/document-import.js";
+import { documentImportFormat } from "../shared/document-import.js";
 
 const MAX_MARKDOWN_FILES = 100;
+const MAX_MARKDOWN_FILE_CHARS = 250_000;
 const MAX_MARKDOWN_BATCH_CHARS = 4_000_000;
 
 type ImportedMarkdownResult =
@@ -38,7 +36,7 @@ type ImportedMarkdownResult =
 
 const markdownFileSchema = z.object({
   path: z.string().trim().min(1).max(2_000),
-  content: z.string().max(MAX_DOCUMENT_IMPORT_FILE_CHARS),
+  content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
 });
 
 function normalizeMarkdownPath(value: string) {
@@ -62,7 +60,7 @@ function normalizeMarkdownPath(value: string) {
   if (!documentImportFormat(path)) {
     return {
       path: null,
-      error: "Only .md, .markdown, .txt, .pdf, and .docx files are supported.",
+      error: "Only .md, .markdown, and .txt files are supported.",
     };
   }
   return { path, error: null };
@@ -70,7 +68,7 @@ function normalizeMarkdownPath(value: string) {
 
 export default defineAction({
   description:
-    "Import a bounded folder or batch of documents into a manual Brain source. Pass Markdown or plain text as-is; for .pdf and .docx files pass the extracted plain text as content and keep the original path. Paths are preserved for deduplication and each file is queued for distillation by default.",
+    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default.",
   schema: z.object({
     sourceId: z.string().min(1).optional(),
     sourceTitle: z
