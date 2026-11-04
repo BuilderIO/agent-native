@@ -35,6 +35,7 @@ import {
   exportPlanContentToMdxFolder,
   referencedBlockIdsForPlanComments,
 } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -51,7 +52,6 @@ import {
   planStatusSchema,
   sectionInputSchema,
 } from "../server/plans.js";
-import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
   assertPlanContentAuthoringInput,

@@ -22,6 +22,7 @@ import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
 import { serializePlanContent } from "../server/plan-content.js";
 import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -36,7 +37,6 @@ import {
   planStatusSchema,
   writeEvent,
 } from "../server/plans.js";
-import { planSaveConflict } from "../server/plan-save-conflict.js";
 import { type PlanContent } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
 

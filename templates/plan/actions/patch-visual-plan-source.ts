@@ -17,6 +17,7 @@ import {
   planMdxSourcePatchesSchema,
   referencedBlockIdsForPlanComments,
 } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -26,7 +27,6 @@ import {
   planPath,
   writeEvent,
 } from "../server/plans.js";
-import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   getPlanContentValidationMessage,
   type PlanContent,

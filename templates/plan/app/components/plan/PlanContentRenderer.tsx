@@ -16,6 +16,7 @@ import {
 } from "@agent-native/toolkit/collab-ui";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { nextAutosaveRetryDelayMs } from "@shared/plan-autosave-retry";
+import { describeOverlappingBlock } from "@shared/plan-blocks-merge";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -23,7 +24,6 @@ import type {
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
-import { describeOverlappingBlock } from "@shared/plan-blocks-merge";
 import { IconBrandGithub } from "@tabler/icons-react";
 import {
   useCallback,
