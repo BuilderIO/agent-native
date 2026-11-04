@@ -1,5 +1,8 @@
 import { createGetDb } from "@agent-native/core/db";
-import { registerShareableResource } from "@agent-native/core/sharing";
+import {
+  registerHostAccessResolver,
+  registerShareableResource,
+} from "@agent-native/core/sharing";
 
 import * as schema from "./schema.js";
 
@@ -16,16 +19,23 @@ registerShareableResource({
   getResourcePath: (source) => `/sources/${source.id}`,
   allowPublic: false,
   requireOrgMemberForUserShares: true,
-  // Every org admin uploads to the one shared Company Context intake source,
-  // not only the admin who created it. Scoped to that source so admins gain
-  // nothing over other members' private sources.
-  canManageAccess: async (source, ctx) => {
-    const { isCompanyContextIntakeConfig } = await import("../lib/brain.js");
-    if (!isCompanyContextIntakeConfig(source.configJson)) return false;
-    const { isBrainAdmin } = await import("../lib/zoom-governance.js");
-    return isBrainAdmin(ctx.userEmail, source.orgId);
-  },
   getDb,
+});
+
+// Every org admin uploads to the one shared Company Context intake source, not
+// only the admin who created it. Editor only (no sharing/visibility control),
+// and every other source falls through to the normal sharing rules.
+registerHostAccessResolver("brain-source", async (source, ctx) => {
+  // Match on the reserved id alone: some core paths load only id/owner/org/
+  // visibility, and create-source refuses ids with this prefix.
+  const { companyContextSourceId } = await import("../lib/brain.js");
+  if (!source?.orgId || source.id !== companyContextSourceId(source.orgId)) {
+    return undefined;
+  }
+  const { isBrainAdmin } = await import("../lib/zoom-governance.js");
+  return (await isBrainAdmin(ctx.userEmail, source.orgId))
+    ? "editor"
+    : undefined;
 });
 
 registerShareableResource({

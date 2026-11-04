@@ -19,7 +19,10 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
-import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
+import {
+  COMPANY_CONTEXT_INTAKE_KEY,
+  COMPANY_CONTEXT_SOURCE_ID_PREFIX,
+} from "../shared/types.js";
 import {
   jsonRecordSchema,
   sourceAnswerPolicySchema,
@@ -67,7 +70,11 @@ export default defineAction({
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
     if (
-      Object.prototype.hasOwnProperty.call(config, COMPANY_CONTEXT_INTAKE_KEY)
+      Object.prototype.hasOwnProperty.call(
+        config,
+        COMPANY_CONTEXT_INTAKE_KEY,
+      ) ||
+      args.id?.startsWith(COMPANY_CONTEXT_SOURCE_ID_PREFIX)
     ) {
       fail(
         "Use ensure-company-context-source to set up the Company Context intake source.",

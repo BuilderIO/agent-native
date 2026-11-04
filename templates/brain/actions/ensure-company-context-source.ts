@@ -1,12 +1,34 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, like, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { createSource, serializeSource } from "../server/lib/brain.js";
-import { assertBrainAdmin } from "../server/lib/zoom-governance.js";
+import {
+  companyContextSourceId,
+  createSource,
+  isCompanyContextIntakeSource,
+  serializeSource,
+} from "../server/lib/brain.js";
+import { isBrainAdmin } from "../server/lib/zoom-governance.js";
 import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
+
+async function readIntakeSource(id: string, orgId: string) {
+  // guard:allow-unscoped — admins may not own the shared intake source; access
+  // is re-checked with assertAccess before it is returned.
+  const [source] = await getDb()
+    .select()
+    .from(schema.brainSources)
+    .where(
+      and(eq(schema.brainSources.id, id), eq(schema.brainSources.orgId, orgId)),
+    )
+    .limit(1);
+  return source;
+}
 
 export default defineAction({
   description:
@@ -29,36 +51,44 @@ export default defineAction({
     }),
   }),
   run: async () => {
-    const { orgId } = await assertBrainAdmin();
-    // guard:allow-unscoped — admins may not own the shared intake source; access
-    // is re-checked with assertAccess below.
-    const [existing] = await getDb()
-      .select()
-      .from(schema.brainSources)
-      .where(
-        and(
-          eq(schema.brainSources.orgId, orgId),
-          eq(schema.brainSources.provider, "manual"),
-          ne(schema.brainSources.status, "archived"),
-          eq(schema.brainSources.visibility, "org"),
-          like(
-            schema.brainSources.configJson,
-            `%"${COMPANY_CONTEXT_INTAKE_KEY}":true%`,
-          ),
-        ),
-      )
-      .orderBy(asc(schema.brainSources.createdAt))
-      .limit(1);
-    if (existing) {
-      const access = await assertAccess("brain-source", existing.id, "editor");
-      return { created: false, source: serializeSource(access.resource) };
+    const email = getRequestUserEmail();
+    const orgId = getRequestOrgId();
+    if (!email || !orgId || !(await isBrainAdmin(email, orgId))) {
+      fail("Only organization owners and admins can upload Company Context.", {
+        errorCode: "brain_admin_required",
+        statusCode: 403,
+      });
     }
-    const source = await createSource({
-      title: "Company context",
-      provider: "manual",
-      visibility: "org",
-      config: { [COMPANY_CONTEXT_INTAKE_KEY]: true },
-    });
-    return { created: true, source: serializeSource(source) };
+    const id = companyContextSourceId(orgId);
+    let created = false;
+    let source = await readIntakeSource(id, orgId);
+    if (!source) {
+      try {
+        source = await createSource({
+          id,
+          title: "Company context",
+          provider: "manual",
+          visibility: "org",
+          config: { [COMPANY_CONTEXT_INTAKE_KEY]: true },
+        });
+        created = true;
+      } catch (error) {
+        // Another admin created it concurrently; reuse theirs.
+        source = await readIntakeSource(id, orgId);
+        if (!source) throw error;
+      }
+    }
+    if (
+      !isCompanyContextIntakeSource(source) ||
+      source.status === "archived" ||
+      source.visibility !== "org"
+    ) {
+      fail(
+        "The Company Context source is archived or no longer visible to the organization. Restore it to active and organization-visible before uploading.",
+        { errorCode: "company_context_intake_unavailable", statusCode: 409 },
+      );
+    }
+    const access = await assertAccess("brain-source", id, "editor");
+    return { created, source: serializeSource(access.resource) };
   },
 });

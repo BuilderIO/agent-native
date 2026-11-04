@@ -37,6 +37,7 @@ import {
 
 import {
   COMPANY_CONTEXT_INTAKE_KEY,
+  COMPANY_CONTEXT_SOURCE_ID_PREFIX,
   DEFAULT_BRAIN_SETTINGS,
   type BrainCaptureKind,
   type BrainEvidence,
@@ -73,6 +74,24 @@ export function isCompanyContextIntakeConfig(configJson: string | null) {
     parseJson<Record<string, unknown>>(configJson, {})[
       COMPANY_CONTEXT_INTAKE_KEY
     ] === true
+  );
+}
+
+// One deterministic id per org so concurrent first uploads collide on the
+// primary key instead of creating duplicate intake sources.
+export function companyContextSourceId(orgId: string) {
+  return `${COMPANY_CONTEXT_SOURCE_ID_PREFIX}${orgId}`;
+}
+
+export function isCompanyContextIntakeSource(source: {
+  id: string;
+  orgId: string | null;
+  configJson: string | null;
+}) {
+  return (
+    !!source.orgId &&
+    source.id === companyContextSourceId(source.orgId) &&
+    isCompanyContextIntakeConfig(source.configJson)
   );
 }
 

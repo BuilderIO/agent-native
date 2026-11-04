@@ -76,6 +76,7 @@ export interface BrainSettings {
 }
 
 export const COMPANY_CONTEXT_INTAKE_KEY = "companyContextIntake";
+export const COMPANY_CONTEXT_SOURCE_ID_PREFIX = "company-context-";
 
 export const DEFAULT_BRAIN_SETTINGS: BrainSettings = {
   companyName: "",

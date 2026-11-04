@@ -2482,9 +2482,11 @@ export default function SourcesRoute() {
     }
   }
 
-  async function openCompanyContextIntake() {
-    const result = await ensureCompanyContextSource.mutateAsync({});
-    setMarkdownImportSource(result.source);
+  function openCompanyContextIntake() {
+    ensureCompanyContextSource.mutate(
+      {},
+      { onSuccess: (result) => setMarkdownImportSource(result.source) },
+    );
   }
 
   async function confirmArchiveSource() {
@@ -2558,7 +2560,7 @@ export default function SourcesRoute() {
               size="sm"
               variant="outline"
               disabled={ensureCompanyContextSource.isPending}
-              onClick={() => void openCompanyContextIntake()}
+              onClick={openCompanyContextIntake}
             >
               {ensureCompanyContextSource.isPending ? (
                 <IconLoader2 className="size-4 animate-spin" />

@@ -287,6 +287,17 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).not.toHaveBeenCalled();
   });
 
+  it("refuses to claim the reserved Company Context source id", async () => {
+    await expect(
+      createSource.run({
+        id: "company-context-org-1",
+        title: "Notes",
+        provider: "manual",
+      }),
+    ).rejects.toMatchObject({ errorCode: "company_context_intake_reserved" });
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
   it("refuses to create a Zoom source for a non-admin", async () => {
     mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
 
