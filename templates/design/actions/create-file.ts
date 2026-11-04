@@ -94,17 +94,11 @@ function screenRestoreSnapshotMatches(
 export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
-    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source. Optional frameType=hubspot-email retains email authoring metadata; it is not required for export. Returns the new file's ID, filename, and design URL path when the file is renderable.",
+    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source. Returns the new file's ID, filename, and design URL path when the file is renderable.",
   schema: z.object({
     designId: z.string().describe("Design project ID to add the file to"),
     filename: z.string().describe("Filename (e.g. 'index.html', 'styles.css')"),
     content: z.string().describe("File content"),
-    frameType: z
-      .literal("hubspot-email")
-      .optional()
-      .describe(
-        "Optional internal email authoring type; when supplied, include the HubSpot email marker in email-safe HTML. Any HTML frame can use export-hubspot-html, which validates actual compatibility.",
-      ),
     restoreClaimId: z
       .string()
       .optional()
@@ -130,7 +124,6 @@ export default defineAction({
       designId,
       filename,
       content,
-      frameType,
       fileType,
       restoreClaimId,
       duplicateSourceFileId,
@@ -172,7 +165,7 @@ export default defineAction({
     const requestedId = nanoid();
     const now = new Date().toISOString();
 
-    assertHubSpotEmailFrameContent({ content, fileType, frameType });
+    assertHubSpotEmailFrameContent({ content, fileType });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
     const restoredContentHashes = screenRestoreContentHashes(
       annotatedContent,

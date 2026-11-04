@@ -12,6 +12,12 @@ import {
 } from "@agent-native/core/db/schema";
 import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
+export {
+  recordingMediaCleanups,
+  recordingMediaCleanupObjects,
+  recordingMediaProducers,
+} from "./media-cleanup-tables.js";
+
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
   brandColor: text("brand_color").notNull().default("#18181B"),
@@ -182,6 +188,10 @@ export const recordings = table("recordings", {
   recordingPlatform: text("recording_platform", {
     enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
   }),
+  // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
+  // so an automatic retry of a file the owner already uploaded gets that clip
+  // back instead of a second copy. Null for live recordings.
+  sourceHeadSha256: text("source_head_sha256"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
 
@@ -418,22 +428,33 @@ export const recordingCtas = table("recording_ctas", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-export const recordingComments = table("recording_comments", {
-  id: text("id").primaryKey(),
-  recordingId: text("recording_id").notNull(),
-  organizationId: text("workspace_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  content: text("content").notNull(),
-  mentionsJson: text("mentions_json"),
-  videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
-  emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
-  resolved: boolean("resolved").notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const recordingComments = table(
+  "recording_comments",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    organizationId: text("workspace_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    content: text("content").notNull(),
+    mentionsJson: text("mentions_json"),
+    videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
+    emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
+    resolved: boolean("resolved").notNull().default(false),
+    // The key its author sent with it: a repeat with the same key gets this
+    // comment rather than saving another. Null when none was sent.
+    idempotencyKey: text("idempotency_key"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (comment) => ({
+    idempotencyKeyUnique: uniqueIndex(
+      "recording_comments_idempotency_key_unique_idx",
+    ).on(comment.authorEmail, comment.idempotencyKey),
+  }),
+);
 
 export const recordingReactions = table("recording_reactions", {
   id: text("id").primaryKey(),

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,7 @@ import {
   FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   inferWorkspaceAppRootHomePath,
@@ -310,6 +311,11 @@ export interface WorkspaceInfo {
   displayName: string | null;
   rootPath: string | null;
   appCount: number;
+  /**
+   * Set when this workspace is linked to Builder: apps are created there, so
+   * Dispatch links to it instead of offering its own create-app flow.
+   */
+  builderWorkspaceUrl: string | null;
 }
 
 interface PendingWorkspaceApp {
@@ -2403,7 +2409,13 @@ export function getEnvBuilderProjectId(): string | null {
 export function getWorkspaceInfo(): WorkspaceInfo {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
-    return { name: null, displayName: null, rootPath: null, appCount: 0 };
+    return {
+      name: null,
+      displayName: null,
+      rootPath: null,
+      appCount: 0,
+      builderWorkspaceUrl: getBuilderWorkspaceUrl(),
+    };
   }
   const pkg = readJson(path.join(rootPath, "package.json"));
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
@@ -2427,6 +2439,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     displayName,
     rootPath,
     appCount,
+    builderWorkspaceUrl: getBuilderWorkspaceUrl(),
   };
 }
 
@@ -2774,6 +2787,10 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   template: string;
   appId?: string | null;
 }): Promise<{ appId: string; template: string; output: string }> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl) {
+    throw new Error(builderManagedCreationResult(builderWorkspaceUrl).message);
+  }
   if (!isLocalAppCreationRuntime()) {
     throw new Error(
       "Scaffolding from Dispatch is only available in local development. " +
@@ -2868,11 +2885,21 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
-      cwd: input.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+    // shell. The app id is validated and the template comes from an allowlist,
+    // so one joined command line is safe there.
+    const args = ["exec", "agent-native", ...input.args];
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? ["pnpm", ...args].join(" ") : "pnpm",
+      windows ? [] : args,
+      {
+        cwd: input.cwd,
+        shell: windows,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -2882,7 +2909,15 @@ function runScaffoldCli(input: {
       stderr += String(chunk);
     });
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      if (windows && child.pid) {
+        // The child is cmd.exe, so stop its whole tree before the caller
+        // removes the app folder. taskkill returns once the tree is gone.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
       reject(
         new Error(
           `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,
@@ -3419,7 +3454,25 @@ export interface AppCreationBuilderResult {
   message: string;
 }
 
+/** A Builder-linked workspace: apps are built in Builder, so nothing was created. */
+export interface AppCreationBuilderManagedResult {
+  mode: "builder-managed";
+  url: string;
+  message: string;
+}
+
+export function builderManagedCreationResult(
+  url: string,
+): AppCreationBuilderManagedResult {
+  return {
+    mode: "builder-managed",
+    url,
+    message: `Apps in this workspace are built in Builder. Open ${url} and choose New app.`,
+  };
+}
+
 export type StartWorkspaceAppCreationResult =
+  | AppCreationBuilderManagedResult
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
   | AppCreationAppIdTakenResult
@@ -3437,6 +3490,9 @@ export async function startWorkspaceAppCreation(input: {
   attachments?: BuilderAgentAttachment[];
   communitySourceId?: string;
 }): Promise<StartWorkspaceAppCreationResult> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl)
+    return builderManagedCreationResult(builderWorkspaceUrl);
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,

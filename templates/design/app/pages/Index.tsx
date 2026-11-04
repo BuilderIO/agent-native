@@ -83,6 +83,8 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
+import { HomeFigmaLinkBubble } from "@/components/editor/HomeFigmaLinkBubble";
 import { useHomePromptContext } from "@/components/editor/HomePromptContext";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
@@ -225,9 +227,7 @@ export default function Index() {
     null,
   );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
-  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
-    "design",
-  );
+  const [newDesignMode] = useState<"design" | "app">("design");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
@@ -397,7 +397,10 @@ export default function Index() {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
@@ -443,16 +446,22 @@ export default function Index() {
       ? firstPaintPrompt.text
       : null,
   );
-  const handleHomePromptTextChange = useCallback((text: string) => {
-    if (
-      homeSuggestionPromptSourceRef.current &&
-      homeSuggestionPromptTextRef.current !== null &&
-      homeSuggestionPromptTextRef.current !== text
-    ) {
-      homeSuggestionPromptSourceRef.current = false;
-      homeSuggestionPromptTextRef.current = null;
-    }
-  }, []);
+  const { link: detectedFigmaLink, onComposerTextChange: detectFigmaLink } =
+    useDetectedFigmaComposerLink();
+  const handleHomePromptTextChange = useCallback(
+    (text: string) => {
+      detectFigmaLink(text);
+      if (
+        homeSuggestionPromptSourceRef.current &&
+        homeSuggestionPromptTextRef.current !== null &&
+        homeSuggestionPromptTextRef.current !== text
+      ) {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    },
+    [detectFigmaLink],
+  );
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
   const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
@@ -1423,6 +1432,11 @@ export default function Index() {
                 homePromptInitialText !== undefined
               }
               onPromptTextChange={handleHomePromptTextChange}
+              composerHeaderSlot={
+                detectedFigmaLink ? (
+                  <HomeFigmaLinkBubble link={detectedFigmaLink} />
+                ) : null
+              }
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {
@@ -1470,10 +1484,6 @@ export default function Index() {
                 creativeContextEnabled ? handleCreativeContextChange : undefined
               }
               loading={newDesignHandoffPending}
-              creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
-              onCreationModeChange={
-                fullAppBuildingEnabled ? setNewDesignMode : undefined
-              }
             />
           </div>
         }

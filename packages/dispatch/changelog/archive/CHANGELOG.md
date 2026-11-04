@@ -1,3 +1,16 @@
+## 0.31.2
+
+### Patch Changes
+
+- Updated dependencies [60b7e74]
+  - @agent-native/toolkit@0.16.8
+
+## 0.31.1
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
 ## 0.31.0
 
 ### Minor Changes

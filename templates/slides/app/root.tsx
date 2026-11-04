@@ -13,6 +13,7 @@ import {
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import {
+  AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
   type LocaleCode,
@@ -70,11 +71,13 @@ import {
 import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
+import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
 import {
@@ -221,11 +224,13 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   localizeMessages: (messages) =>
     slidesFirstPaintCopy(messages as typeof slidesEnglish),
   suggestionRole: "general",
+  // Attachments enter through the hydrated composer with Slides' storage policy.
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">
       <PromptComposer
         {...props}
-        attachmentsEnabled
+        attachmentsEnabled={false}
+        inlineTextAttachments={false}
         className="slides-home-prompt-composer-area"
         layoutVariant="hero"
         modelStatusChecksEnabled
@@ -589,7 +594,22 @@ export default function Root() {
     ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
-    return <Outlet />;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          persistPreference={false}
+        >
+          <Outlet />
+          <Toaster
+            richColors
+            position="bottom-left"
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
+        </AgentNativeI18nProvider>
+      </QueryClientProvider>
+    );
   }
 
   return (

@@ -115,6 +115,7 @@ import {
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
+  useContentDatabaseRowView,
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
@@ -158,6 +159,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
+import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -191,6 +193,7 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
+import { commentRailThreads } from "./block-field-comment-threads";
 import {
   BlockFieldCommentsProvider,
   useBlockFieldComments,
@@ -211,6 +214,13 @@ import {
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import {
+  clipCommentThreads,
+  useClipCommentFocus,
+  useClipCommentHost,
+  useClipCommentSources,
+  type ClipCommentHost,
+} from "./clip-embed/clip-comments";
 import { flushBeforeSave } from "./collab-flush-before-save";
 import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
@@ -235,6 +245,10 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import {
+  type DatabaseRowView,
+  databaseRowPropertyOrder,
+} from "./database/row-view-layout";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
@@ -312,6 +326,7 @@ import {
   bodyCommentThreads,
   openThreadsByProperty,
   PropertyCommentsContext,
+  threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
 import { StaticDocumentBody } from "./StaticDocumentBody";
@@ -491,6 +506,8 @@ interface DocumentEditorProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  /** The view a row's full page was opened from, named in its address. */
+  rowViewId?: string | null;
   foreground?: boolean;
 }
 
@@ -513,6 +530,8 @@ export interface PageCommentIntent {
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
   host: "page" | "preview";
+  /** The view showing the row panel, which lays out its Properties. */
+  rowView?: DatabaseRowView | null;
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle?: boolean;
@@ -1261,6 +1280,7 @@ export function shouldAttestUnchangedEditorSave(args: {
   contentChanged: boolean;
   editorSessionId?: string;
   editGeneration?: number;
+  confirmedEditGeneration: number;
   isLinkedLocalSource: boolean;
   isLocalFile: boolean;
 }) {
@@ -1268,7 +1288,12 @@ export function shouldAttestUnchangedEditorSave(args: {
     !args.hasUpdates &&
     !args.contentChanged &&
     !!args.editorSessionId &&
+    // Only a generation the server has not confirmed has anything to settle.
+    // Generation 0 is the page as loaded: attesting it would claim the stored
+    // page as this editor's. A confirmed generation sent only its changed
+    // fields, and the server refuses it again with a different field set.
     args.editGeneration !== undefined &&
+    args.editGeneration > args.confirmedEditGeneration &&
     !args.isLinkedLocalSource &&
     !args.isLocalFile
   );
@@ -1509,6 +1534,7 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
   foreground = false,
 }: DocumentEditorProps) {
   return (
@@ -1520,6 +1546,7 @@ export function DocumentEditor({
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      rowViewId={rowViewId}
       foreground={foreground}
       host="page"
     />
@@ -1553,6 +1580,8 @@ export function PageEditorSurface({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
+  rowView,
   foreground = false,
   host,
   onSessionChange,
@@ -1800,6 +1829,8 @@ export function PageEditorSurface({
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
+        rowViewId={rowViewId}
+        rowView={rowView}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -2174,6 +2205,8 @@ interface DocumentEditorBodyProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  rowViewId?: string | null;
+  rowView?: DatabaseRowView | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -2852,6 +2885,8 @@ function PageEditorSessionBody({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
+  rowView: panelRowView,
   host,
   onSessionChange,
   onDelete,
@@ -3258,20 +3293,12 @@ function PageEditorSessionBody({
     setAdditionalBlockContents({});
   }, [documentId]);
 
-  useEffect(() => {
-    if (host !== "page") return;
-    const nextTitle = `${normalizeDocumentTitle(
-      localTitle,
-      t("sidebar.untitled"),
-    )} — Content`;
-    const previousTitle = window.document.title;
-    window.document.title = nextTitle;
-    return () => {
-      if (window.document.title === nextTitle) {
-        window.document.title = previousTitle;
-      }
-    };
-  }, [host, localTitle, t]);
+  usePageTabTitle(
+    host === "page"
+      ? `${normalizeDocumentTitle(localTitle, t("sidebar.untitled"))} — Content`
+      : null,
+    documentFresh,
+  );
 
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
@@ -3475,6 +3502,7 @@ function PageEditorSessionBody({
   const confirmedContentEditVersionRef = useRef(0);
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
+  const confirmedEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const authoredContentBaseRef = useRef(createAuthoredContentBase());
   const authoredContentBase = useCallback(
@@ -4632,6 +4660,10 @@ function PageEditorSessionBody({
       const settleConfirmedEdit = () => {
         if (contentEditVersionRef.current !== contentEditVersion) return;
         confirmedContentEditVersionRef.current = contentEditVersion;
+        confirmedEditGenerationRef.current = Math.max(
+          confirmedEditGenerationRef.current,
+          editorEditGeneration,
+        );
         clearConfirmedDraftJournal(editorEditGeneration);
       };
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
@@ -4706,6 +4738,7 @@ function PageEditorSessionBody({
           contentChanged,
           editorSessionId: options.editorSessionId,
           editGeneration: options.editGeneration,
+          confirmedEditGeneration: confirmedEditGenerationRef.current,
           isLinkedLocalSource: isLinkedLocalSourceDocument,
           isLocalFile: isLocalFileDocument,
         })
@@ -8103,9 +8136,10 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  // A comment on a Property or a whole block has no text to keep selected.
+  // A comment on a Property, a whole block, or a Clip has no text to keep
+  // selected.
   const pendingCommentQuotedText =
-    pendingComment?.property || pendingComment?.block
+    pendingComment?.property || pendingComment?.block || pendingComment?.clip
       ? null
       : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
@@ -8158,6 +8192,22 @@ function PageEditorSessionBody({
   } = useComments(
     !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
+  // The Clips placed in the page show their own comments, saved in Clips,
+  // in the margin beside the page's.
+  const clipCommentSources = useClipCommentSources(documentId);
+  const clipThreads = useMemo(
+    () =>
+      isLocalFileDocument || mcpDirectoryWidgetReadOnly
+        ? []
+        : clipCommentThreads(documentId, clipCommentSources, session?.email),
+    [
+      clipCommentSources,
+      documentId,
+      isLocalFileDocument,
+      mcpDirectoryWidgetReadOnly,
+      session?.email,
+    ],
+  );
   // Every open thread counts, whatever it points at, as on the Collection row.
   const openCommentCount = useMemo(
     () => (threads ?? []).filter((thread) => !thread.resolved).length,
@@ -8208,6 +8258,18 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data.properties
     : undefined;
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
+  const addressRowView = useContentDatabaseRowView(
+    pagePropertiesDatabaseId,
+    databaseDocumentId ??
+      document.databaseMembership?.databaseDocumentId ??
+      null,
+    panelRowView ? null : (rowViewId ?? null),
+  );
+  const rowView = panelRowView ?? addressRowView.view;
+  const discussionProperties = useMemo(
+    () => pageProperties && databaseRowPropertyOrder(pageProperties, rowView),
+    [pageProperties, rowView],
+  );
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -8244,9 +8306,11 @@ function PageEditorSessionBody({
   // A comment on the whole page lives in Discussion, not the margin, so it
   // must not hold open an otherwise empty margin either.
   const hasOpenCommentThreads =
-    threads?.some(
+    clipThreads.length > 0 ||
+    (threads?.some(
       (thread) => !thread.resolved && !isPageCommentThread(thread),
-    ) ?? false;
+    ) ??
+      false);
   // A suggestion whose text is gone lives in the comments panel only, so it
   // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
@@ -8258,11 +8322,12 @@ function PageEditorSessionBody({
     ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
-    (threads?.some(
-      (thread) =>
-        thread.threadId === selectedThreadId && !isPageCommentThread(thread),
-    ) ??
-      false);
+    (clipThreads.some((thread) => thread.threadId === selectedThreadId) ||
+      (threads?.some(
+        (thread) =>
+          thread.threadId === selectedThreadId && !isPageCommentThread(thread),
+      ) ??
+        false));
   const showInlineComments = documentEditorShowsInlineComments({
     showIndicators: showCommentIndicators,
     hasUtilityRailSpace: hasInlineCommentSpace,
@@ -8372,6 +8437,48 @@ function PageEditorSessionBody({
     },
     [setPendingComment],
   );
+  const clipCommentSourcesRef = useRef(clipCommentSources);
+  clipCommentSourcesRef.current = clipCommentSources;
+  // A Clip's Comment button starts a thread at the playhead's moment, saved
+  // in Clips; its markers open their threads here.
+  const clipCommentHost = useMemo<ClipCommentHost | null>(
+    () =>
+      isLocalFileDocument || mcpDirectoryWidgetReadOnly
+        ? null
+        : {
+            canCompose: canComment,
+            compose: (recordingId, ms) => {
+              const fieldId =
+                clipCommentSourcesRef.current.find(
+                  (source) => source.recordingId === recordingId,
+                )?.fieldId ?? null;
+              setPendingComment({
+                quotedText: "",
+                offsetTop: 0,
+                clip: { recordingId, videoTimestampMs: ms },
+                ...(fieldId ? { fieldId } : {}),
+              });
+              setCommentsBrowseOpen(false);
+              setUtilityPanel("comments");
+              setSelectedThreadId(null);
+              setHoveredThreadId(null);
+            },
+            openThread: (threadId) => activateCommentThread(threadId),
+          },
+    [
+      activateCommentThread,
+      canComment,
+      isLocalFileDocument,
+      mcpDirectoryWidgetReadOnly,
+      setPendingComment,
+    ],
+  );
+  useClipCommentHost(documentId, clipCommentHost);
+  useClipCommentFocus(
+    documentId,
+    pendingComment?.clip?.recordingId ?? null,
+    activeThreadId,
+  );
   const handleFieldBlockComment = useCallback(
     (fieldId: string, target: CommentBlockTarget, offsetTop: number) =>
       handleBlockComment(target, offsetTop, fieldId),
@@ -8394,6 +8501,10 @@ function PageEditorSessionBody({
     onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
     scrollContainerRef,
   });
+  const clipRailThreads = useMemo(
+    () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
+    [blockFieldComments.openFieldId, clipThreads],
+  );
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
@@ -8702,6 +8813,7 @@ function PageEditorSessionBody({
       openThreadsByProperty: openThreadsByProperty(threads),
       pendingPropertyId: pendingComment?.property?.propertyId ?? null,
       activeThreadId,
+      selectedPropertyId: threadPropertyId(threads, selectedThreadId),
       startComment: startPropertyComment,
       openThread: activateCommentThread,
     }),
@@ -8710,6 +8822,7 @@ function PageEditorSessionBody({
       activeThreadId,
       canComment,
       pendingComment?.property?.propertyId,
+      selectedThreadId,
       startPropertyComment,
       threads,
     ],
@@ -8978,6 +9091,7 @@ function PageEditorSessionBody({
       attributeFilter: [
         "data-comment-thread",
         "data-comment-block-threads",
+        "data-clip-comment-threads",
         "data-suggestion-id",
         "class",
       ],
@@ -9623,9 +9737,11 @@ function PageEditorSessionBody({
       threads={
         presentation === "history"
           ? documentEditorCommentThreads(threads)
-          : blockFieldComments.railThreads
+          : clipRailThreads.length
+            ? [...blockFieldComments.railThreads, ...clipRailThreads]
+            : blockFieldComments.railThreads
       }
-      documentProperties={pageProperties}
+      documentProperties={discussionProperties}
       isLoading={commentsLoading}
       pendingComment={
         presentation === "history" || blockFieldComments.pendingVisible
@@ -9969,6 +10085,8 @@ function PageEditorSessionBody({
               additionalBlockContents={additionalBlockContents}
               databaseId={databaseId}
               databaseDocumentId={databaseDocumentId}
+              rowView={rowView}
+              rowViewPending={addressRowView.pending}
               canEdit={editorCanEdit}
               popoverContainer={popoverContainer}
               onSaveDescription={(description) =>
@@ -10416,6 +10534,8 @@ function PageEditorSessionBody({
                           document.databaseMembership.databaseDocumentId ??
                           null
                         }
+                        rowView={rowView}
+                        rowViewPending={addressRowView.pending}
                         canEdit={editorCanEdit}
                         popoversPortalled={false}
                       />

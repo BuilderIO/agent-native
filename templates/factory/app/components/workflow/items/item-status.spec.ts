@@ -13,7 +13,7 @@ import {
   whereText as whereTextOf,
   type PhaseInput,
 } from "./item-status";
-import type { ItemParking, NeedsYouReason } from "./read-types";
+import type { ItemParking, ItemRow, NeedsYouReason } from "./read-types";
 
 const NOW = new Date(2026, 9, 18, 12, 0, 0).getTime();
 const s = createItemsStrings(createEnglishTranslator());
@@ -100,35 +100,82 @@ describe("itemPhase", () => {
 });
 
 describe("whereText", () => {
+  const event: ItemRow["lastEvent"] = {
+    at: new Date(2026, 9, 18, 11, 0).toISOString(),
+    kind: "taken",
+    nodeId: "n1",
+    summary: "new message",
+    summaryTruncated: false,
+  };
+
   it("says what a parked item waits for and until when", () => {
-    expect(whereText({ parked: parking(), lastNode: null }, NOW)).toMatch(
-      /^Waiting for a reply until /,
-    );
     expect(
-      whereText({ parked: parking({ wait: "time" }), lastNode: null }, NOW),
+      whereText({ parked: parking(), lastNode: null, lastEvent: event }, NOW),
+    ).toMatch(/^Waiting for a reply until /);
+    expect(
+      whereText(
+        { parked: parking({ wait: "time" }), lastNode: null, lastEvent: event },
+        NOW,
+      ),
     ).toMatch(/^Waiting until /);
     expect(
       whereText(
-        { parked: parking({ wait: "condition" }), lastNode: null },
+        {
+          parked: parking({ wait: "condition" }),
+          lastNode: null,
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toMatch(/^Waiting for a check to pass until /);
   });
 
-  it("falls back to the step of the last event, then to nothing", () => {
+  it("falls back to the step of the last event", () => {
     expect(
       whereText(
-        { parked: null, lastNode: { nodeId: "n1", nodeName: "Assess" } },
+        {
+          parked: null,
+          lastNode: { nodeId: "n1", nodeName: "Assess" },
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toBe("At Assess");
     expect(
       whereText(
-        { parked: null, lastNode: { nodeId: "n1", nodeName: null } },
+        {
+          parked: null,
+          lastNode: { nodeId: "n1", nodeName: null },
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toBe("At n1");
-    expect(whereText({ parked: null, lastNode: null }, NOW)).toBeNull();
+  });
+
+  it("has nothing to say for an item a person closed, since that event names no step", () => {
+    expect(
+      whereText(
+        {
+          parked: null,
+          lastNode: null,
+          lastEvent: {
+            ...event,
+            kind: "ended",
+            nodeId: null,
+            summary:
+              "dismissed: Dismissed by enzo@builder.io (status dismissed)",
+          },
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("says no activity was recorded only for an item with no event at all", () => {
+    expect(
+      whereText({ parked: null, lastNode: null, lastEvent: null }, NOW),
+    ).toBe("No activity recorded");
   });
 });
 

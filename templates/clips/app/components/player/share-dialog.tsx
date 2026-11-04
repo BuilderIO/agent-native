@@ -1,5 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import {
+  apiBaseUrl,
+  appApiPath,
+  appPath,
+} from "@agent-native/core/client/api-path";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -84,12 +88,23 @@ function absoluteAppUrl(path: string): string {
   return new URL(appPath(path), window.location.origin).toString();
 }
 
+function absoluteApiUrl(path: string): string {
+  if (typeof window === "undefined") return "";
+  return new URL(appApiPath(path), window.location.origin).toString();
+}
+
 function absolutePublicAgentContextUrl(recordingId: string): string {
   if (typeof window === "undefined") return "";
-  return buildAgentApiUrls(recordingId, {
-    origin: window.location.origin,
-    basePath: appPath("/").replace(/\/$/, ""),
-  }).contextUrl;
+  const serverUrl = apiBaseUrl();
+  return buildAgentApiUrls(
+    recordingId,
+    serverUrl
+      ? { origin: serverUrl }
+      : {
+          origin: window.location.origin,
+          basePath: appPath("/").replace(/\/$/, ""),
+        },
+  ).contextUrl;
 }
 
 export interface ShareRecordingPopoverProps {
@@ -493,16 +508,9 @@ function PeopleTab({
   onAccessMenuOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
-  const roleCopy = {
-    commenter: {
-      label: t("shareUi.recordingCommenter.label"),
-      description: t("shareUi.recordingCommenter.description"),
-    },
-  };
-
   return (
     <div className="flex flex-col gap-3">
-      <SharePeopleInvite controller={controller} roleCopy={roleCopy} />
+      <SharePeopleInvite controller={controller} />
 
       {canViewShares ? (
         visibility ? (
@@ -510,7 +518,7 @@ function PeopleTab({
             <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
             <div className="flex flex-col gap-0.5">
               <div className="max-h-72 overflow-y-auto">
-                <SharePeopleList controller={controller} roleCopy={roleCopy} />
+                <SharePeopleList controller={controller} />
               </div>
               <ShareGeneralAccessRow
                 controller={{ ...controller, visibility }}
@@ -896,7 +904,7 @@ function SocialTab({
     if (!variant) return null;
 
     const query = variant === "animated" ? "?animated=1" : "";
-    return absoluteAppUrl(
+    return absoluteApiUrl(
       `/api/thumbnail/${encodeURIComponent(recordingId)}${query}`,
     );
   }, [

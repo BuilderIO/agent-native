@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
@@ -201,6 +202,12 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
+const mediaCleanupMigration = {
+  version: 99,
+  name: "recording-durable-media-cleanup",
+  sql: recordingMediaCleanupMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
+
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1388,6 +1395,21 @@ export const migrations = runMigrations(
       version: 98,
       name: "recording-content-binding-upload-start-failed",
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
+    mediaCleanupMigration,
+    {
+      version: 100,
+      name: "recording-source-head-sha256",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_head_sha256 TEXT;
+      CREATE INDEX IF NOT EXISTS recordings_source_head_idx
+        ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
+    },
+    {
+      version: 101,
+      name: "recording-comment-idempotency-key",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_comments_idempotency_key_unique_idx
+        ON recording_comments (author_email, idempotency_key)`,
     },
   ]),
   { table: "clips_migrations" },

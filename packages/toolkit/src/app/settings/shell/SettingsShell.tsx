@@ -33,6 +33,7 @@ import {
 } from "@agent-native/toolkit/ui/sheet";
 import { cn } from "@agent-native/toolkit/utils";
 import {
+  IconArrowLeft,
   IconChevronRight,
   IconMenu2,
   IconSearch,
@@ -1235,9 +1236,13 @@ function SettingsNav({
             event.preventDefault();
             onReturn();
           }}
-          // ps-8 lines the label up with the nav labels after their 16px icon.
-          className="flex h-[30px] items-center rounded-md pe-2 ps-8 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
+          className="flex h-[30px] items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
         >
+          <IconArrowLeft
+            aria-hidden="true"
+            size={16}
+            className="shrink-0 rtl:rotate-180"
+          />
           <span className="truncate">
             {t("agentChat.settingsShell.backToApp", { app: appName })}
           </span>

@@ -228,6 +228,8 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /** Marks calls made after a private action in this agent turn. */
+  omitFromPersistedHistory?: true;
   /**
    * The approval the agent loop ran this call under, for approval gates to
    * check. Audit rows read approval from the invocation's execution frame,
@@ -1019,6 +1021,12 @@ interface DefineActionWithSchema<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  /** An empty list on this action sets an option and erases nothing saved, so
+   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
+   *  this off for any action that stores a list: there, `[]` beside a padded
+   *  `null` might be a real clear or padding, so the call is refused rather
+   *  than guessed at. */
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1033,6 +1041,10 @@ interface DefineActionWithSchema<
    *  codes, private data) is never painted from disk on a revisit. Defaults to
    *  persisting. */
   persistInBrowser?: boolean;
+  /** `false` keeps this action's arguments and result out of persisted chat
+   *  history, execution journals, and traces. The live turn still receives the
+   *  full result. Following assistant content in that turn is omitted too. */
+  persistInChatHistory?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -1144,12 +1156,14 @@ interface DefineActionWithParams<
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   eagerInputStreaming?: boolean;
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
   persistInBrowser?: boolean;
+  persistInChatHistory?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -1197,12 +1211,14 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
   readonly eagerInputStreaming?: boolean;
+  readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
   readonly persistInBrowser?: boolean;
+  readonly persistInChatHistory?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
@@ -1503,17 +1519,32 @@ export function defineAction(options: any) {
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   const auditConfig = normalizeAuditConfig(options.audit);
-  const finalRun = resolveAuditAttach(auditConfig, readOnly)
-    ? wrapRunWithAudit(run, auditConfig)
+  const actionIsPrivate = options.persistInChatHistory === false;
+  let effectiveAuditConfig: ActionAuditConfig | undefined;
+  if (actionIsPrivate) {
+    const { target: _target, summary: _summary, ...shared } = auditConfig ?? {};
+    effectiveAuditConfig = { ...shared, recordInputs: false };
+  } else {
+    effectiveAuditConfig = auditConfig;
+  }
+  const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
+    ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly),
+    wrapRunWithActionTracking(finalRun, readOnly, {
+      includeOutputId: options.persistInChatHistory !== false,
+    }),
   );
   const invalidCallRun = wrapRunWithActionTracking(
-    resolveAuditAttach(auditConfig, readOnly)
-      ? wrapRunWithAudit(throwInvalidCallError, auditConfig)
+    resolveAuditAttach(effectiveAuditConfig, readOnly)
+      ? wrapRunWithAudit(
+          throwInvalidCallError,
+          effectiveAuditConfig,
+          actionIsPrivate,
+        )
       : throwInvalidCallError,
     readOnly,
+    { includeOutputId: options.persistInChatHistory !== false },
   );
 
   const toolCallable: boolean | undefined =
@@ -1630,6 +1661,9 @@ export function defineAction(options: any) {
     ...(typeof options.eagerInputStreaming === "boolean"
       ? { eagerInputStreaming: options.eagerInputStreaming }
       : {}),
+    ...(typeof options.emptyListsEraseNothing === "boolean"
+      ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
+      : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
@@ -1651,6 +1685,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.persistInBrowser === "boolean"
       ? { persistInBrowser: options.persistInBrowser }
+      : {}),
+    ...(typeof options.persistInChatHistory === "boolean"
+      ? { persistInChatHistory: options.persistInChatHistory }
       : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }
@@ -1798,6 +1835,7 @@ function wrapRunWithServicePrincipalGrant(
 function wrapRunWithAudit(
   run: (args: any, ctx?: ActionRunContext) => any,
   auditConfig: ActionAuditConfig | undefined,
+  actionIsPrivate: boolean,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function auditedRun(args: any, ctx?: ActionRunContext) {
     // The run consumes the preparation, and its handler may change `args`.
@@ -1817,16 +1855,36 @@ function wrapRunWithAudit(
         import("./audit/record.js"),
         import("./audit/attribution.js"),
       ]);
+      const omitFromPersistedHistory =
+        actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const effectiveAuditConfig = omitFromPersistedHistory
+        ? {
+            ...(auditConfig ?? {}),
+            recordInputs: false,
+            target: undefined,
+            summary: undefined,
+          }
+        : auditConfig;
       const call = {
-        config: auditConfig,
-        args: recorded,
+        config: effectiveAuditConfig,
+        args: omitFromPersistedHistory ? {} : recorded,
         ctx,
         attribution: auditAttribution(ctx),
       };
       await recordActionAudit(
         threw
-          ? { ...call, status: "error", error }
-          : { ...call, status: "success", result },
+          ? {
+              ...call,
+              status: "error",
+              error: omitFromPersistedHistory
+                ? new Error("Private content omitted")
+                : error,
+            }
+          : {
+              ...call,
+              status: "success",
+              ...(!omitFromPersistedHistory ? { result } : {}),
+            },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -1957,6 +2015,16 @@ export function stripUnsupportedSchemaKeywords<T>(
     const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
+  }
+  // OpenAI rejects an array with no `items` ("array schema missing items"),
+  // which is how `z.tuple` emits, with `prefixItems` alone. Beside
+  // `prefixItems`, `items` only covers elements past the tuple, so the
+  // tuple's own positions keep their schemas.
+  const types = Array.isArray(obj.type) ? obj.type : [obj.type];
+  if (obj.items === undefined && types.includes("array")) {
+    const items: Record<string, unknown> = {};
+    writeJsonValue(items);
+    obj.items = items;
   }
   if (obj.type === undefined) typeEnumeratedValues(obj);
   withStringOnlyEnum(obj);

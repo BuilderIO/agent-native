@@ -194,14 +194,12 @@ function DesignEditor() {
   const editorLayerModels = useEditorLayerModels({
     editorCore,
     editorHistory,
-    editorGenerationAndAccess,
     editorFilesAndSaving,
     editorActiveScreenAndGeometry,
     editorCanvasAndScreens,
     editorLiveEditsAndPresence,
     editorContentAndComponents,
     editorSelectionAndStyles,
-    editorExportAndHandoff,
   });
   const editorScreenInspector = useEditorScreenInspector({
     editorCore,

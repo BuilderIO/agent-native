@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -47,7 +48,10 @@ export default defineAction({
       .limit(1);
 
     if (!version) {
-      throw new Error(`Deck version not found: ${versionId}`);
+      fail(`Deck version not found: ${versionId}`, {
+        errorCode: "deck_version_not_found",
+        statusCode: 404,
+      });
     }
 
     const data = JSON.parse(version.data);
@@ -55,10 +59,13 @@ export default defineAction({
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
 
+    // Snapshots usually don't carry the design system link (it lives on the
+    // deck row), so a snapshot without one keeps the deck's current link
+    // instead of unlinking the deck's brand.
     const designSystemId =
       typeof data.designSystemId === "string" && data.designSystemId
         ? data.designSystemId
-        : null;
+        : (current.designSystemId ?? null);
 
     if (
       current.title === title &&
@@ -67,8 +74,9 @@ export default defineAction({
         deckVersionContentSignature(data)
     ) {
       if (isAgentPatchCaller(ctx?.caller)) {
-        throw new Error(
+        fail(
           "Nothing was written: the selected deck version already matches the current deck. Re-read with get-deck before retrying.",
+          { errorCode: "deck_version_unchanged", statusCode: 409 },
         );
       }
       return {
@@ -103,7 +111,7 @@ export default defineAction({
         .update(schema.decks)
         .set({
           title,
-          data: JSON.stringify(data),
+          ...deckDataColumns(data),
           designSystemId,
           updatedAt: now,
         })
@@ -130,6 +138,7 @@ export default defineAction({
       updatedAt: now,
       url: getDeckUrl(deckId),
       appUrl: getDeckUrl(deckId),
+      applied: true,
     };
   },
 });

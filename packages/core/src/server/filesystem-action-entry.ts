@@ -91,6 +91,9 @@ export function preserveActionFlags(
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
   }
+  if (typeof entry.emptyListsEraseNothing === "boolean") {
+    out.emptyListsEraseNothing = entry.emptyListsEraseNothing;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
@@ -108,6 +111,9 @@ export function preserveActionFlags(
   }
   if (typeof entry.persistInBrowser === "boolean") {
     out.persistInBrowser = entry.persistInBrowser;
+  }
+  if (typeof entry.persistInChatHistory === "boolean") {
+    out.persistInChatHistory = entry.persistInChatHistory;
   }
   if (typeof entry.changeResource === "function") {
     out.changeResource = entry.changeResource as Flag<"changeResource">;

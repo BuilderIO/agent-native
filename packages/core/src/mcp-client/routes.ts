@@ -990,8 +990,10 @@ async function handleList(
   role: string | null;
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userServers = email ? await listRemoteServers("user", email) : [];
-  const orgServers = orgId ? await listRemoteServers("org", orgId) : [];
+  const [userServers, orgServers] = await Promise.all([
+    email ? listRemoteServers("user", email) : [],
+    orgId ? listRemoteServers("org", orgId) : [],
+  ]);
   return {
     user: userServers.map((s) =>
       projectForClient(

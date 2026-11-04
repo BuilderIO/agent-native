@@ -1,3 +1,5 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
+
 export type NativePngAttachment = {
   attachmentRef: string;
   bytes: number;
@@ -26,7 +28,7 @@ export async function uploadNativePngAttachment(args: {
     "file",
     new File([args.png], "design-native.png", { type: "image/png" }),
   );
-  const response = await fetch("/api/native-png-attachment", {
+  const response = await fetch(appApiPath("/api/native-png-attachment"), {
     method: "POST",
     credentials: "same-origin",
     body: form,

@@ -217,6 +217,74 @@ export function selectAllEditableText(
   return true;
 }
 
+const INLINE_RUN_TAGS = "a,b,code,em,font,i,mark,s,small,span,strong,sub,sup,u";
+
+/**
+ * The first text run of `editable` when any of its text is laid out as boxes
+ * of its own (a label beside a flex row of value and pill, a block span), so
+ * Enter selects that run instead of the whole card. Null when all its text
+ * flows inline as one run.
+ */
+export function firstSeparateTextRun(
+  editable: HTMLElement,
+): HTMLElement | null {
+  const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+  let firstRun: HTMLElement | null = null;
+  let separate = false;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.textContent?.trim()) continue;
+    let outermostRun: HTMLElement | null = null;
+    for (
+      let run = node.parentElement;
+      run && run !== editable && editable.contains(run);
+      run = run.parentElement
+    ) {
+      if (!run.matches(INLINE_RUN_TAGS)) continue;
+      outermostRun = run;
+      const display = getComputedStyle(run).display;
+      const parent = run.parentElement;
+      if (
+        (display !== "inline" && display !== "contents") ||
+        (parent && INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(parent).display))
+      ) {
+        separate = true;
+      }
+    }
+    if (firstRun === null) {
+      // The first text needs a wrapping run to be selected on its own.
+      if (!outermostRun) return null;
+      firstRun = innermostTextRun(node, outermostRun);
+    }
+    if (separate) return firstRun;
+  }
+  return null;
+}
+
+function innermostTextRun(text: Node, outermost: HTMLElement): HTMLElement {
+  const parent = text.parentElement;
+  return parent && outermost.contains(parent) ? parent : outermost;
+}
+
+/**
+ * Selects the text Enter starts editing with: all of it, or only the first
+ * run when the block lays its text out in separate boxes, so typing over the
+ * selection never replaces a whole card.
+ */
+export function selectEntryEditableText(
+  editable: HTMLElement,
+  selection: Selection | null = window.getSelection(),
+) {
+  const run = firstSeparateTextRun(editable);
+  if (!run) return selectAllEditableText(editable, selection);
+  if (!selection) return false;
+  editable.focus({ preventScroll: true });
+  const range = document.createRange();
+  range.selectNodeContents(run);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 export function restoreEditableTextRange(
   editable: HTMLElement,
   range: Range | null,

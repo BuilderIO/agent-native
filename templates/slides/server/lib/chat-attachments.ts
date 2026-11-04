@@ -15,12 +15,26 @@ import { parseBase64DataUrl } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import {
-  isSlidesReferenceFileExtension,
   MAX_INLINE_IMAGE_BYTES,
   MAX_REFERENCE_FILES,
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
+import { rememberThreadUploads } from "./thread-uploads.js";
+
+// Text files keep their hosted URL readable by core's attachment reader.
+const SLIDES_IMPORT_EXTENSIONS = new Set([
+  ".pptx",
+  ".docx",
+  ".pdf",
+  ".fig",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+]);
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_CHAT_UPLOAD_TOTAL_BYTES = MAX_REFERENCE_FILE_BYTES;
@@ -199,6 +213,7 @@ export async function prepareSlidesChatAttachments(args: {
   ownerEmail: string | null;
   message: string;
   attachments: AgentChatAttachment[];
+  threadId?: string;
 }): Promise<{ message?: string; attachments?: AgentChatAttachment[] } | void> {
   const generationContext = await readSlidesDeckGenerationContext();
   if (!args.ownerEmail || args.attachments.length === 0) {
@@ -231,7 +246,7 @@ export async function prepareSlidesChatAttachments(args: {
       typeof attachment.data !== "string" &&
       typeof attachment.url === "string"
     ) {
-      if (isSlidesReferenceFileExtension(ext)) {
+      if (SLIDES_IMPORT_EXTENSIONS.has(ext)) {
         urlOnlyReferenceCount++;
         if (urlOnlyReferenceCount > MAX_REFERENCE_FILES) {
           failed.push({
@@ -294,7 +309,7 @@ export async function prepareSlidesChatAttachments(args: {
     const dataUrl = attachmentDataUrl(attachment);
     if (!dataUrl) continue;
 
-    if (!isSlidesReferenceFileExtension(ext)) continue;
+    if (!SLIDES_IMPORT_EXTENSIONS.has(ext)) continue;
 
     const decoded = decodeDataUrl(dataUrl);
     if (!decoded) continue;
@@ -334,6 +349,23 @@ export async function prepareSlidesChatAttachments(args: {
   const filesWithPaths = uploaded.filter(
     (file): file is typeof file & { path: string } => Boolean(file.path),
   );
+  if (args.threadId && filesWithPaths.length > 0) {
+    try {
+      await rememberThreadUploads(
+        args.threadId,
+        filesWithPaths.map((file) => ({
+          name: file.originalName,
+          path: file.path,
+        })),
+      );
+    } catch (error) {
+      // coercion-ok: this turn still lists every path below; only a later turn's by-name lookup loses this file.
+      console.warn(
+        "[slides] could not record this thread's uploads for later turns",
+        error,
+      );
+    }
+  }
   const urlOnlyImages = uploaded.filter(
     (file) =>
       !file.path &&

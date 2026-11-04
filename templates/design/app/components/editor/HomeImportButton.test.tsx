@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   readPendingDesignImport,
   clearPendingDesignImport,
@@ -16,10 +17,8 @@ import {
 import { HomeImportButton } from "./HomeImportButton";
 
 const mocks = vi.hoisted(() => ({
-  importFrame: vi.fn(),
   create: vi.fn(),
   navigate: vi.fn(),
-  settings: vi.fn(),
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
@@ -27,17 +26,11 @@ const mocks = vi.hoisted(() => ({
   dismiss: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: (name: string) => ({
-    mutateAsync:
-      name === "import-figma-frame" ? mocks.importFrame : mocks.create,
-  }),
+  useActionMutation: () => ({ mutateAsync: mocks.create }),
   actionErrorMessage: (error: unknown) =>
     error instanceof Error
       ? error.message.replace(/^Action failed: /, "")
       : undefined,
-}));
-vi.mock("@agent-native/toolkit/app/shared", () => ({
-  openAgentSettings: (...args: unknown[]) => mocks.settings(...args),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -53,57 +46,25 @@ vi.mock("sonner", () => ({
     dismiss: mocks.dismiss,
   },
 }));
-vi.mock("@/lib/figma-connection", () => ({
-  FIGMA_ACCESS_TOKEN_SECRET_KEY: "FIGMA_ACCESS_TOKEN",
-}));
-vi.mock("@/components/ui/input", () => ({
-  Input: ({
-    onChange,
-    ...props
-  }: React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input
-      {...props}
-      onInput={onChange as React.FormEventHandler<HTMLInputElement>}
-    />
-  ),
-}));
-
 let root: Root;
 let container: HTMLDivElement;
-// The .fig item shows its size limit beside the label.
-const FIG_MENU_ITEM = "home.figmaFilehome.figmaFileMaxSize";
-const figmaUrl =
-  "https://www.figma.com/design/example-file/Example?node-id=1-2";
-async function click(text: string) {
-  const button = Array.from(
-    document.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
-  ).find((button) => button.textContent === text);
-  expect(button).toBeTruthy();
-  await act(async () => button!.click());
+// oracle-change: Import is one file button now; the Figma link menu item moved to pasting a link into the home prompt (HomeFigmaLinkBubble tests).
+function renderHome() {
+  return (
+    <TooltipProvider>
+      <HomeImportButton />
+    </TooltipProvider>
+  );
 }
-async function typeUrl() {
-  const input = document.querySelector<HTMLInputElement>('input[type="url"]')!;
-  await act(async () => {
-    input.value = figmaUrl;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-async function openMenu() {
-  const trigger = document.querySelector<HTMLButtonElement>(
+function importButton() {
+  const button = document.querySelector<HTMLButtonElement>(
     '[aria-label="home.import"]',
-  )!;
-  await act(async () =>
-    trigger.dispatchEvent(
-      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-    ),
   );
+  if (!button) throw new Error("Import button is missing");
+  return button;
 }
-async function openLink() {
-  await openMenu();
-  await click("home.figmaLink");
-  await vi.waitFor(() =>
-    expect(document.querySelector('input[type="url"]')).toBeTruthy(),
-  );
+async function clickImport() {
+  await act(async () => importButton().click());
 }
 async function chooseFile(file?: File) {
   const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -115,27 +76,16 @@ async function chooseFile(file?: File) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
-async function submit() {
-  await act(async () =>
-    document
-      .querySelector("form")!
-      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-  );
-}
 beforeEach(async () => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.create.mockResolvedValue({ id: "file-design" });
-  mocks.importFrame.mockResolvedValue({
-    designId: "imported-design",
-    files: [{ id: "screen", filename: "frame.html" }],
-  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  await act(async () => root.render(<HomeImportButton />));
+  await act(async () => root.render(renderHome()));
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -152,7 +102,7 @@ describe("home Figma import", () => {
       await act(async () => root.unmount());
       root = createRoot(container);
       mocks.dismiss.mockClear();
-      await act(async () => root.render(<HomeImportButton />));
+      await act(async () => root.render(renderHome()));
     }
 
     claimFigImportToast(true);
@@ -183,42 +133,19 @@ describe("home Figma import", () => {
     expect(mocks.loading).not.toHaveBeenCalled();
   });
 
-  it("opens import options from the whole button before launching the .fig picker", async () => {
+  it("opens the .fig picker straight from the button, with no menu", async () => {
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;
     const picker = vi.spyOn(input, "click");
-    await openMenu();
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
-    expect(picker).not.toHaveBeenCalled();
-    await click(FIG_MENU_ITEM);
+    expect(importButton().getAttribute("aria-haspopup")).toBeNull();
+    expect(importButton().querySelectorAll("svg")).toHaveLength(1);
+    await clickImport();
     expect(picker).toHaveBeenCalledOnce();
     expect(input.accept).toBe(".fig");
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     await chooseFile();
     expect(mocks.create).not.toHaveBeenCalled();
-    expect(mocks.importFrame).not.toHaveBeenCalled();
-  });
-  it("uses the same picker from the typed dropdown action", async () => {
-    const picker = vi.spyOn(
-      document.querySelector<HTMLInputElement>('input[type="file"]')!,
-      "click",
-    );
-    await openMenu();
-    expect(
-      Array.from(
-        document.querySelectorAll('[role="menuitem"]'),
-        (item) => item.textContent,
-      ),
-    ).toEqual([FIG_MENU_ITEM, "home.figmaLink"]);
-    expect(
-      Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).every((item) => !item.querySelector("svg")),
-    ).toBe(true);
-    await click(FIG_MENU_ITEM);
-    expect(picker).toHaveBeenCalledOnce();
-    expect(document.querySelector('input[type="url"]')).toBeNull();
   });
   describe("with a native file picker", () => {
     afterEach(() => {
@@ -235,8 +162,7 @@ describe("home Figma import", () => {
         document.querySelector<HTMLInputElement>('input[type="file"]')!,
         "click",
       );
-      await openMenu();
-      await click(FIG_MENU_ITEM);
+      await clickImport();
       return fallback;
     }
 
@@ -284,103 +210,6 @@ describe("home Figma import", () => {
       expect(mocks.create).not.toHaveBeenCalled();
     });
   });
-  it("does not provision, create, or import on mount, open, or cancel", async () => {
-    await openLink();
-    await typeUrl();
-    await click("home.cancel");
-    expect(mocks.create).not.toHaveBeenCalled();
-    expect(mocks.importFrame).not.toHaveBeenCalled();
-    expect(mocks.settings).not.toHaveBeenCalled();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-  });
-  it("imports into an explicit new target and navigates only after saved files return", async () => {
-    let resolve!: (value: unknown) => void;
-    mocks.importFrame.mockReturnValue(
-      new Promise((yes) => {
-        resolve = yes;
-      }),
-    );
-    await openLink();
-    await typeUrl();
-    await submit();
-    expect(mocks.importFrame).toHaveBeenCalledExactlyOnceWith({
-      figmaUrl,
-      createNew: true,
-    });
-    expect(mocks.create).not.toHaveBeenCalled();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    await act(async () =>
-      resolve({
-        designId: "imported-design",
-        files: [{ id: "screen", filename: "frame.html" }],
-      }),
-    );
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
-  });
-  it("warns when a URL import contains rasterized or approximated layers", async () => {
-    mocks.importFrame.mockResolvedValue({
-      designId: "imported-design",
-      files: [{ id: "screen", filename: "frame.html" }],
-      fidelityReport: {
-        exactCount: 0,
-        imageFallbacks: [
-          { nodeId: "1:2", nodeType: "VECTOR", notes: ["Rendered as PNG."] },
-        ],
-        approximated: [
-          { nodeId: "1:3", nodeType: "TEXT", notes: ["Style approximated."] },
-        ],
-      },
-    });
-
-    await openLink();
-    await typeUrl();
-    await submit();
-
-    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith(
-      "Imported frame.html.",
-      {
-        description:
-          "designEditor.import.figmaImageFallbackWarning\ndesignEditor.import.figmaApproximationWarning",
-      },
-    );
-    expect(mocks.success).not.toHaveBeenCalled();
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
-  });
-  it("retains the URL and readable provider failure for retry and offers existing settings", async () => {
-    mocks.importFrame.mockRejectedValueOnce(
-      new Error("Action failed: Figma token cannot read this file"),
-    );
-    await openLink();
-    await typeUrl();
-    await submit();
-    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
-      "Figma token cannot read this file",
-    );
-    expect(
-      document.querySelector<HTMLInputElement>('input[type="url"]')?.value,
-    ).toBe(figmaUrl);
-    expect(mocks.create).not.toHaveBeenCalled();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    await click("settings.openAgentSettings");
-    expect(mocks.settings).toHaveBeenCalledWith("secrets:FIGMA_ACCESS_TOKEN");
-    await openLink();
-    expect(
-      document.querySelector<HTMLInputElement>('input[type="url"]')?.value,
-    ).toBe(figmaUrl);
-    await submit();
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
-  });
-  it("keeps partial/malformed success in the popover instead of navigating", async () => {
-    mocks.importFrame.mockResolvedValue({
-      designId: "missing-files",
-      files: [],
-    });
-    await openLink();
-    await typeUrl();
-    await submit();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="alert"]')).toBeTruthy();
-  });
   it("hands the exact selected file directly to a new design's existing import panel", async () => {
     const file = new File(["test fixture"], "example.fig");
     await chooseFile(file);
@@ -394,7 +223,6 @@ describe("home Figma import", () => {
       designSystemId: null,
       creationMethod: "import_figma",
     });
-    expect(mocks.importFrame).not.toHaveBeenCalled();
     expect(readPendingDesignImport("file-design")).toEqual({
       kind: "file",
       file,

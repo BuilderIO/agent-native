@@ -17,9 +17,8 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 
 const appBasePathState = vi.hoisted(() => ({ value: "" }));
 
-vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => appBasePathState.value,
-  appPath: (path: string) => {
+vi.mock("@agent-native/core/client/api-path", () => {
+  const appPath = (path: string) => {
     const basePath = appBasePathState.value;
     if (
       !basePath ||
@@ -30,8 +29,14 @@ vi.mock("@agent-native/core/client/api-path", () => ({
       return path;
     }
     return `${basePath}${path}`;
-  },
-}));
+  };
+  return {
+    agentNativePath: appPath,
+    apiBaseUrl: () => undefined,
+    appBasePath: () => appBasePathState.value,
+    appPath,
+  };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) => {

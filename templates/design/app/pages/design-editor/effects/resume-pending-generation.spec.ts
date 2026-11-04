@@ -279,6 +279,9 @@ describe("runResumePendingGeneration", () => {
       ...createArgs(),
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
+      previousRunTabId: null,
+      retryInFlightRef: { current: false },
+      trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };
     vi.mocked(designGenerationDirectives).mockImplementationOnce(() => {
@@ -306,6 +309,9 @@ describe("runResumePendingGeneration", () => {
       ...createArgs(),
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
+      previousRunTabId: null,
+      retryInFlightRef: { current: false },
+      trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };
     const promptState = {
@@ -359,6 +365,9 @@ describe("runResumePendingGeneration", () => {
       ...createArgs(),
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
+      previousRunTabId: null,
+      retryInFlightRef: { current: false },
+      trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };
     const promptState = {

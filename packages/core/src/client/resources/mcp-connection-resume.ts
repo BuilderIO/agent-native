@@ -1,3 +1,5 @@
+import { apiBaseUrl } from "../api-path.js";
+
 const MCP_CONNECTION_RESUME_STORAGE_KEY = "agent-native:mcp-connection-resume";
 const MCP_CONNECTION_RESUME_EVENT = "agent-native:mcp-connection-complete";
 const MCP_CONNECTION_RESUME_COMPLETION_STORAGE_PREFIX =
@@ -253,9 +255,16 @@ export function addMcpConnectionCompleteListener(listener: () => void) {
       listener();
     }
   };
+  // The completion page is served by the app's server, which may be on
+  // another origin than this UI.
+  const isCompletionOrigin = (origin: string) => {
+    if (origin === window.location.origin) return true;
+    const server = apiBaseUrl();
+    return !!server && new URL(server).origin === origin;
+  };
   const onMessage = (event: MessageEvent<unknown>) => {
     if (
-      event.origin !== window.location.origin ||
+      !isCompletionOrigin(event.origin) ||
       typeof event.data !== "object" ||
       event.data === null ||
       !("type" in event.data) ||

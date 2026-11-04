@@ -9,6 +9,7 @@ import {
   isInstructionPath,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 
 const ROOT = process.cwd();
 const CORE = "@agent-native/core";
@@ -16,12 +17,9 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 // Each lane pays ~100 s of checkout and install, so a shard smaller than this
 // spends more time on setup than it saves.
 const MIN_SHARD_FILES = 100;
-// Slides 2's full fast suite can exhaust a Vitest worker's heap on CI.
-const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
-const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
-const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {
-  "slides-2": 7,
-};
+const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
+const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
+const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {};
 
 const PACKAGE_PARENTS = ["packages", "templates"];
 const COMMUNITY_TEMPLATES_PARENT = "community-templates";
@@ -120,10 +118,6 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   return out;
 }
 
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function readTargetedFilters(): string[] | undefined {
   const raw = process.env.CI_WORKSPACE_FILTERS;
   if (raw === undefined) return undefined;
@@ -165,8 +159,10 @@ function resolveTestPackages(all: Pkg[], filters: string[] | undefined): Pkg[] {
     "--depth=-1",
     "--json",
   ];
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     encoding: "utf8",
+    shell: pnpm.shell,
   });
 
   let workspaces: unknown;
@@ -265,9 +261,11 @@ function readCoreFastTestFiles(since?: string): string[] {
     args.push("--exclude", exclude);
   }
 
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     cwd: ROOT,
     encoding: "utf8",
+    shell: pnpm.shell,
   });
   let result: unknown;
   try {

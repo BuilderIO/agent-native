@@ -438,7 +438,7 @@ async function finalizeGenerationForSavedFiles(
 
 // The model is shown these typed fields as they are, and the validating schema
 // wraps the structured ones in `jsonField` so a JSON string still parses.
-const agentFileSchema = z.object({
+const designFileSchema = z.object({
   filename: z.string().describe("Filename (e.g. 'index.html')"),
   content: z.string().min(1).describe("File content"),
   fileType: z
@@ -446,12 +446,6 @@ const agentFileSchema = z.object({
     .optional()
     .default("html")
     .describe("Type of file"),
-});
-
-// `frameType` stays accepted but is never shown to the model: models set it on
-// ordinary screens, omit the email meta marker, and every write is rejected.
-const designFileSchema = agentFileSchema.extend({
-  frameType: z.literal("hubspot-email").optional(),
 });
 
 const canvasFrameSchema = z
@@ -494,11 +488,6 @@ const filesDescription =
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
 
-const agentFilesField = z
-  .array(agentFileSchema)
-  .min(1)
-  .describe(filesDescription);
-
 const designSystemIdField = z
   .string()
   .nullable()
@@ -507,16 +496,33 @@ const designSystemIdField = z
     "Optional design system ID used for generation. Pass null to unlink.",
   );
 
+// The agent's copies of `designSystemId` and `tweaks` reject null and []. A
+// model that pads every field sends both for fields it is not using, and
+// accepted they would unlink the design system and replace its tweaks; rejected
+// they are dropped as placeholders. `update-design` unlinks.
+const agentDesignSystemIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Optional design system ID used for generation. It cannot unlink a design system.",
+  );
+
 const projectTypeField = z
   .enum(["prototype", "other"])
   .optional()
   .describe("Optional project type hint.");
 
+const tweaksDescription =
+  "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.";
+
 const tweaksField = tweakDefinitionsSchema
   .optional()
-  .describe(
-    "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
-  );
+  .describe(tweaksDescription);
+
+const agentTweaksField = tweakDefinitionsSchema
+  .min(1)
+  .optional()
+  .describe(tweaksDescription);
 
 // Reject two placements for the same target in one call. Without this,
 // mergeCanvasFramePlacements folds both entries into a single
@@ -687,10 +693,10 @@ const generateDesignAction = defineAction({
   agentInputSchema: z.object({
     designId: designIdField,
     prompt: promptField,
-    files: agentFilesField,
-    designSystemId: designSystemIdField,
+    files: filesField,
+    designSystemId: agentDesignSystemIdField,
     projectType: projectTypeField,
-    tweaks: tweaksField,
+    tweaks: agentTweaksField,
     canvasFrames: canvasFramesField,
     contextPackId: contextPackIdField,
     contextModeOverride: contextModeOverrideField,
@@ -714,6 +720,9 @@ const generateDesignAction = defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
+  // `devices: []` asks for a fixed canvas; the other lists add to what's there.
+  // GPT-6 Luna sends `[]` for every list it isn't using, beside padded nulls.
+  emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
@@ -838,7 +847,6 @@ const generateDesignAction = defineAction({
         assertHubSpotEmailFrameContent({
           content: file.content,
           fileType: file.fileType,
-          ...(file.frameType ? { frameType: file.frameType } : {}),
         });
       } catch (error) {
         throw noWriteValidationError(error);

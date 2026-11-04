@@ -275,6 +275,29 @@ describe("create-source config validation", () => {
     expect(mocks.recordZoomAuditEvent.mock.calls[0][1]).toBe(txDb);
   });
 
+  it("refuses to mark a new source as the Company Context intake", async () => {
+    await expect(
+      createSource.run({
+        title: "Notes",
+        provider: "manual",
+        visibility: "org",
+        config: { companyContextIntake: true },
+      }),
+    ).rejects.toMatchObject({ errorCode: "company_context_intake_reserved" });
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses to claim the reserved Company Context source id", async () => {
+    await expect(
+      createSource.run({
+        id: "company-context-org-1",
+        title: "Notes",
+        provider: "manual",
+      }),
+    ).rejects.toMatchObject({ errorCode: "company_context_intake_reserved" });
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
   it("refuses to create a Zoom source for a non-admin", async () => {
     mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
 
@@ -303,6 +326,16 @@ describe("update-source config validation", () => {
         status: "active",
       },
     });
+  });
+
+  it("refuses to change the Company Context intake marker", async () => {
+    await expect(
+      updateSource.run({
+        id: "source-1",
+        config: { companyContextIntake: true },
+      }),
+    ).rejects.toMatchObject({ errorCode: "company_context_intake_reserved" });
+    expect(set).not.toHaveBeenCalled();
   });
 
   it("refuses to save a malformed channel entry onto an existing source", async () => {

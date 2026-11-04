@@ -1,5 +1,17 @@
 # @agent-native/pinpoint
 
+## 0.1.106
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.105
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.104
 
 ### Patch Changes
@@ -609,17 +621,5 @@
 ### Patch Changes
 
 - d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-
-## 0.1.6
-
-### Patch Changes
-
-- 3107f96: Preserve MCP tool error and read-only metadata through action execution, and allow Pinpoint's empty test suite to pass intentionally.
-
-## 0.1.5
-
-### Patch Changes
-
-- 1ba9738: Keep the pinpoint toolbar inside the viewport when the agent sidebar is open by tracking the visible sidebar width via MutationObserver + ResizeObserver and clamping toolbar position + drag bounds.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

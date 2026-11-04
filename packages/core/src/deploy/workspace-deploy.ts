@@ -573,13 +573,35 @@ async function runWithConcurrency<T>(
   }
 }
 
-function spawnBuild(
+/**
+ * On Windows pnpm is a pnpm.cmd shim, which only starts through a shell. Each
+ * argument is quoted there so it stays one argument.
+ */
+export function buildStart(
+  cmd: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; shell: boolean } {
+  return platform === "win32"
+    ? {
+        command: [cmd, ...args].map((arg) => `"${arg}"`).join(" "),
+        args: [],
+        shell: true,
+      }
+    : { command: cmd, args, shell: false };
+}
+
+export function spawnBuild(
   cmd: string,
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, options);
+    const start = buildStart(cmd, args);
+    const child = spawn(start.command, start.args, {
+      ...options,
+      shell: start.shell,
+    });
     // Buffered so parallel builds print as whole blocks instead of interleaving.
     const chunks: Buffer[] = [];
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -1415,12 +1437,7 @@ function patchNetlifyFunctionEntry(
           basePath,
           `${basePath}.data`,
           `${basePath}/*`,
-          ...workspaceOAuthDiscoveryRoutes(app).flatMap(
-            ({ path, descendants }) => [
-              path,
-              ...(descendants ? [`${path}/*`] : []),
-            ],
-          ),
+          ...netlifyOAuthDiscoveryPaths(app),
           ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
@@ -1491,7 +1508,7 @@ export const config = {
   nodeBundler: "none",
   includedFiles: ["**"],
   excludedPath: ${JSON.stringify(
-    netlifyFunctionExcludedPaths(app, staticDir),
+    netlifyFunctionExcludedPaths(app, staticDir, workspaceApps),
     null,
     2,
   )
@@ -1605,12 +1622,33 @@ export default {
 function netlifyFunctionExcludedPaths(
   app: string,
   staticDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): string[] {
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
     ...netlifyPublicAssetPaths(app, staticDir),
+    ...(app === "dispatch" ? netlifyAppOAuthDiscoveryPaths(workspaceApps) : []),
   ];
+}
+
+// Netlify does not prefer the most specific function path: when Dispatch's
+// `/.well-known/*` overlaps an app's exact discovery path, the function whose
+// name sorts first wins, so apps after "dispatch" got Dispatch's metadata.
+// Excluding each app's discovery paths from Dispatch leaves one match.
+function netlifyAppOAuthDiscoveryPaths(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string[] {
+  return workspaceApps
+    .filter((entry) => entry.id !== "dispatch")
+    .flatMap((entry) => netlifyOAuthDiscoveryPaths(entry.id));
+}
+
+function netlifyOAuthDiscoveryPaths(app: string): string[] {
+  return workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
+    path,
+    ...(descendants ? [`${path}/*`] : []),
+  ]);
 }
 
 function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {

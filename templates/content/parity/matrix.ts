@@ -358,20 +358,26 @@ export const parityMatrix: ParityRow[] = [
     id: "editor.clip-embeds",
     surface: "editor",
     label:
-      "Turn a pasted Clips link into a Clip block and play it with its comment markers",
+      "Turn a pasted Clips link into a Clip block, play it, and comment on its moments in the page's margin",
     uiEntrypoints: [
       "app/components/editor/extensions/VideoLinkForm.tsx",
       "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
       "app/routes/p.$id.tsx",
     ],
     durableEffect:
-      "The page body stores a ClipEmbed tag naming the recording; playback grants and comment markers are fetched from Clips per view and never stored.",
+      "The page body stores a ClipEmbed tag naming the recording; playback grants and comment threads are fetched from Clips per view and never stored. A Clip's comments are saved in Clips through add-clip-comment and resolve-clip-comment, never in Content.",
     uiImplementation:
-      "The video block's Link tab reads where Clips lives through get-clips-links and inserts the ClipEmbed block; the player reads get-clip-playback and list-clip-comments, which check document access before asking Clips. Agents write the same ClipEmbed tag with edit-document, and view-screen names the recording of a selected Clip.",
+      "The video block's Link tab reads where Clips lives through get-clips-links and inserts the ClipEmbed block; the player reads get-clip-playback and list-clip-comments, which check document access before asking Clips. The page's comment margin shows each open Clip thread as a card at its moment, and posts, replies, and resolves through add-clip-comment and resolve-clip-comment, which also need page comment access. Agents write the same ClipEmbed tag with edit-document, read a Clip's threads with list-clip-comments, comment with add-clip-comment, and view-screen names the recording of a selected Clip.",
     status: "action-backed",
-    actions: ["get-clips-links", "get-clip-playback", "list-clip-comments"],
+    actions: [
+      "get-clips-links",
+      "get-clip-playback",
+      "list-clip-comments",
+      "add-clip-comment",
+      "resolve-clip-comment",
+    ],
     exception:
-      "The three reads are hidden with agentTool: false because they feed the player short-lived media URLs and scrubber markers; agents read the ClipEmbed tag with get-document and the selected Clip with view-screen.",
+      "get-clips-links and get-clip-playback are hidden with agentTool: false because they feed the player short-lived media URLs; agents read the ClipEmbed tag with get-document and the selected Clip with view-screen.",
     reliabilityRisk: "none",
     spinePriority: "P2",
     testCoverage: "covered",
@@ -395,11 +401,15 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
     uiImplementation:
-      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed. An outside agent holding a video file calls create-video-upload over MCP: it runs the same check and start, hands the agent the chunk URL and the ClipEmbed tag, and the agent posts the chunks to Clips and writes the tag with edit-document.",
     status: "action-backed",
-    actions: ["get-clip-upload-status", "create-clip-upload"],
+    actions: [
+      "get-clip-upload-status",
+      "create-clip-upload",
+      "create-video-upload",
+    ],
     exception:
-      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+      "get-clip-upload-status and create-clip-upload are hidden with agentTool: false because they serve the editor's Upload tab and the file its tab holds. create-video-upload is MCP-only (agentTool: false, mcpTool: true): an outside agent can read a local file and post it to Clips, but the app's own agent has no files to send. Agents see the editor's uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
     reliabilityRisk: "none",
     spinePriority: "P2",
     testCoverage: "covered",

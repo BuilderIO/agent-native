@@ -987,7 +987,6 @@ export function ReviewThreadPanel({
                             placeholder={editLabel}
                             textareaProps={{ "aria-label": editLabel }}
                             autoFocus={focusEditBox}
-                            submitOnEnter
                             onEscape={cancelEditing}
                           />
                           <Button
@@ -1109,7 +1108,6 @@ export function ReviewThreadPanel({
                         commentLabel={replyLabel}
                         variant="reply"
                         autoFocus={focusReplyBox}
-                        submitOnEnter
                         onEscape={cancelReplying}
                         textareaProps={{ "data-review-reply-input": true }}
                       />

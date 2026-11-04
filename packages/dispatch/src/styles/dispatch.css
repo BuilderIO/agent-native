@@ -17,22 +17,51 @@
   display: none;
 }
 
-.dispatch-chat-first-notice {
+/* Chat history uses the shadcn sidebar metrics the apps rail below it gets
+   from SidebarGroupLabel: 32px labels and rows, 8px inner padding, 4px gaps. */
+.dispatch-chat-first-chats .an-chat-history__section-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.35);
-  padding: 0.5rem 0.75rem;
-  color: hsl(var(--muted-foreground));
+  min-height: 2rem;
+  padding: 0 0.5rem;
+  color: hsl(var(--sidebar-foreground) / 0.7);
   font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.dispatch-chat-first-notice button {
-  flex: none;
-  color: hsl(var(--foreground));
-  font-weight: 600;
+.dispatch-chat-first-chats .an-chat-history--rail .an-chat-history__list {
+  padding-block: 0;
+}
+
+.dispatch-chat-first-chats .an-chat-history--rail .an-chat-history__section {
+  gap: 0.25rem;
+  padding-block: 0.5rem;
+}
+
+.dispatch-chat-first-chats .an-chat-history--rail .an-chat-history-row,
+.dispatch-chat-first-chats
+  .an-chat-history--rail
+  .an-chat-history__skeleton-row {
+  margin-inline: 0;
+}
+
+.dispatch-chat-first-chats .an-chat-history--rail .an-chat-history-row__button,
+.dispatch-chat-first-chats
+  .an-chat-history--rail
+  .an-chat-history__skeleton-row {
+  min-height: 2rem;
+  padding-inline: 0.5rem;
+}
+
+.dispatch-chat-first-chats .an-chat-history-rail__section-footer {
+  padding: 0;
+}
+
+.dispatch-chat-first-chats .an-chat-history-rail__section-toggle {
+  min-height: 2rem;
+  padding: 0 0.5rem;
 }
 
 @media (max-width: 767px) {
@@ -58,7 +87,7 @@
 .dispatch-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: 2.5rem;
+  font-size: 2.25rem;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
@@ -105,6 +134,32 @@
   min-height: 5.0625rem;
   font-size: 1rem;
   line-height: 1.625rem;
+}
+
+/* The surface class sits on an ancestor of the AgentKit section, so the
+   centered home state is matched by descendant selectors. */
+.dispatch-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .dispatch-chat-intro {
+  padding-top: clamp(2rem, 8vh, 4rem);
+}
+
+/* The card's host can be wider than the composer stack, which agentkit caps
+   at the lane width minus 2rem. The cap mirrors that stack width and then
+   subtracts the same 2rem inset the percentage term does. */
+.dispatch-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-builder-setup-card--attached {
+  inline-size: min(
+    calc(100% - 2rem),
+    calc(
+      var(
+          --agentkit-transcript-lane-width,
+          var(--agent-kit-conversation-max-width, 47rem)
+        ) -
+        4rem
+    )
+  );
 }
 
 @media (max-width: 767px) {

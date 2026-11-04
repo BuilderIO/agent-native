@@ -22,11 +22,18 @@ import {
   normalizeIndentAttr,
   parseAttrsJson,
   safeExternalPageUrl,
+  toggleTitleNode,
 } from "./extensions/NotionExtensions";
+import { isEmptyCell } from "./extensions/TablePresentation";
 import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
 } from "./stored-body-images";
+import {
+  COLUMN_SIZING_ATTRIBUTE,
+  ContentTableSizer,
+  labelTableCells,
+} from "./table-sizing";
 import { ContentTableView } from "./table-view";
 
 type Attrs = Record<string, string | null | undefined>;
@@ -290,11 +297,68 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
   },
   notionToggle: (node, document) => {
     const open = !!node.attrs.open;
-    const empty = node.childCount === 0;
+    const title = toggleTitleNode(node);
+    const empty = node.childCount === (title ? 1 : 0);
     const indent = normalizeIndentAttr(node.attrs.indent);
     const content = nodeViewContent(document, {
       class: "content-toggle__content",
     });
+    const chevronIcon = () =>
+      icon(document, 18, open ? "M6 9l6 6l6 -6" : "M9 6l6 6l-6 6");
+    const emptyBodyPlaceholder =
+      open && empty
+        ? h(
+            document,
+            "div",
+            {
+              class:
+                "content-toggle__body-placeholder content-toggle__body-placeholder--empty-node",
+              contenteditable: "false",
+            },
+            EMPTY_TOGGLE_BODY_PLACEHOLDER,
+          )
+        : null;
+    if (title) {
+      const toggle = nodeViewWrapper(
+        document,
+        "div",
+        {
+          class: [
+            "content-toggle",
+            "content-toggle--titled",
+            open && "content-toggle--open",
+            empty && "content-toggle--body-empty",
+            title.content.size === 0 && "content-toggle--title-empty",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          "data-color": node.attrs.color || null,
+          "data-heading-level": node.attrs.headingLevel || null,
+          "data-nfm-indent": indent ? String(indent) : null,
+        },
+        // The editor's titled Toggle opens from this button; a read-only
+        // body draws it, as it draws a page reference's, without the action.
+        h(
+          document,
+          "button",
+          {
+            type: "button",
+            class: "content-toggle__chevron",
+            contenteditable: "false",
+            disabled: "",
+            tabindex: "-1",
+            "aria-expanded": open ? "true" : "false",
+          },
+          chevronIcon(),
+        ),
+        content.dom,
+        emptyBodyPlaceholder,
+      );
+      return {
+        dom: reactNodeView(document, node, toggle),
+        contentDOM: content.contentDOM,
+      };
+    }
     const toggle = nodeViewWrapper(
       document,
       "div",
@@ -320,7 +384,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
           document,
           "span",
           { class: "content-toggle__chevron", contenteditable: "false" },
-          icon(document, 18, open ? "M6 9l6 6l6 -6" : "M9 6l6 6l-6 6"),
+          chevronIcon(),
         ),
         h(
           document,
@@ -337,18 +401,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
             ? "content-toggle__body"
             : "content-toggle__body content-toggle__body--collapsed",
         },
-        open && empty
-          ? h(
-              document,
-              "div",
-              {
-                class:
-                  "content-toggle__body-placeholder content-toggle__body-placeholder--empty-node",
-                contenteditable: "false",
-              },
-              EMPTY_TOGGLE_BODY_PLACEHOLDER,
-            )
-          : null,
+        emptyBodyPlaceholder,
         content.dom,
       ),
     );
@@ -641,6 +694,14 @@ export function renderStaticDocumentBody(
         }
         return { dom };
       }
+      // The editor marks empty cells with a decoration, by the cell's node. A
+      // cell's element is its own content hole.
+      if (
+        (name === "tableCell" || name === "tableHeader") &&
+        isEmptyCell(node)
+      ) {
+        contentDOM.setAttribute("data-empty", "");
+      }
       if (!node.isTextblock) return { dom, contentDOM };
       // The break has to follow the content, so the textblock is filled here
       // rather than through its content hole.
@@ -744,6 +805,28 @@ export function StaticDocumentBody({
     }
     return handOver;
   }, [schema, content, documentId, imageBroken]);
+  // Sizes the drawn tables as the editor sizes its own, so its body doesn't
+  // move when it takes over.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body || failed) return;
+    const sizers = Array.from(
+      body.querySelectorAll<HTMLTableElement>(
+        `table[${COLUMN_SIZING_ATTRIBUTE}]`,
+      ),
+    ).flatMap((table) => {
+      const wrapper = table.parentElement;
+      const colgroup = table.querySelector("colgroup");
+      if (!wrapper || !colgroup) return [];
+      labelTableCells(table);
+      const sizer = new ContentTableSizer(wrapper, table, colgroup, () =>
+        table.hasAttribute("data-fit-page-width"),
+      );
+      sizer.update(false);
+      return [sizer];
+    });
+    return () => sizers.forEach((sizer) => sizer.destroy());
+  }, [schema, content, documentId, imageBroken, failed]);
 
   if (failed) {
     return (

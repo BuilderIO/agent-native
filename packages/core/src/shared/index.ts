@@ -138,6 +138,7 @@ export {
 } from "./environment-lanes.js";
 export {
   SSR_HTML_CONTENT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,

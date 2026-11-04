@@ -10,6 +10,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  publicClipVisitor,
+  takePublicClipRead,
+} from "../server/lib/clip-public-visitor.js";
 import type { ClipReader, ClipUploader } from "../server/lib/clips-peer.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { isClipRecordingId } from "../shared/clip-embed-block.js";
@@ -70,6 +74,14 @@ const FAILURES: Record<
     statusCode: 403,
     message: "Comments are turned off for this Clip",
   },
+  [CLIP_PLAYBACK_ERRORS.commentRequired]: {
+    statusCode: 403,
+    message: "Only people who can comment on the page can comment on its Clips",
+  },
+  [CLIP_PLAYBACK_ERRORS.commentKeyUsed]: {
+    statusCode: 409,
+    message: "A different comment was already saved with this key",
+  },
   [CLIP_PLAYBACK_ERRORS.forbidden]: {
     statusCode: 403,
     message: "Clips refused this reader",
@@ -113,22 +125,66 @@ async function documentState(documentId: string) {
   return row;
 }
 
+const warnedVisitorReasons = new Set<string>();
+
 /**
  * The reader Content may vouch for to Clips about a Clip in this page, after
  * checking they can read it. A signed-out reader, or a public page's
- * anonymous viewer, counts only on a public page and is never named.
+ * anonymous viewer, counts only on a public page and is never named: each
+ * network spends its own reads, here and at Clips, under an opaque key.
  */
 export async function authorizeClipReader(
   documentId: string,
+  requestHeaders: Headers | undefined,
 ): Promise<ClipReader> {
+  const { reader } = await authorizeReader(documentId);
+  if (reader.kind === "signed-in") return reader;
+
+  const visitor = publicClipVisitor(requestHeaders);
+  if (visitor.reason && !warnedVisitorReasons.has(visitor.reason)) {
+    warnedVisitorReasons.add(visitor.reason);
+    console.warn(
+      "[content-clips] no readable edge client address on a signed-out Clip read; those readers share one budget",
+      { reason: visitor.reason },
+    );
+  }
+  if (visitor.key === null) return { kind: "public", visitorKey: null };
+  if (!takePublicClipRead(visitor.key)) {
+    failClip(CLIP_PLAYBACK_ERRORS.rateLimited);
+  }
+  return { kind: "public", visitorKey: visitor.key };
+}
+
+/**
+ * The reader Content may vouch for to Clips to comment on a Clip in this
+ * page: a signed-in reader who can comment on the page itself. A signed-out
+ * reader of a public page never can.
+ */
+export async function authorizeClipCommenter(
+  documentId: string,
+): Promise<ClipUploader> {
+  const { reader, role } = await authorizeReader(documentId);
+  if (
+    reader.kind !== "signed-in" ||
+    !role ||
+    !roleSatisfies(role, "commenter")
+  ) {
+    failClip(CLIP_PLAYBACK_ERRORS.commentRequired);
+  }
+  return reader;
+}
+
+async function authorizeReader(documentId: string) {
   const email = getRequestUserEmail();
   const readerEmail = email && !isPublicViewerOwner(email) ? email : null;
 
+  let role: Parameters<typeof roleSatisfies>[0] | null = null;
   if (readerEmail) {
     const access = await resolveDocumentAccess(documentId, {
       skipResourceBody: true,
     });
     if (!access) failClip(CLIP_PLAYBACK_ERRORS.documentNotFound);
+    role = access.role;
   }
   const state = await documentState(documentId);
   if (!state || state.trashedAt) {
@@ -147,13 +203,14 @@ export async function authorizeClipReader(
   });
   if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
 
-  return readerEmail
+  const reader: ClipReader = readerEmail
     ? {
         kind: "signed-in",
         email: readerEmail,
         name: getRequestUserName() ?? null,
       }
-    : { kind: "public" };
+    : { kind: "public", visitorKey: null };
+  return { reader, role };
 }
 
 /**

@@ -5,6 +5,11 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import {
+  createThread,
+  ensureChatThreadTables,
+  registerChatThreadsShareable,
+} from "../chat-threads/store.js";
 import { closeDbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { SCHEMA_SNAPSHOT } from "../db/schema-snapshot.generated.js";
@@ -53,6 +58,8 @@ beforeAll(async () => {
     ),
   });
   await withMigrationRuntime(ensureRunTables);
+  registerChatThreadsShareable();
+  await withMigrationRuntime(ensureChatThreadTables);
 });
 afterAll(async () => {
   __setSchemaSnapshotForTests(undefined);
@@ -123,6 +130,7 @@ async function approve(
   actions: Record<string, ActionEntry>,
   structuredHistory: AgentChatStructuredMessage[] = pausedTurn,
 ) {
+  await createThread("alice@example.com", { id: threadId, orgId: "acme" });
   const { engine, stream, messages } = testEngine();
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",

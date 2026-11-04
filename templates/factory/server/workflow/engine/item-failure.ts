@@ -1,4 +1,6 @@
 import type { Wake } from "../contract.js";
+import { ERROR_PORT, routesErrors } from "../ports.js";
+import { fitText } from "./bounds.js";
 import {
   ATTEMPTS_COUNTER,
   END_STATUS,
@@ -98,6 +100,48 @@ async function cannotPark(
   );
 }
 
+/** The most of a failure's message an item carries down the error output. */
+const ROUTED_MESSAGE_BYTES = 1000;
+
+/**
+ * Sends an item that failed at a node set to route errors out of its `error`
+ * port. The item is what went into the node, as it was, with the failure under
+ * `item.error` so the nodes after it read the real code and message. It is not
+ * counted as failed: it is accounted for by the port it leaves through.
+ */
+async function routeFailure(
+  call: Pick<NodeCall, "ctx" | "node" | "step">,
+  item: FlowItem,
+  failure: ItemFailure,
+  outcomeUnknown: boolean,
+): Promise<void> {
+  const { ctx, node, step } = call;
+  const message = fitText(failure.message, ROUTED_MESSAGE_BYTES);
+  step.itemRouted(
+    {
+      ...item,
+      data: {
+        ...item.data,
+        error: {
+          code: failure.code,
+          message,
+          node: node.name,
+          outcomeUnknown,
+        },
+      },
+    },
+    failure,
+  );
+  ctx.runtime.errorRouted += 1;
+  ctx.runtime.record({
+    itemId: item.id,
+    nodeId: node.id,
+    kind: "decision",
+    port: ERROR_PORT,
+    summary: `routed to the error output: ${failure.code}: ${message}`,
+  });
+}
+
 /**
  * One item failed at a node. It records why, leaves the batch (it appears in
  * no output), and spends an attempt, and then one of three things holds, so a
@@ -111,6 +155,12 @@ async function cannotPark(
  *   would lose it behind a cursor or a window, which never do;
  * - the write may already have happened (`needsCheck`): retrying could repeat
  *   it, so the item ends for a person at once without spending attempts.
+ *
+ * A node set to route errors sends the item out of its `error` port where the
+ * last two would end it, and in a dry or test run, which parks nothing, where
+ * the first would too. A write that may have happened is still handed to a
+ * person and still counted to check, so an alert on the error path never makes
+ * it read as handled; it is routed with `outcomeUnknown` set.
  */
 export async function failItem(
   call: Pick<NodeCall, "ctx" | "node" | "step">,
@@ -132,13 +182,19 @@ export async function failItem(
     step.itemNeedsCheck(failure);
     runtime.needsCheck += 1;
     await handOff(call, item, failure.message);
+    if (routesErrors(node)) await routeFailure(call, item, failure, true);
     return;
   }
 
+  const attempts = await runtime.bump(item.id, ATTEMPTS_COUNTER);
+  const spent = failure.retryable !== true || attempts >= MAX_ITEM_ATTEMPTS;
+  if (routesErrors(node) && (spent || !runtime.live)) {
+    await routeFailure(call, item, failure, false);
+    return;
+  }
   step.itemFailed(failure);
   runtime.failed += 1;
-  const attempts = await runtime.bump(item.id, ATTEMPTS_COUNTER);
-  if (failure.retryable !== true || attempts >= MAX_ITEM_ATTEMPTS) {
+  if (spent) {
     const last = `${failure.code}: ${failure.message}`;
     const ended = await handOff(
       call,

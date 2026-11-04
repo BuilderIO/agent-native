@@ -1,3 +1,15 @@
+## 0.1.6
+
+### Patch Changes
+
+- 3107f96: Preserve MCP tool error and read-only metadata through action execution, and allow Pinpoint's empty test suite to pass intentionally.
+
+## 0.1.5
+
+### Patch Changes
+
+- 1ba9738: Keep the pinpoint toolbar inside the viewport when the agent sidebar is open by tracking the visible sidebar width via MutationObserver + ResizeObserver and clamping toolbar position + drag bounds.
+
 ## 0.1.4
 
 ### Patch Changes
