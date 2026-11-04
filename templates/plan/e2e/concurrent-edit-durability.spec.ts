@@ -582,6 +582,69 @@ test("deleting what a merged save brought in stays deleted", async ({
   await expectPersisted(page, planId, { has: mine, lacks: theirs });
 });
 
+test("typing over what a merged save brought in asks instead of overwriting it", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  const more = `MORE${stamp}`;
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let heldSaves = 0;
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  // The document can't see the other write until my save has merged with it.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  await typeAtEndOf(page, "Bravo block seed.", ` ${more}`);
+  releaseSaves();
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  releaseReads();
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: more });
+  expect(await persistedText(page, planId)).toContain(mine);
+});
+
 test("the other version arriving just after I keep mine doesn't replace my choice", async ({
   page,
 }) => {

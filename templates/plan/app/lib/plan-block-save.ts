@@ -1,9 +1,9 @@
 import {
-  rebaseOntoSaved,
   type SavedRecord,
   type SaveOverlap,
   type SaveWithMergeOptions,
 } from "@agent-native/core/save-conflict";
+import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type { PlanBlock } from "@shared/plan-content";
 import { diffWordsWithSpace } from "diff";
 
@@ -85,6 +85,8 @@ export function documentHoldsTheirChanges(
 /** This tab's last save: what it was given, and what came back. */
 export interface OwnBlockSave {
   planId: string;
+  /** The revision that save started from, which the plan has since moved past. */
+  startedFrom: string | null;
   sent: PlanBlock[];
   saved: SavedPlanBlocks;
 }
@@ -110,9 +112,13 @@ export function startBlockSave(
     own &&
     (!loaded || (own.saved.revision ?? "") >= (loaded.revision ?? ""))
   ) {
+    const rebased = mergePlanBlocks(own.sent, blocks, own.saved.value);
+    if (rebased.ok) return { base: own.saved, mine: rebased.merged };
+    // The document changed something that save's merge brought in. Sent from a
+    // revision the plan has moved past, this comes back as a conflict, which asks.
     return {
-      base: own.saved,
-      mine: rebaseOntoSaved(own.sent, blocks, own.saved.value),
+      base: { value: own.sent, revision: own.startedFrom },
+      mine: blocks,
     };
   }
   if (!loaded) throw new Error("A plan revision is required to save blocks.");

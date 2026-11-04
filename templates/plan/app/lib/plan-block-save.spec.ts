@@ -17,6 +17,7 @@ const loaded = {
 
 const own = (): OwnBlockSave => ({
   planId: "plan_1",
+  startedFrom: loaded.revision,
   sent: [prose("a", "Alpha. mine"), prose("b", "Bravo.")],
   saved: {
     value: [prose("a", "Alpha. mine"), prose("b", "Bravo. theirs")],
@@ -148,12 +149,15 @@ describe("startBlockSave", () => {
     ]);
   });
 
-  it("keeps what the document changed since, over what the save brought in", () => {
-    const start = startBlockSave(own(), loaded, null, [
+  it("sends a change to what the save brought in from a passed revision, so it asks", () => {
+    const blocks = [
       prose("a", "Alpha. mine"),
       prose("b", "Bravo. newer local"),
-    ]);
-    expect(start.mine[1]).toEqual(prose("b", "Bravo. newer local"));
+    ];
+    expect(startBlockSave(own(), loaded, null, blocks)).toEqual({
+      base: { value: own().sent, revision: loaded.revision },
+      mine: blocks,
+    });
   });
 
   it("starts from the document when another writer's save is newer than this tab's", () => {

@@ -4092,7 +4092,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         };
       },
     });
-    lastBlockSaveRef.current = { planId, sent, saved };
+    lastBlockSaveRef.current = {
+      planId,
+      startedFrom: base.revision,
+      sent,
+      saved,
+    };
   };
 
   const patchStructuredContent = async (
