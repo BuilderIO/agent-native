@@ -36,6 +36,8 @@ import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
 } from "./action-ui.js";
+import { normalizeOptionalToolPlaceholders } from "./agent/optional-placeholders.js";
+import { getStrictToolInputValidator } from "./agent/strict-tool-input.js";
 import type {
   ActionTool,
   AgentChatAttachment,
@@ -2770,8 +2772,18 @@ export async function actionCallIntent(
       : undefined;
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
+    const repaired = getStrictToolInputValidator(entry)
+      ? { input, error: undefined }
+      : normalizeOptionalToolPlaceholders(
+          entry.tool?.parameters,
+          coerceGatewayStringifiedArgs(input, entry.tool?.parameters),
+          entry,
+          { nullOnly: true },
+        );
+    if (repaired.error) throw repaired.error;
+    args = repaired.input;
     if (schema) {
-      args = await validateActionArgs(schema, input, entry.tool?.parameters);
+      args = await validateActionArgs(schema, args, entry.tool?.parameters);
     }
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.
