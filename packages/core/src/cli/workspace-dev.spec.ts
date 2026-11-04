@@ -1,4 +1,8 @@
-import type { ChildProcess, spawn } from "node:child_process";
+import {
+  spawn as spawnReal,
+  type ChildProcess,
+  type spawn,
+} from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http from "node:http";
@@ -815,19 +819,17 @@ describe("workspace dev startup", () => {
     );
 
     const installCall = fake.calls().at(-1);
-    expect(
-      installCall?.options?.shell
-        ? shellLineArgv(installCall.command)
-        : [installCall?.command, ...(installCall?.args ?? [])],
-    ).toEqual([
-      "pnpm",
-      "--dir",
-      tmpDir,
-      "install",
-      "--no-frozen-lockfile",
-      "--prefer-offline",
-      "--config.confirmModulesPurge=false",
-    ]);
+    expect(installCall).toMatchObject({
+      command: "pnpm",
+      args: [
+        "--dir",
+        tmpDir,
+        "install",
+        "--no-frozen-lockfile",
+        "--prefer-offline",
+        "--config.confirmModulesPurge=false",
+      ],
+    });
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     createViteBin(path.join(tmpDir, "apps", "todo"));
@@ -1114,7 +1116,7 @@ describe("spawnPnpm", () => {
     );
     expect(calls).toEqual([
       [
-        '"pnpm" "--dir" "C:\\Users\\Jane Doe\\ws\\apps\\todo" "exec" "vite" "--port" "8101"',
+        'pnpm "--dir" "C:\\Users\\Jane Doe\\ws\\apps\\todo" "exec" "vite" "--port" "8101"',
         [],
         { ...options, shell: true },
       ],
@@ -1124,8 +1126,80 @@ describe("spawnPnpm", () => {
   it("keeps a trailing backslash from escaping the closing quote on win32", () => {
     const { calls, spawnProcess } = recordingSpawn();
     spawnPnpm(spawnProcess, ["--dir", "C:\\", "install"], options, "win32");
-    expect(calls[0][0]).toBe('"pnpm" "--dir" "C:\\\\" "install"');
+    expect(calls[0][0]).toBe('pnpm "--dir" "C:\\\\" "install"');
   });
+
+  // cmd.exe expands `%NAME%` even inside double quotes, so such an argument is
+  // handed over in a private environment variable instead of in the command line.
+  it("passes a win32 argument containing %NAME% through the environment", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    const dir = "C:\\Users\\%USERNAME%\\ws";
+    spawnPnpm(
+      spawnProcess,
+      ["--dir", dir, "install"],
+      { ...options, env: { KEEP: "1" } },
+      "win32",
+    );
+    expect(calls).toEqual([
+      [
+        'pnpm "--dir" "%AGENT_NATIVE_PNPM_ARG_1%" "install"',
+        [],
+        {
+          ...options,
+          env: { KEEP: "1", AGENT_NATIVE_PNPM_ARG_1: dir },
+          shell: true,
+        },
+      ],
+    ]);
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "delivers arguments to a real pnpm.cmd unchanged, including %NAME%",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spawn-pnpm-"));
+      const out = path.join(dir, "argv.json");
+      fs.writeFileSync(
+        path.join(dir, "record-argv.cjs"),
+        "require('fs').writeFileSync(process.env.PNPM_TEST_OUT, JSON.stringify(process.argv.slice(2)))",
+      );
+      fs.writeFileSync(
+        path.join(dir, "pnpm.cmd"),
+        '@echo off\r\n"%PNPM_TEST_NODE%" "%~dp0record-argv.cjs" %*\r\n',
+      );
+      const args = [
+        "--dir",
+        "C:\\Users\\Jane Doe\\%PNPM_TEST_VAR%\\ws\\",
+        "exec",
+        "vite",
+      ];
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const child = spawnPnpm(
+            spawnReal as typeof spawn,
+            args,
+            {
+              stdio: "ignore",
+              env: {
+                ...process.env,
+                PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+                PNPM_TEST_NODE: process.execPath,
+                PNPM_TEST_OUT: out,
+                PNPM_TEST_VAR: "EXPANDED",
+              },
+            },
+            "win32",
+          );
+          child.on("error", reject);
+          child.on("exit", (code) =>
+            code === 0 ? resolve() : reject(new Error(`exit ${code}`)),
+          );
+        });
+        expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual(args);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("refuses a win32 argument with a double quote, which cmd.exe cannot quote", () => {
     const { calls, spawnProcess } = recordingSpawn();
@@ -1457,7 +1531,11 @@ async function waitUntil(
 
 /** Splits the quoted command line `spawnPnpm` hands to a Windows shell. */
 function shellLineArgv(line: string): string[] {
-  return [...line.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+  const [command] = line.split(" ");
+  return [
+    command,
+    ...[...line.matchAll(/"([^"]*)"/g)].map((match) => match[1]),
+  ];
 }
 
 function fakeSpawn(pid?: number): {
@@ -1510,9 +1588,13 @@ function fakeSpawn(pid?: number): {
         return true;
       }) as ChildProcess["kill"];
       child.unref = vi.fn() as ChildProcess["unref"];
+      // On Windows pnpm is launched as one quoted command line (see spawnPnpm).
+      const [recordedCommand, ...recordedArgs] = options?.shell
+        ? shellLineArgv(command)
+        : [command, ...args];
       calls.push({
-        command,
-        args,
+        command: recordedCommand,
+        args: recordedArgs,
         options,
         child: child as ChildProcess & EventEmitter,
       });
@@ -1525,13 +1607,12 @@ function fakeSpawn(pid?: number): {
     calls: () => calls,
     startedApps: () =>
       calls
-        .map(({ command, args, options }) =>
-          options?.shell ? shellLineArgv(command) : [command, ...args],
-        )
         .filter(
-          (argv) =>
-            argv[0] === "pnpm" && argv[1] === "--dir" && argv[3] === "exec",
+          (call) =>
+            call.command === "pnpm" &&
+            call.args[0] === "--dir" &&
+            call.args[2] === "exec",
         )
-        .map((argv) => path.basename(argv[2])),
+        .map((call) => path.basename(call.args[1])),
   };
 }
