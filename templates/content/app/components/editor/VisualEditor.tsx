@@ -169,6 +169,8 @@ import {
   CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
+  TOGGLE_SUMMARY_PLACEHOLDER,
+  TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
@@ -710,7 +712,13 @@ const NotionMarkdownShortcuts = Extension.create({
       if (!view.state.selection.empty) return null;
 
       const { $from } = view.state.selection;
-      if (!$from.parent.isTextblock) return null;
+      // A Toggle's title is its own line, not a block to turn into another.
+      if (
+        !$from.parent.isTextblock ||
+        $from.parent.type.name === TOGGLE_TITLE_NODE
+      ) {
+        return null;
+      }
 
       const blockStart = $from.start();
       const textBeforeCursor = view.state.doc.textBetween(blockStart, from);
@@ -2520,6 +2528,8 @@ function getVisualEditorPlaceholder({
   hasAnchor: boolean;
   emptyBlockPlaceholder?: string;
 }): string {
+  if (node.type.name === TOGGLE_TITLE_NODE) return TOGGLE_SUMMARY_PLACEHOLDER;
+
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
@@ -2908,6 +2918,7 @@ export function createVisualEditorExtensions({
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
+        isEdit: isLocalEditorEdit,
         resolvePageLink: resolveNotionPageLink,
       }),
       ...notionFidelityExtensions,

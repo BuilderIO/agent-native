@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2885,11 +2885,21 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
-      cwd: input.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+    // shell. The app id is validated and the template comes from an allowlist,
+    // so one joined command line is safe there.
+    const args = ["exec", "agent-native", ...input.args];
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? ["pnpm", ...args].join(" ") : "pnpm",
+      windows ? [] : args,
+      {
+        cwd: input.cwd,
+        shell: windows,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -2899,7 +2909,15 @@ function runScaffoldCli(input: {
       stderr += String(chunk);
     });
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      if (windows && child.pid) {
+        // The child is cmd.exe, so stop its whole tree before the caller
+        // removes the app folder. taskkill returns once the tree is gone.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
       reject(
         new Error(
           `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,

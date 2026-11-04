@@ -77,6 +77,23 @@ export type ComposeAttachment = {
   accountEmail?: string;
 };
 
+// What the Mail card reads for one draft (get-draft-card).
+export type DraftCardThread = {
+  messages: EmailMessage[];
+  status: "none" | "ready" | "unavailable";
+};
+
+export type DraftCardData =
+  | { draft: null }
+  | {
+      draft: ComposeState;
+      revision: string;
+      accounts: Array<{ email: string }>;
+      thread: DraftCardThread;
+      settings: Pick<UserSettings, "signature" | "imagePolicy">;
+      deepLink: string;
+    };
+
 export type ComposeState = {
   id: string;
   to: string;
