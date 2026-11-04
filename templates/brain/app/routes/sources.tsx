@@ -128,6 +128,10 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  documentImportFormat,
+  DOCUMENT_IMPORT_EXTENSIONS,
+} from "../../shared/document-import";
+import {
   sourceListValues,
   validateGitHubRepoInput,
   validateSlackChannelInput,
@@ -1709,10 +1713,6 @@ type MarkdownFileSelection = {
   file: File;
 };
 
-function isMarkdownFilePath(path: string) {
-  return /\.(?:md|markdown)$/i.test(path);
-}
-
 function actionErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -1730,6 +1730,7 @@ function MarkdownImportDialog({
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<MarkdownFileSelection[]>([]);
   const [skippedFileCount, setSkippedFileCount] = useState(0);
   const [result, setResult] = useState<MarkdownImportResponse | null>(null);
@@ -1757,7 +1758,7 @@ function MarkdownImportDialog({
     const byPath = new Map<string, MarkdownFileSelection>();
     for (const file of selected) {
       const path = file.webkitRelativePath || file.name;
-      if (isMarkdownFilePath(path)) byPath.set(path, { path, file });
+      if (documentImportFormat(path)) byPath.set(path, { path, file });
     }
     setFiles(Array.from(byPath.values()));
     setSkippedFileCount(selected.length - byPath.size);
@@ -1816,6 +1817,14 @@ function MarkdownImportDialog({
                 directory: "",
               } as { webkitdirectory: string; directory: string })}
             />
+            <input
+              ref={filesInputRef}
+              type="file"
+              multiple
+              accept={DOCUMENT_IMPORT_EXTENSIONS.join(",")}
+              className="sr-only"
+              onChange={handleFileSelection}
+            />
             <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium">
@@ -1829,15 +1838,24 @@ function MarkdownImportDialog({
                   {t("sources.manualImportFileLimit")}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => inputRef.current?.click()}
-              >
-                <IconFolderOpen className="size-4" />
-                {t("sources.chooseMarkdownFolder")}
-              </Button>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => filesInputRef.current?.click()}
+                >
+                  <IconFileText className="size-4" />
+                  {t("sources.chooseDocumentFiles")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => inputRef.current?.click()}
+                >
+                  <IconFolderOpen className="size-4" />
+                  {t("sources.chooseMarkdownFolder")}
+                </Button>
+              </div>
             </div>
 
             {skippedFileCount ? (
