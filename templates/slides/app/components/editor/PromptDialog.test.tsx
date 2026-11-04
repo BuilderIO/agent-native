@@ -45,6 +45,7 @@ const tryDelegateBuildRequestToBuilder = vi.hoisted(() =>
   vi.fn(async () => false),
 );
 const promptComposerProps = vi.hoisted(() => vi.fn());
+const composerSourceDraft = vi.hoisted(() => ({ empty: false }));
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
@@ -123,6 +124,7 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
     initialTextKey?: string | number;
     composerRef?: Ref<{
       focus(): void;
+      addAttachment(file: File): Promise<unknown>;
       submitWithText(text: string): Promise<boolean>;
     }>;
     onTextChange?: (text: string) => void;
@@ -144,23 +146,29 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   }) => {
     promptComposerProps(props);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const attachedFiles = useRef<File[]>(
+      composerSourceDraft.empty ? [] : [promptFile],
+    );
     useImperativeHandle(props.composerRef, () => ({
       focus: () => inputRef.current?.focus(),
+      addAttachment: async (file: File) => {
+        attachedFiles.current.push(file);
+        props.onAttachmentsChange?.(attachedFiles.current);
+      },
       submitWithText: async (text: string) => {
         if (props.disabled || props.submissionDisabled) return false;
+        if (!text.trim() && attachedFiles.current.length === 0) return false;
         try {
-          await props.onSubmit(text, [promptFile], [], {
+          await props.onSubmit(text, attachedFiles.current, [], {
             model: "gpt-5.6-terra",
             engine: "builder",
             effort: "high",
             contextItems: props.contextItems,
-            attachments: [
-              {
-                name: promptFile.name,
-                contentType: promptFile.type,
-                file: promptFile,
-              },
-            ],
+            attachments: attachedFiles.current.map((file) => ({
+              name: file.name,
+              contentType: file.type,
+              file,
+            })),
           });
           return true;
         } catch {
@@ -1451,6 +1459,7 @@ describe.each(["popover", "inline"] as const)(
 describe("inline prompt starters", () => {
   afterEach(() => {
     cleanup();
+    composerSourceDraft.empty = false;
     vi.unstubAllGlobals();
   });
 
@@ -1872,6 +1881,58 @@ describe("inline prompt starters", () => {
       }),
     );
     expect(onSubmit.mock.calls[0][0]).not.toContain("Hidden source data");
+  });
+
+  it("submits a source file without requiring prompt text", async () => {
+    composerSourceDraft.empty = true;
+    const html = "<section>Source slide</section>";
+    const file = new File([html], "source.html", { type: "text/html" });
+    stubReadyStorageUpload(
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              path: "uploads/source.html",
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+    const controllerRef = createRef<PromptPopoverHandle>();
+    const onSubmit = vi.fn().mockReturnValue("retain");
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        controllerRef={controllerRef}
+      />,
+    );
+    await act(async () => {
+      expect(await controllerRef.current?.submitSource("", [file])).toBe(true);
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      "",
+      expect.any(Array),
+      expect.objectContaining({
+        attachments: [
+          {
+            type: "file",
+            name: file.name,
+            contentType: file.type,
+            data: `data:text/html;base64,${btoa(html)}`,
+          },
+        ],
+      }),
+      expect.any(Object),
+    );
   });
 
   it("does not upload or submit when context revalidation fails", async () => {

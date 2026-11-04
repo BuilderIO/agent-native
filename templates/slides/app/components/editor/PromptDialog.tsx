@@ -205,7 +205,6 @@ export default function PromptPopover({
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
-  const sourceFilesRef = useRef<File[]>([]);
   const sourceContextRef = useRef<string | undefined>(undefined);
   const [modelSelection, setModelSelection] = useState<
     PromptModelSelection | undefined
@@ -399,23 +398,9 @@ export default function PromptPopover({
       _references: unknown[],
       options?: SlidesPromptSubmitOptions,
     ) => {
-      files = [...new Set([...files, ...sourceFilesRef.current])];
       if (files.length > 0 && !fileStorageConfigured) {
         setStoragePromptOpen(true);
         return;
-      }
-      if (sourceFilesRef.current.length) {
-        options = {
-          ...options,
-          attachments: [
-            ...(options?.attachments ?? []),
-            ...sourceFilesRef.current.map((file) => ({
-              name: file.name,
-              contentType: file.type,
-              file,
-            })),
-          ],
-        };
       }
       const submittedContext =
         [googleDocContext, sourceContextRef.current]
@@ -551,14 +536,14 @@ export default function PromptPopover({
           !composerRef.current
         )
           return false;
-        sourceFilesRef.current = files;
+        const composer = composerRef.current;
         sourceContextRef.current = sourceContext;
         try {
-          return await composerRef.current.submitWithText(
+          for (const file of files) await composer.addAttachment(file);
+          return await composer.submitWithText(
             [promptText.trim(), prompt].filter(Boolean).join("\n\n"),
           );
         } finally {
-          sourceFilesRef.current = [];
           sourceContextRef.current = undefined;
         }
       },
