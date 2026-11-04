@@ -59,6 +59,8 @@ export interface AppShellFirstPaintHome {
   suggestionSeed?: number;
   promptDraftScope?: string;
   promptHandoffScope?: string;
+  /** The hydrated app must consume and submit files from an empty-text draft. */
+  supportsFileOnlySubmissions?: boolean;
   onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   renderComposer: (
     props: Pick<
@@ -477,7 +479,11 @@ function FirstPaintPromptLibrary({
       });
     },
     onSubmit: (text, files) => {
-      if (!text.trim() && files.length === 0) return;
+      if (
+        !text.trim() &&
+        !(config.supportsFileOnlySubmissions && files.length > 0)
+      )
+        return;
       submittedRef.current = true;
       writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
         files,

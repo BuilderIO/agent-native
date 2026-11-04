@@ -217,6 +217,7 @@ function slidesFirstPaintCopy(messages: typeof slidesEnglish) {
 
 const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appId: "slides",
+  supportsFileOnlySubmissions: true,
   ...slidesFirstPaintCopy(slidesEnglish),
   headerHeight: 56,
   localizeMessages: (messages) =>

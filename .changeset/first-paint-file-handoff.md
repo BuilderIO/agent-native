@@ -2,4 +2,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Preserve file-only submissions while the first-paint composer hands off to the loaded app.
+Let apps opt in to preserving file-only first-paint submissions for their hydrated composer.
