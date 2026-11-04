@@ -3,7 +3,10 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
-import { currentSessionIdentity } from "../client/session-identity.js";
+import {
+  currentSessionIdentity,
+  subscribeSessionIdentity,
+} from "../client/session-identity.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
@@ -24,6 +27,7 @@ import {
 } from "./awareness-post.js";
 import {
   clearCollabLocalCopies,
+  forgetCollabLocalCopiesInThisTab,
   collabLocalCopyKey,
   deleteCollabLocalCopy,
   peekCollabLocalCopy,
@@ -550,6 +554,8 @@ class CollabDocConnection {
   // Until then, the vector past which content in the doc was typed here (or
   // kept unsent from before): the copy's, or null once nothing is tracked.
   private typingBaseline: Map<number, number> | null = null;
+  // Whether content the saved copy held has been deleted since it opened.
+  private deletedOnLocalCopy = false;
   // The session this connection's account came from, once the tab has read one.
   // It can name the account by id, so it's only compared with itself.
   private sessionIdentity = currentSessionIdentity();
@@ -1243,11 +1249,12 @@ class CollabDocConnection {
       validationDoc.destroy();
     }
     Y.applyUpdate(this.ydoc, state, "remote");
+    this.localCopyVector = Y.encodeStateVectorFromUpdate(state);
+    this.typingBaseline = Y.decodeStateVector(this.localCopyVector);
+    this.ydoc.on("afterTransaction", this.noteDeletionOnLocalCopy);
     for (const item of this.pendingUpdates) {
       Y.applyUpdate(this.ydoc, item.update, "remote");
     }
-    this.localCopyVector = Y.encodeStateVectorFromUpdate(state);
-    this.typingBaseline = Y.decodeStateVector(this.localCopyVector);
     this.awaitingServerState = true;
     // Edits made now wait in the queue until the server's state covers the
     // copy: only then is everything they build on known to be the server's.
@@ -1365,7 +1372,9 @@ class CollabDocConnection {
     // typing as it was is handed over.
     const typed = this.typedOnLocalCopy();
     const withTyping =
-      typed.length > 0 ? Y.encodeStateAsUpdate(this.ydoc) : null;
+      typed.length > 0 || this.deletedOnLocalCopy
+        ? Y.encodeStateAsUpdate(this.ydoc)
+        : null;
     try {
       Y.applyUpdate(this.ydoc, update, "remote");
     } catch (error) {
@@ -1467,11 +1476,35 @@ class CollabDocConnection {
     return typed;
   }
 
-  /** Hands typing on the saved copy over, if there is any; then stops looking. */
+  // Runs before the transaction's deleted items are collected, while they can
+  // still say what they held.
+  private noteDeletionOnLocalCopy = (transaction: Y.Transaction): void => {
+    const baseline = this.typingBaseline;
+    if (!baseline || this.deletedOnLocalCopy) return;
+    Y.iterateDeletedStructs(transaction, transaction.deleteSet, (struct) => {
+      if (
+        struct instanceof Y.Item &&
+        struct.countable &&
+        struct.parentSub === null &&
+        struct.id.clock < (baseline.get(struct.id.client) ?? 0)
+      )
+        this.deletedOnLocalCopy = true;
+    });
+  };
+
+  /**
+   * Hands typing on the saved copy over, if there is any; then stops looking.
+   * A deletion goes too when the copy is given up for the server's doc, which
+   * still holds what was deleted. A page that's gone has nothing to keep it for.
+   */
   private releaseTypingOnLocalCopy(
     reason: DisplacedCollabEdits["reason"],
   ): void {
-    if (this.typedOnLocalCopy().length > 0) {
+    const deleted =
+      reason === "superseded" &&
+      this.typingBaseline !== null &&
+      this.deletedOnLocalCopy;
+    if (deleted || this.typedOnLocalCopy().length > 0) {
       this.handOffDisplacedTyping(Y.encodeStateAsUpdate(this.ydoc), reason);
     }
     this.typingBaseline = null;
@@ -2579,6 +2612,12 @@ const rejectedLocalCopies = new Set<string>();
 const displacedTyping = new Map<string, DisplacedCollabEdits[]>();
 
 const SIGN_OUT_LOCAL_COPY_CLEAR_MS = 2000;
+
+// A sign-out in another tab cleared the stored copies; what this tab holds of
+// them goes once it reads that session.
+subscribeSessionIdentity((identity) => {
+  if (identity === null) forgetCollabLocalCopiesInThisTab();
+});
 
 // Saved copies are one account's; none survive a sign-out.
 registerBeforeSignOutCleanup(async () => {

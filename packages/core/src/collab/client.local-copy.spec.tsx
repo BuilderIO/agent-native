@@ -545,6 +545,87 @@ describe("collab local copies", () => {
     expect(displaced).toHaveLength(1);
   });
 
+  it("hands over a deletion on a copy the server's doc no longer holds", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await visit();
+    server.destroy();
+    server = new Y.Doc();
+    server.getText("content").insert(0, "fresh");
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    act(() => {
+      current().ydoc!.getText("content").delete(0, 2);
+    });
+    release();
+    await advance(10);
+
+    expect(displaced.map((edits) => edits.reason)).toEqual(["superseded"]);
+    expect(textOf(displaced[0]!.state)).toBe("llo");
+    await advance(3_000);
+    expect(text()).toBe("fresh");
+    expect(server.getText("content").toString()).toBe("fresh");
+  });
+
+  it("hands nothing over when all that was deleted had been typed on the copy", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await visit();
+    server.destroy();
+    server = new Y.Doc();
+    server.getText("content").insert(0, "fresh");
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    act(() => {
+      const content = current().ydoc!.getText("content");
+      content.insert(5, " typed");
+      content.delete(5, 6);
+    });
+    release();
+    await advance(10);
+
+    expect(displaced).toHaveLength(0);
+    expect(text()).toBe("fresh");
+  });
+
+  it("sends a deletion on the copy when the server's state covers it", async () => {
+    await visit();
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    act(() => {
+      current().ydoc!.getText("content").delete(0, 2);
+    });
+    release();
+    await advance(3_000);
+
+    expect(displaced).toHaveLength(0);
+    expect(server.getText("content").toString()).toBe("llo");
+  });
+
+  it("hands over no deletion when the server no longer has the doc", async () => {
+    await visit();
+    stateResponses.push("not-found");
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    act(() => {
+      current().ydoc!.getText("content").delete(0, 2);
+    });
+    release();
+    await advance(10);
+
+    expect(current().initialization).toEqual({
+      status: "error",
+      category: "forbidden-or-not-found",
+    });
+    expect(displaced).toHaveLength(0);
+  });
+
   it.each(["unreadable", "unappliable"] as const)(
     "hands over typing when the server's answer is %s, and sends none of it",
     async (response) => {
@@ -892,6 +973,29 @@ describe("collab local copies", () => {
     mount();
     await advance(50);
     expect(stateRequests).toHaveLength(2);
+  });
+
+  it("forgets this tab's copies once another tab's sign-out reaches it", async () => {
+    mount();
+    await advance(50);
+    expect(current().isSynced).toBe(true);
+    act(() => root.unmount());
+    _resetCollabDocRegistryForTests();
+    await _flushCollabLocalCopiesForTests();
+    root = createRoot(container);
+    latest = null;
+    // The other tab cleared the stored copies; this one reads its session after.
+    await store.persistence.clear();
+    recordSessionIdentity(null);
+    recordSessionIdentity(ADA.email);
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    expect(current().fromLocalCopy).toBe(false);
+    release();
+    await advance(50);
+    expect(text()).toBe("hello");
   });
 
   it("drops boot reads when this tab switches organization", async () => {

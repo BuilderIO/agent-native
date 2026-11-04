@@ -422,8 +422,8 @@ export function deleteCollabLocalCopy(account: string, key: string): void {
   );
 }
 
-/** Deletes every copy this browser keeps, for every account. */
-export function clearCollabLocalCopies(): Promise<void> {
+/** Forgets what this tab holds of the copies, and leaves the stored ones. */
+export function forgetCollabLocalCopiesInThisTab(): void {
   clearGeneration += 1;
   memory.clear();
   memoryBytes = 0;
@@ -431,6 +431,11 @@ export function clearCollabLocalCopies(): Promise<void> {
   pendingWrites.clear();
   pendingWritesAccount = null;
   scheduledFlush = null;
+}
+
+/** Deletes every copy this browser keeps, for every account. */
+export function clearCollabLocalCopies(): Promise<void> {
+  forgetCollabLocalCopiesInThisTab();
   const cleared = flushing.then(() => persistence.clear());
   flushing = cleared.catch(() => {});
   return cleared;
@@ -446,13 +451,7 @@ export function _setCollabLocalCopyPersistenceForTests(
   next: CollabLocalCopyPersistence | null,
 ): void {
   persistence = next ?? indexedDbCollabLocalCopies();
-  clearGeneration += 1;
-  memory.clear();
-  memoryBytes = 0;
-  memoryAccount = null;
-  pendingWrites.clear();
-  pendingWritesAccount = null;
-  scheduledFlush = null;
+  forgetCollabLocalCopiesInThisTab();
   flushing = Promise.resolve();
   warnedUnavailable = false;
 }
