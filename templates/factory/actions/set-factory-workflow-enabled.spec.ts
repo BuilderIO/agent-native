@@ -85,6 +85,12 @@ function reportStatus(status: Record<string, string>) {
       status: status[provider] ?? "connected",
       connectWith: "workspace-connection",
       ...(status[provider] === "unknown" ? { detail: "vault down" } : {}),
+      ...(status[provider] === "unreadable"
+        ? {
+            detail:
+              "SLACK_BOT_TOKEN is saved but could not be decrypted here, so a slack read cannot run. Save it again under Keys in Settings.",
+          }
+        : {}),
     })),
   );
 }
@@ -128,6 +134,25 @@ describe("set-factory-workflow-enabled: connections", () => {
     const failure = await kit.failureOf(() => run(input, kit.agentContext));
 
     expect(failure.errorCode).toBe("connection_required");
+  });
+
+  it("refuses with connection_unreadable when a saved key cannot be decrypted, and changes nothing", async () => {
+    reportStatus({ slack: "unreadable" });
+    const created = await createDigest();
+    const jobBefore = kit.readJob(created.job.path);
+
+    const failure = await kit.failureOf(() => toggle(created.workflowId, true));
+
+    expect(failure).toMatchObject({
+      errorCode: "connection_unreadable",
+      statusCode: 412,
+      details: { providers: ["slack"] },
+    });
+    expect(failure.message).toContain("slack (used by post)");
+    expect(failure.message).toContain("SLACK_BOT_TOKEN is saved but");
+    expect(failure.message).not.toContain("request-workflow-connection");
+    expect((await stored(created.workflowId))?.enabled).toBe(false);
+    expect(kit.readJob(created.job.path)).toBe(jobBefore);
   });
 
   it("turns on with a warning when a connection could not be checked", async () => {

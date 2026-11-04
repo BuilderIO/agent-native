@@ -596,13 +596,35 @@ async function runWithConcurrency<T>(
   }
 }
 
-function spawnBuild(
+/**
+ * On Windows pnpm is a pnpm.cmd shim, which only starts through a shell. Each
+ * argument is quoted there so it stays one argument.
+ */
+export function buildStart(
+  cmd: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; shell: boolean } {
+  return platform === "win32"
+    ? {
+        command: [cmd, ...args].map((arg) => `"${arg}"`).join(" "),
+        args: [],
+        shell: true,
+      }
+    : { command: cmd, args, shell: false };
+}
+
+export function spawnBuild(
   cmd: string,
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, options);
+    const start = buildStart(cmd, args);
+    const child = spawn(start.command, start.args, {
+      ...options,
+      shell: start.shell,
+    });
     // Buffered so parallel builds print as whole blocks instead of interleaving.
     const chunks: Buffer[] = [];
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));

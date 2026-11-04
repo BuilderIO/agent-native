@@ -13,8 +13,10 @@ import {
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
+  buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
   runWorkspaceDeploy,
+  spawnBuild,
 } from "./workspace-deploy.js";
 
 const INVALID_DIRECTORY_BASE_LOG = Symbol.for(
@@ -2371,6 +2373,46 @@ describe("workspace deploy", () => {
       }),
     ).rejects.toThrow(/Cloudflare Pages was removed/);
     expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildStart", () => {
+  it("starts a command directly outside Windows", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "linux"),
+    ).toEqual({
+      command: "pnpm",
+      args: ["--filter", "my app", "build"],
+      shell: false,
+    });
+  });
+
+  it("starts a quoted line through a shell on Windows", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
+    ).toEqual({
+      command: '"pnpm" "--filter" "my app" "build"',
+      args: [],
+      shell: true,
+    });
+  });
+});
+
+describe("spawnBuild", () => {
+  it("starts in its directory and keeps a spaced argument whole", async () => {
+    await spawnBuild(
+      process.execPath,
+      [
+        "-e",
+        "require('fs').writeFileSync('args.json', JSON.stringify(process.argv.slice(1)))",
+        "my app",
+      ],
+      { cwd: tmpDir, env: process.env, stdio: "pipe" },
+    );
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(tmpDir, "args.json"), "utf8")),
+    ).toEqual(["my app"]);
   });
 });
 
