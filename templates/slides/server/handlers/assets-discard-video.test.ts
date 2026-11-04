@@ -36,7 +36,10 @@ vi.mock("@agent-native/core/server", () => ({
     mocks.runWithRequestContext(...args),
 }));
 
+vi.mock("@agent-native/core/sharing", () => ({ accessFilter: vi.fn() }));
+
 vi.mock("drizzle-orm", () => ({
+  sql: vi.fn(),
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   isNull: (...args: unknown[]) => ["isNull", ...args],

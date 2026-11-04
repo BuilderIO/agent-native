@@ -5,9 +5,13 @@ type Condition =
   | { operator: "or"; conditions: Condition[] }
   | { operator: "eq"; column: string; value: string }
   | { operator: "isNull"; column: string }
-  | { operator: "notLike"; column: string; pattern: string };
+  | { operator: "notLike"; column: string; pattern: string }
+  | { operator: "accessible" }
+  | { operator: "contains"; column: string; value: string };
 
 const state = vi.hoisted(() => ({
+  decks: { id: "decks.id", data: "decks.data" },
+  deckRows: [] as Array<Record<string, string | null>>,
   assets: {
     id: "id",
     url: "url",
@@ -58,6 +62,18 @@ vi.mock("drizzle-orm", () => ({
     column,
     pattern,
   }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]): Condition => {
+    void strings;
+    return {
+      operator: "contains",
+      column: String(values[0]),
+      value: String(values[1]),
+    };
+  },
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: (): Condition => ({ operator: "accessible" }),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -78,6 +94,10 @@ vi.mock("../db/index.js", () => ({
       if (predicate.operator === "isNull") {
         return row[predicate.column] == null;
       }
+      if (predicate.operator === "accessible") return true;
+      if (predicate.operator === "contains") {
+        return String(row[predicate.column]).includes(predicate.value);
+      }
       if (predicate.operator !== "notLike") return false;
       return !String(row[predicate.column]).startsWith(
         predicate.pattern.slice(0, -1),
@@ -92,11 +112,12 @@ vi.mock("../db/index.js", () => ({
         },
       }),
       select: (selection: Record<string, string>) => ({
-        from: () => ({
+        from: (table: unknown) => ({
           where: (condition: Condition) => {
             state.whereCondition = condition;
+            const source = table === state.decks ? state.deckRows : state.rows;
             const selectRows = () =>
-              state.rows
+              source
                 .filter((row) => matches(condition, row))
                 .map((row) =>
                   Object.fromEntries(
@@ -125,7 +146,7 @@ vi.mock("../db/index.js", () => ({
       }),
     };
   },
-  schema: { uploadedAssets: state.assets },
+  schema: { uploadedAssets: state.assets, decks: state.decks },
 }));
 
 vi.mock("h3", () => ({
@@ -150,6 +171,7 @@ describe("listAssets", () => {
     state.whereCondition = null;
     state.deleteCondition = null;
     state.routerParam.mockReturnValue("image-1");
+    state.deckRows = [];
     vi.mocked(deleteUploadedFile).mockReset();
     vi.mocked(deleteUploadedFile).mockResolvedValue(true);
     vi.mocked(setResponseStatus).mockClear();
@@ -345,6 +367,31 @@ describe("listAssets", () => {
       url: "https://cdn.example.com/slide.png",
     });
     expect(state.rows.some((row) => row.id === "image-1")).toBe(false);
+  });
+
+  it("refuses to delete an asset a deck still uses and keeps the file and row", async () => {
+    state.deckRows = [
+      {
+        "decks.id": "deck-1",
+        "decks.data": '<img src="https://cdn.example.com/slide.png">',
+      },
+    ];
+
+    const result = await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(result).toEqual({ error: expect.any(String) });
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
+    expect(state.rows.some((row) => row.id === "image-1")).toBe(true);
+  });
+
+  it("returns 400 for a malformed asset id without touching storage", async () => {
+    state.routerParam.mockReturnValue("%E0%A4%A");
+
+    await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 400);
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
   });
 
   it("returns 404 for a missing asset and deletes nothing", async () => {

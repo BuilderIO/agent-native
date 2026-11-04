@@ -6,7 +6,8 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -2239,7 +2240,13 @@ export const deleteAsset = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Asset id is required" };
   }
-  const assetId = decodeURIComponent(id);
+  let assetId: string;
+  try {
+    assetId = decodeURIComponent(id);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Asset id is malformed" };
+  }
   const db = getDb();
   const rows = await db
     .select({
@@ -2264,21 +2271,41 @@ export const deleteAsset = defineEventHandler(async (event) => {
     return { error: "Asset belongs to another user" };
   }
 
+  const requestContext = {
+    userEmail: session.email,
+    ...(session.orgId ? { orgId: session.orgId } : {}),
+  };
+  // Deleting the file would break every deck that still shows it, so the caller
+  // must remove it from those decks first.
+  const referencingDecks = await runWithRequestContext(requestContext, () =>
+    db
+      .select({ id: schema.decks.id })
+      .from(schema.decks)
+      .where(
+        and(
+          accessFilter(schema.decks, schema.deckShares),
+          sql`strpos(${schema.decks.data}, ${asset.url}) > 0`,
+        ),
+      )
+      .limit(1),
+  );
+  if (referencingDecks.length > 0) {
+    setResponseStatus(event, 409);
+    return {
+      error: "This asset is used in a deck. Remove it from the deck first.",
+    };
+  }
+
   // A null provider means the upload never recorded where the file lives, so the
   // library entry is removed and the caller is told the file itself remains.
   const provider = asset.provider;
   let storageDeleted = false;
   if (provider) {
-    storageDeleted = await runWithRequestContext(
-      {
-        userEmail: session.email,
-        ...(session.orgId ? { orgId: session.orgId } : {}),
-      },
-      () =>
-        deleteUploadedFile(provider, {
-          ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
-          url: asset.url,
-        }),
+    storageDeleted = await runWithRequestContext(requestContext, () =>
+      deleteUploadedFile(provider, {
+        ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
+        url: asset.url,
+      }),
     );
     if (!storageDeleted) {
       setResponseStatus(event, 502);
