@@ -200,7 +200,8 @@ describe("ThreadSuggestionBody", () => {
   });
 
   it("counts units, and decides each one apart, when a proposal has several", () => {
-    const [first, second] = proposal();
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
     const third = { ...second, id: "edit-2" };
     const label = (suggestion: ResourceSuggestion, reviewUnit: string) => ({
       ...suggestion,

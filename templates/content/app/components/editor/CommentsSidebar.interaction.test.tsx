@@ -496,9 +496,11 @@ describe("comment review interactions", () => {
       const swap = (id: string, find: string, replace: string) => {
         const from = rewrite.indexOf(find);
         const member = piece(id, "k:0", find);
+        const [operation = null] = member.operations;
+        if (!operation) throw new Error("A piece has an operation");
         member.operations = [
           {
-            ...member.operations[0],
+            ...operation,
             before: { markdown: rewrite, changedText: find },
             after: { markdown: rewrite, changedText: replace },
             anchor: { from, to: from + find.length },

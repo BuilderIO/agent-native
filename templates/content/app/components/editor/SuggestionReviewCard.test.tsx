@@ -131,7 +131,7 @@ function render(suggestionIds: string[] = ["edit-0", "edit-1"]) {
 }
 
 // Accept and Reject are icons named by their aria-label.
-const button = (label: string, index = 0) =>
+const button = (label: string, index = 0): HTMLButtonElement | undefined =>
   [...host.querySelectorAll("button")].filter(
     (entry) =>
       entry.textContent === label || entry.getAttribute("aria-label") === label,
@@ -168,7 +168,8 @@ describe("SuggestionReviewCard", () => {
   });
 
   it("decides a unit's pieces with one Accept and leaves the rest", async () => {
-    const [first, second] = proposal();
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
     const labeled = (
       suggestion: ResourceSuggestion,
       id: string,
@@ -182,7 +183,7 @@ describe("SuggestionReviewCard", () => {
     render(["edit-0"]);
 
     expect(shownEdits()).toEqual(["edit-0", "edit-2"]);
-    await act(async () => button("editor.acceptSuggestion").click());
+    await act(async () => button("editor.acceptSuggestion")?.click());
 
     expect(review.decideProposal).toHaveBeenCalledWith(
       expect.objectContaining({

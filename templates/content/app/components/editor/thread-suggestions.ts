@@ -156,10 +156,13 @@ export function reviewUnitOperations(
     .map(placedPiece)
     .filter((piece) => piece !== null)
     .sort((left, right) => left.from - right.from);
-  const [first] = pieces;
-  const last = pieces[pieces.length - 1];
+  const [first = null] = pieces;
+  const [last = null] = pieces.slice(-1);
+  const [leader = null] = operations;
   if (
-    pieces.length === 0 ||
+    !first ||
+    !last ||
+    !leader ||
     pieces.length !== operations.length ||
     pieces.some((piece) => piece.source !== first.source)
   )
@@ -171,7 +174,6 @@ export function reviewUnitOperations(
       text.slice(piece.to - first.from),
     first.source.slice(first.from, last.to),
   );
-  const [leader] = operations;
   return [
     {
       ...leader,

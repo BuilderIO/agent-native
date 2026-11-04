@@ -148,8 +148,14 @@ describe("reviewUnitOperations", () => {
         operations: [operation],
       } as Partial<ResourceSuggestion>),
     );
-    const [leader] = members;
+    const [leader = null] = members;
+    if (!leader) throw new Error("A unit has a piece");
     return { leader, members };
+  };
+  const joined = (...ops: unknown[]) => {
+    const [operation = null] = reviewUnitOperations(unitOf(...ops));
+    if (!operation) throw new Error("A unit has an operation");
+    return operation;
   };
   const swap = (find: string, inserted: string, markdown = source) => {
     const from = markdown.indexOf(find);
@@ -163,9 +169,7 @@ describe("reviewUnitOperations", () => {
   };
 
   it("reads a unit as one change from its first piece to its last", () => {
-    const [operation] = reviewUnitOperations(
-      unitOf(swap("Teh", "The"), swap("recieve", "receive")),
-    );
+    const operation = joined(swap("Teh", "The"), swap("recieve", "receive"));
     expect(operation).toMatchObject({
       kind: "replace_text",
       before: { changedText: "Teh team will recieve" },
@@ -182,9 +186,7 @@ describe("reviewUnitOperations", () => {
   });
 
   it("reads pieces in Page order whichever order they come in", () => {
-    const [operation] = reviewUnitOperations(
-      unitOf(swap("recieve", "receive"), swap("Teh", "The")),
-    );
+    const operation = joined(swap("recieve", "receive"), swap("Teh", "The"));
     expect(operation.after).toMatchObject({
       changedText: "The team will receive",
     });
@@ -192,14 +194,12 @@ describe("reviewUnitOperations", () => {
 
   it("applies a deletion and an insertion that change the length", () => {
     const from = source.indexOf("team");
-    const [operation] = reviewUnitOperations(
-      unitOf(swap("Teh ", ""), {
-        ...swap("team", ""),
-        before: { markdown: source, changedText: "" },
-        after: { markdown: source, changedText: "whole " },
-        anchor: { from, to: from },
-      }),
-    );
+    const operation = joined(swap("Teh ", ""), {
+      ...swap("team", ""),
+      before: { markdown: source, changedText: "" },
+      after: { markdown: source, changedText: "whole " },
+      anchor: { from, to: from },
+    });
     expect(operation.before).toMatchObject({ changedText: "Teh " });
     expect(operation.after).toMatchObject({ changedText: "whole " });
   });

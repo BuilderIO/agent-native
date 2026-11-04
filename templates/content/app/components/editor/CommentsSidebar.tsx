@@ -3263,6 +3263,7 @@ export function CommentsSidebar({
     const anchored = unit.members.filter((member) =>
       anchoredSuggestionIds?.includes(member.id),
     );
+    const [activated = suggestion] = anchored;
     const anchorUnavailable =
       suggestion.status === "pending" &&
       anchoredSuggestionIds !== null &&
@@ -3301,10 +3302,7 @@ export function CommentsSidebar({
         canDecide={canDecideSuggestions}
         deciding={unit.members.some(suggestionBusy)}
         onActivate={() => {
-          if (presentation !== "history")
-            onActivateSuggestion?.(
-              (anchored.length > 0 ? anchored[0] : suggestion).id,
-            );
+          if (presentation !== "history") onActivateSuggestion?.(activated.id);
         }}
         onExpansionChange={(expanded) =>
           setExpandedSuggestionId(expanded ? suggestion.id : null)
@@ -3376,10 +3374,10 @@ export function CommentsSidebar({
     leaderThreadId?: string,
   ) => {
     const units = reviewUnits(members);
-    const [onlyUnit] = units;
+    const [onlyUnit = null] = units;
     // A proposal that is one unit is one decision, so it has nothing to group.
     // Its height sizes the place laid out for the whole proposal.
-    return units.length === 1 && reviewUnitLabel(onlyUnit.leader)
+    return onlyUnit && units.length === 1 && reviewUnitLabel(onlyUnit.leader)
       ? renderSuggestionCard(
           onlyUnit.leader,
           0,

@@ -406,7 +406,8 @@ describe("Content suggested edits Blocks transaction", () => {
         },
         ctx,
       );
-      const [teh, recieve, thursday] = created.suggestions;
+      const [teh = null, recieve = null, thursday = null] = created.suggestions;
+      if (!teh || !recieve || !thursday) throw new Error("Three pieces");
       const accepted = await decide.default.run(
         {
           proposalId: created.proposal.id,
