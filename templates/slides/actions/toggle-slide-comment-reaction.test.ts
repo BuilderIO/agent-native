@@ -90,11 +90,24 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./toggle-slide-comment-reaction";
 
+type ToggleResult = {
+  id: string;
+  emoji: string;
+  reacted: boolean;
+  reactions: { emoji: string; count: number; reacted: boolean }[];
+};
+const toggleAction = action as unknown as {
+  run: (
+    args: { commentId: string; deckId: string; emoji: string },
+    ctx?: { caller: string },
+  ) => Promise<ToggleResult>;
+};
+
 function run(
   args: { commentId: string; deckId: string; emoji: string },
   ctx?: { caller: string },
 ) {
-  return (action as any).run(args, ctx);
+  return toggleAction.run(args, ctx);
 }
 
 beforeEach(() => {

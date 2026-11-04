@@ -118,8 +118,20 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./delete-slide-comment";
 
-function run(args: { id: string; deckId: string }, ctx?: { caller: string }) {
-  return (action as any).run(args, ctx);
+type DeleteArgs = { id: string; deckId: string };
+type DeleteAction = {
+  changeResource: (args: { deckId: string }) => unknown;
+  needsApproval: (
+    args: DeleteArgs,
+    ctx?: { caller: string },
+  ) => Promise<boolean>;
+  audit: { target: (args: DeleteArgs, result: unknown) => unknown };
+  run: (args: DeleteArgs, ctx?: { caller: string }) => Promise<unknown>;
+};
+const deleteAction = action as unknown as DeleteAction;
+
+function run(args: DeleteArgs, ctx?: { caller: string }) {
+  return deleteAction.run(args, ctx);
 }
 
 beforeEach(() => {
@@ -158,14 +170,14 @@ beforeEach(() => {
 
 describe("delete-slide-comment", () => {
   it("announces its change to every collaborator on the deck", () => {
-    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+    expect(deleteAction.changeResource({ deckId: "deck-1" })).toEqual({
       resourceType: "deck",
       resourceId: "deck-1",
     });
   });
 
   it("asks before an agent deletes another person's comment", async () => {
-    const needsApproval = (action as any).needsApproval;
+    const needsApproval = deleteAction.needsApproval;
     expect(
       await needsApproval({ id: "c-3", deckId: "deck-1" }, { caller: "tool" }),
     ).toBe(true);
@@ -178,7 +190,7 @@ describe("delete-slide-comment", () => {
   });
 
   it("asks before an agent deletes a thread root that holds another user's reply", async () => {
-    const needsApproval = (action as any).needsApproval;
+    const needsApproval = deleteAction.needsApproval;
     expect(
       await needsApproval({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
     ).toBe(true);
@@ -195,7 +207,7 @@ describe("delete-slide-comment", () => {
       parentId: null,
       createdAt: "2026-01-03T00:00:00.000Z",
     } as Row);
-    const needsApproval = (action as any).needsApproval;
+    const needsApproval = deleteAction.needsApproval;
     expect(
       await needsApproval({ id: "c-4", deckId: "deck-1" }, { caller: "tool" }),
     ).toBe(true);
@@ -212,7 +224,7 @@ describe("delete-slide-comment", () => {
       parentId: null,
       createdAt: "2026-01-03T00:00:00.000Z",
     } as Row);
-    const needsApproval = (action as any).needsApproval;
+    const needsApproval = deleteAction.needsApproval;
     expect(
       await needsApproval({ id: "c-5", deckId: "deck-1" }, { caller: "tool" }),
     ).toBe(false);
@@ -220,10 +232,7 @@ describe("delete-slide-comment", () => {
 
   it("records the deleted comment as the audit target", () => {
     expect(
-      (action as any).audit.target(
-        { id: "c-3", deckId: "deck-1" },
-        { ok: true },
-      ),
+      deleteAction.audit.target({ id: "c-3", deckId: "deck-1" }, { ok: true }),
     ).toEqual({ type: "slide-comment", id: "c-3" });
   });
 

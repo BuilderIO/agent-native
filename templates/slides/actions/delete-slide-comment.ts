@@ -15,7 +15,7 @@ function removedRows<T extends ThreadRow>(
   comment: { id: string; threadId: string },
 ): T[] {
   const rootId = (
-    threadRows.find((row) => row.id === comment.threadId) ?? threadRows[0]
+    threadRows.find((row) => row.id === comment.threadId) ?? threadRows.at(0)
   )?.id;
   return rootId === comment.id
     ? threadRows
@@ -45,7 +45,7 @@ export default defineAction({
   needsApproval: async ({ id, deckId }, ctx) => {
     if (commentAuthorKind(ctx?.caller) !== "agent") return false;
     const db = getDb();
-    const [target] = await db
+    const targetRows = await db
       .select({
         id: schema.slideComments.id,
         slideId: schema.slideComments.slideId,
@@ -59,6 +59,7 @@ export default defineAction({
         ),
       )
       .limit(1);
+    const target = targetRows.at(0);
     if (!target) return false;
     const threadRows = await db
       .select({
