@@ -48,4 +48,16 @@ describe("the review unit eval", () => {
       expect(model.fixesApart).toBeGreaterThan(sentences.fixesApart);
     }
   });
+
+  it("refuses to score an edit whose answers don't match its pairs", () => {
+    const [item = null] = heldOut.filter(
+      ({ name }) => (recorded.answers[name] ?? []).length > 0,
+    );
+    if (!item) throw new Error("Expected an edit with recorded answers");
+    const answers = recorded.answers[item.name] ?? [];
+    expect(() => scoreEvalSet([item], {})).toThrow(item.name);
+    expect(() =>
+      scoreEvalSet([item], { [item.name]: [...answers, 0.5] }),
+    ).toThrow(item.name);
+  });
 });

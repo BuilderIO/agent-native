@@ -68,16 +68,23 @@ export function scoreEvalSet(
     const baseline = sentenceUnits(operations);
     const pairs = unitPairs(operations, gaps);
     const probabilities = answers[item.name] ?? [];
-    const units =
-      unitsFromAnswers(
-        gaps,
-        new Map(
-          pairs.flatMap(({ gap }, index) => {
-            const [probability = null] = probabilities.slice(index, index + 1);
-            return probability === null ? [] : [[gap, probability] as const];
-          }),
-        ),
-      ) ?? baseline;
+    // Answers go with pairs by position, so a different count means they were
+    // recorded for other pairs, and a score from them would mean nothing.
+    if (probabilities.length !== pairs.length) {
+      throw new Error(
+        `${item.name}: ${probabilities.length} answers for ${pairs.length} pairs`,
+      );
+    }
+    const units = unitsFromAnswers(
+      gaps,
+      new Map(
+        pairs.flatMap(({ gap }, index) => {
+          const [probability = null] = probabilities.slice(index, index + 1);
+          return probability === null ? [] : [[gap, probability] as const];
+        }),
+      ),
+    );
+    if (!units) throw new Error(`${item.name}: a pair has no answer`);
     scoreUnits(item.name, item.groups, baseline, sentences);
     scoreUnits(item.name, item.groups, units, model);
     return {
