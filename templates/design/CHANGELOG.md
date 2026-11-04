@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-02
+
+### Improved
+
+- Keep drawing, panning and editing on the canvas while a new design generates
+
 ## 2026-10-30
 
 ### Improved
@@ -2371,83 +2377,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Removed the Templates gallery from Design navigation.
 - The design inspector no longer shows the Ask AI section above Export.
 - The Design review panel no longer shows a separate inline audit run button.
-
-## 2026-06-29
-
-### Added
-
-- Added a Review panel in the design editor's inspector with an on-demand accessibility audit and one-click inline fixes for contrast, tap-target, and focus issues
-- Design editor extensions now run inline beside the artboard with live selection context and AI prompting.
-- Selected containers show draggable padding and gap guides on hover.
-- The Design editor gains a Studio layer — design tokens, multi-breakpoint responsive editing, code-backed components with Create component and Inspect code, accessibility and visual-diff review, and a Builder-powered real-app tier — with each capability gated to what the design's source can safely support.
-- Agents can now use `/visual-edit` to open localhost routes as URL-backed screens in overview mode.
-
-### Improved
-
-- Active screens in the editor sidebar now use a quiet row highlight instead of an active badge.
-- Agents can now open screen overview, focus screens, and add placed screens to the canvas.
-- Copying and pasting layers no longer shows success notifications.
-- Design agents now generate and refine variants from stronger product-grounded design guidance.
-- Design inspector controls now use a softer, more refined dark chrome.
-- Design mode top chrome now groups collaborators, preview, Share, and chat in a cleaner editor bar.
-- Design questions now appear as a cleaner canvas intake with a chat waiting note.
-- Design variant directions now appear as regular overview-board screens with one-click chat buttons for choosing which screen to keep.
-- Inspector number fields have cleaner tooltips and draggable scrub handles.
-- Layer names in the sidebar can scroll horizontally instead of truncating at deep nesting.
-- Layer nesting in the sidebar now uses tighter spacing so names stay readable.
-- Public visual-edit and shared design links now invite visitors to create a free account when they save or share.
-- Screen overview full-view controls now sit above frames instead of covering the preview.
-- Screen overview is easier to find and named screens open directly in the focused Design view.
-- Screen overview tools can draw shapes, create screens, and keep handles visible while zooming.
-- Screen overview zooming feels much faster and smoother, in-screen elements can be selected directly, and selection chrome stays crisp above overlapping layers.
-- Share now groups link sharing, exports, and agent handoff in one tabbed menu.
-- The design editor loading skeleton now uses a softer charcoal canvas while designs load.
-- The device preview menu now sits beside collaborators in the inspector sidebar.
-- The missing-design view is cleaner and matches the rest of the editor chrome.
-- The Pen tool icon and tool option menus better match the editor chrome.
-- The Pen tool now creates anchor-based Bezier vectors with handles and close-path feedback.
-
-### Fixed
-
-- Agent edits to a design are no longer occasionally dropped or corrupted when local and agent changes overlap.
-- Box-shadow and gradient colors keep named CSS colors (like red or navy) when edited, instead of resetting to black; the eyedropper now updates the selected gradient stop instead of replacing the whole gradient.
-- Canvas selection no longer flashes broken prototype HTML when screens include embedded scripts or styles.
-- Command menu selections are clearer in dark mode.
-- Containers no longer block selecting nested elements, and normal flow hides unavailable alignment and gap controls.
-- Cut (Cmd/Ctrl+X) now removes the selected element to the clipboard; pasting repeatedly cascades the copies instead of stacking them exactly on top.
-- Deleting with multiple layers selected in the Layers panel now removes all of them, not just the focused one.
-- Design agents now handle broad copy edits, like translating a whole page, more reliably.
-- Design generation now shows Connect AI before sending when no LLM is connected and switches into loading as soon as generation starts.
-- Device presets in all-screens view resize the selected preview width and height together.
-- Duplicating a screen now gives the copy its own layer ids, so selecting a layer in one screen no longer affects the other.
-- Element selection no longer snaps back to the previous layer after selecting or pressing Escape.
-- Element selection now stays on the intended layer after selector replay and reparenting.
-- Fixed Design editor exports and gradient edits so multi-screen outputs and paint settings stay faithful.
-- Frame resize measurements now stay beside the cursor while dragging.
-- Hiding and re-showing a gradient fill now preserves each stop's opacity instead of flattening them.
-- Layer and canvas drags keep the layer list stable while changes save.
-- Layer locking, layer nesting, generated-question intake, and image-fill visibility behave more reliably in the visual editor.
-- Layer moves can be undone and redone without flashing the canvas preview.
-- Layers no longer repeat document wrapper rows when a screen contains malformed HTML.
-- Hosted design generation and editing chats have a longer background run window, reducing timeouts during complex creative turns.
-- Overview previews now keep element hover and selection tied to the correct screen.
-- Picking a design direction now submits to the agent right away and reliably saves, instead of leaving the message sitting unsent in the chat box or firing twice on a double-click.
-- PNG export handles modern CSS color functions more reliably.
-- PNG export now ignores duplicate clicks while a download is already running.
-- Pressing Escape now cancels a stuck screen drag in the overview canvas.
-- Screen overview only highlights screens when the frame or title is directly hovered.
-- Screen overview previews now resize to match the selected device.
-- Design selection now uses a pointer cursor instead of the move cursor.
-- Screen overview selection outlines now stay locked to screens while selecting or resizing.
-- Screen overview zoom now reports real screen scale separately from focused-screen zoom.
-- Screen overview zooming now stays on the overview canvas instead of opening a screen automatically.
-- Screen previews use a single blue hover border in all-screens view.
-- Selecting a nested layer from All screens now keeps you in All screens view.
-- Sidebars use darker chrome with clearer dividers, and chat warns immediately when no LLM provider is connected.
-- Style changes that set several properties at once (fixed-size text, constraints, padding, flip, stroke position) now all save reliably instead of dropping all but the last property.
-- The editor no longer crashes when a screen ends up with duplicate or malformed layer ids (e.g. from a bad agent edit); the layer tree is now resilient to it.
-- The inspector stays read-only while an empty design is still generating.
-- Typography controls now keep the font name visible and move text box sizing into a details popover.
-- Visual edit actions now reject missing design targets before running.
 
 For the full list of updates, see the [changelog folder](./changelog/).

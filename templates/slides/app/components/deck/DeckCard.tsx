@@ -219,15 +219,17 @@ function DeckCard({
               }
             }}
           >
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                startRename();
-              }}
-            >
-              <IconPencil className="w-3.5 h-3.5 me-2" />
-              {t("home.renameDeck")}
-            </DropdownMenuItem>
+            {deck.canEdit === true && (
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  startRename();
+                }}
+              >
+                <IconPencil className="w-3.5 h-3.5 me-2" />
+                {t("home.renameDeck")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
               {t("home.duplicateDeck")}
@@ -268,18 +270,22 @@ function DeckCard({
                   : t("home.setWorkspaceDefault")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                pendingDeleteRef.current = true;
-                setMenuOpen(false);
-              }}
-              className="text-red-400 focus:text-red-400"
-            >
-              <IconTrash className="w-3.5 h-3.5 me-2" />
-              {t("home.deleteDeck")}
-            </DropdownMenuItem>
+            {deck.canManage === true && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingDeleteRef.current = true;
+                    setMenuOpen(false);
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconTrash className="w-3.5 h-3.5 me-2" />
+                  {t("home.deleteDeck")}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

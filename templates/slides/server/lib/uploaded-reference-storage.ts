@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import {
   attachmentFailureToError,
   deleteAttachment,
@@ -68,6 +69,7 @@ export async function deleteUploadedReference(
     });
   }
   try {
+    noteExternalWrite("local-disk");
     await fs.promises.unlink(candidate);
     return true;
   } catch (error) {

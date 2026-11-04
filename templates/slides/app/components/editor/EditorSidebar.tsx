@@ -55,6 +55,7 @@ import {
   DeferredAddSlidePopover,
   preloadAddSlidePopover,
 } from "@/lib/deferred-editor-surfaces";
+import type { PromptChatSubmissionOptions } from "@/lib/prompt-chat-attachments";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -97,7 +98,11 @@ interface EditorSidebarProps {
    *  persistence. */
   onAwaitAddSlidePersisted?: () => Promise<void>;
   onRemoveFailedSlide?: (slideId: string) => void;
-  addSlideAgentSubmit: (message: string, context: string) => void;
+  addSlideAgentSubmit: (
+    message: string,
+    context: string,
+    options: PromptChatSubmissionOptions,
+  ) => void;
   hasSlideClipboard?: boolean;
   onCutSlide?: (slideIds: string[]) => void;
   onCopySlide?: (slideIds: string[]) => void;
@@ -1263,7 +1268,7 @@ export default function EditorSidebar({
               activeSlideIndex={describeSlideIndex}
               slideCount={slides.length}
               targetSlideId={describeSlideId}
-              agentSubmit={async (message, context) => {
+              agentSubmit={async (message, context, options) => {
                 onAddSlideGeneratingChange?.(true, describeSlideId);
                 try {
                   await onAwaitAddSlidePersisted?.();
@@ -1280,7 +1285,7 @@ export default function EditorSidebar({
                   toast.error(t("editorSidebar.newSlideSaveFailed"));
                   return false;
                 }
-                addSlideAgentSubmit(message, context);
+                addSlideAgentSubmit(message, context, options);
                 return true;
               }}
             />

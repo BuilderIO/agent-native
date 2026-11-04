@@ -91,6 +91,9 @@ export function preserveActionFlags(
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
   }
+  if (typeof entry.emptyListsEraseNothing === "boolean") {
+    out.emptyListsEraseNothing = entry.emptyListsEraseNothing;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
