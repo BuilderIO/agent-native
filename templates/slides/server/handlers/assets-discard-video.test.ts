@@ -38,8 +38,8 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({ accessFilter: vi.fn() }));
 
-vi.mock("drizzle-orm", () => ({
-  sql: vi.fn(),
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   isNull: (...args: unknown[]) => ["isNull", ...args],
