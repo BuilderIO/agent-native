@@ -3413,6 +3413,7 @@ const messages = {
   "chatFirst.removeApp": "Remove app from workspace",
   "chatFirst.showMore": "Show more",
   "chatFirst.showLess": "Show less",
+  "chatFirst.showMoreCount": "Show {{count}} more",
   "chatFirst.appOrderUnavailable":
     "App order could not be saved on this device.",
   "chatFirst.openSideSurfaces": "Open side surfaces",

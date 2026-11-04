@@ -5,6 +5,7 @@ import { getDbExec } from "../db/client.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { ForbiddenError } from "../sharing/access.js";
 import { createChatScriptEntries } from "./agent-chat/script-entries.js";
+import { registerAgentContextAgentFilter } from "./agent-context-agents.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -2344,6 +2345,33 @@ describe("agent chat resource route organization scopes", () => {
       }),
     );
     expect(items.some((item) => item.refType === "file")).toBe(true);
+  });
+
+  it("applies the app's agent-context filter to Connected Agents mentions", async () => {
+    const h3App = await mountResourceRoutes({ appId: "dispatch" });
+    mocks.discoverAgents.mockResolvedValue([
+      { id: "slides", name: "Slides", url: "https://slides.example.test" },
+      { id: "mail", name: "Mail", url: "https://mail.example.test" },
+    ] as never);
+    const unregister = registerAgentContextAgentFilter("dispatch", (agents) =>
+      agents.filter((agent) => agent.id !== "mail"),
+    );
+    try {
+      const response = await fetchWithRequestContext(
+        h3App,
+        "/_agent-native/agent-chat/mentions",
+        { userEmail: "user@example.test", orgId: "org-active" },
+      );
+      const ids = (await response.text())
+        .trim()
+        .split("\n")
+        .flatMap((line) => JSON.parse(line).items)
+        .filter((item) => item.section === "Connected Agents")
+        .map((item) => item.refId);
+      expect(ids).toEqual(["slides"]);
+    } finally {
+      unregister();
+    }
   });
 
   it("inherits the active request organization when a resolver returns undefined", async () => {

@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENTS,
   fingerprintAgentSubmissionAttachment,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import sharp from "sharp";
@@ -21,6 +22,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
   fail,
+  noteExternalWrite,
   type ActionRunContext,
 } from "../action.js";
 import {
@@ -6412,6 +6414,123 @@ describe("createProductionAgentHandler", () => {
       }
     },
   );
+
+  it("does not re-validate client fingerprints against the sanitized durable dispatch in the background worker", async () => {
+    const threadId = "thread-worker-sanitized-attachment";
+    const messageId = "message-worker-sanitized-attachment";
+    const clientAttachment = {
+      type: "image",
+      name: "photo.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+      url: "https://files.example.com/photo.png",
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Replace the photo",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: clientAttachment.name,
+          contentType: clientAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(clientAttachment),
+        },
+      ],
+    };
+    const dispatched = JSON.parse(
+      serializeDurableDispatchPayload({
+        message: submissionPayload.text,
+        threadId,
+        agentKitMessageId: messageId,
+        submissionPayload,
+        attachments: [clientAttachment],
+      }),
+    ) as Record<string, unknown>;
+    expect(dispatched.attachments).toEqual([
+      expect.not.objectContaining({ data: expect.anything() }),
+    ]);
+    expect(
+      submissionAttachmentsMatch(
+        submissionPayload,
+        dispatched.attachments as unknown[],
+      ),
+    ).toBe(false);
+
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = {
+      ...dispatched,
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-worker-sanitized-attachment",
+        turnId: "turn-worker-sanitized-attachment",
+      },
+    };
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(result).not.toMatchObject({
+        code: "submission_payload_attachments_mismatch",
+      });
+      expect(result).not.toMatchObject({
+        code: "submission_payload_attachment_indexes_mismatch",
+      });
+      expect(claimBackgroundRun).toHaveBeenCalledTimes(1);
+      expect(preUpload).toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
+    }
+  });
 
   it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
     const threadId = "thread-attachment-identity-mismatch";
@@ -16695,7 +16814,17 @@ describe("runAgentLoop", () => {
     });
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
-      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      // The runtime sends its request with `fetch`, which is where the write is seen.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status: 400 })),
+      );
+      const executeRequest = vi.fn(async () => {
+        await fetch("https://api.github.com/repos/acme/app/issues", {
+          method: "POST",
+        });
+        return rejected;
+      });
       // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
       const create = (title: string) => ({
         provider: "github",
@@ -16704,14 +16833,19 @@ describe("runAgentLoop", () => {
         body: { title },
       });
 
-      const events = await runToolCallSequence(
-        [
-          { name: "provider-api-request", input: create("a@example.com") },
-          { name: "provider-api-request", input: create("b@example.com") },
-          { name: "provider-api-request", input: create("a@example.com") },
-        ],
-        { "provider-api-request": providerRequestAction(executeRequest) },
-      );
+      let events: AgentChatEvent[];
+      try {
+        events = await runToolCallSequence(
+          [
+            { name: "provider-api-request", input: create("a@example.com") },
+            { name: "provider-api-request", input: create("b@example.com") },
+            { name: "provider-api-request", input: create("a@example.com") },
+          ],
+          { "provider-api-request": providerRequestAction(executeRequest) },
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
       const done = events.filter(
@@ -21235,7 +21369,7 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("strips null placeholders beside an empty list and runs the tool", async () => {
+  it("runs null placeholders beside an empty list when the action says it erases nothing", async () => {
     const run = vi.fn(async (input: unknown) => input);
     const action = defineAction({
       description: "Generate a design",
@@ -21250,6 +21384,7 @@ describe("runAgentLoop", () => {
           )
           .optional(),
       }),
+      emptyListsEraseNothing: true,
       run,
     });
     const result = await executeAgentToolCall({
@@ -21270,6 +21405,28 @@ describe("runAgentLoop", () => {
       devices: [],
       canvasFrames: [{ filename: "index.html" }],
     });
+  });
+
+  it("refuses null placeholders beside an empty list on an action that may store it", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "Update a saved view",
+      schema: z.object({
+        viewId: z.string(),
+        name: z.string().optional(),
+        hiddenColumns: z.array(z.string()).optional(),
+      }),
+      run,
+    });
+    const result = await executeAgentToolCall({
+      actions: { "update-view": action as unknown as ActionEntry },
+      name: "update-view",
+      callId: "padded-stored-list",
+      input: { viewId: "view-1", name: null, hiddenColumns: [] },
+    });
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("No action was run");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("still refuses null placeholders beside an empty string the schema accepts", async () => {
@@ -22987,6 +23144,7 @@ describe("runAgentLoop", () => {
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });

@@ -147,6 +147,16 @@ return { id, _receipt };
 
 A receipt is not an error channel. A write that did not achieve the requested state throws (`fail()`); return `changed: false` only for a benign no-op, such as the record already being in the requested state.
 
+## Failed Writes
+
+The framework classifies a failed action from the writes it **saw** the call make: every database write (any statement that is not a read such as `SELECT`, `SET` or `LOCK`, and not the framework's own schema setup) and every `fetch` that is not GET, HEAD or OPTIONS. A rejection raised before any of those is "nothing saved", however it is thrown (`fail()`, a plain `Error`, a library error).
+
+- **Declare writes it cannot see.** Before a disk write, child process, `node:http`/`https` request or vendor SDK call, call `noteExternalWrite("<channel>")`, e.g. `noteExternalWrite("local-disk")`. Without it, a failed call that already wrote looks retry-safe. `guard:no-unobserved-writes` fails new code that skips the call. A temp-only or retry-idempotent write can say why with `// observed-write-ok: <reason>` instead.
+- **`withoutWriteObservation(fn)`** is only for framework bookkeeping (an audit row, a change marker, analytics) or a write a retry provably cannot repeat, such as one keyed by a deterministic id or dedup key. Never wrap the write the call exists to make. `await` the work inside `fn`: a Drizzle query builder only runs when awaited, after `fn` has returned, so `withoutWriteObservation(() => db.insert(t).values(v))` exempts nothing.
+- **`retrySafe`** says this action's own write is safe to run again, so a failure after that write is not "unknown". It covers only this action's write. Don't set it on an action that appends, sends or charges unless the input carries an idempotency key.
+- **`NoWriteError`** is an override, not a requirement: most rejections need no label, but it wins over an observed write when the only write before the rejection is one a retry harmlessly repeats (such as uploads nobody has referenced yet), and the framework accepts it only for the call that raised it and only when no nested write action entered that call's handler.
+- **A call that times out or loses its result stays "unknown"**, because it may still be running.
+
 ## Frontend Hooks
 
 Import from focused `@agent-native/core/client/*` entry points; the broad
@@ -189,7 +199,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 - **Do** signal failure by throwing, using `fail()` for expected caller-readable failures. Never return `{ error: ... }` as a failure result: a normal return is treated as a successful action. Reserve bare errors for unexpected internal faults.
 - **Do** use `fail()` rather than a bare `Error` for caller-readable failures. It carries the action's message, `errorCode`, and `details` to the browser and to agents; unexpected errors become a generic 500. Reserve bare throws for internal faults.
 - **Do** give `fail()` the status that matches the cause: it defaults to `400`, and `useActionQuery` retries only `429`, `502`, `503`, and `504`. Mutations do not retry; use transient statuses only for retryable failures.
-- **Do** throw `NoWriteError(message, { errorCode, statusCode })` instead of `fail()` for a rejection raised before the action's first write, such as an edit that matches nothing or a missing target. The agent then retries with corrected arguments instead of stopping on a write whose outcome is unknown. Throw it only before the first write: the framework rejects the claim when a nested write action ran, but it cannot see the handler's own writes.
+- **Do** validate inputs before the first write. A rejection raised before any write the framework can see is "nothing saved", so the agent can fix its request and retry. Don't reorder code just to add labels. See *Failed Writes*.
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP. `details` follow as an `Error details: {...}` JSON line, and as `structuredContent.error` over MCP, capped at 2,000 characters, so keep them to what the agent acts on next: ids, limits, field names. The status never reaches either.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
