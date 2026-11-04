@@ -169,6 +169,13 @@ reporter, a reviewer, or `main`:
   issue comments.
 - Skip the Steve profile check; use the state the invocation names.
 
+<!-- framework-repo-only:start -->
+The factory VM runs this skill through `factory-run`, which differs on
+purpose: replies post as the factory's own Slack app (no bot line, no Steve
+check), claims live in factory state, each fix group gets its own branch and
+PR, and the watcher merges.
+<!-- framework-repo-only:end -->
+
 ## 1. Collect (keep it under ~15 minutes)
 
 Work in a task-owned worktree on fresh `origin/main`. If you start in a shared
