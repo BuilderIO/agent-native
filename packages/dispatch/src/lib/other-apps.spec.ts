@@ -50,6 +50,31 @@ describe("filterBuiltInApps", () => {
     ]);
   });
 
+  it("leaves out hosted apps the organization hides unless asked to keep them", () => {
+    const apps = [
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.agent-native.com",
+        source: "builtin" as const,
+        hiddenFromLaunchers: true,
+      },
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin" as const,
+      },
+    ];
+
+    expect(filterBuiltInApps(apps, []).map((app) => app.id)).toEqual(["clips"]);
+    expect(
+      filterBuiltInApps(apps, [], { includeHiddenFromLaunchers: true }).map(
+        (app) => app.id,
+      ),
+    ).toEqual(["clips", "slides"]);
+  });
+
   it("keeps built-in app launches on the current beta lane", () => {
     vi.stubGlobal("window", {
       location: { hostname: "beta.agent-workspace.builder.io" },

@@ -1,5 +1,7 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
   EMBED_SESSION_RENEWAL_WINDOW_KEY,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -960,6 +962,7 @@ export function embedApp(
       }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
+        var pageFetch = fetch;
         window.fetch = function(input, init) {
           const raw = input instanceof Request ? input.url : String(input);
           const url = rewrittenUrl(raw, false);
@@ -999,6 +1002,32 @@ export function embedApp(
           }
           return originalFetch(url, nextInit);
         };
+        // The requests it signs go out on a transport of their own, one per
+        // token. It signs only on the target's mount and with a token; its
+        // other requests still omit cookies, so they go out on another
+        // transport, never the signed one or the page's. Asked as each read
+        // is keyed and sent, so it follows the page between mounts. With no
+        // app origin, every request passes through unchanged.
+        var signedTransport = null;
+        var unsignedTransport = {};
+        window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
+          if (!appOrigin()) return pageFetch;
+          var token = activeConfig().token;
+          if (!token || authorizedTargetPath() === null) {
+            return unsignedTransport;
+          }
+          if (!signedTransport || signedTransport.token !== token) {
+            signedTransport = { token: token, transport: {} };
+          }
+          return signedTransport.transport;
+        };
+        // Requests now go out signed by this runtime: the app reads the
+        // session again over it.
+        if (typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(
+            new Event(${JSON.stringify(FETCH_TRANSPORT_CHANGED_EVENT)})
+          );
+        }
       }
       if (typeof XMLHttpRequest !== "undefined") {
         const originalOpen = XMLHttpRequest.prototype.open;

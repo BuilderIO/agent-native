@@ -51,6 +51,37 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.223.1
+
+### Patch Changes
+
+- 915f3ae: Application-state writes no longer send a request per call. Writes made in the same tick go out together on the next one, keepalive writes included: a single write uses its key's route as before, and writes to several keys go as one `POST /_agent-native/application-state` with a `writes` list, which the server applies key by key and answers per key. Each entry sets a value or carries `delete: true`, never both. While a write to a key is in flight, later writes to that key replace each other, so a burst sends the write in flight and the latest value, and every caller gets the latest's result. A write identical to the one in flight, with nothing queued behind it, joins it, unless it needs keepalive and the one in flight went without. Writes with an abort signal and compare-and-set calls keep their own requests and their order. Reads still wait for the latest write, including reads through a tab's explicit key (`navigation:<tab>`) after a write through `navigation`.
+
+  Keepalive requests are packed by encoded bytes to fit the browser's 64 KiB keepalive budget, counting the ones still in flight, compare-and-set calls included; a request that can't fit goes without keepalive instead of failing. Application state and `tryCallActionKeepalive` now share one budget, and actions come first: application state only takes what's left after keeping room for an action body of `ACTION_KEEPALIVE_BODY_BUDGET_BYTES`, so a page's final document save still goes with keepalive when application state flushes at the same time. Once the page starts hiding, waiting writes go at once and later writes are sent immediately with keepalive; on `pagehide`, a keepalive write or delete still queued behind an earlier write to its key goes too, unless a compare-and-set or a write with an abort signal sits between them; it never goes ahead of one of those.
+
+  The server now keeps same-key writes from a page in order. Each page load numbers its writes in the order they're made (not the order they're sent), with an `X-Agent-Native-App-State-Writer` header plus an `X-Agent-Native-App-State-Seq` header (or a batch item's `seq`). The store skips a write or delete numbered at or below the last one it applied to that row from the same writer, so the earlier write landing after a newer one from the same page no longer wins. Writes from other pages, agents, scripts and older clients carry no number and apply as they arrive. A new `write-order` store migration adds the nullable `writer` and `writer_seq` columns to `application_state`.
+
+  When the batch route didn't run (no route marker, and a 404, 405 or non-JSON answer), the client sends those writes one key at a time and stops batching until the page reloads. Writes sent as the page hides only use the batch route once it has answered that page; until then each takes its own route, since the fallback needs the page to live on. Any other unreadable or malformed answer rejects every write in that batch rather than sending them again.
+
+- 5004a95: Show object arguments in words on the MCP approval review and in-client approval prompt. A guest given as `{ email, displayName }` reads as `Dana <dana@example.com>`, with any other detail after it (`(Optional: Yes)`), and any other object reads as its labeled values instead of raw JSON. The review's Details section still shows the stored call exactly.
+- 7fea0c1: File upload status asks the user to reconnect Builder when their stored grant can no longer be decrypted, instead of reporting Builder as never connected while every upload fails. A usable private key still authorizes uploads and suppresses the prompt. `getBuilderUploadCredentialStatus()` from `@agent-native/core/file-upload` returns the same answer for app storage status surfaces.
+- 7c80c7b: Keep intentionally cleared collaborative documents empty when another editor opens them after a saved snapshot has been adopted.
+- cef2cc6: Mark Clips as beta in the shared app status map, so its sign-in page and agent-native.com badges say "beta" instead of "alpha".
+- 154a173: Preserve pending collaboration updates and refusal state when the same account's email changes only in casing or surrounding whitespace.
+- 78aa74a: The Factory feedback sweep has a dry-run mode: it triages and fixes as usual, but records the reactions and replies it would send instead of posting them, publishes each fix as its own branch, and never opens, merges, or closes anything.
+- Release all public npm packages with a patch version bump.
+- 1dd4ec7: Run tool calls that pair unused `null` optional fields with a chosen `false`. A valid `false` no longer counts as an ambiguous clear, so the nulls are stripped instead of the whole call being refused.
+- 110efd1: Add Content creator, Student and Educator to the onboarding role question.
+- 63f7ec2: Emit an `org_domain_joined` tracking event when a user joins an organization through its allowed email domain, so team growth reporting counts domain joins alongside accepted invites.
+- ae9651f: Reduce web search latency by resolving independent provider keys concurrently.
+- 2b72a23: Reduce latency when loading MCP servers, sharing details, and PowerPoint files by running independent reads concurrently.
+- d25e809: Stop retrying a stopped run's thread projection forever when its prompt never reached the thread. The stuck run made every background sweep return 500.
+- 7995b72: Keep the Connect AI setup card visible when anything wraps `window.fetch` after the page mounts, such as session replay or error-tracking instrumentation. Agent engine readiness and status-request caches no longer key on the global `fetch` identity; callers that pass no explicit `fetch` now share one store and cache entry per URL, credentials and headers.
+- 138c99e: Fewer requests on page load. The WebMCP manifest now carries an ETag with `Cache-Control: private, no-cache`, so a warm load revalidates it with a bodyless 304 instead of downloading it again. A page that sends action writes as it opens can call the new `prepareUiActionCapability()` to mint the UI write capability as soon as a signed-in session is known, so its first write doesn't wait behind the mint; other pages still mint on their first write. A reload inside the capability's reuse window skips the mint, and the remembered capability is forgotten on sign-out and when the account or organization changes.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.1
+  - @agent-native/recap-cli@0.5.95
+
 ## 0.223.0
 
 ### Minor Changes
@@ -4485,11 +4516,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 2292fac: Allow shared loading spinners to provide localized accessible labels.
-
-## 0.171.2
-
-### Patch Changes
-
-- 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

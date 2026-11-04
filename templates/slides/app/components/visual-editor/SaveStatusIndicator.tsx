@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCloudOff,
   IconDownload,
+  IconLoader2,
   IconRepeat,
   IconRefresh,
   IconUpload,
@@ -39,7 +40,7 @@ interface SaveStatusIndicatorProps {
 }
 
 export function SaveStatusIndicator({
-  saving: _saving,
+  saving,
   hasUnsavedChanges = false,
   saveFailed = false,
   saveError,
@@ -63,6 +64,13 @@ export function SaveStatusIndicator({
       ? { kind: "field", conflict: fieldConflict }
       : undefined;
   const showWarning = conflict || saveFailed || (offline && hasUnsavedChanges);
+  // A field conflict leaves the local draft unsaved, so it reads as a save
+  // failure with the same next step as a content conflict.
+  const plainErrorDetails: Partial<Record<string, string>> = {
+    deck_revision_conflict: t("editorToolbar.saveErrorDeckChanged"),
+    slide_content_conflict: t("editorToolbar.saveErrorSlidesChanged"),
+    slide_field_conflict: t("editorToolbar.saveErrorSlidesChanged"),
+  };
 
   const retrySave = async () => {
     if (!onRetrySave || retryingSave) return;
@@ -77,12 +85,9 @@ export function SaveStatusIndicator({
   };
 
   if (showWarning) {
-    const plainErrorDetail =
-      saveError?.errorCode === "deck_revision_conflict"
-        ? t("editorToolbar.saveErrorDeckChanged")
-        : saveError?.errorCode === "slide_content_conflict"
-          ? t("editorToolbar.saveErrorSlidesChanged")
-          : undefined;
+    const plainErrorDetail = saveError?.errorCode
+      ? plainErrorDetails[saveError.errorCode]
+      : undefined;
     const errorDetail =
       plainErrorDetail ??
       (saveError?.errorCode
@@ -226,6 +231,27 @@ export function SaveStatusIndicator({
           />
         )}
       </>
+    );
+  }
+
+  if (saving) {
+    return (
+      <span
+        role="status"
+        data-save-status="saving"
+        className={cn(
+          "flex min-w-0 items-center gap-1 px-1.5 text-[11px] text-muted-foreground",
+          className,
+        )}
+      >
+        <IconLoader2
+          className="size-3.5 shrink-0 animate-spin"
+          aria-hidden="true"
+        />
+        <span className="sr-only lg:not-sr-only">
+          {t("editorToolbar.saving")}
+        </span>
+      </span>
     );
   }
 
