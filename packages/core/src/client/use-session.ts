@@ -26,7 +26,6 @@ import {
   announceSessionInvalidated,
   notifySessionIdentityPublished,
   recordSessionIdentity,
-  SESSION_INVALIDATION_STORAGE_KEY,
 } from "./session-identity.js";
 
 export type { AuthSession };

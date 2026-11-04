@@ -11,15 +11,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-import {
-  recordSessionIdentity,
-  SESSION_INVALIDATION_STORAGE_KEY,
-} from "../client/session-identity.js";
+import { recordSessionIdentity } from "../client/session-identity.js";
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
   notifySessionInvalidated,
   runBeforeSignOutCleanups,
 } from "../client/use-session.js";
+import { SESSION_INVALIDATION_STORAGE_KEY } from "../shared/ssr-session-bootstrap.js";
 import {
   _resetCollabDocRegistryForTests,
   useCollaborativeDoc,

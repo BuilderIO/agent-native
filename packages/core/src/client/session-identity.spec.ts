@@ -2,11 +2,11 @@
 
 import { afterEach, expect, it } from "vitest";
 
+import { SESSION_INVALIDATION_STORAGE_KEY } from "../shared/ssr-session-bootstrap.js";
 import {
   announceSessionInvalidated,
   currentSessionIdentity,
   recordSessionIdentity,
-  SESSION_INVALIDATION_STORAGE_KEY,
   subscribeSessionIdentity,
   subscribeSessionInvalidation,
 } from "./session-identity.js";

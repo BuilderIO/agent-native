@@ -1,14 +1,9 @@
+import { SESSION_INVALIDATION_STORAGE_KEY } from "../shared/ssr-session-bootstrap.js";
+
 let identity: string | null | undefined;
 const listeners = new Set<(value: string | null | undefined) => void>();
 const invalidationListeners = new Set<() => void>();
 let invalidationStorageWatched = false;
-
-/**
- * The localStorage key a tab writes when its session changes (a sign-out, an
- * organization switch), so other tabs read their session again.
- */
-export const SESSION_INVALIDATION_STORAGE_KEY =
-  "agent-native:session-invalidated";
 
 /**
  * The identity of the session this tab last read: a string when signed in,
