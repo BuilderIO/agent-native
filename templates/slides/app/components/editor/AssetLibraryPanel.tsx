@@ -26,6 +26,8 @@ interface AssetLibraryPanelProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
+const SELECTABLE_TILE = "cursor-pointer hover:ring-2 hover:ring-[#609FF8]/50"; // guard:allow-raw-color — the editor's selection accent, used across the slides editor
+
 export default function AssetLibraryPanel({
   open,
   onOpenChange,
@@ -288,7 +290,7 @@ export default function AssetLibraryPanel({
                     onClick={
                       onSelectAsset ? () => handleSelect(asset.url) : undefined
                     }
-                    className={`w-full h-full ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-[#609FF8]/50" : "cursor-default"}`}
+                    className={`w-full h-full ${onSelectAsset ? SELECTABLE_TILE : "cursor-default"}`}
                   >
                     <img
                       src={asset.url}
