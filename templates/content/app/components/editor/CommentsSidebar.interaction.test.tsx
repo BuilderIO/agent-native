@@ -517,7 +517,7 @@ describe("comment review interactions", () => {
       });
       const marked = (selector: string) =>
         [...container.querySelectorAll(selector)].map((span) =>
-          span.textContent?.trim(),
+          span.textContent.trim(),
         );
       expect(marked(".line-through")).toEqual(["Our", "ready"]);
       expect(marked(".underline")).toEqual(["The", "steady"]);
