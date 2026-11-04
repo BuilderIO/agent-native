@@ -133,6 +133,7 @@ import {
   validateSlackChannelInput,
   type SourceConfigIssue,
 } from "../../shared/source-config-validation";
+import { COMPANY_CONTEXT_INTAKE_KEY } from "../../shared/types";
 import {
   invalidZoomMeetingIds,
   zoomFilterLines,
@@ -2617,7 +2618,12 @@ export default function SourcesRoute() {
                 }
                 onSync={() => syncSource.mutate({ sourceId: source.id })}
                 onTune={() => afterBodyPointerUnlock(() => openEdit(source))}
-                onImportMarkdown={() => setMarkdownImportSource(source)}
+                onImportMarkdown={
+                  source.config?.[COMPANY_CONTEXT_INTAKE_KEY] === true &&
+                  canManageZoom !== true
+                    ? undefined
+                    : () => setMarkdownImportSource(source)
+                }
                 onArchive={() => setArchiveSource(source)}
               />
             ))}
