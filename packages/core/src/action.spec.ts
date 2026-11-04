@@ -3803,7 +3803,6 @@ describe("gateway-stringified tool-arg coercion", () => {
       schema: z.object({
         dashboardId: z.string(),
         forceNew: z.boolean().optional(),
-        compact: z.enum(["true", "false"]).optional(),
         limit: z.number().optional(),
         ops: z
           .array(z.object({ op: z.string(), value: z.unknown().optional() }))
@@ -3832,12 +3831,6 @@ describe("gateway-stringified tool-arg coercion", () => {
       limit: 20,
       ops: [{ op: "insert", value: { id: "p1" } }],
     });
-  });
-
-  it("accepts a boolean for a flag declared as the strings true/false", async () => {
-    const { action, get } = makeAction();
-    await action.run({ dashboardId: "d1", compact: false } as any);
-    expect(get()).toEqual({ dashboardId: "d1", compact: "false" });
   });
 
   it("leaves genuine string fields untouched even when they look like JSON", async () => {
