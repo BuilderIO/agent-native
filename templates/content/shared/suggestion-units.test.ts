@@ -103,8 +103,18 @@ describe("sentenceUnits", () => {
     ["Mr. Smith and Mrs. Jones left today.", ["Smith", "left"]],
     ["Ask the U.S. Senate to sign it.", ["Ask", "sign"]],
     ["Call J. Smith at Acme Inc. Monday morning.", ["Call", "morning"]],
+    ["Meet at 5 p.m. Friday to sign it.", ["Meet", "sign"]],
+    ["See e.g. Alice for the plan.", ["See", "plan"]],
+    ["Ask Gov. Smith to sign it.", ["Ask", "sign"]],
+    ["Ask Mr. Lee to sign it.", ["Mr", "sign"]],
   ])("doesn't end a sentence at the abbreviation in %s", (source, phrases) => {
     expect(sentenceUnits(piecesAt(source, phrases))).toEqual([0, 0]);
+  });
+
+  it("keeps a sentence whole when its abbreviation is what changes", () => {
+    expect(
+      unitsOfRewrite("Ask Dr. Lee to sign it.", "Ask Prof. Lee to approve it."),
+    ).toEqual({ pieces: 2, units: [0, 0] });
   });
 
   it("keeps clauses of one bullet together", () => {
