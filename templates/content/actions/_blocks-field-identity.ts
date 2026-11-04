@@ -120,7 +120,7 @@ export async function lockPrimaryBlocksFieldsForDocuments(
       { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
     );
   }
-  await lockDatabaseMemberships(db, membershipIds);
+  if (!held) await lockDatabaseMemberships(db, membershipIds);
   if (membershipIds.length === 0) return new Map();
 
   const fields: Array<{

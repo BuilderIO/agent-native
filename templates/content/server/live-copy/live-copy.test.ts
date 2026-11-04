@@ -990,17 +990,36 @@ describe("writes through a switched page's live copy", () => {
 
   it("locks the page in Content's order from an unchanged edit's own persist, and refuses it in Trash", async () => {
     await switchedPage("unchanged", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-unchanged-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    await getDb().insert(schema.contentDatabaseItems).values({
-      id: "unchanged-row",
-      ownerEmail: OWNER,
-      databaseId: "db-unchanged-parent",
-      documentId: "unchanged",
-    });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values([
+        {
+          id: "db-unchanged-second",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+        {
+          id: "db-unchanged-parent",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: "unchanged-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-parent",
+          documentId: "unchanged",
+        },
+        {
+          id: "unchanged-second-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-second",
+          documentId: "unchanged",
+        },
+      ]);
     const statements: string[] = [];
     const unchangedEdit = () =>
       cause.withContentBodyWriteCause({ operation: "test-unchanged" }, () =>
@@ -1019,6 +1038,10 @@ describe("writes through a switched page's live copy", () => {
             } as DbExec;
             const locked = await persist.lockLiveCopyPage(spy, "unchanged");
             expect(locked?.page.content).toBe("Hello there");
+            expect([...(locked?.lockedDatabaseIds ?? [])]).toEqual([
+              "db-unchanged-parent",
+              "db-unchanged-second",
+            ]);
           },
         }),
       );
@@ -1050,53 +1073,92 @@ describe("writes through a switched page's live copy", () => {
     });
   });
 
-  it("refuses a body write when the page joined a collection after its memberships were locked", async () => {
-    await switchedPage("joined", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-joined-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    const version = (await collabVersion("joined")) as number;
+  it.each([
+    { change: "join", unchanged: false },
+    { change: "join", unchanged: true },
+    { change: "move", unchanged: false },
+    { change: "move", unchanged: true },
+    { change: "remove", unchanged: false },
+    { change: "remove", unchanged: true },
+  ] as const)(
+    "refuses a late membership $change (unchanged: $unchanged)",
+    async ({ change, unchanged }) => {
+      const id = `scope-${change}-${unchanged}`;
+      const originalCollection = `${id}-a`;
+      const newCollection = `${id}-b`;
+      const itemId = `${id}-row`;
+      await switchedPage(id, "Hello there");
+      await getDb()
+        .insert(schema.contentDatabases)
+        .values([
+          {
+            id: originalCollection,
+            ownerEmail: OWNER,
+            documentId: "elsewhere",
+          },
+          { id: newCollection, ownerEmail: OWNER, documentId: "elsewhere" },
+        ]);
+      if (change !== "join")
+        await getDb().insert(schema.contentDatabaseItems).values({
+          id: itemId,
+          ownerEmail: OWNER,
+          databaseId: originalCollection,
+          documentId: id,
+        });
+      const version = (await collabVersion(id)) as number;
 
-    await expect(
-      cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
-        inTransaction(async (tx) => {
-          let joined = false;
-          const spy: DbExec = {
-            async execute(input) {
-              const sql = (
-                typeof input === "string" ? input : input.sql
-              ).toLowerCase();
-              // The page joins between the membership lock and the page lock.
-              if (!joined && /from "documents" .* for update/.test(sql)) {
-                joined = true;
-                await execDb
-                  .drizzleOverExec(tx)
-                  .insert(schema.contentDatabaseItems)
-                  .values({
-                    id: "joined-row",
-                    ownerEmail: OWNER,
-                    databaseId: "db-joined-parent",
-                    documentId: "joined",
-                  });
-              }
-              return tx.execute(input);
-            },
-          } as DbExec;
-          await persist.persistContentLiveCopy(spy, {
-            docId: "joined",
-            origin: "mutation",
-            previousVersion: version,
-            version: version + 1,
-            text: "Hello again",
-            state: new Uint8Array(),
-          });
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
-    expect((await page("joined")).content).toBe("Hello there");
-  });
+      await expect(
+        cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
+          inTransaction(async (tx) => {
+            let changed = false;
+            const spy: DbExec = {
+              async execute(input) {
+                const sql = (
+                  typeof input === "string" ? input : input.sql
+                ).toLowerCase();
+                // The topology change overtakes discovery before the page lock.
+                if (!changed && /from "documents" .* for update/.test(sql)) {
+                  changed = true;
+                  const db = execDb.drizzleOverExec(tx);
+                  if (change === "join")
+                    await db.insert(schema.contentDatabaseItems).values({
+                      id: itemId,
+                      ownerEmail: OWNER,
+                      databaseId: newCollection,
+                      documentId: id,
+                    });
+                  else if (change === "move")
+                    await db
+                      .update(schema.contentDatabaseItems)
+                      .set({ databaseId: newCollection })
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                  else
+                    await db
+                      .delete(schema.contentDatabaseItems)
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                }
+                return tx.execute(input);
+              },
+            } as DbExec;
+            if (unchanged)
+              await persist.persistUnchangedContentBodyEdit(spy, id, {
+                operation: "test-scope",
+              });
+            else
+              await persist.persistContentLiveCopy(spy, {
+                docId: id,
+                origin: "mutation",
+                previousVersion: version,
+                version: version + 1,
+                text: "Hello again",
+                state: new Uint8Array(),
+              });
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
+      expect((await page(id)).content).toBe("Hello there");
+    },
+  );
 });
 
 describe("a page whose write path changes mid-write", () => {

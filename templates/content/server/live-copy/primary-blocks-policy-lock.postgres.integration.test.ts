@@ -350,6 +350,115 @@ describe.skipIf(!POSTGRES_URL)(
   "a source-policy change and a live-copy primary Blocks write on one page",
   () => {
     it(
+      "locks both containing collections in order before the page",
+      async () =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const row = await switchedRowOwnedBySource();
+          await unbind(row).promise;
+          const secondCollection = `zz-${row.databaseId}`;
+          await getDb()
+            .insert(schema.contentDatabases)
+            .values({
+              id: secondCollection,
+              ownerEmail: OWNER,
+              documentId: `unused-${row.id}`,
+            });
+          await getDb()
+            .insert(schema.contentDatabaseItems)
+            .values({
+              id: `second-${row.id}`,
+              ownerEmail: OWNER,
+              databaseId: secondCollection,
+              documentId: row.id,
+            });
+          const before = await storedBody(row);
+          const holder = holdRow(
+            sql`SELECT id FROM content_databases WHERE id = ${secondCollection} FOR UPDATE`,
+          );
+          let write: Tracked | undefined;
+          let policy: Tracked | undefined;
+          try {
+            const holderPid = await holder.pid;
+            const { editContentLiveCopy } = await import("./write.js");
+            const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+            write = track(
+              editContentLiveCopy(row.id, {
+                cause: { ctx, operation: "test-two-containing-collections" },
+                edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: { expected: before, content: WRITTEN },
+              }),
+            );
+            const writePid = await sessionBlockedBy(holderPid, write);
+            policy = track(
+              getDb().transaction(async (tx) => {
+                await tx.execute(
+                  sql`SELECT id FROM content_databases WHERE id = ${row.databaseId} FOR UPDATE`,
+                );
+              }),
+            );
+            await sessionBlockedBy(writePid, policy);
+          } finally {
+            holder.release();
+            expect(
+              failures(
+                await Promise.allSettled([
+                  holder.done,
+                  ...(write ? [write.promise] : []),
+                  ...(policy ? [policy.promise] : []),
+                ]),
+              ),
+            ).toEqual([]);
+          }
+          expect(await storedBody(row)).toBe(WRITTEN);
+        }),
+      120_000,
+    );
+
+    it.each([false, true])(
+      "a body writer without a target collection holds its membership collection (changed: %s)",
+      async (changed) =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const row = await switchedRowOwnedBySource();
+          await unbind(row).promise;
+          const before = await storedBody(row);
+          const holder = holdRow(
+            sql`SELECT id FROM documents WHERE id = ${row.id} FOR UPDATE`,
+          );
+          let write: Tracked | undefined;
+          let policy: Tracked | undefined;
+          try {
+            const holderPid = await holder.pid;
+            const { editContentLiveCopy } = await import("./write.js");
+            const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+            write = track(
+              editContentLiveCopy(row.id, {
+                cause: { ctx, operation: "test-containing-collection" },
+                edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: {
+                  expected: before,
+                  content: changed ? WRITTEN : before,
+                },
+              }),
+            );
+            const writePid = await sessionBlockedBy(holderPid, write);
+            policy = unbind(row);
+            await sessionBlockedBy(writePid, policy);
+          } finally {
+            holder.release();
+            const results = await Promise.allSettled([
+              holder.done,
+              ...(write ? [write.promise] : []),
+              ...(policy ? [policy.promise] : []),
+            ]);
+            expect(failures(results)).toEqual([]);
+          }
+          expect(await storedBody(row)).toBe(changed ? WRITTEN : before);
+          expect(await boundProperty(row)).toBeNull();
+        }),
+      120_000,
+    );
+
+    it(
       "the write waits for a policy change that locked the collection first, and commits under the new policy",
       () =>
         runWithRequestContext({ userEmail: OWNER }, async () => {
