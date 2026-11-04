@@ -219,6 +219,29 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     expect(writeEventMock).not.toHaveBeenCalled();
   });
 
+  it("doesn't bring in a stale import's assets", async () => {
+    const content = legacyContent();
+    const mdx = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Legacy plan",
+      planId: "plan-legacy",
+    });
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockClear();
+    updateMock.mockImplementation(() => ({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    }));
+
+    await expect(
+      runAction({
+        planId: "plan-legacy",
+        mdx: { ...mdx, "assets/": { "photo.png": "cGhvdG8=" } },
+        expectedRevision: "revision-1",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(importPlanAssets).not.toHaveBeenCalled();
+  });
+
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {
     const content = legacyContent();
     const mdx = await exportPlanContentToMdxFolder({

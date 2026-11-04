@@ -79,7 +79,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision. Its details.current is the structured plan, so redo a source edit on what read-visual-plan-source returns.",
       ),
     expectedUpdatedAt: z
       .string()
@@ -163,15 +163,6 @@ export default defineAction({
     const db = getDb();
 
     if (args.planId) {
-      const incomingAssets = args.mdx["assets/"];
-      if (incomingAssets && Object.keys(incomingAssets).length > 0) {
-        const srcByFilename = await importPlanAssets(
-          args.planId,
-          incomingAssets,
-        );
-        content = applyImportedAssets(content, srcByFilename);
-      }
-
       const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
       if (expectedRevision) {
         const updatedRows = await db
@@ -187,6 +178,15 @@ export default defineAction({
         if (updatedRows.length === 0) {
           throw await planSaveConflict(args.planId);
         }
+      }
+
+      const incomingAssets = args.mdx["assets/"];
+      if (incomingAssets && Object.keys(incomingAssets).length > 0) {
+        const srcByFilename = await importPlanAssets(
+          args.planId,
+          incomingAssets,
+        );
+        content = applyImportedAssets(content, srcByFilename);
       }
 
       await createPlanVersionSnapshot(args.planId, {

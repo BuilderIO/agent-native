@@ -254,7 +254,7 @@ export default defineAction({
       .min(1)
       .optional()
       .describe(
-        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision. Its details.current is the structured plan, so redo a source edit on what read-visual-plan-source returns.",
       ),
     allowDestructive: z
       .boolean()
@@ -280,7 +280,7 @@ export default defineAction({
       .min(1)
       .optional()
       .describe(
-        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision. Its details.current is the structured plan, so redo a source edit on what read-visual-plan-source returns.",
       ),
     allowDestructive: z
       .boolean()

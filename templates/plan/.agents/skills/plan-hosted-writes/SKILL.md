@@ -27,8 +27,10 @@ targeted content or source patches whenever they can express the edit.
 
 A stale write fails with `errorCode: "save_conflict"` and writes nothing. Redo
 your edit on `details.current`, the plan's current content, and resend with
-`details.currentRevision` as the revision. Targeted patches don't need a
-revision, but one you send is checked, so send it when you have it.
+`details.currentRevision` as the revision. A source write works on MDX, which
+`details.current` isn't, so redo that edit on what `read-visual-plan-source`
+returns. Targeted patches don't need a revision, but one you send is checked, so
+send it when you have it.
 
 ## Verify After Every Write
 
