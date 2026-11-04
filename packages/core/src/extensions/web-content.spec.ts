@@ -859,6 +859,19 @@ describe("formatWebContentResult", () => {
     );
   });
 
+  it("does not note missing Turndown on raw-mode output", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const formatted = formatWebContentResult({
+      mode: "raw",
+      extract: "none",
+      contentType: "text/html",
+      content: "<html>raw</html>",
+      markdownUnavailable: true,
+    });
+    expect(formatted).toContain("<html>raw</html>");
+    expect(formatted).not.toContain("Markdown conversion unavailable");
+  });
+
   it("appends fallback content after links output", async () => {
     const { formatWebContentResult } = await import("./web-content.js");
     expect(

@@ -362,7 +362,6 @@ export function formatWebContentResult(result: WebContentResult): string {
     if (hasSearchSummary(result)) {
       lines.push("", formatMatches(result));
     }
-    appendMarkdownUnavailableFooter(lines, result);
     return lines.join("\n");
   }
 
@@ -574,7 +573,31 @@ async function extractHtml(
       () => import("@mozilla/readability"),
     );
     try {
-      article = new Readability(document.cloneNode(true) as Document).parse();
+      const parsed = new Readability(
+        document.cloneNode(true) as Document,
+      ).parse();
+      article = parsed
+        ? {
+            ...(parsed.content !== undefined
+              ? { content: parsed.content }
+              : {}),
+            ...(parsed.textContent !== undefined
+              ? { textContent: parsed.textContent }
+              : {}),
+            ...(parsed.title !== undefined ? { title: parsed.title } : {}),
+            ...(parsed.excerpt !== undefined
+              ? { excerpt: parsed.excerpt }
+              : {}),
+            ...(parsed.byline !== undefined ? { byline: parsed.byline } : {}),
+            ...(parsed.siteName !== undefined
+              ? { siteName: parsed.siteName }
+              : {}),
+            ...(parsed.lang !== undefined ? { lang: parsed.lang } : {}),
+            ...(parsed.publishedTime !== undefined
+              ? { publishedTime: parsed.publishedTime }
+              : {}),
+          }
+        : null;
     } catch (error) {
       // Readability throws reading tagName on a frameset clone. Keep the
       // already-parsed document instead of aborting extractHtml, which
@@ -703,13 +726,13 @@ function htmlToPlainText(
 ): string {
   const document = parseFullDocument(html, parseDocument);
   removeNonContentNodes(document);
-  const bodyText = normalizeWhitespace(document.body?.textContent ?? "");
+  const bodyText = normalizeWhitespace(document.body.textContent);
   if (bodyText) return bodyText;
   // Frameset pages have an empty body. Keep <noframes> so markdown/matches
   // can share that corpus when Turndown rejects the frameset root.
   return normalizeWhitespace(
     [...document.querySelectorAll("noframes")]
-      .map((node) => node.textContent ?? "")
+      .map((node) => node.textContent)
       .join(" "),
   );
 }
