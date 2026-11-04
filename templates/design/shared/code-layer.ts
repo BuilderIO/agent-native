@@ -8808,6 +8808,20 @@ function rebaseMeasuredFlowChild(
   );
 }
 
+function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
+  if (parseStyle(attributeValue(child, "style")).position !== "absolute") {
+    return html;
+  }
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["position", "left", "top"]);
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
 function nextSequentialWrapperName(
   nodes: CodeLayerNode[],
   baseName: string,
@@ -10440,9 +10454,26 @@ function applyUnwrap(
   const hasMeasuredFlowOrigin =
     measuredGroupLeft !== null || measuredGroupTop !== null;
   const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
+  // A pinned child is out of flow, so left in a flex or grid parent it stops
+  // taking part in the row and its siblings reflow around the gap.
+  const releaseIntoFlow =
+    hasMeasuredFlowOrigin &&
+    !hasPositionedOffset &&
+    (node.layout.parentDisplay === "flex" ||
+      node.layout.parentDisplay === "inline-flex" ||
+      node.layout.parentDisplay === "grid" ||
+      node.layout.parentDisplay === "inline-grid");
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase) {
+  if (releaseIntoFlow) {
+    const fragmentElements = parseHtmlElements(innerContent);
+    const directChildren = fragmentElements.filter(
+      (fe) => fe.parentIndex === undefined,
+    );
+    for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
+      innerContent = releaseMeasuredFlowChild(innerContent, child);
+    }
+  } else if (shouldRebase) {
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =

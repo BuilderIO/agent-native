@@ -10,7 +10,7 @@ const THREE_SIBLINGS = `<body>
 
 describe("applyWrapNodes (Cmd+G group)", () => {
   it("ungroup rebases measured in-flow children back to world coordinates", () => {
-    const content = `<body style="display:flex;flex-direction:column;gap:20px">
+    const content = `<body>
   <div data-agent-native-node-id="first" style="width:100px;height:40px">First</div>
   <div data-agent-native-node-id="second" style="width:100px;height:40px">Second</div>
 </body>`;
@@ -32,6 +32,77 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("left: 12px");
     expect(ungrouped.content).toContain("top: 80px");
     expect(ungrouped.content).toContain("top: 140px");
+  });
+
+  it.each(["display:flex;gap:20px", "display:grid;gap:20px"])(
+    "ungroup returns measured in-flow children to a %s parent's flow",
+    (parentStyle) => {
+      const content = `<body>
+  <div data-agent-native-node-id="row" style="${parentStyle}">
+    <div data-agent-native-node-id="card-a" style="width:100px;height:40px">A</div>
+    <div data-agent-native-node-id="card-b" style="width:100px;height:40px">B</div>
+    <div data-agent-native-node-id="card-c" style="width:100px;height:40px">C</div>
+  </div>
+</body>`;
+      const grouped = applyVisualEdit(content, {
+        kind: "wrapNodes",
+        targetIds: ["card-a", "card-b"],
+        sizeHints: {
+          "card-a": { width: 100, height: 40, left: 0, top: 0 },
+          "card-b": { width: 100, height: 40, left: 120, top: 0 },
+        },
+      });
+      expect(grouped.result.status).toBe("applied");
+      expect(grouped.content).toContain("position: absolute");
+
+      const ungrouped = applyVisualEdit(grouped.content, {
+        kind: "unwrap",
+        targetId: grouped.result.wrapperNodeId ?? "",
+      });
+
+      expect(ungrouped.result.status).toBe("applied");
+      expect(ungrouped.content).not.toContain("position: absolute");
+      expect(ungrouped.content).not.toContain("left:");
+      expect(ungrouped.content).not.toContain(
+        "data-agent-native-group-wrapper",
+      );
+      const order = ["card-a", "card-b", "card-c"].map((id) =>
+        ungrouped.content.indexOf(`data-agent-native-node-id="${id}"`),
+      );
+      expect(order.every((index) => index >= 0)).toBe(true);
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
+    },
+  );
+
+  it("ungroup keeps children pinned when the group itself was nudged in a flex parent", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="row" style="display:flex">
+    <div data-agent-native-node-id="card-a" style="width:100px;height:40px">A</div>
+    <div data-agent-native-node-id="card-b" style="width:100px;height:40px">B</div>
+  </div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["card-a", "card-b"],
+      sizeHints: {
+        "card-a": { width: 100, height: 40, left: 0, top: 0 },
+        "card-b": { width: 100, height: 40, left: 100, top: 0 },
+      },
+    });
+    const nudged = grouped.content.replace(
+      "position: relative;",
+      "position: relative; left: 10px; top: 5px;",
+    );
+    expect(nudged).not.toBe(grouped.content);
+
+    const ungrouped = applyVisualEdit(nudged, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+
+    expect(ungrouped.result.status).toBe("applied");
+    expect(ungrouped.content).toContain("position: absolute");
+    expect(ungrouped.content).toContain("left: 110px");
   });
 
   it("ungroup rebases absolute children from the group origin", () => {
