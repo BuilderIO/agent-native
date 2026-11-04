@@ -1347,13 +1347,24 @@ describe("silent success: reorder and agent field schema", () => {
   });
 
   it("agent patch-deck-fields schema does not accept visibility", () => {
-    const parameters = patchDeckAction.tool.parameters as any;
-    const operations = parameters.properties.operations.items.anyOf;
-    const deckFields = operations.find(
-      (operation: any) =>
-        operation.properties?.op?.const === "patch-deck-fields",
+    const parameters = patchDeckAction.tool.parameters as {
+      properties: {
+        operations: {
+          items: {
+            anyOf: Array<{
+              properties?: {
+                op?: { const?: string };
+                fields?: { additionalProperties?: boolean };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const deckFields = parameters.properties.operations.items.anyOf.find(
+      (operation) => operation.properties?.op?.const === "patch-deck-fields",
     );
-    expect(deckFields.properties.fields.additionalProperties).toBe(false);
+    expect(deckFields?.properties?.fields?.additionalProperties).toBe(false);
   });
 });
 

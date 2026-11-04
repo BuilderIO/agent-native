@@ -196,7 +196,8 @@ function storeDuplicateSlideDeck(): string {
 
 describe("get-deck compact silent success", () => {
   it("keeps the skipped flag on compact slide summaries", async () => {
-    currentResource!.data = JSON.stringify({
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.data = JSON.stringify({
       slides: [
         { id: "a", layout: "blank", content: "<div>Visible</div>" },
         {
@@ -210,7 +211,7 @@ describe("get-deck compact silent success", () => {
     const result = (await action.run(
       { id: "deck-1", compact: "true" },
       { caller: "tool" },
-    )) as any;
+    )) as { slides: Array<{ id: string; skipped: boolean }> };
     expect(result.slides[1]).toMatchObject({ id: "b", skipped: true });
     expect(result.slides[0]).toMatchObject({ id: "a", skipped: false });
   });

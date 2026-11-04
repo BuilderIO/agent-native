@@ -195,7 +195,7 @@ beforeEach(() => {
 
 describe("update-slide silent success", () => {
   it("accepts notes in the action schema", async () => {
-    const result = await (action as any).schema["~standard"].validate({
+    const result = await action.schema["~standard"].validate({
       deckId: "deck-1",
       slideId: "slide-1",
       notes: "Say this",
@@ -214,7 +214,7 @@ describe("update-slide silent success", () => {
         fullContent: "<div>New</div>",
         baseContentHash: hashSlideContent("<div>Old</div>"),
         notes: "Say this",
-      } as any,
+      },
       { caller: "mcp" },
     );
     const saved = JSON.parse(String(lastUpdateSet?.data));
@@ -226,7 +226,7 @@ describe("update-slide silent success", () => {
 
   it("saves notes alone", async () => {
     await action.run(
-      { deckId: "deck-1", slideId: "slide-1", notes: "Only notes" } as any,
+      { deckId: "deck-1", slideId: "slide-1", notes: "Only notes" },
       { caller: "mcp" },
     );
     const saved = JSON.parse(String(lastUpdateSet?.data));
@@ -242,7 +242,7 @@ describe("update-slide silent success", () => {
           find: "absent text",
           replace: "x",
           notes: "Say this",
-        } as any,
+        },
         { caller: "mcp" },
       ),
     ).rejects.toThrow(/text not found/);
