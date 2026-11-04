@@ -478,21 +478,27 @@ const enUS = {
     nextSync: "Next sync {{date}}",
     waitingForFirstSync: "Waiting for first sync",
     manualSync: "Manual sync",
-    manualImportTitle: "Import Markdown into {{source}}",
+    manualImportTitle: "Import documents into {{source}}",
     manualImportDescription:
-      "Choose a folder or batch of Markdown files. Each file becomes a searchable document capture and follows this source's access setting.",
-    chooseMarkdownFolder: "Choose Markdown folder",
-    importMarkdownFiles: "Import Markdown files",
+      "Choose a folder or files: Markdown, text, PDF, or Word. Each file becomes a searchable document capture and follows this source's access setting.",
+    chooseMarkdownFolder: "Choose folder",
+    importMarkdownFiles: "Import documents",
     companyContextUpload: "Upload company context",
     companyContextAdminOnly:
       "Only organization owners and admins can upload company context.",
     companyContextOpenFailed:
       "Couldn't open the company context upload. Try again.",
-    manualImportNoFiles: "No Markdown files selected",
-    manualImportFilesSelected: "{{count}} Markdown files selected",
+    manualImportNoFiles: "No documents selected",
+    manualImportFilesSelected: "{{count}} documents selected",
     manualImportFileLimit:
-      "Only .md and .markdown files are imported. Folder imports are limited to 100 files and 4 million characters.",
-    manualImportSkippedFiles: "{{count}} non-Markdown files will be skipped.",
+      "Supports .md, .markdown, .txt, .pdf, and .docx. Imports are limited to 100 files and 4 million characters of text.",
+    chooseDocumentFiles: "Choose files",
+    manualImportNoText:
+      "No text found. Scanned PDFs without a text layer aren't supported.",
+    manualImportTooLong: "This file has more than 250,000 characters of text.",
+    manualImportTooLarge: "This file is larger than 25 MB.",
+    manualImportUnreadable: "This file couldn't be read.",
+    manualImportSkippedFiles: "{{count}} unsupported files will be skipped.",
     manualImportMoreFiles: "+{{count}} more files",
     manualImportResult:
       "{{imported}} imported, {{queued}} queued for distillation, {{failed}} failed, {{blocked}} blocked",
@@ -3278,16 +3284,22 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "اتصالات مساحة العمل",
       workspaceConnection: "اتصال مساحة العمل",
       manualImportDescription:
-        "اختر مجلدًا أو مجموعة من ملفات Markdown. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
-      chooseMarkdownFolder: "اختيار مجلد Markdown",
-      importMarkdownFiles: "استيراد ملفات Markdown",
+        "اختر مجلدًا أو ملفات: Markdown أو نص أو PDF أو Word. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
+      chooseMarkdownFolder: "اختيار مجلد",
+      importMarkdownFiles: "استيراد المستندات",
       companyContextUpload: "رفع سياق الشركة",
       companyContextAdminOnly:
         "يمكن فقط لمالكي المؤسسة ومسؤوليها رفع سياق الشركة.",
       companyContextOpenFailed: "تعذّر فتح رفع سياق الشركة. حاول مرة أخرى.",
-      manualImportNoFiles: "لم يتم اختيار ملفات Markdown",
+      manualImportNoFiles: "لم يتم اختيار مستندات",
       manualImportFileLimit:
-        "سيتم استيراد ملفات .md و.markdown فقط. يقتصر استيراد المجلدات على 100 ملف و4 ملايين حرف.",
+        "يدعم .md و.markdown و.txt و.pdf و.docx. يقتصر الاستيراد على 100 ملف و4 ملايين حرف من النص.",
+      chooseDocumentFiles: "اختيار ملفات",
+      manualImportNoText:
+        "لم يتم العثور على نص. ملفات PDF الممسوحة ضوئيًا بدون طبقة نصية غير مدعومة.",
+      manualImportTooLong: "يحتوي هذا الملف على أكثر من 250,000 حرف من النص.",
+      manualImportTooLarge: "حجم هذا الملف أكبر من 25 ميغابايت.",
+      manualImportUnreadable: "تعذّرت قراءة هذا الملف.",
       manualImportBlocked: "محظور بموجب سياسة خصوصية Brain.",
       archiveSource: "أرشفة المصدر",
       archiveSourceTitle: "هل تريد أرشفة هذا المصدر؟",
@@ -3710,17 +3722,23 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Arbeitsbereichsverbindungen",
       workspaceConnection: "Arbeitsbereichsverbindung",
       manualImportDescription:
-        "Wählen Sie einen Ordner oder mehrere Markdown-Dateien aus. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
-      chooseMarkdownFolder: "Markdown-Ordner auswählen",
-      importMarkdownFiles: "Markdown-Dateien importieren",
+        "Wählen Sie einen Ordner oder Dateien aus: Markdown, Text, PDF oder Word. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
+      chooseMarkdownFolder: "Ordner auswählen",
+      importMarkdownFiles: "Dokumente importieren",
       companyContextUpload: "Unternehmenskontext hochladen",
       companyContextAdminOnly:
         "Nur Inhaber und Administratoren der Organisation können Unternehmenskontext hochladen.",
       companyContextOpenFailed:
         "Der Upload für Unternehmenskontext konnte nicht geöffnet werden. Versuche es erneut.",
-      manualImportNoFiles: "Keine Markdown-Dateien ausgewählt",
+      manualImportNoFiles: "Keine Dokumente ausgewählt",
       manualImportFileLimit:
-        "Nur .md- und .markdown-Dateien werden importiert. Ordnerimporte sind auf 100 Dateien und 4 Millionen Zeichen begrenzt.",
+        "Unterstützt .md, .markdown, .txt, .pdf und .docx. Importe sind auf 100 Dateien und 4 Millionen Zeichen Text begrenzt.",
+      chooseDocumentFiles: "Dateien auswählen",
+      manualImportNoText:
+        "Kein Text gefunden. Gescannte PDFs ohne Textebene werden nicht unterstützt.",
+      manualImportTooLong: "Diese Datei enthält mehr als 250.000 Zeichen Text.",
+      manualImportTooLarge: "Diese Datei ist größer als 25 MB.",
+      manualImportUnreadable: "Diese Datei konnte nicht gelesen werden.",
       manualImportBlocked: "Durch die Brain-Datenschutzrichtlinie blockiert.",
       archiveSource: "Quelle archivieren",
       archiveSourceTitle: "Diese Quelle archivieren?",
@@ -4138,17 +4156,24 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Conexiones del espacio de trabajo",
       workspaceConnection: "Conexión del espacio de trabajo",
       manualImportDescription:
-        "Elige una carpeta o un conjunto de archivos Markdown. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
-      chooseMarkdownFolder: "Elegir carpeta de Markdown",
-      importMarkdownFiles: "Importar archivos Markdown",
+        "Elige una carpeta o archivos: Markdown, texto, PDF o Word. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
+      chooseMarkdownFolder: "Elegir carpeta",
+      importMarkdownFiles: "Importar documentos",
       companyContextUpload: "Subir contexto de la empresa",
       companyContextAdminOnly:
         "Solo los propietarios y administradores de la organización pueden subir contexto de la empresa.",
       companyContextOpenFailed:
         "No se pudo abrir la subida de contexto de la empresa. Inténtalo de nuevo.",
-      manualImportNoFiles: "No se han seleccionado archivos Markdown",
+      manualImportNoFiles: "No se han seleccionado documentos",
       manualImportFileLimit:
-        "Solo se importan archivos .md y .markdown. Las importaciones de carpetas están limitadas a 100 archivos y 4 millones de caracteres.",
+        "Admite .md, .markdown, .txt, .pdf y .docx. Las importaciones están limitadas a 100 archivos y 4 millones de caracteres de texto.",
+      chooseDocumentFiles: "Elegir archivos",
+      manualImportNoText:
+        "No se encontró texto. No se admiten PDF escaneados sin capa de texto.",
+      manualImportTooLong:
+        "Este archivo tiene más de 250.000 caracteres de texto.",
+      manualImportTooLarge: "Este archivo supera los 25 MB.",
+      manualImportUnreadable: "No se pudo leer este archivo.",
       manualImportBlocked: "Bloqueado por la política de privacidad de Brain.",
       archiveSource: "Archivar fuente",
       archiveSourceTitle: "¿Archivar esta fuente?",
@@ -4571,17 +4596,24 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Connexions à l'espace de travail",
       workspaceConnection: "Connexion à l'espace de travail",
       manualImportDescription:
-        "Choisissez un dossier ou un ensemble de fichiers Markdown. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
-      chooseMarkdownFolder: "Choisir un dossier Markdown",
-      importMarkdownFiles: "Importer des fichiers Markdown",
+        "Choisissez un dossier ou des fichiers : Markdown, texte, PDF ou Word. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
+      chooseMarkdownFolder: "Choisir un dossier",
+      importMarkdownFiles: "Importer des documents",
       companyContextUpload: "Importer le contexte d'entreprise",
       companyContextAdminOnly:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent importer le contexte d'entreprise.",
       companyContextOpenFailed:
         "Impossible d'ouvrir l'import du contexte d'entreprise. Réessayez.",
-      manualImportNoFiles: "Aucun fichier Markdown sélectionné",
+      manualImportNoFiles: "Aucun document sélectionné",
       manualImportFileLimit:
-        "Seuls les fichiers .md et .markdown sont importés. Les imports de dossiers sont limités à 100 fichiers et 4 millions de caractères.",
+        "Formats pris en charge : .md, .markdown, .txt, .pdf et .docx. Les imports sont limités à 100 fichiers et 4 millions de caractères de texte.",
+      chooseDocumentFiles: "Choisir des fichiers",
+      manualImportNoText:
+        "Aucun texte trouvé. Les PDF numérisés sans couche de texte ne sont pas pris en charge.",
+      manualImportTooLong:
+        "Ce fichier contient plus de 250 000 caractères de texte.",
+      manualImportTooLarge: "Ce fichier dépasse 25 Mo.",
+      manualImportUnreadable: "Impossible de lire ce fichier.",
       manualImportBlocked:
         "Bloqué par la politique de confidentialité de Brain.",
       archiveSource: "Archiver la source",
@@ -4969,16 +5001,22 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "कार्यस्थल कनेक्शन",
       workspaceConnection: "कार्यस्थल कनेक्शन",
       manualImportDescription:
-        "फ़ोल्डर या Markdown फ़ाइलों का समूह चुनें। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
-      chooseMarkdownFolder: "Markdown फ़ोल्डर चुनें",
-      importMarkdownFiles: "Markdown फ़ाइलें आयात करें",
+        "फ़ोल्डर या फ़ाइलें चुनें: Markdown, टेक्स्ट, PDF या Word। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
+      chooseMarkdownFolder: "फ़ोल्डर चुनें",
+      importMarkdownFiles: "दस्तावेज़ आयात करें",
       companyContextUpload: "कंपनी संदर्भ अपलोड करें",
       companyContextAdminOnly:
         "केवल संगठन के स्वामी और व्यवस्थापक ही कंपनी संदर्भ अपलोड कर सकते हैं।",
       companyContextOpenFailed: "कंपनी संदर्भ अपलोड नहीं खुल सका। फिर से कोशिश करें।",
-      manualImportNoFiles: "कोई Markdown फ़ाइल नहीं चुनी गई",
+      manualImportNoFiles: "कोई दस्तावेज़ नहीं चुना गया",
       manualImportFileLimit:
-        "केवल .md और .markdown फ़ाइलें आयात की जाती हैं। फ़ोल्डर आयात 100 फ़ाइलों और 40 लाख वर्णों तक सीमित हैं।",
+        ".md, .markdown, .txt, .pdf और .docx समर्थित हैं। आयात 100 फ़ाइलों और 40 लाख वर्णों के टेक्स्ट तक सीमित हैं।",
+      chooseDocumentFiles: "फ़ाइलें चुनें",
+      manualImportNoText:
+        "कोई टेक्स्ट नहीं मिला। बिना टेक्स्ट लेयर वाले स्कैन किए गए PDF समर्थित नहीं हैं।",
+      manualImportTooLong: "इस फ़ाइल में 2,50,000 से अधिक वर्णों का टेक्स्ट है।",
+      manualImportTooLarge: "यह फ़ाइल 25 MB से बड़ी है।",
+      manualImportUnreadable: "यह फ़ाइल पढ़ी नहीं जा सकी।",
       manualImportBlocked: "Brain की गोपनीयता नीति द्वारा अवरुद्ध।",
       archiveSource: "स्रोत को संग्रहित करें",
       archiveSourceTitle: "इस स्रोत को संग्रहित करें?",
@@ -5383,17 +5421,24 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "ワークスペース接続",
       workspaceConnection: "ワークスペース接続",
       manualImportDescription:
-        "フォルダーまたはMarkdownファイルのまとまりを選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
-      chooseMarkdownFolder: "Markdownフォルダーを選択",
-      importMarkdownFiles: "Markdownファイルをインポート",
+        "フォルダーまたはファイル（Markdown、テキスト、PDF、Word）を選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
+      chooseMarkdownFolder: "フォルダーを選択",
+      importMarkdownFiles: "ドキュメントをインポート",
       companyContextUpload: "会社コンテキストをアップロード",
       companyContextAdminOnly:
         "会社コンテキストをアップロードできるのは組織のオーナーと管理者のみです。",
       companyContextOpenFailed:
         "会社コンテキストのアップロードを開けませんでした。もう一度お試しください。",
-      manualImportNoFiles: "Markdownファイルが選択されていません",
+      manualImportNoFiles: "ドキュメントが選択されていません",
       manualImportFileLimit:
-        ".mdと.markdownファイルのみがインポートされます。フォルダーからのインポートは100ファイル、400万文字までです。",
+        ".md、.markdown、.txt、.pdf、.docxに対応しています。インポートは100ファイル、テキスト400万文字までです。",
+      chooseDocumentFiles: "ファイルを選択",
+      manualImportNoText:
+        "テキストが見つかりません。テキストレイヤーのないスキャンPDFには対応していません。",
+      manualImportTooLong:
+        "このファイルのテキストは250,000文字を超えています。",
+      manualImportTooLarge: "このファイルは25 MBを超えています。",
+      manualImportUnreadable: "このファイルを読み取れませんでした。",
       manualImportBlocked:
         "Brainのプライバシーポリシーによりブロックされました。",
       archiveSource: "ソースをアーカイブ",
@@ -5790,17 +5835,23 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "작업 공간 연결",
       workspaceConnection: "작업공간 연결",
       manualImportDescription:
-        "폴더 또는 Markdown 파일 묶음을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
-      chooseMarkdownFolder: "Markdown 폴더 선택",
-      importMarkdownFiles: "Markdown 파일 가져오기",
+        "폴더 또는 파일(Markdown, 텍스트, PDF, Word)을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
+      chooseMarkdownFolder: "폴더 선택",
+      importMarkdownFiles: "문서 가져오기",
       companyContextUpload: "회사 컨텍스트 업로드",
       companyContextAdminOnly:
         "조직 소유자와 관리자만 회사 컨텍스트를 업로드할 수 있습니다.",
       companyContextOpenFailed:
         "회사 컨텍스트 업로드를 열 수 없습니다. 다시 시도하세요.",
-      manualImportNoFiles: "선택한 Markdown 파일 없음",
+      manualImportNoFiles: "선택한 문서 없음",
       manualImportFileLimit:
-        ".md 및 .markdown 파일만 가져옵니다. 폴더 가져오기는 파일 100개와 400만 자로 제한됩니다.",
+        ".md, .markdown, .txt, .pdf, .docx를 지원합니다. 가져오기는 파일 100개와 텍스트 400만 자로 제한됩니다.",
+      chooseDocumentFiles: "파일 선택",
+      manualImportNoText:
+        "텍스트를 찾을 수 없습니다. 텍스트 레이어가 없는 스캔 PDF는 지원되지 않습니다.",
+      manualImportTooLong: "이 파일의 텍스트가 250,000자를 초과합니다.",
+      manualImportTooLarge: "이 파일은 25MB보다 큽니다.",
+      manualImportUnreadable: "이 파일을 읽을 수 없습니다.",
       manualImportBlocked: "Brain 개인정보 보호 정책에 의해 차단되었습니다.",
       archiveSource: "소스 보관",
       archiveSourceTitle: "이 소스를 보관할까요?",
@@ -6213,17 +6264,24 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "Conexões do espaço de trabalho",
       workspaceConnection: "Conexão do espaço de trabalho",
       manualImportDescription:
-        "Escolha uma pasta ou um conjunto de arquivos Markdown. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
-      chooseMarkdownFolder: "Escolher pasta Markdown",
-      importMarkdownFiles: "Importar arquivos Markdown",
+        "Escolha uma pasta ou arquivos: Markdown, texto, PDF ou Word. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
+      chooseMarkdownFolder: "Escolher pasta",
+      importMarkdownFiles: "Importar documentos",
       companyContextUpload: "Enviar contexto da empresa",
       companyContextAdminOnly:
         "Somente proprietários e administradores da organização podem enviar contexto da empresa.",
       companyContextOpenFailed:
         "Não foi possível abrir o envio de contexto da empresa. Tente novamente.",
-      manualImportNoFiles: "Nenhum arquivo Markdown selecionado",
+      manualImportNoFiles: "Nenhum documento selecionado",
       manualImportFileLimit:
-        "Somente arquivos .md e .markdown são importados. As importações de pastas estão limitadas a 100 arquivos e 4 milhões de caracteres.",
+        "Compatível com .md, .markdown, .txt, .pdf e .docx. As importações são limitadas a 100 arquivos e 4 milhões de caracteres de texto.",
+      chooseDocumentFiles: "Escolher arquivos",
+      manualImportNoText:
+        "Nenhum texto encontrado. PDFs digitalizados sem camada de texto não são compatíveis.",
+      manualImportTooLong:
+        "Este arquivo tem mais de 250.000 caracteres de texto.",
+      manualImportTooLarge: "Este arquivo tem mais de 25 MB.",
+      manualImportUnreadable: "Não foi possível ler este arquivo.",
       manualImportBlocked: "Bloqueado pela política de privacidade do Brain.",
       archiveSource: "Arquivar fonte",
       archiveSourceTitle: "Arquivar esta fonte?",
@@ -6577,15 +6635,20 @@ const exactEnglishDebtOverrides: Partial<
       workspaceConnections: "工作区连接",
       workspaceConnection: "工作区连接",
       manualImportDescription:
-        "选择一个文件夹或一批 Markdown 文件。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
-      chooseMarkdownFolder: "选择 Markdown 文件夹",
-      importMarkdownFiles: "导入 Markdown 文件",
+        "选择一个文件夹或文件：Markdown、文本、PDF 或 Word。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
+      chooseMarkdownFolder: "选择文件夹",
+      importMarkdownFiles: "导入文档",
       companyContextUpload: "上传公司上下文",
       companyContextAdminOnly: "只有组织所有者和管理员可以上传公司上下文。",
       companyContextOpenFailed: "无法打开公司上下文上传。请重试。",
-      manualImportNoFiles: "未选择 Markdown 文件",
+      manualImportNoFiles: "未选择文档",
       manualImportFileLimit:
-        "仅导入 .md 和 .markdown 文件。文件夹导入最多支持 100 个文件和 400 万个字符。",
+        "支持 .md、.markdown、.txt、.pdf 和 .docx。每次导入最多 100 个文件、400 万个文本字符。",
+      chooseDocumentFiles: "选择文件",
+      manualImportNoText: "未找到文本。不支持没有文本层的扫描版 PDF。",
+      manualImportTooLong: "此文件的文本超过 250,000 个字符。",
+      manualImportTooLarge: "此文件大于 25 MB。",
+      manualImportUnreadable: "无法读取此文件。",
       manualImportBlocked: "已被 Brain 隐私政策阻止。",
       archiveSource: "归档来源",
       archiveSourceTitle: "要归档此来源吗？",

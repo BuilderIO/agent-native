@@ -4743,6 +4743,12 @@ importers:
       isbot:
         specifier: ^5.1.40
         version: 5.1.44
+      mammoth:
+        specifier: 1.12.0
+        version: 1.12.0
+      pdfjs-dist:
+        specifier: 5.4.296
+        version: 5.4.296
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -5723,7 +5729,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(7a69e7393d8e8d6b51ea2fc3c4e802fb)
+        version: 0.219.0(1e1c99142ba1fa94f5d85d33a92e9a62)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -8215,8 +8221,8 @@ packages:
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
 
-  '@agent-native/core-corpus@0.222.2':
-    resolution: {integrity: sha512-/GoNdmX6udBrNApPneffHpMsHVGpd8Ha0obLvyKjjPtLg/VZf1K3SOd59YVj9oqePAQvmvaW8tXPDE02T+70ow==}
+  '@agent-native/core-corpus@0.223.0':
+    resolution: {integrity: sha512-8cayW//7ryN3iwe40MkI1sJWjU48nGvNMz9GcpN+Iglfl91u9udc2iA7xKHmLw/NcoxplhBYQZrui2rqdrrbNw==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -17429,6 +17435,7 @@ packages:
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
@@ -25135,10 +25142,10 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core-corpus@0.222.2':
+  '@agent-native/core-corpus@0.223.0':
     optional: true
 
-  '@agent-native/core@0.219.0(7a69e7393d8e8d6b51ea2fc3c4e802fb)':
+  '@agent-native/core@0.219.0(1e1c99142ba1fa94f5d85d33a92e9a62)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25193,7 +25200,7 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
-      '@agent-native/core-corpus': 0.222.2
+      '@agent-native/core-corpus': 0.223.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)
