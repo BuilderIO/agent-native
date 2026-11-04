@@ -9,6 +9,7 @@ import { z } from "zod";
 const auditRows = vi.hoisted(() => [] as Record<string, any>[]);
 const gateCalls = vi.hoisted(() => [] as Record<string, any>[]);
 const providerMock = vi.hoisted(() => vi.fn());
+const readInputs = vi.hoisted(() => [] as Record<string, unknown>[]);
 
 vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
   ...(await original<object>()),
@@ -72,7 +73,10 @@ const readAction = defineAction({
   schema: z.object({}).passthrough(),
   http: false,
   readOnly: true,
-  run: async () => behavior.read(),
+  run: async (input) => {
+    readInputs.push(input as Record<string, unknown>);
+    return behavior.read();
+  },
 });
 const writeAction = defineAction({
   description: "A write host action.",
@@ -136,6 +140,7 @@ const listItems = () =>
   request("factory.listItems", { status: "received", limit: 5 });
 
 beforeEach(() => {
+  readInputs.length = 0;
   auditRows.length = 0;
   gateCalls.length = 0;
   providerMock.mockReset();
@@ -229,7 +234,14 @@ describe("a provider-request operation through the guarded call", () => {
       text: `sentence ${index} lorem ipsum dolor sit amet`,
     }));
     providerMock.mockResolvedValue(
-      answer({ callTranscripts: [{ callId: "c1", transcript: sentences }] }),
+      answer({
+        callTranscripts: [
+          {
+            callId: "c1",
+            transcript: [{ speakerId: "s1", topic: "Plan", sentences }],
+          },
+        ],
+      }),
     );
     const result = await executor.execute(
       request("gong.transcript", { callId: "c1" }),
@@ -335,6 +347,34 @@ describe("an action operation through the guarded call", () => {
       code: "effect_needs_check",
       sideEffect: "maybe",
     });
+  });
+
+  it("hands a lookup's action the operation's answer budget, and an operation with none no budget", async () => {
+    const calls = [
+      request("slack.readThread", {
+        channel: "C0123ABCD",
+        threadTs: "1700000000.000100",
+      }),
+      listItems(),
+      request("factory.mergeGate", { repo: "acme/web", number: 7 }),
+    ];
+    for (const call of calls) {
+      // raw-sql-ok: not SQL; this runs a workflow operation against a stand-in action
+      await executor.execute(call);
+    }
+
+    expect(readInputs.map((input) => input.budgetChars)).toEqual([
+      OPERATION_CATALOG.get("slack.readThread")!.answerBudgetChars,
+      OPERATION_CATALOG.get("factory.listItems")!.answerBudgetChars,
+      undefined,
+    ]);
+    expect(readInputs[0]).toMatchObject({ channel: "C0123ABCD" });
+    // The paths an action lookup keeps go the same way: the operation's own, only where it declares them.
+    expect(readInputs.map((input) => input.answerFields)).toEqual([
+      undefined,
+      OPERATION_CATALOG.get("factory.listItems")!.answerFields,
+      undefined,
+    ]);
   });
 
   it("returns a write's receipt", async () => {
@@ -461,6 +501,24 @@ describe("a typed failure carries its own retry flag", () => {
       code: "lookup_failed",
       sideEffect: "none",
       retryable: true,
+    });
+  });
+
+  it("does not call a rejected GitHub token missing: the step keeps its own code and says to refresh the token", async () => {
+    behavior.read = () =>
+      failGitHubStep(
+        new GitHubRequestError("Bad credentials", true, 401),
+        "reading the pull request",
+      );
+    // raw-sql-ok: the workflow operation executor, not a database call; the guard reads any execute() argument it cannot prove literal as SQL
+    expect(await executor.execute(mergeGate())).toMatchObject({
+      ok: false,
+      code: "lookup_failed",
+      sideEffect: "none",
+      retryable: false,
+      message: expect.stringMatching(
+        /github_credential_rejected.*Refresh the saved GitHub token|Refresh the saved GitHub token.*github_credential_rejected/s,
+      ),
     });
   });
 

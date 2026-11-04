@@ -12,6 +12,7 @@ import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
 
@@ -437,6 +438,9 @@ export default defineAction({
           : canEditRecording
             ? editorScreenshotEditsJson(rec.editsJson)
             : viewerScreenshotEditsJson(rec.editsJson),
+        ...(canEditRecording
+          ? { trimsRevision: trimsRevisionOf(rec.editsJson) }
+          : {}),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,

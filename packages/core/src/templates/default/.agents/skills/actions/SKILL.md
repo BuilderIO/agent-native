@@ -84,6 +84,17 @@ Controls HTTP exposure:
 
 Mutating actions (anything but `GET`) auto-refresh the UI on success — don't call `refresh-screen` after a normal action. Overrides (`readOnly`, `parallelSafe`) and exact trigger rules: `references/action-fields.md`.
 
+## Saves That Can Race
+
+An action that writes a value a person or another agent may also be changing checks what it read:
+
+- **Server:** `saveIfCurrent` from `@agent-native/core/save-conflict/server` takes `read`, `write` and `expectedRevision`. It checks and writes in one statement, confirms exactly one row changed, ignores a repeat of a save it already applied, and throws one typed conflict carrying the current value. Use `saveRevisionOf(value)` as the revision, so no migration is needed and any writer moves it. Set `requireRevision` for a write that replaces a whole value: a caller that read nothing gets the conflict, with the current value, and can redo its edit.
+- **Reads** return the same revision, and the schema takes it as `expectedRevision` with `EXPECTED_REVISION_DESCRIPTION`.
+- **Browser:** `saveWithMerge` from `@agent-native/core/save-conflict` merges field by field on a conflict and saves again, so most apps need no merge code. `useSaveConflictPrompt` from `@agent-native/toolkit/app/save-conflict` is its `resolveOverlap`: a person sees it only when both writers changed the same field, and can get the other version back.
+- **Agents** never see the prompt. They get the conflict and redo the edit on `details.current`.
+
+Outcomes are counted (`save_outcome_counts`, and `save_conflict_prompt` in the browser), so prompts that could have been automatic show up.
+
 ## Return Values
 
 Return **structured data** (objects, arrays), never `JSON.stringify()` — the framework serializes the response and only tries to parse a returned string as JSON, which isn't the same contract.
