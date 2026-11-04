@@ -900,7 +900,14 @@ export function reduceAgentEvent(
     !isExpectedTerminalFollowup(currentRun.status, event) &&
     (currentRun.status !== "failed" || hasTerminalEvent)
   ) {
-    return thread;
+    // A run can settle before its stream does (a Stop, or a reload that read
+    // the terminal status). Its in-order tail is still accepted, or the
+    // terminal follow-up admitted above would land after a phantom gap.
+    if (hasTerminalEvent) return thread;
+    const admission = classifyAgentEvent(thread, event);
+    return admission.status === "accepted"
+      ? updateRun(thread, event.runId, { lastSequence: admission.sequence })
+      : thread;
   }
   const admission = classifyAgentEvent(thread, event);
   if (admission.status === "foreign" || admission.status === "duplicate") {

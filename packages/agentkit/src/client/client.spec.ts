@@ -12799,3 +12799,66 @@ describe("stream integrity reports", () => {
     await expect(run.completed).resolves.toBeUndefined();
   });
 });
+
+describe("a stopped run whose server status arrives before its stream tail", () => {
+  it("finishes the stream without a sequence error", async () => {
+    const tailReleased = Promise.withResolvers<void>();
+    const errors: unknown[] = [];
+    const transport: AgentTransport = {
+      capabilities: { resumableRuns: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun(input) {
+        const head = [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, { type: "run.status", status: "running" }),
+        ];
+        yield* head.filter(
+          (event) => event.sequence > (input.afterSequence ?? 0),
+        );
+        await tailReleased.promise;
+        yield protocolEvent(3, { type: "run.status", status: "cancelled" });
+        yield protocolEvent(4, { type: "run.cancelled" });
+      },
+      async cancelRun() {},
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:03.000Z",
+          messages: [],
+          // The server stopped the run before it wrote anything past dispatch.
+          runs: [
+            {
+              id: "run-1",
+              threadId: "thread-1",
+              status: "cancelled",
+              lastSequence: 1,
+            },
+          ],
+          activeRunIds: [],
+        };
+      },
+    };
+    const client = new AgentKitClient({
+      transport,
+      onError: (error) => errors.push(error),
+    });
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "4" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-1"]?.lastSequence).toBe(2),
+    );
+    await client.loadThread("thread-1");
+    tailReleased.resolve();
+    await run.completed;
+
+    expect(errors).toEqual([]);
+    expect(client.getThread("thread-1").runs["run-1"]).toMatchObject({
+      status: "cancelled",
+      lastSequence: 4,
+    });
+    await client.dispose();
+  });
+});
