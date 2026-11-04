@@ -96,21 +96,17 @@ export function parseFontSizeInput(
   return clampFontSize(parsed.value, options);
 }
 
-/** The next size on the scale above (1) or below (-1) `value`, if any. */
+/** `value` moved by `delta`, kept positive and inside `bounds`; null when it cannot move. */
 export function stepFontSize(
   value: number,
-  scale: readonly number[],
-  direction: 1 | -1,
+  delta: number,
   bounds: FontSizeBounds = {},
 ): number | null {
-  const steps = [...new Set(scale)]
-    .filter((size) => clampFontSize(size, bounds) === size)
-    .sort((a, b) => a - b);
-  const next =
-    direction > 0
-      ? steps.find((size) => size > value)
-      : steps.reverse().find((size) => size < value);
-  return next ?? null;
+  const next = clampFontSize(
+    Number((value + delta).toFixed(FONT_SIZE_PRECISION)),
+    bounds,
+  );
+  return next > 0 && next !== value ? next : null;
 }
 
 export interface FontSizeChangeMeta {
@@ -130,7 +126,7 @@ export interface FontSizeFieldProps {
   value: number;
   onChange: (value: number, meta: FontSizeChangeMeta) => void;
   /**
-   * Preset sizes listed in the menu and stepped through with the arrow keys.
+   * Preset sizes listed in the menu. The arrow keys step 1, or 10 with Shift.
    * Defaults to `FONT_SIZE_SCALE`.
    */
   scale?: readonly number[];
@@ -322,7 +318,7 @@ export function FontSizeField({
     commit(next);
   };
 
-  const step = (direction: 1 | -1) => {
+  const step = (delta: number) => {
     const typed =
       mixed && draft === mixedLabel
         ? null
@@ -330,7 +326,7 @@ export function FontSizeField({
             ...bounds,
             ...(unit ? { unit } : {}),
           });
-    const next = stepFontSize(typed ?? value, scaleSizes, direction, bounds);
+    const next = stepFontSize(typed ?? value, delta, bounds);
     if (next !== null) commit(next);
   };
 
@@ -342,7 +338,7 @@ export function FontSizeField({
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
-      step(event.key === "ArrowUp" ? 1 : -1);
+      step((event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 10 : 1));
       event.currentTarget.select();
       return;
     }

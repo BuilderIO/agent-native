@@ -164,7 +164,7 @@ describe("FontSizeField", () => {
     expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 
-  it("steps to the next and previous size on the scale with the arrow keys", () => {
+  it("steps 1px with the arrow keys and 10px with Shift", () => {
     function Controlled() {
       const [value, setValue] = useState(20);
       return (
@@ -183,12 +183,13 @@ describe("FontSizeField", () => {
     fireEvent.focus(input);
 
     fireEvent.keyDown(input, { key: "ArrowUp" });
-    expect(input.value).toBe("24");
-    fireEvent.keyDown(input, { key: "ArrowUp" });
-    expect(input.value).toBe("32");
+    expect(input.value).toBe("21");
+    fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
+    expect(input.value).toBe("31");
     fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(input.value).toBe("16");
+    expect(input.value).toBe("30");
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    expect(input.value).toBe("20");
   });
 
   it("shows the mixed label and applies a picked size to all", () => {
@@ -422,10 +423,11 @@ describe("font size helpers", () => {
     expect(parseFontSizeInput("0.5", 16, { min: 1 })).toBe(1);
   });
 
-  it("steps within the caller's bounds and stops at the ends of the scale", () => {
-    expect(stepFontSize(24, SCALE, 1)).toBe(32);
-    expect(stepFontSize(25, SCALE, -1)).toBe(24);
-    expect(stepFontSize(48, SCALE, 1)).toBeNull();
-    expect(stepFontSize(24, SCALE, 1, { max: 30 })).toBeNull();
+  it("steps by the delta within the caller's bounds", () => {
+    expect(stepFontSize(24, 1)).toBe(25);
+    expect(stepFontSize(24, -10)).toBe(14);
+    expect(stepFontSize(5, -10)).toBeNull();
+    expect(stepFontSize(24, 10, { max: 30 })).toBe(30);
+    expect(stepFontSize(30, 1, { max: 30 })).toBeNull();
   });
 });
