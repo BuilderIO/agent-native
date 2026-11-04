@@ -6,7 +6,8 @@ import { withDbExec, type DbExec } from "../db/client.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { resolveAccess, resolveAccessMany } from "./access.js";
+import { resolveAccess } from "./access.js";
+import { resolveAccessMany } from "./index.js";
 import { registerShareableResource } from "./registry.js";
 import { createSharesTable } from "./schema.js";
 
