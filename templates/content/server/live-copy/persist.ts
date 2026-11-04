@@ -530,6 +530,7 @@ async function writeBody(args: {
       now: updatedAt,
     });
     const expected = cause?.expectedBlocksFieldRevision;
+    const identity = cause?.blocksFieldIdentity;
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
@@ -540,6 +541,12 @@ async function writeBody(args: {
         markdown: text,
         ...(expected?.propertyId === field.propertyId
           ? { expectedRevision: expected.revision }
+          : {}),
+        ...(identity?.propertyId === field.propertyId
+          ? {
+              preferredIdsByPath: identity.preferredIdsByPath,
+              rejectCrossFieldIdRemapping: identity.rejectCrossFieldIdRemapping,
+            }
           : {}),
         now: updatedAt,
       });
@@ -742,6 +749,7 @@ export async function persistContentLiveCopy(
     return { derived: false, reason };
   }
   assertEditablePage(locked.page);
+  await cause?.beforeWrite?.(tx);
   await writeBody({
     tx,
     db,
@@ -781,6 +789,7 @@ export async function persistUnchangedContentBodyEdit(
     );
   }
   assertEditablePage(locked.page);
+  await cause.beforeWrite?.(tx);
   const expected = cause.expectedBlocksFieldRevision;
   if (expected) {
     if (
