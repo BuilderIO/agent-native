@@ -16,6 +16,15 @@ registerShareableResource({
   getResourcePath: (source) => `/sources/${source.id}`,
   allowPublic: false,
   requireOrgMemberForUserShares: true,
+  // Every org admin uploads to the one shared Company Context intake source,
+  // not only the admin who created it. Scoped to that source so admins gain
+  // nothing over other members' private sources.
+  canManageAccess: async (source, ctx) => {
+    const { isCompanyContextIntakeConfig } = await import("../lib/brain.js");
+    if (!isCompanyContextIntakeConfig(source.configJson)) return false;
+    const { isBrainAdmin } = await import("../lib/zoom-governance.js");
+    return isBrainAdmin(ctx.userEmail, source.orgId);
+  },
   getDb,
 });
 

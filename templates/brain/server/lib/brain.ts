@@ -36,6 +36,7 @@ import {
 } from "drizzle-orm";
 
 import {
+  COMPANY_CONTEXT_INTAKE_KEY,
   DEFAULT_BRAIN_SETTINGS,
   type BrainCaptureKind,
   type BrainEvidence,
@@ -66,6 +67,14 @@ import {
 } from "./search-index-contracts.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
+
+export function isCompanyContextIntakeConfig(configJson: string | null) {
+  return (
+    parseJson<Record<string, unknown>>(configJson, {})[
+      COMPANY_CONTEXT_INTAKE_KEY
+    ] === true
+  );
+}
 
 export function nowIso(): string {
   return new Date().toISOString();

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -19,6 +19,7 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
+import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
 import {
   jsonRecordSchema,
   sourceAnswerPolicySchema,
@@ -65,6 +66,14 @@ export default defineAction({
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
+    if (
+      Object.prototype.hasOwnProperty.call(config, COMPANY_CONTEXT_INTAKE_KEY)
+    ) {
+      fail(
+        "Use ensure-company-context-source to set up the Company Context intake source.",
+        { errorCode: "company_context_intake_reserved" },
+      );
+    }
     const zoomAdmin =
       args.provider === "zoom" ? await assertBrainAdmin() : undefined;
     if (args.policy !== undefined || config.answerPolicy !== undefined) {

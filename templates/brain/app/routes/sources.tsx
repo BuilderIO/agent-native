@@ -2244,6 +2244,10 @@ export default function SourcesRoute() {
   const deleteSource = useActionMutation<unknown, { id: string }>(
     "delete-source" as any,
   );
+  const ensureCompanyContextSource = useActionMutation<
+    { created: boolean; source: BrainSource },
+    Record<string, never>
+  >("ensure-company-context-source" as any);
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }
@@ -2478,6 +2482,11 @@ export default function SourcesRoute() {
     }
   }
 
+  async function openCompanyContextIntake() {
+    const result = await ensureCompanyContextSource.mutateAsync({});
+    setMarkdownImportSource(result.source);
+  }
+
   async function confirmArchiveSource() {
     if (!archiveSource) return;
     await deleteSource.mutateAsync({ id: archiveSource.id });
@@ -2547,6 +2556,19 @@ export default function SourcesRoute() {
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              disabled={ensureCompanyContextSource.isPending}
+              onClick={() => void openCompanyContextIntake()}
+            >
+              {ensureCompanyContextSource.isPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconFolderOpen className="size-4" />
+              )}
+              {t("sources.companyContextUpload")}
+            </Button>
+            <Button
+              size="sm"
               disabled={createSource.isPending}
               onClick={() => openCreate()}
             >
@@ -2601,6 +2623,7 @@ export default function SourcesRoute() {
         updateSource.isError ||
         createSource.isError ||
         rotateSourceIngestToken.isError ||
+        ensureCompanyContextSource.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ||
@@ -2608,7 +2631,10 @@ export default function SourcesRoute() {
           <div>
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
-              detail={t("sources.actionFailedDetail")}
+              detail={
+                ensureCompanyContextSource.error?.message ??
+                t("sources.actionFailedDetail")
+              }
             />
           </div>
         ) : null}

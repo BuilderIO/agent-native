@@ -75,6 +75,8 @@ export interface BrainSettings {
   notifyOnSourceErrors?: boolean;
 }
 
+export const COMPANY_CONTEXT_INTAKE_KEY = "companyContextIntake";
+
 export const DEFAULT_BRAIN_SETTINGS: BrainSettings = {
   companyName: "",
   assistantName: "Brain",
