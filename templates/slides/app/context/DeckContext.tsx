@@ -1467,7 +1467,7 @@ function requestDeckResync(deckId: string) {
 
 // The editor holds the local deck, so only it can put a refused slide back to the server copy.
 const slideRollbackHandlers = new Set<
-  (deckId: string, slideId: string, remoteSlide: Slide) => void
+  (deckId: string, slideId: string, remoteSlide: Slide | null) => void
 >();
 
 function slideAnimationRefusalSlideId(error: unknown): string | null {
@@ -1498,24 +1498,58 @@ async function rollBackRefusedSlide(
   slideId: string,
   cause: unknown,
   ops: GranularOp[],
+  persistedResultHandlers: PendingPersistedResultHandler[],
   isCurrent: () => boolean,
 ): Promise<void> {
-  const latest = deckOrNull(await readDeckFromAPI(deckId));
+  const read = await readDeckFromAPI(deckId);
   if (!isCurrent()) return;
-  const remoteSlide = latest?.slides.find((slide) => slide.id === slideId);
-  const keep = (op: GranularOp) =>
-    !(op.op === "patch-slide" && op.slideId === slideId);
-  const rest = [
-    ...ops.filter(keep),
-    ...(pendingOpsQueue.get(deckId) ?? []).filter(keep),
-  ];
+  const queued = pendingOpsQueue.get(deckId) ?? [];
+  if (read.status !== "ok") {
+    // Without the server copy the refused draft cannot be reverted; keep every op so the
+    // next save hits the refusal again and reverts then.
+    pendingOpsQueue.set(deckId, [...ops, ...queued]);
+    pendingPersistedResultHandlers.set(deckId, [
+      ...persistedResultHandlers,
+      ...(pendingPersistedResultHandlers.get(deckId) ?? []),
+    ]);
+    markDeckSaveFailed(deckId, cause);
+    return;
+  }
+  const remoteSlide = read.deck.slides.find((slide) => slide.id === slideId);
+  const keep = (op: GranularOp) => {
+    if (op.op === "patch-slide" || op.op === "add-slide") {
+      return op.slideId !== slideId;
+    }
+    return !(
+      op.op === "delete-slide" &&
+      !remoteSlide &&
+      op.slideId === slideId
+    );
+  };
+  const withoutRefused = (op: GranularOp): GranularOp =>
+    op.op === "reorder-slides" && !remoteSlide
+      ? { ...op, orderedIds: op.orderedIds.filter((id) => id !== slideId) }
+      : op;
+  const rest = [...ops, ...queued].filter(keep).map(withoutRefused);
   if (rest.length > 0) pendingOpsQueue.set(deckId, rest);
   else pendingOpsQueue.delete(deckId);
+  const survivingFitSlideIds = new Set(rest.flatMap(layoutFitSlideIdsForOp));
+  const handlers = [
+    ...persistedResultHandlers,
+    ...(pendingPersistedResultHandlers.get(deckId) ?? []),
+  ].flatMap(({ handler, slideWriteSequences }) => {
+    const safeSequences = new Map(
+      [...slideWriteSequences].filter(([id]) => survivingFitSlideIds.has(id)),
+    );
+    return safeSequences.size > 0
+      ? [{ handler, slideWriteSequences: safeSequences }]
+      : [];
+  });
+  if (handlers.length > 0) pendingPersistedResultHandlers.set(deckId, handlers);
+  else pendingPersistedResultHandlers.delete(deckId);
   sentSlideContent.get(deckId)?.delete(slideId);
-  if (remoteSlide) {
-    for (const handler of slideRollbackHandlers) {
-      handler(deckId, slideId, remoteSlide);
-    }
+  for (const handler of slideRollbackHandlers) {
+    handler(deckId, slideId, remoteSlide ?? null);
   }
   markDeckSaveFailed(deckId, cause);
   if (rest.length > 0) void drainPendingDeckOps(deckId).catch(() => {});
@@ -2373,8 +2407,13 @@ function drainPendingDeckOps(
       if (!isCurrentGeneration()) return;
       const refusedSlideId = slideAnimationRefusalSlideId(err);
       if (refusedSlideId !== null) {
-        await rollBackRefusedSlide(deckId, refusedSlideId, err, ops, () =>
-          isCurrentGeneration(),
+        await rollBackRefusedSlide(
+          deckId,
+          refusedSlideId,
+          err,
+          ops,
+          persistedResultHandlers,
+          () => isCurrentGeneration(),
         );
         return;
       }
@@ -7167,14 +7206,20 @@ export function DeckProvider({
   }, [refetchOpenDeckIfChanged]);
 
   useEffect(() => {
-    const rollBack = (deckId: string, slideId: string, remoteSlide: Slide) => {
+    const rollBack = (
+      deckId: string,
+      slideId: string,
+      remoteSlide: Slide | null,
+    ) => {
       const local = decksRef.current.find((deck) => deck.id === deckId);
       if (!local) return;
       applyRemoteDeckUpdate({
         ...local,
-        slides: local.slides.map((slide) =>
-          slide.id === slideId ? remoteSlide : slide,
-        ),
+        slides: remoteSlide
+          ? local.slides.map((slide) =>
+              slide.id === slideId ? remoteSlide : slide,
+            )
+          : local.slides.filter((slide) => slide.id !== slideId),
       });
     };
     slideRollbackHandlers.add(rollBack);

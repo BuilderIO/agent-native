@@ -3,6 +3,8 @@ import { parseHTML } from "linkedom/worker";
 
 import {
   animationElementKey,
+  findLegacyAnimationContainer,
+  getElementPath,
   getElementPreview,
   resolveRevealSteps,
   type AnimationTarget,
@@ -156,6 +158,16 @@ function targetTextAccountedFor(
   return occurrences(root, before) === 0;
 }
 
+// A reveal without an elementPath resolves through the slide's last multi-child
+// container, so an appended container retargets it even though no path shifts.
+function legacyContainerMoved(baselineRoot: Element, root: Element): boolean {
+  const pathOf = (slide: Element) => {
+    const container = findLegacyAnimationContainer(slide);
+    return container ? getElementPath(slide, container) : null;
+  };
+  return JSON.stringify(pathOf(baselineRoot)) !== JSON.stringify(pathOf(root));
+}
+
 /**
  * The index of the first kept reveal that may now target a different element, or -1.
  * A kept reveal has the same id, index, and path as a baseline reveal. When the
@@ -181,8 +193,10 @@ function retargetedRevealIndex(
     );
   }
   const structureChanged =
-    structureOf(baselineRoot) !== structureOf(root) &&
-    !appendsOnlyAtSlideEnd(baselineRoot, root);
+    (structureOf(baselineRoot) !== structureOf(root) &&
+      !appendsOnlyAtSlideEnd(baselineRoot, root)) ||
+    (animations.some((animation) => !Array.isArray(animation.elementPath)) &&
+      legacyContainerMoved(baselineRoot, root));
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
