@@ -487,7 +487,7 @@ async function expectPersisted(
     .poll(() => persistedText(page, planId), { timeout: 20_000 })
     .toContain(has);
   // The editor must not bring the version given up back with a later save.
-  await page.waitForTimeout(2_500);
+  await page.waitForTimeout(2_500); // e2e-harness-ignore: it's a save that never comes that this rules out
   const text = await persistedText(page, planId);
   expect(text).toContain(has);
   expect(text).not.toContain(lacks);
@@ -520,6 +520,45 @@ test("keeping my version of a block both writers changed saves it, and the other
     .getByRole("button", { name: "Get the other version back" })
     .click();
   await expectPersisted(page, planId, { has: theirs, lacks: mine });
+});
+
+test("the other version arriving just after I keep mine doesn't replace my choice", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  let holdSaves = false;
+  // A read that left before the choice answers after it, with the other version.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      if (holdSaves) await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  holdSaves = true;
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expect(prompt).toHaveCount(0);
+  releaseReads();
+  await page.waitForTimeout(3_000); // e2e-harness-ignore: nothing marks a read that changes nothing as taken in
+  await expect(surface(page)).toContainText(mine);
+  await expect(surface(page)).not.toContainText(theirs);
+  releaseSaves();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
 });
 
 test("getting my version back after choosing theirs saves mine", async ({

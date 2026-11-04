@@ -320,7 +320,12 @@ export function PlanContentRenderer({
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
   const editorDocumentWriterRef = useRef<
-    ((documentAtSave: PlanBlock[], chosen: PlanBlock[]) => boolean) | null
+    | ((
+        documentAtSave: PlanBlock[],
+        chosen: PlanBlock[],
+        savedCopy: PlanBlock[],
+      ) => boolean)
+    | null
   >(null);
   const editorBlocksRef = useRef<
     ((pending: PlanBlock[]) => PlanBlock[] | null) | null
@@ -342,7 +347,7 @@ export function PlanContentRenderer({
       const live = editorBlocksRef.current?.(contentBlocksRef.current);
       if (!live) return;
       const restored = restoreOnto(live);
-      editorDocumentWriterRef.current?.(live, restored);
+      editorDocumentWriterRef.current?.(live, restored, live);
       replaceBlocksRef.current(restored);
     },
   });
@@ -368,7 +373,10 @@ export function PlanContentRenderer({
     const writeToDocument = editorDocumentWriterRef.current;
     // Someone typed in the same place while this was being decided, so neither
     // version holds their text. Nothing saves until the person retries and sees it.
-    if (writeToDocument && !writeToDocument(documentAtSave, chosen)) {
+    if (
+      writeToDocument &&
+      !writeToDocument(documentAtSave, chosen, overlap.theirs)
+    ) {
       throw new SaveOverlapError(overlap);
     }
     if (!(await flushCollabUpdatesRef.current())) {

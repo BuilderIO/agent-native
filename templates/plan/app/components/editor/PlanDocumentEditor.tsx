@@ -736,7 +736,12 @@ export function PlanDocumentEditor({
    * gained since. Returns false, writing nothing, if that overlaps with the choice.
    */
   documentWriterRef?: MutableRefObject<
-    ((documentAtSave: PlanBlock[], chosen: PlanBlock[]) => boolean) | null
+    | ((
+        documentAtSave: PlanBlock[],
+        chosen: PlanBlock[],
+        savedCopy: PlanBlock[],
+      ) => boolean)
+    | null
   >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
@@ -1383,6 +1388,7 @@ export function PlanDocumentEditor({
   const writeChosenVersion = (
     documentAtSave: PlanBlock[],
     chosen: PlanBlock[],
+    savedCopy: PlanBlock[],
   ) => {
     const editor = editorRef.current;
     if (!editor || editor.isDestroyed) return false;
@@ -1397,6 +1403,9 @@ export function PlanDocumentEditor({
       emitUpdate: false,
       addToHistory: false,
     });
+    // The saved copy this choice answers can still be on its way here. Measured
+    // against anything else, it reads as a new change and replaces the choice.
+    docBaseRef.current = savedCopy;
     return true;
   };
   if (documentWriterRef) documentWriterRef.current = writeChosenVersion;
