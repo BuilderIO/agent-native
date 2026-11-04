@@ -71,11 +71,19 @@ export async function createPromptChatAttachments(
       if (file.size > AGENT_PROMPT_MAX_TEXT_FILE_BYTES) {
         throw new RangeError(textFileTooLargeMessage);
       }
+      const contentType =
+        file.type.startsWith("text/") || file.type === "image/svg+xml"
+          ? file.type
+          : "text/plain";
+      const textFile =
+        file.type === contentType
+          ? file
+          : new File([file], file.name, { type: contentType });
       result.push({
         type: "file",
         name,
-        contentType: file.type || "text/plain",
-        data: await readFileAsDataUrl(file),
+        contentType,
+        data: await readFileAsDataUrl(textFile),
       });
       continue;
     }

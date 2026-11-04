@@ -273,6 +273,23 @@ const uploadPromptFiles = (files: File[]) =>
   uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
+  it("normalizes a CSV reported with an Excel MIME type to readable text", async () => {
+    const text = "name,value\nexample,1";
+    const file = new File([text], "source.csv", {
+      type: "application/vnd.ms-excel",
+    });
+    await expect(
+      createPromptChatAttachments([{ name: file.name, file }], []),
+    ).resolves.toEqual([
+      {
+        type: "file",
+        name: file.name,
+        contentType: "text/plain",
+        data: `data:text/plain;base64,${btoa(text)}`,
+      },
+    ]);
+  });
+
   it("rejects oversized text before reading or encoding its bytes", async () => {
     const file = new File(["small"], "oversized.html", { type: "text/html" });
     Object.defineProperty(file, "size", { value: 8 * 1024 * 1024 + 1 });

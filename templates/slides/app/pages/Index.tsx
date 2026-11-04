@@ -1452,18 +1452,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         });
       }
       settlePendingDeckAttachments("commit");
-      if (
-        !savePromptForRetry(
-          prompt,
-          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
-          {
-            context: additionalContext,
-            ...(modelSelection !== undefined ? { modelSelection } : {}),
-          },
-        )
-      ) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
+      savePromptForRetry(
+        prompt,
+        `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+        {
+          context: additionalContext,
+          ...(modelSelection !== undefined ? { modelSelection } : {}),
+        },
+      );
+      setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      setShowNewDeckPrompt(true);
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryRequiresExactPrompt(true);
@@ -1481,19 +1479,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       ) {
         void navigate("/home", {
           replace: true,
-          state: {
-            retryPrompt: prompt,
-            retryFiles: filesForGeneration,
-            retryReferenceSelection: referenceSelection,
-            retryContext: additionalContext || undefined,
-            retryAttachments: attachmentsForGeneration,
-            modelSelection,
-          } satisfies DeckGenerationRetryState,
+          // HomeLayout retains this component on deck routes; file bodies stay in React state.
+          state: null,
           flushSync: true,
         });
-      } else if (isHome) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-        setNewDeckPromptOpen(true, { clearInitialPrompt: false });
       }
     };
 
