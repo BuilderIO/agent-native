@@ -288,10 +288,7 @@ export function AddSlidePopover({
                   file,
                 })),
                 uploaded,
-                t("agentChat.composer.attachmentTooLarge", {
-                  // i18n-key-ignore: shared Toolkit catalogs provide this key in every supported locale.
-                  defaultValue: "File is over 8 MB",
-                }),
+                t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
               ),
             },
           );

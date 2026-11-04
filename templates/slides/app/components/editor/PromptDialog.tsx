@@ -425,10 +425,7 @@ export default function PromptPopover({
         ? await createPromptChatAttachments(
             options.attachments,
             [],
-            t("agentChat.composer.attachmentTooLarge", {
-              // i18n-key-ignore: shared Toolkit catalogs provide this key in every supported locale.
-              defaultValue: "File is over 8 MB",
-            }),
+            t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
           )
         : [];
       if (
@@ -458,10 +455,7 @@ export default function PromptPopover({
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
           uploaded,
-          t("agentChat.composer.attachmentTooLarge", {
-            // i18n-key-ignore: shared Toolkit catalogs provide this key in every supported locale.
-            defaultValue: "File is over 8 MB",
-          }),
+          t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
         );
         retainFiles(files);
         const result = await onSubmit(
