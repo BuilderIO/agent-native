@@ -285,6 +285,42 @@ describe("get-page-open-read", () => {
     expect(board.collection?.rows).toBeUndefined();
   });
 
+  it("reads a signed-out reader's first rows of a public collection from its saved view", async () => {
+    const fixture = await seedCollection("public");
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(eq(schema.documents.id, fixture.documentId));
+    const signedOut = <T>(run: (ctx: ActionRunContext) => Promise<T>) =>
+      runWithRequestContext({}, () => run({ caller: "frontend" }));
+    const tableQuery = {
+      search: "",
+      filters: [],
+      sorts: [fixture.deepestFirst],
+      filterMode: "and" as const,
+    };
+
+    const open = await signedOut((ctx) =>
+      getPageOpenReadAction.run({ id: fixture.documentId }, ctx),
+    );
+
+    expect(open.collection?.personalView).toBeUndefined();
+    expect(open.collection?.rows).toEqual({
+      tableQuery,
+      page: await signedOut((ctx) =>
+        queryItemsAction.run(
+          { documentId: fixture.documentId, limit: 100, tableQuery },
+          ctx,
+        ),
+      ),
+    });
+    expect(titles(open.collection?.rows?.page)).toEqual([
+      "Pier 1",
+      "Pier 2",
+      "Pier 0",
+    ]);
+  });
+
   it("names where the change feed stood before it read, as the poll endpoint does", async () => {
     const fixture = await seedCollection("cursor");
     const { getCurrentPollBaseline } =

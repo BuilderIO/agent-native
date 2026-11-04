@@ -30,10 +30,11 @@ async function readOpeningCollection(
         getContentDatabasePersonalView.run({ databaseId: database.id }, ctx))()
     : null;
   const rows = (async () => {
-    if (!personalView) return null;
     const tableQuery = openingDatabaseTableQuery({
       viewConfig: database.viewConfig,
-      overrides: (await personalView).overrides,
+      // A signed-out reader has no personal view, so their table reads the
+      // saved view as it is.
+      overrides: personalView ? (await personalView).overrides : null,
       requestedViewId,
     });
     if (!tableQuery) return null;
