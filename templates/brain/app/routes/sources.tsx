@@ -1944,7 +1944,7 @@ function SourceListItem({
   onReview: () => void;
   onRotateIngestToken?: () => void;
   onSync: () => void;
-  onTune: () => void;
+  onTune?: () => void;
   onImportMarkdown?: () => void;
   onArchive?: () => void;
 }) {
@@ -2056,10 +2056,12 @@ function SourceListItem({
                 <IconRefresh className="size-4" />
                 {t("sources.syncNow")}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={updating} onSelect={onTune}>
-                <IconSettings2 className="size-4" />
-                {t("sources.tuneSource")}
-              </DropdownMenuItem>
+              {onTune ? (
+                <DropdownMenuItem disabled={updating} onSelect={onTune}>
+                  <IconSettings2 className="size-4" />
+                  {t("sources.tuneSource")}
+                </DropdownMenuItem>
+              ) : null}
               {onRotateIngestToken ? (
                 <DropdownMenuItem onSelect={onRotateIngestToken}>
                   <IconRefresh className="size-4" />
@@ -2173,6 +2175,10 @@ function SourceListItem({
       ) : null}
     </div>
   );
+}
+
+function isCompanyContextIntake(source: BrainSource): boolean {
+  return source.config?.[COMPANY_CONTEXT_INTAKE_KEY] === true;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -2617,14 +2623,22 @@ export default function SourcesRoute() {
                     : undefined
                 }
                 onSync={() => syncSource.mutate({ sourceId: source.id })}
-                onTune={() => afterBodyPointerUnlock(() => openEdit(source))}
+                onTune={
+                  isCompanyContextIntake(source) && canManageZoom !== true
+                    ? undefined
+                    : () => afterBodyPointerUnlock(() => openEdit(source))
+                }
                 onImportMarkdown={
-                  source.config?.[COMPANY_CONTEXT_INTAKE_KEY] === true &&
-                  canManageZoom !== true
+                  isCompanyContextIntake(source) && canManageZoom !== true
                     ? undefined
                     : () => setMarkdownImportSource(source)
                 }
-                onArchive={() => setArchiveSource(source)}
+                // Archiving the intake is pointless: the upload button restores it.
+                onArchive={
+                  isCompanyContextIntake(source)
+                    ? undefined
+                    : () => setArchiveSource(source)
+                }
               />
             ))}
           </div>
