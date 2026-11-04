@@ -1095,7 +1095,7 @@ describe("a pending piece reloaded beside other accepted edits", () => {
   });
 
   it("shows the last piece on the Page as the editor saves it", () => {
-    const lastPiece = upper[upper.length - 1];
+    const [lastPiece = null] = upper.slice(-1);
     if (!lastPiece) throw new Error("No last piece");
     const accepted = [...lower, ...upper.slice(0, -1)];
     const saved = canonicalizeNfm(accept(accepted));
