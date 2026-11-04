@@ -36,7 +36,6 @@ import {
 } from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
-import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import {
   IconArrowRight,
   IconComponents,
@@ -72,6 +71,7 @@ import {
 import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
