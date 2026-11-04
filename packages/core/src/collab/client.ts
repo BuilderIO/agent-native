@@ -1720,6 +1720,7 @@ class CollabDocConnection {
     this.setSnapshot({
       isLoading: false,
       isSynced: false,
+      fromLocalCopy: false,
       initialization: { status: "error", category },
     });
   }

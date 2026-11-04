@@ -683,6 +683,7 @@ describe("collab local copies", () => {
     mount();
     await advance(0);
     expect(text()).toBe("hello");
+    expect(current().fromLocalCopy).toBe(true);
     release();
     await advance(10);
     expect(current().initialization).toEqual({
@@ -690,6 +691,7 @@ describe("collab local copies", () => {
       category: "forbidden-or-not-found",
     });
     expect(current().ydoc).toBeNull();
+    expect(current().fromLocalCopy).toBe(false);
     await _flushCollabLocalCopiesForTests();
     expect(store.copy()).toBeUndefined();
   });
