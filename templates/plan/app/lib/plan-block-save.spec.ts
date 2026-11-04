@@ -57,6 +57,16 @@ describe("documentHoldsTheirChanges", () => {
     expect(holds("Seed.", "Seed. mine theirs", "Seed. mi theirs")).toBe(true);
   });
 
+  it("finds their edits on either side of one of this tab's", () => {
+    expect(
+      holds(
+        "Alpha.\n\nBeta.\n\nGamma.",
+        "Alpha. x\n\nB.\n\nGamma. y",
+        "Alpha. x\n\nBeta.\n\nGamma. y",
+      ),
+    ).toBe(true);
+  });
+
   it("finds a collaborator's deletion", () => {
     expect(holds("Alpha beta.", "Alpha. mine", "Alpha.")).toBe(true);
   });
@@ -68,6 +78,19 @@ describe("documentHoldsTheirChanges", () => {
   it("doesn't find a deletion when the text is still there", () => {
     expect(holds("Alpha beta.", "Alpha beta. mine", "Alpha.")).toBe(false);
     expect(holds("Alpha beta.", "mine Alpha beta.", "Alpha.")).toBe(false);
+  });
+
+  it("doesn't find a deletion when the text survives edits on both sides", () => {
+    expect(
+      holds("Alpha beta gamma.", "ALPHA beta gamma. mine", "Alpha gamma."),
+    ).toBe(false);
+    expect(
+      holds(
+        "One.\n\nTwo.\n\nThree.",
+        "One. mine\n\nTwo.\n\nThree. mine",
+        "One.\n\nThree.",
+      ),
+    ).toBe(false);
   });
 
   it("doesn't take unchanged text for their insertion", () => {

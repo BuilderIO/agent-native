@@ -376,17 +376,27 @@ export function PlanContentRenderer({
     }
     return chosen;
   };
-  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) =>
-    onContentPatch
-      ? onContentPatch(
-          { op: "replace-blocks", blocks: nextBlocks },
-          {
-            base,
-            resolveOverlap: (overlap, finished) =>
-              resolveOverlap(overlap, finished, nextBlocks),
-          },
-        )
-      : onContentChange?.({ ...content, blocks: nextBlocks });
+  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) => {
+    if (!onContentPatch) {
+      return onContentChange?.({ ...content, blocks: nextBlocks });
+    }
+    // A save can ask more than once, and each choice is what the next one replaces.
+    let documentAtSave = nextBlocks;
+    return onContentPatch(
+      { op: "replace-blocks", blocks: nextBlocks },
+      {
+        base,
+        resolveOverlap: async (overlap, finished) => {
+          documentAtSave = await resolveOverlap(
+            overlap,
+            finished,
+            documentAtSave,
+          );
+          return documentAtSave;
+        },
+      },
+    );
+  };
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
   scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current !== null)

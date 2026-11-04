@@ -5,6 +5,7 @@ import {
   type SaveWithMergeOptions,
 } from "@agent-native/core/save-conflict";
 import type { PlanBlock } from "@shared/plan-content";
+import { diffWordsWithSpace } from "diff";
 
 /** A plan's saved blocks at one revision. */
 export type SavedPlanBlocks = SavedRecord<PlanBlock[]>;
@@ -20,22 +21,17 @@ function markdownOf(blocks: PlanBlock[], id: string): string | null {
   return block?.type === "rich-text" ? block.data.markdown : null;
 }
 
-/** The span of `before` that was replaced to get `after`, and what replaced it. */
-function changedSpan(before: string, after: string) {
-  const shorter = Math.min(before.length, after.length);
-  let start = 0;
-  while (start < shorter && before[start] === after[start]) start += 1;
-  let tail = 0;
-  while (
-    tail < shorter - start &&
-    before[before.length - 1 - tail] === after[after.length - 1 - tail]
-  ) {
-    tail += 1;
+/** What a writer added and removed, leaving out spacing, which a diff can align either way. */
+function changedText(before: string, after: string) {
+  let added = "";
+  let removed = "";
+  for (const change of diffWordsWithSpace(before, after)) {
+    if (change.added) added += change.value;
+    if (change.removed) removed += change.value;
   }
   return {
-    start,
-    end: before.length - tail,
-    inserted: after.slice(start, after.length - tail),
+    added: added.replace(/\s/g, ""),
+    removed: removed.replace(/\s/g, ""),
   };
 }
 
@@ -50,16 +46,14 @@ function containsInOrder(text: string, characters: string): boolean {
 /**
  * Whether `live` has the change that turned `base` into `theirs`. Their copy can
  * hold part of what this tab typed, with the rest landing in between, so their
- * text only has to appear in order among what `live` changed.
+ * change only has to appear in order among what `live` changed.
  */
 function holdsChange(base: string, live: string, theirs: string): boolean {
-  const { start, end, inserted } = changedSpan(base, theirs);
-  const removalNotApplied =
-    end > start &&
-    (live.startsWith(base.slice(0, end)) || live.endsWith(base.slice(start)));
+  const their = changedText(base, theirs);
+  const held = changedText(base, live);
   return (
-    !removalNotApplied &&
-    containsInOrder(changedSpan(base, live).inserted, inserted)
+    containsInOrder(held.added, their.added) &&
+    containsInOrder(held.removed, their.removed)
   );
 }
 
