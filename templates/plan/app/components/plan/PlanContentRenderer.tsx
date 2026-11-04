@@ -189,6 +189,7 @@ export function PlanContentRenderer({
     agentPresent,
     agentActive,
     anotherEditorIsLive,
+    collaboratorJustTyped,
     recentEdits,
     collabDoc,
   } = usePlanPresence({
@@ -355,7 +356,10 @@ export function PlanContentRenderer({
   // already has their text, which can still be on its way here.
   const documentSettledOverlap = async (overlap: SaveOverlap<PlanBlock[]>) => {
     if (!anotherEditorIsLive) return false;
+    // coercion-ok: out of reach, the check reads the copy here and at worst asks.
     await collabDoc.requestSync().catch(() => null);
+    // Someone idle has no typing here, so this overlap isn't with them.
+    if (!collaboratorJustTyped()) return false;
     const live = editorBlocksRef.current?.(overlap.mine);
     return !!live && documentHoldsTheirChanges(overlap, live);
   };

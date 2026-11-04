@@ -4079,7 +4079,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       save: async ({ value, revision }) => {
         const result = await savePlanBlocks.mutateAsync({
           planId,
-          expectedUpdatedAt: revision ?? undefined,
+          ...(revision ? { expectedUpdatedAt: revision } : {}),
           contentPatches: [{ op: "replace-blocks", blocks: value }],
           note: "Patched structured visual plan content.",
         });

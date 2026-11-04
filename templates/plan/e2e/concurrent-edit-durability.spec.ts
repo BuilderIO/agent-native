@@ -446,9 +446,14 @@ test("an edit another writer saves to a different block while someone types is k
 
 // Types in a block while a write that doesn't go through the live document, as an
 // agent's doesn't, changes the same block, so the prompt comes up.
-async function overlapOnFirstBlock(page: Page, planId: string) {
-  const mine = ` MINE${Date.now() % 100000}`;
-  const theirs = `THEIRS${Date.now() % 100000}`;
+async function overlapOnFirstBlock(
+  page: Page,
+  planId: string,
+  {
+    mine = ` MINE${Date.now() % 100000}`,
+    theirs = `THEIRS${Date.now() % 100000}`,
+  }: { mine?: string; theirs?: string } = {},
+) {
   const seed = "Alpha block seed.";
   const otherWrite = page.request.post(
     "/_agent-native/actions/update-visual-plan",
@@ -584,6 +589,26 @@ test("someone idle in the plan doesn't silence another writer's change to the sa
     pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
     const { pageA, planId } = pair;
     const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("someone idle in the plan doesn't silence an edit that what I typed happens to contain", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, planId } = pair;
+    const stamp = Date.now() % 100000;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId, {
+      mine: ` notebook${stamp}`,
+      theirs: `note${stamp}`,
+    });
     await prompt.getByRole("button", { name: "Use theirs" }).click();
     await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
   } finally {

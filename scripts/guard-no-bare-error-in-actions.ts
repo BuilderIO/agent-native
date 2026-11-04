@@ -191,7 +191,7 @@ function main() {
       "exception. If this is an expected user state (conflict, not found, not\n" +
       "permitted, missing connection or provider, invalid input), throw it typed:\n\n" +
       '  import { fail } from "@agent-native/core/action";\n' +
-      '  fail("<same message>", { errorCode: "invite_already_used", statusCode: 409 });\n\n' +
+      '  fail("<same message>", { errorCode: "already_exists", statusCode: 409 });\n\n' +
       "  409 conflict · 404 not found · 403 admin-only · 412/424 missing\n" +
       "  connection or provider · 400/422 validation\n",
   );

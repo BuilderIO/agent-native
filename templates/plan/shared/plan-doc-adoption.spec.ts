@@ -20,7 +20,8 @@ const callout = (id: string, body: string) =>
   ({ id, type: "callout", data: { tone: "info", body } }) as PlanBlock;
 
 describe("adoptSnapshot", () => {
-  const base = [prose("a", "Alpha."), callout("c", "Note.")];
+  const note = callout("c", "Note.");
+  const base = [prose("a", "Alpha."), note];
 
   it("keeps typing a collaborator's lagging save predates", () => {
     // The live document merged both people's typing; the other writer's save
@@ -63,14 +64,14 @@ describe("adoptSnapshot", () => {
   });
 
   it("calls a chosen version an overlap if the document changed that block too", () => {
-    const atSave = [prose("a", "Alpha. mine"), base[1]];
-    const live = [prose("a", "Alpha. mine and more"), base[1]];
-    const chosen = [prose("a", "Alpha. theirs"), base[1]];
+    const atSave = [prose("a", "Alpha. mine"), note];
+    const live = [prose("a", "Alpha. mine and more"), note];
+    const chosen = [prose("a", "Alpha. theirs"), note];
     expect(adoptSnapshot(atSave, live, chosen).overlapped).toBe(true);
   });
 
   it("doesn't call a clean merge an overlap", () => {
-    const live = [prose("a", "Alpha. mine"), base[1]];
+    const live = [prose("a", "Alpha. mine"), note];
     const snapshot = [prose("a", "Alpha."), callout("c", "Theirs.")];
     expect(adoptSnapshot(base, live, snapshot).overlapped).toBe(false);
   });
