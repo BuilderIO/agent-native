@@ -949,7 +949,8 @@ export default function MeetingDetailRoute() {
     const queryKey = ["action", "get-meeting", { id: meetingId }];
     const previous = qc.getQueryData<GetMeetingResp>(queryKey);
     // The cleared notes would otherwise start a finalize that races the removal.
-    autoFinalizedRef.current = true;
+    // A running meeting keeps its notes, and its end still has to start them.
+    if (meeting.actualEnd) autoFinalizedRef.current = true;
     void qc.cancelQueries({ queryKey });
     qc.setQueryData<GetMeetingResp | undefined>(
       queryKey,
