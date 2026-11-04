@@ -279,7 +279,9 @@ describe("classifyAgentEvent", () => {
         status: "cancelled",
         lastSequence: 4,
       });
-      expect(thread.events.at(-1)?.type).toBe("run.cancelled");
+      expect(thread.events.map(({ sequence }) => sequence)).toEqual([
+        1, 2, 3, 4,
+      ]);
     });
 
     it("still rejects a terminal follow-up after a missing event", () => {
