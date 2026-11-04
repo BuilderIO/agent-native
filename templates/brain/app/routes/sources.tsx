@@ -2174,6 +2174,15 @@ function SourceListItem({
   );
 }
 
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === code
+  );
+}
+
 export default function SourcesRoute() {
   const t = useT();
   const dispatchHref = getDispatchHref();
@@ -2556,19 +2565,21 @@ export default function SourcesRoute() {
               <IconSettings2 className="size-4" />
               {t("sources.advanced")}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={ensureCompanyContextSource.isPending}
-              onClick={openCompanyContextIntake}
-            >
-              {ensureCompanyContextSource.isPending ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : (
-                <IconFolderOpen className="size-4" />
-              )}
-              {t("sources.companyContextUpload")}
-            </Button>
+            {canManageZoom === true ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={ensureCompanyContextSource.isPending}
+                onClick={openCompanyContextIntake}
+              >
+                {ensureCompanyContextSource.isPending ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconFolderOpen className="size-4" />
+                )}
+                {t("sources.companyContextUpload")}
+              </Button>
+            ) : null}
             <Button
               size="sm"
               disabled={createSource.isPending}
@@ -2641,7 +2652,14 @@ export default function SourcesRoute() {
           <div>
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
-              detail={ensureCompanyContextSource.error.message}
+              detail={t(
+                hasErrorCode(
+                  ensureCompanyContextSource.error,
+                  "brain_admin_required",
+                )
+                  ? "sources.companyContextAdminOnly"
+                  : "sources.companyContextOpenFailed",
+              )}
             />
           </div>
         ) : null}

@@ -439,6 +439,8 @@ const messages = {
     chooseMarkdownFolder: "選取 Markdown 資料夾",
     importMarkdownFiles: "匯入 Markdown 檔案",
     companyContextUpload: "上傳公司脈絡",
+    companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
+    companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",
     manualImportNoFiles: "未選取 Markdown 檔案",
     manualImportFilesSelected: "已選取 {{count}} 個 Markdown 檔案",
     manualImportFileLimit:
