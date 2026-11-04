@@ -1037,6 +1037,80 @@ describe("exact Content database block actions", () => {
   );
 
   // oracle-change: primary block actions now commit through the live copy instead of refusing switched rows.
+  it.each([false, true])(
+    "refuses a primary mapping removed while the worker builds (changed: %s)",
+    async (changed) => {
+      const state = await fixture("Alpha\nBeta");
+      await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const before = await rowBodyState(state.target.rowDocumentId);
+      const fields = () =>
+        getDb()
+          .select()
+          .from(schema.documentBlockFields)
+          .where(
+            eq(
+              schema.documentBlockFields.documentId,
+              state.target.rowDocumentId,
+            ),
+          )
+          .orderBy(schema.documentBlockFields.id);
+      const fieldsBefore = await fields();
+      const { contentLiveCopy } =
+        await import("../server/live-copy/binding.js");
+      const run = contentLiveCopy.runner.run.bind(contentLiveCopy.runner);
+      const spy = vi
+        .spyOn(contentLiveCopy.runner, "run")
+        .mockImplementationOnce(
+          async <Output>(task: string, input: unknown): Promise<Output> => {
+            const result = await run<Output>(task, input);
+            await getDb()
+              .update(schema.contentDatabases)
+              .set({ primaryBlocksPropertyId: null })
+              .where(eq(schema.contentDatabases.id, state.databaseId));
+            return result;
+          },
+        );
+      try {
+        await expect(
+          asOwner(() =>
+            mutateBlock.run({
+              ...envelope(state, "removed-primary"),
+              operation: "update",
+              blockId: state.listed.order[0],
+              block: {
+                kind: "paragraph",
+                nfm: changed ? "Agent write" : "Alpha",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED",
+        });
+        expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+        expect(await fields()).toEqual(fieldsBefore);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabaseRowMutationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.databaseId,
+                  state.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+                  "removed-primary",
+                ),
+              ),
+            ),
+        ).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
   it("commits a primary block mutation through the row's live copy", async () => {
     const state = await fixture("Alpha\nBeta");
     await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });

@@ -189,6 +189,17 @@ function scopeChanged(message: string): never {
   });
 }
 
+function requirePrimaryBlocksField(locked: LockedPage, propertyId: string) {
+  const field = locked.blocksFields.find(
+    (field) => field.propertyId === propertyId,
+  );
+  if (!field)
+    scopeChanged(
+      "Primary Blocks membership changed before the operation completed.",
+    );
+  return field;
+}
+
 /**
  * Locks a page for a body write in Content's row-lock order: the collection
  * it backs, those containing it, the inline collections it owns and the cause's `lockCollections`,
@@ -502,6 +513,10 @@ async function writeBody(args: {
 }): Promise<PersistedContentBodyCommit> {
   const { db, documentId, text, cause } = args;
   const { page, blocksFields, lockedDatabaseIds } = args.locked;
+  const expected = cause?.expectedBlocksFieldRevision;
+  const identity = cause?.blocksFieldIdentity;
+  if (expected) requirePrimaryBlocksField(args.locked, expected.propertyId);
+  if (identity) requirePrimaryBlocksField(args.locked, identity.propertyId);
   const changed = text !== page.content;
   const bodyRevision = page.bodyRevision + (changed ? 1 : 0);
   const updatedAt = changed
@@ -539,8 +554,6 @@ async function writeBody(args: {
       after: text,
       now: updatedAt,
     });
-    const expected = cause?.expectedBlocksFieldRevision;
-    const identity = cause?.blocksFieldIdentity;
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
@@ -802,15 +815,7 @@ export async function persistUnchangedContentBodyEdit(
   await cause.beforeWrite?.(tx);
   const expected = cause.expectedBlocksFieldRevision;
   if (expected) {
-    if (
-      !locked.blocksFields.some(
-        (field) => field.propertyId === expected.propertyId,
-      )
-    ) {
-      scopeChanged(
-        "Primary Blocks membership changed before the operation completed.",
-      );
-    }
+    requirePrimaryBlocksField(locked, expected.propertyId);
     const { revision } = await readBlocksFieldIdentity({
       db,
       documentId,
@@ -825,13 +830,7 @@ export async function persistUnchangedContentBodyEdit(
   }
   const identity = cause.blocksFieldIdentity;
   if (identity) {
-    const field = locked.blocksFields.find(
-      (field) => field.propertyId === identity.propertyId,
-    );
-    if (!field)
-      scopeChanged(
-        "Primary Blocks membership changed before the operation completed.",
-      );
+    const field = requirePrimaryBlocksField(locked, identity.propertyId);
     await persistBlocksFieldIdentity({
       db,
       ownerEmail: field.ownerEmail,
