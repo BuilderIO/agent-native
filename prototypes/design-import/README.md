@@ -4,10 +4,12 @@ Importing a website or a project from another builder into Design, on the shippe
 
 Artifact: https://claude.ai/artifact/VsZSNrkQEQrBbHUk31cA32
 
-- The dashboard opens with an announcement: a dark hero where the sources orbit the Design mark (pausable, still under reduced motion), three points, then Learn more and Import now. The review strip's Announcement button brings it back.
-- Import now, or the dashboard's own Import button, opens the picker. App builders: Lovable (sync with GitHub), v0, Bolt, Replit and Base44 (export as ZIP) and Manus (export with a prompt). Everything else: Website, Upload code, Figma (.fig, up to 2 GB like the shipped Import), GitHub, and Other platforms (Wix, Squarespace, Webflow, Framer).
-- Each builder gets its steps with an Open link to its site. ZIP sources continue to the upload screen, which takes a drop or Choose file and checks the type and size. URL sources validate as you type and submit on Enter.
+- The announcement lives in a card where Getting started sits in the sidebar, with a small version of the galaxy. The card opens the announcement dialog; its Import project button, the dialog's, and the dashboard's own Import button open the picker. The review strip's Announcement button opens the dialog directly.
+- The announcement's galaxy sits in a blue, cyan and teal nebula (the website's brand tokens). Both rings turn at one speed, six logos each, so no two logos touch, and every few seconds one falls into the Design mark on a path checked against the others. It pauses, and holds still under reduced motion.
+- The picker: App builders (Lovable, v0, Bolt, Replit, Base44, Manus) and Other ways to import (Website, Upload code, Figma, GitHub, Other site builders). Its sources drift into the Design mark in the header; source screens pull specks from the source into the mark.
+- Each builder's steps follow its own help docs, with an Open link to its site. Lovable's ZIP needs a paid plan, so it links to a GitHub route for free plans. ZIP and Figma uploads take a drop or Choose file and check the type and size. URL sources validate as you type and submit on Enter.
 - Every path runs a simulated import with a progress bar and phases, then a ready state with Open design. Import fails in the review strip stops imports on the second phase to show the error.
+- Dialogs use the toolkit Dialog's corners, overlay, motion and close button, and the toolkit Button and Input.
 
 The dashboard is the real `/home` page, not a redraw: `capture-dashboard.ts` saves its DOM, CSS, Inter faces and template previews from a running Design dev server into `dashboard.json`, and the prototype shows it in an iframe. Recapture after the dashboard changes:
 

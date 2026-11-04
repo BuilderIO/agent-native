@@ -25,7 +25,7 @@ body { font-size: 14px; }
 .app { position: fixed; inset: 36px 0 0; }
 #dash { width: 100%; height: 100%; border: 0; display: block; background: var(--color-background); }
 
-/* Overlay and dialog: the toolkit Dialog's overlay and motion, at the import flow's 24px radius. */
+/* Overlay and dialog: the toolkit Dialog (rounded-lg, border, shadow-lg, its overlay and motion, its close button). */
 .imo { position: fixed; inset: 36px 0 0; z-index: 270; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--color-background) 45%, transparent); backdrop-filter: blur(1px); animation: imo-in .2s ease-out; font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; }
 .imo.closing { animation: imo-out .15s ease-in forwards; }
 .imo.closing .imd { animation: imd-out .15s ease-in forwards; }
@@ -33,14 +33,15 @@ body { font-size: 14px; }
 @keyframes imo-out { to { opacity: 0; } }
 @keyframes imd-in { from { opacity: 0; transform: scale(.95); } }
 @keyframes imd-out { to { opacity: 0; transform: scale(.95); } }
-.imd { position: relative; width: min(672px, 100%); max-height: calc(100vh - 36px - 32px); display: flex; flex-direction: column; border-radius: 24px; border: 1px solid var(--color-border); background: var(--color-background); color: var(--color-foreground); box-shadow: var(--imp-shadow); overflow: hidden; animation: imd-in .2s ease-out; }
+.imd { position: relative; width: min(672px, 100%); max-height: calc(100vh - 36px - 32px); display: flex; flex-direction: column; border-radius: var(--radius); border: 1px solid var(--color-border); background: var(--color-background); color: var(--color-foreground); box-shadow: var(--imp-shadow); overflow: hidden; animation: imd-in .2s ease-out; }
 .imd.ann { width: min(560px, 100%); }
 .imd-frame { overflow: hidden; transition: height .2s cubic-bezier(.2, .7, .2, 1); }
 .imd-scroll { overflow-y: auto; max-height: calc(100vh - 36px - 32px - 2px); }
 .imd :focus-visible { outline: 2px solid var(--imp-ring); outline-offset: 2px; }
-.imd-x { position: absolute; top: 12px; right: 12px; z-index: 5; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.imd-x:focus-visible { outline-width: 1px; outline-offset: 0; }
+.imd-x { position: absolute; top: 12px; right: 12px; z-index: 5; width: 28px; height: 28px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; color: var(--color-muted-foreground); }
 .imd-x:hover { background: var(--color-accent); color: var(--color-foreground); }
-.ann .imd-x { border-radius: 50%; color: #fff; background: rgb(255 255 255 / 16%); backdrop-filter: blur(8px); }
+.ann .imd-x { color: #fff; background: rgb(255 255 255 / 16%); backdrop-filter: blur(8px); }
 .ann .imd-x:hover { background: rgb(255 255 255 / 26%); color: #fff; }
 
 /* Header: 128px, the brand blue to teal fading into the page. */
@@ -53,17 +54,28 @@ body { font-size: 14px; }
 .imh-row > span > .lg { width: 20px; height: 20px; opacity: .88; }
 .imh-row > span > .lg.w { width: 24px; height: 24px; }
 .imh-row .tile { margin-inline: 8px; }
-.tile { width: 56px; height: 56px; flex: none; border-radius: 16px; display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px -4px rgb(0 0 0 / 10%); color: var(--color-foreground); }
+.tile { width: 56px; height: 56px; flex: none; border-radius: 10px; display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px -4px rgb(0 0 0 / 10%); color: var(--color-foreground); }
 .tile .an { width: 30px; height: 18px; }
 .tile .lg, .tile svg.i { width: 24px; height: 24px; }
 .tile svg.i { stroke-width: 1.5; }
 .pair { display: flex; align-items: center; gap: 24px; }
-.dots { display: flex; gap: 6px; }
-.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted-foreground); opacity: .5; }
-.running .dots i { animation: dot 1.2s ease-in-out infinite; }
-.running .dots i:nth-child(2) { animation-delay: .2s; }
-.running .dots i:nth-child(3) { animation-delay: .4s; }
-@keyframes dot { 0%, 100% { opacity: .25; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+/* Gravity: specks fall from the source into the Design mark, speeding up as they near it. */
+.pull { position: relative; width: 72px; height: 16px; flex: none; }
+.pull i { --d: 0; position: absolute; left: 0; top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--imp-a); opacity: 0; animation: pull 2.5s cubic-bezier(.6, 0, .95, .45) infinite; animation-delay: calc(var(--d) * -.5s); }
+.pull i:nth-child(2) { --d: 1; background: color-mix(in oklab, var(--imp-a), var(--imp-b)); }
+.pull i:nth-child(3) { --d: 2; background: var(--imp-b); }
+.pull i:nth-child(4) { --d: 3; background: var(--imp-blue); }
+.pull i:nth-child(5) { --d: 4; background: color-mix(in oklab, var(--imp-a), var(--imp-b)); }
+.running .pull i { animation-duration: 1s; animation-delay: calc(var(--d) * -.2s); }
+@keyframes pull { 0% { transform: translateX(0) scale(1.15); opacity: 0; } 12% { opacity: .9; } 82% { opacity: .9; } 100% { transform: translateX(68px) scale(.3); opacity: 0; } }
+.hub { position: relative; transition: box-shadow .3s; }
+.running .hub, .hub.absorb { box-shadow: 0 0 0 1px color-mix(in srgb, var(--imp-a) 40%, transparent), 0 0 24px -2px color-mix(in srgb, var(--imp-a) 50%, transparent); }
+/* The picker's sources drift toward the mark and shrink into it, two lanes at one speed so they never bunch. */
+.belt { position: absolute; inset: 0; pointer-events: none; }
+.belt .bi { position: absolute; left: 0; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; display: grid; place-items: center; color: var(--color-foreground); will-change: transform, opacity; }
+.belt .bi .lg { width: 20px; height: 20px; opacity: .88; }
+.belt .bi .lg.w { width: 24px; height: 24px; }
+.imh .hub { z-index: 1; }
 .cycle { position: relative; width: 24px; height: 24px; }
 .cycle .lg { position: absolute; inset: 0; opacity: 0; transition: opacity .4s; }
 .cycle .lg.on { opacity: 1; }
@@ -79,21 +91,24 @@ svg.lg { display: block; fill: currentColor; flex: none; }
 .grid .wide { grid-column: 1 / -1; }
 
 /* Picker tiles and step rows share one 56px row: 40px icon box, 12px gap, two lines of text. */
-.src, .step { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-background); text-align: left; width: 100%; }
+.src, .step { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px; border-radius: var(--radius); border: 1px solid var(--color-border); background: var(--color-background); text-align: left; width: 100%; }
 .src { transition: background-color .15s, border-color .15s; }
 .src:hover { background: color-mix(in srgb, var(--color-accent) 60%, var(--color-background)); border-color: color-mix(in oklab, var(--color-border), var(--color-foreground) 14%); }
 .src:active { transform: scale(.995); }
-.box { width: 40px; height: 40px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--color-muted); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border), var(--color-foreground) 6%); color: var(--color-foreground); }
+.box { width: 40px; height: 40px; flex: none; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; background: var(--color-muted); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border), var(--color-foreground) 6%); color: var(--color-foreground); }
 .box .lg { width: 20px; height: 20px; opacity: .78; }
 .box svg.i { width: 20px; height: 20px; stroke-width: 1.5; opacity: .78; }
 .box.num { font-size: 14px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
 .tt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .tt b { font-size: 14px; line-height: 20px; font-weight: 500; }
 .tt small { font-size: 12px; line-height: 16px; color: var(--color-muted-foreground); }
-.step .tt b { font-weight: 500; }
+.step .t { font-size: 14px; line-height: 20px; }
+.step .t b, .step small b { font-weight: 600; }
+.lnk { color: var(--color-foreground); text-decoration: underline; text-underline-offset: 2px; font-weight: 500; }
+.lnk:hover { text-decoration-thickness: 2px; }
 .steps { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
 .stack { position: relative; width: 112px; height: 40px; flex: none; }
-.stack span { position: absolute; top: 2px; width: 34px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); color: var(--color-foreground); }
+.stack span { position: absolute; top: 2px; width: 34px; height: 36px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); color: var(--color-foreground); }
 .stack span .lg { width: 18px; height: 18px; opacity: .78; }
 .stack span .lg.w { width: 20px; height: 20px; }
 .stack span:nth-child(1) { left: 0; transform: rotate(-8deg); }
@@ -130,12 +145,12 @@ a.b { color: inherit; text-decoration: none; }
 .warn svg.i { margin-top: 2px; width: 16px; height: 16px; }
 
 /* Prompt to copy (Manus) */
-.prompt { margin-top: 16px; border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.prompt { margin-top: 16px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .prompt pre { margin: 0; max-height: 160px; overflow-y: auto; white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 20px; color: var(--color-foreground); }
 .prompt .b { align-self: flex-start; }
 
 /* Drop zone */
-.drop { margin-top: 16px; min-height: 160px; border: 1px dashed color-mix(in oklab, var(--color-border), var(--color-foreground) 12%); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; transition: background-color .15s, border-color .15s; }
+.drop { margin-top: 16px; min-height: 160px; border: 1px dashed color-mix(in oklab, var(--color-border), var(--color-foreground) 12%); border-radius: var(--radius); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; transition: background-color .15s, border-color .15s; }
 .drop.over { border-style: solid; border-color: var(--imp-a); background: color-mix(in srgb, var(--imp-a) 6%, var(--color-background)); }
 .drop > svg.i { width: 20px; height: 20px; color: var(--color-muted-foreground); stroke-width: 1.5; }
 .drop b { margin-top: 8px; font-size: 14px; line-height: 20px; font-weight: 500; }
@@ -162,26 +177,25 @@ a.b { color: inherit; text-decoration: none; }
 .prog-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--imp-a), var(--imp-b)); transition: width .5s ease; }
 .bad .prog-bar i { background: var(--warning); }
 .ready { margin-top: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.ready span { aspect-ratio: 4 / 3; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-muted); position: relative; overflow: hidden; }
+.ready span { aspect-ratio: 4 / 3; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--color-border); background: var(--color-muted); position: relative; overflow: hidden; }
 .ready span::before { content: ""; position: absolute; inset: 10% 10% auto; height: 14%; border-radius: 3px; background: color-mix(in oklab, var(--color-foreground) 10%, transparent); }
 .ready span::after { content: ""; position: absolute; inset: 34% 10% 12%; border-radius: 4px; background: linear-gradient(135deg, color-mix(in oklab, var(--imp-a) 22%, transparent), color-mix(in oklab, var(--imp-b) 22%, transparent)); }
 
 /* Announcement: the hero is dark in both themes. */
 .hero { position: relative; height: 288px; flex: none; overflow: hidden; background: var(--c-neutral-950); isolation: isolate; }
-.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background:
-  radial-gradient(72% 58% at 50% 120%, var(--imp-a) 0%, transparent 70%),
-  radial-gradient(58% 50% at 14% 114%, var(--imp-b) 0%, transparent 70%),
-  radial-gradient(56% 50% at 88% 116%, var(--imp-blue) 0%, transparent 72%),
-  linear-gradient(to bottom, transparent 40%, var(--c-blue-900)); opacity: .95; }
-.hero::after { content: ""; position: absolute; inset: auto 0 0; height: 2px; background: linear-gradient(90deg, transparent, var(--c-blue-100), var(--imp-a), var(--imp-b), transparent); opacity: .7; }
 .hero svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 14%); stroke-width: 1; }
 .orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 16%); box-shadow: 0 6px 16px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 255 255 / 8%); will-change: transform, opacity; }
 .orb .lg { width: 18px; height: 18px; }
 .orb .lg.w { width: 22px; height: 22px; }
 .core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 72px; height: 72px; margin: -36px 0 0 -36px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: radial-gradient(circle at 50% 40%, rgb(255 255 255 / 10%), transparent 70%); }
+.core { transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
+.core.absorb { transform: scale(1.08); }
+.core::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--imp-a) 70%, transparent); opacity: 0; transform: scale(.6); }
+.core.absorb::after { animation: ripple .9s ease-out; }
+@keyframes ripple { 0% { opacity: .9; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.6, 1.3); } }
 .core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 40%, transparent)); }
-.pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
+.pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
 .pause:hover { background: rgb(255 255 255 / 28%); }
 .pause svg.i { width: 12px; height: 12px; }
 .ann .imb { padding: 32px; }
@@ -195,10 +209,9 @@ a.b { color: inherit; text-decoration: none; }
 
 .view { animation: view-in .18s ease-out; }
 @keyframes view-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .running .dots i, .spin { animation: none !important; } .imd-frame { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .pull i, .spin, .core::after { animation: none !important; } .pull i { opacity: .5; } .pull i:nth-child(1) { transform: translateX(8px); } .pull i:nth-child(2) { transform: translateX(24px); } .pull i:nth-child(3) { transform: translateX(40px) scale(.8); } .pull i:nth-child(4) { transform: translateX(54px) scale(.6); } .pull i:nth-child(5) { display: none; } .imd-frame { transition: none; } }
 @media (max-width: 560px) {
   .grid { grid-template-columns: 1fr; }
-  .imh-row .far { display: none; }
   .imb, .ann .imb { padding: 20px; }
   .step .b.outline .site { display: none; }
   .ann .acts { grid-template-columns: 1fr; }
@@ -231,68 +244,88 @@ const logo = (id, cls = "") => { const l = LOGOS[id]; return `<svg class="lg ${c
 
 /* ───────── sources ───────── */
 const ZIP_LEAD = "Download your project as a ZIP, then upload it here.";
-const MANUS_PROMPT = `Package this project so I can move it to another tool.
-Create one ZIP file and give me a download link.
+const MANUS_PROMPT = `Package this project as one ZIP file so I can move it to Agent-Native Design, and give me a download link.
 
 Include:
-- frontend and backend code
-- assets and dependency files
+- all frontend and backend code
+- images, fonts, and other assets
+- package.json and lock files
 - database schema and migrations
-- a README that says how to run it
 
 Leave out:
 - .env files and other secrets
 - node_modules and build output`;
 const MB = 1024 * 1024;
 const FILES = {
-  zip: { ext: ".zip", max: 250 * MB, drop: "Drop a ZIP here", limit: "Up to 250 MB", help: "Leave out .env files, node_modules, and build output.", bad: "Choose a .zip file.", big: "This ZIP is over 250 MB. Leave out node_modules and build output, then try again." },
-  fig: { ext: ".fig", max: 2048 * MB, drop: "Drop a .fig file here", limit: "Up to 2 GB", help: "In Figma, choose File › Save local copy to get a .fig file.", bad: "Choose a .fig file.", big: "This file is over 2 GB." },
+  zip: { ext: ".zip", max: 250 * MB, drop: "Drop your ZIP here", limit: "Up to 250 MB", help: "We skip .env files, node_modules, and build output for you.", bad: "Choose a .zip file.", big: "Choose a ZIP under 250 MB. Leave out node_modules and build output, then zip it again.", cta: "Import project" },
+  fig: { ext: ".fig", max: 2048 * MB, drop: "Drop your .fig file here", limit: "Up to 2 GB", help: "In Figma, select <b>File</b>, then <b>Save local copy</b>.", bad: "Choose a .fig file. In Figma, select File, then Save local copy.", big: "Choose a .fig file under 2 GB.", cta: "Import file" },
 };
 const FIELDS = {
-  web: { label: "Website URL", ph: "https://example.com", help: "Design reads the pages visitors can see. Logins and backend features aren't included.", bad: "Enter a full URL, like https://example.com." },
-  repo: { label: "Repository URL", ph: "https://github.com/owner/repo", help: "Private repositories ask you to connect GitHub first.", bad: "Enter a GitHub repository URL, like https://github.com/owner/repo." },
+  web: { label: "Website URL", ph: "example.com", help: "Works with any public site. Pages behind a login aren't included.", bad: "Enter a web address, like example.com." },
+  repo: { label: "Repository URL", ph: "github.com/owner/repo", help: "For a private repository, you'll connect GitHub next.", bad: "Enter a GitHub repository URL, like github.com/owner/repo." },
 };
+// Steps are HTML: <b> marks what to select. Each tool's steps follow its own help docs.
 const SRC = {
-  lovable: { name: "Lovable", sub: "Sync with GitHub", kind: "steps", site: "lovable.dev", title: "Export your project from Lovable", lead: "Connect your project to GitHub, then paste the repository URL.", steps: [["Open your project in Lovable."], ["Connect the project to GitHub.", "Lovable keeps your code in a new repository."], ["Copy the repository URL from GitHub."]], field: "repo", cta: "Import repository" },
-  v0: { name: "v0", sub: "Export as ZIP", kind: "steps", site: "v0.app", title: "Export your project from v0", lead: ZIP_LEAD, steps: [["Open your project in v0."], ["Select the ··· menu in the top-right."], ["Choose Download ZIP."]], next: "upload" },
-  bolt: { name: "Bolt", sub: "Export as ZIP", kind: "steps", site: "bolt.new", title: "Export your project from Bolt", lead: ZIP_LEAD, steps: [["Open your project in Bolt."], ["Click the project name in the top-left."], ["Choose Export, then Download."]], next: "upload" },
-  replit: { name: "Replit", sub: "Export as ZIP", kind: "steps", site: "replit.com", title: "Export your project from Replit", lead: ZIP_LEAD, steps: [["Open the right sidebar in your project."], ["Select the Files tab."], ["Click the three dots."], ["Choose Download as ZIP."]], next: "upload" },
-  base44: { name: "Base44", sub: "Export as ZIP", kind: "steps", site: "app.base44.com", title: "Export your project from Base44", lead: ZIP_LEAD, steps: [["Open your app in Base44."], ["Select the ··· menu in the top-right."], ["Choose Export project as ZIP."]], next: "upload" },
-  manus: { name: "Manus", sub: "Export with a prompt", kind: "steps", site: "manus.im", title: "Export your project from Manus", lead: "Ask Manus to package your project, then upload the ZIP.", steps: [["Open the chat inside your Manus project."], ["Copy the prompt below and send it to Manus."], ["Download the ZIP Manus creates.", "This can take a few minutes."]], prompt: MANUS_PROMPT, next: "upload" },
-  website: { name: "Website", icon: "world", sub: "Paste a website URL", kind: "url", field: "web", title: "Import a website", lead: "Paste the URL of your website to start a design from it.", cta: "Import website" },
-  upload: { name: "Upload code", icon: "file-zip", sub: "Upload a ZIP", kind: "upload", file: "zip", title: "Upload your code", lead: "Upload a ZIP of your project's code.", cta: "Start import" },
-  figma: { name: "Figma", sub: "Upload a .fig file", kind: "upload", file: "fig", title: "Import a Figma file", lead: "Upload a .fig file to turn its frames into screens.", cta: "Start import" },
-  github: { name: "GitHub", sub: "Paste a repository URL", kind: "url", field: "repo", title: "Import from GitHub", lead: "Paste a repository URL to start a design from its code.", cta: "Import repository" },
-  other: { name: "Other platforms", sub: "Wix, Squarespace, Webflow, Framer, and more", kind: "url", field: "web", title: "Import from another platform", lead: "Paste the URL of your Wix, Squarespace, Webflow, or Framer site to start a design from it.", cta: "Import website" },
+  lovable: { name: "Lovable", sub: "Download a ZIP", kind: "steps", site: "lovable.dev", title: "Download your project from Lovable", lead: ZIP_LEAD, steps: [["Open your project in Lovable."], ["Go to <b>Project settings</b>, then <b>Git</b>."], ["Select <b>Download codebase</b>.", 'Needs a paid Lovable plan. On the free plan, <button class="lnk" data-src="lovable-github">use GitHub instead</button>.']], next: "upload" },
+  "lovable-github": { name: "Lovable", logo: "lovable", parent: "lovable", kind: "steps", site: "lovable.dev", title: "Connect Lovable to GitHub", lead: "Lovable copies your code to a new GitHub repository. Then paste its URL here.", steps: [["Open your project in Lovable."], ["Go to <b>Project settings</b>, then <b>Git</b>, then <b>GitHub</b>."], ["Select <b>Connect</b>.", "Lovable creates a new repository with your code."]], field: "repo", cta: "Import repository" },
+  v0: { name: "v0", sub: "Download a ZIP", kind: "steps", site: "v0.app", title: "Download your project from v0", lead: ZIP_LEAD, steps: [["Open your project in v0."], ["Select <b>⋯</b> to open the project menu.", "It's in the top-right corner."], ["Select <b>Download ZIP</b>."]], next: "upload" },
+  bolt: { name: "Bolt", sub: "Download a ZIP", kind: "steps", site: "bolt.new", title: "Download your project from Bolt", lead: ZIP_LEAD, steps: [["Open your project in Bolt."], ["Select the project name.", "It's in the top-left corner."], ["Select <b>Download</b>.", "If you see <b>Export</b> first, select it, then <b>Download</b>."]], next: "upload" },
+  replit: { name: "Replit", sub: "Download a ZIP", kind: "steps", site: "replit.com", title: "Download your project from Replit", lead: ZIP_LEAD, steps: [["Open your project in Replit."], ["In the <b>Files</b> panel, select the three-dot menu.", "It's at the top of the file list."], ["Select <b>Download as zip</b>."]], next: "upload" },
+  base44: { name: "Base44", sub: "Download a ZIP", kind: "steps", site: "app.base44.com", title: "Download your app from Base44", lead: ZIP_LEAD, steps: [["Open your app in Base44."], ["Select <b>More actions</b> (⋯).", "It's in the top-right corner of the editor."], ["Select <b>Export project as ZIP</b>.", "Needs a Builder plan or higher on Base44."]], next: "upload" },
+  manus: { name: "Manus", sub: "Ask Manus for a ZIP", kind: "steps", site: "manus.im", title: "Ask Manus for a ZIP", lead: "Manus packages your project when you ask. Then upload the ZIP here.", steps: [["Open your project in Manus.", "Use the chat inside the project so Manus can see your code."], ["Copy the prompt below and send it in that chat."], ["Download the ZIP Manus sends back.", "It can take a few minutes."]], prompt: MANUS_PROMPT, next: "upload" },
+  website: { name: "Website", icon: "world", sub: "Paste a URL", kind: "url", field: "web", title: "Import a website", lead: "Each page becomes a screen you can edit.", cta: "Import website" },
+  upload: { name: "Upload code", icon: "file-zip", sub: "Upload a ZIP", kind: "upload", file: "zip", title: "Upload your code", lead: "Upload a ZIP of your project. From GitHub, select <b>Code</b>, then <b>Download ZIP</b>." },
+  figma: { name: "Figma", sub: "Upload a .fig file", kind: "upload", file: "fig", title: "Import a Figma file", lead: "Each frame becomes a screen you can edit." },
+  github: { name: "GitHub", sub: "Paste a repository URL", kind: "url", field: "repo", title: "Import from GitHub", lead: "Paste a repository URL to bring in its pages and components.", cta: "Import repository" },
+  other: { name: "Other site builders", sub: "Wix, Squarespace, Webflow, Framer, and more", kind: "url", field: "web", title: "Import a site from another builder", lead: "Paste your site's live URL. Works with Wix, Squarespace, Webflow, Framer, and more.", cta: "Import website" },
 };
 const BUILDERS = ["lovable", "v0", "bolt", "replit", "base44", "manus"];
 const OTHERS = ["website", "upload", "figma", "github"];
 const PLATFORMS = ["wix", "squarespace", "webflow", "framer"];
-const glyph = (id, cls = "") => SRC[id]?.icon ? ic(SRC[id].icon) : logo(id, cls);
+const glyph = (id, cls = "") => SRC[id]?.icon ? ic(SRC[id].icon) : logo(SRC[id]?.logo || id, cls);
 
 /* ───────── state ───────── */
 const S = { open: false, view: "picker", src: null, from: null, file: null, err: "", value: "", job: null, fail: false };
 const root = $("#imp-root");
 let lastFocus = null;
 
+/* ───────── nebula ───────── */
+// Brand blue, cyan and teal clouds spread behind the whole galaxy, with a faint starfield. The sidebar card
+// draws the same markup and CSS inside the dashboard frame.
+const NEBULA = '<div class="nebula" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><div class="stars" aria-hidden="true"></div>';
+const NEBULA_CSS = `
+.nebula { position: absolute; inset: -18%; z-index: -1; filter: blur(var(--nebula-blur, 26px)); opacity: .62; animation: nebula-drift 46s ease-in-out infinite alternate; }
+.nebula i { position: absolute; border-radius: 50%; mix-blend-mode: screen; animation: nebula-float 28s ease-in-out infinite alternate; }
+.nebula i:nth-child(1) { left: 4%; top: 30%; width: 48%; height: 40%; background: radial-gradient(closest-side, var(--c-blue-600), transparent); }
+.nebula i:nth-child(2) { left: 34%; top: 16%; width: 44%; height: 36%; background: radial-gradient(closest-side, color-mix(in srgb, var(--c-blue-500) 85%, transparent), transparent); animation-duration: 34s; animation-delay: -9s; }
+.nebula i:nth-child(3) { left: 52%; top: 44%; width: 42%; height: 38%; background: radial-gradient(closest-side, color-mix(in srgb, var(--c-green-400) 75%, transparent), transparent); animation-duration: 31s; animation-delay: -17s; }
+.nebula i:nth-child(4) { left: 20%; top: 56%; width: 36%; height: 26%; background: radial-gradient(closest-side, color-mix(in srgb, var(--c-blue-300) 55%, transparent), transparent); animation-duration: 38s; animation-delay: -4s; }
+.nebula i:nth-child(5) { left: 62%; top: 18%; width: 24%; height: 24%; background: radial-gradient(closest-side, color-mix(in srgb, var(--c-blue-100) 40%, transparent), transparent); animation-duration: 25s; animation-delay: -12s; }
+@keyframes nebula-drift { from { transform: translate(-2%, 1%) rotate(-2deg) scale(1); } to { transform: translate(2%, -1%) rotate(2deg) scale(1.06); } }
+@keyframes nebula-float { from { transform: translate(-4%, -3%) scale(.94); } to { transform: translate(4%, 3%) scale(1.06); } }
+.stars { position: absolute; inset: 0; z-index: -1; opacity: .4; animation: twinkle 7s ease-in-out infinite alternate;
+  background-image: radial-gradient(1px 1px at 18px 26px, #fff 50%, transparent 51%), radial-gradient(1px 1px at 92px 118px, #fff 50%, transparent 51%), radial-gradient(1px 1px at 141px 61px, color-mix(in srgb, var(--c-blue-100) 90%, #fff) 50%, transparent 51%), radial-gradient(1.5px 1.5px at 57px 152px, #fff 50%, transparent 51%), radial-gradient(1px 1px at 173px 9px, #fff 50%, transparent 51%);
+  background-size: 190px 170px, 230px 210px, 170px 150px, 260px 240px, 210px 190px; }
+@keyframes twinkle { from { opacity: .28; } to { opacity: .46; } }
+@media (prefers-reduced-motion: reduce) { .nebula, .nebula i, .stars { animation: none; } }`;
+document.head.insertAdjacentHTML("beforeend", `<style>${NEBULA_CSS}</style>`);
+
 /* ───────── header ───────── */
 function headPicker() {
-  const left = ["lovable", "v0", "bolt", "replit"], right = ["base44", "manus", "figma", "webflow"];
-  const row = (ids, side) => ids.map((id, i) => `<span class="${(side === "l" ? i === 0 : i === ids.length - 1) ? "far" : ""}" title="${LOGOS[id].name}">${logo(id)}</span>`).join("");
-  return `<div class="imh"><div class="imh-row">${row(left, "l")}<span class="tile">${MARK}</span>${row(right, "r")}</div></div>`;
+  return `<div class="imh"><div class="belt" id="belt" aria-hidden="true"></div><span class="tile hub" id="hub">${MARK}</span></div>`;
 }
 function headPair(id, running) {
   const from = id === "other" ? `<span class="cycle">${PLATFORMS.map((p, i) => logo(p, i === 0 ? "on" : "")).join("")}</span>` : glyph(id);
-  return `<div class="imh ${running ? "running" : ""}"><div class="pair"><span class="tile">${from}</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="tile">${MARK}</span></div></div>`;
+  return `<div class="imh ${running ? "running" : ""}"><div class="pair"><span class="tile">${from}</span><span class="pull" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="tile hub">${MARK}</span></div></div>`;
 }
 
 /* ───────── views ───────── */
 function viewPicker() {
   const tile = (id) => `<button class="src" data-src="${id}"><span class="box">${glyph(id)}</span><span class="tt"><b>${SRC[id].name}</b><small>${SRC[id].sub}</small></span></button>`;
-  return headPicker() + `<div class="imb"><h2 id="imd-title">Import a project</h2><p class="lead">Choose where your project lives today to see the steps for it.</p>
+  return headPicker() + `<div class="imb"><h2 id="imd-title">What are you importing?</h2><p class="lead">Pick where it lives now, and we'll show you how to bring it over.</p>
     <div class="sec"><h3>App builders</h3><div class="grid">${BUILDERS.map(tile).join("")}</div></div>
-    <div class="sec"><h3>Everything else</h3><div class="grid">${OTHERS.map(tile).join("")}
-      <button class="src wide" data-src="other"><span class="stack" aria-hidden="true">${PLATFORMS.map((p) => `<span>${logo(p)}</span>`).join("")}</span><span class="tt"><b>Other platforms</b><small>${SRC.other.sub}</small></span></button>
+    <div class="sec"><h3>Other ways to import</h3><div class="grid">${OTHERS.map(tile).join("")}
+      <button class="src wide" data-src="other"><span class="stack" aria-hidden="true">${PLATFORMS.map((p) => `<span>${logo(p)}</span>`).join("")}</span><span class="tt"><b>${SRC.other.name}</b><small>${SRC.other.sub}</small></span></button>
     </div></div></div>`;
 }
 function fieldHTML(kind) {
@@ -301,10 +334,10 @@ function fieldHTML(kind) {
 }
 function viewSteps(id) {
   const s = SRC[id];
-  const steps = s.steps.map(([t, sub], i) => `<li class="step"><span class="box num">${i + 1}</span><span class="tt"><b>${t}</b>${sub ? `<small>${sub}</small>` : ""}</span>${i === 0 ? `<a class="b outline" href="https://${s.site}" target="_blank" rel="noopener noreferrer"><span class="site">Open ${s.site}</span>${ic("arrow-up-right")}</a>` : ""}</li>`).join("");
+  const steps = s.steps.map(([t, sub], i) => `<li class="step"><span class="box num">${i + 1}</span><span class="tt"><span class="t">${t}</span>${sub ? `<small>${sub}</small>` : ""}</span>${i === 0 ? `<a class="b outline" href="https://${s.site}" target="_blank" rel="noopener noreferrer"><span class="site">Open ${s.site}</span>${ic("arrow-up-right")}</a>` : ""}</li>`).join("");
   const prompt = s.prompt ? `<div class="prompt"><pre tabindex="0" aria-label="Prompt for Manus">${esc(s.prompt)}</pre><button class="b outline" data-act="copy">${ic("copy")}Copy prompt</button></div>` : "";
   const field = s.field ? fieldHTML(s.field) : "";
-  const cta = s.field ? `<button class="b primary" data-act="submit-url" ${valid(s.field, S.value) ? "" : "disabled"}>${s.cta}</button>` : `<button class="b outline" data-act="to-upload">Upload the ZIP</button>`;
+  const cta = s.field ? `<button class="b primary" data-act="submit-url" ${valid(s.field, S.value) ? "" : "disabled"}>${s.cta}</button>` : `<button class="b outline" data-act="to-upload">Upload ZIP</button>`;
   return headPair(id) + `<div class="imb"><h2 id="imd-title">${s.title}</h2><p class="lead">${s.lead}</p><ol class="steps" style="padding:0;margin-bottom:0">${steps}</ol>${prompt}${field}<div class="foot"><button class="b ghost" data-act="back">Back</button>${cta}</div></div>`;
 }
 function viewUrl(id) {
@@ -315,12 +348,12 @@ const size = (b) => b >= 1024 * MB ? `${(b / 1024 / MB).toFixed(1)} GB` : b >= M
 function viewUpload(id) {
   const s = SRC[id], f = FILES[s.file], from = S.from && SRC[S.from];
   const title = from ? `Upload your ${from.name} ZIP` : s.title;
-  const lead = from ? `Upload the ZIP you downloaded from ${from.name}.` : s.lead;
+  const lead = from ? `Drop in the ZIP you downloaded from ${from.name}.` : s.lead;
   const body = S.file
     ? `<div class="picked"><div class="src"><span class="box">${ic(s.file === "fig" ? "file" : "file-zip")}</span><span class="tt"><b>${esc(S.file.name)}</b><small>${size(S.file.size)}</small></span><button class="rm" data-act="remove" aria-label="Remove ${esc(S.file.name)}">${ic("x")}</button></div></div>`
     : `<div class="drop" id="drop">${ic("upload")}<b>${f.drop}</b><small>${f.limit}</small><button class="b outline" data-act="choose">Choose file</button></div>`;
   const note = S.err ? `<p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(S.err)}</span></p>` : `<p class="help">${f.help}</p>`;
-  return headPair(S.from || id) + `<div class="imb"><h2 id="imd-title">${title}</h2><p class="lead">${lead}</p>${body}<div class="after">${note}</div><input type="file" id="imp-file" accept="${f.ext}" hidden><div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="start-file" ${S.file ? "" : "disabled"}>${s.cta}</button></div></div>`;
+  return headPair(S.from || id) + `<div class="imb"><h2 id="imd-title">${title}</h2><p class="lead">${lead}</p>${body}<div class="after">${note}</div><input type="file" id="imp-file" accept="${f.ext}" hidden><div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="start-file" ${S.file ? "" : "disabled"}>${f.cta}</button></div></div>`;
 }
 function viewProgress() {
   const j = S.job, done = j.step >= j.phases.length;
@@ -330,16 +363,18 @@ function viewProgress() {
     return `<li class="${st}"><span class="st">${mark}</span>${esc(p)}</li>`;
   }).join("");
   const pct = j.failed ? (j.step / j.phases.length) * 100 : done ? 100 : ((j.step + .5) / j.phases.length) * 100;
-  if (done) return headPair(j.src) + `<div class="imb"><h2 id="imd-title">${esc(j.name)} is ready</h2><p class="lead">${j.screens} screens, ready to edit.</p><div class="ready" aria-hidden="true">${"<span></span>".repeat(4)}</div><div class="foot"><button class="b ghost" data-act="again">Import another</button><button class="b primary" data-act="open-design">Open design</button></div></div>`;
+  if (done) return headPair(j.src) + `<div class="imb"><h2 id="imd-title">${esc(j.name)} is ready</h2><p class="lead">${j.screens} screens you can edit.</p><div class="ready" aria-hidden="true">${"<span></span>".repeat(4)}</div><div class="foot"><button class="b ghost" data-act="again">Import another</button><button class="b primary" data-act="open-design">Open design</button></div></div>`;
   const foot = j.failed ? `<div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="retry">Try again</button></div>` : "";
   const err = j.failed ? `<div class="after"><p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(j.error)}</span></p></div>` : "";
-  return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? "Import stopped" : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "This takes about a minute. You can close this window."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
+  return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
+// The sidebar card and the dialog share their title and button.
+const ANN = { title: "Import a website or app", desc: "Turn a site, a Figma file, or an app into screens you can edit.", cta: "Import project" };
 function viewAnnouncement() {
-  return `<div class="hero"><svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
-  <div class="imb"><h2 id="imd-title">Import your website or project</h2><p class="lead">Bring an existing website or project into Design and keep building.</p>
-  <ul class="checks"><li><i>${ic("check")}</i>Import a live website from its URL</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, and more</li><li><i>${ic("check")}</i>Bring in Figma files and GitHub repositories</li></ul>
-  <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">Import now</button></div></div>`;
+  return `<div class="hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
+  <div class="imb"><h2 id="imd-title">${ANN.title}</h2><p class="lead">Bring an existing site or project into Agent‑Native Design as screens you can edit.</p>
+  <ul class="checks"><li><i>${ic("check")}</i>Paste a URL to import any public website</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Upload a Figma file or a GitHub repository</li></ul>
+  <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">${ANN.cta}</button></div></div>`;
 }
 
 /* ───────── render ───────── */
@@ -387,6 +422,7 @@ function render({ focus = true, animate = true } = {}) {
     (fresh.querySelector("#imp-url") || fresh.querySelector(".src, .b, a, button"))?.focus({ preventScroll: true });
   }
   if (S.view === "announcement") startOrbit(); else stopOrbit();
+  if (S.view === "picker") startBelt(); else stopBelt();
   if (S.view !== "picker" && S.src === "other" || S.job?.src === "other") startCycle(); else stopCycle();
 }
 const key = () => S.view === "progress" ? `progress:${S.job?.id}:${S.job?.step >= S.job?.phases.length ? "done" : S.job?.failed ? "fail" : "run"}` : `${S.view}:${S.src}:${S.from}:${!!S.file}`;
@@ -401,7 +437,7 @@ function close() {
   const ov = root.querySelector(".imo:not(.closing)");
   if (!ov) return;
   S.open = false;
-  stopOrbit(); stopCycle();
+  stopOrbit(); stopCycle(); stopBelt();
   ov.classList.add("closing");
   setTimeout(() => ov.remove(), 150);
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
@@ -458,11 +494,12 @@ function submitUrl() {
   if (!valid(kind, S.value)) { S.err = FIELDS[kind].bad; render({ animate: false }); return; }
   const u = normalize(S.value);
   const name = kind === "repo" ? u.pathname.split("/")[2].replace(/\.git$/, "") : u.hostname.replace(/^www\./, "");
-  start(S.src, name, kind === "repo" ? "code" : "web");
+  start(SRC[S.src].logo || S.src, name, kind === "repo" ? "repo" : "web");
 }
 function back() {
   if (S.view === "progress") return go(S.job.back.view, { src: S.job.back.src, from: S.job.back.from, file: S.job.back.file, value: S.job.back.value, job: null });
   if (S.view === "upload" && S.from) return go("steps", { src: S.from, from: null, file: null });
+  if (SRC[S.src]?.parent) return go("steps", { src: SRC[S.src].parent, value: "" });
   go("picker", { src: null, from: null, file: null, value: "" });
 }
 root.addEventListener("click", (e) => {
@@ -478,7 +515,7 @@ root.addEventListener("click", (e) => {
   else if (act === "back") back();
   else if (act === "import-now") go("picker");
   else if (act === "learn") toast("Opens the import guide in the Design docs");
-  else if (act === "copy") copyText(SRC.manus.prompt, "Copied the prompt");
+  else if (act === "copy") copyText(SRC.manus.prompt, "Prompt copied");
   else if (act === "to-upload") go("upload", { from: S.src, src: "upload", file: null });
   else if (act === "choose") root.querySelector("#imp-file")?.click();
   else if (act === "remove") go("upload", { file: null });
@@ -503,13 +540,15 @@ document.addEventListener("keydown", (e) => {
 /* ───────── the simulated import ───────── */
 const PHASES = {
   code: ["Reading your files", "Finding pages and components", "Building screens", "Matching fonts and colors"],
+  repo: ["Reading the repository", "Finding pages and components", "Building screens", "Matching fonts and colors"],
   web: (n) => [`Opening ${n}`, "Reading each page", "Building screens", "Matching fonts and colors"],
-  fig: ["Reading the file", "Converting frames", "Building screens"],
+  fig: ["Reading your file", "Turning frames into screens", "Matching fonts and colors"],
 };
 const ERRORS = {
-  code: "Couldn't find an app in this project. Check that it has a package.json at its top level.",
-  web: "Couldn't open this site. Check the URL and that the site is public.",
-  fig: "Couldn't read this file. Save a fresh local copy from Figma and try again.",
+  code: "Make sure the ZIP has your whole project, then try again.",
+  repo: "Check the URL and that you have access to the repository, then try again.",
+  web: "Check the address and make sure the site is public, then try again.",
+  fig: "Save a new local copy from Figma, then try again.",
 };
 let jobSeq = 0;
 function start(src, name, kind, back) {
@@ -520,7 +559,7 @@ function start(src, name, kind, back) {
   go("progress", { src });
   const tick = () => {
     if (S.job !== job) return;
-    if (S.fail && job.step === 1) { job.failed = true; return S.open && S.view === "progress" ? render({ animate: false }) : toast(`Import of ${name} stopped`); }
+    if (S.fail && job.step === 1) { job.failed = true; return S.open && S.view === "progress" ? render({ animate: false }) : toast(`We couldn't import ${name}`); }
     job.step++;
     const finished = job.step >= job.phases.length;
     if (S.open && S.view === "progress") render({ animate: finished, focus: finished });
@@ -534,11 +573,74 @@ function start(src, name, kind, back) {
 // Both rings turn at one speed with six logos each, the inner set 30° behind the outer, so the layout only
 // rotates and no two logos ever touch (the closest pair stays 13px apart). Different speeds or counts let
 // logos pass over each other where the rings run close at the top and bottom.
+const TAU = Math.PI * 2;
 const ORBIT_PERIOD = 80;
 const ORBITS = [
   { rx: 240, ry: 104, phase: 0, ids: ["github", "v0", "webflow", "replit", "wix", "framer"] },
   { rx: 154, ry: 70, phase: Math.PI / 6, ids: ["lovable", "figma", "bolt", "squarespace", "base44", "manus"] },
 ];
+function slotAngle(o, i, t) { return (i / o.ids.length) * TAU + (t / ORBIT_PERIOD) * TAU + o.phase; }
+// Every few seconds one logo falls into the mark: it spirals in, speeding up as it nears the center, then
+// rises back into its own slot. A fall is only started on a path that stays clear of every other logo.
+const FALL = { every: 4.5, dur: 1.8, rest: .6, grow: .7, clear: 6 };
+let fall = null, nextFall = 3, recent = [], pulsed = false;
+function orbState(oi, i, t, g, f) {
+  const o = ORBITS[oi];
+  let a = slotAngle(o, i, t), r = 1, shrink = 1, fade = 1, falling = false;
+  if (f && f.oi === oi && f.i === i) {
+    const e = t - f.t0;
+    if (e < FALL.dur) { const u = e / FALL.dur, pull = u * u; a += 1.3 * pull; r = 1 - pull; shrink = .3 + .7 * (1 - pull); falling = true; }
+    else if (e < FALL.dur + FALL.rest) fade = 0;
+    else if (e < FALL.dur + FALL.rest + FALL.grow) { const q = (e - FALL.dur - FALL.rest) / FALL.grow; shrink = q; fade = q; }
+  }
+  const x = Math.cos(a) * o.rx * g.k * r, y = Math.sin(a) * o.ry * g.k * r;
+  const d = Math.hypot(x, y), depth = Math.sin(a);
+  // A falling logo fades as it reaches the mark and passes behind it.
+  if (falling) fade = Math.max(0, Math.min(1, (d - 30 * g.k) / (40 * g.k)));
+  const sc = (.82 + .3 * (depth + 1) / 2) * g.k * shrink;
+  return { x: g.cx + x, y: g.cy + y, s: sc, rad: 20 * sc, d, depth, fade, falling };
+}
+function heroGeo() {
+  const hero = $(".hero");
+  return hero && { k: Math.min(1, hero.clientWidth / 560), cx: hero.clientWidth / 2, cy: hero.clientHeight / 2 };
+}
+// The tightest gap between a falling candidate and every other logo over the whole fall, while it's still visible.
+function fallClearance(c, t, g) {
+  let worst = Infinity;
+  for (let e = 0; e <= FALL.dur; e += .03) {
+    const p = orbState(c.oi, c.i, t + e, g, { ...c, t0: t });
+    if (p.fade < .05) continue;
+    ORBITS.forEach((o, oi) => o.ids.forEach((_, i) => {
+      if (oi === c.oi && i === c.i) return;
+      const q = orbState(oi, i, t + e, g, null);
+      worst = Math.min(worst, Math.hypot(p.x - q.x, p.y - q.y) - p.rad - q.rad);
+    }));
+  }
+  return worst;
+}
+function pickFall(t, g) {
+  const options = ORBITS.flatMap((o, oi) => o.ids.map((_, i) => ({ oi, i }))).filter((c) => !recent.includes(`${c.oi}:${c.i}`));
+  let best = null, bestGap = -Infinity;
+  for (const c of options) { const gap = fallClearance(c, t, g); if (gap > bestGap) { best = c; bestGap = gap; } }
+  if (!best || bestGap < FALL.clear * g.k) return null;
+  recent = [...recent, `${best.oi}:${best.i}`].slice(-5);
+  return { ...best, t0: t };
+}
+// Advances the orbit by dt seconds of animation time; paused time doesn't count, so a fall freezes mid-air.
+function stepOrbit(dt) {
+  const g = heroGeo();
+  if (!g) return;
+  if (!paused) orbitT += dt;
+  if (!paused && !fall && orbitT >= nextFall) { fall = pickFall(orbitT, g); nextFall = orbitT + (fall ? FALL.every : .5); pulsed = false; }
+  if (fall && orbitT - fall.t0 > FALL.dur + FALL.rest + FALL.grow) fall = null;
+  if (fall && !pulsed && orbitT - fall.t0 > FALL.dur * .9) {
+    pulsed = true;
+    const core = $(".hero .core");
+    core?.classList.remove("absorb"); void core?.offsetWidth; core?.classList.add("absorb");
+    setTimeout(() => core?.classList.remove("absorb"), 900);
+  }
+  placeOrbit(g);
+}
 let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function startOrbit() {
   const el = $("#orbit");
@@ -547,28 +649,20 @@ function startOrbit() {
   syncPause();
   orbitLast = performance.now();
   const frame = (now) => {
-    if (!paused) orbitT += (now - orbitLast) / 1000;
+    stepOrbit(Math.min(.1, (now - orbitLast) / 1000));
     orbitLast = now;
-    placeOrbit();
     orbitRaf = requestAnimationFrame(frame);
   };
   cancelAnimationFrame(orbitRaf);
   orbitRaf = requestAnimationFrame(frame);
 }
-function placeOrbit() {
-  const hero = $(".hero");
-  if (!hero) return;
-  // A narrow hero scales the whole orbit, rings and logos alike, so the spacing holds.
-  const k = Math.min(1, hero.clientWidth / 560), cx = hero.clientWidth / 2, cy = hero.clientHeight / 2;
-  for (const orb of hero.querySelectorAll(".orb")) {
-    const o = ORBITS[+orb.dataset.o], n = o.ids.length, i = +orb.dataset.i;
-    const a = (i / n) * Math.PI * 2 + (orbitT / ORBIT_PERIOD) * Math.PI * 2 + o.phase;
-    const x = cx + Math.cos(a) * o.rx * k, y = cy + Math.sin(a) * o.ry * k;
-    const depth = Math.sin(a); // 1 is nearest the viewer, at the bottom of the ring
-    const s = (.82 + .3 * (depth + 1) / 2) * k;
-    orb.style.transform = `translate(${x}px, ${y}px) scale(${s.toFixed(3)})`;
-    orb.style.opacity = (.62 + .38 * (depth + 1) / 2).toFixed(3);
-    orb.style.zIndex = String(depth > 0 ? 60 + Math.round(depth * 10) : 40 + Math.round(depth * 10));
+function placeOrbit(g = heroGeo()) {
+  if (!g) return;
+  for (const orb of $(".hero").querySelectorAll(".orb")) {
+    const st = orbState(+orb.dataset.o, +orb.dataset.i, orbitT, g, fall);
+    orb.style.transform = `translate(${st.x.toFixed(2)}px, ${st.y.toFixed(2)}px) scale(${st.s.toFixed(3)})`;
+    orb.style.opacity = ((.62 + .38 * (st.depth + 1) / 2) * st.fade).toFixed(3);
+    orb.style.zIndex = String(st.falling && st.d < 70 * g.k ? 45 : st.depth > 0 ? 60 + Math.round(st.depth * 10) : 40 + Math.round(st.depth * 10));
   }
 }
 function stopOrbit() { cancelAnimationFrame(orbitRaf); orbitRaf = 0; }
@@ -579,6 +673,46 @@ function syncPause() {
   b.innerHTML = ic(paused ? "player-play-filled" : "player-pause-filled");
   b.setAttribute("aria-label", paused ? "Play animation" : "Pause animation");
 }
+
+/* ───────── picker belt ───────── */
+// Two lanes of sources move toward the mark at one speed and pitch, so they never bunch, and shrink into it.
+const BELT = { pitch: 44, speed: 12, left: ["lovable", "v0", "bolt", "replit", "figma", "github"], right: ["base44", "manus", "webflow", "framer", "wix", "squarespace"] };
+let beltRaf = 0, beltT = 0, beltLast = 0;
+const beltStill = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function placeBelt() {
+  const belt = $("#belt"), hub = $("#hub");
+  if (!belt || !hub) return;
+  const w = belt.clientWidth, cx = w / 2, end = 28 + 16;
+  // As many slots as fit between the edge and the mark, so a narrow dialog shows fewer.
+  const slots = Math.max(2, Math.min(5, Math.floor((cx - end - 16) / BELT.pitch))), len = slots * BELT.pitch;
+  const travel = beltT * BELT.speed, seen = new Set();
+  for (const [side, ids] of [[-1, BELT.left], [1, BELT.right]]) {
+    const first = Math.floor((travel - len) / BELT.pitch), last = Math.floor(travel / BELT.pitch);
+    for (let m = first; m <= last; m++) {
+      const along = travel - m * BELT.pitch; // 0 at the outer edge, len at the mark
+      if (along < 0 || along > len) continue;
+      const key = `${side}:${m}`;
+      seen.add(key);
+      let el = belt.querySelector(`[data-k="${key}"]`);
+      if (!el) { el = document.createElement("span"); el.className = "bi"; el.dataset.k = key; el.innerHTML = logo(ids[((m % ids.length) + ids.length) % ids.length]); belt.append(el); }
+      const toMark = len - along;
+      const fade = Math.min(1, along / 36) * Math.min(1, toMark / 28), sc = .5 + .5 * Math.min(1, toMark / 72);
+      const x = cx + side * (end + toMark);
+      el.style.transform = `translate(${x.toFixed(2)}px, 0) scale(${sc.toFixed(3)})`;
+      el.style.opacity = fade.toFixed(3);
+    }
+  }
+  belt.querySelectorAll(".bi").forEach((el) => { if (!seen.has(el.dataset.k)) el.remove(); });
+}
+function startBelt() {
+  if (!$("#belt")) return;
+  cancelAnimationFrame(beltRaf);
+  if (beltStill()) { beltT = 0.5 * BELT.pitch / BELT.speed; placeBelt(); return; }
+  beltLast = performance.now();
+  const frame = (now) => { beltT += Math.min(.1, (now - beltLast) / 1000); beltLast = now; placeBelt(); beltRaf = requestAnimationFrame(frame); };
+  beltRaf = requestAnimationFrame(frame);
+}
+function stopBelt() { cancelAnimationFrame(beltRaf); beltRaf = 0; }
 let cycleTimer = 0;
 function startCycle() {
   if (cycleTimer) return;
@@ -597,25 +731,73 @@ const themeNow = () => document.documentElement.dataset.theme || (matchMedia("(p
 const faces = DASH.css.match(/@font-face\s*\{[^}]*\}/g) || [];
 document.head.insertAdjacentHTML("beforeend", `<style>${faces.join("\n")}</style>`);
 const dash = $("#dash");
+function tokenVars() {
+  const cs = getComputedStyle(document.documentElement);
+  const names = ["--c-neutral-950", "--c-blue-100", "--c-blue-300", "--c-blue-500", "--c-blue-600", "--c-green-400"];
+  return `:root { ${names.map((n) => `${n}: ${cs.getPropertyValue(n).trim()};`).join(" ")} }`;
+}
 // The dashboard talks to this page by message, so it works whether or not the host lets frames reach each other.
 function syncDashTheme() { dash.contentWindow?.postMessage({ protoTheme: themeNow() }, "*"); }
 addEventListener("message", (e) => {
   if (e.source !== dash.contentWindow) return;
   if (e.data?.proto === "import") open("picker");
+  else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
 });
-// Only Import is live; links and forms in the snapshot stay put.
+// The announcement lives in the sidebar card where Getting started sat: the card opens the dialog, its
+// button goes straight to the picker. Its preview is the dialog's galaxy at card size, from the same math.
+const CARD_CSS = `${NEBULA_CSS}
+.an-card { padding: 8px; }
+.an-open { display: block; width: 100%; text-align: start; border-radius: 10px; outline: none; cursor: pointer; }
+.an-open:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.an-hero { position: relative; display: block; height: 112px; border-radius: 10px; overflow: hidden; background: var(--c-neutral-950); isolation: isolate; --nebula-blur: 12px; }
+.an-hero svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; }
+.an-hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 16%); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.an-orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 18%); }
+.an-orb svg { width: 20px; height: 20px; fill: currentColor; }
+.an-core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 26px; height: 16px; margin: -8px 0 0 -13px; color: #fff; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c-blue-500) 70%, transparent)); }
+.an-core svg { width: 26px; height: 16px; display: block; }
+.an-open:hover .an-hero { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%); }
+.an-text { display: block; padding: 12px 8px 0; }
+.an-title { display: block; font-size: 14px; line-height: 20px; font-weight: 600; color: hsl(var(--foreground)); }
+.an-desc { display: block; margin-top: 2px; font-size: 13px; line-height: 18px; color: hsl(var(--muted-foreground)); }
+.an-cta { margin: 8px 0 4px 8px; height: 24px; font-size: 13px; line-height: 16px; font-weight: 500; color: hsl(var(--foreground)); border-radius: 4px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color .15s; cursor: pointer; }
+.an-cta:hover { text-decoration-color: currentColor; }
+.an-cta:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring)); }`;
+const CARD_HTML = `<div class="an-card"><button type="button" class="an-open" data-proto="announce"><span class="an-hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span><span class="an-text"><span class="an-title">${ANN.title}</span><span class="an-desc">${ANN.desc}</span></span></button><button type="button" class="an-cta" data-proto="import">${ANN.cta}</button></div>`;
+// Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
+const ORBITS = ${JSON.stringify(ORBITS)}, ORBIT_PERIOD = ${ORBIT_PERIOD}, TAU = Math.PI * 2;
+${slotAngle.toString()}
 addEventListener("click", (e) => {
   if (e.target.closest('[data-proto="import"]')) { e.preventDefault(); parent.postMessage({ proto: "import" }, "*"); return; }
+  if (e.target.closest('[data-proto="announce"]')) { e.preventDefault(); parent.postMessage({ proto: "announce" }, "*"); return; }
   if (e.target.closest("a[href], button[type=submit]")) e.preventDefault();
 });
 addEventListener("submit", (e) => e.preventDefault());
 addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
 addEventListener("message", (e) => { const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
+const slot = document.querySelector('section[aria-label="Getting started"]');
+if (slot) { slot.setAttribute("aria-label", "What's new"); slot.innerHTML = ${JSON.stringify(CARD_HTML)}; }
+// The card's galaxy: the dialog's orbit, scaled to the card as a whole so its spacing holds.
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let t0 = performance.now();
+function frame(now) {
+  const hero = document.querySelector(".an-hero");
+  if (!hero) return;
+  const k = Math.min(hero.clientWidth / 560, hero.clientHeight / 288), cx = hero.clientWidth / 2, cy = hero.clientHeight / 2, t = still ? 0 : (now - t0) / 1000;
+  for (const el of hero.querySelectorAll(".an-orb")) {
+    const o = ORBITS[+el.dataset.o], a = slotAngle(o, +el.dataset.i, t), depth = Math.sin(a), s = (.82 + .3 * (depth + 1) / 2) * k;
+    el.style.transform = "translate(" + (cx + Math.cos(a) * o.rx * k).toFixed(2) + "px," + (cy + Math.sin(a) * o.ry * k).toFixed(2) + "px) scale(" + s.toFixed(3) + ")";
+    el.style.opacity = (.62 + .38 * (depth + 1) / 2).toFixed(3);
+    el.style.zIndex = String(depth > 0 ? 60 : 40);
+  }
+  if (!still) requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 <\/script>`;
 dash.addEventListener("load", syncDashTheme);
-dash.srcdoc = `<!doctype html><html lang="${DASH.lang}" class="${themeNow()}" data-theme="${themeNow()}" style="color-scheme:${themeNow()}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${DASH.css}</style></head><body class="${DASH.bodyClass}">${DASH.html}${DASH_SCRIPT}</body></html>`;
+dash.srcdoc = `<!doctype html><html lang="${DASH.lang}" class="${themeNow()}" data-theme="${themeNow()}" style="color-scheme:${themeNow()}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${DASH.css}</style><style>${tokenVars()}${CARD_CSS}</style></head><body class="${DASH.bodyClass}">${DASH.html}${DASH_SCRIPT}</body></html>`;
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncDashTheme);
 new MutationObserver(syncDashTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
@@ -625,10 +807,6 @@ $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
 $("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
 kitChangesInit($("#changes-btn"));
-addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); });
+addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); if (S.view === "picker") placeBelt(); });
 
-// The announcement greets the viewer once; the review strip's Announcement button brings it back.
-let seen = false;
-try { seen = localStorage.getItem("design-import-announcement") === "seen"; localStorage.setItem("design-import-announcement", "seen"); } catch {}
-if (!seen || new URLSearchParams(location.search).has("announce")) open("announcement");
 </script>
