@@ -118,13 +118,13 @@ Cada aplicación ya sabe cómo iniciar sesión, compartir la misma base de datos
 Desde cualquier lugar dentro del espacio de trabajo:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 El CLI muestra nuevamente el selector de plantillas con las aplicaciones que ya ha instalado filtradas. Elija uno o más y se estructurarán en `apps/`. Variante no interactiva:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Cualquier plantilla propia funciona como una aplicación de espacio de trabajo: CLI ejecuta una pequeña transformación **workspacify** en la plantilla que agrega el paquete compartido como depósito y resuelve las referencias de `workspace:*`. No es necesario mantener un andamio paralelo de "aplicación de espacio de trabajo".

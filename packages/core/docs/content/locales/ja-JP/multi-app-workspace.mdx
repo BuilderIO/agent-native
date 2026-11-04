@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 ワークスペース内のどこからでも:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI では、既にインストールされているアプリがフィルターされて除外されたテンプレート ピッカーが再度表示されます。 1 つ以上を選択すると、`apps/` の下に足場が作成されます。非対話型のバリエーション:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 すべてのファーストパーティ テンプレートはワークスペース アプリとして機能します。CLI は、共有パッケージを dep として追加し、`workspace:*` 参照を解決するテンプレート上で小さな **workspacify** 変換を実行します。維持する必要のある並列「ワークスペース アプリ」スキャフォールドはありません。
