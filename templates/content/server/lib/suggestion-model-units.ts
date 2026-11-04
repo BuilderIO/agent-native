@@ -41,10 +41,10 @@ export async function modelUnits(input: {
       return sentenceUnits;
     }
     const dependence = new Map<number, number>();
-    for (const { gap } of pairs) {
-      const answer: (typeof result.answers)[string] | undefined =
-        result.answers[`pair_${gap}`];
-      if (answer?.type === "predicate") dependence.set(gap, answer.probability);
+    for (const [name, answer] of Object.entries(result.answers)) {
+      if (answer.type === "predicate") {
+        dependence.set(Number(name.replace("pair_", "")), answer.probability);
+      }
     }
     return unitsFromAnswers(gaps, dependence) ?? sentenceUnits;
   } catch (error) {
