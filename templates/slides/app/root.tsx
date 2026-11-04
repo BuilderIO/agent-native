@@ -13,6 +13,7 @@ import {
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import {
+  AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
   type LocaleCode,
@@ -592,7 +593,16 @@ export default function Root() {
     ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
-    return <Outlet />;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          persistPreference={false}
+        >
+          <Outlet />
+        </AgentNativeI18nProvider>
+      </QueryClientProvider>
+    );
   }
 
   return (
