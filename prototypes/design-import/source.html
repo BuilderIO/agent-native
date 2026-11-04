@@ -1,0 +1,627 @@
+<!--
+  Design import prototype: importing a website or a project from another builder into Design.
+  Build with: node prototypes/kit/build.ts design-import
+  Layout of this file:
+    <style>   dialog shell, gradient header, picker tiles, steps, fields, drop zone, progress, announcement hero
+    markup    review strip, the dashboard frame, the dialog root
+    <script>  sources and their steps, render functions per view, the simulated import, the orbit animation
+  The dashboard is the shipped /home page, captured into dashboard.json by capture-dashboard.ts and shown in
+  an iframe so its CSS stays its own. Its Import button opens the picker. The review strip's switches
+  (Announcement, Import fails, Theme, Changes) exist only in the prototype.
+-->
+<title>Design import</title>
+__KIT_HEAD__
+<style>
+:root {
+  --kit-accent: var(--design-editor-accent-color);
+  /* The two Design editor colors the import surfaces are tinted with. */
+  --imp-a: var(--design-editor-accent-color);
+  --imp-b: var(--design-editor-component-color);
+  --imp-ring: hsl(var(--ring));
+  --imp-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+}
+body { font-size: 14px; }
+.app { position: fixed; inset: 36px 0 0; }
+#dash { width: 100%; height: 100%; border: 0; display: block; background: var(--color-background); }
+
+/* Overlay and dialog: the toolkit Dialog's overlay and motion, at the import flow's 24px radius. */
+.imo { position: fixed; inset: 36px 0 0; z-index: 270; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--color-background) 45%, transparent); backdrop-filter: blur(1px); animation: imo-in .2s ease-out; font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; }
+.imo.closing { animation: imo-out .15s ease-in forwards; }
+.imo.closing .imd { animation: imd-out .15s ease-in forwards; }
+@keyframes imo-in { from { opacity: 0; } }
+@keyframes imo-out { to { opacity: 0; } }
+@keyframes imd-in { from { opacity: 0; transform: scale(.95); } }
+@keyframes imd-out { to { opacity: 0; transform: scale(.95); } }
+.imd { position: relative; width: min(672px, 100%); max-height: calc(100vh - 36px - 32px); display: flex; flex-direction: column; border-radius: 24px; border: 1px solid var(--color-border); background: var(--color-background); color: var(--color-foreground); box-shadow: var(--imp-shadow); overflow: hidden; animation: imd-in .2s ease-out; }
+.imd.ann { width: min(560px, 100%); }
+.imd-frame { overflow: hidden; transition: height .2s cubic-bezier(.2, .7, .2, 1); }
+.imd-scroll { overflow-y: auto; max-height: calc(100vh - 36px - 32px - 2px); }
+.imd :focus-visible { outline: 2px solid var(--imp-ring); outline-offset: 2px; }
+.imd-x { position: absolute; top: 12px; right: 12px; z-index: 5; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.imd-x:hover { background: var(--color-accent); color: var(--color-foreground); }
+.ann .imd-x { border-radius: 50%; color: #fff; background: rgb(255 255 255 / 16%); backdrop-filter: blur(8px); }
+.ann .imd-x:hover { background: rgb(255 255 255 / 26%); color: #fff; }
+
+/* Header: 128px, the accent and component colors fading into the page. */
+.imh { position: relative; height: 128px; flex: none; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--color-border);
+  background:
+    linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-background) 92%, transparent) 100%),
+    linear-gradient(100deg, color-mix(in oklab, var(--imp-a) 34%, var(--color-background)) 0%, color-mix(in oklab, color-mix(in oklab, var(--imp-a), var(--imp-b)) 26%, var(--color-background)) 52%, color-mix(in oklab, var(--imp-b) 34%, var(--color-background)) 100%); }
+.imh-row { display: flex; align-items: center; gap: 24px; color: var(--color-foreground); }
+.imh-row > span { display: grid; place-items: center; }
+.imh-row > span > .lg { width: 20px; height: 20px; opacity: .88; }
+.imh-row > span > .lg.w { width: 24px; height: 24px; }
+.imh-row .tile { margin-inline: 8px; }
+.tile { width: 56px; height: 56px; flex: none; border-radius: 16px; display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px -4px rgb(0 0 0 / 10%); color: var(--color-foreground); }
+.tile .an { width: 30px; height: 18px; }
+.tile .lg, .tile svg.i { width: 24px; height: 24px; }
+.tile svg.i { stroke-width: 1.5; }
+.pair { display: flex; align-items: center; gap: 24px; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted-foreground); opacity: .5; }
+.running .dots i { animation: dot 1.2s ease-in-out infinite; }
+.running .dots i:nth-child(2) { animation-delay: .2s; }
+.running .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes dot { 0%, 100% { opacity: .25; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
+.cycle { position: relative; width: 24px; height: 24px; }
+.cycle .lg { position: absolute; inset: 0; opacity: 0; transition: opacity .4s; }
+.cycle .lg.on { opacity: 1; }
+svg.lg { display: block; fill: currentColor; flex: none; }
+
+/* Body */
+.imb { padding: 24px; }
+.imb h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -.01em; }
+.lead { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--color-muted-foreground); }
+.sec { margin-top: 16px; }
+.sec > h3 { margin: 0 0 8px; font-size: 14px; line-height: 20px; font-weight: 500; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid .wide { grid-column: 1 / -1; }
+
+/* Picker tiles and step rows share one 56px row: 40px icon box, 12px gap, two lines of text. */
+.src, .step { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-background); text-align: left; width: 100%; }
+.src { transition: background-color .15s, border-color .15s; }
+.src:hover { background: color-mix(in srgb, var(--color-accent) 60%, var(--color-background)); border-color: color-mix(in oklab, var(--color-border), var(--color-foreground) 14%); }
+.src:active { transform: scale(.995); }
+.box { width: 40px; height: 40px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--color-muted); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border), var(--color-foreground) 6%); color: var(--color-foreground); }
+.box .lg { width: 20px; height: 20px; opacity: .78; }
+.box svg.i { width: 20px; height: 20px; stroke-width: 1.5; opacity: .78; }
+.box.num { font-size: 14px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
+.tt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tt b { font-size: 14px; line-height: 20px; font-weight: 500; }
+.tt small { font-size: 12px; line-height: 16px; color: var(--color-muted-foreground); }
+.step .tt b { font-weight: 500; }
+.steps { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.stack { position: relative; width: 112px; height: 40px; flex: none; }
+.stack span { position: absolute; top: 2px; width: 34px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--color-background); border: 1px solid var(--color-border); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); color: var(--color-foreground); }
+.stack span .lg { width: 18px; height: 18px; opacity: .78; }
+.stack span .lg.w { width: 20px; height: 20px; }
+.stack span:nth-child(1) { left: 0; transform: rotate(-8deg); }
+.stack span:nth-child(2) { left: 26px; transform: rotate(-2deg); }
+.stack span:nth-child(3) { left: 52px; transform: rotate(4deg); }
+.stack span:nth-child(4) { left: 78px; transform: rotate(9deg); }
+
+/* Buttons: the toolkit Button at size sm (32px). */
+.b { height: 32px; padding-inline: 12px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; line-height: 20px; font-weight: 500; white-space: nowrap; flex: none; transition: background-color .15s, opacity .15s; }
+.b:active { transform: scale(.98); }
+.b svg.i { width: 16px; height: 16px; }
+a.b { color: inherit; text-decoration: none; }
+.b.primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.b.primary:hover { background: hsl(var(--primary) / 90%); }
+.b.outline { border: 1px solid var(--color-border); background: var(--color-background); box-shadow: 0 1px 2px rgb(0 0 0 / 5%); }
+.b.outline:hover { background: var(--color-accent); }
+:root[data-theme="dark"] .b.outline { border-color: hsl(var(--input)); background: hsl(var(--input) / 30%); }
+:root[data-theme="dark"] .b.outline:hover { background: hsl(var(--input) / 50%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .b.outline { border-color: hsl(var(--input)); background: hsl(var(--input) / 30%); } :root:not([data-theme="light"]) .b.outline:hover { background: hsl(var(--input) / 50%); } }
+.b.ghost:hover { background: var(--color-accent); }
+.b[disabled] { opacity: .5; pointer-events: none; }
+.foot { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* A ghost button's label lines up with the text above it. */
+.foot .b.ghost:first-child { margin-left: -12px; }
+
+/* Fields */
+.field { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.field label { font-size: 14px; line-height: 20px; font-weight: 500; }
+.in { height: 32px; width: 100%; padding: 0 12px; border-radius: 6px; border: 1px solid hsl(var(--input)); background: var(--color-background); font-size: 14px; color: var(--color-foreground); outline: none; transition: box-shadow .15s, border-color .15s; }
+.in::placeholder { color: var(--color-muted-foreground); }
+.in[aria-invalid="true"] { border-color: var(--warning); }
+.help { margin: 0; font-size: 13px; line-height: 20px; color: var(--color-muted-foreground); }
+.warn { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; line-height: 20px; color: var(--warning); }
+.warn svg.i { margin-top: 2px; width: 16px; height: 16px; }
+
+/* Prompt to copy (Manus) */
+.prompt { margin-top: 16px; border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.prompt pre { margin: 0; max-height: 160px; overflow-y: auto; white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 20px; color: var(--color-foreground); }
+.prompt .b { align-self: flex-start; }
+
+/* Drop zone */
+.drop { margin-top: 16px; min-height: 160px; border: 1px dashed color-mix(in oklab, var(--color-border), var(--color-foreground) 12%); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; transition: background-color .15s, border-color .15s; }
+.drop.over { border-style: solid; border-color: var(--imp-a); background: color-mix(in srgb, var(--imp-a) 6%, var(--color-background)); }
+.drop > svg.i { width: 20px; height: 20px; color: var(--color-muted-foreground); stroke-width: 1.5; }
+.drop b { margin-top: 8px; font-size: 14px; line-height: 20px; font-weight: 500; }
+.drop small { font-size: 13px; line-height: 20px; color: var(--color-muted-foreground); }
+.drop .b { margin-top: 16px; }
+.picked { margin-top: 16px; }
+.picked .src { cursor: default; }
+.picked .src:hover { background: var(--color-background); border-color: var(--color-border); }
+.picked .rm { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); flex: none; }
+.picked .rm:hover { background: var(--color-accent); color: var(--color-foreground); }
+.after { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Progress */
+.prog { margin-top: 16px; display: flex; flex-direction: column; }
+.prog li { list-style: none; height: 32px; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--color-muted-foreground); }
+.prog li.now, .prog li.ok { color: var(--color-foreground); }
+.prog li.bad { color: var(--warning); }
+.prog .st { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
+.prog .st svg.i { width: 16px; height: 16px; }
+.prog .pend { width: 12px; height: 12px; border-radius: 50%; border: 1.5px dashed var(--color-muted-foreground); opacity: .6; }
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.prog-bar { margin-top: 16px; height: 4px; border-radius: 2px; background: var(--color-muted); overflow: hidden; }
+.prog-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--imp-a), var(--imp-b)); transition: width .5s ease; }
+.bad .prog-bar i { background: var(--warning); }
+.ready { margin-top: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ready span { aspect-ratio: 4 / 3; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-muted); position: relative; overflow: hidden; }
+.ready span::before { content: ""; position: absolute; inset: 10% 10% auto; height: 14%; border-radius: 3px; background: color-mix(in oklab, var(--color-foreground) 10%, transparent); }
+.ready span::after { content: ""; position: absolute; inset: 34% 10% 12%; border-radius: 4px; background: linear-gradient(135deg, color-mix(in oklab, var(--imp-a) 22%, transparent), color-mix(in oklab, var(--imp-b) 22%, transparent)); }
+
+/* Announcement: the hero is dark in both themes. */
+.hero { position: relative; height: 288px; flex: none; overflow: hidden; background: #000; isolation: isolate; }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background:
+  radial-gradient(70% 55% at 50% 118%, color-mix(in oklab, var(--imp-b) 80%, #fff 10%) 0%, transparent 70%),
+  radial-gradient(60% 50% at 18% 112%, var(--imp-a) 0%, transparent 70%),
+  radial-gradient(55% 48% at 86% 114%, color-mix(in oklab, var(--imp-b), #ff7ab6 30%) 0%, transparent 72%); opacity: .95; }
+.hero::after { content: ""; position: absolute; inset: auto 0 0; height: 2px; background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--imp-a), #fff 30%), color-mix(in oklab, var(--imp-b), #fff 30%), transparent); opacity: .7; }
+.hero svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 14%); stroke-width: 1; }
+.orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 16%); box-shadow: 0 6px 16px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 255 255 / 8%); will-change: transform, opacity; }
+.orb .lg { width: 18px; height: 18px; }
+.orb .lg.w { width: 22px; height: 22px; }
+.core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 72px; height: 72px; margin: -36px 0 0 -36px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: radial-gradient(circle at 50% 40%, rgb(255 255 255 / 10%), transparent 70%); }
+.core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 45%, transparent)); }
+.pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
+.pause:hover { background: rgb(255 255 255 / 28%); }
+.pause svg.i { width: 12px; height: 12px; }
+.ann .imb { padding: 32px; }
+.ann .imb h2 { font-size: 24px; line-height: 32px; letter-spacing: -.02em; }
+.checks { margin: 24px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.checks li { display: flex; align-items: center; gap: 12px; font-size: 14px; line-height: 20px; }
+.checks i { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--color-muted); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border), var(--color-foreground) 4%); }
+.checks svg.i { width: 14px; height: 14px; stroke-width: 2; }
+.ann .acts { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ann .acts .b { width: 100%; }
+
+.view { animation: view-in .18s ease-out; }
+@keyframes view-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .running .dots i, .spin { animation: none !important; } .imd-frame { transition: none; } }
+@media (max-width: 560px) {
+  .grid { grid-template-columns: 1fr; }
+  .imh-row .far { display: none; }
+  .imb, .ann .imb { padding: 20px; }
+  .step .b.outline .site { display: none; }
+  .ann .acts { grid-template-columns: 1fr; }
+  .review .ver { display: none; }
+  .review { overflow-x: auto; }
+  .review .chip { flex: none; }
+}
+</style>
+
+<div class="review" role="toolbar" aria-label="Prototype controls">
+  <span class="name">Design import</span><span class="ver">Prototype</span>
+  <span class="grow"></span>
+  <button class="chip" id="ann-btn">Announcement</button>
+  <button class="chip" id="fail-btn" aria-pressed="false" title="Imports stop with an error on the second step">Import fails</button>
+  <button class="chip" id="theme-btn">Theme</button>
+  <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
+</div>
+<div class="app"><iframe id="dash" title="Design dashboard"></iframe></div>
+<div id="imp-root"></div>
+
+__KIT_SCRIPT__
+<script>
+const DASH = __DASHBOARD__;
+const LOGOS = __LOGOS__;
+const MARK = `__LOGO__`.replace("<svg ", '<svg class="an" ');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// Wordmark-shaped marks read small in a square box, so they draw a size up.
+const WIDE = new Set(["v0", "wix", "webflow"]);
+const logo = (id, cls = "") => { const l = LOGOS[id]; return `<svg class="lg ${cls} ${WIDE.has(id) ? "w" : ""}" viewBox="${l.vb}" aria-hidden="true">${l.body}</svg>`; };
+
+/* ───────── sources ───────── */
+const ZIP_LEAD = "Download your project as a ZIP, then upload it here.";
+const MANUS_PROMPT = `Package this project so I can move it to another tool.
+Create one ZIP file and give me a download link.
+
+Include:
+- frontend and backend code
+- assets and dependency files
+- database schema and migrations
+- a README that says how to run it
+
+Leave out:
+- .env files and other secrets
+- node_modules and build output`;
+const MB = 1024 * 1024;
+const FILES = {
+  zip: { ext: ".zip", max: 250 * MB, drop: "Drop a ZIP here", limit: "Up to 250 MB", help: "Leave out .env files, node_modules, and build output.", bad: "Choose a .zip file.", big: "This ZIP is over 250 MB. Leave out node_modules and build output, then try again." },
+  fig: { ext: ".fig", max: 2048 * MB, drop: "Drop a .fig file here", limit: "Up to 2 GB", help: "In Figma, choose File › Save local copy to get a .fig file.", bad: "Choose a .fig file.", big: "This file is over 2 GB." },
+};
+const FIELDS = {
+  web: { label: "Website URL", ph: "https://example.com", help: "Design reads the pages visitors can see. Logins and backend features aren't included.", bad: "Enter a full URL, like https://example.com." },
+  repo: { label: "Repository URL", ph: "https://github.com/owner/repo", help: "Private repositories ask you to connect GitHub first.", bad: "Enter a GitHub repository URL, like https://github.com/owner/repo." },
+};
+const SRC = {
+  lovable: { name: "Lovable", sub: "Sync with GitHub", kind: "steps", site: "lovable.dev", title: "Export your project from Lovable", lead: "Connect your project to GitHub, then paste the repository URL.", steps: [["Open your project in Lovable."], ["Connect the project to GitHub.", "Lovable keeps your code in a new repository."], ["Copy the repository URL from GitHub."]], field: "repo", cta: "Import repository" },
+  v0: { name: "v0", sub: "Export as ZIP", kind: "steps", site: "v0.app", title: "Export your project from v0", lead: ZIP_LEAD, steps: [["Open your project in v0."], ["Select the ··· menu in the top-right."], ["Choose Download ZIP."]], next: "upload" },
+  bolt: { name: "Bolt", sub: "Export as ZIP", kind: "steps", site: "bolt.new", title: "Export your project from Bolt", lead: ZIP_LEAD, steps: [["Open your project in Bolt."], ["Click the project name in the top-left."], ["Choose Export, then Download."]], next: "upload" },
+  replit: { name: "Replit", sub: "Export as ZIP", kind: "steps", site: "replit.com", title: "Export your project from Replit", lead: ZIP_LEAD, steps: [["Open the right sidebar in your project."], ["Select the Files tab."], ["Click the three dots."], ["Choose Download as ZIP."]], next: "upload" },
+  base44: { name: "Base44", sub: "Export as ZIP", kind: "steps", site: "app.base44.com", title: "Export your project from Base44", lead: ZIP_LEAD, steps: [["Open your app in Base44."], ["Select the ··· menu in the top-right."], ["Choose Export project as ZIP."]], next: "upload" },
+  manus: { name: "Manus", sub: "Export with a prompt", kind: "steps", site: "manus.im", title: "Export your project from Manus", lead: "Ask Manus to package your project, then upload the ZIP.", steps: [["Open the chat inside your Manus project."], ["Copy the prompt below and send it to Manus."], ["Download the ZIP Manus creates.", "This can take a few minutes."]], prompt: MANUS_PROMPT, next: "upload" },
+  website: { name: "Website", icon: "world", sub: "Paste a website URL", kind: "url", field: "web", title: "Import a website", lead: "Paste the URL of your website to start a design from it.", cta: "Import website" },
+  upload: { name: "Upload code", icon: "file-zip", sub: "Upload a ZIP", kind: "upload", file: "zip", title: "Upload your code", lead: "Upload a ZIP of your project's code.", cta: "Start import" },
+  figma: { name: "Figma", sub: "Upload a .fig file", kind: "upload", file: "fig", title: "Import a Figma file", lead: "Upload a .fig file to turn its frames into screens.", cta: "Start import" },
+  github: { name: "GitHub", sub: "Paste a repository URL", kind: "url", field: "repo", title: "Import from GitHub", lead: "Paste a repository URL to start a design from its code.", cta: "Import repository" },
+  other: { name: "Other platforms", sub: "Wix, Squarespace, Webflow, Framer, and more", kind: "url", field: "web", title: "Import from another platform", lead: "Paste the URL of your Wix, Squarespace, Webflow, or Framer site to start a design from it.", cta: "Import website" },
+};
+const BUILDERS = ["lovable", "v0", "bolt", "replit", "base44", "manus"];
+const OTHERS = ["website", "upload", "figma", "github"];
+const PLATFORMS = ["wix", "squarespace", "webflow", "framer"];
+const glyph = (id, cls = "") => SRC[id]?.icon ? ic(SRC[id].icon) : logo(id, cls);
+
+/* ───────── state ───────── */
+const S = { open: false, view: "picker", src: null, from: null, file: null, err: "", value: "", job: null, fail: false };
+const root = $("#imp-root");
+let lastFocus = null;
+
+/* ───────── header ───────── */
+function headPicker() {
+  const left = ["lovable", "v0", "bolt", "replit"], right = ["base44", "manus", "figma", "webflow"];
+  const row = (ids, side) => ids.map((id, i) => `<span class="${(side === "l" ? i === 0 : i === ids.length - 1) ? "far" : ""}" title="${LOGOS[id].name}">${logo(id)}</span>`).join("");
+  return `<div class="imh"><div class="imh-row">${row(left, "l")}<span class="tile">${MARK}</span>${row(right, "r")}</div></div>`;
+}
+function headPair(id, running) {
+  const from = id === "other" ? `<span class="cycle">${PLATFORMS.map((p, i) => logo(p, i === 0 ? "on" : "")).join("")}</span>` : glyph(id);
+  return `<div class="imh ${running ? "running" : ""}"><div class="pair"><span class="tile">${from}</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="tile">${MARK}</span></div></div>`;
+}
+
+/* ───────── views ───────── */
+function viewPicker() {
+  const tile = (id) => `<button class="src" data-src="${id}"><span class="box">${glyph(id)}</span><span class="tt"><b>${SRC[id].name}</b><small>${SRC[id].sub}</small></span></button>`;
+  return headPicker() + `<div class="imb"><h2 id="imd-title">Import a project</h2><p class="lead">Choose where your project lives today to see the steps for it.</p>
+    <div class="sec"><h3>App builders</h3><div class="grid">${BUILDERS.map(tile).join("")}</div></div>
+    <div class="sec"><h3>Everything else</h3><div class="grid">${OTHERS.map(tile).join("")}
+      <button class="src wide" data-src="other"><span class="stack" aria-hidden="true">${PLATFORMS.map((p) => `<span>${logo(p)}</span>`).join("")}</span><span class="tt"><b>Other platforms</b><small>${SRC.other.sub}</small></span></button>
+    </div></div></div>`;
+}
+function fieldHTML(kind) {
+  const f = FIELDS[kind];
+  return `<div class="field"><label for="imp-url">${f.label}</label><input class="in" id="imp-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="${f.ph}" value="${esc(S.value)}" ${S.err ? 'aria-invalid="true" aria-describedby="imp-err"' : ""}>${S.err ? `<p class="warn" id="imp-err">${ic("alert-triangle")}<span>${esc(S.err)}</span></p>` : `<p class="help">${f.help}</p>`}</div>`;
+}
+function viewSteps(id) {
+  const s = SRC[id];
+  const steps = s.steps.map(([t, sub], i) => `<li class="step"><span class="box num">${i + 1}</span><span class="tt"><b>${t}</b>${sub ? `<small>${sub}</small>` : ""}</span>${i === 0 ? `<a class="b outline" href="https://${s.site}" target="_blank" rel="noopener noreferrer"><span class="site">Open ${s.site}</span>${ic("arrow-up-right")}</a>` : ""}</li>`).join("");
+  const prompt = s.prompt ? `<div class="prompt"><pre tabindex="0" aria-label="Prompt for Manus">${esc(s.prompt)}</pre><button class="b outline" data-act="copy">${ic("copy")}Copy prompt</button></div>` : "";
+  const field = s.field ? fieldHTML(s.field) : "";
+  const cta = s.field ? `<button class="b primary" data-act="submit-url" ${valid(s.field, S.value) ? "" : "disabled"}>${s.cta}</button>` : `<button class="b outline" data-act="to-upload">Upload the ZIP</button>`;
+  return headPair(id) + `<div class="imb"><h2 id="imd-title">${s.title}</h2><p class="lead">${s.lead}</p><ol class="steps" style="padding:0;margin-bottom:0">${steps}</ol>${prompt}${field}<div class="foot"><button class="b ghost" data-act="back">Back</button>${cta}</div></div>`;
+}
+function viewUrl(id) {
+  const s = SRC[id];
+  return headPair(id) + `<div class="imb"><h2 id="imd-title">${s.title}</h2><p class="lead">${s.lead}</p>${fieldHTML(s.field)}<div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="submit-url" ${valid(s.field, S.value) ? "" : "disabled"}>${s.cta}</button></div></div>`;
+}
+const size = (b) => b >= 1024 * MB ? `${(b / 1024 / MB).toFixed(1)} GB` : b >= MB ? `${(b / MB).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+function viewUpload(id) {
+  const s = SRC[id], f = FILES[s.file], from = S.from && SRC[S.from];
+  const title = from ? `Upload your ${from.name} ZIP` : s.title;
+  const lead = from ? `Upload the ZIP you downloaded from ${from.name}.` : s.lead;
+  const body = S.file
+    ? `<div class="picked"><div class="src"><span class="box">${ic(s.file === "fig" ? "file" : "file-zip")}</span><span class="tt"><b>${esc(S.file.name)}</b><small>${size(S.file.size)}</small></span><button class="rm" data-act="remove" aria-label="Remove ${esc(S.file.name)}">${ic("x")}</button></div></div>`
+    : `<div class="drop" id="drop">${ic("upload")}<b>${f.drop}</b><small>${f.limit}</small><button class="b outline" data-act="choose">Choose file</button></div>`;
+  const note = S.err ? `<p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(S.err)}</span></p>` : `<p class="help">${f.help}</p>`;
+  return headPair(S.from || id) + `<div class="imb"><h2 id="imd-title">${title}</h2><p class="lead">${lead}</p>${body}<div class="after">${note}</div><input type="file" id="imp-file" accept="${f.ext}" hidden><div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="start-file" ${S.file ? "" : "disabled"}>${s.cta}</button></div></div>`;
+}
+function viewProgress() {
+  const j = S.job, done = j.step >= j.phases.length;
+  const rows = j.phases.map((p, i) => {
+    const st = j.failed && i === j.step ? "bad" : i < j.step ? "ok" : i === j.step ? "now" : "";
+    const mark = st === "bad" ? ic("alert-triangle") : st === "ok" ? ic("check") : st === "now" ? ic("loader-2", "spin") : '<i class="pend"></i>';
+    return `<li class="${st}"><span class="st">${mark}</span>${esc(p)}</li>`;
+  }).join("");
+  const pct = j.failed ? (j.step / j.phases.length) * 100 : done ? 100 : ((j.step + .5) / j.phases.length) * 100;
+  if (done) return headPair(j.src) + `<div class="imb"><h2 id="imd-title">${esc(j.name)} is ready</h2><p class="lead">${j.screens} screens, ready to edit.</p><div class="ready" aria-hidden="true">${"<span></span>".repeat(4)}</div><div class="foot"><button class="b ghost" data-act="again">Import another</button><button class="b primary" data-act="open-design">Open design</button></div></div>`;
+  const foot = j.failed ? `<div class="foot"><button class="b ghost" data-act="back">Back</button><button class="b primary" data-act="retry">Try again</button></div>` : "";
+  const err = j.failed ? `<div class="after"><p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(j.error)}</span></p></div>` : "";
+  return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? "Import stopped" : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "This takes about a minute. You can close this window."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
+}
+function viewAnnouncement() {
+  return `<div class="hero"><svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="100"/><ellipse cx="280" cy="144" rx="154" ry="66"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
+  <div class="imb"><h2 id="imd-title">Import your website or project</h2><p class="lead">Bring an existing website or project into Design and keep building.</p>
+  <ul class="checks"><li><i>${ic("check")}</i>Import a live website from its URL</li><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, and more</li><li><i>${ic("check")}</i>Bring in Figma files and GitHub repositories</li></ul>
+  <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">Import now</button></div></div>`;
+}
+
+/* ───────── render ───────── */
+function html() {
+  if (S.view === "announcement") return viewAnnouncement();
+  if (S.view === "picker") return viewPicker();
+  if (S.view === "progress") return viewProgress();
+  const s = SRC[S.src];
+  if (S.view === "upload") return viewUpload(S.src);
+  return s.kind === "steps" ? viewSteps(S.src) : viewUrl(S.src);
+}
+function render({ focus = true, animate = true } = {}) {
+  if (!S.open) return;
+  let ov = root.querySelector(".imo:not(.closing)");
+  if (!ov) {
+    lastFocus = document.activeElement;
+    root.insertAdjacentHTML("beforeend", `<div class="imo"><div class="imd" role="dialog" aria-modal="true" aria-labelledby="imd-title"><button class="imd-x" data-act="close" aria-label="Close">${ic("x")}</button><div class="imd-frame"><div class="imd-scroll"><div class="view"></div></div></div></div></div>`);
+    ov = root.querySelector(".imo:not(.closing)");
+    animate = false;
+  }
+  const dlg = ov.querySelector(".imd"), frame = ov.querySelector(".imd-frame"), scroll = ov.querySelector(".imd-scroll");
+  const before = frame.getBoundingClientRect().height;
+  const view = ov.querySelector(".view");
+  const keep = view.dataset.key === key();
+  dlg.classList.toggle("ann", S.view === "announcement");
+  // Re-rendering the same view (typing, progress ticks) keeps the field focused and skips the fade.
+  const active = document.activeElement?.id, caret = active === "imp-url" ? document.activeElement.selectionStart : null;
+  const fresh = document.createElement("div");
+  fresh.className = keep ? "view still" : "view";
+  fresh.dataset.key = key();
+  fresh.innerHTML = html();
+  view.replaceWith(fresh);
+  if (!keep) scroll.scrollTop = 0;
+  if (animate && !keep && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    frame.style.height = before + "px";
+    const after = scroll.scrollHeight > scroll.clientHeight ? scroll.clientHeight : fresh.getBoundingClientRect().height;
+    requestAnimationFrame(() => { frame.style.height = after + "px"; });
+    frame.addEventListener("transitionend", () => { frame.style.height = ""; }, { once: true });
+  }
+  bindView(fresh);
+  if (keep && active) {
+    const el = document.getElementById(active);
+    if (el) { el.focus(); if (caret != null) el.setSelectionRange(caret, caret); }
+  } else if (focus) {
+    (fresh.querySelector("#imp-url") || fresh.querySelector(".src, .b, a, button"))?.focus({ preventScroll: true });
+  }
+  if (S.view === "announcement") startOrbit(); else stopOrbit();
+  if (S.view !== "picker" && S.src === "other" || S.job?.src === "other") startCycle(); else stopCycle();
+}
+const key = () => S.view === "progress" ? `progress:${S.job?.id}:${S.job?.step >= S.job?.phases.length ? "done" : S.job?.failed ? "fail" : "run"}` : `${S.view}:${S.src}:${S.from}:${!!S.file}`;
+function open(view) {
+  Object.assign(S, { open: true, view, src: null, from: null, file: null, err: "", value: "" });
+  // A running import reopens on its progress; a finished or stopped one starts over at the picker.
+  if (S.job && (S.job.failed || S.job.step >= S.job.phases.length)) S.job = null;
+  if (view !== "announcement" && S.job) { S.view = "progress"; S.src = S.job.src; }
+  render();
+}
+function close() {
+  const ov = root.querySelector(".imo:not(.closing)");
+  if (!ov) return;
+  S.open = false;
+  stopOrbit(); stopCycle();
+  ov.classList.add("closing");
+  setTimeout(() => ov.remove(), 150);
+  if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
+  else $("#dash").focus();
+}
+function go(view, patch = {}) { Object.assign(S, { err: "" }, patch, { view }); render(); }
+
+/* ───────── validation ───────── */
+function normalize(v) {
+  v = v.trim();
+  if (!v) return null;
+  try { const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `https://${v}`); return /^https?:$/.test(u.protocol) && /\.[a-z]{2,}$/i.test(u.hostname) ? u : null; } catch { return null; }
+}
+function valid(kind, v) {
+  const u = normalize(v);
+  if (!u) return false;
+  if (kind === "repo") return /(^|\.)github\.com$/i.test(u.hostname) && /^\/[^/]+\/[^/]+/.test(u.pathname);
+  return true;
+}
+
+/* ───────── handlers ───────── */
+function bindView(v) {
+  const input = v.querySelector("#imp-url");
+  if (input) {
+    input.addEventListener("input", () => {
+      S.value = input.value;
+      const btn = v.querySelector('[data-act="submit-url"]');
+      const kind = SRC[S.src].field;
+      if (btn) btn.disabled = !valid(kind, S.value);
+      if (S.err) { S.err = ""; render({ animate: false }); }
+    });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitUrl(); } });
+  }
+  const drop = v.querySelector("#drop"), file = v.querySelector("#imp-file");
+  file?.addEventListener("change", () => { pick(file.files?.[0]); file.value = ""; });
+  if (drop) {
+    let depth = 0;
+    drop.addEventListener("dragenter", (e) => { e.preventDefault(); depth++; drop.classList.add("over"); });
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    drop.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; drop.classList.remove("over"); } });
+    drop.addEventListener("drop", (e) => { e.preventDefault(); depth = 0; drop.classList.remove("over"); pick(e.dataTransfer.files?.[0]); });
+  }
+  v.querySelector("#pause")?.addEventListener("click", togglePause);
+}
+function pick(f) {
+  if (!f) return;
+  const spec = FILES[SRC[S.src].file];
+  if (!f.name.toLowerCase().endsWith(spec.ext)) return go("upload", { err: spec.bad, file: null });
+  if (f.size > spec.max) return go("upload", { err: spec.big, file: null });
+  go("upload", { file: { name: f.name, size: f.size } });
+}
+function submitUrl() {
+  const kind = SRC[S.src].field;
+  if (!valid(kind, S.value)) { S.err = FIELDS[kind].bad; render({ animate: false }); return; }
+  const u = normalize(S.value);
+  const name = kind === "repo" ? u.pathname.split("/")[2].replace(/\.git$/, "") : u.hostname.replace(/^www\./, "");
+  start(S.src, name, kind === "repo" ? "code" : "web");
+}
+function back() {
+  if (S.view === "progress") return go(S.job.back.view, { src: S.job.back.src, from: S.job.back.from, file: S.job.back.file, value: S.job.back.value, job: null });
+  if (S.view === "upload" && S.from) return go("steps", { src: S.from, from: null, file: null });
+  go("picker", { src: null, from: null, file: null, value: "" });
+}
+root.addEventListener("click", (e) => {
+  if (e.target.classList.contains("imo")) return close();
+  const t = e.target.closest("[data-src], [data-act]");
+  if (!t) return;
+  if (t.dataset.src) {
+    const s = SRC[t.dataset.src];
+    return go(s.kind === "steps" ? "steps" : s.kind === "upload" ? "upload" : "url", { src: t.dataset.src, from: null, file: null, value: "" });
+  }
+  const act = t.dataset.act;
+  if (act === "close") close();
+  else if (act === "back") back();
+  else if (act === "import-now") go("picker");
+  else if (act === "learn") toast("Opens the import guide in the Design docs");
+  else if (act === "copy") copyText(SRC.manus.prompt, "Copied the prompt");
+  else if (act === "to-upload") go("upload", { from: S.src, src: "upload", file: null });
+  else if (act === "choose") root.querySelector("#imp-file")?.click();
+  else if (act === "remove") go("upload", { file: null });
+  else if (act === "submit-url") submitUrl();
+  else if (act === "start-file") start(S.from || S.src, S.file.name.replace(/\.(zip|fig)$/i, ""), SRC[S.src].file === "fig" ? "fig" : "code");
+  else if (act === "retry") start(S.job.src, S.job.name, S.job.kind, S.job.back);
+  else if (act === "again") { S.job = null; go("picker", { src: null, from: null, file: null, value: "" }); }
+  else if (act === "open-design") { const n = S.job.name; S.job = null; close(); toast(`Opens ${n} in the editor`); }
+});
+document.addEventListener("keydown", (e) => {
+  if (!S.open) return;
+  if (e.key === "Escape" && !closeMenu) { e.preventDefault(); close(); }
+  if (e.key === "Tab") {
+    const f = [...root.querySelectorAll('button:not([disabled]), a[href], input:not([hidden]), [tabindex="0"]')].filter((el) => el.offsetParent);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+
+/* ───────── the simulated import ───────── */
+const PHASES = {
+  code: ["Reading your files", "Finding pages and components", "Building screens", "Matching fonts and colors"],
+  web: (n) => [`Opening ${n}`, "Reading each page", "Building screens", "Matching fonts and colors"],
+  fig: ["Reading the file", "Converting frames", "Building screens"],
+};
+const ERRORS = {
+  code: "Couldn't find an app in this project. Check that it has a package.json at its top level.",
+  web: "Couldn't open this site. Check the URL and that the site is public.",
+  fig: "Couldn't read this file. Save a fresh local copy from Figma and try again.",
+};
+let jobSeq = 0;
+function start(src, name, kind, back) {
+  const phases = typeof PHASES[kind] === "function" ? PHASES[kind](name) : PHASES[kind];
+  const job = { id: ++jobSeq, src, name, kind, phases, step: 0, failed: false, error: ERRORS[kind], screens: 4 + (name.length % 5),
+    back: back || { view: S.view, src: S.src, from: S.from, file: S.file, value: S.value } };
+  S.job = job;
+  go("progress", { src });
+  const tick = () => {
+    if (S.job !== job) return;
+    if (S.fail && job.step === 1) { job.failed = true; return S.open && S.view === "progress" ? render({ animate: false }) : toast(`Import of ${name} stopped`); }
+    job.step++;
+    const finished = job.step >= job.phases.length;
+    if (S.open && S.view === "progress") render({ animate: finished, focus: finished });
+    else if (finished) toast(`${name} is ready`);
+    if (!finished) setTimeout(tick, 900 + Math.random() * 700);
+  };
+  setTimeout(tick, 1100);
+}
+
+/* ───────── announcement orbit ───────── */
+const ORBITS = [
+  { rx: 240, ry: 100, period: 90, ids: ["webflow", "v0", "framer", "replit", "github", "wix", "squarespace"] },
+  { rx: 154, ry: 66, period: 64, ids: ["base44", "lovable", "figma", "manus", "bolt"] },
+];
+let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function startOrbit() {
+  const el = $("#orbit");
+  if (!el || el.childElementCount) return;
+  el.innerHTML = ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="orb" data-o="${oi}" data-i="${i}">${logo(id)}</span>`)).join("");
+  syncPause();
+  orbitLast = performance.now();
+  const frame = (now) => {
+    if (!paused) orbitT += (now - orbitLast) / 1000;
+    orbitLast = now;
+    placeOrbit();
+    orbitRaf = requestAnimationFrame(frame);
+  };
+  cancelAnimationFrame(orbitRaf);
+  orbitRaf = requestAnimationFrame(frame);
+}
+function placeOrbit() {
+  const hero = $(".hero");
+  if (!hero) return;
+  const k = hero.clientWidth / 560, cx = hero.clientWidth / 2, cy = hero.clientHeight / 2;
+  for (const orb of hero.querySelectorAll(".orb")) {
+    const o = ORBITS[+orb.dataset.o], n = o.ids.length, i = +orb.dataset.i;
+    const a = (i / n) * Math.PI * 2 + (orbitT / o.period) * Math.PI * 2 + (+orb.dataset.o ? .5 : 0);
+    const x = cx + Math.cos(a) * o.rx * k, y = cy + Math.sin(a) * o.ry * Math.min(1, k * 1.15);
+    const depth = Math.sin(a); // 1 is nearest the viewer, at the bottom of the ring
+    const s = (.82 + .3 * (depth + 1) / 2) * Math.min(1, .7 + k * .3);
+    orb.style.transform = `translate(${x}px, ${y}px) scale(${s.toFixed(3)})`;
+    orb.style.opacity = (.62 + .38 * (depth + 1) / 2).toFixed(3);
+    orb.style.zIndex = String(depth > 0 ? 60 + Math.round(depth * 10) : 40 + Math.round(depth * 10));
+  }
+}
+function stopOrbit() { cancelAnimationFrame(orbitRaf); orbitRaf = 0; }
+function togglePause() { paused = !paused; syncPause(); }
+function syncPause() {
+  const b = $("#pause");
+  if (!b) return;
+  b.innerHTML = ic(paused ? "player-play-filled" : "player-pause-filled");
+  b.setAttribute("aria-label", paused ? "Play animation" : "Pause animation");
+}
+let cycleTimer = 0;
+function startCycle() {
+  if (cycleTimer) return;
+  cycleTimer = setInterval(() => {
+    const c = root.querySelector(".cycle");
+    if (!c) return stopCycle();
+    const l = [...c.children], i = l.findIndex((x) => x.classList.contains("on"));
+    l[i]?.classList.remove("on"); l[(i + 1) % l.length].classList.add("on");
+  }, 1800);
+}
+function stopCycle() { clearInterval(cycleTimer); cycleTimer = 0; }
+
+/* ───────── the dashboard ───────── */
+const themeNow = () => document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+// The dialogs use the dashboard's own Inter faces, so both draw the same glyphs.
+const faces = DASH.css.match(/@font-face\s*\{[^}]*\}/g) || [];
+document.head.insertAdjacentHTML("beforeend", `<style>${faces.join("\n")}</style>`);
+const dash = $("#dash");
+// The dashboard talks to this page by message, so it works whether or not the host lets frames reach each other.
+function syncDashTheme() { dash.contentWindow?.postMessage({ protoTheme: themeNow() }, "*"); }
+addEventListener("message", (e) => {
+  if (e.source !== dash.contentWindow) return;
+  if (e.data?.proto === "import") open("picker");
+  else if (e.data?.proto === "escape" && S.open) close();
+});
+// Only Import is live; links and forms in the snapshot stay put.
+const DASH_SCRIPT = `<script>
+addEventListener("click", (e) => {
+  if (e.target.closest('[data-proto="import"]')) { e.preventDefault(); parent.postMessage({ proto: "import" }, "*"); return; }
+  if (e.target.closest("a[href], button[type=submit]")) e.preventDefault();
+});
+addEventListener("submit", (e) => e.preventDefault());
+addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
+addEventListener("message", (e) => { const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
+<\/script>`;
+dash.addEventListener("load", syncDashTheme);
+dash.srcdoc = `<!doctype html><html lang="${DASH.lang}" class="${themeNow()}" data-theme="${themeNow()}" style="color-scheme:${themeNow()}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${DASH.css}</style></head><body class="${DASH.bodyClass}">${DASH.html}${DASH_SCRIPT}</body></html>`;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncDashTheme);
+new MutationObserver(syncDashTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ───────── review strip ───────── */
+function toggleTheme() { document.documentElement.dataset.theme = themeNow() === "dark" ? "light" : "dark"; }
+$("#theme-btn").addEventListener("click", toggleTheme);
+$("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
+$("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
+kitChangesInit($("#changes-btn"));
+addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); });
+
+// The announcement greets the viewer once; the review strip's Announcement button brings it back.
+let seen = false;
+try { seen = localStorage.getItem("design-import-announcement") === "seen"; localStorage.setItem("design-import-announcement", "seen"); } catch {}
+if (!seen || new URLSearchParams(location.search).has("announce")) open("announcement");
+</script>
