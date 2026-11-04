@@ -5173,7 +5173,8 @@ export default function DeckEditor() {
         accessStatusLoading={loading || deckAccessStatusQuery.isLoading}
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
-        orgError={orgError || loadError}
+        orgError={orgError}
+        loadFailed={loadError}
         requestAccessPending={
           requestDeckAccessMutation.isPending || accessRequestRefreshPending
         }
