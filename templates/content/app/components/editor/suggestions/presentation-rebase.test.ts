@@ -1015,7 +1015,6 @@ describe("a pending piece reloaded beside other accepted edits", () => {
     "whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
     "\n\t- **Request signing.** Would the vendor like to show that, and in which article?\n\t- **Retries.** Which vendor plan includes them?\n\t- **Testing.** Can its test tool point at our host?\n\t- **Reviewer.** Who should check the vendor claims?",
   );
-  const lastPiece = upper[upper.length - 1];
 
   const written = ({ operation }: Piece) => ({
     from: operation.anchor.from,
@@ -1096,6 +1095,8 @@ describe("a pending piece reloaded beside other accepted edits", () => {
   });
 
   it("shows the last piece on the Page as the editor saves it", () => {
+    const lastPiece = upper[upper.length - 1];
+    if (!lastPiece) throw new Error("No last piece");
     const accepted = [...lower, ...upper.slice(0, -1)];
     const saved = canonicalizeNfm(accept(accepted));
     const range = shownAt(saved, lastPiece, accepted);

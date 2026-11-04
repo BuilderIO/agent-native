@@ -430,8 +430,8 @@ function jointTransition(
   operation: MarkdownOperation,
   transitions: SuggestionPresentationTransition[],
 ) {
-  if (transitions.length < 2) return null;
   const [first, ...rest] = transitions;
+  if (!first || rest.length === 0) return null;
   const joint = rest.reduce<SuggestionPresentationTransition | null>(
     (all, transition) => all && combinePresentationTransitions(all, transition),
     first,
