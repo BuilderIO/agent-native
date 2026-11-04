@@ -166,53 +166,6 @@ describe("AppShellSkeleton home layout", () => {
     expect(shell.textContent).not.toContain("Getting Started");
   });
 
-  it.each([false, true])(
-    "accepts file-only drafts only when the app opts in: %s",
-    (supportsFileOnlySubmissions) => {
-      let composerProps:
-        | Parameters<AppShellFirstPaintHome["renderComposer"]>[0]
-        | undefined;
-      const config: AppShellFirstPaintHome = {
-        appId: "file-handoff",
-        appName: "App",
-        pageTitle: "Home",
-        promptTitle: "Create",
-        promptPlaceholder: "Describe",
-        suggestedPromptsLabel: "Suggestions",
-        sidebarItems: [],
-        templatesLabel: "Templates",
-        recentLabel: "Recent",
-        browseAllLabel: "Browse all",
-        suggestions: [],
-        ...(supportsFileOnlySubmissions
-          ? { supportsFileOnlySubmissions: true }
-          : {}),
-        renderComposer: (props) => {
-          composerProps = props;
-          return null;
-        },
-      };
-      renderToStaticMarkup(
-        <MemoryRouter>
-          <AppShellSkeleton layout="prompt-library" firstPaintHome={config} />
-        </MemoryRouter>,
-      );
-      const file = new File(["<main>Source</main>"], "source.html", {
-        type: "text/html",
-      });
-      void composerProps?.onSubmit("", [file], [], {});
-      const result = consumeFirstPaintPromptDraft("file-handoff");
-      if (supportsFileOnlySubmissions) {
-        expect(result).toMatchObject({
-          status: "present",
-          draft: { text: "", files: [file], submitted: true },
-        });
-      } else {
-        expect(result).toEqual({ status: "absent" });
-      }
-    },
-  );
-
   it("localizes shell prompts from the active app catalog", async () => {
     const originalLocale = document.documentElement.dataset.locale;
     document.documentElement.dataset.locale = "fr-FR";

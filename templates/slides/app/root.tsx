@@ -217,17 +217,17 @@ function slidesFirstPaintCopy(messages: typeof slidesEnglish) {
 
 const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appId: "slides",
-  supportsFileOnlySubmissions: true,
   ...slidesFirstPaintCopy(slidesEnglish),
   headerHeight: 56,
   localizeMessages: (messages) =>
     slidesFirstPaintCopy(messages as typeof slidesEnglish),
   suggestionRole: "general",
+  // Attachments enter through the hydrated composer with Slides' storage policy.
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">
       <PromptComposer
         {...props}
-        attachmentsEnabled
+        attachmentsEnabled={false}
         inlineTextAttachments={false}
         className="slides-home-prompt-composer-area"
         layoutVariant="hero"
