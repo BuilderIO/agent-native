@@ -1943,7 +1943,7 @@ function SourceListItem({
   syncPending: boolean;
   onReview: () => void;
   onRotateIngestToken?: () => void;
-  onSync: () => void;
+  onSync?: () => void;
   onTune?: () => void;
   onImportMarkdown?: () => void;
   onArchive?: () => void;
@@ -1951,6 +1951,13 @@ function SourceListItem({
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const Icon = sourceProviderIcon(source.provider);
+  const hasMenuActions = Boolean(
+    onSync ||
+    onTune ||
+    onRotateIngestToken ||
+    (source.provider === "manual" && onImportMarkdown) ||
+    onArchive,
+  );
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
     source.lastError || retry || source.latestRun?.status === "error",
@@ -2036,55 +2043,59 @@ function SourceListItem({
             triggerClassName="h-8 px-2"
           />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t("sources.moreActionsFor", {
-                  source: sourceName(source),
-                })}
-              >
-                <IconDotsVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem
-                disabled={syncPending || updating}
-                onSelect={onSync}
-              >
-                <IconRefresh className="size-4" />
-                {t("sources.syncNow")}
-              </DropdownMenuItem>
-              {onTune ? (
-                <DropdownMenuItem disabled={updating} onSelect={onTune}>
-                  <IconSettings2 className="size-4" />
-                  {t("sources.tuneSource")}
-                </DropdownMenuItem>
-              ) : null}
-              {onRotateIngestToken ? (
-                <DropdownMenuItem onSelect={onRotateIngestToken}>
-                  <IconRefresh className="size-4" />
-                  {t("sources.rotateIngestToken")}
-                </DropdownMenuItem>
-              ) : null}
-              {source.provider === "manual" && onImportMarkdown ? (
-                <DropdownMenuItem onSelect={onImportMarkdown}>
-                  <IconFolderOpen className="size-4" />
-                  {t("sources.importMarkdownFiles")}
-                </DropdownMenuItem>
-              ) : null}
-              {onArchive ? (
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onSelect={onArchive}
+          {hasMenuActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("sources.moreActionsFor", {
+                    source: sourceName(source),
+                  })}
                 >
-                  <IconArchive className="size-4" />
-                  {t("sources.archiveSource")}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <IconDotsVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {onSync ? (
+                  <DropdownMenuItem
+                    disabled={syncPending || updating}
+                    onSelect={onSync}
+                  >
+                    <IconRefresh className="size-4" />
+                    {t("sources.syncNow")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onTune ? (
+                  <DropdownMenuItem disabled={updating} onSelect={onTune}>
+                    <IconSettings2 className="size-4" />
+                    {t("sources.tuneSource")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onRotateIngestToken ? (
+                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                    <IconRefresh className="size-4" />
+                    {t("sources.rotateIngestToken")}
+                  </DropdownMenuItem>
+                ) : null}
+                {source.provider === "manual" && onImportMarkdown ? (
+                  <DropdownMenuItem onSelect={onImportMarkdown}>
+                    <IconFolderOpen className="size-4" />
+                    {t("sources.importMarkdownFiles")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onArchive ? (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={onArchive}
+                  >
+                    <IconArchive className="size-4" />
+                    {t("sources.archiveSource")}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2629,7 +2640,12 @@ export default function SourcesRoute() {
                     ? () => void rotateIngestToken(source)
                     : undefined
                 }
-                onSync={() => syncSource.mutate({ sourceId: source.id })}
+                // Manual sources have no remote, so sync only reports an error.
+                onSync={
+                  isCompanyContextIntake(source)
+                    ? undefined
+                    : () => syncSource.mutate({ sourceId: source.id })
+                }
                 onTune={
                   isCompanyContextIntake(source) && !isBrainAdmin
                     ? undefined
