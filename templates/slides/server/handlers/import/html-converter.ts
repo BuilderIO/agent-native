@@ -888,7 +888,7 @@ function geometryCss(
     case "smileyFace":
       return "border-radius: 50%;";
     case "roundRect":
-      return `border-radius: ${corner}px;`;
+      return `border-radius: ${round3((shortest * pin(0, adjustments?.adj ?? 16667, 50000)) / 100000)}px;`;
     case "round1Rect":
       return `border-radius: 0 ${corner}px 0 0;`;
     case "round2SameRect":

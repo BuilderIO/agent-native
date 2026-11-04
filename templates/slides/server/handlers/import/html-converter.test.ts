@@ -257,6 +257,25 @@ describe("convertToSlideHtml shape geometry", () => {
     expect(radius).toBeCloseTo(96 * 0.16667, 1);
   });
 
+  it("preserves a PowerPoint rounded rectangle's adjusted radius", () => {
+    for (const [adjustment, radius] of [
+      [0, 0],
+      [5000, 4.8],
+      [50000, 48],
+    ] as const) {
+      const style = styleAttr(
+        convertToSlideHtml(
+          shapeSlide({
+            shapeType: "roundRect",
+            shapeAdjustments: { adj: adjustment },
+          }),
+        ),
+        "shape",
+      );
+      expect(style).toContain(`border-radius: ${radius}px`);
+    }
+  });
+
   it("clips polygonal presets instead of leaving them as their bounding rectangle", () => {
     for (const shapeType of [
       "triangle",
