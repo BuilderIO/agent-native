@@ -58,7 +58,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   useBlocker,
   useLocation,
@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import { PdfExportStage } from "@/components/deck/PdfExportStage";
 import SlideRenderer, {
   getRenderedSlideSource,
   renderRawSlideHtml,
@@ -818,6 +819,7 @@ export default function DeckEditor() {
   const deniedPageAccessRequest = useRequestDeckAccess();
   const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [pdfExportSlides, setPdfExportSlides] = useState<Slide[] | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
     slideId: string;
@@ -5584,10 +5586,15 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
-            analytics: deckExportAnalytics,
-            signal,
-          });
+          flushSync(() => setPdfExportSlides(exportSlides));
+          try {
+            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
+              analytics: deckExportAnalytics,
+              signal,
+            });
+          } finally {
+            setPdfExportSlides(null);
+          }
         }}
         flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {
@@ -5927,6 +5934,14 @@ export default function DeckEditor() {
               />
             </div>
           </div>
+        )}
+
+        {pdfExportSlides && (
+          <PdfExportStage
+            slides={pdfExportSlides}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+          />
         )}
 
         {transitionPreviewOpen && canPreviewTransition && (
