@@ -3,6 +3,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
+import { currentSessionIdentity } from "../client/session-identity.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
@@ -549,6 +550,9 @@ class CollabDocConnection {
   // Until then, the vector past which content in the doc was typed here (or
   // kept unsent from before): the copy's, or null once nothing is tracked.
   private typingBaseline: Map<number, number> | null = null;
+  // The session this connection's account came from, once the tab has read one.
+  // It can name the account by id, so it's only compared with itself.
+  private sessionIdentity = currentSessionIdentity();
 
   constructor(
     readonly docId: string,
@@ -607,6 +611,7 @@ class CollabDocConnection {
       collabConnectionRegistry.delete(this.registryKey);
     }
     this.actorIdentity = identity;
+    this.sessionIdentity = currentSessionIdentity();
     if (!this.detached) collabConnectionRegistry.set(nextKey, this);
     return true;
   }
@@ -1587,6 +1592,12 @@ class CollabDocConnection {
       this.pendingUpdates.length > 0 ||
       this.updateInFlight ||
       this.snapshot.updatesRefused
+    )
+      return false;
+    // The tab has moved to another account, whose copies this write would evict.
+    if (
+      typeof this.sessionIdentity === "string" &&
+      this.sessionIdentity !== currentSessionIdentity()
     )
       return false;
     saveCollabLocalCopy(

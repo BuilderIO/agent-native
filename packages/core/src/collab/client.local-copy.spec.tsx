@@ -29,6 +29,8 @@ import {
   _flushCollabLocalCopiesForTests,
   _forgetCollabLocalCopiesInMemoryForTests,
   _setCollabLocalCopyPersistenceForTests,
+  collabLocalCopyKey,
+  saveCollabLocalCopy,
   type CollabLocalCopyPersistence,
 } from "./local-store.js";
 import { prefetchCollabState } from "./state-prefetch.js";
@@ -850,6 +852,28 @@ describe("collab local copies", () => {
       category: "forbidden-or-not-found",
     });
     expect(current().ydoc).toBeNull();
+  });
+
+  it("leaves another account's copies alone once the tab has moved to it", async () => {
+    mount();
+    await advance(50);
+    expect(current().isSynced).toBe(true);
+    // Bob's session reaches this tab before Ada's connection goes.
+    recordSessionIdentity(BOB.email);
+    const bobs = new Y.Doc();
+    bobs.getText("content").insert(0, "bob's");
+    saveCollabLocalCopy(
+      BOB.email,
+      collabLocalCopyKey(BASE_URL, DOC),
+      Y.encodeStateAsUpdate(bobs),
+    );
+    bobs.destroy();
+    await _flushCollabLocalCopiesForTests();
+
+    await leave();
+
+    expect(store.owner()).toBe(BOB.email);
+    expect(textOf(store.copy()!)).toBe("bob's");
   });
 
   it("drops boot reads when another tab signs out", async () => {
