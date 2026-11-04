@@ -123,6 +123,8 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetDeleteInUse:
+      "このアセットはデッキで使用されています。先にデッキから削除してください",
     assetDeleteStorageRemains:
       "ライブラリから削除しましたが、保存されたファイルは削除できませんでした",
     contentMarkdown: "コンテンツ (Markdown)",

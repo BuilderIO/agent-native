@@ -124,6 +124,8 @@ const messages = {
     noAssetsYet: "Noch keine Assets.",
     assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
     assetDeleteFailed: "Asset konnte nicht gelöscht werden",
+    assetDeleteInUse:
+      "Dieses Asset wird in einer Präsentation verwendet. Entferne es zuerst aus der Präsentation",
     assetDeleteStorageRemains:
       "Aus der Bibliothek entfernt, aber die gespeicherte Datei konnte nicht gelöscht werden",
     contentMarkdown: "Inhalt (Markdown)",

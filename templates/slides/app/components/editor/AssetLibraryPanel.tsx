@@ -158,6 +158,10 @@ export default function AssetLibraryPanel({
         setAssets((prev) => prev.filter((a) => a.id !== id));
         return;
       }
+      if (res.status === 409) {
+        toast.error(t("raw.assetDeleteInUse"));
+        return;
+      }
       if (!res.ok) {
         toast.error(t("raw.assetDeleteFailed"));
         return;

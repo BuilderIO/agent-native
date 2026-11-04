@@ -122,6 +122,8 @@ const messages = {
     noAssetsYet: "Ainda não há ativos.",
     assetUploadFailed: "Alguns envios falharam",
     assetDeleteFailed: "Falha ao excluir o ativo",
+    assetDeleteInUse:
+      "Este ativo é usado em uma apresentação. Remova-o da apresentação primeiro",
     assetDeleteStorageRemains:
       "Removido da biblioteca, mas o arquivo armazenado não pôde ser excluído",
     contentMarkdown: "Conteúdo (Markdown)",

@@ -25,6 +25,7 @@ import {
   listOrphanedVideoAssetCleanups,
   recordOrphanedVideoAssetCleanup,
 } from "../lib/chunked-upload-session.js";
+import { hasLiveDeckShareLinkReferencing } from "../lib/deck-share-links.js";
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
@@ -2314,13 +2315,18 @@ export const deleteAsset = defineEventHandler(async (event) => {
       .from(schema.decks)
       .where(
         and(
-          accessFilter(schema.decks, schema.deckShares),
+          accessFilter(schema.decks, schema.deckShares, undefined, "viewer", {
+            includePublic: true,
+          }),
           sql`strpos(${schema.decks.data}, ${asset.url}) > 0`,
         ),
       )
       .limit(1),
   );
-  if (referencingDecks.length > 0) {
+  if (
+    referencingDecks.length > 0 ||
+    (await hasLiveDeckShareLinkReferencing(asset.url))
+  ) {
     setResponseStatus(event, 409);
     return {
       error: "This asset is used in a deck. Remove it from the deck first.",
@@ -2332,7 +2338,13 @@ export const deleteAsset = defineEventHandler(async (event) => {
   const provider = asset.provider;
   let storageDeleted = false;
   if (provider) {
-    storageDeleted = await runWithRequestContext(requestContext, () =>
+    // Credentials resolve from the asset's own scope: legacy assets without an
+    // org live in user-scoped storage, not the active workspace's bucket.
+    const storageContext = {
+      userEmail: session.email,
+      ...(asset.orgId ? { orgId: asset.orgId } : {}),
+    };
+    storageDeleted = await runWithRequestContext(storageContext, () =>
       deleteUploadedFile(provider, {
         ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
         url: asset.url,

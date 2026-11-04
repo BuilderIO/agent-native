@@ -118,6 +118,7 @@ const messages = {
     noAssetsYet: "還沒有素材。",
     assetUploadFailed: "部分上傳失敗",
     assetDeleteFailed: "刪除素材失敗",
+    assetDeleteInUse: "此素材正用於簡報中，請先從簡報中移除",
     assetDeleteStorageRemains: "已從素材庫移除，但無法刪除儲存的檔案",
     contentMarkdown: "內容 (Markdown)",
     speakerNotes: "演講者備註",

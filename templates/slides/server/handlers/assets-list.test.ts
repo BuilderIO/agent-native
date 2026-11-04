@@ -29,6 +29,7 @@ const state = vi.hoisted(() => ({
   deleteCondition: null as Condition | null,
   auth: vi.fn(),
   routerParam: vi.fn(),
+  shareLinkReferences: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -155,6 +156,12 @@ vi.mock("h3", () => ({
   getRouterParam: (...args: unknown[]) => state.routerParam(...args),
   readMultipartFormData: vi.fn(),
   setResponseStatus: vi.fn(),
+  shareLinkReferences: vi.fn(),
+}));
+
+vi.mock("../lib/deck-share-links.js", () => ({
+  hasLiveDeckShareLinkReferencing: (...args: unknown[]) =>
+    state.shareLinkReferences(...args),
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -175,6 +182,8 @@ describe("listAssets", () => {
     vi.mocked(deleteUploadedFile).mockReset();
     vi.mocked(deleteUploadedFile).mockResolvedValue(true);
     vi.mocked(setResponseStatus).mockClear();
+    state.shareLinkReferences.mockReset();
+    state.shareLinkReferences.mockResolvedValue(false);
     state.rows = [
       {
         id: "image-1",
@@ -381,6 +390,16 @@ describe("listAssets", () => {
 
     expect(setResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(result).toEqual({ error: expect.any(String) });
+    expect(deleteUploadedFile).not.toHaveBeenCalled();
+    expect(state.rows.some((row) => row.id === "image-1")).toBe(true);
+  });
+
+  it("refuses to delete an asset a live share snapshot still shows", async () => {
+    state.shareLinkReferences.mockResolvedValue(true);
+
+    await deleteAsset({} as never);
+
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(deleteUploadedFile).not.toHaveBeenCalled();
     expect(state.rows.some((row) => row.id === "image-1")).toBe(true);
   });
