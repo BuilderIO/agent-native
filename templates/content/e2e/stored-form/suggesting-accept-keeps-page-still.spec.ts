@@ -101,8 +101,9 @@ function watchThePage(page: Page) {
     const seen = { moved: 0, syncingLine: false };
     const look = () => {
       seen.moved = Math.max(seen.moved, Math.abs(top() - start));
-      seen.syncingLine ||=
-        !!document.body.textContent?.includes("still syncing");
+      // innerText is what's on screen. textContent also reads the page's inline
+      // scripts, and a translation table there holds these words on every page.
+      seen.syncingLine ||= document.body.innerText.includes("still syncing");
       requestAnimationFrame(look);
     };
     look();
@@ -136,7 +137,7 @@ test.describe("accepting an edit with a line break", () => {
       await suggestLine(page, after, typed);
 
       const seen = await acceptAndWatch(page, id, typed);
-      expect(seen.syncingLine).toBe(false);
+      expect.soft(seen.syncingLine).toBe(false);
       expect(seen.moved).toBeLessThan(1);
     });
   }
@@ -154,7 +155,7 @@ test.describe("accepting an edit with a line break", () => {
     await expect(acceptButton(page)).toHaveCount(1, { timeout: 30_000 });
 
     const seen = await acceptAndWatch(page, id, typed);
-    expect(seen.syncingLine).toBe(false);
+    expect.soft(seen.syncingLine).toBe(false);
     expect(seen.moved).toBeLessThan(1);
   });
 });
