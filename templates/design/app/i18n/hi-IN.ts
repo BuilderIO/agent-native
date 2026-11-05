@@ -1034,6 +1034,9 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    writeFailed: "वह बदलाव सहेजा नहीं जा सका।",
+    selectionPublishFailed:
+      "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
       title: "लाइव सहयोग",
       description:

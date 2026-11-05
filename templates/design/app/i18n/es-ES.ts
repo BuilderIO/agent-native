@@ -1050,6 +1050,9 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "No se pudo cargar esta pantalla.",
+    writeFailed: "No se pudo guardar ese cambio.",
+    selectionPublishFailed:
+      "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
     liveCollaboration: {
       title: "Colaboración en directo",
       description:

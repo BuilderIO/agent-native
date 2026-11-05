@@ -55,6 +55,10 @@ import {
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
+  reportDesignWriteFailure,
+  SURFACE_MUTATION_ERROR,
+} from "@/lib/design-write-failure";
+import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
   hasFreshPendingGeneration,
@@ -1433,6 +1437,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+    { meta: SURFACE_MUTATION_ERROR },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1486,7 +1491,8 @@ export function useEditorGenerationAndAccess({
         },
       );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

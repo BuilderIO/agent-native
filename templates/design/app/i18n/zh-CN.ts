@@ -1023,6 +1023,8 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "无法加载此屏幕。",
+    writeFailed: "无法保存该更改。",
+    selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
       title: "实时协作",
       description:

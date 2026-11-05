@@ -7,6 +7,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import {
   applyDesignDataOperations,
   type DesignDataOperation,
@@ -56,6 +57,9 @@ export function runSetLayoutGrid(
   args.updateDesignMutation.mutate(
     { id, dataOperations: [operation] } as never,
     {
+      onError: (error) => {
+        reportDesignWriteFailure(error);
+      },
       onSettled: () => {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],

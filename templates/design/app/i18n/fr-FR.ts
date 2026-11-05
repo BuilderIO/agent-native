@@ -1051,6 +1051,9 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "Impossible de charger cet écran.",
+    writeFailed: "Impossible d'enregistrer cette modification.",
+    selectionPublishFailed:
+      "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
     liveCollaboration: {
       title: "Collaboration en direct",
       description:
