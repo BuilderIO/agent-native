@@ -3618,6 +3618,27 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
+      const recordToolCall = (isError: boolean) => {
+        const toolName = request.params?.name;
+        const actionEntries: Record<string, ActionEntry | undefined> = actions;
+        const calledEntry = actionEntries[toolName];
+        trackMcpToolCall(analyticsContext(request, ctx), {
+          toolName,
+          ...(calledEntry?.tool.description
+            ? { toolDescription: calledEntry.tool.description }
+            : {}),
+          ...(calledEntry
+            ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
+            : {}),
+          parameters: (request.params?.arguments ?? {}) as Record<
+            string,
+            unknown
+          >,
+          durationMs: Date.now() - startedAt,
+          isError,
+          ...(failure ?? {}),
+        });
+      };
       const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
 
@@ -3755,26 +3776,12 @@ export async function createMCPServerForRequest(
         return directActionCall({ name, args, request, ctx }, (error) => {
           failure = error;
         });
-      }, mcpRequestId);
-
-      const toolName = request.params?.name;
-      const calledEntry = actions[toolName];
-      trackMcpToolCall(analyticsContext(request, ctx), {
-        toolName,
-        ...(calledEntry?.tool.description
-          ? { toolDescription: calledEntry.tool.description }
-          : {}),
-        ...(calledEntry
-          ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
-          : {}),
-        parameters: (request.params?.arguments ?? {}) as Record<
-          string,
-          unknown
-        >,
-        durationMs: Date.now() - startedAt,
-        isError: (result as { isError?: boolean }).isError === true,
-        ...(failure ?? {}),
+      }, mcpRequestId).catch((error: unknown) => {
+        if (failure) recordToolCall(true);
+        throw error;
       });
+
+      recordToolCall((result as { isError?: boolean }).isError === true);
       return result;
     },
   );

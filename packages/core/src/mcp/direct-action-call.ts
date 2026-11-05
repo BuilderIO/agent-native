@@ -434,6 +434,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const projectedResultForClient = project(resultForClient);
       resolvingMcpResource = true;
       const mcpAppResourceCandidate =
+        !mcpResultIsError &&
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
           ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
@@ -744,6 +745,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         // coercion-ok: `checked` stays undefined, which reads as unchecked below.
       }
       if (retryableResourceFailure) {
+        fail({
+          errorType: "workspace_app_access_unavailable",
+          errorMessage: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+        });
         throw new ProtocolError(
           ProtocolErrorCode.InternalError,
           WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,

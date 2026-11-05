@@ -772,6 +772,75 @@ describe("direct tools/call wire output", () => {
         }
         expect(run).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(wire)).not.toContain("private upstream detail");
+        expect(trace.filter((event: any) => event.mcpToolCall)).toEqual([
+          {
+            mcpToolCall: expect.objectContaining({
+              toolName: "test-widget",
+              isError: readOnly,
+              ...(readOnly
+                ? {
+                    errorType: "workspace_app_access_unavailable",
+                    errorMessage:
+                      "Workspace app access is temporarily unavailable.",
+                  }
+                : {}),
+            }),
+          },
+        ]);
+        expect(JSON.stringify(trace)).not.toContain("private upstream detail");
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "preserves an upstream failure from a %s read-only widget call",
+    async (readOnly) => {
+      const csp = vi.fn(async () => {
+        throw new ActionContractError("private upstream detail", {
+          statusCode: 503,
+          errorCode: "workspace_app_access_unavailable",
+        });
+      });
+      const run = vi.fn(async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream failed",
+        raw: { isError: true, detail: "original failure" },
+        serverId: "upstream",
+      }));
+      const entry = defineAction({
+        description: "A proxied widget action",
+        parameters: {},
+        readOnly,
+        run,
+        mcpApp: { resource: { html: "<p>widget</p>", csp } },
+      });
+      const { client, wire } = await connect(
+        { ...(await oauthHeaders()), "x-agent-native-mcp-full-catalog": "1" },
+        { serverConfig: { ...config, actions: { "test-widget": entry } } },
+      );
+      try {
+        const result = await client.callTool({
+          name: "test-widget",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("Upstream failed");
+        expect(JSON.stringify(result)).not.toContain(
+          "Workspace app access is temporarily unavailable",
+        );
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(csp).not.toHaveBeenCalled();
+        expect(trace.filter((event: any) => event.mcpToolCall)).toEqual([
+          {
+            mcpToolCall: expect.objectContaining({
+              toolName: "test-widget",
+              isError: true,
+            }),
+          },
+        ]);
+        expect(JSON.stringify(wire)).not.toContain("private upstream detail");
       } finally {
         await client.close();
       }
