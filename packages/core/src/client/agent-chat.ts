@@ -557,12 +557,16 @@ export function publishAgentChatContextItems(
   if (
     JSON.stringify(next.items) === JSON.stringify(agentChatContextState.items)
   ) {
-    next.items = agentChatContextState.items;
-    agentChatContextState = next;
-    if (options?.persist !== false) {
-      persistAgentChatContextState(next);
+    if (
+      options?.updatedAt === undefined ||
+      next.updatedAt === agentChatContextState.updatedAt
+    ) {
+      if (options?.persist === true) {
+        persistAgentChatContextState(agentChatContextState);
+      }
+      return agentChatContextState;
     }
-    return next;
+    next.items = agentChatContextState.items;
   }
   agentChatContextState = next;
   notifyAgentChatContextListeners();

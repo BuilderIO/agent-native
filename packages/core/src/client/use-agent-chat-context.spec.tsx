@@ -1,38 +1,20 @@
 // @vitest-environment happy-dom
 
-import React, { act } from "react";
+import React, { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  filterAgentChatContextItems,
+  _resetAgentChatContextForTests,
   getAgentChatContextState,
+  publishAgentChatContextItems,
   refreshAgentChatContext,
-  subscribeAgentChatContext,
-  type AgentChatContextState,
 } from "./agent-chat.js";
 import { useAgentChatContext } from "./use-agent-chat-context.js";
 import {
   _resetChangeVersionStoreForTests,
   bumpChangeVersion,
 } from "./use-change-version.js";
-
-const { agentChatContextState } = vi.hoisted(() => ({
-  agentChatContextState: { items: [], updatedAt: 0 },
-}));
-
-vi.mock("./agent-chat.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./agent-chat.js")>();
-  return {
-    ...actual,
-    clearAgentChatContext: vi.fn(),
-    getAgentChatContextState: vi.fn(() => agentChatContextState),
-    refreshAgentChatContext: vi.fn(async () => agentChatContextState),
-    removeAgentChatContextItem: vi.fn(),
-    setAgentChatContextItem: vi.fn(),
-    subscribeAgentChatContext: vi.fn(() => () => {}),
-  };
-});
 
 function Probe({ enabled }: { enabled: boolean }) {
   const { items } = useAgentChatContext(enabled);
@@ -42,126 +24,169 @@ function Probe({ enabled }: { enabled: boolean }) {
 describe("useAgentChatContext", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({ values: {}, missing: ["agent-chat-context"] }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    agentChatContextState.items = [];
-    agentChatContextState.updatedAt = 0;
-    vi.mocked(refreshAgentChatContext).mockClear();
-    vi.mocked(getAgentChatContextState).mockImplementation(
-      () => agentChatContextState,
-    );
-    vi.mocked(subscribeAgentChatContext).mockImplementation(() => () => {});
+    _resetAgentChatContextForTests();
     _resetChangeVersionStoreForTests();
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
   it("does not read application state while disabled", async () => {
     await act(async () => {
       root.render(<Probe enabled={false} />);
-      await Promise.resolve();
     });
-
-    expect(refreshAgentChatContext).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     await act(async () => {
       root.render(<Probe enabled />);
-      await Promise.resolve();
     });
-
-    expect(refreshAgentChatContext).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
   });
 
   it("keeps thread-targeted context out of global context reads", async () => {
-    agentChatContextState.items = [
-      { key: "shared", title: "Shared", context: "Shared context" },
-      {
-        key: "prefill:thread-1",
-        title: "Prefill",
-        context: "Thread-only context",
-        targetThreadId: "thread-1",
-      },
-    ];
-
-    await act(async () => {
-      root.render(<Probe enabled />);
-    });
-
+    publishAgentChatContextItems(
+      [
+        { key: "shared", title: "Shared", context: "Shared context" },
+        {
+          key: "prefill:thread-1",
+          title: "Prefill",
+          context: "Thread-only context",
+          targetThreadId: "thread-1",
+        },
+      ],
+      { persist: false },
+    );
+    await act(async () => root.render(<Probe enabled={false} />));
     expect(container.textContent).toBe("shared");
-    expect(filterAgentChatContextItems(agentChatContextState.items)).toEqual([
-      agentChatContextState.items[0],
-    ]);
   });
 
-  it("does not rerender for a timestamp-only store notification", async () => {
-    let listener: () => void = () => {};
-    let snapshot: AgentChatContextState = { ...agentChatContextState };
-    vi.mocked(getAgentChatContextState).mockImplementation(() => snapshot);
-    vi.mocked(subscribeAgentChatContext).mockImplementation((callback) => {
-      listener = callback;
-      return () => {};
+  it("does not loop when an effect republishes identical context", async () => {
+    const items = [{ key: "selection", title: "Selection", context: "A" }];
+    const initial = publishAgentChatContextItems(items, {
+      updatedAt: 10,
+      persist: false,
+    });
+    let now = 100;
+    vi.spyOn(Date, "now").mockImplementation(() => now++);
+    const effect = vi.fn();
+    function RepublishProbe() {
+      const state = useAgentChatContext(false);
+      useEffect(() => {
+        effect();
+        if (effect.mock.calls.length < 8) {
+          publishAgentChatContextItems(items, { persist: false });
+        }
+      }, [state.items, state.updatedAt]);
+      return <div>{state.updatedAt}</div>;
+    }
+
+    await act(async () => root.render(<RepublishProbe />));
+    expect(effect).toHaveBeenCalledOnce();
+    expect(container.textContent).toBe("10");
+    expect(getAgentChatContextState()).toBe(initial);
+  });
+
+  it("exposes newer watermarks and rejects older refreshes", async () => {
+    const items = [{ key: "selection", title: "Selection", context: "A" }];
+    const initial = publishAgentChatContextItems(items, {
+      updatedAt: 10,
+      persist: false,
     });
     const render = vi.fn();
+    let displayedItems: typeof items | undefined;
     function TimestampProbe() {
-      const { items, updatedAt } = useAgentChatContext(false);
-      render(updatedAt);
+      const state = useAgentChatContext(false);
+      render();
+      displayedItems = state.items;
       return (
-        <div>{`${updatedAt}:${items.map((item) => item.key).join(",")}`}</div>
+        <div>{`${state.updatedAt}:${state.items.map((item) => item.key).join(",")}`}</div>
       );
     }
 
     await act(async () => root.render(<TimestampProbe />));
-    expect(container.textContent).toBe("0:");
-    expect(render).toHaveBeenCalledTimes(1);
-
-    snapshot = { ...snapshot, updatedAt: 30 };
-    await act(async () => listener());
-    expect(render).toHaveBeenCalledTimes(1);
-
-    await act(async () => root.render(<TimestampProbe />));
-    expect(container.textContent).toBe("30:");
+    const firstDisplayedItems = displayedItems;
+    await act(async () => {
+      publishAgentChatContextItems(items, { updatedAt: 30, persist: false });
+    });
+    expect(container.textContent).toBe("30:selection");
+    expect(getAgentChatContextState().items).toBe(initial.items);
+    expect(displayedItems).toBe(firstDisplayedItems);
     expect(render).toHaveBeenCalledTimes(2);
 
-    snapshot = {
-      items: [{ key: "selection", title: "Selection", context: "A" }],
-      updatedAt: 40,
-    };
-    await act(async () => listener());
+    await act(async () => {
+      publishAgentChatContextItems(items, { updatedAt: 30, persist: false });
+    });
+    expect(render).toHaveBeenCalledTimes(2);
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          values: {
+            "agent-chat-context": {
+              items: [{ ...items[0], context: "stale" }],
+              updatedAt: 20,
+            },
+          },
+          missing: [],
+        }),
+    });
+    await act(async () => {
+      await refreshAgentChatContext();
+    });
+    expect(container.textContent).toBe("30:selection");
+    expect(getAgentChatContextState()).toEqual({ items, updatedAt: 30 });
+    expect(render).toHaveBeenCalledTimes(2);
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          values: { "agent-chat-context": { items, updatedAt: 40 } },
+          missing: [],
+        }),
+    });
+    await act(async () => {
+      await refreshAgentChatContext();
+    });
     expect(container.textContent).toBe("40:selection");
+    expect(getAgentChatContextState().items).toBe(initial.items);
+    expect(displayedItems).toBe(firstDisplayedItems);
     expect(render).toHaveBeenCalledTimes(3);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes for agent chat context and wildcard state changes only", async () => {
-    await act(async () => {
-      root.render(<Probe enabled />);
-      await Promise.resolve();
-    });
-    expect(refreshAgentChatContext).toHaveBeenCalledTimes(1);
+    await act(async () => root.render(<Probe enabled />));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
 
-    await act(async () => {
-      bumpChangeVersion("app-state:selection", 1);
-      await Promise.resolve();
-    });
-    expect(refreshAgentChatContext).toHaveBeenCalledTimes(1);
+    await act(async () => bumpChangeVersion("app-state:selection", 1));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      bumpChangeVersion("app-state:agent-chat-context", 2);
-      await Promise.resolve();
-    });
-    expect(refreshAgentChatContext).toHaveBeenCalledTimes(2);
+    await act(async () => bumpChangeVersion("app-state:agent-chat-context", 2));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
 
-    await act(async () => {
-      bumpChangeVersion("app-state:*", 3);
-      await Promise.resolve();
-    });
-    expect(refreshAgentChatContext).toHaveBeenCalledTimes(3);
+    await act(async () => bumpChangeVersion("app-state:*", 3));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
   });
 });
