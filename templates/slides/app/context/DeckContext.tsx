@@ -65,6 +65,7 @@ import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
 } from "../lib/normalize-slide-padding";
+import { revealsAfterEdit } from "../lib/reveal-after-edit";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
 import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
@@ -1489,6 +1490,32 @@ function slideAnimationRefusalSlideId(error: unknown): string | null {
       ? (details as { slideId?: unknown }).slideId
       : undefined;
   return typeof slideId === "string" ? slideId : null;
+}
+
+// A content edit that moves elements carries its reveals along, so a reveal keeps
+// its element instead of the save refusing it as retargeted. An update that sets
+// animations itself already placed them.
+function withRevealsFollowingContent(
+  previousSlide: Slide | undefined,
+  updates: Partial<Omit<Slide, "id">>,
+): Partial<Omit<Slide, "id">> {
+  if (
+    typeof updates.content !== "string" ||
+    updates.animations !== undefined ||
+    !previousSlide?.animations?.length
+  ) {
+    return updates;
+  }
+  const animations = revealsAfterEdit(
+    previousSlide.content,
+    updates.content,
+    previousSlide.animations,
+  );
+  return animations.every(
+    (animation, index) => animation === previousSlide.animations?.[index],
+  )
+    ? updates
+    : { ...updates, animations };
 }
 
 // Only the refused slide reverts. Other slides' edits in the same batch are re-queued,
@@ -8070,7 +8097,10 @@ export function DeckProvider({
           );
           return undefined;
         }
-        normalizedUpdates = { ...updates, content };
+        normalizedUpdates = withRevealsFollowingContent(previousSlide, {
+          ...updates,
+          content,
+        });
       }
       const storedContent = normalizedUpdates.content;
       if (
@@ -8198,14 +8228,22 @@ export function DeckProvider({
         before.slides.some((slide) => slide.id === slideId),
       );
       if (validUpdates.length === 0) return;
-      const changedUpdates = validUpdates.filter(({ slideId, updates }) => {
-        const op: PatchDeckOp = {
-          op: "patch-slide",
+      const changedUpdates = validUpdates
+        .map(({ slideId, updates }) => ({
           slideId,
-          fields: updates,
-        };
-        return deriveInverseOp(before, op) !== null;
-      });
+          updates: withRevealsFollowingContent(
+            before.slides.find((slide) => slide.id === slideId),
+            updates,
+          ),
+        }))
+        .filter(({ slideId, updates }) => {
+          const op: PatchDeckOp = {
+            op: "patch-slide",
+            slideId,
+            fields: updates,
+          };
+          return deriveInverseOp(before, op) !== null;
+        });
       if (changedUpdates.length === 0) return;
       for (const { slideId, updates } of changedUpdates) {
         if (typeof updates.content !== "string") continue;

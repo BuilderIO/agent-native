@@ -2801,6 +2801,49 @@ describe("DeckContext deck creation persistence", () => {
     expect(getPatchAttempts(initial.id)).toBe(1);
   });
 
+  it("carries a slide's reveals along when an edit moves their elements", async () => {
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 2,
+      elementPath: [2],
+    };
+    const initial: Deck = {
+      id: "reveal-follow-deck",
+      title: "Reveal follow deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: `<div class="fmd-slide"><h1>T</h1><p>A</p><p>B</p></div>`,
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: `<div class="fmd-slide"><h1>T</h1><p>A</p><p>A</p><p>B</p></div>`,
+      });
+    });
+
+    const slide = result.current.decks
+      .find((deck) => deck.id === initial.id)
+      ?.slides.find((candidate) => candidate.id === "slide-1");
+    expect(slide?.animations).toEqual([
+      { id: "b", type: "fade", elementIndex: 3, elementPath: [3] },
+    ]);
+  });
+
   it("fails fast on validation errors without exposing a redundant retry", async () => {
     const { setAccessibleDeck, getPatchAttempts } = setupFetch({
       patchStatus: 400,

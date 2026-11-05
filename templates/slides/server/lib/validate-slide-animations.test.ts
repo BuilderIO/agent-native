@@ -353,22 +353,42 @@ describe("save-time reveal identity across a content edit", () => {
     expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
   });
 
-  it("refuses a target whose tag changes in place, since the structure changed", () => {
-    const error = refusalOf(() => saveWith(box("<p>One</p><h2>Two</h2>")));
-    expect(error).toMatchObject({
-      errorCode: "slide_animation_retargeted",
-      details: { animationId: "two" },
-    });
+  it("accepts a target whose tag changes in place, which keeps its position", () => {
+    expect(() => saveWith(box("<p>One</p><h2>Two</h2>"))).not.toThrow();
   });
 
-  it("refuses a sibling appended after the target, since the slide structure changed", () => {
-    const error = refusalOf(() =>
+  it("accepts a sibling appended after the target, which moves no path", () => {
+    expect(() =>
       saveWith(box("<p>One</p><p>Two</p><p>Three</p>")),
-    );
-    expect(error).toMatchObject({
-      errorCode: "slide_animation_retargeted",
-      details: { animationId: "two" },
+    ).not.toThrow();
+  });
+
+  it("accepts a nested change elsewhere on the slide, such as a table row added", () => {
+    const table = (rows: string) =>
+      `<div class="fmd-slide"><table><tbody>${rows}</tbody></table><div class="text-box"><p>One</p><p>Two</p></div></div>`;
+    const kept = { id: "two", elementIndex: 1, elementPath: [1, 1] };
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: table("<tr><td>a</td></tr><tr><td></td></tr>"),
+        animations: [kept],
+        baseline: {
+          content: table("<tr><td>a</td></tr>"),
+          animations: [kept],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a deleted sibling before the target unless the save re-points the reveal", () => {
+    expect(refusalOf(() => saveWith(box("<p>Two</p>")))).toMatchObject({
+      errorCode: "slide_animation_stale_path",
     });
+    expect(() =>
+      saveWith(box("<p>Two</p>"), [
+        { id: "two", elementIndex: 0, elementPath: [1, 0] },
+      ]),
+    ).not.toThrow();
   });
 
   it("refuses a text edit to the target that also appends a sibling after it, since text cannot prove the pairing", () => {
@@ -381,14 +401,10 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
-  it("refuses an inserted copy of the target's text, since identical siblings cannot be told apart", () => {
-    const error = refusalOf(() =>
+  it("accepts a pasted copy of the target placed after it, which leaves the target's path alone", () => {
+    expect(() =>
       saveWith(box("<p>One</p><p>Two</p><p>Two</p><p>Three</p>")),
-    );
-    expect(error).toMatchObject({
-      errorCode: "slide_animation_retargeted",
-      details: { animationId: "two" },
-    });
+    ).not.toThrow();
   });
 
   it("refuses a reveal whose target was deleted when its surviving same-tag sibling is edited", () => {
