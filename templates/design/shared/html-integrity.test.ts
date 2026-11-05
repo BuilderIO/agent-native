@@ -398,6 +398,22 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("accepts noscript fallback styles while still rejecting an orphan outside", () => {
+    const content =
+      "<main><noscript><style>.fallback { display: block; }</style></noscript></main>";
+
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+    expect(
+      inspectDesignHtmlDocumentIntegrity(`${content}</style>`),
+    ).toMatchObject({
+      valid: false,
+      issue: "close-tag-orphaned",
+      detail: [{ tag: "style" }],
+    });
+  });
+
   it("does not count root or raw-text tags inside Alpine attributes and comments", () => {
     const withMarkupExamples = DOCUMENT.replace(
       '<body x-data="{ open: true }">',

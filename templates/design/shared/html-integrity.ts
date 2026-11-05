@@ -386,7 +386,10 @@ function parseDocument(source: string): ParsedDocument {
         });
       }
       if (elementAt?.endTag) matchedEndTags.add(elementAt.endTag.startOffset);
-      if (RAW_TEXT_TAGS.has(node.tagName) && elementAt?.startTag) {
+      if (
+        (RAW_TEXT_TAGS.has(node.tagName) || node.tagName === "noscript") &&
+        elementAt?.startTag
+      ) {
         rawTextBodies.push({
           start: elementAt.startTag.endOffset,
           end: elementAt.endTag?.startOffset ?? elementAt.endOffset,
