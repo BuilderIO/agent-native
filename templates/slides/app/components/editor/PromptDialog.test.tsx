@@ -1192,6 +1192,7 @@ describe.each(["popover", "inline"] as const)(
   (presentation) => {
     afterEach(() => cleanup());
 
+    // oracle-change: removed the PDF/PPT/Google Slides import-mode tests; no production caller passes importFromLabel or onImport, so that UI was unreachable
     it("shows a busy state while prompt attachments are uploading", async () => {
       let resolveUpload!: (response: Response) => void;
       const fetchMock = vi.fn(
