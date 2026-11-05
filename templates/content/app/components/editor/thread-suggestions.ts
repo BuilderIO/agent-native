@@ -106,12 +106,13 @@ export function reviewUnitLabel(
 /**
  * What a piece is reviewed with. A suggestion with no unit label, as one staged
  * before units, is a unit of its own. Pieces that ended differently no longer
- * decide together.
+ * decide together, but a stale piece hasn't ended: its unit still needs it.
  */
 function reviewUnitKey(suggestion: ResourceSuggestion) {
   const label = reviewUnitLabel(suggestion);
+  const state = suggestion.status === "stale" ? "pending" : suggestion.status;
   return label
-    ? `unit:${suggestion.proposalId}:${label}:${suggestion.status}`
+    ? `unit:${suggestion.proposalId}:${label}:${state}`
     : suggestion.id;
 }
 
@@ -126,7 +127,29 @@ export function reviewUnits(
     if (unit) unit.members.push(suggestion);
     else units.set(key, { leader: suggestion, members: [suggestion] });
   }
-  return [...units.values()];
+  return [...units.values()].map((unit) => {
+    // A card decides through its leader, and a stale piece can't be decided.
+    const [leader = unit.leader] = unit.members.filter(
+      ({ status }) => status === "pending",
+    );
+    return { ...unit, leader };
+  });
+}
+
+/**
+ * The pending pieces of units with a stale piece. Accepting them would land
+ * half of a sentence, so they can only be rejected. Give this every piece of a
+ * proposal: the page margin lists only the pending ones.
+ */
+export function piecesOfStaleUnits(suggestions: readonly ResourceSuggestion[]) {
+  return new Set(
+    reviewUnits(suggestions)
+      .filter(({ members }) => members.some(({ status }) => status === "stale"))
+      .flatMap(({ members }) =>
+        members.filter(({ status }) => status === "pending"),
+      )
+      .map(({ id }) => id),
+  );
 }
 
 /**
@@ -214,8 +237,9 @@ export function reviewUnitOperations(
 }
 
 /**
- * A proposal's pending pieces after a refresh. An exact set is one decision, so
- * it gives null once any of its pieces was decided elsewhere, not a smaller set.
+ * A proposal's pending pieces after a refresh. An exact set is one decision on
+ * what the reviewer saw, so it gives null once any of its pieces was decided or
+ * changed elsewhere, not a smaller set or a version they haven't seen.
  */
 export function refreshedProposalMembers(
   suggestions: readonly ResourceSuggestion[],
@@ -229,7 +253,15 @@ export function refreshedProposalMembers(
       suggestion.status === "pending" &&
       (!exactMembers || members.some((member) => member.id === suggestion.id)),
   );
-  return exactMembers && pending.length !== members.length ? null : pending;
+  if (!exactMembers) return pending;
+  return pending.length === members.length &&
+    pending.every((piece) =>
+      members.some(
+        ({ id, revision }) => id === piece.id && revision === piece.revision,
+      ),
+    )
+    ? pending
+    : null;
 }
 
 const REVIEW_UNIT_DIFF_TYPE = {

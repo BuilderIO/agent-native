@@ -141,7 +141,42 @@ describe("sentenceUnits", () => {
     expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
   });
 
+  // Long enough that these edits leave most of the line as it was.
+  const line =
+    "We parked the bad blue car behind the old station near the market.";
+  const bad = line.indexOf("bad ");
+
   it("keeps separate edits apart when one starts where the other ends", () => {
+    const { operations, editOfPiece } = findReplaceEditPieces({
+      before: line,
+      edits: [
+        { find: "bad ", replace: "good ", start: bad },
+        { find: "blue ", replace: "very blue ", start: bad + 4 },
+      ],
+    });
+    expect(
+      operations.map(({ anchor }) => [anchor.from - bad, anchor.to - bad]),
+    ).toEqual([
+      [0, 3],
+      [4, 4],
+    ]);
+    expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
+  });
+
+  it("keeps separate edits apart when both insert at one point", () => {
+    const { operations, editOfPiece } = findReplaceEditPieces({
+      before: line,
+      edits: [
+        { find: "bad ", replace: "bad old ", start: bad },
+        { find: "blue ", replace: "dark blue ", start: bad + 4 },
+      ],
+    });
+    expect(operations.map(({ anchor }) => anchor.from - bad)).toEqual([4, 4]);
+    expect(editOfPiece).toEqual([0, 1]);
+    expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
+  });
+
+  it("counts edits that mostly rewrite a line between them as one piece", () => {
     const { operations, editOfPiece } = findReplaceEditPieces({
       before: "bad blue.",
       edits: [
@@ -149,15 +184,29 @@ describe("sentenceUnits", () => {
         { find: "blue.", replace: "very blue.", start: 4 },
       ],
     });
-    expect(operations.map(({ anchor }) => [anchor.from, anchor.to])).toEqual([
-      [0, 3],
-      [4, 4],
-    ]);
+    expect(operations).toHaveLength(1);
+    expect(editOfPiece).toEqual([0]);
+  });
+
+  it("gives the edit after a joined line its own piece", () => {
+    const before = "bad blue.\n\nKeep this line just as it stands today.";
+    const keep = before.indexOf("Keep");
+    const { operations, editOfPiece } = findReplaceEditPieces({
+      before,
+      edits: [
+        { find: "bad ", replace: "good ", start: 0 },
+        { find: "blue.", replace: "very blue.", start: 4 },
+        { find: "Keep", replace: "Hold", start: keep },
+      ],
+    });
+    expect(operations).toHaveLength(2);
+    expect(editOfPiece).toEqual([0, 2]);
     expect(sentenceUnits(operations, editOfPiece)).toEqual([0, 1]);
   });
 
   it("still joins the pieces within one of an agent's edits", () => {
-    const before = "Teh team will recieve the files. Keep this.";
+    const before =
+      "Teh team will recieve the files from the vendor on Friday morning. Keep this sentence as it is.";
     const edits = [
       {
         find: "Teh team will recieve",

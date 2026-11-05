@@ -464,6 +464,39 @@ describe("comment review interactions", () => {
       );
     });
 
+    it("won't accept what's left of a unit with a stale piece, only reject it", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const stale = {
+        ...piece("one", "k:0", "Teh"),
+        status: "stale",
+      } as ResourceSuggestion;
+      const rest = [
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:0", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: [stale, ...rest],
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(acceptIn("two").disabled).toBe(true);
+      expect(
+        container.querySelector("[data-suggestion-id='two'] [role='alert']"),
+      ).not.toBeNull();
+      const reject = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-id='two'] [data-suggestion-decision='rejected']",
+      );
+      if (!reject) throw new Error("No Reject on the unit's card");
+      act(() => reject.click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "rejected",
+        rest,
+        true,
+      );
+    });
+
     it("gives each unit of a proposal its own card, counted once", () => {
       const onDecideSuggestionProposal = vi.fn();
       const members = [
@@ -573,7 +606,7 @@ describe("comment review interactions", () => {
     });
 
     it("marks a unit's change by whole words", () => {
-      const rewrite = "Our plan is ready now.";
+      const rewrite = "Our plan for the launch is ready now.";
       const swap = (id: string, find: string, replace: string) => {
         const from = rewrite.indexOf(find);
         const member = piece(id, "k:0", find);

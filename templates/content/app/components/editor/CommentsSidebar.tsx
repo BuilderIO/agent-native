@@ -178,6 +178,7 @@ import {
   proposalGroups,
   receiptSuggestion,
   reviewUnitDiffParts,
+  piecesOfStaleUnits,
   reviewUnitLabel,
   reviewUnitOperations,
   reviewUnits,
@@ -1385,6 +1386,10 @@ export function CommentsSidebar({
   const isUnplaceable = (suggestion: ResourceSuggestion) =>
     suggestion.status === "pending" &&
     unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
+  const staleUnitPieces = useMemo(
+    () => piecesOfStaleUnits(suggestions),
+    [suggestions],
+  );
   const activeConflictId = suggestions.find(
     (suggestion) =>
       suggestion.id === activeSuggestionId &&
@@ -3147,7 +3152,8 @@ export function CommentsSidebar({
         suggestions: members,
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
-        conflict: isUnplaceable,
+        conflict: (suggestion: ResourceSuggestion) =>
+          isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id),
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3157,7 +3163,12 @@ export function CommentsSidebar({
           decision: SuggestionDecision,
         ) => {
           if (proposalId)
-            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
+            void onDecideSuggestionProposal?.(
+              proposalId,
+              decision,
+              unit.filter(({ status }) => status === "pending"),
+              true,
+            );
         },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
@@ -3526,7 +3537,12 @@ export function CommentsSidebar({
         )}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
-        unplaceable={unit.members.some(isUnplaceable)}
+        unplaceable={unit.members.some(
+          (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+        )}
+        acceptDisabled={unit.members.some((member) =>
+          staleUnitPieces.has(member.id),
+        )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
         deciding={unit.members.some(suggestionBusy)}
@@ -3541,7 +3557,7 @@ export function CommentsSidebar({
             void onDecideSuggestionProposal?.(
               suggestion.proposalId,
               decision,
-              unit.members,
+              unit.members.filter(({ status }) => status === "pending"),
               true,
             );
           } else {
@@ -3579,7 +3595,9 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(isUnplaceable)}
+      acceptDisabled={members.some(
+        (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+      )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
@@ -4610,6 +4628,7 @@ function SuggestionThreadView({
   onFocused,
   anchorUnavailable,
   unplaceable,
+  acceptDisabled,
   canComment,
   canDecide,
   deciding,
@@ -4644,6 +4663,7 @@ function SuggestionThreadView({
   onFocused?: () => void;
   anchorUnavailable: boolean;
   unplaceable: boolean;
+  acceptDisabled: boolean;
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
@@ -4949,6 +4969,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
+              acceptDisabled={acceptDisabled}
               onDecide={onDecide}
             />
           ) : null

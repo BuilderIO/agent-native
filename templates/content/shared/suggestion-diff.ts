@@ -1153,14 +1153,16 @@ export function findReplaceEditPieces(input: {
       pieces.map(({ operation }) => operation),
     ).map((operation, ordinal) => ({ ...operation, ordinal })),
   );
+  const unclaimed = [...pieces];
   return {
     operations,
-    // A joined piece counts as the edit its first change came from.
-    editOfPiece: operations.map(
-      ({ anchor }) =>
-        pieces.find(({ operation }) => operation.anchor.from >= anchor.from)
-          ?.editIndex ?? 0,
-    ),
+    // A joined piece counts as the edit its first change came from. Two edits
+    // can insert at one point, so each piece takes the next change, not any.
+    editOfPiece: operations.map(({ anchor }) => {
+      while ((unclaimed[0]?.operation.anchor.from ?? anchor.from) < anchor.from)
+        unclaimed.shift();
+      return unclaimed.shift()?.editIndex ?? 0;
+    }),
   };
 }
 

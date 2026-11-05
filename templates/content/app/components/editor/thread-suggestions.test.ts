@@ -6,6 +6,7 @@ import {
   proposalGroups,
   receiptSuggestion,
   reviewedInThread,
+  piecesOfStaleUnits,
   refreshedProposalMembers,
   reviewUnitDiffParts,
   reviewUnitOperations,
@@ -115,7 +116,11 @@ describe("reviewUnits", () => {
 
   it("separates pieces that ended differently", () => {
     expect(
-      ids([piece("a", "k:0"), piece("b", "k:0", "stale"), piece("c", "k:0")]),
+      ids([
+        piece("a", "k:0"),
+        piece("b", "k:0", "accepted"),
+        piece("c", "k:0"),
+      ]),
     ).toEqual([
       ["a", ["a", "c"]],
       ["b", ["b"]],
@@ -147,7 +152,7 @@ describe("reviewUnits", () => {
       piece("b", "k:1"),
       piece("c", "k:0"),
       piece("d", null),
-      piece("e", "k:0", "stale"),
+      piece("e", "k:0", "accepted"),
     ];
     const [, , kept = null] = all;
     if (!kept) throw new Error("The list has a third piece");
@@ -241,6 +246,43 @@ describe("reviewUnitOperations", () => {
   });
 });
 
+describe("a unit with a stale piece", () => {
+  const piece = (id: string, status: string) =>
+    suggestion(id, { reviewUnit: "k:0" }, undefined, {
+      status,
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+
+  it("stays one unit, led by a piece that can still be decided", () => {
+    const units = reviewUnits([piece("a", "stale"), piece("b", "pending")]);
+    expect(units).toHaveLength(1);
+    expect(units[0]?.leader.id).toBe("b");
+    expect(units[0]?.members.map(({ id }) => id)).toEqual(["a", "b"]);
+  });
+
+  it("marks only the unit's pending pieces as not acceptable alone", () => {
+    const other = suggestion("c", { reviewUnit: "k:1" }, undefined, {
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+    expect([
+      ...piecesOfStaleUnits([
+        piece("a", "stale"),
+        piece("b", "pending"),
+        other,
+      ]),
+    ]).toEqual(["b"]);
+  });
+
+  it("keeps pieces that were decided apart from the ones still open", () => {
+    expect(
+      reviewUnits([piece("a", "accepted"), piece("b", "pending")]),
+    ).toHaveLength(2);
+    expect([
+      ...piecesOfStaleUnits([piece("a", "accepted"), piece("b", "pending")]),
+    ]).toEqual([]);
+  });
+});
+
 describe("refreshedProposalMembers", () => {
   const piece = (id: string, status = "pending", proposalId = "p") =>
     ({ id, status, proposalId }) as unknown as ResourceSuggestion;
@@ -256,6 +298,18 @@ describe("refreshedProposalMembers", () => {
     expect(
       refreshedProposalMembers(refreshed, "p", unit, true)?.map(({ id }) => id),
     ).toEqual(["a", "b"]);
+  });
+
+  it("refuses an exact set once one of its pieces changed elsewhere", () => {
+    const drawn = [
+      { ...piece("a"), revision: 1 },
+      { ...piece("b"), revision: 1 },
+    ] as ResourceSuggestion[];
+    const changed = drawn.map((member) =>
+      member.id === "b" ? { ...member, revision: 2 } : member,
+    );
+    expect(refreshedProposalMembers(changed, "p", drawn, true)).toBeNull();
+    expect(refreshedProposalMembers(drawn, "p", drawn, true)).toEqual(drawn);
   });
 
   it("refuses an exact set once one of its pieces was decided", () => {
