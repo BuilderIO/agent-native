@@ -45,6 +45,7 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 
 import type {
   LiveScreenSnapshot,
@@ -839,7 +840,8 @@ export function useEditorFilesAndSaving({
     );
 
     updateDesignMutation.mutate({ id, title: next } as any, {
-      onError: () => {
+      onError: (error) => {
+        reportDesignWriteFailure(error);
         queryClient.setQueryData(designQueryKey, previousDesign);
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);
