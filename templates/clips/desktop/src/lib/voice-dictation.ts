@@ -15,6 +15,7 @@ import {
   onFinalTranscript,
   onPartialTranscript,
   onSpeechError,
+  isUnavailableSelectedMicrophoneError,
 } from "./transcription-engine";
 import {
   createVoiceDictationLifecycle,
@@ -1150,6 +1151,56 @@ export function installDesktopVoiceDictation(
       : { audio: true, video: false };
   };
 
+  // The saved microphone can be unplugged (a headset left at home). Meeting
+  // transcription already retries on the macOS default input; dictation did
+  // not, so every press ended in an error until the user picked another mic.
+  const hasSelectedMic = (): boolean =>
+    Boolean(concreteMediaDeviceId(micDeviceId));
+
+  const withSelectedMicFallback = async <T>(
+    label: string,
+    start: (useSelectedMic: boolean) => Promise<T>,
+  ): Promise<T> => {
+    try {
+      return await start(true);
+    } catch (err) {
+      if (!hasSelectedMic() || !isUnavailableSelectedMicrophoneError(err)) {
+        throw err;
+      }
+      console.warn(
+        `[voice-dictation] ${label}: selected microphone is unavailable; retrying with the macOS default input:`,
+        err,
+      );
+      return start(false);
+    }
+  };
+
+  const getUserMediaWithFallback = async (): Promise<MediaStream> => {
+    try {
+      return await navigator.mediaDevices.getUserMedia(
+        await preferredMicConstraints(),
+      );
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      if (
+        !hasSelectedMic() ||
+        (name !== "OverconstrainedError" && name !== "NotFoundError")
+      ) {
+        throw err;
+      }
+      console.warn(
+        "[voice-dictation] getUserMedia: selected microphone is unavailable; retrying with the default input:",
+        err,
+      );
+      const builtInId = await pickBuiltInMicId();
+      return navigator.mediaDevices.getUserMedia(
+        builtInId
+          ? { audio: { deviceId: { exact: builtInId } }, video: false }
+          : { audio: true, video: false },
+      );
+    }
+  };
+
   const nativeSpeechArgs = (runId: number) => ({
     locale: navigator.language || "en-US",
     micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
@@ -1218,9 +1269,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart(runId);
         return;
       }
-      stream = await navigator.mediaDevices.getUserMedia(
-        await preferredMicConstraints(),
-      );
+      stream = await getUserMediaWithFallback();
       if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
         stream.getTracks().forEach((track) => track.stop());
         abortPendingStart(runId);
@@ -1461,16 +1510,20 @@ export function installDesktopVoiceDictation(
       "[voice-dictation] startWhisper: invoke audio_transcription_start",
     );
     try {
-      await invoke("audio_transcription_start", {
-        meetingId: null,
-        locale: navigator.language || "en-US",
-        micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
-        micDeviceLabel: micDeviceLabel || null,
-        captureSystem: false,
-        voiceProcessing: true,
-        owner: "dictation",
-        runId,
-      });
+      await withSelectedMicFallback("whisper capture", (useSelectedMic) =>
+        invoke("audio_transcription_start", {
+          meetingId: null,
+          locale: navigator.language || "en-US",
+          micDeviceId: useSelectedMic
+            ? concreteMediaDeviceId(micDeviceId) || null
+            : null,
+          micDeviceLabel: useSelectedMic ? micDeviceLabel || null : null,
+          captureSystem: false,
+          voiceProcessing: true,
+          owner: "dictation",
+          runId,
+        }),
+      );
       console.log("[voice-dictation] audio_transcription_start ok");
       if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
         invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(

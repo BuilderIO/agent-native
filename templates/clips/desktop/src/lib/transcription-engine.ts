@@ -236,7 +236,7 @@ function browserLocale(): string {
   return navigator.language || "en-US";
 }
 
-function isUnavailableSelectedMicrophoneError(error: unknown): boolean {
+export function isUnavailableSelectedMicrophoneError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /selected microphone .+ is not available/i.test(message);
 }
