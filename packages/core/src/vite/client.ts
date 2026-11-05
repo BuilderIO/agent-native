@@ -50,7 +50,10 @@ import {
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
-import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+import {
+  resolveAgentNativeBuildId,
+  resolveAgentNativeCommitSha,
+} from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -4987,6 +4990,9 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(
+        resolveAgentNativeCommitSha(process.env),
+      ),
       __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",

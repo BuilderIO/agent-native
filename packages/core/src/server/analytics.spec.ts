@@ -6,6 +6,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/store.js";
+import { encodeContinuation } from "../shared/sign-in-journey.js";
 import { injectAnalyticsIntoHtml, wrapWithAnalytics } from "./analytics.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -294,6 +295,7 @@ describe("consent bootstrap", () => {
     cachedRegion,
     google = true,
     headScriptSrc,
+    search = "",
   }: {
     region?: string;
     timeZone?: string;
@@ -301,6 +303,7 @@ describe("consent bootstrap", () => {
     cachedRegion?: string;
     google?: boolean;
     headScriptSrc?: string;
+    search?: string;
   }) {
     if (google) {
       process.env.GTM_CONTAINER_ID = "GTM-PAGE123";
@@ -349,6 +352,9 @@ describe("consent bootstrap", () => {
       },
       sessionStorage: window.sessionStorage,
       Date,
+      location: { search },
+      URLSearchParams,
+      atob,
     };
     window.window = window;
     for (const [, body] of html.matchAll(
@@ -470,6 +476,56 @@ describe("consent bootstrap", () => {
     });
 
     expect(page.loaded).toEqual([widget]);
+  });
+
+  describe("on a URL holding an agent link's token", () => {
+    const signInSearch = (returnPath: string) =>
+      `?c=${encodeContinuation(returnPath)}`;
+    const linkPath = "/sessions/sr_1?agent_access=fake-test-token";
+
+    it.each([
+      ["the link itself", "?agent_access=fake-test-token"],
+      ["the frame page", "?frame=1&agent_access=fake-test-token&atMs=5"],
+      ["the sign-in page it redirects to", signInSearch(linkPath)],
+      [
+        "a sign-in page whose return path nests the link",
+        signInSearch(
+          `/ui-return?target=${encodeURIComponent(`https://app.test${linkPath}`)}`,
+        ),
+      ],
+      ["a legacy return path", `?return=${encodeURIComponent(linkPath)}`],
+      ["a return path it can't read", "?c=%25%25%25"],
+    ])("loads no tag on %s", async (_page, search) => {
+      const page = await loadPage({
+        region: "none",
+        headScriptSrc: widget,
+        search,
+      });
+
+      expect(page.loaded).toEqual([]);
+    });
+
+    it("loads no tag when consent arrives later either", async () => {
+      const page = await loadPage({
+        region: "consent",
+        search: "?agent_access=fake-test-token",
+      });
+      const queued = page.window.__AN_CONSENT_QUEUE__ as [string, () => void][];
+
+      expect(queued).toHaveLength(2);
+      for (const [, load] of queued) load();
+
+      expect(page.loaded).toEqual([]);
+    });
+
+    it("still loads tags on a sign-in page with an ordinary return path", async () => {
+      const page = await loadPage({
+        region: "none",
+        search: signInSearch("/sessions/sr_1?range=7d"),
+      });
+
+      expect(page.tags.sort()).toEqual(["ga", "gtm"]);
+    });
   });
 });
 

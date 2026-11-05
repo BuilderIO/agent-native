@@ -18,6 +18,7 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { apiBaseUrl, appApiPath } from "./api-path.js";
+import { clientCommitSha } from "./build-compatibility.js";
 import { whenConsentAllows } from "./consent.js";
 import { markPassThroughFetch } from "./fetch-transport.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
@@ -119,6 +120,7 @@ interface SessionReplayState {
   awaitingFullSnapshot: boolean;
   stopRecorder: ReplayStopFn | null;
   restoreUrlMonitor: (() => void) | null;
+  lastNavigationPath: string | null;
   removeLifecycleListeners: (() => void) | null;
   restoreIframeBridge: (() => void) | null;
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
@@ -371,6 +373,7 @@ export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+export const SESSION_REPLAY_NAVIGATION_EVENT_TAG = "agent-native.navigation";
 export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
 export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
   "agent-native.slow_request";
@@ -457,6 +460,7 @@ function getState(): SessionReplayState {
       awaitingFullSnapshot: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
+      lastNavigationPath: null,
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
@@ -1571,6 +1575,7 @@ function buildReplayBody(
   const properties = state.suppressIdentityInProperties
     ? stripReplayIdentityProperties(replayProperties)
     : replayProperties;
+  const commitSha = clientCommitSha();
   const eventTimestamps = events.map((event) => event.timestampMs);
   const nowMs = Date.now();
   const startedAtMs =
@@ -1601,6 +1606,7 @@ function buildReplayBody(
         : undefined,
     timestamp: new Date().toISOString(),
     properties,
+    ...(commitSha ? { metadata: { commit_sha: commitSha } } : {}),
   };
   const envelopeJson = JSON.stringify(envelope);
   return {
@@ -2605,13 +2611,26 @@ async function restartSessionReplayWithFreshIdentityInternal(
   );
 }
 
+/**
+ * rrweb only marks page loads, so a single-page app's route changes would
+ * otherwise leave no trace. Only the path is recorded, never the query string.
+ */
+function emitReplayNavigation(state: SessionReplayState): void {
+  const path = window.location.pathname;
+  if (path === state.lastNavigationPath) return;
+  state.lastNavigationPath = path;
+  emitReplayCustomEvent(state, SESSION_REPLAY_NAVIGATION_EVENT_TAG, { path });
+}
+
 function installUrlMonitor(state: SessionReplayState): void {
   if (!state.options || state.restoreUrlMonitor) return;
   const options = state.options;
   const check = () => {
     if (!isUrlRecordable(window.location.href, options)) {
       void stopSessionReplay("url-blocked");
+      return;
     }
+    emitReplayNavigation(state);
   };
   const originalPushState = window.history.pushState.bind(window.history);
   const originalReplaceState = window.history.replaceState.bind(window.history);
@@ -2636,6 +2655,22 @@ function installUrlMonitor(state: SessionReplayState): void {
 
 function installLifecycleListeners(state: SessionReplayState): void {
   if (state.removeLifecycleListeners) return;
+  // A failed run's message is masked in the replay, so this mark, which never
+  // carries the message, is what keeps the failure findable.
+  const markFailedRun = (event: Event) => {
+    const detail = (event as CustomEvent).detail ?? {};
+    const text = (value: unknown) =>
+      typeof value === "string" ? value : undefined;
+    emitSessionReplayAgentChatEvent({
+      phase: "run-failed",
+      surface: "app",
+      runId: text(detail.runId),
+      tabId: text(detail.tabId),
+      errorCode: text(detail.errorCode),
+      recoverable: detail.recoverable === true,
+    });
+  };
+  window.addEventListener("agent-chat:run-error", markFailedRun);
   const flushOnHidden = () => {
     if (document.visibilityState === "hidden") {
       void flushSessionReplay("visibility-hidden");
@@ -2661,6 +2696,7 @@ function installLifecycleListeners(state: SessionReplayState): void {
     document.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnUnload);
     window.removeEventListener("pageshow", resumeFromBfcache);
+    window.removeEventListener("agent-chat:run-error", markFailedRun);
     state.removeLifecycleListeners = null;
   };
 }
@@ -3950,6 +3986,8 @@ async function startSessionReplayRecorder(
         ? rrweb.record.addCustomEvent
         : null;
     installCaptureInterceptors(state);
+    state.lastNavigationPath = null;
+    emitReplayNavigation(state);
     try {
       normalized.onRecordingStarted?.(replaySession.replayId);
     } catch {
@@ -4243,11 +4281,13 @@ export function emitSessionReplayWebVitals(
 }
 
 export type SessionReplayAgentChatEvent = {
-  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  phase: "surface-mounted" | "run-observed" | "run-stopped" | "run-failed";
   surface: string | number;
   threadId?: string | number;
   runId?: string | number;
   tabId?: string | number;
+  errorCode?: string;
+  recoverable?: boolean;
 };
 
 export function emitSessionReplayAgentChatEvent(
@@ -4267,5 +4307,9 @@ export function emitSessionReplayAgentChatEvent(
     ...(bounded(input.threadId) ? { threadId: bounded(input.threadId) } : {}),
     ...(bounded(input.runId) ? { runId: bounded(input.runId) } : {}),
     ...(bounded(input.tabId) ? { tabId: bounded(input.tabId) } : {}),
+    ...(bounded(input.errorCode)
+      ? { errorCode: bounded(input.errorCode) }
+      : {}),
+    ...(input.recoverable ? { recoverable: true } : {}),
   });
 }

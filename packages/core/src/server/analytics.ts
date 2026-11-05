@@ -1,9 +1,11 @@
 import { getAppConfig } from "../app-config/index.js";
+import { AGENT_ACCESS_PARAM } from "../shared/agent-access.js";
 import {
   CONSENT_REGION_PATH,
   CONSENT_REGION_TIME_ZONE_LIST,
   type ConsentCategory,
 } from "../shared/consent.js";
+import { SIGN_IN_CONTINUATION_PARAM } from "../shared/sign-in-journey.js";
 import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 
@@ -141,12 +143,33 @@ export function getGaInlineConfigScriptBody(options?: {
 }
 
 /**
+ * True when the page's URL holds an agent link's token, plainly or in the
+ * base64url return path the sign-in page carries. Matches the bare name, since
+ * a return path can nest the link as a percent-encoded target. A return path
+ * it can't read might hold one.
+ */
+function getAgentLinkUrlCheck(): string {
+  const name = JSON.stringify(AGENT_ACCESS_PARAM);
+  const continuation = JSON.stringify(SIGN_IN_CONTINUATION_PARAM);
+  return (
+    `(function(s){if(s.indexOf(${name})>-1)return true;` +
+    `var c=new URLSearchParams(s).get(${continuation});if(!c)return false;` +
+    // coercion-ok: an unreadable return path counts as holding a token, the safe side for a tag gate.
+    `try{return decodeURIComponent(atob(c.replace(/-/g,"+").replace(/_/g,"/"))).indexOf(${name})>-1}catch(e){return true}` +
+    `})(location.search)`
+  );
+}
+
+/**
  * Queue `body` until the visitor's region and choice allow `category`; the
  * bootstrap after it, or `client/consent.ts` once loaded, runs it. A reject
  * then a fresh accept calls it again, so it loads its tag only once a page.
+ *
+ * These tags send the page's URL to their vendors, so none loads on a URL that
+ * holds an agent link's token, which grants read access to whoever has it.
  */
 function consentGatedScript(category: ConsentCategory, body: string): string {
-  return `<script>(window.__AN_CONSENT_QUEUE__=window.__AN_CONSENT_QUEUE__||[]).push([${JSON.stringify(category)},(function(){var ran=false;return function(){if(ran)return;ran=true;${body}}})()]);</script>`;
+  return `<script>(window.__AN_CONSENT_QUEUE__=window.__AN_CONSENT_QUEUE__||[]).push([${JSON.stringify(category)},(function(){var ran=false;return function(){if(ran)return;ran=true;if(${getAgentLinkUrlCheck()})return;${body}}})()]);</script>`;
 }
 
 const GA_FALLBACK_DATA_LAYER = "__AGENT_NATIVE_GA_DATA_LAYER__";

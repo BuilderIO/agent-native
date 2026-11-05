@@ -70,3 +70,17 @@ export interface SessionReplayDiagnostics {
 export function isFailedSessionReplayNetworkStatus(status: number): boolean {
   return status === 0 || status >= 400;
 }
+
+const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
+
+/** The action name when a captured request called an Agent-Native action. */
+export function replayActionName(url: string | undefined): string | null {
+  if (!url) return null;
+  const match = ACTION_ROUTE_PATTERN.exec(url);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}

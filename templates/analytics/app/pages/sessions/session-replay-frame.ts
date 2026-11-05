@@ -1,15 +1,13 @@
 import { normalizeJourneyPath } from "@shared/journey-path";
-import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
+import {
+  SESSION_REPLAY_AGENT_ACCESS_PARAM,
+  SESSION_REPLAY_AT_MS_PARAM,
+} from "@shared/session-replay-agent-access";
 import {
   MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  REPLAY_FRAME_QUERY_PARAM,
   SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
 } from "@shared/session-replay-capture";
-
-/**
- * Frame mode renders one recording without app chrome. The signed token is
- * scoped to the recording; `capture_through_ms` bounds the loaded prefix.
- */
-export const REPLAY_FRAME_QUERY_PARAM = "frame";
 
 const USER_MESSAGE_SELECTOR =
   'article.agentkit-message[data-role="user"] .agentkit-user-message-text-content';
@@ -578,6 +576,30 @@ export function isReplayFrameRequest(
     Number.isSafeInteger(captureThroughOffsetMs) &&
     captureThroughOffsetMs <= MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS
   );
+}
+
+/** The moment a link asks the frame to stop on; null when it names none. */
+export function replayFrameAtMs(search: string): number | null {
+  const raw = new URLSearchParams(search).get(SESSION_REPLAY_AT_MS_PARAM);
+  if (raw === null) return null;
+  const atMs = Number(raw);
+  if (!/^(?:0|[1-9]\d*)$/.test(raw) || !Number.isSafeInteger(atMs)) {
+    throw new Error("replay_capture_offset_invalid");
+  }
+  return atMs;
+}
+
+/** Shrinks a recorded viewport to fit a smaller browser window, never grows it. */
+export function replayFrameFitScale(
+  recorded: { width: number; height: number },
+  available: { width: number; height: number },
+): number {
+  const scale = Math.min(
+    1,
+    available.width / recorded.width,
+    available.height / recorded.height,
+  );
+  return scale > 0 ? scale : 1;
 }
 
 export type ReplayFrameCapture = {

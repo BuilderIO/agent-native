@@ -10,7 +10,9 @@ import { resolveReplayOffsetFromRecordingStart } from "../../../shared/replay-pl
 import {
   blobToBase64,
   extractVisibleReplayUserMessages,
+  replayFrameAtMs,
   replayFrameFailureReason,
+  replayFrameFitScale,
   replayFramePath,
   type ReplayFrameCapture,
 } from "./session-replay-frame";
@@ -26,10 +28,14 @@ import {
   replayViewportDimensionsAtTime,
 } from "./SessionDetailPage";
 
+// A browser may never paint a background tab, and an agent's often is one.
+const NEXT_PAINT_LIMIT_MS = 500;
+
 function nextPaint(): Promise<void> {
-  return new Promise((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  );
+  return new Promise((resolve) => {
+    setTimeout(resolve, NEXT_PAINT_LIMIT_MS);
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 export default function SessionReplayFrame({
@@ -80,6 +86,7 @@ export default function SessionReplayFrame({
       ) {
         throw new Error("replay_capture_offset_invalid");
       }
+      const atMs = replayFrameAtMs(window.location.search);
       const playback = await fetchSessionReplayPlayback(recordingId, {
         agentAccessToken,
         captureThroughOffsetMs,
@@ -149,10 +156,7 @@ export default function SessionReplayFrame({
         recordingOffsetMs: number;
         playheadOffsetMs: number;
       } | null = null;
-      const captureOne = async (
-        recordingOffsetMs: number,
-      ): Promise<ReplayFrameCapture> => {
-        lastSeekedTarget = null;
+      const seekTo = async (recordingOffsetMs: number) => {
         if (!Number.isFinite(recordingOffsetMs) || recordingOffsetMs < 0) {
           throw new Error("offset_invalid");
         }
@@ -178,6 +182,14 @@ export default function SessionReplayFrame({
         replayer.handleResize?.(dimensions);
         sizeStage(dimensions.width, dimensions.height);
         await nextPaint();
+        return { playheadOffsetMs, dimensions };
+      };
+      const captureOne = async (
+        recordingOffsetMs: number,
+      ): Promise<ReplayFrameCapture> => {
+        lastSeekedTarget = null;
+        const { playheadOffsetMs, dimensions } =
+          await seekTo(recordingOffsetMs);
         const iframe = replayer.iframe as HTMLIFrameElement | undefined;
         if (!iframe) throw new Error("replay_frame_missing");
         lastSeekedTarget = { recordingOffsetMs, playheadOffsetMs };
@@ -204,6 +216,23 @@ export default function SessionReplayFrame({
           png: await blobToBase64(blob),
         };
       };
+
+      // A browser screenshot takes the window, not the stage, so a moment is
+      // shown whole. capture() goes back to the real size for its own PNG.
+      if (atMs !== null) {
+        const { dimensions } = await seekTo(atMs);
+        const scale = replayFrameFitScale(dimensions, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+        stageRoot.style.transformOrigin = "0 0";
+        stageRoot.style.transform = `scale(${scale})`;
+        stageRoot.style.setProperty(
+          "--an-replay-cursor-scale",
+          String(1 / scale),
+        );
+        await nextPaint();
+      }
 
       window.__anReplayFrame = {
         status: "ready",
