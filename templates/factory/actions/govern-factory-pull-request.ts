@@ -443,14 +443,13 @@ export default defineAction({
       );
       return assigneeMembership.some((assignee) => assignee.isMember);
     };
-    const pullRequestAuthor = pullRequest.userLogin.trim().toLowerCase();
     const pullRequestAuthorType = pullRequest.userType?.trim().toLowerCase();
-    if (pullRequestAuthor === "steve8708" || pullRequestAuthorType === "bot") {
+    if (pullRequestAuthorType === "bot") {
       return {
         ok: true,
         action: "skipped",
         reason:
-          "Bot-authored and steve8708 pull requests are excluded before evidence review.",
+          "Bot-authored pull requests are excluded before evidence review.",
       };
     }
     if (pullRequestAuthorType !== "user") {

@@ -2,11 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createAgentChatPlugin: vi.fn((options: Record<string, unknown>) => options),
+  registerAgentContextAgentFilter: vi.fn(),
+  hideHostedAppsWhenOff: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   createAgentChatPlugin: mocks.createAgentChatPlugin,
   getBuilderWorkspaceUrl: () => null,
+  registerAgentContextAgentFilter: mocks.registerAgentContextAgentFilter,
+}));
+
+vi.mock("../lib/hosted-apps-settings.js", () => ({
+  hideHostedAppsWhenOff: mocks.hideHostedAppsWhenOff,
 }));
 
 vi.mock("@agent-native/core/org", () => ({
@@ -45,6 +52,15 @@ describe("Dispatch agent chat plugin", () => {
           resolveCaller: expect.any(Function),
         }),
       }),
+    );
+  });
+
+  it("hides hosted apps from its own agent context through the setting", async () => {
+    await import("./agent-chat.js");
+
+    expect(mocks.registerAgentContextAgentFilter).toHaveBeenCalledWith(
+      "dispatch",
+      mocks.hideHostedAppsWhenOff,
     );
   });
 

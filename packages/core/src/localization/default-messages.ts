@@ -2,6 +2,7 @@ import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
+import { SAVE_CONFLICT_MESSAGES } from "./save-conflict-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
@@ -50,6 +51,7 @@ const messages = {
   },
   consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
+  saveConflict: SAVE_CONFLICT_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
@@ -91,6 +93,9 @@ const messages = {
     roleMarketing: "Marketing",
     roleSales: "Sales",
     roleOps: "Ops",
+    roleCreator: "Content creator",
+    roleStudent: "Student",
+    roleEducator: "Educator",
     roleIndividual: "Individual",
     roleOther: "Other",
     roleOtherInputLabel: "Describe your role",

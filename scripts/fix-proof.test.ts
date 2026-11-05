@@ -201,4 +201,18 @@ describe("fix-proof", () => {
     write("app.txt", "fixed\n");
     assert.equal(r.status, 2);
   });
+
+  it("cannot run on a test-only commit and says it needs no proof", () => {
+    write(
+      "feature.test.js",
+      `${readFileSync(join(repo, "feature.test.js"), "utf8")}// deflaked\n`,
+    );
+    sh("git", "commit", "-qam", "test-only");
+    const r = sh("node", SCRIPT, "--fix", "HEAD", "--", "true");
+    assert.equal(r.status, 2);
+    assert.match(
+      r.stderr,
+      /no non-test changes[^\n]*test-only change needs no fix proof/,
+    );
+  });
 });

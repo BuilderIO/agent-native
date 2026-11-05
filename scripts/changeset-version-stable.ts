@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -58,6 +58,101 @@ function runChangesetVersion(): void {
   }
 }
 
+const CORE_PACKAGE = "@agent-native/core";
+const PACKAGES_DIR = path.join(rootDir, "packages");
+
+type PackageManifest = {
+  name?: string;
+  version?: string;
+  peerDependencies?: Record<string, string>;
+};
+
+/**
+ * A released package peers on the Core it was built and tested beside. A
+ * hand-kept floor goes stale as soon as the package adopts a newer Core
+ * export, and pnpm then installs it next to a Core that lacks the export with
+ * nothing more than a warning.
+ */
+export function corePeerFloorFor(
+  manifest: PackageManifest,
+  coreVersion: string,
+): string | null {
+  const range = manifest.peerDependencies?.[CORE_PACKAGE];
+  if (range === undefined || range.startsWith("workspace:")) return null;
+  if (!/^>=\S+$/.test(range)) {
+    throw new Error(
+      `${manifest.name} declares ${CORE_PACKAGE}@"${range}". Only a ">=" floor can be raised to the released Core.`,
+    );
+  }
+  const floor = `>=${coreVersion}-0`;
+  return range === floor ? null : floor;
+}
+
+async function readPackageManifests(
+  packagesDir: string,
+): Promise<Map<string, PackageManifest>> {
+  const manifests = new Map<string, PackageManifest>();
+  for (const entry of await readdir(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = path.join(packagesDir, entry.name, "package.json");
+    let source: string;
+    try {
+      source = await readFile(manifestPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    manifests.set(manifestPath, JSON.parse(source) as PackageManifest);
+  }
+  return manifests;
+}
+
+export async function readPackageVersions(
+  packagesDir = PACKAGES_DIR,
+): Promise<Map<string, string | undefined>> {
+  const manifests = await readPackageManifests(packagesDir);
+  return new Map(
+    [...manifests].map(([manifestPath, manifest]) => [
+      manifestPath,
+      manifest.version,
+    ]),
+  );
+}
+
+export async function raiseReleasedCorePeerFloors(
+  versionsBefore: Map<string, string | undefined>,
+  packagesDir = PACKAGES_DIR,
+): Promise<string[]> {
+  const manifests = await readPackageManifests(packagesDir);
+  const coreVersion = [...manifests.values()].find(
+    (manifest) => manifest.name === CORE_PACKAGE,
+  )?.version;
+  if (!coreVersion) {
+    throw new Error(`No ${CORE_PACKAGE} version found under ${packagesDir}.`);
+  }
+  const raised: string[] = [];
+  for (const [manifestPath, manifest] of manifests) {
+    if (manifest.version === versionsBefore.get(manifestPath)) continue;
+    const floor = corePeerFloorFor(manifest, coreVersion);
+    if (!floor) continue;
+    manifest.peerDependencies = {
+      ...manifest.peerDependencies,
+      [CORE_PACKAGE]: floor,
+    };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    raised.push(`${manifest.name}: ${CORE_PACKAGE}@${floor}`);
+  }
+  return raised;
+}
+
+async function versionStable(): Promise<void> {
+  const versionsBefore = await readPackageVersions();
+  await withStableChangesetConfig(runChangesetVersion);
+  for (const raised of await raiseReleasedCorePeerFloors(versionsBefore)) {
+    console.log(`Raised peer floor ${raised}`);
+  }
+}
+
 function isDirectExecution(): boolean {
   const entrypoint = process.argv[1];
   return Boolean(
@@ -67,7 +162,7 @@ function isDirectExecution(): boolean {
 }
 
 if (isDirectExecution()) {
-  withStableChangesetConfig(runChangesetVersion).catch((error) => {
+  versionStable().catch((error) => {
     console.error(error);
     process.exit(1);
   });

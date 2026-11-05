@@ -2719,10 +2719,14 @@ export async function listSessionRecordingsPage(
           }[sort],
         );
   const [totalRows, appRows, frictionCoverageStartedAt] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.sessionRecordings)
-      .where(and(...conditions)),
+    // Without an app filter both read the same rows, and under an event filter
+    // each read walks every recording, so the app counts supply the total.
+    filters.app
+      ? db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.sessionRecordings)
+          .where(and(...conditions))
+      : undefined,
     db
       .select({
         app: schema.sessionRecordings.app,
@@ -2739,15 +2743,18 @@ export async function listSessionRecordingsPage(
         })
       : undefined,
   ]);
-  if (totalRows.length !== 1) {
+  if (totalRows && totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");
   }
-  const count = totalRows[0].count;
-  const total =
-    typeof count === "number" ||
-    (typeof count === "string" && /^\d+$/.test(count))
-      ? Number(count)
-      : NaN;
+  const total: number = (totalRows ?? appRows).reduce(
+    (sum: number, { count }: { count: unknown }) =>
+      sum +
+      (typeof count === "number" ||
+      (typeof count === "string" && /^\d+$/.test(count))
+        ? Number(count)
+        : NaN),
+    0,
+  );
   if (!Number.isSafeInteger(total) || total < 0) {
     throw new Error("Session recording total query returned an invalid count");
   }

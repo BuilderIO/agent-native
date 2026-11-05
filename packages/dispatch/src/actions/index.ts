@@ -29,6 +29,7 @@ import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
 import getDreamSettings from "./get-dream-settings.js";
 import getDream from "./get-dream.js";
+import getHostedAppsSettings from "./get-hosted-apps-settings.js";
 import getVaultAccessSettings from "./get-vault-access-settings.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
 import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
@@ -96,6 +97,7 @@ import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
 import setDreamSettings from "./set-dream-settings.js";
+import setHostedAppsSettings from "./set-hosted-apps-settings.js";
 import setMcpAppAccess from "./set-mcp-app-access.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
@@ -137,6 +139,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "get-dream": getDream,
   "get-dream-settings": getDreamSettings,
   "get-dispatch-settings": getDispatchSettings,
+  "get-hosted-apps-settings": getHostedAppsSettings,
   "get-vault-access-settings": getVaultAccessSettings,
   "get-workspace-resource-effective-context":
     getWorkspaceResourceEffectiveContext,
@@ -206,6 +209,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
   "set-dream-settings": setDreamSettings,
+  "set-hosted-apps-settings": setHostedAppsSettings,
   "set-mcp-app-access": setMcpAppAccess,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
