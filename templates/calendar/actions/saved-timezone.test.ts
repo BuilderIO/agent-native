@@ -12,16 +12,13 @@ import { normalizeCreateEventInput } from "./event-action-helpers";
 
 describe("saved Calendar timezone", () => {
   it("interprets zoneless event times in the saved timezone", () => {
-    expect(
-      normalizeCreateEventInput(
-        {
-          title: "Meeting",
-          start: "2026-11-04T10:00:00",
-          end: "2026-11-04T11:00:00",
-        },
-        "Asia/Kolkata",
-      ),
-    ).toMatchObject({
+    const event = {
+      title: "Meeting",
+      start: "2026-11-04T10:00:00",
+      end: "2026-11-04T11:00:00",
+      defaultTimezone: "Asia/Kolkata",
+    };
+    expect(normalizeCreateEventInput(event, "Asia/Kolkata")).toMatchObject({
       start: "2026-11-04T04:30:00.000Z",
       end: "2026-11-04T05:30:00.000Z",
       startTimeZone: "Asia/Kolkata",
