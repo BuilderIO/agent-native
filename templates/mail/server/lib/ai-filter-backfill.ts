@@ -446,13 +446,6 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
   ) {
     return TRANSIENT_RETRY_DELAY_MS;
   }
-  if (
-    error instanceof Error &&
-    typeof (error as Error & { status?: unknown }).status === "number" &&
-    (error as Error & { status: number }).status >= 500
-  ) {
-    return TRANSIENT_RETRY_DELAY_MS;
-  }
   return null;
 }
 
@@ -1075,7 +1068,16 @@ async function captureGmailCandidates(
         "metadata",
         METADATA_HEADERS,
         "backfill",
-      );
+      ).catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          typeof (error as Error & { status?: unknown }).status === "number" &&
+          (error as Error & { status: number }).status >= 500
+        ) {
+          Object.assign(error, { retryable: true });
+        }
+        throw error;
+      });
       for (const result of batch) {
         if (result.error || !result.data) {
           const failure = new Error(

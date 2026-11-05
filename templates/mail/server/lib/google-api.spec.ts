@@ -95,7 +95,6 @@ vi.mock("./inbox-store.js", () => ({
   },
 }));
 
-import { aiFilterBackfillRetryDelay } from "./ai-filter-backfill.js";
 import { GmailQuotaRefusedError } from "./gmail-quota.js";
 import {
   GmailQuotaCooldownError,
@@ -605,7 +604,7 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("backs off after an outer Gmail batch 503", async () => {
+  it("preserves the status of an outer Gmail batch 503", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("upstream unavailable", {
         status: 503,
@@ -622,7 +621,6 @@ describe("googleFetch quota handling", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({ status: 503 });
-    expect(aiFilterBackfillRetryDelay(error)).toBe(30_000);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
