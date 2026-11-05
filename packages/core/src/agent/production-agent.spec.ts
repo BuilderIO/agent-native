@@ -22403,6 +22403,231 @@ describe("runAgentLoop", () => {
     expect(textEvents[0].text).toBe("Recovered answer.");
   });
 
+  it("accepts a clean empty final after an action explicitly settles its invocation", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      (
+        ctx as (ActionRunContext & { settle?: () => void }) | undefined
+      )?.settle?.();
+      return { saved: true };
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "tool-call", id: "save", name: "save", input: {} }],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = { save: { ...actionEntry({ readOnly: false }), run } };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(2);
+    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+  });
+
+  it("does not settle when the invocation is aborted after signalling", async () => {
+    const controller = new AbortController();
+    const run = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      controller.abort();
+      return { saved: true };
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream() {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "tool-call", id: "save", name: "save", input: {} }],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const actions = { save: { ...actionEntry({ readOnly: false }), run } };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: controller.signal,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+  });
+
+  it.each([
+    "throws after settling",
+    "failed receipt",
+    "unverified receipt",
+    "next action required",
+    "final response guard",
+    "max tokens",
+    "parallel failure",
+    "parallel unmarked action",
+    "parallel unmarked action with reused id",
+  ])("does not accept settlement for %s", async (scenario) => {
+    let streamCalls = 0;
+    const save = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      if (scenario === "throws after settling") throw new Error("save failed");
+      if (scenario === "failed receipt") {
+        return {
+          _receipt: { changed: true, verified: false, summary: "not saved" },
+        };
+      }
+      if (scenario === "unverified receipt") {
+        return {
+          _receipt: {
+            changed: true,
+            verified: "unverified",
+            summary: "not checked",
+          },
+        };
+      }
+      if (scenario === "next action required")
+        return { nextRequiredAction: "verify" };
+      return { saved: true };
+    });
+    const other = vi.fn(async () => {
+      if (scenario === "parallel failure") throw new Error("other failed");
+      return { ok: true };
+    });
+    const parallel = scenario.startsWith("parallel");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "tool-call", id: "save", name: "save", input: {} },
+              ...(parallel
+                ? [
+                    {
+                      type: "tool-call" as const,
+                      id: scenario.endsWith("reused id") ? "save" : "other",
+                      name: "other",
+                      input: {},
+                    },
+                  ]
+                : []),
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else if (streamCalls === 2) {
+          yield {
+            type: "stop",
+            reason: scenario === "max tokens" ? "max_tokens" : "end_turn",
+          };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Continued." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    const actions = {
+      save: {
+        ...actionEntry({ readOnly: false }),
+        parallelSafe: true,
+        run: save,
+      },
+      other: {
+        ...actionEntry({ readOnly: false }),
+        parallelSafe: true,
+        run: other,
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      ...(scenario === "final response guard"
+        ? {
+            finalResponseGuard: ({
+              text,
+            }: AgentLoopFinalResponseGuardContext) =>
+              text ? null : "Please finish the response.",
+          }
+        : {}),
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    if (parallel) expect(other).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBeGreaterThanOrEqual(3);
+    expect(events).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Continued."),
+      }),
+    );
+  });
+
   it("recovers when the model stops without assistant content after a tool", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => "fresh Granola notes");

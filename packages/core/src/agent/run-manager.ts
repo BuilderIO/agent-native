@@ -604,6 +604,10 @@ export function endsAfterToolResultWithoutAssistantFinal(
 ): boolean {
   let toolResultAfterLastAssistantText = false;
   for (const { event, seq } of run.events) {
+    if (event.type === "done" && event.reason === "action_settled") {
+      toolResultAfterLastAssistantText = false;
+      continue;
+    }
     if (event.type === "text" && event.text.trim().length > 0) {
       toolResultAfterLastAssistantText = false;
       continue;
@@ -2418,6 +2422,10 @@ export function startRun(
         finalStatus === "completed" &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
+        !(
+          terminalEventForCompletion?.event.type === "done" &&
+          terminalEventForCompletion.event.reason === "action_settled"
+        ) &&
         (endsAfterToolResultWithoutAssistantFinal(
           runForCompletionChecks,
           privateCompletedUiTools,

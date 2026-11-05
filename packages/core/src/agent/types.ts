@@ -558,7 +558,7 @@ type AgentChatEventPayload =
     }
   | {
       type: "done";
-      reason?: "user" | "loop_breaker";
+      reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
     }
   | {

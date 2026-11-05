@@ -4567,6 +4567,7 @@ interface DurableExecutionStepOutcome {
   errorCode?: string;
   completedSideEffect: boolean;
   replayTruncated?: boolean;
+  actionSettled?: true;
   artifacts?: ArtifactReceipt[];
   receipt?: WriteReceipt;
   mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
@@ -7683,6 +7684,8 @@ export async function runAgentLoop(opts: {
   };
   if (followUpRunId) send({ type: "suggestions", suggestions: [] });
   let model = normalizeModelForEngine(engine, opts.model);
+  let settlementCandidate = false;
+  let settledEmptyFinal = false;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -7699,10 +7702,10 @@ export async function runAgentLoop(opts: {
   const deliverSteeredMessagesAtToolBoundary = async (
     toolResultParts: EngineContentPart[],
   ) => {
-    if (signal.aborted) return;
+    if (signal.aborted) return 0;
     const threadId = opts.threadId;
     const runId = opts.runId;
-    if (!threadId || !runId) return;
+    if (!threadId || !runId) return 0;
     const { claimSteeredQueuedMessages } =
       await import("../chat-threads/store.js");
     let delivered: Awaited<ReturnType<typeof claimSteeredQueuedMessages>>;
@@ -7715,7 +7718,7 @@ export async function runAgentLoop(opts: {
         "[agent-chat] Send now delivery skipped at a tool boundary:",
         error instanceof Error ? error.message : String(error),
       );
-      return;
+      return 0;
     }
     for (const { queued, record } of delivered) {
       toolResultParts.push(
@@ -7737,6 +7740,7 @@ export async function runAgentLoop(opts: {
         continuationMessageId: record.continuationMessageId,
       });
     }
+    return delivered.length;
   };
   const deferSteeredMessagesPastFinalResponse = async () => {
     if (!opts.threadId || !opts.runId) return;
@@ -9150,6 +9154,9 @@ export async function runAgentLoop(opts: {
       }
       if (followUpResults.length > 0)
         messages.push({ role: "user", content: followUpResults });
+      if (terminalStopReason === "max_tokens" || followUpResults.length > 0) {
+        settlementCandidate = false;
+      }
       if (terminalStopReason === "max_tokens") {
         if (hasEmptyFinalResponse) {
           preserveReasoningEffortForEmptyResponseRetries = true;
@@ -9192,7 +9199,14 @@ export async function runAgentLoop(opts: {
         flushUnstreamedAssistantText();
         continue;
       }
-      if (hasEmptyFinalResponse) {
+      const canSettleEmptyFinal =
+        hasEmptyFinalResponse &&
+        settlementCandidate &&
+        terminalStopReason === "end_turn" &&
+        followUpResults.length === 0 &&
+        !signal.aborted &&
+        !writeReceiptGuard(turnReceipts(), receiptGuardRetried);
+      if (hasEmptyFinalResponse && !canSettleEmptyFinal) {
         completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
@@ -9258,6 +9272,7 @@ export async function runAgentLoop(opts: {
           : receiptGuard;
       }
       if (guard) {
+        settlementCandidate = false;
         completedFollowUpSuggestions = undefined;
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
@@ -9308,6 +9323,7 @@ export async function runAgentLoop(opts: {
       } else {
         flushUnstreamedAssistantText();
         if (
+          !canSettleEmptyFinal &&
           followUpRunId &&
           completedFollowUpSuggestions === undefined &&
           (terminalStopReason === "end_turn" || followUpResults.length > 0)
@@ -9322,6 +9338,7 @@ export async function runAgentLoop(opts: {
           continue;
         }
       }
+      settledEmptyFinal = canSettleEmptyFinal && !guard;
       emptyFinalResponseRetries = 0;
       preserveReasoningEffortForEmptyResponseRetries = false;
       consecutiveMaxTokensContinuations = 0;
@@ -9353,6 +9370,10 @@ export async function runAgentLoop(opts: {
 
     flushUnstreamedAssistantText();
 
+    settlementCandidate = false;
+    const settledToolCalls = new Set<
+      import("./engine/types.js").EngineToolCallPart
+    >();
     let requestedActionStop: TerminalActionStop | null = null;
     // Tool closures set the stop, so control flow still reads it as null here.
     const actionStopRequested = () => requestedActionStop !== null;
@@ -10362,6 +10383,15 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
         });
         recordToolResult(result, isError, artifacts, receipt, false);
+        if (
+          !isError &&
+          outcome.isError === false &&
+          typeof outcome.completedSideEffect === "boolean" &&
+          outcome.actionSettled === true &&
+          outcome.replayTruncated !== true
+        ) {
+          settledToolCalls.add(originalToolCall);
+        }
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
         }
@@ -10868,6 +10898,9 @@ export async function runAgentLoop(opts: {
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
         let receipt: WriteReceipt | undefined;
+        let requestedSettlement = false;
+        let settlementOnReturn = false;
+        let requiresNextAction = false;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -10922,6 +10955,9 @@ export async function runAgentLoop(opts: {
             }
             const actionContext = {
               send,
+              settle: () => {
+                requestedSettlement = true;
+              },
               userEmail: actionUserEmail ?? undefined,
               orgId: actionOrgId,
               appId: opts.appId,
@@ -11135,8 +11171,12 @@ export async function runAgentLoop(opts: {
               );
             }),
           ]);
+          settlementOnReturn = requestedSettlement;
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
+          requiresNextAction =
+            isRecord(rawForAgent) &&
+            typeof rawForAgent.nextRequiredAction === "string";
           if (
             mcpResult &&
             mcpResult.raw &&
@@ -11429,6 +11469,14 @@ export async function runAgentLoop(opts: {
                   ? { errorCode: toolErrorCode }
                   : {}),
                 completedSideEffect: callEffect === "committed",
+                ...(!isPrivateCall() &&
+                !isError &&
+                !toolResultLost &&
+                !signal.aborted &&
+                settlementOnReturn &&
+                !requiresNextAction
+                  ? { actionSettled: true as const }
+                  : {}),
                 ...(isPrivateCall() ? {} : { artifacts: toolArtifacts }),
                 ...(!isPrivateCall() && receipt ? { receipt } : {}),
                 ...(!isPrivateCall() && mcpApp ? { mcpApp } : {}),
@@ -11479,6 +11527,16 @@ export async function runAgentLoop(opts: {
         });
         toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
+        if (
+          !isError &&
+          !toolResultLost &&
+          !signal.aborted &&
+          settlementOnReturn &&
+          !requiresNextAction &&
+          callEffect !== "unknown"
+        ) {
+          settledToolCalls.add(originalToolCall);
+        }
         if (isError) {
           if (callEffect === "committed") {
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
@@ -11692,7 +11750,14 @@ export async function runAgentLoop(opts: {
         : toolResultParts,
     });
     if (!actionStopRequested()) {
-      await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+      const delivered =
+        await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+      settlementCandidate =
+        delivered === 0 &&
+        followUpResults.length === 0 &&
+        toolCallParts.length > 0 &&
+        toolCallParts.every((call) => settledToolCalls.has(call)) &&
+        !toolResultHistory.some((result) => result.isError);
     }
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
@@ -11770,14 +11835,16 @@ export async function runAgentLoop(opts: {
       send({ type: "suggestions", suggestions: completedFollowUpSuggestions });
     send({
       type: "done",
-      ...(loopBreakerStopped
-        ? {
-            reason: "loop_breaker",
-            ...(loopBreakerCloseout
-              ? { message: loopBreakerCloseout.message }
-              : {}),
-          }
-        : {}),
+      ...(settledEmptyFinal
+        ? { reason: "action_settled" as const }
+        : loopBreakerStopped
+          ? {
+              reason: "loop_breaker",
+              ...(loopBreakerCloseout
+                ? { message: loopBreakerCloseout.message }
+                : {}),
+            }
+          : {}),
     });
     if (opts.threadId) {
       void retainRequestDbPoolScope(

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import type { ActionRunContext } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type {
   AgentEngine,
@@ -144,6 +145,59 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("replays a successfully settled write without running it again", async () => {
+    const actionRun = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return {
+        id: "deck-1",
+        _receipt: { changed: true, verified: true, summary: "Saved" },
+      };
+    });
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const execute = async () => {
+      const events: AgentChatEvent[] = [];
+      const seen: string[] = [];
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[toolCall()], []], seen),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Create a deck" }],
+            },
+          ],
+          actions: { "create-deck": action },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+      return { events, seen };
+    };
+    const first = await execute();
+    const recovered = await execute();
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(first.seen).toHaveLength(2);
+    expect(recovered.seen).toHaveLength(2);
+    expect(recovered.events).toContainEqual(
+      expect.objectContaining({ type: "tool_done", replayed: true }),
+    );
+    expect(recovered.events.at(-1)).toEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+  });
   it("keeps failed reads counted when a cached result is reconstructed from durable steps", async () => {
     const events: AgentChatEvent[] = [];
     const actionRun = vi.fn(async ({ id }: { id: string }) => {
