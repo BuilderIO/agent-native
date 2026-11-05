@@ -962,7 +962,7 @@ describe("list-events inventory contract", () => {
     ).rejects.toThrow("Refresh token revoked");
   });
 
-  it("does not fail the whole request when one account's token fails but another account read succeeded with no events", async () => {
+  it("fails when one account errors and another account read succeeds with no events", async () => {
     getOwnedAccountEmailsMock.mockResolvedValue([
       "quiet@example.com",
       "broken@example.com",
@@ -972,12 +972,12 @@ describe("list-events inventory contract", () => {
       errors: [{ email: "broken@example.com", error: "Refresh failed" }],
     });
 
-    const result = await (listEventsAction as any).run(
-      { from: "2026-06-17", to: "2026-06-18" },
-      {},
-    );
-
-    expect(result).toEqual([]);
+    await expect(
+      listEventsAction.run(
+        { from: "2026-06-17", to: "2026-06-18" } as never,
+        undefined as never,
+      ),
+    ).rejects.toThrow("broken@example.com: Refresh failed");
   });
 
   it("still fails when the primary read errors even if a supplementary overlay event exists", async () => {
