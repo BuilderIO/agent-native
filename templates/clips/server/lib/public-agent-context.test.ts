@@ -94,6 +94,7 @@ import {
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   describeAgentAccessFailure,
   loadPublicAgentAccess,
+  resolvePublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
@@ -408,6 +409,47 @@ describe("agent view recording", () => {
 
     await loadPublicAgentAccess({} as any, "rec-1");
 
+    expect(mockRecordAgentView).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolvePublicAgentAccess", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordings.rows = [];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+  });
+
+  it("takes the viewer's email instead of a request, owner included", async () => {
+    mockRecordings.rows = [makeRecording({ visibility: "private" })];
+
+    const stranger = await resolvePublicAgentAccess("rec-1", {
+      viewerEmail: "stranger@example.com",
+    });
+    const owner = await resolvePublicAgentAccess("rec-1", {
+      viewerEmail: "OWNER@example.com",
+    });
+
+    expect(stranger).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(owner).toMatchObject({ ok: true, access: { viewerIsOwner: true } });
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("reports a non-owner read through recordView, and none without one", async () => {
+    mockRecordings.rows = [makeRecording()];
+    const recordView = vi.fn(async () => {});
+
+    await resolvePublicAgentAccess("rec-1", { recordView });
+    await resolvePublicAgentAccess("rec-1");
+
+    expect(recordView).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: "rec-1" }),
+      {
+        agentLabel: null,
+        ownerEmail: "owner@example.com",
+        viaScopedLink: false,
+      },
+    );
     expect(mockRecordAgentView).not.toHaveBeenCalled();
   });
 });
@@ -747,6 +789,10 @@ describe("buildPublicAgentContext", () => {
 
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
+    expect(context.apis.mcp).toEqual({
+      tool: "get-recording-frames",
+      connectUrl: "https://clips.example.com/mcp/connect",
+    });
     expect(context.apis.frames).toMatchObject({
       method: "GET",
       urlTemplate:

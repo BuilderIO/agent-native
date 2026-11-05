@@ -102,11 +102,29 @@ describe("import-markdown-files", () => {
     });
   });
 
+  it("imports plain text files and records their format", async () => {
+    await action.run({
+      sourceId: "source-1",
+      files: [
+        { path: "notes/plan.txt", content: "Plan" },
+        { path: "notes/RETRO.TXT", content: "Retro" },
+      ],
+      enqueueDistillation: true,
+    });
+
+    expect(
+      mocks.createCapture.mock.calls.map(([input]) => input.metadata),
+    ).toEqual([
+      { path: "notes/plan.txt", sourceFormat: "text" },
+      { path: "notes/RETRO.TXT", sourceFormat: "text" },
+    ]);
+  });
+
   it("reports unsupported and empty files without pretending they imported", async () => {
     const result = await action.run({
       sourceId: "source-1",
       files: [
-        { path: "docs/readme.txt", content: "not Markdown" },
+        { path: "docs/deck.pdf", content: "not supported" },
         { path: "docs/empty.md", content: "   " },
       ],
       enqueueDistillation: true,
@@ -116,14 +134,14 @@ describe("import-markdown-files", () => {
     expect(result.source).toBeUndefined();
     expect(result.files).toEqual([
       {
-        path: "docs/readme.txt",
+        path: "docs/deck.pdf",
         status: "failed",
-        error: "Only .md and .markdown files are supported.",
+        error: "Only .md, .markdown, and .txt files are supported.",
       },
       {
         path: "docs/empty.md",
         status: "failed",
-        error: "The Markdown file is empty.",
+        error: "The file has no text.",
       },
     ]);
     expect(result.summary.failed).toBe(2);

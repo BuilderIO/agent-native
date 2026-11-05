@@ -1,6 +1,11 @@
 import type { WorkflowGraph, WorkflowIssue } from "@/lib/workflow-editor";
+import {
+  annotateApiRequestIssues,
+  type AnnotatedIssue,
+} from "@/lib/workflow-editor/api-request";
 
 import type { WorkflowCanvasStrings } from "../workflow-canvas/strings";
+import { WORKFLOW_CATALOG } from "./workflow-catalog";
 import type { ServerIssue } from "./workflow-errors";
 import type { WorkflowStrings } from "./workflow-strings";
 
@@ -9,13 +14,13 @@ export interface ProblemRow {
   key: string;
   sentence: string;
   /** The step or connection it is about, in words. */
-  where?: string;
+  where?: string | undefined;
   nodeId?: string;
   edgeId?: string;
 }
 
 /** The canvas's sentence for a problem; a code it has no sentence for is shown as the validator worded it. */
-function sentenceFor(issue: WorkflowIssue, s: WorkflowCanvasStrings): string {
+function sentenceFor(issue: AnnotatedIssue, s: WorkflowCanvasStrings): string {
   const sentence = s.issue.sentence(
     issue,
     issue.port ? s.port[issue.port] : undefined,
@@ -62,7 +67,12 @@ export function listProblems(input: {
 }): ProblemRow[] {
   const { canvas, workflow: ws } = input.strings;
   const names = nodeNames(input.graph);
-  const rows: ProblemRow[] = input.issues.map((issue, index) => ({
+  const issues = annotateApiRequestIssues(
+    input.graph,
+    WORKFLOW_CATALOG,
+    input.issues,
+  );
+  const rows: ProblemRow[] = issues.map((issue, index) => ({
     key: `local:${index}`,
     sentence: sentenceFor(issue, canvas),
     ...(issue.nodeId

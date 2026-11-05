@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   execFileSync,
   spawn,
+  spawnSync,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import fs from "node:fs";
@@ -12,6 +13,7 @@ import path from "node:path";
 
 import type { Browser, Locator, Page } from "playwright";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
 
 interface RunningDispatch {
@@ -43,8 +45,10 @@ const lastError = `Synthetic smoke failure ${runId}`;
 
 function buildCurrentPackages() {
   for (const pkg of ["@agent-native/core", "@agent-native/dispatch"]) {
-    execFileSync("pnpm", ["--filter", pkg, "build"], {
+    const pnpm = pnpmCommand(["--filter", pkg, "build"]);
+    execFileSync(pnpm.command, pnpm.args, {
       cwd: repoRoot,
+      shell: pnpm.shell,
       stdio: "inherit",
       env: { ...process.env, NO_COLOR: "1" },
     });
@@ -126,25 +130,23 @@ async function startDispatch(): Promise<RunningDispatch> {
   const baseUrl = `http://127.0.0.1:${port}`;
   const dataDir = path.join(tmpRoot, "dispatch-pglite");
   const logs: string[] = [];
-  const child = spawn(
-    "pnpm",
-    [
-      "--dir",
-      templateDir,
-      "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--strictPort",
-    ],
-    {
-      cwd: repoRoot,
-      env: dispatchEnv(baseUrl, dataDir),
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const pnpm = pnpmCommand([
+    "--dir",
+    templateDir,
+    "dev",
+    "--",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(port),
+    "--strictPort",
+  ]);
+  const child = spawn(pnpm.command, pnpm.args, {
+    cwd: repoRoot,
+    env: dispatchEnv(baseUrl, dataDir),
+    shell: pnpm.shell,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
   child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
@@ -158,16 +160,28 @@ async function startDispatch(): Promise<RunningDispatch> {
 
 async function stopDispatch(running: RunningDispatch): Promise<void> {
   if (running.child.exitCode != null) return;
-  running.child.kill("SIGTERM");
+  killDispatch(running, "SIGTERM");
   await Promise.race([
     new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
     new Promise<void>((resolve) =>
       setTimeout(() => {
-        if (running.child.exitCode == null) running.child.kill("SIGKILL");
+        if (running.child.exitCode == null) killDispatch(running, "SIGKILL");
         resolve();
       }, 5_000),
     ),
   ]);
+}
+
+// On Windows the child is a cmd.exe wrapper around pnpm, so stopping only it
+// would leave Dispatch holding its port. taskkill stops the whole tree.
+function killDispatch(running: RunningDispatch, signal: NodeJS.Signals): void {
+  if (process.platform === "win32" && running.child.pid) {
+    spawnSync("taskkill", ["/pid", String(running.child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  running.child.kill(signal);
 }
 
 async function launchBrowser(): Promise<Browser> {

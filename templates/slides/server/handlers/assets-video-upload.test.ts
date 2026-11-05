@@ -13,7 +13,10 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("@agent-native/core/sharing", () => ({ accessFilter: vi.fn() }));
+
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: vi.fn(),
   desc: vi.fn(),
   eq: vi.fn(),

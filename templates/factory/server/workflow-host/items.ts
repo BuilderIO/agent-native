@@ -81,6 +81,8 @@ export const ITEM_METADATA = {
   author: "author",
   occurredAt: "occurredAt",
   extras: "extras",
+  /** A one-line name a person recognises the item by; a Slack poll writes it for a workflow. */
+  headline: "headline",
   textTruncated: "textTruncated",
   payloadTruncated: "payloadTruncated",
   workflowEnd: "workflowEnd",
