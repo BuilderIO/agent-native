@@ -55,6 +55,8 @@ interface ReplayNode {
   control: string | null;
   tag: string;
   name: string;
+  /** The text node that gave this name, so a change to the text renames it. */
+  nameTextId: number | null;
   toast: boolean;
   toastTitle: boolean;
   editable: boolean;
@@ -105,6 +107,7 @@ function elementNode(
         : null,
     tag,
     name,
+    nameTextId: null,
     toast: "data-sonner-toast" in attributes,
     toastTitle: "data-title" in attributes,
     editable: isEditableAttribute(attributes.contenteditable),
@@ -118,7 +121,10 @@ function elementNode(
  */
 export function createReplayNodeLabels() {
   const nodes = new Map<number, ReplayNode>();
-  const toastTexts = new Map<number, string[]>();
+  const textParents = new Map<number, number | null>();
+  // By text node, since a toast often changes its text as it turns into an error.
+  const toastTextIds = new Map<number, number[]>();
+  const toastTexts = new Map<number, string>();
 
   function toastHolding(parentId: number | null): number | null {
     let id = parentId;
@@ -148,13 +154,24 @@ export function createReplayNodeLabels() {
   }
 
   /** A control's text names it, wherever in the control the text sits. */
-  function nameFromText(parentId: number | null, text: string): void {
+  function nameFromText(
+    parentId: number | null,
+    textId: number,
+    text: string,
+  ): void {
+    const claim = (node: ReplayNode) => {
+      if (node.nameTextId === textId) node.name = "";
+      if (!node.name && text) {
+        node.name = text;
+        node.nameTextId = textId;
+      }
+    };
     let cursor = parentId === null ? undefined : nodes.get(parentId);
-    if (!cursor || !text) return;
-    cursor.name ||= text;
+    if (!cursor) return;
+    claim(cursor);
     for (let depth = 0; cursor && depth < MAX_ANCESTORS_CHECKED; depth += 1) {
       if (cursor.control) {
-        cursor.name ||= text;
+        claim(cursor);
         return;
       }
       cursor =
@@ -172,19 +189,20 @@ export function createReplayNodeLabels() {
       const id = serialized.id;
       if (typeof id !== "number") continue;
       if (serialized.type === NODE_TEXT) {
+        textParents.set(id, parentId);
         if (holdsReadableText(parentId)) {
           const parent = parentId === null ? undefined : nodes.get(parentId);
-          nameFromText(parentId, readableText(serialized.textContent));
+          nameFromText(parentId, id, readableText(serialized.textContent));
           const toast = toastHolding(parentId);
-          const text = readableText(
-            serialized.textContent,
-            MAX_SHOWN_ERROR_CHARS,
-          );
-          if (toast !== null && text) {
-            const others = toastTexts.get(toast) ?? [];
-            toastTexts.set(
+          if (toast !== null) {
+            const others = toastTextIds.get(toast) ?? [];
+            toastTextIds.set(
               toast,
-              parent?.toastTitle ? [text, ...others] : [...others, text],
+              parent?.toastTitle ? [id, ...others] : [...others, id],
+            );
+            toastTexts.set(
+              id,
+              readableText(serialized.textContent, MAX_SHOWN_ERROR_CHARS),
             );
           }
         }
@@ -198,6 +216,21 @@ export function createReplayNodeLabels() {
       for (let i = serialized.childNodes.length - 1; i >= 0; i -= 1) {
         stack.push({ node: serialized.childNodes[i], parentId: id });
       }
+    }
+  }
+
+  function changeText(id: unknown, value: unknown): void {
+    const parentId = typeof id === "number" ? textParents.get(id) : undefined;
+    if (
+      typeof id !== "number" ||
+      parentId === undefined ||
+      !holdsReadableText(parentId)
+    ) {
+      return;
+    }
+    nameFromText(parentId, id, readableText(value));
+    if (toastTexts.has(id)) {
+      toastTexts.set(id, readableText(value, MAX_SHOWN_ERROR_CHARS));
     }
   }
 
@@ -224,6 +257,16 @@ export function createReplayNodeLabels() {
           : "";
       if (text) texts.push({ parentId, text });
     }
+    const changedTexts = Array.isArray(data.texts)
+      ? data.texts.map(record)
+      : [];
+    for (const { id, value } of changedTexts) {
+      const parentId = typeof id === "number" ? textParents.get(id) : undefined;
+      const text = holdsReadableText(parentId)
+        ? readableText(value, MAX_SHOWN_ERROR_CHARS)
+        : "";
+      if (text) texts.push({ parentId, text });
+    }
     for (const { id, attributes } of changes) {
       const node = typeof id === "number" ? nodes.get(id) : undefined;
       const changed = record(attributes);
@@ -246,7 +289,12 @@ export function createReplayNodeLabels() {
         (id): ReplayShownError => ({
           kind: "error-toast",
           label: "Error toast",
-          detail: toastTexts.get(id)?.join(TOAST_TEXT_JOINER) || null,
+          detail:
+            toastTextIds
+              .get(id)
+              ?.map((textId) => toastTexts.get(textId))
+              .filter(Boolean)
+              .join(TOAST_TEXT_JOINER) || null,
         }),
       ),
       ...texts
@@ -283,6 +331,12 @@ export function createReplayNodeLabels() {
         for (const add of data.adds) {
           const { node, parentId } = record(add);
           addTree(node, typeof parentId === "number" ? parentId : null);
+        }
+      }
+      if (Array.isArray(data.texts)) {
+        for (const change of data.texts) {
+          const { id, value } = record(change);
+          changeText(id, value);
         }
       }
       return errorsShownBy(data);

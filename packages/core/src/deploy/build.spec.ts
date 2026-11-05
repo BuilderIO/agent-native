@@ -6412,7 +6412,7 @@ describe("runNitroBuildPipeline", () => {
           cwd,
         }),
       ).rejects.toThrow(
-        "React Router server manifest not found in Nitro output",
+        /React Router server manifest not found in Nitro output[\s\S]*readsAVariable is not defined/,
       );
     } finally {
       if (previous === undefined)

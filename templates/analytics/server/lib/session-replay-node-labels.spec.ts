@@ -77,6 +77,79 @@ describe("createReplayNodeLabels", () => {
     expect(labels.describe(3)).toBe('button "Retry"');
   });
 
+  describe("when text changes in place", () => {
+    const textChange = (id: number, value: string) => ({
+      type: 3,
+      timestamp: 2,
+      data: { source: 0, texts: [{ id, value }] },
+    });
+
+    it("names a control by the text it has now", () => {
+      const labels = labelsFor(element(2, "button", {}, [text(3, "Save")]));
+
+      labels.observe(textChange(3, "Saved"));
+
+      expect(labels.describe(2)).toBe('button "Saved"');
+    });
+
+    it("keeps a name that came from an attribute", () => {
+      const labels = labelsFor(
+        element(2, "button", { "aria-label": "Close" }, [text(3, "x")]),
+      );
+
+      labels.observe(textChange(3, "y"));
+
+      expect(labels.describe(2)).toBe('button "Close"');
+    });
+
+    it("keeps a name that came from other text", () => {
+      const labels = labelsFor(
+        element(2, "button", {}, [
+          element(3, "span", {}, [text(4, "Save")]),
+          element(5, "span", {}, [text(6, "3")]),
+        ]),
+      );
+
+      labels.observe(textChange(6, "4"));
+
+      expect(labels.describe(2)).toBe('button "Save"');
+    });
+
+    it("drops a name whose text becomes masked, and takes one that stops", () => {
+      const labels = labelsFor(element(2, "button", {}, [text(3, "Save")]));
+
+      labels.observe(textChange(3, "*****"));
+      expect(labels.describe(2)).toBeNull();
+
+      labels.observe(textChange(3, "Saved"));
+      expect(labels.describe(2)).toBe('button "Saved"');
+    });
+
+    it("never takes a name from what was typed", () => {
+      const labels = labelsFor(
+        element(2, "div", { contenteditable: "true" }, [
+          element(3, "button", {}, [text(4, "*****")]),
+        ]),
+        element(5, "textarea", {}, [text(6, "*****")]),
+      );
+
+      labels.observe(textChange(4, "a private note"));
+      labels.observe(textChange(6, "a private draft"));
+
+      expect(labels.describe(3)).toBeNull();
+      expect(labels.describe(5)).toBeNull();
+    });
+
+    it("ignores a text node the replay never showed", () => {
+      const labels = labelsFor(element(2, "button"));
+
+      expect(labels.observe(textChange(99, "The agent hit an error"))).toEqual(
+        [],
+      );
+      expect(labels.describe(2)).toBeNull();
+    });
+  });
+
   it("takes no name from masked text, and never from what was typed", () => {
     const labels = labelsFor(
       element(2, "button", {}, [text(3, "*****")]),
@@ -267,6 +340,85 @@ describe("createReplayNodeLabels", () => {
           detail: "Upload failed — File storage is not configured.",
         },
       ]);
+    });
+
+    it("reads the text a toast has when it turns into an error", () => {
+      const labels = labelsFor(element(2, "ol"));
+      labels.observe(
+        mutation({
+          adds: [
+            add(2, toast(3, "loading")),
+            add(3, element(4, "div", { "data-title": "" })),
+            add(4, text(5, "Saving")),
+            add(3, element(6, "div", { "data-description": "" })),
+            add(6, text(7, "*****")),
+          ],
+        }),
+      );
+
+      expect(
+        labels.observe(
+          mutation({
+            attributes: [{ id: 3, attributes: { "data-type": "error" } }],
+            texts: [
+              { id: 5, value: "Upload failed" },
+              { id: 7, value: "File storage is not configured." },
+            ],
+          }),
+        ),
+      ).toEqual([
+        {
+          kind: "error-toast",
+          label: "Error toast",
+          detail: "Upload failed — File storage is not configured.",
+        },
+      ]);
+    });
+
+    it("reports a failed agent run whose text changed in place", () => {
+      const labels = labelsFor(element(2, "div"));
+      labels.observe(
+        mutation({
+          adds: [
+            add(2, element(3, "div")),
+            add(3, element(4, "div")),
+            add(4, text(5, "Working")),
+            add(3, element(6, "p")),
+            add(6, text(7, "*****")),
+          ],
+        }),
+      );
+
+      expect(
+        labels.observe(
+          mutation({
+            texts: [
+              { id: 5, value: "The agent hit an error" },
+              { id: 7, value: "The provider rejected the request." },
+            ],
+          }),
+        ),
+      ).toEqual([
+        {
+          kind: "agent-error",
+          label: "The agent hit an error",
+          detail: "The provider rejected the request.",
+        },
+      ]);
+    });
+
+    it("never reports a change to typed text as an agent error", () => {
+      const labels = labelsFor(
+        element(2, "div", { contenteditable: "true" }, [text(3, "*****")]),
+      );
+
+      expect(
+        labels.observe(
+          mutation({
+            texts: [{ id: 3, value: "The agent hit an error" }],
+          }),
+        ),
+      ).toEqual([]);
     });
 
     it("still reports a toast whose text was masked", () => {

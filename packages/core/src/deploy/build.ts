@@ -2963,6 +2963,7 @@ function patchReactRouterServerManifestSource(
   source: string,
   serverBuildFile: string,
   clientManifest: ReactRouterAssetManifest,
+  unreadable: string[],
 ): string | undefined {
   const regionStart = source.indexOf(
     "//#region \\0virtual:react-router/server-manifest",
@@ -3007,7 +3008,7 @@ function patchReactRouterServerManifestSource(
     let serverManifest: unknown;
     // Any bundled library can assign an object with an `entry` key, and one
     // that reads a variable can't be evaluated here. The real manifest is plain
-    // data; if nothing matches, the caller reports the manifest as not found.
+    // data; if nothing matches, the caller reports what it couldn't read.
     try {
       valueEnd = findJavaScriptObjectEnd(source, valueStart);
       serverManifest = evaluateReactRouterServerManifest(
@@ -3016,7 +3017,8 @@ function patchReactRouterServerManifestSource(
         valueStart,
         valueEnd,
       );
-    } catch {
+    } catch (error) {
+      unreadable.push(error instanceof Error ? error.message : String(error));
       continue;
     }
     if (
@@ -3049,6 +3051,7 @@ function patchReactRouterServerManifestInOutput(
     pairedClientDirectory,
   );
   let patchedFile: string | undefined;
+  const unreadable: string[] = [];
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
     const source = fs.readFileSync(serverBuildFile, "utf8");
     let rewritten = replacePairedClientAssetReferences(
@@ -3060,6 +3063,7 @@ function patchReactRouterServerManifestInOutput(
         rewritten,
         serverBuildFile,
         clientManifest,
+        unreadable,
       );
       if (patched !== undefined) {
         rewritten = patched;
@@ -3070,7 +3074,10 @@ function patchReactRouterServerManifestInOutput(
   });
   if (!patchedFile) {
     throw new Error(
-      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+      [
+        `React Router server manifest not found in Nitro output ${serverDirectory}`,
+        ...unreadable,
+      ].join("\n"),
     );
   }
   console.log(

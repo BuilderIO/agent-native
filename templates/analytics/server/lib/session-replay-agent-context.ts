@@ -1044,7 +1044,7 @@ const SESSIONS_TRIAGE_LINK_LABEL = "sessions-triage";
 export function resolveSessionReplayAgentAccess(
   recordingId: string,
   token: string,
-): { viewerEmail?: string; labEnabled: boolean } | null {
+): { viewerEmail: string | undefined; labEnabled: boolean } | null {
   const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
