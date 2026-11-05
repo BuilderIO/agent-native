@@ -414,6 +414,15 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("rejects an orphan closing tag in a noscript fallback", () => {
+    const content = "<main><noscript>fallback</div></noscript></main>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "close-tag-orphaned",
+      detail: [{ tag: "div" }],
+    });
+  });
+
   it("does not count root or raw-text tags inside Alpine attributes and comments", () => {
     const withMarkupExamples = DOCUMENT.replace(
       '<body x-data="{ open: true }">',
