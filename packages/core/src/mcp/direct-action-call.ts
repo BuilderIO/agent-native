@@ -1,3 +1,4 @@
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type {
   CallToolResult,
   InputRequiredResult,
@@ -19,6 +20,7 @@ import {
 import { agentErrorDetails } from "../agent/action-error-details.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
+import { WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE } from "../org/workspace-app-access-outcome.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -382,6 +384,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const returned = returnedResult(outcome.result);
     const { upstream } = returned;
     let stage: "normalize" | "respond" = "normalize";
+    let resolvingMcpResource = false;
     let guardSoFar: EmbedCredentialGuard | undefined;
     // Each value the call builds joins the guard before the next step that
     // can fail, so a failure is checked against all of them; one that cannot
@@ -429,11 +432,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       const projectedRawResult = project(rawResult);
       const projectedResultForClient = project(resultForClient);
+      resolvingMcpResource = true;
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
           ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
           : null;
+      resolvingMcpResource = false;
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
       let directoryWidget: Awaited<
@@ -707,7 +712,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         };
       };
       let checked: DirectActionCallFailure | undefined;
+      let retryableResourceFailure = false;
       try {
+        retryableResourceFailure =
+          resolvingMcpResource &&
+          !isWrite &&
+          upstream === "succeeded" &&
+          caught instanceof ProtocolError &&
+          caught.code === ProtocolErrorCode.InternalError &&
+          metadataObject(caught.data).statusCode === 503 &&
+          metadataObject(caught.data).errorCode ===
+            "workspace_app_access_unavailable";
         if (caught instanceof UnreadableResultError) failedAt = "check";
         if (
           guardSoFar &&
@@ -727,6 +742,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         }
       } catch {
         // coercion-ok: `checked` stays undefined, which reads as unchecked below.
+      }
+      if (retryableResourceFailure) {
+        throw new ProtocolError(
+          ProtocolErrorCode.InternalError,
+          WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+          {
+            statusCode: 503,
+            errorCode: "workspace_app_access_unavailable",
+            retryable: true,
+          },
+        );
       }
       const issue =
         failedAt === "normalize" ? "not_serializable" : "transform_failed";

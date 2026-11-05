@@ -726,6 +726,58 @@ describe("direct tools/call wire output", () => {
     appCardsLab.optedIn.clear();
   });
 
+  it.each([true, false])(
+    "preserves CSP lookup failure semantics after a %s read-only call",
+    async (readOnly) => {
+      const run = vi.fn(async () => ({ id: "created" }));
+      const entry = defineAction({
+        description: "A widget action",
+        parameters: {},
+        readOnly,
+        run,
+        mcpApp: {
+          resource: {
+            html: "<p>widget</p>",
+            csp: async () => {
+              throw new ActionContractError("private upstream detail", {
+                statusCode: 503,
+                errorCode: "workspace_app_access_unavailable",
+              });
+            },
+          },
+        },
+      });
+      const { client, wire } = await connect(
+        {
+          ...(await oauthHeaders()),
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        { serverConfig: { ...config, actions: { "test-widget": entry } } },
+      );
+      try {
+        const result = client.callTool({ name: "test-widget", arguments: {} });
+        if (readOnly) {
+          await expect(result).rejects.toMatchObject({
+            data: {
+              statusCode: 503,
+              errorCode: "workspace_app_access_unavailable",
+              retryable: true,
+            },
+          });
+        } else {
+          const completed = await result;
+          expect(completed.isError).not.toBe(true);
+          expect(JSON.stringify(completed.content)).toMatch(/completed|saved/i);
+          expect(JSON.stringify(completed)).not.toContain('"retryable":true');
+        }
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(wire)).not.toContain("private upstream detail");
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
   const fullCatalogCalls: Array<[string, Record<string, unknown>?]> = [
     ["read-thing"],
     ["list-things"],

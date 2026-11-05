@@ -2460,7 +2460,13 @@ async function applyArchivedAndPending(
   const [withPending, archivedIds, metadataSettings] = await Promise.all([
     appendPendingWorkspaceApps(apps),
     listArchivedAppIds(),
-    readWorkspaceAppMetadataSettings(),
+    readWorkspaceAppMetadataSettings().catch((error: unknown) => {
+      console.error(
+        "[dispatch] workspace app metadata lookup failed",
+        workspaceAccessFailureDiagnostic(error),
+      );
+      throw workspaceAppAccessUnavailableError();
+    }),
   ]);
   const archivedSet = new Set(archivedIds);
   const annotated = withPending.map((app) => {

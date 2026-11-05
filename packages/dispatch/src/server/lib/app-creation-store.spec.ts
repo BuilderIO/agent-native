@@ -2315,41 +2315,47 @@ describe("listWorkspaceApps", () => {
     errorLog.mockRestore();
   });
 
-  it("reports metadata read failures during access-record preparation as unavailable", async () => {
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    stubManifest([
-      { id: "private-app", name: "Private app", path: "/private-app" },
-    ]);
-    const getSetting = mocks.getSetting.getMockImplementation();
-    let metadataReads = 0;
-    mocks.getSetting.mockImplementation(async (key) => {
-      if (key.includes("workspace-app-metadata") && ++metadataReads === 2) {
-        throw new Error("sensitive settings detail");
-      }
-      return getSetting?.(key);
-    });
-    try {
-      await expect(
-        runWithRequestContext(
-          { userEmail: "member@example.test", orgId: "org-123" },
-          () => listWorkspaceApps({ includeAgentCards: false }),
-        ),
-      ).rejects.toMatchObject({
-        statusCode: 503,
-        errorCode: "workspace_app_access_unavailable",
+  it.each([
+    [1, "[dispatch] workspace app metadata lookup failed"],
+    [2, "[dispatch] workspace app access record lookup failed"],
+  ])(
+    "reports metadata read %i failures as unavailable",
+    async (failedRead, logMessage) => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      stubManifest([
+        { id: "private-app", name: "Private app", path: "/private-app" },
+      ]);
+      const getSetting = mocks.getSetting.getMockImplementation();
+      let metadataReads = 0;
+      mocks.getSetting.mockImplementation(async (key) => {
+        if (
+          key.includes("workspace-app-metadata") &&
+          ++metadataReads === failedRead
+        ) {
+          throw new Error("sensitive settings detail");
+        }
+        return getSetting?.(key);
       });
-      expect(errorLog).toHaveBeenCalledWith(
-        "[dispatch] workspace app access record lookup failed",
-        { kind: "Error" },
-      );
-      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
-        "sensitive settings detail",
-      );
-    } finally {
-      if (getSetting) mocks.getSetting.mockImplementation(getSetting);
-      errorLog.mockRestore();
-    }
-  });
+      try {
+        await expect(
+          runWithRequestContext(
+            { userEmail: "member@example.test", orgId: "org-123" },
+            () => listWorkspaceApps({ includeAgentCards: false }),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          errorCode: "workspace_app_access_unavailable",
+        });
+        expect(errorLog).toHaveBeenCalledWith(logMessage, { kind: "Error" });
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+          "sensitive settings detail",
+        );
+      } finally {
+        if (getSetting) mocks.getSetting.mockImplementation(getSetting);
+        errorLog.mockRestore();
+      }
+    },
+  );
 
   it("does not return registry apps when access records cannot be read", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
