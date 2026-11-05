@@ -95,11 +95,13 @@ vi.mock("./inbox-store.js", () => ({
   },
 }));
 
+import { aiFilterBackfillRetryDelay } from "./ai-filter-backfill.js";
 import { GmailQuotaRefusedError } from "./gmail-quota.js";
 import {
   GmailQuotaCooldownError,
   createOAuth2Client,
   gmailBatchGetMessages,
+  gmailBatchGetThreads,
   estimateRequestCost,
   gmailListHistory,
   gmailWatch,
@@ -562,6 +564,66 @@ describe("googleFetch quota handling", () => {
     );
     await expect(rejection).rejects.toBeInstanceOf(GmailQuotaCooldownError);
     await expect(rejection).rejects.toThrow(/about 61s/);
+  });
+
+  it("preserves the status of a malformed 503 thread batch part", async () => {
+    const boundary = "batch_test";
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/http",
+      "Content-ID: <response-part-0>",
+      "",
+      "HTTP/1.1 503 Service Unavailable",
+      "Content-Type: text/plain",
+      "",
+      "upstream unavailable",
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": `multipart/mixed; boundary=${boundary}` },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await gmailBatchGetThreads(
+      "quota-token-b",
+      ["thread-1"],
+      "metadata",
+    );
+
+    expect(result).toEqual([
+      {
+        id: "thread-1",
+        data: null,
+        error: expect.stringMatching(/^Failed to parse JSON:/),
+        status: 503,
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("backs off after an outer Gmail batch 503", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("upstream unavailable", {
+        status: 503,
+        statusText: "Service Unavailable",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await gmailBatchGetThreads(
+      "quota-token-b",
+      ["thread-1"],
+      "metadata",
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ status: 503 });
+    expect(aiFilterBackfillRetryDelay(error)).toBe(30_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {
