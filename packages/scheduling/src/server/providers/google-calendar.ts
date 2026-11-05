@@ -28,8 +28,8 @@ function googleRateLimitReason(body: string): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
+    // coercion-ok: a non-JSON 403 names no throttle reason, so the caller still treats it as an authorization failure
   } catch {
-    // A non-JSON 403 carries no throttle reason; it is an authorization failure.
     return undefined;
   }
   const errors = (parsed as { error?: { errors?: { reason?: unknown }[] } })

@@ -177,11 +177,13 @@ export function createOffice365Provider(
       }
 
       const perCalendar: BusyInterval[][] = [];
-      let next = 0;
+      const queue = calendarExternalIds.map((calendarId, index) => ({
+        calendarId,
+        index,
+      }));
       async function worker(): Promise<void> {
-        while (next < calendarExternalIds.length) {
-          const index = next++;
-          perCalendar[index] = await readCalendar(calendarExternalIds[index]);
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          perCalendar[item.index] = await readCalendar(item.calendarId);
         }
       }
       const workerCount = Math.min(
