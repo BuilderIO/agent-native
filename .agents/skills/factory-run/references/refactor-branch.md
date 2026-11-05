@@ -35,7 +35,8 @@ merge.
    path, exercise it in the branch browser. Get a second opinion on the diff
    before publishing, as `review-latest-feedback` describes.
 6. Commit everything; the tree must be clean.
-7. **Live mode:** send one ready pull request (never a draft) for this branch
+7. **Live mode:** first rerun the check from step 2; if the issue was closed
+   or unlabeled meanwhile, stop with `OUTCOME: blocked`. Then send one ready pull request (never a draft) for this branch
    with Builder's pull request tool, titled "<area>: <what the refactor
    does>". Then set its body with `gh pr edit <url> --body-file <file>`: what
    changed and which special cases it removed, how it was verified (the proof

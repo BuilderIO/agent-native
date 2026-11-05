@@ -446,7 +446,7 @@ finds as a GitHub issue labeled `refactor-findings`, with a refactor plan in
 the body (see `github-refactor-findings`). The factory implements every one.
 They arrive as `issue` events when filed or updated; in a sweep, also list
 them with
-`gh issue list --state open --label refactor-findings --json number,url,title,author,updatedAt`
+`gh issue list --state open --limit 500 --label refactor-findings --json number,url,title,author,updatedAt`
 to catch any an event missed. Handle them here, never as feedback reports.
 
 - **Trust.** Only the label marks a work order, and only accounts with

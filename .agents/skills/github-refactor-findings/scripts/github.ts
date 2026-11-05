@@ -48,10 +48,27 @@ interface RawIssue {
   html_url: string;
 }
 
-export function parseIssueKey(raw: string): string {
-  const n = /(?:^#?|\/issues\/)(\d+)\/?$/.exec(raw.trim())?.[1];
+export function parseIssueKey(
+  raw: string,
+  repo = commonConfig().repo,
+): string {
+  const text = raw.trim();
+  const url = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)\/?$/.exec(
+    text,
+  );
+  if (url) {
+    if (url[1]?.toLowerCase() !== repo.toLowerCase())
+      throw new ScriptError(`${raw} is not an issue in ${repo}`);
+    return `#${url[2]}`;
+  }
+  const n = /^#?(\d+)$/.exec(text)?.[1];
   if (!n) throw new ScriptError(`${raw} is not an issue number or URL`);
   return `#${n}`;
+}
+
+/** The parsers take the first marker, so no text we write may be able to spell one. */
+function neutral(text: string): string {
+  return text.replace(/<!--\s*fragility-/g, "&lt;!-- fragility-");
 }
 
 /** `gh api` with exit 2 for auth and network failures, which mean the step could not run. */
@@ -213,10 +230,11 @@ export class GitHubIssues implements Tracker {
     planFile,
     planName,
   }: CreateInput): Promise<string> {
-    const head = [
-      meta.summary,
-      facts.map((f) => `- ${markdown(f)}`).join("\n"),
-    ].join("\n\n");
+    const head = neutral(
+      [meta.summary, facts.map((f) => `- ${markdown(f)}`).join("\n")].join(
+        "\n\n",
+      ),
+    );
     const body = withPlan(head, readFileSync(planFile, "utf8"), planName);
     const created = JSON.parse(
       gh(["--method", "POST", `repos/${this.repo}/issues`], {
@@ -312,10 +330,7 @@ function parsePlans(body: string): string[] {
 
 /** Puts `plan` in the body as the current plan and records its name. */
 function withPlan(body: string, plan: string, planName: string): string {
-  plan = plan
-    .replace(/^---\n[\s\S]*?\n---\n?/, "")
-    // The parsers take the first marker, so a plan must not be able to write one.
-    .replace(/<!--\s*fragility-/g, "&lt;!-- fragility-");
+  plan = neutral(plan.replace(/^---\n[\s\S]*?\n---\n?/, ""));
   const plans = [...new Set([...parsePlans(body), planName])];
   const withList = replaceOrAppend(
     body,
@@ -326,7 +341,8 @@ function withPlan(body: string, plan: string, planName: string): string {
     BODY_LIMIT -
     withList.replace(PLAN_SECTION, "").length -
     planName.length -
-    200;
+    // The finding-state block is added after the plan and grows with sightings.
+    5_000;
   const fitted =
     plan.length > room
       ? `${plan.slice(0, Math.max(0, room))}\n\n…(plan truncated to fit the issue body)`
