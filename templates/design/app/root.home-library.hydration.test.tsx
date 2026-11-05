@@ -141,6 +141,14 @@ describe("Design first-paint home library hydration", () => {
     expect(selectedTab()).toBe("templates");
   });
 
+  it("preserves a pre-hydration Templates handoff for save-template", async () => {
+    await hydrate({
+      search: "?gettingStarted=save-template",
+      handoff: "templates",
+    });
+    expect(selectedTab()).toBe("templates");
+  });
+
   it("restores Recent for the save-template destination", async () => {
     await hydrate({
       search: "?gettingStarted=save-template",
