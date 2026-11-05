@@ -779,11 +779,11 @@ const messages = {
     draftCard: {
       loadFailed: "この下書きを読み込めませんでした。",
       notFoundTitle: "下書きが見つかりません",
+      goneTitle: "この下書きは送信または削除されました。",
       threadUnavailable: "この会話の以前のメッセージを読み込めませんでした。",
-      threadLookupFailed:
-        "この返信が属する会話が見つからないため、まだ送信できません。",
       earlierMessages: "以前のメッセージ（{{count}}）",
-      deleted: "下書きを削除しました。",
+      sendInMail: "Mailで送信",
+      openBlocked: "ブラウザが新しいタブをブロックしました。",
     },
     agentEngine: {
       activeEngine: "Motor activo",

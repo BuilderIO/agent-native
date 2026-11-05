@@ -4,6 +4,8 @@ import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   EDITABLE_DOCUMENT_PROPERTY_TYPES,
   blocksRenderMode,
+  isAppLinkUrl,
+  isUrlPropertyValue,
   blocksStorageTarget,
   countWords,
   defaultPropertyOptions,
@@ -29,6 +31,33 @@ import {
 } from "./properties";
 
 describe("document properties", () => {
+  it("lets a URL property hold web addresses and named app links only", () => {
+    for (const value of [
+      "https://example.com/a",
+      "http://example.com/a",
+      "t3-thread://v1/ada5164c-bc1f-4866-b908-dd17f8d65cd2",
+      "t3-thread://v2/env-1/mcp:thread%3A1#item",
+      "T3-THREAD://v1/thread-1",
+    ]) {
+      expect(isUrlPropertyValue(value)).toBe(true);
+    }
+    for (const value of [
+      "javascript:alert(1)",
+      "data:text/html,hi",
+      "file:///C:/Windows/notepad.exe",
+      "ms-msdt:/id",
+      "t3code://threads/env-1/thread-1",
+      "t3-thread",
+      "example.com",
+      "",
+    ]) {
+      expect(isUrlPropertyValue(value)).toBe(false);
+    }
+    expect(isAppLinkUrl("t3-thread://v1/thread-1")).toBe(true);
+    expect(isAppLinkUrl("https://example.com/a")).toBe(false);
+    expect(isAppLinkUrl("javascript:alert(1)")).toBe(false);
+  });
+
   it("normalizes editable values by property type", () => {
     expect(normalizePropertyValue("text", "Draft")).toBe("Draft");
     expect(normalizePropertyValue("person", "Alice Moore")).toEqual([

@@ -1,5 +1,17 @@
 # @agent-native/pinpoint
 
+## 0.1.108
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.107
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.106
 
 ### Patch Changes
@@ -609,17 +621,5 @@
 ### Patch Changes
 
 - a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
-
-## 0.1.8
-
-### Patch Changes
-
-- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-
-## 0.1.7
-
-### Patch Changes
-
-- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

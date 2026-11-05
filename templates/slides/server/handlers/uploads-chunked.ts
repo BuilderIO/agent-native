@@ -38,6 +38,7 @@ import {
   uploadVideoAsset,
 } from "./assets.js";
 import {
+  assertDeckEditableForUpload,
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
@@ -62,6 +63,7 @@ interface StartBody {
   mimetype?: unknown;
   declaredSize?: unknown;
   uploadType?: unknown;
+  deckId?: unknown;
 }
 
 async function deleteChunk(handle: ChunkedUploadSession["chunks"][string]) {
@@ -425,6 +427,17 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
       if (uploadType === "video" && !/\.(mp4|webm)$/i.test(filename)) {
         setResponseStatus(event, 400);
         return { error: "Only MP4 and WebM videos are allowed" };
+      }
+      try {
+        await assertDeckEditableForUpload(
+          event,
+          authContext,
+          typeof body?.deckId === "string" ? body.deckId : undefined,
+        );
+      } catch (error) {
+        if ((error as { statusCode?: number }).statusCode !== 403) throw error;
+        setResponseStatus(event, 403);
+        return { error: (error as Error).message };
       }
       const limit =
         uploadType === "video"
