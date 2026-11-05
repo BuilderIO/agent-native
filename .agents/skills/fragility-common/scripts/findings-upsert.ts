@@ -1,8 +1,9 @@
-// The only script that writes refactor findings to Jira. Two inputs, one path:
+// The only script that writes refactor findings to the configured tracker.
+// Two inputs, one path:
 //   --plan <file>               a finished plan
 //   --key KEY --system <system> a hot system already covered by KEY (no plan)
 // Outcomes, idempotent on re-run:
-//   no ticket        → create (Pod, label, plan attached, run link)
+//   no ticket        → create (label, plan, run link)
 //   open ticket      → sighting; comment (+ updated plan) at most once per cooldown
 //   declined ticket  → sighting; comment at most once per four cooldowns
 //   fixed ticket     → plan: create a linked recurrence ticket; system: refuse
@@ -11,11 +12,11 @@
 import path from "node:path";
 
 import {
-  appendJiraResult,
-  type JiraResult,
-  readJiraResults,
+  appendFindingResult,
+  type FindingResult,
+  readFindingResults,
   readTargets,
-} from "../../fragility-common/lib/artifacts.ts";
+} from "../lib/artifacts.ts";
 import {
   type Args,
   argList,
@@ -24,31 +25,33 @@ import {
   rel,
   runId,
   ScriptError,
-} from "../../fragility-common/lib/cli.ts";
+} from "../lib/cli.ts";
+import {
+  code,
+  commentDue,
+  type Finding,
+  type Inline,
+  loadTracker,
+  mergeSighting,
+  overlap,
+  type Paragraph,
+  planNamePattern,
+  runLink,
+  runMarker,
+  type Sighting,
+  text,
+  type Tracker,
+} from "../lib/findings.ts";
 import {
   type PlanMeta,
   readPlan,
   TODO,
   writePlan,
-} from "../../fragility-common/lib/plan-format.ts";
-import {
-  adf,
-  type AdfNode,
-  commentDue,
-  type Finding,
-  isDeclined,
-  isOpen,
-  Jira,
-  mergeSighting,
-  overlap,
-  planAttachmentPattern,
-  runLink,
-  runMarker,
-  type Sighting,
-} from "./jira.ts";
+} from "../lib/plan-format.ts";
 
-const USAGE = `jira-upsert --plan <file> [--key ENG-123 | --distinct-from ENG-1,ENG-2] [--apply] [--run-url <url> | --no-run-url] [--force-comment] [--over-cap]
-jira-upsert --run <id> --key ENG-123 --system <system in targets.json> [--source <bug url or ref> --source-title "<title>" --note "<how>"] [--apply]
+const USAGE = `findings-upsert --plan <file> [--key KEY | --distinct-from KEY,KEY] [--apply] [--run-url <url> | --no-run-url] [--force-comment] [--over-cap]
+findings-upsert --run <id> --key KEY --system <system in targets.json> [--source <bug url or ref> --source-title "<title>" --note "<how>"] [--apply]
+  KEY is ENG-123 for Jira, or an issue number or URL for GitHub.
   Plan mode matches by fingerprint, then by overlap (fingerprint anchor, same or nested system, shared files).
   Overlapping tickets must be judged: --key if the plan is that ticket, --distinct-from if it is a different root problem.`;
 
@@ -57,15 +60,15 @@ interface Subject {
   sighting: Sighting;
   base: { fingerprint: string; systems: string[]; paths: string[] };
   /** One line for the comment: what this run saw. */
-  lead: AdfNode[];
+  lead: Inline[];
   bugSource: string | null;
 }
 
 main(async (args) => {
   const planFile = argString(args, "plan");
-  const key = argString(args, "key");
+  const rawKey = argString(args, "key");
   const system = argString(args, "system");
-  if (args.help || (!planFile && !(key && system))) {
+  if (args.help || (!planFile && !(rawKey && system))) {
     console.log(USAGE);
     if (!args.help) process.exitCode = 1;
     return;
@@ -77,28 +80,30 @@ main(async (args) => {
       2,
     );
   }
-  const jira = new Jira();
-  const findings = await jira.findings();
-  if (planFile) await upsertPlan(jira, findings, args, planFile, link);
-  else await sightSystem(jira, findings, args, key!, system!, link);
+  const tracker = (await loadTracker()).createTracker();
+  const key = rawKey ? tracker.parseKey(rawKey) : undefined;
+  const findings = await tracker.findings();
+  if (planFile) await upsertPlan(tracker, findings, args, planFile, key, link);
+  else await sightSystem(tracker, findings, args, key!, system!, link);
 });
 
 async function upsertPlan(
-  jira: Jira,
+  tracker: Tracker,
   findings: Finding[],
   args: Args,
   planFile: string,
+  key: string | undefined,
   link: string | null,
 ): Promise<void> {
-  const config = jira.config;
   const file = path.resolve(planFile);
   const { meta, body } = readPlan(file);
   assertFinished(meta, body, file);
   const match = matchPlan(
+    tracker,
     meta,
     findings,
-    argString(args, "key"),
-    argList(args, "distinct-from"),
+    key,
+    argList(args, "distinct-from").map((k) => tracker.parseKey(k)),
   );
   const subject: Subject = {
     runId: meta.runId,
@@ -115,15 +120,15 @@ async function upsertPlan(
   // sighted; once that ticket is resolved, the plan is a recurrence instead.
   const resuming =
     match !== null &&
-    isOpen(match) &&
-    readJiraResults(meta.runId).some(
+    match.open &&
+    readFindingResults(meta.runId).some(
       (r) =>
         r.key === match.key &&
         r.plan === rel(file) &&
         (r.action === "create" || r.action === "recurrence"),
     );
   const recurrence =
-    !resuming && match !== null && !isOpen(match) && !isDeclined(match);
+    !resuming && match !== null && !match.open && !match.declined;
   const action = resuming
     ? "resume-create"
     : match && !recurrence
@@ -131,7 +136,7 @@ async function upsertPlan(
       : recurrence
         ? "recurrence"
         : "create";
-  const attachmentName = `${path.basename(file, ".md")}-${meta.runId}.md`;
+  const planName = `${path.basename(file, ".md")}-${meta.runId}.md`;
 
   const creating = action === "create" || action === "recurrence";
   if (creating && meta.confidence.toLowerCase() === "low") {
@@ -144,10 +149,11 @@ async function upsertPlan(
       JSON.stringify(
         {
           dryRun: true,
+          tracker: tracker.name,
           action,
           key: match?.key ?? null,
           fingerprint: meta.fingerprint,
-          attachmentName,
+          planName,
           runLink: link,
         },
         null,
@@ -157,24 +163,24 @@ async function upsertPlan(
     return;
   }
 
-  const planAttachments = (match?.attachments ?? []).filter((a) =>
-    planAttachmentPattern(path.basename(file, ".md")).test(a),
+  const planVersions = (match?.plans ?? []).filter((a) =>
+    planNamePattern(path.basename(file, ".md")).test(a),
   );
-  const resultFor = (action: string, key: string): JiraResult => ({
+  const resultFor = (action: string, key: string): FindingResult => ({
     action,
     key,
-    url: jira.browseUrl(key),
+    url: tracker.ticketUrl(key),
     plan: rel(file),
     system: meta.systems[0],
     source: subject.bugSource,
     at: new Date().toISOString(),
   });
 
-  let result: JiraResult;
+  let result: FindingResult;
   if (action === "sighting") {
     const key = match!.key;
     const { commented, commentedThisRun } = await recordSighting(
-      jira,
+      tracker,
       match!,
       subject,
       link,
@@ -182,11 +188,11 @@ async function upsertPlan(
     );
     // Reconciled on every run, so a failed upload after a comment is retried.
     const wantsThisRunsPlan = commentedThisRun
-      ? !planAttachments.includes(attachmentName)
-      : planAttachments.length === 0;
-    if (wantsThisRunsPlan) await jira.attach(key, file, attachmentName);
+      ? !planVersions.includes(planName)
+      : planVersions.length === 0;
+    if (wantsThisRunsPlan) await tracker.attachPlan(key, file, planName);
     result = resultFor(commented ? "sighting-comment" : "sighting-silent", key);
-    appendJiraResult(meta.runId, result);
+    appendFindingResult(meta.runId, result);
   } else {
     let key: string;
     let recurrenceOf: string | undefined;
@@ -195,23 +201,30 @@ async function upsertPlan(
       recurrenceOf = match!.recurrenceOf ?? undefined;
       result = resultFor(action, key);
     } else {
-      const created = readJiraResults(meta.runId).filter(
+      const created = readFindingResults(meta.runId).filter(
         (r) => r.action === "create" || r.action === "recurrence",
       ).length;
-      if (created >= config.maxNewTicketsPerRun && !args["over-cap"]) {
+      if (created >= tracker.maxNewTicketsPerRun && !args["over-cap"]) {
         throw new ScriptError(
-          `run ${meta.runId} already created ${created} tickets (cap ${config.maxNewTicketsPerRun}); keep the plan file and report it, or pass --over-cap if a human asked for more`,
+          `run ${meta.runId} already created ${created} tickets (cap ${tracker.maxNewTicketsPerRun}); keep the plan file and report it, or pass --over-cap if a human asked for more`,
         );
       }
-      key = await create(jira, meta, link, recurrence ? match : null);
-      recurrenceOf = recurrence ? match!.key : undefined;
+      const previous = recurrence ? match : null;
+      key = await tracker.create({
+        meta,
+        facts: createFacts(meta, link, previous),
+        previous,
+        planFile: file,
+        planName,
+      });
+      recurrenceOf = previous?.key;
       // Recorded before the fallible follow-ups, so the cap counts it and a
       // re-run resumes this ticket instead of treating it as a sighting.
       result = resultFor(action, key);
-      appendJiraResult(meta.runId, result);
+      appendFindingResult(meta.runId, result);
     }
-    if (!(await jira.currentProperty(key))) {
-      await jira.setProperty(
+    if (!(await tracker.currentProperty(key))) {
+      await tracker.setProperty(
         key,
         mergeSighting(null, subject.base, subject.sighting, {
           commentedOn: subject.sighting.date,
@@ -219,17 +232,17 @@ async function upsertPlan(
         }),
       );
     }
-    if (!planAttachments.includes(attachmentName))
-      await jira.attach(key, file, attachmentName);
-    if (recurrenceOf) await jira.ensureRecurrenceLink(key, recurrenceOf);
+    if (!planVersions.includes(planName))
+      await tracker.attachPlan(key, file, planName);
+    if (recurrenceOf) await tracker.ensureRecurrenceLink(key, recurrenceOf);
   }
 
-  writePlan(file, { ...meta, jira: result.key }, body);
+  writePlan(file, { ...meta, ticket: result.key }, body);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function sightSystem(
-  jira: Jira,
+  tracker: Tracker,
   findings: Finding[],
   args: Args,
   key: string,
@@ -250,23 +263,25 @@ async function sightSystem(
     throw new ScriptError(`${system} is not in run ${id}'s targets.json`);
   const finding = findings.find((f) => f.key === key);
   if (!finding)
-    throw new ScriptError(`${key} is not a ${jira.config.label} ticket`);
-  if (!isOpen(finding) && !isDeclined(finding)) {
+    throw new ScriptError(
+      `${key} is not a ${tracker.label} ticket in ${tracker.name}`,
+    );
+  if (!finding.open && !finding.declined) {
     throw new ScriptError(
       `${key} was resolved (${finding.resolution ?? finding.status}); a hot system after a fix is a recurrence. Write a plan and upsert it, which opens a linked recurrence ticket.`,
     );
   }
   const summary = `${target.verdict}, score ${target.score}, ${target.windowCommits ?? "n/a"} window commits, ${target.lookbackFixes} lookback fixes; weekly fixes ${target.weeklyFixes.join(" → ")}`;
-  const lead: AdfNode[] = source
+  const lead: Inline[] = source
     ? [
-        adf.text("Bug report "),
+        text("Bug report "),
         /^https?:\/\//.test(source)
-          ? adf.text(sourceTitle ?? source, source)
-          : adf.text(sourceTitle ? `${sourceTitle} (${source})` : source),
-        adf.text(` traced to this pattern in ${runMarker(id)} (${system}). `),
-        adf.text(`${note} `),
+          ? text(sourceTitle ?? source, source)
+          : text(sourceTitle ? `${sourceTitle} (${source})` : source),
+        text(` traced to this pattern in ${runMarker(id)} (${system}). `),
+        text(`${note} `),
       ]
-    : [adf.text(`Seen again in ${runMarker(id)} (${system}): ${summary}. `)];
+    : [text(`Seen again in ${runMarker(id)} (${system}): ${summary}. `)];
   const subject: Subject = {
     runId: id,
     sighting: {
@@ -288,49 +303,56 @@ async function sightSystem(
   };
   if (!args.apply) {
     const comment =
-      Boolean(source) || commentDue(finding, jira.config.sightingCooldownDays);
+      Boolean(source) || commentDue(finding, tracker.sightingCooldownDays);
     console.log(
-      JSON.stringify({ dryRun: true, key, system, comment, summary }, null, 2),
+      JSON.stringify(
+        { dryRun: true, tracker: tracker.name, key, system, comment, summary },
+        null,
+        2,
+      ),
     );
     return;
   }
   const { commented } = await recordSighting(
-    jira,
+    tracker,
     finding,
     subject,
     link,
     false,
   );
-  const result: JiraResult = {
+  const result: FindingResult = {
     action: commented ? "sighting-comment" : "sighting-silent",
     key,
-    url: jira.browseUrl(key),
+    url: tracker.ticketUrl(key),
     system,
     source,
     at: new Date().toISOString(),
   };
-  appendJiraResult(id, result);
+  appendFindingResult(id, result);
   console.log(JSON.stringify({ ...result, summary }, null, 2));
 }
 
 // Each write checks what a previous partial run already did, so a re-run
 // after a failure finishes the job instead of repeating it.
 async function recordSighting(
-  jira: Jira,
+  tracker: Tracker,
   finding: Finding,
   subject: Subject,
   link: string | null,
   force: boolean,
 ): Promise<{ commented: boolean; commentedThisRun: boolean }> {
-  const existing = await jira.currentProperty(finding.key);
-  const alreadyCommented = await jira.hasRunComment(finding.key, subject.runId);
+  const existing = await tracker.currentProperty(finding.key);
+  const alreadyCommented = await tracker.hasRunComment(
+    finding.key,
+    subject.runId,
+  );
   const due =
     force ||
     Boolean(subject.bugSource) ||
-    commentDue(finding, jira.config.sightingCooldownDays);
+    commentDue(finding, tracker.sightingCooldownDays);
   const comment = due && !alreadyCommented;
   if (comment)
-    await jira.comment(finding.key, sightingComment(finding, subject, link));
+    await tracker.comment(finding.key, sightingComment(finding, subject, link));
   // A run's comment counts from the day the run first sighted the ticket, so a
   // replay never pushes lastCommented later, and a retry after a failed
   // property write still records the comment it posted.
@@ -338,7 +360,7 @@ async function recordSighting(
     existing?.sightings.find((s) => s.runId === subject.runId)?.date ??
     subject.sighting.date;
   const stamped = (existing?.lastCommented ?? "") >= runDate;
-  await jira.setProperty(
+  await tracker.setProperty(
     finding.key,
     mergeSighting(existing, subject.base, subject.sighting, {
       commentedOn: comment
@@ -349,11 +371,12 @@ async function recordSighting(
     }),
   );
   if (finding.recurrenceOf)
-    await jira.ensureRecurrenceLink(finding.key, finding.recurrenceOf);
+    await tracker.ensureRecurrenceLink(finding.key, finding.recurrenceOf);
   return { commented: comment, commentedThisRun: comment || alreadyCommented };
 }
 
 function matchPlan(
+  tracker: Tracker,
   meta: PlanMeta,
   findings: Finding[],
   key: string | undefined,
@@ -362,7 +385,9 @@ function matchPlan(
   if (key) {
     const chosen = findings.find((f) => f.key === key);
     if (!chosen)
-      throw new ScriptError(`--key ${key} is not a refactor-findings ticket`);
+      throw new ScriptError(
+        `--key ${key} is not a ${tracker.label} ticket in ${tracker.name}`,
+      );
     return chosen;
   }
   const exact = findings.find((f) => f.fingerprint === meta.fingerprint);
@@ -414,17 +439,17 @@ function sightingFrom(meta: PlanMeta): Sighting {
   };
 }
 
-function planLead(meta: PlanMeta): AdfNode[] {
+function planLead(meta: PlanMeta): Inline[] {
   return meta.trigger === "bug"
     ? [
-        adf.text("Bug report "),
+        text("Bug report "),
         sourceText(meta.source),
-        adf.text(
+        text(
           ` traced to this pattern in ${runMarker(meta.runId)}: ${meta.summary} `,
         ),
       ]
     : [
-        adf.text(
+        text(
           `Seen again in ${runMarker(meta.runId)}: ${meta.verdict}, score ${meta.score ?? "n/a"}, ${meta.windowCommits ?? "?"} window commits, ${meta.lookbackFixes ?? "?"} lookback fixes. Updated plan attached. `,
         ),
       ];
@@ -434,88 +459,68 @@ function sightingComment(
   finding: Finding,
   subject: Subject,
   link: string | null,
-): AdfNode {
+): Paragraph[] {
   const since = finding.firstSeen ?? finding.sightings[0]?.date;
-  const declined = isDeclined(finding)
+  const declined = finding.declined
     ? [
-        adf.text(
+        text(
           "This ticket was declined, so no new ticket was opened; consider reopening. ",
         ),
       ]
     : [];
-  return adf.doc(
-    adf.p(...subject.lead, ...declined),
-    adf.p(
-      adf.text(
+  return [
+    [...subject.lead, ...declined],
+    [
+      text(
         `${finding.sightingCount + 1} sightings${since ? ` since ${since}` : ""}. `,
       ),
-      ...(link ? [adf.text("Run", link)] : []),
-    ),
-  );
+      ...(link ? [text("Run", link)] : []),
+    ],
+  ];
 }
 
-function sourceText(source: string | null): AdfNode {
-  if (!source) return adf.text("unlinked report");
-  return /^https?:\/\//.test(source)
-    ? adf.text(source, source)
-    : adf.text(source);
+function sourceText(source: string | null): Inline {
+  if (!source) return text("unlinked report");
+  return /^https?:\/\//.test(source) ? text(source, source) : text(source);
 }
 
-async function create(
-  jira: Jira,
+function createFacts(
   meta: PlanMeta,
   link: string | null,
   previous: Finding | null,
-): Promise<string> {
-  const { projectKey, issueType, label, podField, podOptionId } = jira.config;
-  const summary = `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250);
-  const facts: AdfNode[][] = [
+): Paragraph[] {
+  const facts: Paragraph[] = [
     [
-      adf.text(
+      text(
         `Verdict: ${meta.verdict}, confidence ${meta.confidence}, score ${meta.score ?? "n/a"}.`,
       ),
     ],
     meta.trigger === "bug"
       ? [
-          adf.text("Triggered by bug report: "),
+          text("Triggered by bug report: "),
           sourceText(meta.source),
-          adf.text(
+          text(
             `. ${meta.lookbackFixes ?? "?"} fixes in the lookback on these systems.`,
           ),
         ]
       : [
-          adf.text(
+          text(
             `Signal: ${meta.windowCommits ?? "?"} commits in the review window, ${meta.lookbackFixes ?? "?"} fixes in the lookback.`,
           ),
         ],
-    [adf.text("Systems: "), adf.code(meta.systems.join(", "))],
+    [text("Systems: "), code(meta.systems.join(", "))],
     link
-      ? [adf.text("Analysis run: "), adf.text(link, link)]
-      : [adf.text("Analysis run: local run, no shareable link")],
-    [adf.text(`Full plan attached: ${meta.runId}.`)],
-    [adf.text("Fingerprint: "), adf.code(meta.fingerprint)],
+      ? [text("Analysis run: "), text(link, link)]
+      : [text("Analysis run: local run, no shareable link")],
+    [text("Fingerprint: "), code(meta.fingerprint)],
   ];
   if (previous)
     facts.unshift([
-      adf.text("Recurrence of "),
-      adf.text(previous.key, previous.url),
-      adf.text(
+      text("Recurrence of "),
+      text(previous.key, previous.url),
+      text(
         `, which was resolved as ${previous.resolution ?? previous.status}.`,
       ),
     ]);
-  const res = await jira.request<{ key: string }>("POST", "/rest/api/3/issue", {
-    fields: {
-      project: { key: projectKey },
-      issuetype: { name: issueType },
-      summary,
-      labels: [label],
-      [podField]: [{ id: podOptionId }],
-      description: adf.doc(
-        adf.p(adf.text(meta.summary)),
-        adf.bullets(...facts),
-      ),
-    },
-  });
-  if (!res?.key) throw new ScriptError("Jira create returned no issue key");
-  return res.key;
+  return facts;
 }
