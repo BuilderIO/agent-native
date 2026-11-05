@@ -981,26 +981,70 @@ describe("tool-search ranking", () => {
         operation: { type: "string", enum: ["list", "create", "delete"] },
       }),
       "manage-rules": action("List or change rules.", {
-        action: { type: "string", enum: ["list", "update", "remove"] },
+        action: {
+          type: "string",
+          enum: ["list", "update", "permanently-remove"],
+        },
+      }),
+      // A tagged operation nested in a list, as `update-design` declares it.
+      "update-doc": action("Apply edits to a document.", {
+        edits: {
+          type: "array",
+          items: {
+            oneOf: [
+              { type: "object", properties: { op: { const: "set" } } },
+              { type: "object", properties: { op: { const: "delete" } } },
+            ],
+          },
+        },
       }),
       // An enum that is not an operation, or names no deletion, is not one.
       "manage-labels": action("List or change labels.", {
         operation: { type: "string", enum: ["list", "rename"] },
-        color: { type: "string", enum: ["red", "clear"] },
+        color: { type: "string", enum: ["red", "delete-red"] },
       }),
+      // Removing or clearing is often a reversible edit.
+      "manage-tags": action("Add or remove tags.", {
+        action: { type: "string", enum: ["add", "remove", "clear"] },
+      }),
+      "remove-tag": action("Remove a tag from an email."),
     };
 
     const flags = Object.fromEntries(
       searchToolRegistry(registry, {
-        names: ["manage-filters", "manage-rules", "manage-labels"],
+        names: Object.keys(registry),
       }).results.map((r) => [r.name, r.destructive]),
     );
 
     expect(flags).toEqual({
       "manage-filters": true,
       "manage-rules": true,
+      "update-doc": true,
       "manage-labels": undefined,
+      "manage-tags": undefined,
+      "remove-tag": undefined,
     });
+  });
+
+  it("stops walking an operation schema past its depth bound", () => {
+    let schema: Record<string, unknown> = {
+      type: "object",
+      properties: { op: { const: "delete" } },
+    };
+    for (let level = 0; level < 10; level++) {
+      schema = { type: "object", properties: { nested: schema } };
+    }
+    const registry = {
+      "deep-edit": {
+        ...action("Edit."),
+        tool: { description: "Edit.", parameters: schema },
+      },
+    };
+
+    expect(
+      searchToolRegistry(registry, { names: ["deep-edit"] }).results[0]
+        ?.destructive,
+    ).toBeUndefined();
   });
 
   it("keeps 'setting' and 'settings' apart from the verb 'set'", () => {

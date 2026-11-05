@@ -751,35 +751,37 @@ const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
   ["headings", "heading"],
 ]);
 
+// Verbs that lose data. "Remove" and "clear" also name reversible edits
+// (removing a tag, clearing a filter), so they count only through a declared
+// `destructiveHint`, as does "permanently remove" spelled any other way.
 const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
-  [
-    "delete",
-    "remove",
-    "trash",
-    "erase",
-    "clear",
-    "destroy",
-    "wipe",
-    "purge",
-    "cancel",
-  ].map(stem),
+  ["delete", "destroy", "trash", "purge", "erase", "wipe"].map(stem),
 );
+
+function namesDestruction(value: string): boolean {
+  const terms = searchTerms(value);
+  return (
+    terms.some((term) => DESTRUCTIVE_VERBS.has(term)) ||
+    (terms.includes(stem("permanently")) && terms.includes(stem("remove")))
+  );
+}
 
 /**
  * Whether a result is marked `destructive`. Ranking ignores it: whether the
  * user wants the change ("delete it" or "don't delete it") is the agent's call,
  * so a search finds the tool either way and the mark tells the agent to check.
  * A tool is destructive when it declares `destructiveHint`, or when one of its
- * operations deletes (`manage-gmail-filters`' `operation: "delete"`).
- * Without annotations, a name that leads with a destructive verb also counts,
- * since most delete actions declare none.
+ * operations deletes (`manage-gmail-filters`' `operation: "delete"`, or an
+ * `op: "delete"` inside `update-design`'s `dataOperations`). Without
+ * annotations, a name that leads with a destructive verb also counts, since
+ * most delete actions declare none.
  */
 function isDestructiveTool(name: string, entry: ActionEntry): boolean {
   if (entry.mcpAnnotations?.destructiveHint === true) return true;
-  if (hasDestructiveOperation(entry.tool.parameters)) return true;
+  if (hasDestructiveOperation(entry.tool.parameters, 0)) return true;
   if (entry.mcpAnnotations) return false;
   const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
-  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+  return verb !== undefined && namesDestruction(verb);
 }
 
 const OPERATION_PARAMETERS: ReadonlySet<string> = new Set([
@@ -788,26 +790,54 @@ const OPERATION_PARAMETERS: ReadonlySet<string> = new Set([
   "op",
   "mode",
 ]);
+// Deep enough for a list of tagged operations (properties → items → oneOf →
+// properties → op), shallow enough that a huge or cyclic schema cannot stall a
+// search.
+const MAX_OPERATION_SCHEMA_DEPTH = 6;
 
-function hasDestructiveOperation(schema: unknown): boolean {
+function hasDestructiveOperation(schema: unknown, depth: number): boolean {
+  if (depth > MAX_OPERATION_SCHEMA_DEPTH) return false;
   if (!schema || typeof schema !== "object") return false;
-  const { properties } = schema as { properties?: unknown };
-  if (!properties || typeof properties !== "object") return false;
-  return Object.entries(properties).some(([key, property]) => {
-    if (!OPERATION_PARAMETERS.has(key)) return false;
-    const values: unknown =
-      property && typeof property === "object"
-        ? (property as { enum?: unknown }).enum
-        : undefined;
-    return (
-      Array.isArray(values) &&
-      values.some(
-        (value) =>
-          typeof value === "string" &&
-          searchTerms(value).some((term) => DESTRUCTIVE_VERBS.has(term)),
-      )
-    );
-  });
+  const node = schema as {
+    properties?: unknown;
+    items?: unknown;
+    oneOf?: unknown;
+    anyOf?: unknown;
+    allOf?: unknown;
+  };
+  const properties =
+    node.properties && typeof node.properties === "object"
+      ? Object.entries(node.properties)
+      : [];
+  if (
+    properties.some(
+      ([key, property]) =>
+        OPERATION_PARAMETERS.has(key) &&
+        operationValues(property).some(namesDestruction),
+    )
+  ) {
+    return true;
+  }
+  const children = [
+    ...properties.map(([, property]) => property),
+    ...(Array.isArray(node.items) ? node.items : [node.items]),
+    ...[node.oneOf, node.anyOf, node.allOf].flatMap((list) =>
+      Array.isArray(list) ? list : [],
+    ),
+  ];
+  return children.some((child) => hasDestructiveOperation(child, depth + 1));
+}
+
+/** The literal values an operation parameter can take: its `enum` or `const`. */
+function operationValues(property: unknown): string[] {
+  if (!property || typeof property !== "object") return [];
+  const { enum: values, const: value } = property as {
+    enum?: unknown;
+    const?: unknown;
+  };
+  return [...(Array.isArray(values) ? values : []), value].filter(
+    (item): item is string => typeof item === "string",
+  );
 }
 
 function fieldTerms(value: string): FieldTerms {

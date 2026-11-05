@@ -92,6 +92,19 @@ describe("tool-search retrieval benchmark", () => {
     });
   });
 
+  it(
+    "marks Design's update-design, whose dataOperations can delete",
+    async () => {
+      const design = await loadTemplateRegistry("design");
+      const [result] = searchToolRegistry(design, {
+        names: ["update-design"],
+      }).results;
+
+      expect(result?.destructive).toBe(true);
+    },
+    LOAD_TIMEOUT_MS,
+  );
+
   it("finds the right tools in the top 5 for held-out requests", () => {
     expect(
       summarize(results.filter((r) => r.benchmarkCase.heldOut)).recallAt5,
