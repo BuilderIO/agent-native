@@ -237,7 +237,12 @@ export class GitHubIssues implements Tracker {
       gh(["--method", "POST", `repos/${this.repo}/issues`], {
         title: `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250),
         body,
-        labels: [this.label],
+        // A plan derived from a bug report carries outside text, so a member
+        // must remove this label before the factory will implement it.
+        labels:
+          meta.trigger === "bug"
+            ? [this.label, "needs-member-approval"]
+            : [this.label],
       }),
     ) as { number?: number };
     if (!created.number)

@@ -41,6 +41,7 @@ the account the issues are filed under.
 The scripts rewrite only the marked sections, so people can edit the rest of
 the body. Don't edit inside the markers by hand.
 
-Open issues with this label are work orders: the factory picks them up and
-implements the plan (see `factory-run`). Close an issue as not planned to stop
-that.
+Open `refactor-findings` issues are work orders: the factory picks them up
+and implements the plan (see `factory-run`). Close an issue as not planned to
+stop that. Plans from a bug report also get `needs-member-approval`, which a
+member removes to release them.
