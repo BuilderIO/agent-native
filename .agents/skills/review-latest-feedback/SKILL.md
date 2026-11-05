@@ -204,8 +204,8 @@ no reaction and no thread yet.
   `response_format: detailed` (paginate) back 5 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
-  `upvote`. Don't rely on
-  `hasmy:` searches.
+  `upvote`. Avoid `hasmy:`; run the
+  [backstop](references/slack-reaction-replies.md#backstop-for-unclaimed-roots).
 - **Open items first.** Verify the connected profile's 👀 on the root and workflow ownership
   from a matching run recap, proof-bearing PR, or automation memory claim.
   A bot reply, reaction, or memory entry alone is insufficient. Investigate
