@@ -1,8 +1,9 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -39,17 +40,15 @@ import { createWorkspaceFileActionEntries } from "../workspace-files/actions.js"
 import { createWorkspaceFilesTool } from "../workspace-files/tool.js";
 import {
   conformanceMcpConfig,
+  AGENT_PATH_PROVIDERS,
+  listAgentToolSchemas,
   listMcpCatalogTools,
+  loadTemplateMcpConformance,
   MCP_CATALOG_MODES,
   PROVIDER_SCHEMA_RULES,
   providerSchemaViolations,
   withoutDiscoveryPredicates,
 } from "./provider-schema-conformance.js";
-
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../..",
-);
 
 const rulesFor = (inputSchema: unknown, name = "example-tool") =>
   providerSchemaViolations({ name, inputSchema }).map(
@@ -291,28 +290,6 @@ describe("providerSchemaViolations", () => {
   });
 });
 
-describe("template conformance inventory", () => {
-  const templates = fs
-    .readdirSync(path.join(repoRoot, "templates"))
-    .filter((app) =>
-      fs.existsSync(path.join(repoRoot, "templates", app, "actions")),
-    );
-
-  it("finds the action-bearing templates", () => {
-    expect(templates.length).toBeGreaterThan(10);
-  });
-
-  it.each(templates)("%s runs the provider-schema spec", (app) => {
-    const server = path.join(repoRoot, "templates", app, "server");
-    expect(
-      ["mcp-provider-schemas.spec.ts", "mcp-provider-schemas.test.ts"].some(
-        (file) => fs.existsSync(path.join(server, file)),
-      ),
-      `templates/${app}/server/mcp-provider-schemas.spec.ts is missing`,
-    ).toBe(true);
-  });
-});
-
 async function frameworkActionSurface(): Promise<Record<string, ActionEntry>> {
   const owner = () => "conformance@example.com";
   const groups: Record<string, Record<string, ActionEntry>> = {
@@ -480,5 +457,53 @@ describe("framework MCP tools", () => {
       required: ["id"],
     });
     expect(await listed("full")).toMatchObject(full);
+  });
+});
+
+describe("in-app agent tool schemas", () => {
+  const pair = defineAction({
+    description: "Reads a pair",
+    schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
+    run: async (args: unknown) => args,
+  });
+
+  it("lists each action as the gateway receives it and keeps it provider-safe", () => {
+    const [tool, ...rest] = listAgentToolSchemas({ pair });
+
+    expect(rest).toEqual([]);
+    expect(tool?.name).toBe("pair");
+    expect(tool?.inputSchema).toMatchObject({
+      properties: {
+        pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+      },
+    });
+    expect(
+      providerSchemaViolations({
+        name: tool!.name,
+        inputSchema: tool!.inputSchema,
+      }).filter(({ provider }) =>
+        (AGENT_PATH_PROVIDERS as readonly string[]).includes(provider),
+      ),
+    ).toEqual([]);
+  });
+
+  it("serves a template's agent tools from its own actions", async () => {
+    const projectRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-tools-conformance-"),
+    );
+    try {
+      fs.mkdirSync(path.join(projectRoot, "actions"));
+      fs.writeFileSync(path.join(projectRoot, "actions", "pair.ts"), "");
+      const template = await loadTemplateMcpConformance(
+        projectRoot,
+        async () => ({ default: { pair: { default: pair } } }),
+      );
+
+      expect(template.listAgentTools().map(({ name }) => name)).toContain(
+        "pair",
+      );
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 });

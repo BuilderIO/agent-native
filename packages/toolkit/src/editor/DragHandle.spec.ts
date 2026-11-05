@@ -410,6 +410,70 @@ describe("DragHandle menu", () => {
     }
   });
 
+  it.each([
+    {
+      direction: "down",
+      sourceIndex: 1,
+      targetIndex: 3,
+      expected: ["Block 1", "Block 3", "Block 4", "Block 2", "Block 5"],
+      moved: "Block 2",
+    },
+    {
+      direction: "up",
+      sourceIndex: 3,
+      targetIndex: 1,
+      expected: ["Block 1", "Block 2", "Block 4", "Block 3", "Block 5"],
+      moved: "Block 4",
+    },
+  ])(
+    "leaves the caret on a block moved $direction",
+    ({ sourceIndex, targetIndex, expected, moved }) => {
+      const blocks = ["Block 1", "Block 2", "Block 3", "Block 4", "Block 5"];
+      const { editor, handle } = mountEditor(
+        blocks.map((block) => `<p>${block}</p>`).join(""),
+      );
+      const sourceY = sourceIndex * 40 + 12;
+      const targetY = targetIndex * 40 + 20;
+
+      try {
+        hoverAt(32, sourceY);
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            button: 0,
+            clientX: 12,
+            clientY: sourceY,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 12,
+            clientY: targetY,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", {
+            bubbles: true,
+            button: 0,
+            clientX: 12,
+            clientY: targetY,
+          }),
+        );
+
+        expect(
+          Array.from({ length: editor.state.doc.childCount }, (_, index) =>
+            childText(editor, index),
+          ),
+        ).toEqual(expected);
+        expect(editor.state.selection.empty).toBe(true);
+        expect(editor.state.selection.$from.parent.textContent).toBe(moved);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("keeps drag-to-reorder behavior when the handle is moved", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
 

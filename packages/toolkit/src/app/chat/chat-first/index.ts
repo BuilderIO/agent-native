@@ -56,6 +56,7 @@ export type {
   ChatFirstAppItem,
   ChatFirstAppPaneProps,
   ChatFirstAppRailProps,
+  ChatFirstAppRailSection,
   ChatFirstBrowserPaneProps,
   ChatFirstCopy,
   ChatFirstEmbedTarget,

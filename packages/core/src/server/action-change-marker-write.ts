@@ -5,6 +5,7 @@ import {
   actionChangeMarkerValue,
   type ActionChangeTarget,
 } from "../action-change-marker.js";
+import { withoutWriteObservation } from "../action-frame.js";
 import { appStatePut } from "../application-state/store.js";
 import { recordActionChangeMarkerFailure } from "../observability/metrics.js";
 import { runAfterWriteDrains } from "../resource-changes/store.js";
@@ -39,9 +40,14 @@ export function actionChangeTarget(
   };
 }
 
-export async function writeActionChangeMarker(
+/** The marker tells other sessions to refresh; it is not what the call saved. */
+export function writeActionChangeMarker(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
+  return withoutWriteObservation(() => writeMarker(options));
+}
+
+async function writeMarker(options: NotifyActionChangeOptions): Promise<void> {
   const target = {
     ...actionChangeTarget(options),
     nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,

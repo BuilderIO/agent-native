@@ -243,6 +243,44 @@ export function schemaOf(items: readonly NodeDataStoredItem[]): SchemaField[] {
   ];
 }
 
+/**
+ * The schema of one JSON value that is not an item, such as a provider's
+ * answer: an object's keys, a list's elements, or a single row for a bare value.
+ */
+export function schemaOfValue(value: unknown): SchemaField[] {
+  const root = fieldOf("", [], [value]);
+  if (root.kind === "object" && root.children.length > 0) {
+    return root.children;
+  }
+  if (root.kind === "list") return [{ ...root, label: "[ ]" }];
+  return [fieldOf("value", ["value"], [value])];
+}
+
+/** The table of one JSON value that is not an item: a list's records are rows, an object is one row, and anything else is one `value` cell. */
+export interface RawTable {
+  columns: readonly { key: string; label: string }[];
+  /** Columns past the limit are counted, not shown. */
+  hidden: number;
+  rows: readonly Record<string, unknown>[];
+}
+
+export function rawTableOf(value: unknown): RawTable {
+  const entries = Array.isArray(value) ? value : [value];
+  const rows = entries.map((entry) =>
+    isRecord(entry) ? entry : { value: entry },
+  );
+  const keys = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) keys.add(key);
+  }
+  const all = [...keys].map((key) => ({ key, label: key }));
+  return {
+    columns: all.slice(0, MAX_TABLE_COLUMNS),
+    hidden: Math.max(0, all.length - MAX_TABLE_COLUMNS),
+    rows,
+  };
+}
+
 /** The kind a drag of a schema row carries. A preview row has no value yet, so its kind is unknown. */
 export function dragKindOf(field: SchemaField): SourceKind {
   return field.preview ? "unknown" : field.kind;
@@ -326,7 +364,8 @@ export function includesText(haystack: string, needle: string): boolean {
   return needle === "" || haystack.toLowerCase().includes(needle.toLowerCase());
 }
 
-function textOf(value: unknown): string {
+/** What a search matches in a value: its text, not its key names. */
+export function textOf(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.map(textOf).join(" ");
   if (isRecord(value)) return Object.values(value).map(textOf).join(" ");

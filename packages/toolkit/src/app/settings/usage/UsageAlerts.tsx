@@ -55,10 +55,10 @@ interface AlertMutationInput {
   enabled?: boolean;
 }
 
-/** The default rule's limit as `alerts-store` seeds it: 100 USD a day. */
+/** The default rule's limit as `alerts-store` seeds it: 20 USD a month. */
 const DEFAULT_LIMIT: Partial<Record<AlertUnit, number>> = {
-  usd: 100,
-  "builder-credits": 2_500,
+  usd: 20,
+  "builder-credits": 500,
 };
 
 type Translation = ReturnType<typeof useT>;
@@ -297,6 +297,7 @@ function AlertDialog({
 
   function save(next: {
     limit: number;
+    period?: AlertPeriod;
     channels: AlertChannel[];
     enabled: boolean;
   }) {
@@ -310,7 +311,7 @@ function AlertDialog({
         // turn an app's rule into one that counts every app.
         appId: rule.appId,
         unit: rule.unit,
-        period: rule.period,
+        period: next.period ?? rule.period,
         limit: next.limit,
         channels: next.channels,
         enabled: next.enabled,
@@ -439,6 +440,7 @@ function AlertDialog({
                 onClick={() => {
                   const reset = {
                     limit: resetLimit,
+                    period: "month" as const,
                     channels: ["in-app", "email"] as AlertChannel[],
                     enabled: true,
                   };

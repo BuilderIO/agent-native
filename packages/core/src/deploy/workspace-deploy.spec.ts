@@ -13,8 +13,10 @@ import {
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
+  buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
   runWorkspaceDeploy,
+  spawnBuild,
 } from "./workspace-deploy.js";
 
 const INVALID_DIRECTORY_BASE_LOG = Symbol.for(
@@ -262,6 +264,60 @@ describe("workspace deploy", () => {
       VITE_AGENT_NATIVE_FEEDBACK_URL:
         "https://feedback.example.com/f/workspace/form-id",
     });
+  });
+
+  it("sends / to WORKSPACE_DEFAULT_APP from the root .env while keeping Dispatch redirects", async () => {
+    const previous = process.env.WORKSPACE_DEFAULT_APP;
+    delete process.env.WORKSPACE_DEFAULT_APP;
+    try {
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "programs");
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "WORKSPACE_DEFAULT_APP=programs\n",
+      );
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const redirects = fs.readFileSync(
+        path.join(tmpDir, "dist", "_redirects"),
+        "utf-8",
+      );
+      const lines = redirects.split("\n");
+      expect(lines).toContain("/ /programs/ 302");
+      expect(lines).not.toContain("/ /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const config = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(config.routes).toContainEqual({
+        src: "/",
+        status: 302,
+        headers: { Location: "/programs/" },
+      });
+      expect(config.routes).toContainEqual({
+        src: "/dispatch",
+        status: 302,
+        headers: { Location: "/dispatch/overview" },
+      });
+    } finally {
+      restoreEnv("WORKSPACE_DEFAULT_APP", previous);
+    }
   });
 
   it("omits an empty framework route prefix and forwards a configured prefix", async () => {
@@ -2317,6 +2373,46 @@ describe("workspace deploy", () => {
       }),
     ).rejects.toThrow(/Cloudflare Pages was removed/);
     expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildStart", () => {
+  it("starts a command directly outside Windows", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "linux"),
+    ).toEqual({
+      command: "pnpm",
+      args: ["--filter", "my app", "build"],
+      shell: false,
+    });
+  });
+
+  it("starts a quoted line through a shell on Windows", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
+    ).toEqual({
+      command: '"pnpm" "--filter" "my app" "build"',
+      args: [],
+      shell: true,
+    });
+  });
+});
+
+describe("spawnBuild", () => {
+  it("starts in its directory and keeps a spaced argument whole", async () => {
+    await spawnBuild(
+      process.execPath,
+      [
+        "-e",
+        "require('fs').writeFileSync('args.json', JSON.stringify(process.argv.slice(1)))",
+        "my app",
+      ],
+      { cwd: tmpDir, env: process.env, stdio: "pipe" },
+    );
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(tmpDir, "args.json"), "utf8")),
+    ).toEqual(["my app"]);
   });
 });
 

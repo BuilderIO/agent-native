@@ -57,6 +57,7 @@ import {
   getRunStatus,
   getRunEventsSince,
   getCurrentTurnRunEventsForThread,
+  persistedRunEventData,
   getRunById,
   getRunByThread,
   getRunTurnRef,
@@ -599,9 +600,10 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
  */
 export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
+  privateCompletedUiTools: ReadonlySet<number> = new Set(),
 ): boolean {
   let toolResultAfterLastAssistantText = false;
-  for (const { event } of run.events) {
+  for (const { event, seq } of run.events) {
     if (event.type === "text" && event.text.trim().length > 0) {
       toolResultAfterLastAssistantText = false;
       continue;
@@ -610,7 +612,9 @@ export function endsAfterToolResultWithoutAssistantFinal(
       if (event.approvalPause === true) return false;
       toolResultAfterLastAssistantText =
         event.isError === true ||
-        (event.chatUI === undefined && event.mcpApp === undefined);
+        (event.chatUI === undefined &&
+          event.mcpApp === undefined &&
+          !privateCompletedUiTools.has(seq));
       continue;
     }
     if (
@@ -967,12 +971,18 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
+  let privateTurn = false;
+  const privateAssistantTextSequences = new Set<number>();
+  const privateCompletedUiTools = new Set<number>();
+  const safeRunError = (error: unknown) =>
+    privateTurn ? new Error("Private content omitted") : error;
+
   const captureRunPersistenceError = (
     error: unknown,
     phase: "insert-run" | "insert-event",
     extra: Record<string, unknown> = {},
   ) => {
-    captureError(error, {
+    captureError(safeRunError(error), {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
       tags: {
@@ -1496,7 +1506,11 @@ export function startRun(
       let checkpointPersisted = false;
       try {
         await withWorkerFence(() =>
-          persistRunCheckpointEvent(runId, event, terminalReason),
+          persistRunCheckpointEvent(
+            runId,
+            privateTurn ? { ...event, omitFromPersistedHistory: true } : event,
+            terminalReason,
+          ),
         );
         checkpointPersisted = true;
         let persistedRun: Awaited<ReturnType<typeof getRunById>>;
@@ -1878,9 +1892,10 @@ export function startRun(
     armChunkSoftTimeout();
   }
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
-    const errorCode = getRunErrorCode(error);
-    const engineError = error instanceof EngineError ? error : null;
-    captureError(error, {
+    const errorCode = privateTurn ? undefined : getRunErrorCode(error);
+    const engineError =
+      !privateTurn && error instanceof EngineError ? error : null;
+    captureError(safeRunError(error), {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
       errorMessagePolicy: "omit",
@@ -1954,7 +1969,31 @@ export function startRun(
   };
 
   const publishRunEvent = (runEvent: RunEvent) => {
-    run.events.push(runEvent);
+    const retainedEvent =
+      runEvent.event.omitFromPersistedHistory === true
+        ? {
+            ...runEvent,
+            event: JSON.parse(
+              persistedRunEventData(JSON.stringify(runEvent.event)),
+            ) as AgentChatEvent,
+          }
+        : runEvent;
+    if (
+      runEvent.event.omitFromPersistedHistory === true &&
+      runEvent.event.type === "text" &&
+      runEvent.event.text.trim().length > 0
+    ) {
+      privateAssistantTextSequences.add(runEvent.seq);
+    }
+    if (
+      runEvent.event.omitFromPersistedHistory === true &&
+      runEvent.event.type === "tool_done" &&
+      (runEvent.event.chatUI !== undefined ||
+        runEvent.event.mcpApp !== undefined)
+    ) {
+      privateCompletedUiTools.add(runEvent.seq);
+    }
+    run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
       try {
         subscriber(runEvent);
@@ -2007,7 +2046,17 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    if (privateTurn && runEvent.event.omitFromPersistedHistory !== true) {
+      runEvent = {
+        ...runEvent,
+        event: { ...runEvent.event, omitFromPersistedHistory: true },
+      };
+    }
     const eventData = JSON.stringify(runEvent.event);
+    const persistedEventData =
+      runEvent.event.omitFromPersistedHistory === true
+        ? persistedRunEventData(eventData)
+        : eventData;
     const eventAt = Date.now();
     const retryOnce = async (write: () => Promise<void>) => {
       try {
@@ -2054,7 +2103,7 @@ export function startRun(
       openEventBatch.events.push({
         seq: runEvent.seq,
         eventAt,
-        eventData,
+        eventData: persistedEventData,
       });
       publication = queueRunEvent(openEventBatch.pendingWrite, runEvent);
     } else {
@@ -2063,7 +2112,9 @@ export function startRun(
       const pendingWrite: PendingRunEventWrite = {
         publications: [],
         write: () =>
-          retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
+          retryOnce(() =>
+            persistRunEvent(runEvent, persistedEventData, eventAt),
+          ),
       };
       pendingEventWrites.push(pendingWrite);
       publication = queueRunEvent(pendingWrite, runEvent);
@@ -2078,12 +2129,17 @@ export function startRun(
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted)
       return Promise.resolve();
+    if (event.omitFromPersistedHistory === true) privateTurn = true;
+    const eventWithPrivacy = privateTurn
+      ? { ...event, omitFromPersistedHistory: true as const }
+      : event;
 
     // Explicit false distinguishes current completions from legacy pauses.
     const normalizedEvent =
-      event.type === "tool_done" && event.approvalPause === undefined
-        ? { ...event, approvalPause: false }
-        : event;
+      eventWithPrivacy.type === "tool_done" &&
+      eventWithPrivacy.approvalPause === undefined
+        ? { ...eventWithPrivacy, approvalPause: false }
+        : eventWithPrivacy;
     const runEvent: RunEvent = {
       seq: peekRunEventSeq(run),
       event: normalizedEvent,
@@ -2277,6 +2333,26 @@ export function startRun(
         checkpointUnknownStatus === null
       ) {
         try {
+          const privateTurnForCompletion =
+            privateTurn ||
+            run.events.some(
+              ({ event }) => event.omitFromPersistedHistory === true,
+            );
+          const completionEvent = terminalEventForCompletion
+            ? privateTurnForCompletion
+              ? {
+                  ...terminalEventForCompletion,
+                  event: JSON.parse(
+                    persistedRunEventData(
+                      JSON.stringify({
+                        ...terminalEventForCompletion.event,
+                        omitFromPersistedHistory: true,
+                      }),
+                    ),
+                  ) as AgentChatEvent,
+                }
+              : terminalEventForCompletion
+            : null;
           const completionStatus =
             run.status !== "aborted" &&
             terminalEventForcesErroredStatus(terminalEvent)
@@ -2287,8 +2363,8 @@ export function startRun(
               ? {
                   ...run,
                   status: completionStatus,
-                  events: terminalEventForCompletion
-                    ? [...run.events, terminalEventForCompletion]
+                  events: completionEvent
+                    ? [...run.events, completionEvent]
                     : run.events,
                 }
               : run;
@@ -2304,7 +2380,11 @@ export function startRun(
           captureRunError(err, "completion");
           console.error(
             "[run-manager] onComplete callback error:",
-            err instanceof Error ? err.message : err,
+            privateTurn
+              ? "Private content omitted"
+              : err instanceof Error
+                ? err.message
+                : err,
           );
         }
       }
@@ -2323,12 +2403,26 @@ export function startRun(
               ? "truncated"
               : "completed";
       run.status = finalStatus;
+      const runForCompletionChecks: ActiveRun = privateTurn
+        ? {
+            ...run,
+            events: run.events.map((runEvent) =>
+              privateAssistantTextSequences.has(runEvent.seq) &&
+              runEvent.event.type === "text"
+                ? { ...runEvent, event: { ...runEvent.event, text: "..." } }
+                : runEvent,
+            ),
+          }
+        : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
-        (endsAfterToolResultWithoutAssistantFinal(run) ||
-          endsDuringActionPreparation(run)) &&
+        (endsAfterToolResultWithoutAssistantFinal(
+          runForCompletionChecks,
+          privateCompletedUiTools,
+        ) ||
+          endsDuringActionPreparation(runForCompletionChecks)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));
@@ -2345,12 +2439,14 @@ export function startRun(
       const terminalReason =
         eventPersistenceError && finalStatus !== "aborted"
           ? "error:run_event_persistence_failed"
-          : terminalReasonForRun(
-              finalStatus,
-              terminalEvent,
-              run.abortReason,
-              completionError,
-            );
+          : privateTurn && terminalEvent?.type === "error"
+            ? "error:private_content_omitted"
+            : terminalReasonForRun(
+                finalStatus,
+                terminalEvent,
+                run.abortReason,
+                completionError,
+              );
       const persistedStatus =
         finalStatus === "completed" &&
         isContinuationTerminalReason(terminalReason)
@@ -2445,7 +2541,7 @@ export function startRun(
         return confirmed;
       };
       const reportTerminalStatusPersistenceError = (error: unknown) => {
-        captureError(error, {
+        captureError(safeRunError(error), {
           route: "/_agent-native/agent-chat",
           aiTraceId: runId,
           tags: {
@@ -2457,7 +2553,11 @@ export function startRun(
         });
         console.error(
           "[run-manager] terminal status persistence error:",
-          error instanceof Error ? error.message : error,
+          privateTurn
+            ? "Private content omitted"
+            : error instanceof Error
+              ? error.message
+              : error,
         );
       };
 
@@ -2516,7 +2616,9 @@ export function startRun(
         ) {
           const terminal: RunEvent = {
             seq: terminalEventForCompletion?.seq ?? allocateRunEventSeq(run),
-            event: terminalEventToEmit,
+            event: privateTurn
+              ? { ...terminalEventToEmit, omitFromPersistedHistory: true }
+              : terminalEventToEmit,
           };
           if (eventPersistenceError) {
             volatileTerminalEvent = terminal;
@@ -2528,12 +2630,16 @@ export function startRun(
               captureRunError(err, "completion");
               console.error(
                 "[run-manager] terminal event persistence error:",
-                err instanceof Error ? err.message : err,
+                privateTurn
+                  ? "Private content omitted"
+                  : err instanceof Error
+                    ? err.message
+                    : err,
               );
               try {
                 await persistRunEvent(
                   terminal,
-                  JSON.stringify(terminal.event),
+                  persistedRunEventData(JSON.stringify(terminal.event)),
                   Date.now(),
                 );
                 terminalPersistenceError = null;
@@ -2542,7 +2648,11 @@ export function startRun(
                 captureRunError(retryError, "completion");
                 console.error(
                   "[run-manager] terminal event retry persistence error:",
-                  retryError instanceof Error ? retryError.message : retryError,
+                  privateTurn
+                    ? "Private content omitted"
+                    : retryError instanceof Error
+                      ? retryError.message
+                      : retryError,
                 );
               }
             }
@@ -2638,10 +2748,19 @@ export function startRun(
       if (finalStatus === "errored") {
         let errorCode: string | undefined;
         let errorDetail: string | undefined;
+        const privateRun =
+          privateTurn ||
+          run.events.some(
+            ({ event }) => event.omitFromPersistedHistory === true,
+          );
         const diagnosticEvents = pendingTerminalEvent
           ? [...run.events, pendingTerminalEvent]
           : run.events;
-        for (let i = diagnosticEvents.length - 1; i >= 0; i--) {
+        if (privateRun) {
+          errorCode = "private_content_omitted";
+          errorDetail = "Private content omitted";
+        }
+        for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {
           const ev = diagnosticEvents[i].event as {
             type: string;
             error?: string;
@@ -2662,7 +2781,7 @@ export function startRun(
             break;
           }
         }
-        if (completionError && !errorCode) {
+        if (completionError && !errorCode && !privateRun) {
           errorCode = "completion_error";
           errorDetail =
             errorDetail ??
