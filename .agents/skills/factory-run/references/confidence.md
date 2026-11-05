@@ -44,13 +44,13 @@ Calibration:
 
 ## Who states which score
 
-| Judgment            | Stated by            | Where                                                   |
-| ------------------- | -------------------- | ------------------------------------------------------- |
-| `triage`            | The master           | Each claimed report's upsert                            |
-| `join`              | The master           | The report's upsert, before `factory-branch attach`     |
-| `root-cause`, `fix` | The fix branch       | Its `CONFIDENCE` closing line, which the master records |
-| `fix`               | A babysit round      | Its `CONFIDENCE` line, which the watcher records itself |
-| `review`            | The PR review worker | Its `CONFIDENCE` line, which the master records         |
+| Judgment            | Stated by            | Where                                                     |
+| ------------------- | -------------------- | --------------------------------------------------------- |
+| `triage`            | The triage run       | Each claimed report's upsert                              |
+| `join`              | The triage run       | The report's upsert, before `factory-branch attach`       |
+| `root-cause`, `fix` | The fix branch       | Its `CONFIDENCE` closing line, which a triage run records |
+| `fix`               | A babysit round      | Its `CONFIDENCE` line, which the watcher records itself   |
+| `review`            | The PR review worker | Its own report upsert, matching its `CONFIDENCE` line     |
 
 Record scores and design questions on the report. A new score replaces only
 the same judgment's:
