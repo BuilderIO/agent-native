@@ -312,7 +312,10 @@ function parsePlans(body: string): string[] {
 
 /** Puts `plan` in the body as the current plan and records its name. */
 function withPlan(body: string, plan: string, planName: string): string {
-  plan = plan.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  plan = plan
+    .replace(/^---\n[\s\S]*?\n---\n?/, "")
+    // The parsers take the first marker, so a plan must not be able to write one.
+    .replace(/<!--\s*fragility-/g, "&lt;!-- fragility-");
   const plans = [...new Set([...parsePlans(body), planName])];
   const withList = replaceOrAppend(
     body,

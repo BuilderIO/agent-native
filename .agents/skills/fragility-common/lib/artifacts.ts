@@ -1,5 +1,6 @@
 // Files the fragility skills exchange through the run directory. Each skill
 // writes only its own files and reads the others through these types.
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { readJson, readJsonOr, runDir, writeJson } from "./cli.ts";
@@ -68,7 +69,11 @@ export interface FindingResult {
 }
 
 export function readFindingResults(id: string): FindingResult[] {
-  return readJsonOr<FindingResult[]>(artifact(id, "findingResults"), []);
+  // Runs started before the tracker-neutral rename wrote jira-results.json.
+  const file = existsSync(artifact(id, "findingResults"))
+    ? artifact(id, "findingResults")
+    : path.join(runDir(id), "jira-results.json");
+  return readJsonOr<FindingResult[]>(file, []);
 }
 
 export function appendFindingResult(id: string, result: FindingResult): void {

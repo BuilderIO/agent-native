@@ -71,7 +71,8 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     runId: str("runId"),
     trigger: str("trigger") === "bug" ? "bug" : "nightly",
     source: str("source") && str("source") !== "null" ? str("source") : null,
-    ticket: str("ticket") && str("ticket") !== "null" ? str("ticket") : null,
+    // Plans written before the tracker-neutral rename carry `jira:`.
+    ticket: ticketKey(str("ticket") || str("jira")),
     summary: str("summary"),
   };
   for (const key of ["fingerprint", "title", "runId", "summary"] as const) {
@@ -81,6 +82,10 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
   // Checked before any caller writes to the tracker, not only where artifacts are written.
   assertRunId(meta.runId);
   return { meta, body: match[2] };
+}
+
+function ticketKey(value: string): string | null {
+  return value && value !== "null" ? value : null;
 }
 
 export function writePlan(file: string, meta: PlanMeta, body: string): void {
