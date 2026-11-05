@@ -22,4 +22,16 @@ describe("source demand", () => {
     expect(visible).toContain("screen-7184");
     expect(visible).not.toContain("screen-100");
   });
+  it("bounds a select-all set and keeps the active and export screens", () => {
+    const frames = Array.from({ length: 7185 }, (_, i) => ({
+      id: `screen-${i}`,
+      width: 1440,
+    }));
+    const all = new Set(frames.map((frame) => frame.id));
+    const required = new Set(["screen-7184", "screen-7183"]);
+    const demand = selectSourceDemand(frames, all, all, 0.01, required);
+    expect(demand.length).toBeLessThanOrEqual(34);
+    expect(demand).toContain("screen-7184");
+    expect(demand).toContain("screen-7183");
+  });
 });

@@ -367,6 +367,7 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
   const acknowledge = vi.fn();
   const recordHistory = vi.fn();
   const queueSave = vi.fn();
+  const markPending = vi.fn();
   const previewContent = oldContent.replace("Old", "Preview");
 
   const result = runApplyFileContentUpdate(
@@ -381,7 +382,7 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
       files,
       getScreenContent: () => oldContent,
       id: "design",
-      markPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: markPending,
       overviewIsSynced: true,
       overviewPresenceFileId: targetFile.id,
       overviewYdoc,
@@ -408,10 +409,16 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
   expect(acknowledge).not.toHaveBeenCalled();
   expect(recordHistory).not.toHaveBeenCalled();
   expect(queueSave).not.toHaveBeenCalled();
+  expect(markPending).toHaveBeenCalledWith(
+    targetFile.id,
+    expect.stringContaining("Preview"),
+    targetFile.updatedAt,
+    undefined,
+  );
   expect(
     cachedDesign.files.find((candidate) => candidate.id === targetFile.id)
       ?.content,
-  ).toContain("Preview");
+  ).toBe(oldContent);
 
   overviewYdoc.destroy();
 });

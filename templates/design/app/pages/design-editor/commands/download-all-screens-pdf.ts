@@ -32,6 +32,7 @@ export interface DownloadAllScreensPdfArgs {
   exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   overviewScreens: OverviewScreen[];
+  leaseHydratedSource: (screenId: string) => Promise<() => void>;
   prepareScreenForExport: (screenId: string) => symbol | undefined;
   resolveSnapshotExportSource?: (
     screenId: string,
@@ -77,10 +78,18 @@ async function waitForScreenPreview(
       const bridgeWindow = doc?.defaultView as
         | (Window & { __agentNativeContentSizeReport?: boolean })
         | null;
+      const expectedRevision = iframe.srcdoc.match(
+        /<meta data-agent-native-preview-revision="([0-9a-z:]+)">/,
+      )?.[1];
+      const loadedRevision = doc
+        ?.querySelector("meta[data-agent-native-preview-revision]")
+        ?.getAttribute("data-agent-native-preview-revision");
       if (
         doc?.readyState === "complete" &&
         (sourceType !== "inline" ||
-          bridgeWindow?.__agentNativeContentSizeReport === true)
+          (bridgeWindow?.__agentNativeContentSizeReport === true &&
+            expectedRevision &&
+            loadedRevision === expectedRevision))
       ) {
         return { iframe, doc };
       }
@@ -204,6 +213,7 @@ export async function runDownloadAllScreensPdf({
   exportTracking,
   fallbackExportName,
   overviewScreens,
+  leaseHydratedSource,
   prepareScreenForExport,
   resolveSnapshotExportSource,
   releaseScreenFromExport,
@@ -219,23 +229,14 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenLease: symbol | undefined;
   try {
-    if (
-      overviewScreens.some(
-        (screen) => screen.sourceState && screen.sourceState !== "ready",
-      )
-    ) {
-      throw new PngCaptureError(
-        "no-preview",
-        "Some screen sources have not loaded.",
-      );
-    }
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
-      requestedScreenLease = prepareScreenForExport(screen.id);
+      const releaseSource = await leaseHydratedSource(screen.id);
       let iframe: HTMLIFrameElement | null = null;
       let snapshotFrameCleanup: (() => void) | null = null;
       let priorInlineHeight: string | null = null;
       try {
+        requestedScreenLease = prepareScreenForExport(screen.id);
         const preview = await waitForScreenPreview(
           screen,
           activeCanvasSourceType,
@@ -321,6 +322,7 @@ export async function runDownloadAllScreensPdf({
         const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
       } finally {
+        releaseSource();
         if (iframe && priorInlineHeight !== null) {
           iframe.style.height = priorInlineHeight;
         }

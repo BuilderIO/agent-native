@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { inlineDesignStylesheets } from "@/components/design/design-canvas/linked-stylesheets";
 
-import { sourceDependencyIds } from "./source-dependencies";
+import {
+  scheduleSourceDependencies,
+  sourceDependencyIds,
+} from "./source-dependencies";
 import type { SourceHydrationState } from "./source-hydration";
 
 describe("source dependencies", () => {
@@ -82,5 +85,57 @@ describe("source dependencies", () => {
     );
     expect(result.failed).toBe(true);
     expect(result.ids).toContain("css");
+  });
+  it("does not mark an unrelated root failed when shared scheduling capacity is full", () => {
+    const files = [
+      { id: "a", filename: "a.html" },
+      { id: "a-css", filename: "a.css" },
+      { id: "b", filename: "b.html" },
+      { id: "b-css", filename: "b.css" },
+    ];
+    const states = new Map<string, SourceHydrationState>([
+      [
+        "a",
+        { status: "ready", content: '<link href="a.css">', updatedAt: "1" },
+      ],
+      [
+        "b",
+        { status: "ready", content: '<link href="b.css">', updatedAt: "1" },
+      ],
+    ]);
+    const result = scheduleSourceDependencies(
+      files,
+      ["a", "b"],
+      (id) => states.get(id) ?? { status: "unloaded" },
+      3,
+    );
+    expect(result.ids).toContain("a-css");
+    expect(result.ids).not.toContain("b-css");
+    expect(result.statusByRoot.get("b")).toBe("loading");
+  });
+  it("schedules a priority graph that fits its budget before unrelated roots", () => {
+    const files = [
+      { id: "active", filename: "index.html" },
+      { id: "one", filename: "one.css" },
+      { id: "two", filename: "two.css" },
+      { id: "other", filename: "other.html" },
+    ];
+    const get = (id: string): SourceHydrationState =>
+      id === "active"
+        ? {
+            status: "ready",
+            content: '<link href="one.css"><link href="two.css">',
+            updatedAt: "1",
+          }
+        : { status: "unloaded" };
+    const result = scheduleSourceDependencies(
+      files,
+      ["active", "other"],
+      get,
+      3,
+    );
+    expect(result.ids).toEqual(["active", "one", "two"]);
+    expect(result.statusByRoot.get("active")).toBe("loading");
+    expect(result.statusByRoot.get("other")).toBe("loading");
   });
 });

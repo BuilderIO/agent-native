@@ -85,6 +85,34 @@ describe("SourceHydration", () => {
     expect(peak).toBe(2);
     expect(loader.get("4").status).toBe("ready");
   });
+  it("does not read a queued source removed or changed before its turn", async () => {
+    let finish!: () => void;
+    const read = vi.fn(async (id: string) => {
+      if (id === "a")
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      return { content: id, updatedAt: "1" };
+    });
+    const changed = vi.fn();
+    const loader = new SourceHydration(read, changed, 1);
+    loader.sync(["a", "b", "c"].map((id) => ({ id, updatedAt: "1" })));
+    const first = loader.request("a");
+    const removed = loader.request("b");
+    const updated = loader.request("c");
+    await Promise.resolve();
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "c", updatedAt: "2" },
+    ]);
+    changed.mockClear();
+    finish();
+    await Promise.all([first, removed, updated]);
+    expect(read.mock.calls.map(([id]) => id)).toEqual(["a"]);
+    expect(loader.get("b").status).toBe("unloaded");
+    expect(loader.get("c").status).toBe("unloaded");
+    expect(changed).toHaveBeenCalled();
+  });
   it("evicts least-recent clean source while keeping pinned source", async () => {
     const loader = new SourceHydration(
       async (id) => ({ content: id.repeat(4), updatedAt: "1" }),
@@ -133,9 +161,10 @@ describe("SourceHydration", () => {
     });
   });
   it("keeps a temporarily leased target available even when pinned sources exceed the cache budget", async () => {
+    const changed = vi.fn();
     const loader = new SourceHydration(
       async (id) => ({ content: id.repeat(10), updatedAt: "1" }),
-      () => {},
+      changed,
       4,
       5,
     );
@@ -151,7 +180,48 @@ describe("SourceHydration", () => {
       status: "ready",
       content: "bbbbbbbbbb",
     });
+    changed.mockClear();
     release();
     expect(loader.get("b").status).toBe("unloaded");
+    expect(changed).toHaveBeenCalledOnce();
+    changed.mockClear();
+    loader.setPinned(new Set(["a"]));
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("notifies when removing a pin evicts a cached source", async () => {
+    const changed = vi.fn();
+    const loader = new SourceHydration(
+      async () => ({ content: "oversized", updatedAt: "1" }),
+      changed,
+      1,
+      1,
+    );
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    loader.setPinned(new Set(["a"]));
+    await loader.request("a");
+    changed.mockClear();
+    loader.setPinned(new Set());
+    expect(loader.get("a").status).toBe("unloaded");
+    expect(changed).toHaveBeenCalledOnce();
+    loader.setPinned(new Set());
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("notifies when metadata invalidates or removes cached sources, but not for no-op syncs", async () => {
+    const changed = vi.fn();
+    const loader = new SourceHydration(
+      async () => ({ content: "cached", updatedAt: "1" }),
+      changed,
+    );
+    loader.sync(["a", "b"].map((id) => ({ id, updatedAt: "1" })));
+    await Promise.all([loader.request("a"), loader.request("b")]);
+    changed.mockClear();
+    loader.sync([{ id: "a", updatedAt: "2" }]);
+    expect(loader.get("a").status).toBe("unloaded");
+    expect(loader.get("b").status).toBe("unloaded");
+    expect(changed).toHaveBeenCalledOnce();
+    loader.sync([{ id: "a", updatedAt: "2" }]);
+    expect(changed).toHaveBeenCalledOnce();
   });
 });

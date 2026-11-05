@@ -1803,7 +1803,9 @@ export function runRedo({
       ...entry,
       files: entry.files.map((file) => ({
         ...file,
-        content: getScreenContent(file.id),
+        content: files.some((readyFile) => readyFile.id === file.id)
+          ? getScreenContent(file.id)
+          : file.content,
       })),
     };
     performDeleteFiles(currentEntry.files, {

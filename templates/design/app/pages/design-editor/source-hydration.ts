@@ -43,11 +43,12 @@ export class SourceHydration {
 
   sync(files: readonly SourceHydrationFile[]): void {
     const ids = new Set(files.map((file) => file.id));
+    let invalidated = false;
     for (const id of this.versions.keys()) {
       if (!ids.has(id)) {
         this.versions.delete(id);
         this.removeReady(id);
-        this.states.delete(id);
+        invalidated = this.states.delete(id) || invalidated;
       }
     }
     for (const file of files) {
@@ -61,10 +62,11 @@ export class SourceHydration {
           this.needsRefresh.add(file.id);
         } else {
           this.removeReady(file.id);
-          this.states.delete(file.id);
+          invalidated = this.states.delete(file.id) || invalidated;
         }
       }
     }
+    if (invalidated) this.changed();
   }
 
   get(id: string): SourceHydrationState {
@@ -81,7 +83,7 @@ export class SourceHydration {
 
   setPinned(ids: ReadonlySet<string>): void {
     this.pinned = new Set(ids);
-    this.evict();
+    if (this.evict()) this.changed();
   }
 
   lease(id: string): () => void {
@@ -90,13 +92,14 @@ export class SourceHydration {
       const remaining = (this.leases.get(id) ?? 1) - 1;
       if (remaining > 0) this.leases.set(id, remaining);
       else this.leases.delete(id);
-      this.evict();
+      if (this.evict()) this.changed();
     };
   }
 
   setDirty(ids: ReadonlySet<string>): void {
     const previous = this.dirty;
     this.dirty = new Set(ids);
+    let invalidated = false;
     for (const id of previous) {
       if (this.dirty.has(id)) continue;
       const state = this.states.get(id);
@@ -106,9 +109,10 @@ export class SourceHydration {
       ) {
         this.removeReady(id);
         this.states.delete(id);
+        invalidated = true;
       }
     }
-    this.evict();
+    if (this.evict() || invalidated) this.changed();
   }
 
   private removeReady(id: string): void {
@@ -117,14 +121,17 @@ export class SourceHydration {
     this.lru.delete(id);
   }
 
-  private evict(): void {
+  private evict(): boolean {
+    let evicted = false;
     for (const [id] of this.lru) {
       if (this.readyBytes <= this.maxBytes) break;
       if (this.pinned.has(id) || this.dirty.has(id) || this.leases.has(id))
         continue;
       this.removeReady(id);
       this.states.delete(id);
+      evicted = true;
     }
+    return evicted;
   }
 
   request(id: string): Promise<void> {
@@ -145,6 +152,12 @@ export class SourceHydration {
     const promise = new Promise<void>((resolve) => {
       this.queue.push({
         start: () => {
+          if (this.versions.get(id) !== version) {
+            this.pending.delete(id);
+            if (!this.disposed) this.changed();
+            resolve();
+            return;
+          }
           this.active++;
           void Promise.resolve()
             .then(() => this.read(id))

@@ -788,7 +788,7 @@ export function useEditorLayerModels({
           ? activeNodeById.has(layerId)
           : activeCodeLayerProjection.nodes.some((node) => node.id === layerId);
     const extraValidIds = new Set<string>();
-    const fileIds = new Set(files.map((file) => file.id));
+    const fileIds = new Set(overviewFiles.map((file) => file.id));
     const pendingOverviewScreenId = pendingOverviewScreenSelectionRef.current;
     const pendingOverviewLayerId = pendingOverviewLayerSelectionRef.current;
     if (pendingOverviewScreenId) {
@@ -833,7 +833,7 @@ export function useEditorLayerModels({
     codeLayerModelByFileId,
     codeLayerModelsByFile,
     createdOverviewLayerSelection,
-    files,
+    overviewFiles,
     overviewSelectedScreenIds,
     selectedElementLayerId,
     selectedLayerIdsState,

@@ -520,10 +520,6 @@ export function useEditorEditCommands({
         ) => void;
       },
     ) => {
-      if (!activeFile) {
-        options?.onMutationSettled?.([], filesToDelete, []);
-        return Promise.resolve();
-      }
       return runDeleteFiles(
         {
           activeFile,

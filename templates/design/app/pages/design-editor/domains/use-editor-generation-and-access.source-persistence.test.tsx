@@ -481,6 +481,100 @@ describe("automatic canonical source persistence", () => {
     ).toBe(".card { color: red }");
   });
 
+  it("keeps an independent screen ready when another screen source fails", async () => {
+    const files = [
+      {
+        ...required(FILES[0]),
+        id: FILE_ID,
+        filename: "index.html",
+        content: "<p>Ready</p>",
+      },
+      {
+        ...required(FILES[0]),
+        id: "failed",
+        filename: "failed.html",
+        content: "<p>Unavailable</p>",
+      },
+    ];
+    mocks.failIds.add("failed");
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({ files }),
+      undefined,
+      1,
+    );
+    await act(async () => access().onSourceDemandChange([FILE_ID, "failed"]));
+    await vi.waitFor(() =>
+      expect(access().sourceLoader?.get("failed").status).toBe("error"),
+    );
+    expect(
+      access().design?.files.find((file) => file.id === FILE_ID)?.sourceState,
+    ).toBe("ready");
+  });
+
+  it("waits until an independently hydrated body has committed to editor state", async () => {
+    const files = [
+      {
+        ...required(FILES[0]),
+        id: FILE_ID,
+        filename: "index.html",
+        content: "<p>First</p>",
+      },
+      {
+        ...required(FILES[0]),
+        id: "second",
+        filename: "second.html",
+        content: "<p>Second</p>",
+      },
+    ];
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({ files }),
+      undefined,
+      1,
+    );
+    const committed = access().awaitCommittedSources(["second"]);
+    await act(async () => access().onSourceDemandChange(["second"]));
+    await expect(committed).resolves.toBeUndefined();
+    expect(
+      access().design?.files.find((file) => file.id === "second")?.content,
+    ).toBe("<p>Second</p>");
+    await expect(access().awaitCommittedSources(["missing"])).rejects.toThrow(
+      "unavailable",
+    );
+  });
+
+  it("rejects a pending commit acknowledgment when the editor unmounts", async () => {
+    const files = [
+      {
+        ...required(FILES[0]),
+        id: FILE_ID,
+        filename: "index.html",
+        content: "<p>First</p>",
+      },
+      {
+        ...required(FILES[0]),
+        id: "second",
+        filename: "second.html",
+        content: "<p>Second</p>",
+      },
+    ];
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({ files }),
+      undefined,
+      1,
+    );
+    const result = access()
+      .awaitCommittedSources(["second"])
+      .then(
+        () => "resolved",
+        (error: Error) => error.message,
+      );
+    await required(unmounts.pop())();
+    await expect(result).resolves.toBe("Source loader was closed");
+  });
+
   it("loads selected sources without fetching the other 499 screen bodies", async () => {
     const files = Array.from({ length: 500 }, (_, index) => ({
       ...required(FILES[0]),

@@ -89,14 +89,6 @@ export function runLayerRename(
   if (!canEditDesign) return;
   const renamedFile = files.find((file) => file.id === layerId);
   if (renamedFile) {
-    if (
-      overviewScreens.some(
-        (screen) => screen.sourceState && screen.sourceState !== "ready",
-      )
-    ) {
-      toast.error(t("common.genericError"));
-      return;
-    }
     const nextFilename = renameFilenamePreservingExtension(
       renamedFile.filename,
       name,

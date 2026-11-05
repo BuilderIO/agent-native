@@ -264,7 +264,7 @@ export function runApplyLocalContentUpdate(
   markPendingLocalFileContent(
     activeFile.id,
     nextContent,
-    activeFile.updatedAt,
+    options.updatedAt ?? activeFile.updatedAt,
     identityMigrationSourceContent,
   );
   setCollabContent(nextContent);

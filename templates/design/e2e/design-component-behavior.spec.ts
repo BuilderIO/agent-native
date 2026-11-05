@@ -552,11 +552,24 @@ test("redoing a duplicated component while the undo's save is in flight reads no
   expect(referenceId).toBeTruthy();
   await selectNodeById(page, referenceId!);
 
-  // Hold every save's response so the undo's save is still pending at redo.
+  let releaseSave: (() => void) | undefined;
+  let notifySaveHeld: (() => void) | undefined;
+  const saveReleased = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const saveHeld = new Promise<void>((resolve) => {
+    notifySaveHeld = resolve;
+  });
+  const pendingSaves: Promise<void>[] = [];
   await page.route("**/_agent-native/actions/update-file", async (route) => {
-    const response = await route.fetch();
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    await route.fulfill({ response });
+    const pending = (async () => {
+      const response = await route.fetch();
+      notifySaveHeld?.();
+      await saveReleased;
+      await route.fulfill({ response });
+    })();
+    pendingSaves.push(pending);
+    await pending;
   });
   const copyDetails = page.waitForResponse(
     (response) =>
@@ -564,17 +577,24 @@ test("redoing a duplicated component while the undo's save is in flight reads no
       response.url().includes(encodeURIComponent(referenceId!)),
     { timeout: 30_000 },
   );
-  await page.keyboard.press("ControlOrMeta+z");
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect
-    .poll(
-      async () =>
-        componentRoots(await source(request, designId), componentId!).length,
-      { timeout: 20_000 },
-    )
-    .toBe(2);
-  expect((await copyDetails).status()).toBe(200);
-  await page.unroute("**/_agent-native/actions/update-file");
+  try {
+    await page.keyboard.press("ControlOrMeta+z");
+    await saveHeld;
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    releaseSave?.();
+    await expect
+      .poll(
+        async () =>
+          componentRoots(await source(request, designId), componentId!).length,
+        { timeout: 20_000 },
+      )
+      .toBe(2);
+    expect((await copyDetails).status()).toBe(200);
+  } finally {
+    releaseSave?.();
+    await Promise.all(pendingSaves);
+    await page.unroute("**/_agent-native/actions/update-file");
+  }
 });
 
 test("Design components preserve identity across inline and URL-backed React boundaries", async ({

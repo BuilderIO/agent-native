@@ -76,3 +76,33 @@ export function sourceDependencyIds(
   }
   return { ids: [...found], overflow: false, failed };
 }
+
+export function scheduleSourceDependencies(
+  files: readonly SourceDependencyFile[],
+  roots: readonly string[],
+  get: (id: string) => SourceHydrationState,
+  budget = 128,
+) {
+  const ids = new Set<string>();
+  const statusByRoot = new Map<string, "ready" | "loading" | "error">();
+  const idsByRoot = new Map<string, string[]>();
+  for (const root of roots) {
+    const graph = sourceDependencyIds(files, [root], get);
+    const additional = graph.ids.filter((id) => !ids.has(id));
+    if (!graph.overflow && ids.size + additional.length <= budget) {
+      additional.forEach((id) => ids.add(id));
+    } else if (ids.size < budget) {
+      ids.add(root);
+    }
+    idsByRoot.set(root, graph.ids);
+    const loading = graph.ids.some((id) => {
+      const state = get(id);
+      return state.status === "unloaded" || state.status === "loading";
+    });
+    statusByRoot.set(
+      root,
+      graph.overflow || graph.failed ? "error" : loading ? "loading" : "ready",
+    );
+  }
+  return { ids: [...ids], statusByRoot, idsByRoot };
+}

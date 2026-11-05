@@ -1,6 +1,27 @@
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const sourceRead = vi.hoisted(() => ({
+  get: () => ({ files: [] as unknown[] }),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: async (_name: string, params: { fileId?: string }) => {
+    const result = sourceRead.get();
+    return params.fileId
+      ? {
+          files: result.files.filter(
+            (file: unknown) =>
+              typeof file === "object" &&
+              file !== null &&
+              "id" in file &&
+              file.id === params.fileId,
+          ),
+        }
+      : result;
+  },
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }));
@@ -41,7 +62,7 @@ function duplicateArgs(
     createdAt: "",
     updatedAt: "",
   };
-  return {
+  const args = {
     canEditDesign: true,
     widgetEmbed: false,
     createFileAsync: vi.fn().mockResolvedValue({ id: "copy" }),
@@ -78,6 +99,13 @@ function duplicateArgs(
     writeFrameGeometrySnapshot: vi.fn(),
     ...overrides,
   } as DuplicateScreenArgs;
+  sourceRead.get = () =>
+    (args.queryClient.getQueryData([
+      "action",
+      "get-design",
+      { id: args.id, includeFileContent: false },
+    ]) as { files: unknown[] }) ?? { files: [] };
+  return args;
 }
 
 function duplicateArgsWithOccupiedFrame(
@@ -1774,6 +1802,9 @@ describe("runDuplicateScreen", () => {
       writeFrameGeometrySnapshot,
     });
 
+    sourceRead.get = () => {
+      throw new Error("metadata unavailable");
+    };
     await runDuplicateScreen(args, "source");
 
     expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
@@ -1922,6 +1953,7 @@ describe("runDuplicateScreen", () => {
     let cached: unknown;
     let invalidationCount = 0;
     let requestedContent = "";
+    let visibleOnServer = false;
     const queryClient = {
       getQueryData: vi.fn(() => cached),
       invalidateQueries: vi.fn().mockImplementation(async () => {
@@ -1953,6 +1985,18 @@ describe("runDuplicateScreen", () => {
       queryClient: queryClient as unknown as DuplicateScreenArgs["queryClient"],
     });
 
+    sourceRead.get = () => ({
+      files: visibleOnServer
+        ? [
+            {
+              id: "copy-1",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: requestedContent,
+            },
+          ]
+        : [],
+    });
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -1963,6 +2007,7 @@ describe("runDuplicateScreen", () => {
       expect.objectContaining({ sourceScreenId: "source" }),
     );
 
+    visibleOnServer = true;
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(args.focusCreatedScreen).toHaveBeenCalledWith(

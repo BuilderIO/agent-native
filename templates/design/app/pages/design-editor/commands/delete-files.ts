@@ -30,7 +30,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import { designMetadataQueryKey } from "../design-query-key";
 
 export interface DeleteFilesArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   clearRedoStacks: () => void;
   designDataJsonRef: RefObject<Record<string, unknown>>;

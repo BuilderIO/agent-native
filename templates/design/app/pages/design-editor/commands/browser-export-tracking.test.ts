@@ -275,6 +275,7 @@ describe("All-screens PDF download", () => {
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
       overviewScreens,
+      leaseHydratedSource: async () => () => {},
       prepareScreenForExport: () => undefined,
       resolveSnapshotExportSource: () => null,
       releaseScreenFromExport: () => undefined,

@@ -776,20 +776,12 @@ export function useEditorGenerationAndAccess({
     )?.id;
     return [
       ...new Set(
-        [
-          board,
-          activeFileId ?? first,
-          ...overviewSelectedScreenIds,
-          ...visibleSourceIds,
-        ].filter((value): value is string => Boolean(value)),
+        [board, activeFileId ?? first, ...visibleSourceIds].filter(
+          (value): value is string => Boolean(value),
+        ),
       ),
     ];
-  }, [
-    activeFileId,
-    overviewSelectedScreenIds,
-    sourceMetadata,
-    visibleSourceIds,
-  ]);
+  }, [activeFileId, sourceMetadata, visibleSourceIds]);
   const dirtySourceIds = useMemo(
     () => new Set(pendingLocalFileContentsRef.current.keys()),
     [pendingLocalFileContentsRevision],
@@ -801,8 +793,10 @@ export function useEditorGenerationAndAccess({
   const {
     loader: sourceLoader,
     revision: sourceRevision,
-    dependencyOverflow,
+    dependencyStatusByRoot,
     retrySources,
+    leaseHydratedSource,
+    awaitCommittedSources,
   } = useDesignSourceHydration(
     id,
     sourceMetadata,
@@ -822,16 +816,16 @@ export function useEditorGenerationAndAccess({
               {
                 ...file,
                 content: state.content,
-                sourceState:
-                  state.refreshError || dependencyOverflow
-                    ? ("error" as const)
-                    : ("ready" as const),
+                updatedAt: state.updatedAt,
+                sourceState: state.refreshError
+                  ? ("error" as const)
+                  : (dependencyStatusByRoot.get(file.id) ?? "ready"),
               },
             ]
           : [];
       }),
     };
-  }, [metadataResult, sourceLoader, sourceRevision, dependencyOverflow]);
+  }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
     isLoading: designAccessStatusLoading,
@@ -1767,6 +1761,8 @@ export function useEditorGenerationAndAccess({
     sourceLoader,
     sourceRevision,
     retrySources,
+    leaseHydratedSource,
+    awaitCommittedSources,
     onSourceDemandChange,
     overviewDataReady,
     activeBreakpointStateVersion,

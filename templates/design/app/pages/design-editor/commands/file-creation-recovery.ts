@@ -154,6 +154,10 @@ export async function isPersistedFilePresent({
   designId: string;
   fileId: string;
 }): Promise<boolean | undefined> {
-  const refreshed = await readDesignMetadata(designId);
-  return refreshed.some((file) => file.id === fileId);
+  try {
+    const refreshed = await readDesignMetadata(designId);
+    return refreshed.some((file) => file.id === fileId);
+  } catch {
+    return undefined;
+  }
 }

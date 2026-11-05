@@ -123,7 +123,10 @@ function makeArgs(snapshotSource: { html: string; baseUrl: string } | null) {
           heightMode: "fixed" as const,
         },
       ],
-      prepareScreenForExport: vi.fn(),
+      leaseHydratedSource: vi.fn(async (): Promise<() => void> => () => {}),
+      prepareScreenForExport: vi.fn(
+        (_id: string): symbol | undefined => undefined,
+      ),
       resolveSnapshotExportSource: vi.fn((screenId: string) =>
         snapshotSource
           ? {
@@ -207,17 +210,120 @@ describe("runDownloadAllScreensPdf snapshot fallback", () => {
     expect(fixture.showRasterCaptureError).not.toHaveBeenCalled();
   });
 
-  it("fails without downloading when a screen source is unloaded", async () => {
-    const fixture = makeArgs(null);
+  it("hydrates unloaded screens one at a time and releases each after capture", async () => {
+    const fixture = makeArgs({
+      html: "<main>Loaded</main>",
+      baseUrl: "http://localhost:5173/",
+    });
     fixture.args.overviewScreens = fixture.args.overviewScreens.map(
-      (screen, index) =>
-        index === 0 ? { ...screen, sourceState: "unloaded" as const } : screen,
+      (screen) => ({ ...screen, sourceState: "unloaded" as const }),
     );
+    let leased = false;
+    fixture.args.leaseHydratedSource.mockImplementation(async () => {
+      expect(leased).toBe(false);
+      leased = true;
+      return () => {
+        leased = false;
+      };
+    });
+    await runDownloadAllScreensPdf(fixture.args);
+    expect(fixture.args.leaseHydratedSource).toHaveBeenCalledTimes(2);
+    expect(leased).toBe(false);
+    expect(fixture.triggerBlobDownload).toHaveBeenCalledOnce();
+  });
+
+  it("captures hydrated inline content after its preview mounts", async () => {
+    const fixture = makeArgs(null);
+    document.body.replaceChildren();
+    fixture.args.overviewScreens = fixture.args.overviewScreens.map(
+      (screen) => ({
+        ...screen,
+        sourceState: "unloaded" as const,
+        sourceType: "inline" as const,
+      }),
+    );
+    fixture.args.leaseHydratedSource.mockImplementation(async () => () => {});
+    fixture.args.prepareScreenForExport.mockImplementation((id: string) => {
+      setTimeout(() => {
+        const iframe = document.createElement("iframe");
+        iframe.setAttribute("data-screen-iframe-id", id);
+        iframe.dataset.designSourceType = "inline";
+        document.body.append(iframe);
+        iframe.srcdoc = '<meta data-agent-native-preview-revision="1:a">';
+        iframe.contentDocument!.head.innerHTML =
+          '<meta data-agent-native-preview-revision="1:a">';
+        iframe.contentDocument!.body.innerHTML = `<main>Hydrated ${id}</main>`;
+        Object.defineProperty(iframe.contentDocument!, "images", { value: [] });
+        Object.assign(iframe.contentWindow!, {
+          __agentNativeContentSizeReport: true,
+        });
+      }, 0);
+      return undefined;
+    });
+    await runDownloadAllScreensPdf(fixture.args);
+    expect(
+      mocks.renderExportDocumentCanvas.mock.calls.map(
+        ([args]) => args.doc.body.textContent,
+      ),
+    ).toEqual(["Hydrated screen-remote", "Hydrated screen-remote-2"]);
+    expect(fixture.triggerBlobDownload).toHaveBeenCalledOnce();
+  });
+
+  it("waits for an existing inline iframe to display its requested revision", async () => {
+    const fixture = makeArgs(null);
+    document.body.replaceChildren();
+    fixture.args.overviewScreens = fixture.args.overviewScreens.map(
+      (screen) => ({
+        ...screen,
+        sourceType: "inline" as const,
+      }),
+    );
+    fixture.args.prepareScreenForExport.mockImplementation((id: string) => {
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-screen-iframe-id", id);
+      iframe.dataset.designSourceType = "inline";
+      document.body.append(iframe);
+      const doc = iframe.contentDocument!;
+      Object.defineProperty(doc, "images", { value: [] });
+      doc.head.innerHTML = '<meta data-agent-native-preview-revision="1:a">';
+      doc.body.innerHTML = "<main>Stale</main>";
+      Object.assign(iframe.contentWindow!, {
+        __agentNativeContentSizeReport: true,
+      });
+      Object.defineProperty(iframe, "srcdoc", {
+        configurable: true,
+        value: '<meta data-agent-native-preview-revision="2:b">',
+      });
+      setTimeout(() => {
+        doc.head.innerHTML = '<meta data-agent-native-preview-revision="2:b">';
+        doc.body.innerHTML = `<main>Fresh ${id}</main>`;
+      }, 0);
+      return undefined;
+    });
+    await runDownloadAllScreensPdf(fixture.args);
+    expect(
+      mocks.renderExportDocumentCanvas.mock.calls.map(
+        ([args]) => args.doc.body.textContent,
+      ),
+    ).toEqual(["Fresh screen-remote", "Fresh screen-remote-2"]);
+    expect(fixture.triggerBlobDownload).toHaveBeenCalledOnce();
+  });
+
+  it("fails without downloading when a source cannot be read", async () => {
+    const fixture = makeArgs({
+      html: "<main>Loaded</main>",
+      baseUrl: "http://localhost:5173/",
+    });
+    const release = vi.fn();
+    fixture.args.leaseHydratedSource
+      .mockResolvedValueOnce(release)
+      .mockRejectedValueOnce(new Error("read failed"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     await runDownloadAllScreensPdf(fixture.args);
     expect(fixture.triggerBlobDownload).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
     expect(fixture.showRasterCaptureError).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "no-preview" }),
+      expect.objectContaining({ message: "read failed" }),
       "pdf",
     );
   });

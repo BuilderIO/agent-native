@@ -67,6 +67,7 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
   const reportFailure = vi.fn();
   const args: LinkedComponentMutationQueueArgs = {
     designId: "design-1",
+    sourceSetChangedMessage: "Source set changed",
     fileIds: () => [...content.keys()],
     getContent: (fileId) => content.get(fileId) ?? "",
     getSourceBaseContent: (fileId) => content.get(fileId) ?? "",
@@ -109,6 +110,70 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
 }
 
 describe("linked component mutation queue", () => {
+  it("waits for source preparation before hashing and releases the batch lease", async () => {
+    const ready = deferred<() => void>();
+    const release = vi.fn();
+    const fixture = queueArgs({
+      prepareSources: vi.fn(() => ready.promise),
+      canProject: () => false,
+      projectEdit: vi.fn(),
+    });
+    const before = new Map(fixture.content);
+    const after = new Map([["file-copy", "copy-v1"]]);
+    vi.mocked(fixture.args.invokeAction).mockResolvedValue(
+      resultFor(before, after, "2"),
+    );
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    const operation = queue.enqueue("file-copy", "copy-root", {
+      kind: "textContent",
+      value: "updated",
+    });
+    expect(queue.blocksLocalContentEdits()).toBe(true);
+    await Promise.resolve();
+    expect(fixture.args.projectEdit).not.toHaveBeenCalled();
+    expect(fixture.args.invokeAction).not.toHaveBeenCalled();
+    ready.resolve(release);
+    await operation;
+    expect(fixture.args.invokeAction).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("reports a preparation failure without invoking the mutation", async () => {
+    const fixture = queueArgs({
+      prepareSources: vi
+        .fn()
+        .mockRejectedValue(new Error("source unavailable")),
+      canProject: () => false,
+    });
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    await expect(
+      queue.enqueue("file-copy", "copy-root", {
+        kind: "textContent",
+        value: "updated",
+      }),
+    ).rejects.toThrow("source unavailable");
+    expect(fixture.args.invokeAction).not.toHaveBeenCalled();
+    expect(fixture.reportFailure).toHaveBeenCalled();
+  });
+
+  it("releases prepared sources when batch setup fails", async () => {
+    const release = vi.fn();
+    const fixture = queueArgs({
+      prepareSources: async () => release,
+      canProject: () => false,
+      waitForHostWrites: async () => {
+        throw new Error("host unavailable");
+      },
+    });
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    await expect(
+      queue.enqueue("file-copy", "copy-root", {
+        kind: "textContent",
+        value: "updated",
+      }),
+    ).rejects.toThrow("host unavailable");
+    expect(release).toHaveBeenCalledOnce();
+  });
   it("projects a mixed linked and plain target batch with the server transform", () => {
     const mainContent =
       '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label" style="color: blue">Play</span></section><div data-agent-native-node-id="plain-target" style="color: black">Plain</div>';

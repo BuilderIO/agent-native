@@ -1,6 +1,27 @@
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const sourceRead = vi.hoisted(() => ({
+  get: () => ({ files: [] as unknown[] }),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: async (_name: string, params: { fileId?: string }) => {
+    const result = sourceRead.get();
+    return params.fileId
+      ? {
+          files: result.files.filter(
+            (file: unknown) =>
+              typeof file === "object" &&
+              file !== null &&
+              "id" in file &&
+              file.id === params.fileId,
+          ),
+        }
+      : result;
+  },
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: vi.fn() },
 }));
@@ -36,7 +57,7 @@ function sharedRefs() {
 }
 
 function commonArgs(refs: ReturnType<typeof sharedRefs>) {
-  return {
+  const args = {
     activeEditorDragRef: { current: false },
     activeFile: { id: "screen-b" },
     applyFileContentUpdate: vi.fn(),
@@ -128,6 +149,9 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     writeFrameGeometrySnapshot: vi.fn(),
     ydoc: null,
   };
+  sourceRead.get = () =>
+    (args.queryClient.getQueryData() as { files: unknown[] }) ?? { files: [] };
+  return args;
 }
 
 beforeEach(() => {

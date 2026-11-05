@@ -199,6 +199,7 @@ export function useEditorContentAndComponents({
     restoreSelectionSnapshot,
     sourceMetadata,
     sourceLoader,
+    awaitCommittedSources,
     canEditDesign,
     canEditDesignRef,
     rawServerFilesByIdRef,
@@ -1612,15 +1613,36 @@ export function useEditorContentAndComponents({
   linkedComponentQueueRuntimeRef.current = id
     ? {
         designId: id,
-        fileIds: () => {
-          const required = sourceMetadata.filter(
-            (file) => file.fileType === "html",
-          );
+        sourceSetChangedMessage: t("common.genericError"),
+        fileIds: () =>
+          sourceMetadata
+            .filter((file) => file.fileType === "html")
+            .map((file) => file.id),
+        canProject: (fileIds) => {
           const readyIds = new Set(files.map((file) => file.id));
-          if (required.some((file) => !readyIds.has(file.id))) {
-            throw new Error(t("common.genericError"));
+          return fileIds.every((fileId) => readyIds.has(fileId));
+        },
+        prepareSources: async (fileIds) => {
+          if (!sourceLoader) throw new Error(t("common.genericError"));
+          const releases = fileIds.map((fileId) => sourceLoader.lease(fileId));
+          const release = () => releases.forEach((dispose) => dispose());
+          try {
+            await Promise.all(
+              fileIds.map((fileId) => sourceLoader.request(fileId)),
+            );
+            for (const fileId of fileIds) {
+              const state = sourceLoader.get(fileId);
+              if (state.status !== "ready" || state.refreshError)
+                throw new Error(t("common.genericError"));
+            }
+            await awaitCommittedSources(fileIds);
+            return release;
+          } catch (error) {
+            release();
+            throw Object.assign(new Error(t("common.genericError")), {
+              cause: error,
+            });
           }
-          return required.map((file) => file.id);
         },
         getContent: getUnprojectedScreenContent,
         getSourceBaseContent: (fileId) =>
@@ -1709,7 +1731,14 @@ export function useEditorContentAndComponents({
       designId: id,
       queue: createLinkedComponentMutationQueue({
         designId: id,
+        sourceSetChangedMessage: t("common.genericError"),
         fileIds: () => currentRuntime().fileIds(),
+        canProject: (fileIds) => currentRuntime().canProject?.(fileIds) ?? true,
+        prepareSources: (fileIds) => {
+          const prepare = currentRuntime().prepareSources;
+          if (!prepare) throw new Error(t("common.genericError"));
+          return prepare(fileIds);
+        },
         getContent: (fileId) => currentRuntime().getContent(fileId),
         getSourceBaseContent: (fileId) =>
           currentRuntime().getSourceBaseContent(fileId),

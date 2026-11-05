@@ -221,7 +221,7 @@ export function runApplyFileContentUpdate(
   markPendingLocalFileContent(
     fileId,
     acceptedContent,
-    previousFile.updatedAt,
+    options.updatedAt ?? previousFile.updatedAt,
     identityMigrationSourceContent,
   );
   queryClient.setQueryData(

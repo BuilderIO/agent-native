@@ -2699,7 +2699,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (
       !deviceFrameChanged &&
       previousCount !== null &&
-      screens.length > previousCount &&
+      (screens.length > previousCount ||
+        (screens.length === 0 && previousCount === 0)) &&
       (lastAutoFitCamera.x !== panRef.current.x ||
         lastAutoFitCamera.y !== panRef.current.y ||
         lastAutoFitCamera.zoom !== zoomRef.current)
@@ -2840,6 +2841,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [
     chromeInsetLeft,
     chromeInsetRight,
+    Boolean(boardSurfaceContentBounds),
     preserveCameraOnScreenCountChange,
     deferLineupZoomChange,
     initialFitScreenId,
@@ -11894,9 +11896,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         })),
         liveScreenIdsRef.current,
         protectedLiveScreenIds,
-        canvasZoom,
+        canvasZoom / 100,
+        new Set(
+          [activeId, interactScreenId, exportPreviewScreenId].filter(
+            (id): id is string => Boolean(id),
+          ),
+        ),
       ).join("\u0000"),
-    [canvasFrames, canvasZoom, protectedLiveScreenIds, screenCullTierById],
+    [
+      activeId,
+      canvasFrames,
+      canvasZoom,
+      exportPreviewScreenId,
+      interactScreenId,
+      protectedLiveScreenIds,
+      screenCullTierById,
+    ],
   );
   useEffect(() => {
     onSourceDemandChange?.(

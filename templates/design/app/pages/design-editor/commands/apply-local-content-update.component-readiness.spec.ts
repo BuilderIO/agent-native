@@ -22,7 +22,11 @@ import { runApplyLocalContentUpdate } from "./apply-local-content-update";
 
 const DESIGN_ID = "design-readiness";
 const FILE_ID = "screen-readiness";
-const QUERY_KEY = ["action", "get-design", { id: DESIGN_ID }] as const;
+const QUERY_KEY = [
+  "action",
+  "get-design",
+  { id: DESIGN_ID, includeFileContent: false },
+] as const;
 
 function mainSource(withInstance = false) {
   return `<main><section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="main-title">Card</div></section>${
@@ -114,10 +118,11 @@ describe("component details source readiness", () => {
       throw new Error("The local component clone update was refused");
     }
     expect(result.status).toBe("accepted");
-    const optimisticFile = queryClient
+    const metadataFile = queryClient
       .getQueryData<{ files: DesignFile[] }>(QUERY_KEY)
       ?.files.find((file) => file.id === FILE_ID)!;
     const pending = pendingByFile.get(FILE_ID)!;
+    const optimisticFile = { ...metadataFile, content: pending.content };
     expect(optimisticFile.content).toBe(result.content);
     expect(optimisticFile.updatedAt).toBe("T1");
     expect(pending.content).toBe(result.content);
