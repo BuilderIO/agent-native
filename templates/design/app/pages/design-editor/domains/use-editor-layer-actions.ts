@@ -255,6 +255,7 @@ export function useEditorLayerActions({
   const {
     serverFiles,
     files,
+    overviewFiles,
     liveScreenSnapshotsById,
     runtimeLayerSnapshotsById,
     designSourceType,
@@ -1097,7 +1098,6 @@ export function useEditorLayerActions({
         range: boolean;
       },
     ) => {
-      if (!activeFile) return;
       if (!sameStringIds(selectedLayerIdsStateRef.current, ids)) {
         selectionRevisionRef.current += 1;
       }
@@ -1110,7 +1110,7 @@ export function useEditorLayerActions({
             clearPendingOverviewLayerSelectionTimer,
             codeLayerOwnerByNodeId,
             effectiveCodeLayerState,
-            files,
+            files: overviewFiles,
             getScreenContent,
             overviewSelectedScreenIds,
             pendingOverviewLayerSelectionRef,
@@ -1141,6 +1141,7 @@ export function useEditorLayerActions({
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
+      overviewFiles,
       getScreenContent,
       activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,

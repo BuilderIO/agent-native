@@ -1428,6 +1428,11 @@ export function useEditorSourceAndSync({
     resolvedInitialRouteSelectionId,
   ]);
 
+  const overviewScreenIdentityKey = useMemo(
+    () =>
+      JSON.stringify(overviewScreens.map(({ id, filename }) => [id, filename])),
+    [overviewScreens],
+  );
   useEffect(() => {
     if (!id || overviewScreens.length === 0) return;
     const guardedInitialRouteScreenTarget = initialRouteScreenGuardRef.current;
@@ -1519,7 +1524,7 @@ export function useEditorSourceAndSync({
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
-    overviewScreens,
+    overviewScreenIdentityKey,
     id,
     location.hash,
     location.pathname,
