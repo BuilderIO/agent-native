@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { normalizeWorkspaceAppId } from "@agent-native/core/shared";
 import {
   IconArrowUpRight,
@@ -12,7 +13,7 @@ import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
-import { AppOpenActions } from "./app-open-actions";
+import { AppOpenActions, appOpenActionLabels } from "./app-open-actions";
 import { AppRowSettings } from "./app-row-settings";
 import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Button } from "./ui/button";
@@ -131,6 +132,7 @@ export function WorkspaceTemplateCard({
   catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplateCardProps) {
+  const t = useT();
   const labels = useMemo(() => mergeLabels(labelOverrides), [labelOverrides]);
   const [open, setOpen] = useState(false);
   const [appId, setAppId] = useState(() =>
@@ -218,7 +220,10 @@ export function WorkspaceTemplateCard({
                 name={template.name}
                 href={liveUrl}
                 rel="noreferrer"
-                labels={{ openApp: labels.openApp }}
+                labels={{
+                  ...appOpenActionLabels(t, template.name),
+                  openApp: labels.openApp,
+                }}
                 showNewTabOption
               />
             ) : null}

@@ -39,7 +39,10 @@ import { recordDesignPerformance } from "@/components/design/design-trace";
 import { getUnreadReviewThreadIds } from "@/components/design/ReviewCommentsPanel";
 import type { ElementInfo } from "@/components/design/types";
 import { type DesignAccessStatus } from "@/components/DesignAccessState";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  useAgentGenerating,
+  type GenerationFailure,
+} from "@/hooks/use-agent-generating";
 import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -51,6 +54,10 @@ import {
 } from "@/lib/clipboard-content-lineage";
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
+import {
+  reportDesignWriteFailure,
+  SURFACE_MUTATION_ERROR,
+} from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -109,6 +116,8 @@ type RequestDesignAccessResult = {
 };
 
 const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
+// Each refetch re-renders the live canvas; the ghost refetches on its own when its call lands.
+const GENERATION_REFETCH_INTERVAL_MS = 3000;
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -446,26 +455,32 @@ export function useEditorGenerationAndAccess({
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
   }, [clearAutoRetryTimer, clearGenerationCompleteTimer, id]);
-  const handleGenerationFailed = useCallback(() => {
-    if (generationOutputReadyRef.current === null) return;
-    clearGenerationCompleteTimer();
-    clearAutoRetryTimer();
-    const preservedForRetry = rememberPendingGenerationForRetry();
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    setGenerationIssue(
-      preservedForRetry
-        ? t("designEditor.generationStoppedRetry")
-        : t("designEditor.generationStoppedCheckAgent"),
-    );
-    staleToastShownRef.current = false;
-  }, [
-    clearAutoRetryTimer,
-    clearGenerationCompleteTimer,
-    id,
-    rememberPendingGenerationForRetry,
-    t,
-  ]);
+  const handleGenerationFailed = useCallback(
+    (_tabId: string | null, failure?: GenerationFailure) => {
+      if (generationOutputReadyRef.current === null) return;
+      clearGenerationCompleteTimer();
+      clearAutoRetryTimer();
+      // A rejected request fails the same way on resend; keep only the manual retry.
+      const preservedForRetry = rememberPendingGenerationForRetry(
+        failure?.retryable !== false,
+      );
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(
+        preservedForRetry
+          ? t("designEditor.generationStoppedRetry")
+          : t("designEditor.generationStoppedCheckAgent"),
+      );
+      staleToastShownRef.current = false;
+    },
+    [
+      clearAutoRetryTimer,
+      clearGenerationCompleteTimer,
+      id,
+      rememberPendingGenerationForRetry,
+      t,
+    ],
+  );
   const getKnownPreviousRunBaseline = useCallback(
     (runTabId: string) => {
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
@@ -706,10 +721,10 @@ export function useEditorGenerationAndAccess({
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
         ? pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : 30_000
         : pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : false,
     },
   );
@@ -1331,6 +1346,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+    { meta: SURFACE_MUTATION_ERROR },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1381,7 +1397,8 @@ export function useEditorGenerationAndAccess({
         return { ...old, designSystemId };
       });
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

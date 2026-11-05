@@ -3,6 +3,34 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-31
+
+### Improved
+
+- The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+### Fixed
+
+- Filtering sessions by events they did or didn't track no longer times out on large workspaces.
+
+## 2026-10-28
+
+### Improved
+
+- The agent can no longer save a chart drill-down that filters with a list variable, which failed every click while nothing was selected; it gets the filter pattern to use instead, and a drill-down saved earlier with one stops opening records until it's rewritten
+
+## 2026-10-27
+
+### Fixed
+
+- Clicking a chart point before its tooltip appears opens that point's records, not the first point's
+
 ## 2026-10-24
 
 ### Added

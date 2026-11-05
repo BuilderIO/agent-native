@@ -270,10 +270,18 @@ export function readAllLocalComponentWorkspacesSync(cwd = process.cwd()) {
   return [...deduped.values()];
 }
 
+// Loaded lazily: vite.config.ts imports this module at config time, and that
+// load must not pull the action runtime into the config process.
+async function noteLocalFileWrite() {
+  const { noteExternalWrite } = await import("@agent-native/core/action");
+  noteExternalWrite("local-file");
+}
+
 async function writeLocalComponentWorkspacesToStorePath(
   workspaces: LocalComponentWorkspace[],
   storePath: string,
 ) {
+  await noteLocalFileWrite();
   await fsp.mkdir(path.dirname(storePath), { recursive: true });
   await fsp.writeFile(
     storePath,
@@ -504,6 +512,7 @@ async function ensureSafeDirectoryPath(root: string, directory: string) {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // observed-write-ok: only writeLocalComponentFile calls this, and it notes the write first
       await fsp.mkdir(current);
       const stat = await fsp.lstat(current);
       if (stat.isSymbolicLink() || !stat.isDirectory()) {
@@ -630,6 +639,7 @@ export async function writeLocalComponentFile(options: {
     options.componentRoot,
   );
   const absolutePath = resolveInside(componentRoot, filePath);
+  await noteLocalFileWrite();
   await ensureSafeDirectoryPath(workspace.workspacePath, componentRoot);
   await ensureSafeDirectoryPath(componentRoot, path.dirname(absolutePath));
   try {

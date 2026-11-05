@@ -74,6 +74,11 @@ function assertEffectiveRangeOrdered(
 }
 
 export default defineAction({
+  searchHints: [
+    "reschedule meetings",
+    "move several meetings",
+    "bulk edit events",
+  ],
   description:
     "Update many calendar events in one call. Use shiftMinutes or one shared start/end range with ids or filters; never loop update-event per event. Call once with dryRun true to preview every match, then once more without dryRun to apply the same change.",
   schema: z.object({

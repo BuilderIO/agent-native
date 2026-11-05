@@ -9140,7 +9140,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(chatMocks.setupCardProps.bouncePulse).toBe(0);
 
-    await act(async () => chatMocks.composerProps.onDisabledClick());
+    await act(async () => chatMocks.composerProps.onSetupCardClick());
 
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);
