@@ -54,6 +54,7 @@ import {
   markRunAbortedAtSafeBoundary,
   markRunThreadProjectionPending,
   getRunAbortState,
+  isExecutionLeaseRevokedByAbort,
   getRunStatus,
   getRunEventsSince,
   getCurrentTurnRunEventsForThread,
@@ -2687,9 +2688,40 @@ export function startRun(
                 runId,
                 run.abortReason ?? "execution-lease-claim-failed",
               );
-            const aborted = executionLeaseClaimFailed
-              ? await persistAtomicAbort()
-              : await withWorkerFence(persistAtomicAbort);
+            let aborted: boolean;
+            try {
+              aborted = executionLeaseClaimFailed
+                ? await persistAtomicAbort()
+                : await withWorkerFence(persistAtomicAbort);
+            } catch (error) {
+              if (!(error instanceof StaleExecutionFenceError)) throw error;
+              const fence = await executionFencePromise;
+              if (
+                !fence ||
+                error.fence.threadId !== fence.threadId ||
+                error.fence.turnId !== fence.turnId ||
+                error.fence.runId !== fence.runId ||
+                error.fence.generation !== fence.generation
+              )
+                throw error;
+              let confirmed: boolean;
+              try {
+                confirmed = Boolean(
+                  run.abortReason &&
+                  (await isExecutionLeaseRevokedByAbort(
+                    fence,
+                    run.abortReason,
+                  )),
+                );
+              } catch (confirmationError) {
+                throw new AggregateError(
+                  [error, confirmationError],
+                  "Could not confirm the durable abort after losing the execution fence",
+                );
+              }
+              if (!confirmed) throw error;
+              aborted = true;
+            }
             terminalPersistenceEstablished = aborted
               ? true
               : await reconcileTerminalRun();
@@ -2858,7 +2890,28 @@ export function startRun(
       if (options?.executionLease && !executionLeaseClaimFailed) {
         try {
           const fence = await executionFencePromise;
-          if (fence) await releaseTurnExecutionLease(fence);
+          if (fence) {
+            let revokedByAbort = false;
+            if (run.status === "aborted" && run.abortReason) {
+              try {
+                revokedByAbort = await isExecutionLeaseRevokedByAbort(
+                  fence,
+                  run.abortReason,
+                );
+              } catch (error) {
+                captureError(error, {
+                  route: "/_agent-native/agent-chat",
+                  aiTraceId: runId,
+                  tags: {
+                    source: "agent-run-manager",
+                    phase: "execution-lease-abort-confirmation",
+                  },
+                  extra: { runId, threadId, turnId: run.turnId },
+                });
+              }
+            }
+            if (!revokedByAbort) await releaseTurnExecutionLease(fence);
+          }
         } catch (error) {
           captureError(error, {
             route: "/_agent-native/agent-chat",
