@@ -116,6 +116,7 @@ const ctx = document.modelContext;
 const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
 if (!tool) throw new Error(`WebMCP tool not found: ${NAME}`);
 const legacyChrome = typeof ctx.codexExecuteTool !== "function" &&
+  typeof ctx.codexGetTools !== "function" &&
   /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(document.defaultView?.navigator.userAgent ?? "");
 const input = ctx.__isWebMCPPolyfill === true || legacyChrome
   ? JSON.stringify(ARGS) : ARGS;

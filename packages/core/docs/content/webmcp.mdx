@@ -83,8 +83,8 @@ const outcome = await an.call("update-slide", { id, title });
 ```
 
 `call()` picks the input contract the active host expects, always executes a
-descriptor from a fresh listing, and reports execution errors without retrying.
-Read-only annotations are hints and do not guarantee that a tool cannot mutate. `window.__agentNativeWebMcp`
+descriptor from a fresh listing, and retries a stale-descriptor error
+automatically instead of surfacing it to the caller. `window.__agentNativeWebMcp`
 is `undefined` until an Agent-Native page starts registering WebMCP tools — the
 user may be signed out, the page still loading, or the deployed app older than
 this helper — so treat its absence as "not ready yet," not "unsupported."
@@ -115,6 +115,7 @@ if (!tool) throw new Error("create-deck is unavailable in this tab");
 const input = { title: "Customer onboarding", slides: [] };
 const ctx = document.modelContext;
 const legacyChrome = typeof ctx.codexExecuteTool !== "function" &&
+  typeof ctx.codexGetTools !== "function" &&
   /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(document.defaultView?.navigator.userAgent ?? "");
 const args = ctx.__isWebMCPPolyfill === true || legacyChrome
   ? JSON.stringify(input) : input;
@@ -129,8 +130,8 @@ pass the descriptor returned by that listing. They should not call an internal
 action `run()` function, hand-build an authenticated HTTP request, or use the
 visible developer console as the transport. MCP-B and Chrome 149–154 expect
 JSON text. Chrome 155+ and the Codex page adapter expect an object. Unknown
-hosts default to object input. Choose the format before calling the tool and
-never retry a possibly mutating call based on an execution error.
+hosts default to object input. Choose the format before calling the tool, and
+do not retry a raw call solely to change its input format after an error.
 
 <!-- i18n-copy-ignore: localized WebMCP pages are short summaries without this raw-call detail. -->
 

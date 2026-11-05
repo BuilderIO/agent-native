@@ -650,6 +650,7 @@ export function createAgentNativeWebMcpClient(
       ?.userAgent;
     const usesLegacyChrome =
       typeof context.codexExecuteTool !== "function" &&
+      typeof context.codexGetTools !== "function" &&
       typeof userAgent === "string" &&
       /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(userAgent);
     const result = await context.executeTool(
@@ -746,9 +747,18 @@ export function createAgentNativeWebMcpClient(
 const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
 const registrationOwnedHelpers = new WeakSet<object>();
 const helperDisposers = new WeakMap<object, () => void>();
+const HELPER_MAX_ATTEMPTS = 10;
 const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
 const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
+const STALE_DESCRIPTOR_RE =
+  /RegisteredTool must be an object|not found in registry|^Tool not found|^Tool unregistered|no longer available|not returned by a live listing/i;
+const ACTION_FAILURE_RE = /Tool was executed|invocation failed/i;
+
+function isStaleDescriptorError(message: string): boolean {
+  return !ACTION_FAILURE_RE.test(message) && STALE_DESCRIPTOR_RE.test(message);
+}
+
 export interface AgentNativeWebMcpToolSummary {
   name: string;
   title?: string;
@@ -994,81 +1004,90 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       };
     }
     const settledStatus = await ready({ waitMs });
-    let tools: AgentNativeWebMcpTool[];
-    try {
-      tools = await list(origin);
-    } catch (error) {
-      return {
-        id,
-        state: "done",
-        ok: false,
-        tool: name,
-        attempts: 1,
-        code: "execution-failed",
-        error: error instanceof Error ? error.message : String(error),
-        ...(status() ? { status: status() } : {}),
-      };
+    let attempts = 0;
+    let lastError = "";
+    for (; attempts < HELPER_MAX_ATTEMPTS; attempts += 1) {
+      let tools: AgentNativeWebMcpTool[];
+      try {
+        tools = await list(origin);
+      } catch (error) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: error instanceof Error ? error.message : String(error),
+          ...(status() ? { status: status() } : {}),
+        };
+      }
+      const matches = tools.filter(
+        (candidate) =>
+          candidate.name === name && (!origin || candidate.origin === origin),
+      );
+      if (matches.length > 1) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: `"${name}" is exposed by multiple origins (${matches
+            .map((candidate) => candidate.origin ?? "")
+            .join(", ")}); pass { origin }`,
+          ...(status() ? { status: status() } : {}),
+        };
+      }
+      const tool = matches[0];
+      if (!tool) {
+        const current = status() ?? settledStatus;
+        const registering = current.state === "registering";
+        invalidateListing();
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: registering ? "registering" : "not-registered",
+          error: registering
+            ? `"${name}" is not registered yet (${current.registered}/${current.total}); call again`
+            : `"${name}" is not a tool on this page (${tools.length} listed)`,
+          status: current,
+        };
+      }
+      try {
+        const result = await client.executeListedTool(tool, args);
+        return {
+          id,
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: attempts + 1,
+          result: parseToolResult(result),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (isStaleDescriptorError(lastError)) {
+          invalidateListing();
+          continue;
+        }
+        attempts += 1;
+        break;
+      }
     }
-    const matches = tools.filter(
-      (candidate) =>
-        candidate.name === name && (!origin || candidate.origin === origin),
-    );
-    if (matches.length > 1) {
-      return {
-        id,
-        state: "done",
-        ok: false,
-        tool: name,
-        attempts: 1,
-        code: "execution-failed",
-        error: `"${name}" is exposed by multiple origins (${matches
-          .map((candidate) => candidate.origin ?? "")
-          .join(", ")}); pass { origin }`,
-        ...(status() ? { status: status() } : {}),
-      };
-    }
-    const tool = matches[0];
-    if (!tool) {
-      const current = status() ?? settledStatus;
-      const registering = current.state === "registering";
-      invalidateListing();
-      return {
-        id,
-        state: "done",
-        ok: false,
-        tool: name,
-        attempts: 1,
-        code: registering ? "registering" : "not-registered",
-        error: registering
-          ? `"${name}" is not registered yet (${current.registered}/${current.total}); call again`
-          : `"${name}" is not a tool on this page (${tools.length} listed)`,
-        status: current,
-      };
-    }
-    try {
-      const result = await client.executeListedTool(tool, args);
-      return {
-        id,
-        state: "done",
-        ok: true,
-        tool: name,
-        attempts: 1,
-        result: parseToolResult(result),
-      };
-    } catch (error) {
-      // Neither error text nor readOnlyHint proves the tool did not mutate.
-      invalidateListing();
-      return {
-        id,
-        state: "done",
-        ok: false,
-        tool: name,
-        attempts: 1,
-        code: "execution-failed",
-        error: error instanceof Error ? error.message : String(error),
-        ...(status() ? { status: status() } : {}),
-      };
-    }
+    return {
+      id,
+      state: "done",
+      ok: false,
+      tool: name,
+      attempts,
+      code: "execution-failed",
+      error: lastError,
+      ...(status() ? { status: status() } : {}),
+    };
   }
 
   const helper: AgentNativeWebMcpPageHelper = {
