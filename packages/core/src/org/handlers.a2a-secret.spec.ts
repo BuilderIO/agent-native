@@ -562,7 +562,9 @@ describe("syncA2ASecretHandler", () => {
         }
         const result = await syncA2ASecretHandler(event as any);
         if (mode === "self-and-sibling" || mode === "basepath-self-and-sibling")
-          expect(mockDiscoverAgents).toHaveBeenCalledWith("sender");
+          expect(mockDiscoverAgents).toHaveBeenCalledWith("sender", {
+            workspaceAppsManifest: expect.any(Array),
+          });
         if (mode === "unregistered") {
           expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
           expect(received).toEqual([]);
@@ -856,8 +858,101 @@ describe("syncA2ASecretHandler", () => {
       statusCode: 503,
       message: expect.stringContaining("unique"),
     });
-    expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined);
+    expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
+      workspaceAppsManifest: expect.any(Array),
+    });
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "{invalid-json",
+    JSON.stringify([
+      { id: "sender", path: "/sender" },
+      { id: "unreadable-peer" },
+    ]),
+  ])("rejects an unreadable workspace manifest before sending", async (raw) => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", raw);
+    resetAppConfigForTests();
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockLoadWorkspaceAppsManifest.mockImplementation(
+      discovery.loadWorkspaceAppsManifest,
+    );
+    mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+    await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
+      "Invalid workspace apps environment manifest",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses one validated workspace manifest even if the source changes during discovery", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "sender", path: "/sender" },
+        { id: "sibling", path: "/sibling" },
+      ]),
+    );
+    resetAppConfigForTests();
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockLoadWorkspaceAppsManifest.mockImplementation(
+      discovery.loadWorkspaceAppsManifest,
+    );
+    mockDiscoverAgents.mockImplementation(async (selfId, options) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{unreadable");
+      return discovery.discoverAgents(selfId, options);
+    });
+    await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+      total: 1,
+      succeeded: 1,
+      failed: 0,
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://workspace.example.test/sibling/_agent-native/org/a2a-secret/receive",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("does not treat a branding slug without package identity as a builtin sender", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("npm_package_name", undefined);
+    resetAppConfigForTests();
+    const { defineAppConfig } = await import("../app-config/index.js");
+    defineAppConfig({ app: { slug: "calendar", id: "custom-app" } });
+    try {
+      mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+      mockGetBuiltinAgentsForSeeding.mockReturnValue([
+        { id: "calendar", url: "https://calendar.example.test" },
+      ]);
+      mockDiscoverAgents.mockImplementation(async (selfId) =>
+        selfId === "calendar"
+          ? []
+          : [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://calendar.example.test",
+                source: "builtin",
+              },
+            ],
+      );
+      await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+        total: 1,
+        succeeded: 1,
+        failed: 0,
+      });
+      expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
+        workspaceAppsManifest: null,
+      });
+    } finally {
+      resetAppConfigForTests();
+    }
   });
 
   it("uses proven first-party identity for standalone builtin discovery", async () => {
@@ -867,7 +962,9 @@ describe("syncA2ASecretHandler", () => {
     resetAppConfigForTests();
     mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
     await syncA2ASecretHandler({} as any);
-    expect(mockDiscoverAgents).toHaveBeenCalledWith("calendar");
+    expect(mockDiscoverAgents).toHaveBeenCalledWith("calendar", {
+      workspaceAppsManifest: null,
+    });
   });
 
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {

@@ -368,6 +368,27 @@ describe("agent discovery", () => {
     );
   });
 
+  it("keeps remote resources best-effort when using a workspace manifest snapshot", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{invalid";
+    await expect(
+      discoverAgents("sender", {
+        workspaceAppsManifest: [
+          {
+            id: "sibling",
+            name: "Sibling",
+            description: "",
+            path: "/sibling",
+            homePath: "/home",
+            url: "https://workspace.example.test/sibling",
+          },
+        ],
+      }),
+    ).resolves.toContainEqual(
+      expect.objectContaining({ id: "sibling", source: "workspace" }),
+    );
+  });
+
   it("preserves individual resource read failures for callers that need complete discovery", async () => {
     resourceListMock.mockResolvedValueOnce([
       { id: "remote-1", path: "remote-agents/custom.json" },

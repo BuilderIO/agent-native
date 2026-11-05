@@ -67,6 +67,8 @@ export interface DiscoverAgentsOptions {
   preferLocalUrls?: boolean;
   requireReadableAgentSources?: boolean;
   includePersonalAgents?: boolean;
+  /** Reuse a previously loaded manifest for consistent workspace discovery. */
+  workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
 }
 
 export interface DiscoverOrgDirectoryAgentsOptions {
@@ -1465,10 +1467,16 @@ function workspaceAppUrl(
 
 async function discoverWorkspaceAgents(
   selfAppId?: string,
-  options?: { preferLocalUrls?: boolean },
+  options?: {
+    preferLocalUrls?: boolean;
+    workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
+  },
   strict = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = await loadWorkspaceAppsManifest(strict);
+  const workspaceApps =
+    options?.workspaceAppsManifest !== undefined
+      ? options.workspaceAppsManifest
+      : await loadWorkspaceAppsManifest(strict);
   if (!workspaceApps) return [];
 
   const metadataSettings =

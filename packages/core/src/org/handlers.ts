@@ -2196,7 +2196,9 @@ export const syncA2ASecretHandler = defineEventHandler(
     // Only first-party built-ins and apps mounted on this deployment may receive
     // the organization secret. A workspace manifest can contain external URLs.
     const app = getAppConfig().app;
-    const workspaceApps = await loadWorkspaceAppsManifest();
+    // Use one strict workspace snapshot for both sender identity and discovery.
+    // Other agent sources remain best-effort; they are not workspace recipients.
+    const workspaceApps = await loadWorkspaceAppsManifest(true);
     const matchingMounts = app.basePath
       ? (workspaceApps ?? []).filter(
           (entry) =>
@@ -2212,7 +2214,7 @@ export const syncA2ASecretHandler = defineEventHandler(
       (matchingMounts.length === 1 ? matchingMounts[0].id : undefined) ??
       (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
     const [discoveredAgents, builtins] = await Promise.all([
-      discoverAgents(selfAppId),
+      discoverAgents(selfAppId, { workspaceAppsManifest: workspaceApps }),
       Promise.resolve(getBuiltinAgentsForSeeding()),
     ]);
     const registeredBuiltins = new Map(
