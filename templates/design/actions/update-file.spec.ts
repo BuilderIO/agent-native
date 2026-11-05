@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
@@ -187,6 +188,7 @@ function matchesDesignFile(row: FileRow, predicate: Predicate): boolean {
   return equalities.every(({ column, value }) => {
     if (column === "id") return row.id === value;
     if (column === "designId") return row.designId === value;
+    if (column === "filename") return row.filename === value;
     return true;
   });
 }
@@ -262,6 +264,15 @@ import {
   sourceContentPatch,
 } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
+
+async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected run to reject");
+}
 
 function buildDoc(bodyExtra = ""): string {
   return `<!DOCTYPE html>
@@ -984,5 +995,58 @@ describe("update-file: editor-surface checkpoint skip surfaces in the result", (
     );
 
     expect(result).not.toHaveProperty("checkpoint");
+  });
+});
+
+describe("update-file: typed filename refusals", () => {
+  it("rejects a filename already used by another file in the design as a typed 409 and changes no row", async () => {
+    designFilesStore.rows.set("file_taken", {
+      id: "file_taken",
+      designId: DESIGN_ID,
+      filename: "taken.html",
+      fileType: "html",
+      content: buildDoc(" taken "),
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+    const before = [...designFilesStore.rows.values()].map((row) => ({
+      ...row,
+    }));
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        filename: "taken.html",
+      } as never),
+    );
+
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "filename_taken",
+      statusCode: 409,
+      message: `File "taken.html" already exists in design ${DESIGN_ID}`,
+    });
+    expect([...designFilesStore.rows.values()]).toEqual(before);
+  });
+
+  it("rejects a path-traversal filename as a typed 400 before reading or writing any row", async () => {
+    const before = [...designFilesStore.rows.values()].map((row) => ({
+      ...row,
+    }));
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        filename: "../escape.html",
+      } as never),
+    );
+
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "invalid_filename",
+      statusCode: 400,
+      message: "Invalid filename: path traversal not allowed",
+    });
+    expect([...designFilesStore.rows.values()]).toEqual(before);
   });
 });
