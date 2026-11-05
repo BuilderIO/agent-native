@@ -22502,6 +22502,7 @@ describe("runAgentLoop", () => {
     "throws after settling",
     "nested action settles then throws",
     "critical warning",
+    "prior critical warning",
     "truncated tool round",
     "failed receipt",
     "unverified receipt",
@@ -22530,7 +22531,10 @@ describe("runAgentLoop", () => {
         }
       }
       ctx?.settle?.();
-      if (scenario === "critical warning")
+      if (
+        scenario === "critical warning" ||
+        scenario === "prior critical warning"
+      )
         warnAgent({
           severity: "critical",
           code: "risk",
@@ -22555,7 +22559,8 @@ describe("runAgentLoop", () => {
         return { nextRequiredAction: "verify" };
       return { saved: true };
     });
-    const other = vi.fn(async () => {
+    const other = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      if (scenario === "prior critical warning") ctx?.settle?.();
       if (scenario === "parallel failure") throw new Error("other failed");
       return { ok: true };
     });
@@ -22596,7 +22601,18 @@ describe("runAgentLoop", () => {
             reason:
               scenario === "truncated tool round" ? "max_tokens" : "tool_use",
           };
-        } else if (streamCalls === 2) {
+        } else if (streamCalls === 2 && scenario === "prior critical warning") {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "tool-call", id: "other", name: "other", input: {} },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else if (
+          streamCalls === 2 ||
+          (streamCalls === 3 && scenario === "prior critical warning")
+        ) {
           yield {
             type: "stop",
             reason: scenario === "max tokens" ? "max_tokens" : "end_turn",
@@ -22646,7 +22662,8 @@ describe("runAgentLoop", () => {
         }),
     );
     expect(save).toHaveBeenCalledTimes(1);
-    if (parallel) expect(other).toHaveBeenCalledTimes(1);
+    if (parallel || scenario === "prior critical warning")
+      expect(other).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBeGreaterThanOrEqual(3);
     expect(events).not.toContainEqual({
       type: "done",
