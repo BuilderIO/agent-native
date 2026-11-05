@@ -34,7 +34,7 @@ Use `tool-search` for the full surface, including screen-memory.
 | `view-screen` / `navigate` | Read context or open a surface |
 | `get-video-storage-status` | Check storage and any hosted clips available in the current rollout before asking to connect Builder |
 | `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
-| `create-recording-agent-link` | Make a temporary scoped link for an authorized private clip |
+| `create-recording-agent-link` / `get-recording-frames` | Private-clip agent link; clip frames as images |
 | `create-recording-upload` / `import-loom-recording` | Upload a local video file, or import one from a URL |
 | `request-transcript` / `import-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription, imported VTT/SRT/timestamped transcripts, and metadata |
 | `trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words` | Edit video |

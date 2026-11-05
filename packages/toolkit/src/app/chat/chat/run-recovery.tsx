@@ -39,7 +39,13 @@ import {
   IconClipboardList,
   IconArrowUpRight,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
@@ -317,10 +323,13 @@ export function BuilderConnectCta({
   variant = "primary",
   onConnected,
   reconnect = false,
+  secondaryAction,
 }: {
   variant?: "primary" | "compact";
-  onConnected?: () => void;
+  onConnected?: (() => void) | undefined;
   reconnect?: boolean;
+  /** Compact only: wraps with the Builder button so errors span both. */
+  secondaryAction?: ReactNode;
 }) {
   const t = useT();
   const connectAttemptRef = useRef<BuilderConnectTelemetryAttempt | null>(null);
@@ -385,61 +394,69 @@ export function BuilderConnectCta({
   );
 
   if (variant === "compact") {
-    if (configured && !reconnect) {
-      return (
-        <span
-          data-agent-builder-setup-slot="builder-button"
-          className="inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground"
-        >
-          <IconCheck
-            aria-hidden="true"
-            className="size-3 text-[hsl(var(--agent-kit-positive))]"
-          />
-          {orgName
-            ? t("agentChat.setup.connectedTo", { organization: orgName })
-            : t("agentChat.setup.connected")}
-        </span>
-      );
-    }
+    const showConnected = configured && !reconnect;
+    const connectedLabel = orgName
+      ? t("agentChat.setup.connectedTo", { organization: orgName })
+      : t("agentChat.setup.connected");
 
     return (
-      <div className="flex min-w-0 flex-col items-end gap-1">
-        <DeferredBuilderConnectPopover
-          flow={flow}
-          onConnect={startBuilderConnect}
-        >
-          <Button
-            type="button"
-            size="xs"
-            disabled={connecting}
-            onClick={() =>
-              trackSetupFunnelEvent(
-                "integration_method_clicked",
-                "builder",
-                "click",
-                "started",
-              )
-            }
-            data-agent-builder-setup-slot="builder-button"
-            className="shrink-0"
-            aria-busy={connecting}
-          >
-            {connecting ? (
-              <>
-                <Spinner className="size-3" aria-hidden="true" />
-                {t("agentChat.common.waiting")}
-              </>
-            ) : reconnect ? (
-              t("agentChat.recovery.reconnectBuilder")
-            ) : (
-              t("agentChat.setup.connectBuilder")
-            )}
-          </Button>
-        </DeferredBuilderConnectPopover>
-        {error && (
+      <div className="flex min-w-0 max-w-full flex-col gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {showConnected ? (
+            <span
+              data-agent-builder-setup-slot="builder-button"
+              title={connectedLabel}
+              className="inline-flex h-6 min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground"
+            >
+              <IconCheck
+                aria-hidden="true"
+                className="size-3 shrink-0 text-[hsl(var(--agent-kit-positive))]"
+              />
+              <span className="truncate">{connectedLabel}</span>
+            </span>
+          ) : (
+            <DeferredBuilderConnectPopover
+              flow={flow}
+              onConnect={startBuilderConnect}
+              cancelSize="xs"
+            >
+              <Button
+                type="button"
+                size="xs"
+                disabled={connecting}
+                onClick={() =>
+                  trackSetupFunnelEvent(
+                    "integration_method_clicked",
+                    "builder",
+                    "click",
+                    "started",
+                  )
+                }
+                data-agent-builder-setup-slot="builder-button"
+                className="shrink-0"
+                aria-busy={connecting}
+              >
+                {connecting ? (
+                  <>
+                    <Spinner className="size-3" aria-hidden="true" />
+                    {t("agentChat.common.waiting")}
+                  </>
+                ) : reconnect ? (
+                  t("agentChat.recovery.reconnectBuilder")
+                ) : (
+                  t("agentChat.setup.connectBuilder")
+                )}
+              </Button>
+            </DeferredBuilderConnectPopover>
+          )}
+          {secondaryAction}
+        </div>
+        {/* Inline-size containment keeps a long error from widening the
+            buttons; it wraps to their width instead. */}
+        {error && !showConnected && (
           <p
             {...SESSION_REPLAY_MASK_PROPS}
-            className="max-w-[13rem] text-end text-[10px] leading-snug text-destructive"
+            className="contain-inline-size text-[10px] leading-snug text-destructive"
           >
             {error}
           </p>
@@ -582,6 +599,65 @@ export function BuilderSetupContent({
     </Button>
   );
 
+  const customKeysAction = import.meta.env.DEV ? (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          size="xs"
+          variant={customKeysVariant}
+          data-agent-builder-setup-slot="key-button"
+          className={customKeysClassName}
+        >
+          {t("agentPanel.addOwnKeys", {
+            defaultValue: "Custom keys",
+          })}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-2">
+        <div className="flex flex-col gap-1">
+          <Link
+            to={settingsRoute}
+            state={{ providerSetupTrackingFlow: "chat_setup" }}
+            onClick={trackCustomKeysClick}
+            className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="text-xs font-medium text-foreground">
+              {t("agentChat.setup.addKeyInSettings", {
+                defaultValue: "Add a key in Settings",
+              })}
+            </span>
+            <span className="text-[11px] leading-4 text-muted-foreground">
+              {t("agentChat.setup.addKeyInSettingsDescription", {
+                defaultValue: "For your account or organization.",
+              })}
+            </span>
+          </Link>
+          <a
+            href="https://www.agent-native.com/docs/environment-variables#llm-provider-keys"
+            target="_blank"
+            rel="noreferrer"
+            onClick={trackEnvironmentVariableClick}
+            className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="text-xs font-medium text-foreground">
+              {t("agentChat.setup.setEnvironmentVariable", {
+                defaultValue: "Set an environment variable",
+              })}
+            </span>
+            <span className="text-[11px] leading-4 text-muted-foreground">
+              {t("agentChat.setup.setEnvironmentVariableDescription", {
+                defaultValue: "One provider key for everyone in this app.",
+              })}
+            </span>
+          </a>
+        </div>
+      </PopoverContent>
+    </Popover>
+  ) : (
+    settingsLink
+  );
+
   // The buttons name both choices, so the card carries no description.
   return (
     <div
@@ -590,8 +666,8 @@ export function BuilderSetupContent({
         sidebarLayout && "agent-builder-setup-card--sidebar",
       )}
     >
-      {/* Top-aligned so a connect error under one button leaves the row's
-          controls on one line. */}
+      {/* Top-aligned so a connect error under the buttons leaves the title
+          on the first line. */}
       <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5">
         <div className="agent-builder-setup-card__copy me-auto flex min-h-6 min-w-0 items-center gap-1">
           <h3 className="truncate text-[13px] font-medium text-foreground">
@@ -614,68 +690,13 @@ export function BuilderSetupContent({
         </div>
         <div
           data-agent-builder-setup-slot="actions"
-          className="flex shrink-0 flex-row items-start gap-1"
+          className="flex min-w-0 max-w-full flex-row items-start gap-1"
         >
-          <BuilderConnectCta variant="compact" onConnected={onConnected} />
-          {import.meta.env.DEV ? (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant={customKeysVariant}
-                  data-agent-builder-setup-slot="key-button"
-                  className={customKeysClassName}
-                >
-                  {t("agentPanel.addOwnKeys", {
-                    defaultValue: "Custom keys",
-                  })}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 p-2">
-                <div className="flex flex-col gap-1">
-                  <Link
-                    to={settingsRoute}
-                    state={{ providerSetupTrackingFlow: "chat_setup" }}
-                    onClick={trackCustomKeysClick}
-                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span className="text-xs font-medium text-foreground">
-                      {t("agentChat.setup.addKeyInSettings", {
-                        defaultValue: "Add a key in Settings",
-                      })}
-                    </span>
-                    <span className="text-[11px] leading-4 text-muted-foreground">
-                      {t("agentChat.setup.addKeyInSettingsDescription", {
-                        defaultValue: "For your account or organization.",
-                      })}
-                    </span>
-                  </Link>
-                  <a
-                    href="https://www.agent-native.com/docs/environment-variables#llm-provider-keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={trackEnvironmentVariableClick}
-                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span className="text-xs font-medium text-foreground">
-                      {t("agentChat.setup.setEnvironmentVariable", {
-                        defaultValue: "Set an environment variable",
-                      })}
-                    </span>
-                    <span className="text-[11px] leading-4 text-muted-foreground">
-                      {t("agentChat.setup.setEnvironmentVariableDescription", {
-                        defaultValue:
-                          "One provider key for everyone in this app.",
-                      })}
-                    </span>
-                  </a>
-                </div>
-              </PopoverContent>
-            </Popover>
-          ) : (
-            settingsLink
-          )}
+          <BuilderConnectCta
+            variant="compact"
+            onConnected={onConnected}
+            secondaryAction={customKeysAction}
+          />
         </div>
       </div>
     </div>

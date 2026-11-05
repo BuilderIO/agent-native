@@ -736,6 +736,7 @@ describe("runLoomImportJob", () => {
     expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
       recordingId: "rec_embed_hosted",
       ownerEmail: "owner@example.com",
+      reason: "loom_embed_fallback",
     });
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -38,6 +38,12 @@ describe("page body containment", () => {
     );
   });
 
+  it("puts every block of a list item in the text column, not under the marker", () => {
+    expect(css).toMatch(
+      /\.content-editor ul:not\(\.content-task-list\) > li > \*,\s*\.content-editor ol > li > \*\s*\{[^}]*grid-column: 2;/,
+    );
+  });
+
   it("enforces the readable table floor over Tiptap's inline min-width", () => {
     expect(css).toMatch(
       /\.content-editor table\s*\{[^}]*min-width: var\(--content-table-min-width, 0px\) !important;/,

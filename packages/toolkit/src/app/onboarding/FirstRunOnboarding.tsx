@@ -176,6 +176,9 @@ const FIRST_RUN_ROLE_OPTIONS = [
   { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
   { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
   { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  { value: "creator", labelKey: "agentChat.onboarding.roleCreator" },
+  { value: "student", labelKey: "agentChat.onboarding.roleStudent" },
+  { value: "educator", labelKey: "agentChat.onboarding.roleEducator" },
   {
     value: "individual",
     labelKey: "agentChat.onboarding.roleIndividual",
@@ -1576,7 +1579,7 @@ export function FirstRunOnboarding({
               </>
             }
           >
-            <fieldset className="flex flex-col gap-3">
+            <fieldset className="grid gap-3 sm:grid-cols-2">
               <legend className="sr-only">
                 {t("agentChat.onboarding.chooseRole")}
               </legend>

@@ -476,6 +476,8 @@ const messages = {
       liveStarted: "Execução iniciada.",
       liveFailed: "Não foi possível iniciar a execução. {{reason}}",
       enableFailed: "Não foi possível alterar o fluxo de trabalho. {{reason}}",
+      testNeedsItems:
+        "Esta etapa precisa de itens para testar. Faça uma simulação do fluxo de trabalho primeiro e depois teste a etapa.",
     },
     nodePanel: {
       tabsName: "Visualizações da etapa",
@@ -485,6 +487,8 @@ const messages = {
         "Execute o fluxo de trabalho uma vez para que esta etapa tenha itens para testar.",
       testStepSamplesFailed:
         "Não foi possível carregar os itens para testar esta etapa.",
+      testStepOlderSample:
+        "Testando com itens de uma execução anterior: as execuções mais recentes não deram nenhum a esta etapa.",
     },
     nodeDetails: {
       dialogName: "Detalhes da etapa",
@@ -530,6 +534,61 @@ const messages = {
       pathCopyFailed: "Não foi possível copiar o caminho",
       dragHint: "Arraste esta alça até um campo para mapeá-lo",
       mappedFirstField: "Você acabou de mapear um campo.",
+    },
+    apiRequest: {
+      docs: "Documentação",
+      docsFor: "Documentação da API de {{provider}}",
+      truncatedNotice:
+        "A resposta foi cortada para caber, e um único registro pode ser tão grande. Restrinja a consulta com parâmetros como per_page, ou use paginação.",
+      cutList: "{{path}}: mantidos {{kept}} de {{of}} itens",
+      cutText: "{{path}}: mantidos {{kept}} de {{of}} caracteres",
+      cutKeys_one: "{{path}}: {{count}} campo ignorado",
+      cutKeys_many: "{{path}}: {{count}} de campos ignorados",
+      cutKeys_other: "{{path}}: {{count}} campos ignorados",
+      cutsMore_one: "e mais {{count}} corte",
+      cutsMore_many: "e mais {{count}} de cortes",
+      cutsMore_other: "e mais {{count}} cortes",
+      tooLargeHint:
+        "Uma etapa pode repassar cerca de 64 KB e 100 itens no total, contando todas as respostas anteriores que ainda estão anexadas a eles. Restrinja a consulta, use paginação ou faça menos chamadas em uma execução.",
+      fieldsMissing:
+        "Estes campos não foram encontrados na resposta: {{names}}",
+      fieldsMissingMore: "e mais {{count}}",
+      cutNotice:
+        "Só o início da resposta é exibido: uma etapa mantém um registro curto do que leu.",
+      noOutputRecorded: "Esta execução não registrou resposta para esta etapa.",
+      liveMark: "HTTP {{status}}, {{ms}} ms",
+      notStored:
+        "Mostrado apenas aqui. A resposta não é salva, e fechar esta janela a apaga.",
+      errorDetails: "Detalhes do erro",
+      detailCode: "Código",
+      detailStatus: "Status",
+      detailMessage: "Mensagem",
+      heading: {
+        not_connected: "O provedor não está conectado",
+        access_denied: "O provedor recusou o acesso da conexão",
+        not_found: "O provedor não encontrou esse caminho",
+        rate_limited: "O provedor está limitando as solicitações",
+        provider_problem: "O provedor teve um problema",
+        rejected: "O provedor recusou a solicitação",
+        too_large: "As respostas eram grandes demais para manter",
+        request_failed: "A solicitação não foi concluída",
+        request_refused: "A solicitação foi recusada antes de ser enviada",
+        unreadable: "A resposta não pôde ser lida",
+        expression_failed: "Um valor que esta etapa lê está vazio",
+        test_not_allowed: "Você não pode testar esta etapa",
+        failed: "A etapa falhou",
+        full_url_refused: "O caminho é uma URL completa",
+        unsafe_path_value: "O caminho não pode ser enviado como foi digitado",
+        invalid_query: "Os parâmetros de consulta não são válidos",
+        invalid_header: "Um cabeçalho não é válido",
+        header_denied: "Um cabeçalho não pode ser definido aqui",
+        invalid_pagination: "As configurações de paginação não são válidas",
+        invalid_timeout: "O tempo limite não é válido",
+        incompatible_fields:
+          "Status e cabeçalhos não podem ser retornados com paginação",
+        invalid_fields_to_keep: "Os campos a manter não são válidos",
+        invalid_field: "Um campo está vazio ou não é válido",
+      },
     },
     diagnostics: {
       copy: "Copiar diagnósticos",
@@ -802,6 +861,7 @@ const messages = {
       itemFailures_other: "{{count}} itens falharam",
       needsCheck: "Para verificar: {{count}}",
       nothing: "Nada novo",
+      primed: "Iniciado a partir de agora",
       summary: "{{head}}: {{parts}}",
     },
     change: {
@@ -912,6 +972,11 @@ const messages = {
       searchApps: "Pesquisar apps...",
       searchActions: "Pesquisar ações...",
       clearSearch: "Limpar pesquisa",
+      apiRequest: "Solicitação de API",
+      apiRequestLink: "Etapa de solicitação de API",
+      apiRequestTip:
+        "Leia qualquer endpoint de um app conectado com a {{link}}.",
+      anythingElseCaption: "Outros",
       hint: {
         onSchedule: "Executa em um horário, a cada poucos minutos ou todo dia",
         newFromApp: "Uma nova mensagem, ticket, lead ou assinatura",
@@ -921,6 +986,7 @@ const messages = {
         data: "Filtrar, dividir ou combinar itens",
         flow: "Direcionar, pausar ou parar um item",
         describe: "Pedir ao agente que crie esta etapa",
+        apiRequest: "Ler qualquer endpoint de um app conectado",
         decideAi: "Responder a uma pergunta sobre cada item",
         builderStart: "Passar um bug claro ao Builder para corrigir",
         builderCheck: "Verificar o andamento de uma tarefa do Builder",
@@ -975,6 +1041,7 @@ const messages = {
       match: "Corresponde",
       otherwise: "Caso contrário",
       limitReached: "Limite atingido",
+      error: "Erro",
       replied: "Respondeu",
       timedOut: "Tempo esgotado",
       done: "Concluído",
@@ -1158,6 +1225,11 @@ const messages = {
       noOperations: "Nenhuma operação disponível",
       notInCatalog: "{{id}} (fora do catálogo)",
       resultName: "Dê um nome ao resultado",
+      onError: {
+        label: "Em caso de erro",
+        stop: "Parar este item",
+        route: "Enviar para a saída de erro",
+      },
       insertPath: "Inserir um caminho",
       searchPaths: "Pesquisar caminhos",
       noPaths: "Nenhum caminho corresponde.",
@@ -1264,6 +1336,7 @@ const messages = {
       combine: {
         mode: "Combinar em",
         key: "Agrupar por",
+        firstMemberIdentity: "Nomear cada grupo pelo primeiro item",
         field: "Reunir este campo",
         group: "Agrupar por",
         value: "Somar",
@@ -1356,6 +1429,162 @@ const messages = {
         confirmBody_other: "{{count}} conexões dela também serão removidas.",
         confirm: "Remover rota",
         cancel: "Manter rota",
+      },
+      apiRequest: {
+        importCurl: "Importar cURL",
+        method: "Método",
+        methodReadOnly: "Esta etapa só lê, então o método é sempre GET.",
+        provider: "Provedor",
+        path: "Caminho",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "Autenticação",
+        authProvider: "Conexão com o provedor",
+        authProviderHint: "Envia a credencial da conexão com a solicitação",
+        authNone: "Nenhuma",
+        authNoneHint: "Não envia credencial, para um endpoint público",
+        sendQuery: "Enviar parâmetros de consulta",
+        sendHeaders: "Enviar cabeçalhos",
+        specifyQuery: "Especificar parâmetros de consulta",
+        specifyHeaders: "Especificar cabeçalhos",
+        modeFields: "Usando os campos abaixo",
+        modeJson: "Usando JSON",
+        name: "Nome",
+        value: "Valor",
+        queryJson: "Parâmetros de consulta em JSON",
+        headersJson: "Cabeçalhos em JSON",
+        addParameter: "Adicionar parâmetro",
+        addHeader: "Adicionar cabeçalho",
+        removeRow: "Remover",
+        addOption: "Adicionar opção",
+        optionTimeout: "Tempo limite",
+        optionPagination: "Paginação",
+        optionStatus: "Incluir status e cabeçalhos da resposta",
+        optionFieldsToKeep: "Campos a manter",
+        optionFieldsToKeepHint:
+          "Mantém apenas os campos que as etapas seguintes usam, para que respostas longas caibam.",
+        fieldsPlaceholder:
+          "Digite um campo, como user.login, e pressione Enter",
+        fieldsInputLabel: "Adicionar um campo a manter",
+        removeField: "Remover {{path}}",
+        pickFromResponse: "Escolher da última resposta",
+        pickSearch: "Pesquisar campos",
+        pickNeedsTest:
+          "Execute primeiro “Testar etapa” e depois escolha na resposta dela.",
+        pickRunning: "“Testar etapa” ainda está em execução.",
+        pickFailed:
+          "O último teste falhou, então não há resposta para escolher.",
+        pickNoFields: "A resposta não tem campos para escolher.",
+        pickCutNote:
+          "A resposta foi cortada, então campos que só aparecem em entradas posteriores não são listados.",
+        pickCapped: "Mostrando os primeiros {{count}} campos.",
+        pickKeptNote:
+          "Mostra os campos da última resposta. Execute “Testar etapa” sem campos a manter para ver todos.",
+        optionBlockedByPagination: "Não disponível com a paginação.",
+        optionBlockedByStatus:
+          "Não disponível enquanto o status e os cabeçalhos da resposta estiverem incluídos.",
+        removeOption: "Remover {{option}}",
+        timeoutSeconds: "Tempo limite (segundos)",
+        cursorPath: "Caminho do cursor",
+        cursorParam: "Parâmetro do cursor",
+        itemsPath: "Caminho dos itens",
+        maxPages: "Máximo de páginas",
+        notice:
+          "As solicitações só leem. Elas usam a conexão com o provedor, e nenhuma credencial é exibida ou salva aqui.",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "Digite o caminho do endpoint, como repos/acme/web/issues.",
+          fullUrl: "Digite só o caminho. O host vem da conexão.",
+          useOnlyPath: "Use só o caminho",
+          pathQuery:
+            "Coloque os parâmetros de consulta em Enviar parâmetros de consulta, e não no caminho.",
+          moveToParameters: "Mover para os parâmetros de consulta",
+          pathFragment: "Remova a parte #: ela nunca é enviada ao provedor.",
+          pathPlaceholder:
+            "Um {name} no caminho não foi preenchido. Digite o valor real.",
+          pathSegment:
+            "O caminho tem uma parte vazia, um ponto ou um caractere de controle.",
+          pathLength: "O caminho é longo demais.",
+          queryInvalid:
+            "Parâmetros de consulta devem ter nomes com texto, números ou listas.",
+          queryName: "Use só letras, dígitos e - _ . [ ] em um nome.",
+          queryValue:
+            "Um valor não pode ter quebra de linha nem ser tão longo.",
+          nameMissing: "Adicione um nome ou remova esta linha.",
+          headersInvalid: "Cabeçalhos devem ter nomes com valores de texto.",
+          headerDenied:
+            "{{name}} é enviado pela conexão, então não pode ser definido aqui.",
+          headerDeniedRow: "A conexão envia este cabeçalho por conta própria.",
+          headerName: "Este não é um nome de cabeçalho válido.",
+          headerValue:
+            "Um valor não pode ter caractere de controle nem ser tão longo.",
+          headerDuplicate: "Este cabeçalho já está na lista.",
+          timeout: "Use um número de segundos de 1 a 60.",
+          paginationShape: "Confira as configurações de paginação.",
+          paginationCursorPath:
+            "Digite o caminho para o próximo cursor na resposta, como meta.next_cursor.",
+          paginationCursorParam:
+            "Digite o parâmetro de consulta que envia o cursor de volta.",
+          paginationItemsPath:
+            "Use um caminho com pontos até a lista em cada página, como data.items.",
+          paginationMaxPages: "Use um número inteiro de páginas de 1 a 5.",
+          statusWithPaging:
+            "Desative o status e os cabeçalhos, ou desative a paginação: só o status da última página é conhecido.",
+          fieldsToKeepShape:
+            "Os campos a manter devem ser uma lista de nomes de campos.",
+          fieldsToKeepEmpty:
+            "Adicione pelo menos um campo ou remova esta opção.",
+          fieldsToKeepCount: "Mantenha no máximo 50 campos.",
+          fieldsToKeepControl:
+            "Um nome de campo não pode conter caractere de controle.",
+          fieldsToKeepSegment:
+            "Dê nome a cada nível entre os pontos, como user.login.",
+          fieldsToKeepLong:
+            "Cada nível de um nome de campo pode ter no máximo 64 caracteres.",
+          fieldsToKeepDeep:
+            "Um campo pode ter no máximo 8 níveis de profundidade.",
+          fieldsToKeepReserved: "Esse nome é reservado e não pode ser usado.",
+          fieldsToKeepDuplicate: "Este campo já está na lista.",
+          droppedCredentials:
+            "Ignorados: {{names}}. Credenciais nunca são mantidas em uma etapa.",
+        },
+        importDialog: {
+          title: "Importar comando cURL",
+          label: "Comando cURL",
+          placeholder: "Cole o comando cURL aqui",
+          warning: "Isso vai substituir as configurações desta etapa.",
+          import: "Importar",
+          cancel: "Cancelar",
+          done: "Concluído",
+          providersFailed:
+            "Não foi possível carregar a lista de provedores, então o comando ainda não pode ser identificado.",
+          retry: "Tentar novamente",
+          imported: "Importado do cURL",
+          leftOutTitle: "Importado. Estes foram ignorados:",
+          fail: {
+            not_curl: "Isso não é um comando cURL. Ele deve começar com curl.",
+            no_url: "O comando não tem URL.",
+            invalid_url:
+              "Não foi possível ler a URL. Ela não pode conter uma variável ou um comando.",
+            not_https: "Só é possível importar URLs https.",
+            unknown_host: "Esta URL não pertence a um provedor conectado.",
+            unterminated_quote: "Uma aspa no comando nunca é fechada.",
+            method_not_get:
+              "Esta etapa só lê com GET, e o comando pede outro método.",
+          },
+          failFlag: "Esta etapa só lê com GET, mas o comando usa {{flag}}.",
+          leftOut: {
+            credentials: "Credenciais, que a conexão fornece: {{names}}",
+            headers: "Cabeçalhos que a própria solicitação envia: {{names}}",
+            bodies:
+              "O corpo da solicitação, já que esta etapa só lê: {{names}}",
+            flags: "Opções sem efeito aqui: {{names}}",
+            unreadableHeader: "Um cabeçalho que não pôde ser lido",
+            extraUrl: "Todas as URLs depois da primeira",
+            urlUserinfo: "o usuário e a senha na URL",
+          },
+        },
       },
     },
     rejection: {

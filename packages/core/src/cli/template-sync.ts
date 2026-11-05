@@ -13,6 +13,7 @@ import {
   _findLocalTemplate,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _getAgentKitDependencyVersion,
   _getCoreDependencyVersion,
   _getCorePackageVersion,
   _getDispatchDependencyVersion,
@@ -175,6 +176,7 @@ export async function materializeTemplate(
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      agentKitDependencyVersion: _getAgentKitDependencyVersion(),
       otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(dest, opts.appName, opts.template, {
