@@ -2701,6 +2701,7 @@ const esES = {
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
     updatingUiInProduction: "Actualizar la UI en Producción",
     environmentVariables: "Variables de entorno",
+    telemetry: "Telemetría",
     progress: "Progreso",
     authentication: "Autenticación",
     multiTenancy: "multiinquilino",

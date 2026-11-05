@@ -15,11 +15,12 @@ import {
   saveConflict,
   saveRevisionOf,
 } from "@agent-native/core/save-conflict/server";
-import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { composeDeepLink } from "../server/lib/compose-deep-link.js";
 import {
   deleteGmailDraft,
   saveGmailDraft,
@@ -34,15 +35,6 @@ import {
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 import type { ComposeState } from "../shared/types.js";
-
-function composeDeepLink(draft: Pick<ComposeState, "id">): string {
-  return buildDeepLink({
-    app: "mail",
-    view: "inbox",
-    to: "/inbox",
-    params: { composeDraftId: draft.id },
-  });
-}
 
 // MCP Apps hosts embed the compact draft card; "Open in Mail" keeps the full
 // inbox deep link.
@@ -303,6 +295,13 @@ async function storeComposeDraft(
 }
 
 export default defineAction({
+  searchHints: [
+    "reply",
+    "write an email",
+    "compose",
+    "forward",
+    "respond to an email",
+  ],
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -331,7 +330,7 @@ export default defineAction({
     resource: embedApp({
       title: "Review email draft",
       description:
-        "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
+        "Review and edit the generated draft next to the conversation it answers. Sending and deleting open in Mail.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
       // A chat card's app document is 560px tall, under the shell's 44px bar.

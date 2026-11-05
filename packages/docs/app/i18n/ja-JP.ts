@@ -2673,6 +2673,7 @@ const jaJP = {
     deploymentEnvironmentVariables: "デプロイ: 環境変数",
     updatingUiInProduction: "本番環境でのUI更新",
     environmentVariables: "環境変数",
+    telemetry: "テレメトリ",
     progress: "進行状況",
     authentication: "認証",
     multiTenancy: "マルチテナンシー",

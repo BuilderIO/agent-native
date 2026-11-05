@@ -118,13 +118,13 @@ Jede App weiß bereits, wie sie sich anmeldet, dieselbe Datenbank freigibt und d
 Von überall im Arbeitsbereich:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 Der CLI zeigt erneut die Vorlagenauswahl mit herausgefilterten Apps an, die Sie bereits installiert haben. Wählen Sie eine oder mehrere aus und sie werden unter `apps/` eingerüstet. Nicht interaktive Variante:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Jede Vorlage eines Erstanbieters funktioniert als Arbeitsbereichs-App – CLI führt eine kleine **workspacify**-Transformation auf der Vorlage aus, die das freigegebene Paket als Dep hinzufügt und `workspace:*`-Referenzen auflöst. Es muss kein paralleles „Workspace-App“-Gerüst gepflegt werden.
@@ -259,6 +259,8 @@ Unbekannte IDs in `include` erzeugen eine Warnung und werden ignoriert. Eine Sta
 
 Diese Konfiguration steuert die App-Liste, die Agent-Erkennung und Aufrufe zwischen Agents. Eingebundene Workspace-Apps und benutzerdefinierte URLs verbundener Remote-Agents behalten Vorrang. Der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
 
+In Dispatch können Organisationsinhaber und -admins die angebotenen integrierten Apps zusätzlich unter Einstellungen › Organisation › Apps (oder mit `set-hosted-apps-settings`) ausblenden. Dadurch verschwinden sie für die Organisation aus den App-Listen von Dispatch und aus dem App-Kontext seines Agents; `call-agent` erreicht sie per Name weiterhin. Ohne Organisation gibt es dafür keine Einstellungsseite; nur der Agent kann es dann ändern, für diesen Benutzer.
+
 ## Freigegebene MCP-Server {#shared-mcp}
 
 Die empfohlenen Optionen für die gemeinsame Nutzung von MCP-Servern über Workspace-Apps hinweg, in der Reihenfolge ihrer Präferenz:
@@ -293,6 +295,10 @@ Einige Onboarding-Abläufe sind standardmäßig arbeitsbereichsorientiert:
 ## Gemeinsame Anmeldeinformationen {#shared-credentials}
 
 Apps im selben Arbeitsbereich verweisen standardmäßig auf denselben `DATABASE_URL`, sodass die Speicherung von Framework-Anmeldeinformationen Anmeldeinformationen für jede App ohne Konfiguration pro App verfügbar machen kann. Verwenden Sie `@agent-native/core/credentials` direkt oder fügen Sie einen Thin Helper in `packages/shared` hinzu, wenn Ihr Arbeitsbereich eine strengere Namenskonvention erfordert.
+
+## Standard-App unter `/` {#default-app}
+
+`/` öffnet Dispatch, wenn der Workspace eine `dispatch`-App enthält, sonst die erste App. Setze `WORKSPACE_DEFAULT_APP=<app-id>`, um eine andere App zu öffnen. `agent-native dev` und Workspace-Deployments lesen die Variable zuerst aus der Prozessumgebung, dann aus der `.env` im Workspace-Root; ein Wert, der keiner App entspricht, wird ignoriert. Deployments lesen sie zur Build-Zeit, setze sie also dort, wo du baust. Dispatch behält seine eigene Weiterleitung `/dispatch`, und `deployment.workspace.rootPage: "directory"` zeigt weiterhin die App-Liste.
 
 ## Geteilte Design-Tokens {#design-tokens}
 

@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { IconApps, IconArrowUpRight } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { SettingsGroup, SettingsRow } from "../../settings/SettingsRow.js";
 import { useSettingsPageHeader } from "../../settings/shell/context.js";
@@ -158,7 +158,13 @@ function BrowseAppsAction({ href }: { href: string }) {
   );
 }
 
-function OrgAppsContent({ org }: { org: OrgInfo }) {
+function OrgAppsContent({
+  org,
+  extraGroups,
+}: {
+  org: OrgInfo;
+  extraGroups?: ReactNode;
+}) {
   const t = useT();
   const { isWorkspace, dispatchAllAppsHref } = useOrgSwitcherAppLinks(true);
   const header = useMemo(
@@ -186,20 +192,22 @@ function OrgAppsContent({ org }: { org: OrgInfo }) {
           visibility={org.workspaceAppDefaultVisibility ?? "org"}
         />
       </SettingsGroup>
+      {extraGroups}
     </div>
   );
 }
 
 /**
  * Organization › Apps (owners and admins): who can open each workspace app,
- * and the privacy new apps start with.
+ * and the privacy new apps start with. An app adds its own groups after
+ * Defaults with `extraGroups`.
  */
-export function OrgAppsPage() {
+export function OrgAppsPage({ extraGroups }: { extraGroups?: ReactNode } = {}) {
   return (
     <OrgPageGate skeletonRows={3}>
       {(org) =>
         org.role === "owner" || org.role === "admin" ? (
-          <OrgAppsContent key={org.orgId} org={org} />
+          <OrgAppsContent key={org.orgId} org={org} extraGroups={extraGroups} />
         ) : null
       }
     </OrgPageGate>
