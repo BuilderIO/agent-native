@@ -625,9 +625,52 @@ describe("DOM mutation diagnostics", () => {
     },
   );
 
+  it("sends an error without a root and captures diagnostics when the root returns", () => {
+    installBrowser();
+    const documentMock = {
+      documentElement: null as {
+        getAttribute: (name: string) => string | null;
+        classList: { contains: (name: string) => boolean };
+      } | null,
+      querySelector: () => null,
+    };
+    vi.stubGlobal("document", documentMock);
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const message = "Failed to execute 'removeChild' on 'Node': child missing";
+
+    captureException(new DOMException(message, "NotFoundError"));
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({
+      type: "NotFoundError",
+      message,
+      handled: true,
+    });
+    expect(send.mock.calls[0][0].extra).toBeUndefined();
+
+    documentMock.documentElement = {
+      getAttribute: (name) => (name === "lang" ? "fr" : null),
+      classList: { contains: (name) => name === "translated-ltr" },
+    };
+    captureException(new DOMException(message, "NotFoundError"));
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].extra).toMatchObject({
+      domMutationDiagnostics: {
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: false,
+      },
+    });
+    dispose();
+  });
+
   it("reports no font wrappers when the document has no body", () => {
     installBrowser();
-    const querySelector = vi.fn(() => null);
+    const querySelector = vi.fn((selector: string) =>
+      selector === "font" ? {} : null,
+    );
     vi.stubGlobal("document", {
       documentElement: {
         getAttribute: () => null,
@@ -647,6 +690,7 @@ describe("DOM mutation diagnostics", () => {
     );
 
     expect(send).toHaveBeenCalledTimes(1);
+    expect(querySelector).toHaveBeenCalledWith("body font");
     expect(send.mock.calls[0][0].extra).toMatchObject({
       domMutationDiagnostics: { fontWrapperNodes: false },
     });

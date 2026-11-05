@@ -591,7 +591,8 @@ function domMutationDiagnostics(
   ) {
     return undefined;
   }
-  const root = document.documentElement;
+  const root = document.documentElement as HTMLElement | null;
+  if (!root) return undefined;
   return {
     domMutationDiagnostics: {
       htmlTranslate: root.getAttribute("translate"),
