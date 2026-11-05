@@ -82,6 +82,17 @@ function parseRangeArg(
   return n;
 }
 
+function isInsideSurrogatePair(content: string, offset: number): boolean {
+  const previous = content.charCodeAt(offset - 1);
+  const current = content.charCodeAt(offset);
+  return (
+    previous >= 0xd800 &&
+    previous <= 0xdbff &&
+    current >= 0xdc00 &&
+    current <= 0xdfff
+  );
+}
+
 async function writeResource(
   resource: Resource,
   resourcePath: string,
@@ -105,7 +116,15 @@ async function writeResource(
       `--offset ${offset} is past the end of "${resourcePath}" (${content.length} chars).`,
     );
   }
-  const end = Math.min(offset + length, content.length);
+  if (isInsideSurrogatePair(content, offset)) {
+    fail(
+      `--offset ${offset} falls inside a surrogate pair in "${resourcePath}".`,
+    );
+  }
+  let end = Math.min(offset + length, content.length);
+  if (isInsideSurrogatePair(content, end)) {
+    end += end - offset === 1 ? 1 : -1;
+  }
   const status =
     end < content.length
       ? `partial - read again with offset=${end} for the rest`

@@ -167,6 +167,65 @@ describe("resource-read Lab gating", () => {
       expect(rebuilt).toBe(content);
     });
 
+    it("reconstructs Unicode across page edges after UTF-8 encoding", async () => {
+      const unicode =
+        "a".repeat(39_999) +
+        "\u{1f600}" +
+        "b".repeat(39_997) +
+        "\u{1f680}" +
+        "tail";
+      addResource({ owner, path, content: unicode });
+      let offset = 0;
+      let rebuilt = "";
+      const offsets: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const out = Buffer.from(
+          await page("--offset", String(offset), "--length", "50000"),
+          "utf8",
+        ).toString("utf8");
+        const nl = out.indexOf("\n");
+        const header = out.slice(0, nl);
+        const body = out.slice(nl + 1);
+        expect(body.length).toBeLessThanOrEqual(40_000);
+        rebuilt += body;
+        const next = header.match(/offset=(\d+)/);
+        if (!next) {
+          expect(header).toContain("end of resource");
+          break;
+        }
+        offset = Number(next[1]);
+        offsets.push(offset);
+      }
+      expect(offsets).toEqual([39_999, 79_998]);
+      expect(rebuilt).toBe(unicode);
+    });
+
+    it("advances over an entire surrogate pair when length is one", async () => {
+      addResource({ owner, path, content: "x\u{1f600}y" });
+      expect(await page("--length", "1")).toBe(
+        "[chars 0-1 of 4; partial - read again with offset=1 for the rest]\nx",
+      );
+      expect(await page("--offset", "1", "--length", "1")).toBe(
+        "[chars 1-3 of 4; partial - read again with offset=3 for the rest]\n\u{1f600}",
+      );
+      expect(await page("--offset", "3", "--length", "1")).toBe(
+        "[chars 3-4 of 4; end of resource]\ny",
+      );
+
+      addResource({ owner, path, content: "\u{1f600}z" });
+      expect(await page("--length", "1")).toBe(
+        "[chars 0-2 of 3; partial - read again with offset=2 for the rest]\n\u{1f600}",
+      );
+    });
+
+    it("rejects an explicit offset inside a surrogate pair", async () => {
+      addResource({ owner, path, content: "x\u{1f600}y" });
+      await expect(page("--offset", "2")).rejects.toThrow(
+        "--offset 2 falls inside a surrogate pair",
+      );
+      expect(output).toEqual([]);
+    });
+
     it("rejects an offset past the end", async () => {
       addResource({ owner, path, content });
       await expect(page("--offset", String(content.length))).rejects.toThrow(
