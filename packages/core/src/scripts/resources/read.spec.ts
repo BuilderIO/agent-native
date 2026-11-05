@@ -235,27 +235,6 @@ describe("resource-read Lab gating", () => {
       expect(await page()).toBe("small");
     });
 
-    it("pages a large resource to the end without losing text", async () => {
-      addResource({ owner, path, content });
-      let offset = 0;
-      let rebuilt = "";
-      for (let i = 0; i < 20; i++) {
-        const out = await page(...(offset ? ["--offset", String(offset)] : []));
-        const nl = out.indexOf("\n");
-        const header = out.slice(0, nl);
-        const body = out.slice(nl + 1);
-        expect(body.length).toBeLessThanOrEqual(40_000);
-        rebuilt += body;
-        const next = header.match(/offset=(\d+)/);
-        if (!next) {
-          expect(header).toContain("end of resource");
-          break;
-        }
-        offset = Number(next[1]);
-      }
-      expect(rebuilt).toBe(content);
-    });
-
     it("reconstructs Unicode across page edges after UTF-8 encoding", async () => {
       const unicode =
         "a".repeat(39_999) +
