@@ -49,19 +49,27 @@ describe("export-audit-csv download url", () => {
         ? { url: key, expiresAt: "2026-01-01T00:00:00.000Z" }
         : null,
     );
-  });
-
-  it("links to the stored file when storage returns its own key", async () => {
     putObjectMock.mockResolvedValue({
       key: "https://cdn.example.test/audit.csv",
       url: "https://cdn.example.test/audit.csv",
     });
+  });
+
+  it("links to the stored file when storage returns its own key", async () => {
     const result = await (action as any).run({
       dateFrom: "2026-01-01",
       dateTo: "2026-01-31",
       expiresInSeconds: 1800,
     });
     expect(result.downloadUrl).toBe("https://cdn.example.test/audit.csv");
+  });
+
+  it("returns no expiry for the stored file URL", async () => {
+    const result = await (action as any).run({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-01-31",
+      expiresInSeconds: 1800,
+    });
     expect(result.downloadUrlExpiresAt).toBeNull();
   });
 });
