@@ -19,11 +19,16 @@ import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import {
+  getUploadedImageAgentOptions,
   NO_UPLOADED_FILES_CONTEXT,
   WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import {
+  createPromptChatAttachments,
+  type PromptChatSubmissionOptions,
+} from "@/lib/prompt-chat-attachments";
 import {
   deleteUploadedPromptFile,
   formatPromptUploadFailure,
@@ -71,10 +76,10 @@ function describeUploadedFilesForAgent(
     fileList,
     "",
     "File handling rules:",
-    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
+    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId} --replaceExisting true\` only when the user explicitly wants the whole deck replaced by the presentation, because it replaces all slides and the title. To use a presentation as source material, call \`import-file --filePath "<path>" --format pptx --deckId ${deckId}\` instead.`,
     `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
     "- If the user's message does not say what to do with an attached file (for example, use it as design inspiration, or build slides from its content), do not create or edit slides yet. Call `ask-question` once to ask how they want to use the file, offering the likely uses as options, then end the turn; their answer arrives as the next message.",
-    "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
+    "- Text-like files are chat attachments. Read their attachment context and use read-attachment to page through any truncated source before generating; do not call import-file for them.",
     '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
   ].join("\n");
@@ -102,7 +107,11 @@ export function AddSlidePopover({
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
-  agentSubmit: (message: string, context: string) => Promise<boolean>;
+  agentSubmit: (
+    message: string,
+    context: string,
+    options: PromptChatSubmissionOptions,
+  ) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
   placement?: "below" | "right";
@@ -270,6 +279,18 @@ export function AddSlidePopover({
           const started = await agentSubmit(
             addSlideAgentMessage(text),
             context,
+            {
+              ...getUploadedImageAgentOptions(uploaded),
+              attachments: await createPromptChatAttachments(
+                files.map((file) => ({
+                  name: file.name,
+                  contentType: file.type,
+                  file,
+                })),
+                uploaded,
+                t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
+              ),
+            },
           );
           if (!started) {
             discardFiles(files);
@@ -425,6 +446,7 @@ export function AddSlidePopover({
         autoFocus
         requireAgentEngine
         attachmentsEnabled={fileStorageConfigured}
+        inlineTextAttachments={false}
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}

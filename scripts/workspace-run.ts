@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
+
 type ProfileName = "test" | "typecheck";
 
 type Profile = {
@@ -69,7 +71,6 @@ if (parsedArgs.forwarded.length > 0) {
   pnpmArgs.push(...parsedArgs.forwarded);
 }
 
-const command = pnpmCommand();
 console.error(
   `[workspace-run] ${profile.script}: workspace-concurrency=${formatConcurrency(
     concurrency,
@@ -77,16 +78,18 @@ console.error(
 );
 
 if (parsedArgs.dryRun) {
-  console.log([command, ...pnpmArgs.map(quoteArg)].join(" "));
+  console.log(["pnpm", ...pnpmArgs.map(quoteArg)].join(" "));
   process.exit(0);
 }
 
-const child = spawn(command, pnpmArgs, {
+const pnpm = pnpmCommand(pnpmArgs);
+const child = spawn(pnpm.command, pnpm.args, {
   cwd: process.cwd(),
   env:
     profileName === "test" && !process.env.DATABASE_URL
       ? { ...process.env, DATABASE_URL: "pglite:memory" }
       : process.env,
+  shell: pnpm.shell,
   stdio: "inherit",
 });
 
@@ -225,10 +228,6 @@ function firstEnvValue(names: string[]): string | undefined {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
 function quoteArg(arg: string): string {

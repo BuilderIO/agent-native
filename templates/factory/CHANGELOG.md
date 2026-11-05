@@ -3,6 +3,60 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-02
+
+### Improved
+
+- A step can now send a failed item down its own error output, so a workflow can post an alert instead of the item silently waiting in Needs you.
+
+### Fixed
+
+- The bug-triage workflow now starts Builder for the person who reported the bug, read from their Slack account, and stops with a clear error when that email cannot be read.
+- The Builder-to-merge workflow now merges real pull requests: it takes its repository from the workflow's repository setting, treats skipped checks as fine and cancelled checks as a wait, reads pull requests with more than 100 checks, and says to refresh the GitHub token when GitHub rejects it.
+
+## 2026-10-31
+
+### Fixed
+
+- The bug-triage workflow no longer lets the AI rewrite a report's thread, author or title when it groups reports, and a rerun of the same report always finds the same Builder task.
+- The bug-triage workflow now sends Builder the actual report text, and names reports by their first line instead of the author.
+
+## 2026-10-30
+
+### Added
+
+- Added an API request step that reads any endpoint of a connected provider.
+- Added steps that add or remove a label on a GitHub issue or pull request in the factory's own repository, and put a reaction on a Slack message. The app's own reaction is never read as a person claiming a report or answering a question.
+
+### Improved
+
+- The merge step now asks an AI check whether a pull request's verification notes plausibly show the fix, and holds it for a person when unsure.
+
+### Fixed
+
+- A saved Builder sign-in or key that this deployment cannot read now shows as Needs attention, with the key named, instead of Not connected or Couldn't check.
+- A workflow's Slack, GitHub and Sentry sources now start from the moment the workflow is switched on instead of working through what was already there.
+- A workflow's Slack source now leaves out the app's own notices and replies in the channel it reads, so it never takes its own post as a new report, and the step says how many it left out.
+- Pylon ticket sources no longer skip tickets when more arrive between runs than one run takes: they take the oldest first and continue from there next run, and a run fails instead of skipping tickets when Pylon sends only part of them.
+- Settings no longer shows Sentry as connected when its organization slug is missing or cannot be decrypted; the status now says which key to add or save again.
+- Support tickets in the Pylon routing example no longer fail the whole run on long email threads: each ticket's thread is cut to a fixed size and the example takes 8 tickets a run.
+- Testing a step now falls back to items from an earlier run when the newest runs gave it none, and the tooltip says so.
+- Testing a step that has no items to run on now says so instead of reporting a clean result.
+- The bug-triage workflow now follows the branch Builder actually starts, instead of rejecting every start because Builder renames the branch.
+- The bug-triage workflow's AI check is now told plainly what a clear bug and a product question are, so a UI or copy bug with an evident fix should no longer be held for a person.
+- Workflow lookups for Stripe billing, Gong transcripts, Sentry, PostHog, GitHub search, Slack threads and open reports now hand on a bounded answer that says when it was cut, so a few busy records no longer fail a whole run with an output-too-large error.
+
+## 2026-10-29
+
+### Improved
+
+- The merge step now holds a Builder pull request that changes code without a test, or whose description has no Verified section, and the message to the triage owner says which.
+
+### Fixed
+
+- Opening a step's details right after you click Run no longer closes them.
+- When a workflow's AI step cannot sign in to Builder, the run now asks you to connect Builder instead of naming the provider of the step that used its answer.
+
 ## 2026-10-28
 
 ### Added

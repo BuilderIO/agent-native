@@ -2712,6 +2712,7 @@ const frFR = {
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",
     updatingUiInProduction: "Mettre à Jour l'UI en Production",
     environmentVariables: "Variables d'environnement",
+    telemetry: "Télémétrie",
     progress: "Progression",
     authentication: "Authentification",
     multiTenancy: "Multilocation",

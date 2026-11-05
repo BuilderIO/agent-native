@@ -6,6 +6,12 @@ import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
+import {
+  assertPollStart,
+  boundPreviewRows,
+  pollStartFields,
+  previewRowOf,
+} from "../server/lib/factory-poll-start.js";
 import { factoryRepositoryFromSources } from "../server/lib/factory-repository-scope.js";
 import {
   factoryIdSchema,
@@ -91,6 +97,12 @@ export async function collectOpenItems<T>(
   accepts: (authorId: string) => boolean,
   isAlreadyQueued: (item: T) => boolean,
   newItemBudget: number,
+  /**
+   * A workflow source's position: only items that pass are read. The pages are
+   * newest first, so the first page that reaches an item that does not pass has
+   * nothing newer after it and the walk stops there.
+   */
+  isAfterStart?: (item: T) => boolean,
 ): Promise<{
   items: T[];
   authorFiltered: number;
@@ -108,7 +120,12 @@ export async function collectOpenItems<T>(
     const result = await fetchPage(page);
     pagesFetched += 1;
     unparsed += result.unparsed;
+    let reachedStart = false;
     for (const item of result.items) {
+      if (isAfterStart && !isAfterStart(item)) {
+        reachedStart = true;
+        continue;
+      }
       if (!accepts(authorIdOf(item))) {
         authorFiltered += 1;
         continue;
@@ -116,7 +133,7 @@ export async function collectOpenItems<T>(
       items.push(item);
       if (!isAlreadyQueued(item)) newItems += 1;
     }
-    hasMore = result.hasMore;
+    hasMore = result.hasMore && !reachedStart;
     if (!hasMore || newItems >= newItemBudget) break;
   }
   return { items, authorFiltered, unparsed, pagesFetched, hasMore };
@@ -510,6 +527,91 @@ export function incompleteObservationSummary(causes: {
   return `No open GitHub items reached the queue: ${reasons.join("; ")}.`;
 }
 
+/** The latest of two ISO instants, as the text that was given. */
+function laterInstant(a: string, b: string): string {
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+type PreviewScope = {
+  now: string;
+  userEmail: string;
+  orgId: string;
+  factoryId: string;
+  repositoryName: string;
+};
+
+/** The row a poll would store for an issue the inbox does not have yet. */
+function newIssueRow(issue: GitHubIssue, id: string, scope: PreviewScope) {
+  const summary = issue.body?.slice(0, 4_000) ?? null;
+  return previewRowOf({
+    id,
+    source: "github_issue",
+    externalId: `${scope.repositoryName}#${issue.number}`,
+    sourceUrl: issue.htmlUrl,
+    title: issue.title,
+    summary,
+    status: statusAfterTriageSourceUpdate(undefined, true, "received"),
+    risk: "unknown",
+    coverage: "complete",
+    dedupeKey: id,
+    metadataJson: mergeTriageMetadata("{}", {
+      kind: "github_issue",
+      author: issue.userLogin,
+      authorId: issue.userId,
+      labels: [...issue.labels],
+      errorReport: [issue.title, issue.body ?? ""].filter(Boolean).join("\n\n"),
+      updatedAt: issue.updatedAt,
+    }),
+    lastSeenAt: issue.updatedAt,
+    createdAt: scope.now,
+    updatedAt: scope.now,
+    ownerEmail: scope.userEmail,
+    orgId: scope.orgId,
+    factoryId: scope.factoryId,
+  });
+}
+
+/** The row a poll would store for a pull request the inbox does not have yet. */
+function newPullRequestRow(
+  pullRequest: GitHubPullRequest,
+  id: string,
+  scope: PreviewScope,
+) {
+  return previewRowOf({
+    id,
+    source: "github",
+    externalId: `${scope.repositoryName}#${pullRequest.number}`,
+    sourceUrl: pullRequest.htmlUrl,
+    title: pullRequest.title,
+    summary: pullRequest.body?.slice(0, 4_000) ?? null,
+    status: statusAfterPullRequestPoll({
+      nextAuthor: pullRequest.userLogin,
+      nextState: pullRequest.state,
+      nextDraft: pullRequest.draft,
+      sourceChanged: true,
+    }),
+    risk: "unknown",
+    repository: scope.repositoryName,
+    pullRequestNumber: pullRequest.number,
+    headSha: pullRequest.headSha,
+    coverage: "partial",
+    dedupeKey: id,
+    metadataJson: buildPullRequestPollMetadataJson(
+      "{}",
+      pullRequest,
+      undefined,
+      false,
+      scope.now,
+    ),
+    lastSeenAt: pullRequest.updatedAt,
+    createdAt: scope.now,
+    updatedAt: scope.now,
+    ownerEmail: scope.userEmail,
+    orgId: scope.orgId,
+    factoryId: scope.factoryId,
+  });
+}
+
 export default defineAction({
   description:
     "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. Items whose author the calling automation's author filter excludes are counted in authorFiltered and never added to the queue; the poll walks further provider pages, counting only items it does not already have, so neither excluded authors nor an already-ingested backlog can starve matching ones. truncated is true whenever the run saw less than the repository's open set — more provider pages remain, the author filter skipped something, or the inbox limit was reached — so a truncated run is not a complete observation. unparsed counts pull requests returned by the issues endpoint: they are fetched as pull requests instead, so they explain an issue count of zero without meaning work was missed. This does not write to GitHub.",
@@ -517,9 +619,14 @@ export default defineAction({
     factoryId: factoryIdSchema,
     includeIssues: z.boolean().default(true),
     includePullRequests: z.boolean().default(true),
+    ...pollStartFields,
   }),
   http: false,
-  run: async ({ factoryId, includeIssues, includePullRequests }, context) => {
+  run: async (
+    { factoryId, includeIssues, includePullRequests, after, prime, preview },
+    context,
+  ) => {
+    assertPollStart({ after, prime });
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -560,6 +667,61 @@ export default defineAction({
     const repository = parseGitHubRepositoryRef(repositoryRef);
     const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
+    if (prime === true && preview !== true) {
+      // A workflow source's first live read: the newest creation time among the
+      // open items and nothing stored, so what is already open is never brought in.
+      const [newestIssues, newestPullRequests] = await Promise.all([
+        includeIssues
+          ? client.listOpenIssues(repository, 1)
+          : Promise.resolve({ items: [] as GitHubIssue[] }),
+        includePullRequests
+          ? client.listOpenPullRequests(repository, 1)
+          : Promise.resolve({ items: [] as GitHubPullRequest[] }),
+      ]);
+      // The issues list holds pull requests too and drops them, so a newest
+      // item that is a pull request is read from the pull request list.
+      const newestCreated = [
+        ...newestIssues.items.map((item) => item.createdAt),
+        ...newestPullRequests.items.map((item) => item.createdAt),
+      ].reduce<string | null>(
+        (latest, createdAt) =>
+          latest === null ? createdAt : laterInstant(latest, createdAt),
+        null,
+      );
+      // Nothing is open: from now on is everything that can arrive.
+      const newest = newestCreated ?? new Date().toISOString();
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          source: "github",
+          summary:
+            "Started reading GitHub from now; issues and pull requests that were already open were not brought in.",
+          details: {
+            repository: repositoryName,
+            primed: true,
+            position: newest,
+          },
+        },
+        factoryId,
+      );
+      return {
+        ok: true,
+        factoryId,
+        repository: repositoryName,
+        issues: 0,
+        pullRequests: 0,
+        primed: true,
+        position: newest,
+      };
+    }
+    const startMs = after === undefined ? null : Date.parse(after);
+    if (startMs !== null && Number.isNaN(startMs)) {
+      // guard:allow-bare-error — invariant: the position is the one this action's own answer gave the host
+      throw new Error("The saved GitHub position is not a valid timestamp.");
+    }
     // One author decision for the whole run: the page walk, the parked-PR
     // recheck, and the reopen path must not disagree about who is in scope.
     const acceptsAuthor = (authorId: string): boolean =>
@@ -610,6 +772,9 @@ export default defineAction({
             acceptsAuthor,
             (issue) => queuedItemIds.has(issueItemId(issue.number)),
             inboxLimit,
+            startMs === null
+              ? undefined
+              : (issue) => Date.parse(issue.createdAt) > startMs,
           )
         : Promise.resolve(emptyCollection<GitHubIssue>()),
       includePullRequests
@@ -623,6 +788,9 @@ export default defineAction({
             (pullRequest) =>
               queuedItemIds.has(pullRequestItemId(pullRequest.number)),
             inboxLimit,
+            startMs === null
+              ? undefined
+              : (pullRequest) => Date.parse(pullRequest.createdAt) > startMs,
           )
         : Promise.resolve(emptyCollection<GitHubPullRequest>()),
     ]);
@@ -635,6 +803,51 @@ export default defineAction({
       issueCollection.pagesFetched + pullRequestCollection.pagesFetched;
     const providerHasMore =
       issueCollection.hasMore || pullRequestCollection.hasMore;
+    if (preview === true) {
+      // A preview stores nothing and rechecks nothing, so it leaves no row, no
+      // audit and no changed status behind.
+      const scope: PreviewScope = {
+        now: new Date().toISOString(),
+        userEmail,
+        orgId,
+        factoryId,
+        repositoryName,
+      };
+      let budget = inboxLimit;
+      const issueRows = [];
+      for (const issue of issues) {
+        const id = issueItemId(issue.number);
+        if (queuedItemIds.has(id)) continue;
+        if (budget === 0) break;
+        budget -= 1;
+        issueRows.push(newIssueRow(issue, id, scope));
+      }
+      const pullRequestRows = [];
+      for (const pullRequest of pullRequests) {
+        const id = pullRequestItemId(pullRequest.number);
+        if (queuedItemIds.has(id)) continue;
+        if (budget === 0) break;
+        budget -= 1;
+        pullRequestRows.push(newPullRequestRow(pullRequest, id, scope));
+      }
+      const sample = boundPreviewRows([...issueRows, ...pullRequestRows]);
+      return {
+        ok: true,
+        factoryId,
+        repository: repositoryName,
+        issues: issueRows.length,
+        pullRequests: pullRequestRows.length,
+        authorFiltered,
+        droppedByInboxLimit: 0,
+        unparsed,
+        pagesFetched,
+        providerHasMore,
+        truncated: providerHasMore || authorFiltered > 0,
+        preview: true,
+        previewRows: sample.rows,
+        previewTotal: sample.total,
+      };
+    }
     const parkedRechecks = new Map<number, ParkedRecheck>();
     const closedRecheckUpdates = new Map<
       number,
@@ -1319,6 +1532,19 @@ export default defineAction({
       pagesFetched,
       providerHasMore,
       truncated,
+      // The position a workflow source saves: past everything it read, or where
+      // it was while something newer was left unread, so the next read finds it.
+      ...(after !== undefined
+        ? {
+            position:
+              droppedByInboxLimit === 0 && !providerHasMore
+                ? [
+                    ...issues.map((item) => item.createdAt),
+                    ...pullRequests.map((item) => item.createdAt),
+                  ].reduce(laterInstant, after)
+                : after,
+          }
+        : {}),
     };
   },
 });

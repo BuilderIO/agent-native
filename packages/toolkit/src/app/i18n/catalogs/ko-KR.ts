@@ -3356,6 +3356,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "워크스페이스에서 앱 제거",
   "chatFirst.showMore": "더 보기",
   "chatFirst.showLess": "간단히 보기",
+  "chatFirst.showMoreCount": "{{count}}개 더 보기",
   "chatFirst.appOrderUnavailable": "이 기기에 앱 순서를 저장하지 못했습니다.",
   "chatFirst.openSideSurfaces": "측면 패널 열기",
   "chatFirst.sideSurfaces": "측면 패널",

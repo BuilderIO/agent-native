@@ -21,6 +21,30 @@ export function isDatabaseQueryFailure(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("Failed query:");
 }
 
+// A driver's error code names the failure without any of the query's values.
+// Anything else in that field stays hidden along with the message.
+const DATABASE_ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
+
+export function databaseFailureCode(error: unknown): string | undefined {
+  const code = (error as { cause?: { code?: unknown } }).cause?.code;
+  return typeof code === "string" && DATABASE_ERROR_CODE.test(code)
+    ? code
+    : undefined;
+}
+
+/**
+ * The client-safe text for a failure `isDatabaseQueryFailure` recognizes. It
+ * names the code without saying what it means, because one code has several
+ * causes: 57014 is any cancellation, and CONNECT_TIMEOUT is `withDbTimeout` or
+ * the driver's wait for a connection.
+ */
+export function databaseFailureMessage(error: unknown): string {
+  const code = databaseFailureCode(error);
+  return code
+    ? `The database request failed (${code}).`
+    : DATABASE_FAILURE_MESSAGE;
+}
+
 /** Replaces a value already being serialized higher up the same result. */
 export const CIRCULAR_RESULT = "[circular result]";
 

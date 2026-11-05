@@ -3412,6 +3412,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ワークスペースからアプリを削除",
   "chatFirst.showMore": "さらに表示",
   "chatFirst.showLess": "表示を減らす",
+  "chatFirst.showMoreCount": "さらに {{count}} 件表示",
   "chatFirst.appOrderUnavailable":
     "このデバイスではアプリの並び順を保存できませんでした。",
   "chatFirst.openSideSurfaces": "サイドパネルを開く",
