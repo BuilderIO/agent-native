@@ -1,4 +1,4 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -200,7 +200,8 @@ export async function importPptxBufferToDeck(args: {
     0,
   );
   if (imagesSkipped > 0) {
-    fail(
+    // The images that did upload are orphan blobs, not saved deck data.
+    throw new NoWriteError(
       `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
       { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );

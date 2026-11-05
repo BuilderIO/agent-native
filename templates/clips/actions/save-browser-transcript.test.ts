@@ -73,6 +73,7 @@ vi.mock("../server/db/index.js", () => ({
       status: "recordingTranscripts.status",
       fullText: "recordingTranscripts.fullText",
       segmentsJson: "recordingTranscripts.segmentsJson",
+      earlierAudioRemovedAt: "recordingTranscripts.earlierAudioRemovedAt",
     },
   },
 }));
@@ -122,6 +123,95 @@ beforeEach(() => {
 });
 
 describe("save-browser-transcript", () => {
+  describe("audio recovered from before the user started", () => {
+    const earlier = {
+      startMs: 0,
+      endMs: 60_000,
+      text: "before you started",
+      source: "system" as const,
+      recovered: true as const,
+    };
+    const live = {
+      startMs: 60_000,
+      endMs: 61_000,
+      text: "the meeting",
+      source: "mic" as const,
+    };
+    const flush = {
+      recordingId: "rec-1",
+      fullText: "Them: before you started\n\nMe: the meeting",
+      source: "whisper" as const,
+      segments: [earlier, live],
+      overwriteReady: true,
+    };
+    const existing = {
+      recordingId: "rec-1",
+      status: "ready",
+      fullText: "Me: the meeting",
+      segmentsJson: JSON.stringify([live]),
+      source: null,
+    };
+
+    function trackUpdate() {
+      const set = vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ recordingId: "rec-1" }]),
+        })),
+      }));
+      mocks.update.mockReturnValue({ set });
+      return set;
+    }
+
+    it("stores the marker the notice reads", async () => {
+      const set = trackUpdate();
+      mocks.rows = [[recordingRow()], [existing], []];
+
+      await saveBrowserTranscript.run(
+        saveBrowserTranscript.schema.parse(flush) as never,
+      );
+
+      expect(JSON.parse(set.mock.calls[0][0].segmentsJson)).toEqual([
+        earlier,
+        live,
+      ]);
+    });
+
+    it("can't be added back by a capture still running after its removal", async () => {
+      const set = trackUpdate();
+      mocks.rows = [
+        [recordingRow()],
+        [existing],
+        [{ removedAt: "2026-11-03T10:00:00.000Z" }],
+      ];
+
+      const result = await saveBrowserTranscript.run(flush as never);
+
+      const [patch] = set.mock.calls[0];
+      expect(JSON.parse(patch.segmentsJson)).toEqual([live]);
+      expect(patch.fullText).toBe("Me: the meeting");
+      expect(result).toMatchObject({ chars: "Me: the meeting".length });
+    });
+
+    it("keeps the capture's own text when a save holds nothing to drop", async () => {
+      const set = trackUpdate();
+      mocks.rows = [
+        [recordingRow()],
+        [existing],
+        [{ removedAt: "2026-11-03T10:00:00.000Z" }],
+      ];
+
+      await saveBrowserTranscript.run({
+        ...flush,
+        fullText: "Me: the meeting\n\nMe: and more",
+        segments: [live],
+      } as never);
+
+      expect(set.mock.calls[0][0].fullText).toBe(
+        "Me: the meeting\n\nMe: and more",
+      );
+    });
+  });
+
   it("asserts editor access on the recording before mutating", async () => {
     const { assertAccess } = await import("@agent-native/core/sharing");
     const values = insertValues();
@@ -450,6 +540,7 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [{ removedAt: null }],
       [{ source: "imported", status: "ready", fullText: "Imported text." }],
     ];
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
@@ -482,7 +573,7 @@ describe("save-browser-transcript", () => {
   it("keeps an import that creates the row just before the first insert", async () => {
     const values = insertValues([]);
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[recordingRow()], [], [{ source: "imported" }]];
+    mocks.rows = [[recordingRow()], [], [], [{ source: "imported" }]];
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -504,6 +595,7 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [{ removedAt: null }],
       [],
     ];
 

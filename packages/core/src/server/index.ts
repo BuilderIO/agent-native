@@ -277,6 +277,7 @@ export {
   prepareTransactionalChange,
   getVersion,
   getChangesSince,
+  getCurrentPollBaseline,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
@@ -342,6 +343,11 @@ export {
   type GoogleAuthPluginOptions,
 } from "./google-auth-plugin.js";
 export type { GoogleAuthMode } from "./google-auth-mode.js";
+export {
+  discoverAgentContextAgents,
+  registerAgentContextAgentFilter,
+  type AgentContextAgentFilter,
+} from "./agent-context-agents.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,

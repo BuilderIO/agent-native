@@ -94,6 +94,7 @@ vi.mock("./request-auth-context.js", () => ({
       preResolvedContext?: { orgId?: string },
     ) => callback({ orgId: preResolvedContext?.orgId ?? "org-1" }),
   ),
+  assertDeckEditableForUpload: vi.fn(async () => undefined),
 }));
 
 vi.mock("./uploads.js", () => ({
