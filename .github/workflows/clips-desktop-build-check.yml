@@ -6,6 +6,7 @@ on:
     paths:
       - "templates/clips/desktop/**"
       - "packages/shared-app-config/**"
+      - ".github/actions/setup-pnpm/**"
       - ".github/workflows/clips-desktop-build-check.yml"
   schedule:
     - cron: "41 3 * * *"
