@@ -56,7 +56,10 @@ const DELETE_REFUSALS: Record<string, string> = {
  * the thread a deleted reply was in, or the thread after (or before) a
  * deleted one.
  */
-function focusAfterDelete(row: HTMLElement | null, deletesThread: boolean) {
+function focusAfterDelete(
+  row: HTMLElement | null,
+  deletesThread: boolean,
+): HTMLElement | null {
   const card = row?.closest<HTMLElement>("[data-thread-card]");
   if (!card || !deletesThread) return card ?? null;
   const cards = [
@@ -66,8 +69,11 @@ function focusAfterDelete(row: HTMLElement | null, deletesThread: boolean) {
   ];
   const index = cards.indexOf(card);
   if (index < 0) return null;
-  if (index + 1 < cards.length) return cards[index + 1];
-  return index > 0 ? cards[index - 1] : null;
+  return (
+    cards.find((_, at) => at === index + 1) ??
+    cards.find((_, at) => at === index - 1) ??
+    null
+  );
 }
 
 export function getAiCommentSource(
