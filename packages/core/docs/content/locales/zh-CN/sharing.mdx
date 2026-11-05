@@ -120,10 +120,10 @@ description: "框架内置了熟悉且一致的共享方式。用户创建的每
 
 - 一个邀请输入框，可添加人员、组织群组和组织的智能体，并带有角色选择器和“邀请”按钮。输入邮箱后还会显示 `Notify people` 复选框。
 - 拥有访问权限的人员：所有者、人员、群组和智能体显示在同一个列表中。角色为“可查看”“可评论”“可编辑”和“可管理访问权限”。“移除访问权限”是每行角色菜单的最后一项。
-- 常规访问权限：仅受邀人员 / 组织内的任何人 / 知道链接的任何人。
+- 常规访问权限：仅受邀人员 / 组织内的任何人 / 知道链接的任何人。“组织内的任何人”带有角色选择器（可查看、可评论、可编辑），“知道链接的任何人”也有（可查看、可评论）。
 - “复制链接”和“发送到”菜单：在 Claude、Claude Code 或 Codex 中打开、复制智能体提示词、复制智能体链接、MCP 服务器设置，以及应用添加的其他目标。
 
-将资源从 `Private` 改为 `Organization` 时会先请求确认。确认之前不会有任何更改。取消或按 Escape 会保留当前访问权限。如果保存失败，对话框会显示错误，用户可以重试。其他可见性更改会立即保存。确认只存在于共享 UI 中。`set-resource-visibility` 保持不变，因此代理和其他调用方仍然直接更改可见性，资源的共享策略仍然决定允许什么。
+可见性更改会立即保存。内容容易被忽略的资源类型可以先请求确认：聊天在注册时设置了 `confirmOrgVisibility: true`，因此将聊天从 `Private` 改为 `Organization` 时，确认之前不会有任何更改。取消或按 Escape 会保留当前访问权限。如果保存失败，对话框会显示错误，用户可以重试。确认只存在于共享 UI 中，因此代理和其他调用方仍然通过 `set-resource-visibility` 直接更改可见性，资源的共享策略仍然决定允许什么。
 
 共享按钮是一次导入：
 
@@ -180,13 +180,13 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 框架在每个模板中自动安装这些 actions - 代理将它们称为工具，UI 通过 `useActionQuery` / `useActionMutation` 调用它们：
 
-| 行动                         | 它的作用                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------- |
-| `share-resource`             | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。                    |
-| `unshare-resource`           | 撤销用户或组织的访问权限。                                                              |
-| `list-resource-shares`       | 显示当前可见性以及所有显式授权。                                                        |
-| `set-resource-visibility`    | 更改为 `private`、`org` 或 `public`。                                                   |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource. |
+| 行动                         | 它的作用                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。                                                            |
+| `unshare-resource`           | 撤销用户或组织的访问权限。                                                                                                      |
+| `list-resource-shares`       | 显示当前可见性以及所有显式授权。                                                                                                |
+| `set-resource-visibility`    | 更改为 `private`、`org` 或 `public`。可选的 `role` 设置组织（查看、评论、编辑）或知道链接的任何人（查看、评论）可以执行的操作。 |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                         |
 
 告诉代理“与作为编辑的营销团队共享此设计”，它会针对 UI 使用的同一端点调用 `share-resource`。结果将显示在下一次渲染的共享对话框中。
 

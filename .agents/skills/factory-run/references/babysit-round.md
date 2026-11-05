@@ -88,4 +88,7 @@ on the PR, which `merge` gives you.
 7. Worktrees `activate` `original`, then `remove` the worktree. It is
    merged and clean, so removal is expected and loses nothing.
 
-End your reply with the OUTCOME line the prompt asks for.
+End your reply with the OUTCOME and CONFIDENCE lines the prompt asks for.
+Score CONFIDENCE with the fix rubric in [confidence.md](confidence.md): how
+sure you are the PR's fix is correct as it now stands. Under 70, the
+factory won't merge it until a person approves it on GitHub.
