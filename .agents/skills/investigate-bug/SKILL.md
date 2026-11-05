@@ -54,7 +54,7 @@ S=.agents/skills/investigate-bug/scripts
    Re-run `analyze` as the trace grows.
 6. **Dedup early**: `$J/jira-match.ts --run $RUN`. If an existing ticket's
    mechanism covers a symptom, record a sighting:
-   `$J/jira-upsert.ts --run $RUN --key <KEY> --system <system> --source <report url or ref> --source-title "<title>" --note "<how this bug is an instance>"`,
+   `$J/jira-upsert.ts --run $RUN --key <KEY> --system <system> --files <the symptom's path files in that system> --source <report url or ref> --source-title "<title>" --note "<how this bug is an instance>"`,
    then again with `--apply` once confirmed.
    That symptom's verdict is `known`.
 7. **Investigate** each remaining symptom with steps 3 to 6 of the brief:

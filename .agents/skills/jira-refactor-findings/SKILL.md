@@ -44,7 +44,10 @@ The skill knows nothing about git or bug reports. It reads:
   `refactor-findings` ticket into `jira-findings.json`. Then it matches them
   against `targets.json`, or the given systems and files, by fingerprint,
   system, nesting, and shared files, into `jira-matches.json`. Run it before
-  investigating, so you don't re-plan ticketed work.
+  investigating, so you don't re-plan ticketed work. Each match reports how
+  many of the target's evidence files the ticket's paths cover. Each target
+  lists its `uncovered` files: those on no open or declined match's paths.
+  A same-system match doesn't cover them.
 - `jira-upsert.ts`: the only script that writes findings to Jira. It takes
   one of two inputs and records every sighting the same way:
   - `--plan <file>`: a finished plan. It matches by exact fingerprint, then
@@ -59,7 +62,10 @@ The skill knows nothing about git or bug reports. It reads:
     an open or declined ticket, without a plan. With
     `--source <url> --source-title "<title>" --note "<how>"` it records a bug
     traced to the ticket. It refuses tickets resolved as fixed: that is a
-    recurrence, so upsert a plan instead.
+    recurrence, so upsert a plan instead. It also refuses when the ticket's
+    paths cover none of the system's evidence files. `--files a,b` names
+    evidence files you traced to the ticket and adds them to its paths. A
+    sighting widens a ticket's paths in no other way.
 
   A sighting always updates the ticket's property. It comments at most once
   per cooldown since the last comment (four cooldowns for a declined ticket),

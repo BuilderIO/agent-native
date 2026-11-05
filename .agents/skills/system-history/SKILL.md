@@ -36,12 +36,25 @@ it.
 - `collect.ts`: writes `commits.json`, with first-parent commits on
   `origin/<baseBranch>` for `--lookback-days`, and the ones inside
   `--window-hours` marked. It uses tree-level data only, and takes seconds.
+  Each commit records the changelog entries and changesets it added. An
+  entry's `type:` is read from the working tree, and is `null` when the
+  entry isn't there.
 - `analyze.ts`: writes `analysis.json`, `analysis.md`, and `targets.json`.
   - **Window mode** (the default): picks the systems the review window
     touched most. Each gets a percentile score against every active system,
     plus a triage verdict: `likely-fragile`, `settling`, `mixed`, `coupled`,
     `likely-fast-moving`, or `insufficient-signal`. Verdicts are leads, not
     conclusions.
+  - **Mega-PRs**: a window PR with `megaPrNotes` or more release notes
+    (changelog entries plus changesets). Its main systems become hot targets
+    whatever their window counts. A feat subject without mostly `fixed`
+    entries is a launch: it is listed, not targeted.
+  - **Wide commits**: a commit over 12 systems counts only toward the
+    systems holding 15% or more of its code. With none, it is a broad
+    commit, left out of scores.
+  - Each target carries `evidenceFiles`: the files the window's fixes and
+    mega-PRs changed, or the focus files in focus mode. Jira coverage and
+    sightings are judged on them.
   - **Focus mode** (`--focus <file,file>`): scores the systems that contain
     the given files, lists every lookback fix to each file, and lists
     **regression candidates**. Those are every commit of any kind that touched

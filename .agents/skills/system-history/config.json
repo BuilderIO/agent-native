@@ -6,6 +6,7 @@
   "reFixDays": 7,
   "minWindowCommits": 2,
   "maxHotSystems": 15,
+  "megaPrNotes": 10,
   "systemDepth": {
     "packages": 4,
     "templates": 4,

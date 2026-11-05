@@ -1,6 +1,8 @@
 // Collects first-parent commits on the base branch for the lookback period
 // and marks the ones inside the review window. Uses only tree-level git data: this checkout may be a blobless partial clone,
 // where --numstat/--stat/-p fetch every blob over the network and time out.
+// Changelog entry types are read from the working tree for the same reason.
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -9,6 +11,7 @@ import {
   commonConfig,
   main,
   rel,
+  repoRoot,
   run,
   runDir,
   runId,
@@ -27,6 +30,12 @@ export interface FileChange {
   path: string;
 }
 
+export interface ChangelogEntry {
+  path: string;
+  /** The entry's `type:`; null when the working tree has no readable entry. */
+  type: string | null;
+}
+
 export interface Commit {
   sha: string;
   author: string;
@@ -36,6 +45,10 @@ export interface Commit {
   pr: number | null;
   inWindow: boolean;
   files: FileChange[];
+  /** Changelog entries the commit added. */
+  changelog: ChangelogEntry[];
+  /** Changeset files the commit added. */
+  changesets: number;
 }
 
 export interface Collected {
@@ -51,6 +64,9 @@ export interface Collected {
 
 const FIELD = "\x1f";
 const RECORD = "\x1e";
+const CHANGELOG_ENTRY = /(^|\/)changelog\/[^/]+\.md$/;
+const CHANGESET = /^\.changeset\/(?!README\.md$)[^/]+\.md$/;
+const ENTRY_TYPE = /^---\n[\s\S]*?^type:\s*([\w-]+)\s*$[\s\S]*?^---$/m;
 
 main(async (args) => {
   if (args.help) {
@@ -119,6 +135,7 @@ main(async (args) => {
         const [status, ...rest] = line.split("\t");
         return { status: status.charAt(0), path: rest[rest.length - 1] };
       });
+    const added = files.filter((f) => f.status === "A").map((f) => f.path);
     commits.push({
       sha,
       author,
@@ -128,6 +145,10 @@ main(async (args) => {
       pr: prNumber(subject),
       inWindow: new Date(date) >= windowStart,
       files,
+      changelog: added
+        .filter((p) => CHANGELOG_ENTRY.test(p))
+        .map((p) => ({ path: p, type: entryType(p) })),
+      changesets: added.filter((p) => CHANGESET.test(p)).length,
     });
   }
   if (commits.length === 0) {
@@ -150,7 +171,15 @@ main(async (args) => {
   writeJson(file, out);
 
   const inWindow = commits.filter((c) => c.inWindow).length;
+  const entries = commits.flatMap((c) => c.changelog);
+  const unreadable = entries.filter((e) => e.type === null).length;
   console.log(
-    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window`,
+    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window, ${entries.length} changelog entries${unreadable ? ` (${unreadable} unreadable from the working tree)` : ""}`,
   );
 });
+
+function entryType(file: string): string | null {
+  const abs = path.join(repoRoot(), file);
+  if (!existsSync(abs)) return null;
+  return ENTRY_TYPE.exec(readFileSync(abs, "utf8"))?.[1] ?? null;
+}
