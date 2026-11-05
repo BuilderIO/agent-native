@@ -455,8 +455,17 @@ export default defineAction({
           currentContentHash !== firstAttemptContentHash)
       ) {
         fail(
-          "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
-          { errorCode: "slide_content_stale", statusCode: 409 },
+          "Slide content changed since it was read. Rebase the patch on details.currentContent and retry with details.currentContentHash as baseContentHash.",
+          {
+            errorCode: "slide_content_stale",
+            statusCode: 409,
+            details: {
+              deckId,
+              slideId,
+              currentContent: String(slide.content ?? ""),
+              currentContentHash,
+            },
+          },
         );
       }
       firstAttemptContentHash ??= currentContentHash;

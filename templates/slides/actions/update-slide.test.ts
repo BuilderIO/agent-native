@@ -996,6 +996,36 @@ describe("update-slide", () => {
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("returns the current slide and hash with a stale-content error so the agent can rebase", async () => {
+    onUpdateMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].content = "<div>Old UIEDITB</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+      details: {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        currentContent: "<div>Old UIEDITB</div>",
+        currentContentHash: hashSlideContent("<div>Old UIEDITB</div>"),
+      },
+    });
+  });
+
   it("does not reapply a bounded edit after the slide changes during a lost CAS", async () => {
     onUpdateMiss = () => {
       const latest = JSON.parse(mockDeckRow!.data as string);
