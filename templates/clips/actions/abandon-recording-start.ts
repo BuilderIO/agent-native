@@ -42,6 +42,10 @@ export default defineAction({
       { id: args.id, skipIfReady: true },
       actionContext,
     );
+    if ("results" in trashed) {
+      // guard:allow-bare-error — invariant: one id in always returns the single-recording result.
+      throw new Error("trash-recording returned a batch result for one id.");
+    }
     if (
       !trashed.skipped &&
       trashed.trashedAt &&
@@ -50,6 +54,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: args.id,
         ownerEmail: recording.ownerEmail,
+        reason: "abandon",
       });
     }
     return trashed;

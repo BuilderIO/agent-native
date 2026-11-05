@@ -1,0 +1,44 @@
+name: Windows install check
+
+# The desktop releases are the only other place this repo installs on Windows,
+# so an install script that breaks there used to surface only mid-release.
+# This job uses the same setup as their Windows builds. The postinstall builds
+# the workspace packages through scripts/lib/pnpm-command.ts.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "scripts/lib/pnpm-command.ts"
+      - "packages/*/package.json"
+      - "packages/*/scripts/**"
+      - ".github/workflows/windows-install-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-install-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile

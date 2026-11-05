@@ -1076,7 +1076,10 @@ export async function seedXmlFragmentIfEmpty(
         try {
           if (stored?.state.length) Y.applyUpdate(committed, stored.state);
           const fragment = committed.getXmlFragment("default");
-          if (!isEmptyXmlSeedTarget(fragment)) {
+          if (
+            adoptedRevisionOf(committed) !== null ||
+            !isEmptyXmlSeedTarget(fragment)
+          ) {
             return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
           }
 

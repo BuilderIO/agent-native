@@ -99,7 +99,14 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { fieldsRevision } from "../server/lib/merge-fields";
 import patchFormFields from "./patch-form-fields";
+
+function storedRace(): Row {
+  const row = store.get("form-race");
+  if (!row) throw new Error("form-race isn't seeded");
+  return row;
+}
 
 describe("patch-form-fields concurrent writes", () => {
   beforeEach(() => {
@@ -119,67 +126,140 @@ describe("patch-form-fields concurrent writes", () => {
     });
   });
 
-  it("serialises concurrent patches so edits to different fields both survive", async () => {
-    selectDelay.ms = 30;
+  const upsertLabel = (id: string, label: string) => ({
+    op: "upsert" as const,
+    field: { id, type: "text" as const, label, required: false },
+  });
 
-    const [resultA, resultB] = await Promise.all([
+  it("gives the later of two writers the conflict, and its redo keeps both edits", async () => {
+    selectDelay.ms = 30;
+    const revision = fieldsRevision(storedRace().fields);
+
+    const results = await Promise.allSettled([
       patchFormFields.run({
         id: "form-race",
-        ops: [
-          {
-            op: "upsert",
-            field: {
-              id: "field-a",
-              type: "text",
-              label: "A updated",
-              required: false,
-            },
-          },
-        ],
+        expectedRevision: revision,
+        ops: [upsertLabel("field-a", "A updated")],
       }),
       patchFormFields.run({
         id: "form-race",
-        ops: [
-          {
-            op: "upsert",
-            field: {
-              id: "field-b",
-              type: "text",
-              label: "B updated",
-              required: false,
-            },
-          },
-        ],
+        expectedRevision: revision,
+        ops: [upsertLabel("field-b", "B updated")],
       }),
     ]);
+    const written = results.filter((result) => result.status === "fulfilled");
+    const refused = results.filter((result) => result.status === "rejected");
+    expect(written).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    const conflict = (refused[0] as PromiseRejectedResult).reason;
+    expect(conflict).toMatchObject({
+      statusCode: 409,
+      errorCode: "save_conflict",
+    });
+    expect(conflict.details.current).toEqual(JSON.parse(storedRace().fields));
 
-    const finalFields = JSON.parse(store.get("form-race")!.fields) as Array<{
+    await patchFormFields.run({
+      id: "form-race",
+      expectedRevision: conflict.details.currentRevision,
+      ops:
+        (written[0] as PromiseFulfilledResult<{ fields: { label: string }[] }>)
+          .value.fields[0].label === "A updated"
+          ? [upsertLabel("field-b", "B updated")]
+          : [upsertLabel("field-a", "A updated")],
+    });
+
+    const finalFields = JSON.parse(storedRace().fields) as Array<{
       id: string;
       label: string;
     }>;
     const labelById = Object.fromEntries(
       finalFields.map((f) => [f.id, f.label]),
     );
-
     expect(labelById["field-a"]).toBe("A updated");
     expect(labelById["field-b"]).toBe("B updated");
-    expect(resultA.fields).toHaveLength(2);
-    expect(resultB.fields).toHaveLength(2);
+  });
+
+  it("refuses to change an existing field without the revision it read", async () => {
+    const before = storedRace().fields;
+
+    await expect(
+      patchFormFields.run({
+        id: "form-race",
+        ops: [upsertLabel("field-a", "Blind")],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: JSON.parse(before),
+        currentRevision: fieldsRevision(before),
+      },
+    });
+    expect(storedRace().fields).toBe(before);
+  });
+
+  it.each([
+    ["remove", { op: "remove", id: "field-a" }],
+    ["reorder", { op: "reorder", ids: ["field-b", "field-a"] }],
+  ])("refuses a %s without the revision it read", async (_name, op) => {
+    const before = storedRace().fields;
+
+    await expect(
+      patchFormFields.run({ id: "form-race", ops: [op] }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { currentRevision: fieldsRevision(before) },
+    });
+    expect(storedRace().fields).toBe(before);
+  });
+
+  it("applies a repeated removal once", async () => {
+    const revision = fieldsRevision(storedRace().fields);
+    const remove = {
+      id: "form-race",
+      expectedRevision: revision,
+      ops: [{ op: "remove", id: "field-a" }],
+    };
+
+    await patchFormFields.run(remove);
+    const after = storedRace();
+    await patchFormFields.run(remove);
+
+    expect(storedRace().updatedAt).toBe(after.updatedAt);
+    expect(storedRace().fields).toBe(after.fields);
+  });
+
+  it("applies a repeated patch once", async () => {
+    const revision = fieldsRevision(storedRace().fields);
+    const patch = {
+      id: "form-race",
+      expectedRevision: revision,
+      ops: [upsertLabel("field-a", "A updated")],
+    };
+    const first = await patchFormFields.run(patch);
+    const after = storedRace();
+
+    const repeat = await patchFormFields.run(patch);
+
+    expect(repeat.fields).toEqual(first.fields);
+    expect(repeat.revision).toBe(first.revision);
+    expect(storedRace().updatedAt).toBe(after.updatedAt);
   });
 
   it("repairs legacy fields before applying a granular edit", async () => {
+    const legacyFields = JSON.stringify([
+      { id: "legacy-a", type: "dropdown", label: "A" },
+      { id: "legacy-b", type: "text", label: "B" },
+    ]);
     store.set("form-legacy", {
       id: "form-legacy",
       status: "draft",
-      fields: JSON.stringify([
-        { id: "legacy-a", type: "dropdown", label: "A" },
-        { id: "legacy-b", type: "text", label: "B" },
-      ]),
+      fields: legacyFields,
       updatedAt: "2026-09-03T00:00:00.000Z",
     });
 
     const result = await patchFormFields.run({
       id: "form-legacy",
+      expectedRevision: fieldsRevision(legacyFields),
       ops: [{ op: "reorder", ids: ["legacy-b", "legacy-a"] }],
     });
 
@@ -189,33 +269,34 @@ describe("patch-form-fields concurrent writes", () => {
     ]);
   });
 
-  it("retries against a row changed by another instance", async () => {
+  it("adds a new field on top of a row changed by another instance", async () => {
     writeConflictOnce.value = true;
 
     const result = await patchFormFields.run({
       id: "form-race",
-      ops: [
-        {
-          op: "upsert",
-          field: {
-            id: "field-a",
-            type: "text",
-            label: "A updated",
-            required: false,
-          },
-        },
-      ],
+      ops: [upsertLabel("field-new", "New")],
     });
 
-    expect(result.fields).toEqual([
-      { id: "field-a", type: "text", label: "A updated", required: false },
-      { id: "field-b", type: "text", label: "B", required: false },
-      {
-        id: "field-foreign",
-        type: "text",
-        label: "Foreign update",
-        required: false,
-      },
+    expect(result.fields.map((field) => field.id)).toEqual([
+      "field-a",
+      "field-b",
+      "field-foreign",
+      "field-new",
     ]);
+  });
+
+  it("refuses a checked write when another instance got there first", async () => {
+    writeConflictOnce.value = true;
+
+    await expect(
+      patchFormFields.run({
+        id: "form-race",
+        expectedRevision: fieldsRevision(storedRace().fields),
+        ops: [upsertLabel("field-a", "A updated")],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(
+      JSON.parse(storedRace().fields).map((field: { id: string }) => field.id),
+    ).toEqual(["field-a", "field-b", "field-foreign"]);
   });
 });

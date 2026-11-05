@@ -143,6 +143,297 @@ to = "/:locale/docs/agent-resources/"
 status = 301
 force = true
 
+# The articles rebuilt on 2026-10-28: each old article goes to the closest live page, and the removed
+# topic and category pages go to /articles/. Locale-prefixed addresses follow the same map.
+
+[[redirects]]
+from = "/articles/can-people-and-an-ai-agent-edit-the-same-document"
+to = "/docs/real-time-collaboration/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/can-people-and-an-ai-agent-edit-the-same-document/"
+to = "/docs/real-time-collaboration/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/can-people-and-an-ai-agent-edit-the-same-document"
+to = "/:locale/docs/real-time-collaboration/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/can-people-and-an-ai-agent-edit-the-same-document/"
+to = "/:locale/docs/real-time-collaboration/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-do-you-add-skills-to-claude-code-and-codex"
+to = "/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-do-you-add-skills-to-claude-code-and-codex/"
+to = "/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-do-you-add-skills-to-claude-code-and-codex"
+to = "/:locale/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-do-you-add-skills-to-claude-code-and-codex/"
+to = "/:locale/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-do-you-build-a-landing-page-with-ai"
+to = "/use-cases/landing-page-prototypes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-do-you-build-a-landing-page-with-ai/"
+to = "/use-cases/landing-page-prototypes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-do-you-build-a-landing-page-with-ai"
+to = "/:locale/use-cases/landing-page-prototypes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-do-you-build-a-landing-page-with-ai/"
+to = "/:locale/use-cases/landing-page-prototypes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-make-a-pitch-deck-with-ai"
+to = "/use-cases/ai-pitch-deck-maker/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-make-a-pitch-deck-with-ai/"
+to = "/use-cases/ai-pitch-deck-maker/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-make-a-pitch-deck-with-ai"
+to = "/:locale/use-cases/ai-pitch-deck-maker/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-make-a-pitch-deck-with-ai/"
+to = "/:locale/use-cases/ai-pitch-deck-maker/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai"
+to = "/use-cases/ai-prototype-generator/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/"
+to = "/use-cases/ai-prototype-generator/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai"
+to = "/:locale/use-cases/ai-prototype-generator/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/"
+to = "/:locale/use-cases/ai-prototype-generator/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-use-ai-to-take-meeting-notes"
+to = "/use-cases/ai-meeting-notes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-use-ai-to-take-meeting-notes/"
+to = "/use-cases/ai-meeting-notes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-use-ai-to-take-meeting-notes"
+to = "/:locale/use-cases/ai-meeting-notes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-use-ai-to-take-meeting-notes/"
+to = "/:locale/use-cases/ai-meeting-notes/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-write-a-bug-report"
+to = "/use-cases/ai-bug-reporting-tool/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/how-to-write-a-bug-report/"
+to = "/use-cases/ai-bug-reporting-tool/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-write-a-bug-report"
+to = "/:locale/use-cases/ai-bug-reporting-tool/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/how-to-write-a-bug-report/"
+to = "/:locale/use-cases/ai-bug-reporting-tool/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-goes-in-a-technical-design-document"
+to = "/use-cases/specs-for-coding-agents/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-goes-in-a-technical-design-document/"
+to = "/use-cases/specs-for-coding-agents/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-goes-in-a-technical-design-document"
+to = "/:locale/use-cases/specs-for-coding-agents/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-goes-in-a-technical-design-document/"
+to = "/:locale/use-cases/specs-for-coding-agents/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-is-an-agent-native-app"
+to = "/docs/what-is-agent-native/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-is-an-agent-native-app/"
+to = "/docs/what-is-agent-native/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-is-an-agent-native-app"
+to = "/:locale/docs/what-is-agent-native/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-is-an-agent-native-app/"
+to = "/:locale/docs/what-is-agent-native/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-should-a-saas-metrics-dashboard-include"
+to = "/use-cases/ai-kpi-dashboard/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-should-a-saas-metrics-dashboard-include/"
+to = "/use-cases/ai-kpi-dashboard/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-should-a-saas-metrics-dashboard-include"
+to = "/:locale/use-cases/ai-kpi-dashboard/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-should-a-saas-metrics-dashboard-include/"
+to = "/:locale/use-cases/ai-kpi-dashboard/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-should-you-look-for-in-dictation-software"
+to = "/use-cases/ai-dictation/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/what-should-you-look-for-in-dictation-software/"
+to = "/use-cases/ai-dictation/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-should-you-look-for-in-dictation-software"
+to = "/:locale/use-cases/ai-dictation/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/what-should-you-look-for-in-dictation-software/"
+to = "/:locale/use-cases/ai-dictation/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/topic/*"
+to = "/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/topic/*"
+to = "/:locale/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/articles/category/*"
+to = "/articles/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/articles/category/*"
+to = "/:locale/articles/"
+status = 301
+force = true
+
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"

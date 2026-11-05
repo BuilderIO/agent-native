@@ -11,11 +11,11 @@
 // Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
 // HEAD, or the check still passes without the fix). Exit 2: could not run
 // (dirty tree, no source changes, git failure, check missing on base).
+// A test-only change has nothing to prove; the feedback gate passes it.
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 
-const TEST_PATH =
-  /(^|\/)(__tests__|e2e|tests?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|\.md$|^\.changeset\//;
+import { TEST_PATH } from "./feedback-fix-proof.ts";
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
@@ -137,7 +137,9 @@ const source = changes.filter(
   ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
 );
 if (source.length === 0)
-  couldNotRun(`no non-test changes between ${base.slice(0, 9)} and HEAD`);
+  couldNotRun(
+    `no non-test changes between ${base.slice(0, 9)} and HEAD; a test-only change needs no fix proof`,
+  );
 const all = source.map(({ path }) => path);
 
 // git checkout and git rm replace symlinks instead of writing through them.
