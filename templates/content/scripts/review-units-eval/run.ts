@@ -5,7 +5,8 @@
  *   npx tsx scripts/review-units-eval/run.ts requests [dev]
  *     Prints each edit's model request. Post each as `decide` from an account
  *     with a decision model, and save the probabilities and the request's digest
- *     in answers.json.
+ *     in answers.json. Every run there shares the digests, so an edit whose digest
+ *     changes needs its repeated runs recorded again or removed too.
  *   npx tsx scripts/review-units-eval/run.ts score [dev|held-out]
  *     Scores sentence units and the saved answers against the hand-marked units.
  *     A model's answers vary between calls, so it scores the repeated runs too,
