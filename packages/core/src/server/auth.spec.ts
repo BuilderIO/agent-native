@@ -10724,6 +10724,7 @@ describe("server/auth", () => {
             execute: async (
               input: string | { sql: string; args?: unknown[] },
             ) => {
+              // raw-sql-ok: this test adapter forwards SQL and bound args unchanged to PGlite.
               const { sql, args } =
                 typeof input === "string" ? { sql: input, args: [] } : input;
               const ledger = storeLedgerResult(sql);
