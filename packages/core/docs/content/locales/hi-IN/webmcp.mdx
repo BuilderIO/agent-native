@@ -18,7 +18,7 @@ Authenticated `sessionBypass` surfaces, जैसे MCP embed routes, backend a
 
 जब ब्राउज़र उपयोग करने योग्य native WebMCP surface उपलब्ध नहीं कराता, Agent-Native core `@mcp-b/webmcp-polyfill` को initialize करता है। यह polyfill केवल वर्तमान page तक सीमित है और network MCP connection नहीं बनाता।
 
-Authenticated pages browser agents के लिए `window.__agentNativeWebMcp` भी उपलब्ध कराते हैं, जिसमें `ready()`, `tools()`, `describe()`, `call()` और `result(id)` शामिल हैं। `call()` सक्रिय host का input contract, live descriptors, retries, और छोटे evaluator से आगे चलने वाले calls संभालता है; विवरण के लिए अंग्रेज़ी guide देखें।
+Authenticated pages browser agents के लिए `window.__agentNativeWebMcp` भी उपलब्ध कराते हैं, जिसमें `ready()`, `tools()`, `describe()`, `call()` और `result(id)` शामिल हैं। `call()` सक्रिय host का input contract, live descriptors, बिना retry किए execution errors की जानकारी, और छोटे evaluator से आगे चलने वाले calls संभालता है; विवरण के लिए अंग्रेज़ी guide देखें।
 
 ## HTTP discovery और fetch fallback
 

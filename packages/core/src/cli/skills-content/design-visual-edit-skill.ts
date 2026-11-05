@@ -115,7 +115,11 @@ is canonical; \`navigator.modelContext\` is deprecated:
 const ctx = document.modelContext;
 const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
 if (!tool) throw new Error(\`WebMCP tool not found: \${NAME}\`);
-const result = await ctx.executeTool(tool, ARGS);
+const legacyChrome = typeof ctx.codexExecuteTool !== "function" &&
+  /\\b(?:Chrome|Chromium)\\/(?:149|15[0-4])(?:\\.|\\s|$)/.test(document.defaultView?.navigator.userAgent ?? "");
+const input = ctx.__isWebMCPPolyfill === true || legacyChrome
+  ? JSON.stringify(ARGS) : ARGS;
+const result = await ctx.executeTool(tool, input);
 \`\`\`
 
 The helper handles live discovery, partial registries, and pending calls. If a

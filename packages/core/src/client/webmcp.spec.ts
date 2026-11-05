@@ -283,6 +283,102 @@ describe("WebMCP client", () => {
     );
   });
 
+  it.each([
+    ["Chrome/148.0.0.0", "object"],
+    ["Chrome/149.0.0.0", "string"],
+    [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+      "string",
+    ],
+    ["Chrome/154.0.0.0", "string"],
+    ["Chrome/155.0.0.0", "object"],
+    ["Chrome/156.0.0.0", "object"],
+    ["Firefox/154.0", "object"],
+  ])(
+    "uses the document browser input contract for %s",
+    async (userAgent, inputType) => {
+      const registeredTool = {
+        name: "update-order",
+        description: "Update an order",
+        window,
+        origin: "https://shop.example",
+      };
+      const executeTool = vi.fn(async (_tool: unknown, input: unknown) => {
+        expect(typeof input).toBe(inputType);
+        expect(typeof input === "string" ? JSON.parse(input) : input).toEqual({
+          id: "order-1",
+        });
+        return "updated";
+      });
+      const doc = {
+        defaultView: { navigator: { userAgent } },
+        modelContext: {
+          registerTool: vi.fn(),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+        },
+      } as unknown as Document;
+      const client = createAgentNativeWebMcpClient({ document: doc });
+      await expect(
+        client.executeTool({ name: "update-order" }, { id: "order-1" }),
+      ).resolves.toBe("updated");
+      expect(executeTool).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not use the ambient browser version for a detached document", async () => {
+    const userAgent = vi
+      .spyOn(navigator, "userAgent", "get")
+      .mockReturnValue("Chrome/149.0.0.0");
+    try {
+      const registeredTool = {
+        name: "update-order",
+        description: "Update",
+        window,
+        origin: "https://shop.example",
+      };
+      const executeTool = vi.fn(async () => "updated");
+      const client = createAgentNativeWebMcpClient({
+        document: documentWithModelContext({
+          registerTool: vi.fn(),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+        }),
+      });
+      await client.executeTool({ name: "update-order" }, { id: "order-1" });
+      expect(executeTool).toHaveBeenCalledWith(
+        registeredTool,
+        { id: "order-1" },
+        {},
+      );
+    } finally {
+      userAgent.mockRestore();
+    }
+  });
+
+  it("does not retry an execution that reports an input parse error", async () => {
+    const registeredTool = {
+      name: "update-order",
+      description: "Update",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => {
+      throw new Error("Failed to parse input after updating order");
+    });
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+    await expect(client.executeTool({ name: "update-order" })).rejects.toThrow(
+      "Failed to parse input",
+    );
+    expect(executeTool).toHaveBeenCalledOnce();
+  });
+
   it("passes JSON text input to the WebMCP polyfill", async () => {
     const registeredTool = {
       name: "get-order",
@@ -293,12 +389,15 @@ describe("WebMCP client", () => {
     };
     const executeTool = vi.fn(async () => ({ status: "shipped" }));
     const client = createAgentNativeWebMcpClient({
-      document: documentWithModelContext({
-        registerTool: vi.fn(async () => {}),
-        getTools: vi.fn(async () => [registeredTool]),
-        executeTool,
-        __isWebMCPPolyfill: true,
-      }),
+      document: {
+        defaultView: { navigator: { userAgent: "Chrome/155.0.0.0" } },
+        modelContext: {
+          registerTool: vi.fn(async () => {}),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+          __isWebMCPPolyfill: true,
+        },
+      } as unknown as Document,
     });
     const [tool] = await client.listTools();
 
@@ -320,12 +419,15 @@ describe("WebMCP client", () => {
     };
     const executeTool = vi.fn(async () => ({ status: "shipped" }));
     const client = createAgentNativeWebMcpClient({
-      document: documentWithModelContext({
-        registerTool: vi.fn(async () => {}),
-        getTools: vi.fn(async () => [registeredTool]),
-        executeTool,
-        codexExecuteTool: vi.fn(),
-      }),
+      document: {
+        defaultView: { navigator: { userAgent: "Chrome/149.0.0.0" } },
+        modelContext: {
+          registerTool: vi.fn(async () => {}),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+          codexExecuteTool: vi.fn(),
+        },
+      } as unknown as Document,
     });
 
     const [tool] = await client.listTools();
@@ -1150,18 +1252,18 @@ describe("WebMCP page helper", () => {
     ]);
   });
 
-  it("retries only on a stale descriptor and stops on other errors", async () => {
+  it("reports a stale-descriptor failure without replaying and refreshes on the next call", async () => {
     readyStatus(1);
     const registeredTool = {
       name: "get-order",
       description: "Read an order",
       window,
       origin: "https://shop.example",
+      annotations: { readOnlyHint: true },
     };
     const getTools = vi.fn(async () => [registeredTool]);
     const executeTool = vi
       .fn()
-      .mockRejectedValueOnce(new Error("RegisteredTool must be an object"))
       .mockRejectedValueOnce(new Error("RegisteredTool must be an object"))
       .mockResolvedValueOnce("shipped");
     const helper = createAgentNativeWebMcpPageHelper({
@@ -1174,20 +1276,17 @@ describe("WebMCP page helper", () => {
 
     const outcome = await helper.call("get-order");
     expect(outcome).toMatchObject({
-      ok: true,
-      attempts: 3,
-      result: "shipped",
-    });
-    expect(getTools).toHaveBeenCalledTimes(3);
-
-    executeTool.mockRejectedValueOnce(new Error("boom"));
-    const failure = await helper.call("get-order");
-    expect(failure).toMatchObject({
       ok: false,
       code: "execution-failed",
-      error: "boom",
+      error: "RegisteredTool must be an object",
       attempts: 1,
     });
+    expect(executeTool).toHaveBeenCalledOnce();
+    expect(getTools).toHaveBeenCalledOnce();
+
+    const next = await helper.call("get-order");
+    expect(next).toMatchObject({ ok: true, attempts: 1, result: "shipped" });
+    expect(getTools).toHaveBeenCalledTimes(2);
   });
 
   it("reports not-registered when a tool is missing after registration settles", async () => {
@@ -1740,13 +1839,14 @@ describe("WebMCP page helper", () => {
       "delete-deck",
     ]);
   });
-  it("retries a polyfill-worded stale descriptor the same as native/Codex wording", async () => {
+  it("does not replay a polyfill-worded stale descriptor failure", async () => {
     readyStatus(1);
     const registeredTool = {
       name: "get-order",
       description: "Read an order",
       window,
       origin: "https://shop.example",
+      annotations: { readOnlyHint: true },
     };
     const getTools = vi.fn(async () => [registeredTool]);
     const executeTool = vi
@@ -1762,8 +1862,13 @@ describe("WebMCP page helper", () => {
     });
 
     const outcome = await helper.call("get-order");
-    expect(outcome).toMatchObject({ ok: true, attempts: 2, result: "shipped" });
-    expect(getTools).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({
+      ok: false,
+      attempts: 1,
+      code: "execution-failed",
+    });
+    expect(getTools).toHaveBeenCalledOnce();
+    expect(executeTool).toHaveBeenCalledOnce();
   });
 
   it("requires an origin when the same name is exposed by multiple origins", async () => {
@@ -1802,6 +1907,33 @@ describe("WebMCP page helper", () => {
     expect(scoped).toMatchObject({ ok: true, result: "shipped" });
     expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
+  it("does not replay a possibly mutating call after a stale-descriptor error", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "update-order",
+      description: "Update an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => {
+      throw new Error("Tool not found: update-order");
+    });
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+    const outcome = await helper.call("update-order");
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: "execution-failed",
+      attempts: 1,
+    });
+    expect(executeTool).toHaveBeenCalledOnce();
+  });
+
   it("does not replay an action failure worded like a stale descriptor", async () => {
     readyStatus(1);
     const registeredTool = {
