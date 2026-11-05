@@ -56,7 +56,22 @@ describe("export-audit-csv download expiry", () => {
   });
 
   it("returns no expiry for the stored file URL", async () => {
-    const result = await (action as any).run({
+    const result = await (
+      action as unknown as {
+        run: (args: {
+          dateFrom: string;
+          dateTo: string;
+          expiresInSeconds: number;
+        }) => Promise<{
+          rowCount: number;
+          objectKey: string;
+          sizeBytes: number;
+          downloadUrl: string;
+          downloadUrlExpiresAt: string | null;
+          generatedAt: string;
+        }>;
+      }
+    ).run({
       dateFrom: "2026-01-01",
       dateTo: "2026-01-31",
       expiresInSeconds: 1800,
