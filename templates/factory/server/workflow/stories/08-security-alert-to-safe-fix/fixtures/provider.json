@@ -17,7 +17,8 @@
             "package": "lodash",
             "ecosystem": "npm",
             "manifestPath": "package.json",
-            "ghsaId": "GHSA-example-101"
+            "ghsaId": "GHSA-example-101",
+            "fixedVersion": "4.17.21"
           }
         },
         {
@@ -146,7 +147,8 @@
             "package": "lodash",
             "ecosystem": "npm",
             "manifestPath": "package.json",
-            "ghsaId": "GHSA-example-101"
+            "ghsaId": "GHSA-example-101",
+            "fixedVersion": "4.17.21"
           }
         }
       ]

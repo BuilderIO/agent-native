@@ -35,7 +35,8 @@ export default defineAction({
   }),
   run: async (args) => {
     const topic = args.topic;
-    const slideCount = Math.min(args.slideCount ?? 8, 10);
+    const requestedSlideCount = args.slideCount ?? 8;
+    const slideCount = Math.min(requestedSlideCount, 10);
     const style = args.style;
     const includeImages = args.includeImages !== false;
 
@@ -134,7 +135,16 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
       imagePrompt: includeImages ? slide.imagePrompt : undefined,
     }));
 
-    return { slides };
+    return {
+      slides,
+      ...(requestedSlideCount > slideCount
+        ? {
+            warnings: [
+              `Requested ${requestedSlideCount} slides but generated at most ${slideCount}. Tell the user the outline is capped and offer to add the rest.`,
+            ],
+          }
+        : {}),
+    };
   },
 });
 

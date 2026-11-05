@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
     searchEntries?: unknown;
   }>,
   membersAppRoles: undefined as unknown,
+  appsExtraGroups: undefined as ReactNode,
   pageProps: null as null | {
     general?: ReactNode;
     generalGroups?: ReactNode;
@@ -61,6 +62,14 @@ vi.mock("@agent-native/toolkit/app/org", () => ({
     state.membersAppRoles = appRoles;
     return <div data-members-page />;
   },
+  OrgAppsPage: ({ extraGroups }: { extraGroups?: ReactNode }) => {
+    state.appsExtraGroups = extraGroups;
+    return <div data-apps-page />;
+  },
+}));
+
+vi.mock("../../components/hosted-apps-settings-group", () => ({
+  HostedAppsSettingsGroup: () => <section data-hosted-apps-group />,
 }));
 
 vi.mock("@agent-native/toolkit/app/settings", () => ({
@@ -71,6 +80,11 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
       id: "members",
       component: () => null,
       searchEntries: [{ id: "invite-members" }],
+    },
+    {
+      id: "apps",
+      component: () => null,
+      searchEntries: [{ id: "new-app-privacy" }],
     },
   ],
   registerSettingsPages: (pages: typeof state.registered) => {
@@ -143,6 +157,29 @@ describe("Dispatch settings route", () => {
 
     expect(container.querySelector("[data-members-page]")).not.toBeNull();
     expect(state.membersAppRoles).toBe(dispatchAccessDescriptor);
+  });
+
+  it("replaces core Apps with one that adds the hosted apps group", () => {
+    const apps = state.registered.find((page) => page.id === "apps");
+    expect(apps?.searchEntries).toEqual([
+      { id: "new-app-privacy" },
+      expect.objectContaining({
+        id: "hosted-apps",
+        labelKey: "dispatch.pages.showHostedApps",
+        anchor: "show-hosted-apps",
+      }),
+    ]);
+
+    const Apps = apps!.component;
+    act(() => {
+      root.render(<Apps />);
+    });
+    expect(container.querySelector("[data-apps-page]")).not.toBeNull();
+
+    act(() => {
+      root.render(<>{state.appsExtraGroups}</>);
+    });
+    expect(container.querySelector("[data-hosted-apps-group]")).not.toBeNull();
   });
 
   it("keeps the language row and Admin link on today's General tab", () => {
