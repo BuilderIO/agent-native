@@ -353,7 +353,7 @@ export default defineAction({
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
     const needsDefaultTimezone =
-      !args.startTimeZone &&
+      !args.startTimeZone?.trim() &&
       [args.start, args.end].some((value) =>
         /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(
           value.trim(),

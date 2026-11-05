@@ -54,6 +54,7 @@ describe("dateTimeInTimezoneToIso", () => {
     ["2026-01-01", "09:30:"],
     ["2026-01-01", "09:30:.123"],
     ["2026-01-01", "09:30:05."],
+    ["2026-01-01", "09:30:05.1234"],
   ])("rejects missing or empty components in %s %s", (date, time) => {
     expect(() => dateTimeInTimezoneToIso(date, time, "UTC")).toThrow(
       `Invalid date or time: ${date} ${time}`,

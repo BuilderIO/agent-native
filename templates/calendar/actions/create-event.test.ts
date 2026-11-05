@@ -330,6 +330,28 @@ describe("create-event recurrence", () => {
     });
   });
 
+  it.each(["", "   "])(
+    "uses the saved timezone when startTimeZone is blank: %j",
+    async (timezone) => {
+      getUserSettingMock.mockImplementation((_email: string, key: string) =>
+        key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+      );
+      await createEventAction.run({
+        title: "Meeting",
+        start: "2026-11-04T10:00:00",
+        end: "2026-11-04T11:00:00",
+        startTimeZone: timezone,
+        endTimeZone: timezone,
+      });
+      expect(createEventMock.mock.calls[0][0]).toMatchObject({
+        start: "2026-11-04T04:30:00.000Z",
+        end: "2026-11-04T05:30:00.000Z",
+        startTimeZone: "Asia/Kolkata",
+        endTimeZone: "Asia/Kolkata",
+      });
+    },
+  );
+
   it("formats event timing using the saved interface locale", async () => {
     getUserSettingMock.mockResolvedValue({ locale: "de-DE" });
     const result = await createEventAction.run({

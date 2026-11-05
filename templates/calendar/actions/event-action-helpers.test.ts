@@ -271,6 +271,26 @@ describe("buildStatusEventFields", () => {
 });
 
 describe("normalizeCreateEventInput", () => {
+  it.each(["", "   "])("treats blank timezone %j as absent", (timezone) => {
+    expect(
+      normalizeCreateEventInput(
+        {
+          title: "Meeting",
+          start: "2026-11-04T10:00:00",
+          end: "2026-11-04T11:00:00",
+          startTimeZone: timezone,
+          endTimeZone: timezone,
+        },
+        "Asia/Kolkata",
+      ),
+    ).toMatchObject({
+      start: "2026-11-04T04:30:00.000Z",
+      end: "2026-11-04T05:30:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      endTimeZone: "Asia/Kolkata",
+    });
+  });
+
   it("preserves seconds and milliseconds in each event timezone", () => {
     expect(
       normalizeCreateEventInput({

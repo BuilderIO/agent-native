@@ -625,6 +625,9 @@ export function normalizeCreateEventInput(
   },
   defaultTimezone?: string,
 ) {
+  const explicitStartZone = args.startTimeZone?.trim() || undefined;
+  const explicitEndZone = args.endTimeZone?.trim() || undefined;
+
   if (args.fullDay === true && args.eventType !== "outOfOffice") {
     throw new Error("fullDay is only supported for out-of-office events.");
   }
@@ -655,9 +658,7 @@ export function normalizeCreateEventInput(
   }
 
   if (args.eventType === "outOfOffice" && args.fullDay === true) {
-    const timezone = requireIanaTimezone(
-      args.startTimeZone ?? args.endTimeZone,
-    );
+    const timezone = requireIanaTimezone(explicitStartZone ?? explicitEndZone);
     if (
       !DATE_ONLY_PATTERN.test(args.start) ||
       !DATE_ONLY_PATTERN.test(args.end) ||
@@ -695,8 +696,8 @@ export function normalizeCreateEventInput(
     };
   }
 
-  const startZone = args.startTimeZone ?? defaultTimezone;
-  const endZone = args.endTimeZone ?? startZone;
+  const startZone = explicitStartZone ?? defaultTimezone;
+  const endZone = explicitEndZone ?? startZone;
   const startIso = normalizedIso(
     args.start,
     "start",
@@ -714,11 +715,10 @@ export function normalizeCreateEventInput(
     title,
     start,
     end,
-    startTimeZone:
-      args.startTimeZone ?? (startZoneless ? startZone : undefined),
+    startTimeZone: explicitStartZone ?? (startZoneless ? startZone : undefined),
     endTimeZone:
-      args.endTimeZone ??
-      args.startTimeZone ??
+      explicitEndZone ??
+      explicitStartZone ??
       (endZoneless ? endZone : undefined),
     allDay: args.allDay ?? false,
   };

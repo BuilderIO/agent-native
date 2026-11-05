@@ -80,7 +80,8 @@ export function dateTimeInTimezoneToIso(
     !hour.trim() ||
     !minute.trim() ||
     !second.trim() ||
-    (seconds.includes(".") && !fraction.trim())
+    (seconds.includes(".") && !fraction.trim()) ||
+    fraction.length > 3
   ) {
     throw new RangeError(`Invalid date or time: ${date} ${time}`);
   }
