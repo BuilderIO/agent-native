@@ -204,8 +204,8 @@ no reaction and no thread yet.
   `response_format: detailed` (paginate) back 5 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
-  `upvote`. Don't rely on
-  `hasmy:` searches.
+  `upvote`. Avoid `hasmy:`; run the
+  [backstop](references/slack-reaction-replies.md#backstop-for-unclaimed-roots).
 - **Open items first.** Verify the connected profile's 👀 on the root and workflow ownership
   from a matching run recap, proof-bearing PR, or automation memory claim.
   A bot reply, reaction, or memory entry alone is insufficient. Investigate
@@ -307,9 +307,10 @@ do not claim new roots.
   back to `main` and pass with them. A check that passes without your fix
   doesn't test the bug: write one that does. Tests that read source text
   never count. For a purely visual fix, before and after screenshots are
-  evidence for a person to inspect, not automated proof. Before merging, a
-  human must open both images and confirm they show the reported change. Put
-  the evidence under the report in the PR's `Reports` section.
+  evidence, not automated proof: before merging, a human must open both and
+  confirm they show the reported change. Put the evidence under the report in
+  the PR's `Reports` section. A test-only change (test files, optional
+  `.changeset/`) needs only `fix-proof: test-only`.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
@@ -317,7 +318,7 @@ do not claim new roots.
   each report it fixes (`visual: <before> <after>` for a purely visual
   fix). The required `Lint & format` check runs this gate for PRs with a
   `Reports` section and re-runs machine proofs. It marks visual-only reports
-  as needing human validation before merge. Write the check before you push. The second
+  as needing human validation before merge. The second
   opinion below reads the red output to confirm the check failed on the
   bug, not on setup.
 <!-- framework-repo-only:end -->
