@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { isEncryptedSecretValue } from "../secrets/crypto.js";
 import { mutateSetting } from "../settings/store.js";
 import {
   deleteOAuthTokensIfRevision,
@@ -30,7 +31,7 @@ export interface OAuthCredentialIdentity {
 
 export interface OAuthCredentialTokens {
   access_token: string;
-  refresh_token?: string;
+  refresh_token?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -62,13 +63,25 @@ interface StoredCredentialSnapshot<
   storageVersion: string;
 }
 
+/**
+ * Why a stored row is not a credential. `unreadable` is ciphertext this
+ * process's key cannot open (a database copied from another deployment, or a
+ * rotated key): the row is intact and someone holds the right key, so it is not
+ * the same as a row with the wrong shape.
+ */
+export type OAuthCredentialMalformedReason =
+  | "structure"
+  | "identity"
+  | "validation"
+  | "unreadable";
+
 export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | { kind: "missing" }
   | {
       kind: "malformed";
       revision: number;
       legacyRevision: number;
-      reason: "structure" | "identity" | "validation";
+      reason: OAuthCredentialMalformedReason;
     }
   | ({
       kind: "connected" | "expired" | "reconnect_required";
@@ -82,7 +95,7 @@ type StoredOAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
       legacyRevision: number;
       storageOwner: string;
       storageVersion: string;
-      reason: "structure" | "identity" | "validation";
+      reason: OAuthCredentialMalformedReason;
     }
   | ({
       kind: "connected" | "expired" | "reconnect_required";
@@ -348,7 +361,12 @@ async function readStoredOAuthCredentialState<
       legacyRevision: stored.legacyRevision,
       storageOwner,
       storageVersion: stored.storageVersion,
-      reason: "structure",
+      // The store reads ciphertext it cannot open as an empty object.
+      reason:
+        isEncryptedSecretValue(stored.storageVersion) &&
+        Object.keys(parsed).length === 0
+          ? "unreadable"
+          : "structure",
     };
   }
   if (
@@ -1065,7 +1083,11 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
   } else if (state.kind === "malformed") {
     remote = "not_attempted";
   }
-  if (state.kind === "malformed" && state.reason !== "structure") {
+  if (
+    state.kind === "malformed" &&
+    state.reason !== "structure" &&
+    state.reason !== "unreadable"
+  ) {
     return { remote, local: "replaced" };
   }
   const deleted = await deleteOAuthTokensIfRevision(

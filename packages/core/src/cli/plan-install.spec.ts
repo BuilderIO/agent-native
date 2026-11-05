@@ -152,6 +152,11 @@ describe(
             /^workspace:/,
           );
           expect(val, `${key} must not be bare catalog:`).not.toBe("catalog:");
+          if (key.startsWith("@agent-native/")) {
+            expect(val, `${key} must be an exact release`).toMatch(
+              /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
+            );
+          }
         }
         expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
       },

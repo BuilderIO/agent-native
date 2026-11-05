@@ -32,6 +32,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("sonner", () => ({ toast }));
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string, values?: { name?: string }) =>
+    values?.name ? `${key}:${values.name}` : key,
+}));
 
 const template: CuratedWorkspaceTemplate = {
   id: "weekly-report",
@@ -194,6 +199,11 @@ describe("WorkspaceTemplateCard", () => {
     expect(
       container.querySelector('a[href="https://reports.example.test"]'),
     ).not.toBeNull();
+    expect(
+      container
+        .querySelector(".app-open-actions__menu")
+        ?.getAttribute("aria-label"),
+    ).toBe("extensions.optionsFor:Weekly report");
   });
 
   it("accepts the list action envelope and renders installed state", async () => {

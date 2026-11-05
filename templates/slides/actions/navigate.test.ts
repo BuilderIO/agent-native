@@ -6,13 +6,31 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+const mockTabId = vi.hoisted(() => ({ value: "tab-1" as string | undefined }));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestRunContext: () => ({ browserTabId: mockTabId.value }),
+}));
+
 import action from "./navigate";
+
+describe("navigate without a browser tab", () => {
+  it("fails instead of writing a key no tab reads", async () => {
+    mockTabId.value = undefined;
+    try {
+      await expect(action.run({ view: "list" })).rejects.toThrow(/browser tab/);
+      expect(mockWriteAppState).not.toHaveBeenCalled();
+    } finally {
+      mockTabId.value = "tab-1";
+    }
+  });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("navigate", () => {
+describe("navigate:tab-1", () => {
   it("opens templates with a selected template and search", async () => {
     await action.run({
       view: "templates",
@@ -20,7 +38,7 @@ describe("navigate", () => {
       search: "pitch",
     });
     expect(mockWriteAppState).toHaveBeenCalledWith(
-      "navigate",
+      "navigate:tab-1",
       expect.objectContaining({
         view: "templates",
         templateId: "starter-pitch",
@@ -41,7 +59,7 @@ describe("navigate", () => {
     });
 
     expect(mockWriteAppState).toHaveBeenCalledWith(
-      "navigate",
+      "navigate:tab-1",
       expect.objectContaining({
         deckId: "deck-1",
         slideIndex: 0,
@@ -57,7 +75,7 @@ describe("navigate", () => {
     });
 
     expect(mockWriteAppState).toHaveBeenCalledWith(
-      "navigate",
+      "navigate:tab-1",
       expect.objectContaining({
         deckId: "deck-1",
         slideIndex: 1,

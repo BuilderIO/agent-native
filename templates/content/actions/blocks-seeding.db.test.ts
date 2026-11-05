@@ -2092,7 +2092,16 @@ describe("primary Blocks body writers on a page that takes body writes through i
     const { databaseId, primaryId, rowDocumentIds } =
       await primaryRows("Before");
     const [rowDocumentId] = rowDocumentIds;
-    await liveCopy.putPageOnLiveCopy(rowDocumentId);
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: "2026-01-01T00:00:00.000Z" })
+      .where(eq(schema.documents.id, rowDocumentId));
+    const storedBefore = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(storedBefore).toHaveLength(1);
     const before = await pageState(rowDocumentId);
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -2104,6 +2113,44 @@ describe("primary Blocks body writers on a page that takes body writes through i
       }),
     );
 
+    expect(await pageState(rowDocumentId)).toEqual(before);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, rowDocumentId)),
+    ).toEqual(storedBefore);
+  });
+
+  it("checks the field revision for a live body edit that changes no text", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
+    const before = await pageState(rowDocumentId);
+    const { editContentLiveCopy } =
+      await import("../server/live-copy/write.js");
+    const { CONTENT_LIVE_COPY_EDITS } =
+      await import("../server/live-copy/binding.js");
+    const edit = (revision: number) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editContentLiveCopy(rowDocumentId, {
+          cause: {
+            operation: "set-document-property",
+            lockCollections: [databaseId],
+            expectedBlocksFieldRevision: { propertyId: primaryId, revision },
+          },
+          edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Before", expected: "Before" },
+        }),
+      );
+
+    await expect(edit(1)).rejects.toMatchObject({
+      name: "BlocksFieldRevisionConflictError",
+      statusCode: 409,
+    });
+    expect(await pageState(rowDocumentId)).toEqual(before);
+    await expect(edit(0)).resolves.toMatchObject({ changed: false });
     expect(await pageState(rowDocumentId)).toEqual(before);
   });
 

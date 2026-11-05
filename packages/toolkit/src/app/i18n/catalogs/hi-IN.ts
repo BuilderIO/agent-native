@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "साइन आउट नहीं हो सका",
   "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "block.loading": "ब्लॉक लोड हो रहा है।",
   "composer.contextUrlLabel": "यूआरएल",
@@ -125,6 +126,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "मार्केटिंग",
   "onboarding.roleSales": "बिक्री",
   "onboarding.roleOps": "संचालन",
+  "onboarding.roleCreator": "कंटेंट क्रिएटर",
+  "onboarding.roleStudent": "छात्र",
+  "onboarding.roleEducator": "शिक्षक",
   "onboarding.roleIndividual": "व्यक्तिगत",
   "onboarding.roleOther": "अन्य",
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
@@ -3334,6 +3338,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ऐप को वर्कस्पेस से हटाएँ",
   "chatFirst.showMore": "और दिखाएँ",
   "chatFirst.showLess": "कम दिखाएँ",
+  "chatFirst.showMoreCount": "{{count}} और दिखाएं",
   "chatFirst.appOrderUnavailable": "इस डिवाइस पर ऐप का क्रम सहेजा नहीं जा सका।",
   "chatFirst.openSideSurfaces": "साइड पैनल खोलें",
   "chatFirst.sideSurfaces": "साइड पैनल",

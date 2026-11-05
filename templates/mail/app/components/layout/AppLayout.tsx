@@ -63,6 +63,7 @@ import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
+import { DraftConflictPrompt } from "@/components/email/DraftConflictPrompt";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -2203,6 +2204,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         </div>
       </div>
+      <DraftConflictPrompt
+        drafts={compose.drafts}
+        onRestore={(draft) => compose.update(draft.id, draft)}
+      />
       {(() => {
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;

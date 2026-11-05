@@ -805,12 +805,12 @@ const messages = {
     draftCard: {
       loadFailed: "Impossible de charger ce brouillon.",
       notFoundTitle: "Brouillon introuvable",
+      goneTitle: "Ce brouillon a été envoyé ou supprimé.",
       threadUnavailable:
         "Impossible de charger les messages précédents de cette conversation.",
-      threadLookupFailed:
-        "Impossible de trouver la conversation de cette réponse, elle ne peut donc pas encore être envoyée.",
       earlierMessages: "Messages précédents ({{count}})",
-      deleted: "Brouillon supprimé.",
+      sendInMail: "Envoyer dans Mail",
+      openBlocked: "Votre navigateur a bloqué le nouvel onglet.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

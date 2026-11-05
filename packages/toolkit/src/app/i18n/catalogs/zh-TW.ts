@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "登出失敗",
   "block.renderUnavailable": "此區塊暫時無法使用。",
   "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
@@ -122,6 +123,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "行銷",
   "onboarding.roleSales": "銷售",
   "onboarding.roleOps": "營運",
+  "onboarding.roleCreator": "內容創作者",
+  "onboarding.roleStudent": "學生",
+  "onboarding.roleEducator": "教育工作者",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
@@ -3121,6 +3125,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "從工作區移除應用",
   "chatFirst.showMore": "顯示更多",
   "chatFirst.showLess": "收合",
+  "chatFirst.showMoreCount": "再顯示 {{count}} 項",
   "chatFirst.appOrderUnavailable": "無法在此裝置上儲存應用順序。",
   "chatFirst.openSideSurfaces": "開啟側邊面板",
   "chatFirst.sideSurfaces": "側邊面板",

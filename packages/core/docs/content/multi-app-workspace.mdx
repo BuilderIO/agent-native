@@ -136,13 +136,13 @@ Every app already knows how to log in, share the same database, and load the wor
 From anywhere inside the workspace:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 The CLI shows the template picker again with apps you've already installed filtered out. Pick one or more and they get scaffolded under `apps/`. Non-interactive variant:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Any first-party template works as a workspace app — the CLI runs a small **workspacify** transform on the template that adds the shared package as a dep and resolves `workspace:*` references. No parallel "workspace-app" scaffold to maintain.
@@ -277,6 +277,8 @@ Unknown IDs in `include` log a warning and are ignored. A standalone app can use
 
 This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and custom connected remote-agent URLs retain priority, and MCP app access stays a separate routing permission.
 
+In Dispatch, organization owners and admins can also hide the offered built-ins under Settings › Organization › Apps (or with `set-hosted-apps-settings`). That removes them from Dispatch's app lists and its agent's app context for the organization; `call-agent` by name still reaches them. Without an organization there is no settings page for it, so only the agent can change it, for that user.
+
 ## Shared MCP servers {#shared-mcp}
 
 The recommended options for sharing MCP servers across workspace apps, in order of preference:
@@ -309,6 +311,10 @@ A few onboarding flows are workspace-aware out of the box:
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 This works because every app in the same workspace points at the same `DATABASE_URL` by default, so framework credential storage (`@agent-native/core/credentials`) makes a credential available to every app without per-app config. Add a thin helper in `packages/shared` if your workspace wants a stricter naming convention.
+
+## Default app at `/` {#default-app}
+
+`/` opens Dispatch when the workspace has a `dispatch` app, and otherwise the first app. Set `WORKSPACE_DEFAULT_APP=<app-id>` to open a different app. `agent-native dev` and workspace deploys both read it from the process environment first, then from the workspace root `.env`; a value that names no app is ignored. Deploys read it at build time, so set it where you build. Dispatch keeps its own `/dispatch` redirect, and `deployment.workspace.rootPage: "directory"` still shows the app list instead.
 
 ## Shared design tokens {#design-tokens}
 

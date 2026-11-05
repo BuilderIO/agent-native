@@ -1,6 +1,6 @@
 import path from "path";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
@@ -300,7 +300,8 @@ export default defineAction({
           tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          fail(
+          // The images that did upload are orphan blobs, not saved deck data.
+          throw new NoWriteError(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
             { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );

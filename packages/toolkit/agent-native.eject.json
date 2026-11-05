@@ -1351,6 +1351,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]
     },
