@@ -469,6 +469,20 @@ export function mentionItemMatchesQuery(
   );
 }
 
+/**
+ * The items that match a query, in their given order except that one named
+ * exactly by the query comes first, so typing a whole name or alias and
+ * pressing Enter picks it over an earlier item that merely contains the text.
+ */
+export function mentionItemsForQuery(
+  items: MentionItem[],
+  query: string,
+): MentionItem[] {
+  const matches = items.filter((item) => mentionItemMatchesQuery(item, query));
+  const exact = findExactMentionItem(matches, query.trim());
+  return exact ? [exact, ...matches.filter((item) => item !== exact)] : matches;
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -2166,10 +2180,14 @@ function ModelSelector({
     selectedModelDisplayName ??
     selectedModelDescription?.name ??
     friendlyModelName(model, t);
+  // An empty list mid-load says nothing about connection; judging it now
+  // flashes "Connect agent" at a connected user.
+  const awaitingModelList = modelListLoading && providerGroups.length === 0;
   const selectedModelNeedsConnection =
-    onlyConnectPathAvailable ||
-    (selectedModelProviderGroups.length > 0 &&
-      selectedModelProviderGroups.every((group) => !group.configured));
+    !awaitingModelList &&
+    (onlyConnectPathAvailable ||
+      (selectedModelProviderGroups.length > 0 &&
+        selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
   // an empty list is a catalog that failed to load, not proof of anything.
@@ -2228,71 +2246,73 @@ function ModelSelector({
     typeof window !== "undefined" &&
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
-  const connectItems = showProviderActions ? (
-    <>
-      {showBuilderAction && BuilderConnectPopover ? (
-        <>
-          <BuilderConnectPopover
-            flow={builderFlow}
-            onConnect={(provisionAccount) => {
-              if (onConnectProvider && !provisionAccount) {
-                onConnectProvider();
-              } else {
-                builderFlow.start({ provisionAccount });
-              }
-            }}
+  const connectItems =
+    showProviderActions && !awaitingModelList ? (
+      <>
+        {showBuilderAction && BuilderConnectPopover ? (
+          <>
+            <BuilderConnectPopover
+              flow={builderFlow}
+              keepOpenOnFocusOutside
+              onConnect={(provisionAccount) => {
+                if (onConnectProvider && !provisionAccount) {
+                  onConnectProvider();
+                } else {
+                  builderFlow.start({ provisionAccount });
+                }
+              }}
+            >
+              <DropdownMenuItem
+                disabled={builderFlow.connecting}
+                // The Builder choice opens its own popover from this row.
+                onSelect={(event) => event.preventDefault()}
+                className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+              >
+                <span className="block font-medium text-foreground">
+                  {builderFlow.connecting
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Setting up Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Use Builder.io",
+                      })}
+                </span>
+                <span className="block agent-kit-caption-copy text-muted-foreground">
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </DropdownMenuItem>
+            </BuilderConnectPopover>
+            {!onConnectProvider && builderFlow.error && (
+              <p
+                role="alert"
+                className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+              >
+                {builderFlow.error}
+              </p>
+            )}
+          </>
+        ) : null}
+        {showAddKeysAction && (
+          <DropdownMenuItem
+            onSelect={openLlmSettings}
+            className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
           >
-            <DropdownMenuItem
-              disabled={builderFlow.connecting}
-              // The Builder choice opens its own popover from this row.
-              onSelect={(event) => event.preventDefault()}
-              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-            >
-              <span className="block font-medium text-foreground">
-                {builderFlow.connecting
-                  ? t("agentPanel.connectingBuilder", {
-                      defaultValue: "Setting up Builder.io…",
-                    })
-                  : t("agentPanel.connectBuilderIo", {
-                      defaultValue: "Use Builder.io",
-                    })}
-              </span>
-              <span className="block agent-kit-caption-copy text-muted-foreground">
-                {t("agentPanel.builderModelCredits", {
-                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                })}
-              </span>
-            </DropdownMenuItem>
-          </BuilderConnectPopover>
-          {!onConnectProvider && builderFlow.error && (
-            <p
-              role="alert"
-              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
-            >
-              {builderFlow.error}
-            </p>
-          )}
-        </>
-      ) : null}
-      {showAddKeysAction && (
-        <DropdownMenuItem
-          onSelect={openLlmSettings}
-          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-        >
-          <span className="block font-medium text-foreground">
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
-            })}
-          </span>
-          <span className="block agent-kit-caption-copy text-muted-foreground">
-            {t("agentPanel.configureProviderKeys", {
-              defaultValue: "Choose a cloud, gateway, or local provider",
-            })}
-          </span>
-        </DropdownMenuItem>
-      )}
-    </>
-  ) : null;
+            <span className="block font-medium text-foreground">
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+            </span>
+            <span className="block agent-kit-caption-copy text-muted-foreground">
+              {t("agentPanel.configureProviderKeys", {
+                defaultValue: "Choose a cloud, gateway, or local provider",
+              })}
+            </span>
+          </DropdownMenuItem>
+        )}
+      </>
+    ) : null;
 
   const agentItems = hasAgentSection ? (
     <>
@@ -2494,6 +2514,17 @@ function ModelSelector({
 
   const primaryItems = (
     <>
+      {awaitingModelList ? (
+        <div
+          role="status"
+          aria-busy="true"
+          className="agent-composer-model-loading flex flex-col gap-2 px-2 py-2"
+        >
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+        </div>
+      ) : null}
       {connectItems}
       {hasConfiguredProvider &&
         isCodexAgent &&
@@ -2716,10 +2747,12 @@ function ModelSelector({
       </DropdownMenuSub>
     );
 
-  const hasPrimaryItems = Boolean(connectItems) || shortcutRows.length > 0;
+  const hasPrimaryItems =
+    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
@@ -2762,9 +2795,17 @@ function ModelSelector({
                 {selectedAgentOption.icon}
               </span>
             ) : null}
-            {selectedAgentOption && selectedAgentOption.id !== "default"
-              ? selectedAgentLabel
-              : selectedModelButtonLabel}
+            {selectedAgentOption && selectedAgentOption.id !== "default" ? (
+              selectedAgentLabel
+            ) : awaitingModelList ? (
+              // The default model name is a guess until the list says what is connected.
+              <span
+                aria-hidden="true"
+                className="inline-block h-3.5 w-20 animate-pulse rounded bg-muted align-middle"
+              />
+            ) : (
+              selectedModelButtonLabel
+            )}
           </span>
           {showEffortInLabel && (
             <span className="agent-composer-model-effort shrink-0 text-muted-foreground">
@@ -3177,9 +3218,7 @@ function TiptapComposerSurface({
       filterMentionItemsForSlots(
         [
           // Host items arrive unfiltered; the default search filters itself.
-          ...hostMentionItems.filter((item) =>
-            mentionItemMatchesQuery(item, mentionQuery),
-          ),
+          ...mentionItemsForQuery(hostMentionItems, mentionQuery),
           ...mentionItems,
         ].filter(
           (item, index, items) =>
@@ -6829,6 +6868,7 @@ function TiptapComposerSurface({
       <MentionPopover
         ref={popoverRef}
         density={mentionPopoverDensity}
+        keepSectionOrder={!includeDefaultMentionSearch}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={inlineMentionItems}

@@ -86,7 +86,6 @@ import {
 import PromptPopover, {
   type PromptAttachmentActions,
   type PromptImportSelection,
-  type PromptChatAttachment,
   type PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
@@ -175,6 +174,7 @@ import {
   resolveRetryReferenceDeckSelection,
   withoutAutomaticReferenceDeck,
 } from "@/lib/new-deck-reference-selection";
+import type { PromptChatAttachment } from "@/lib/prompt-chat-attachments";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
@@ -685,7 +685,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
@@ -1452,18 +1455,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         });
       }
       settlePendingDeckAttachments("commit");
-      if (
-        !savePromptForRetry(
-          prompt,
-          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
-          {
-            context: additionalContext,
-            ...(modelSelection !== undefined ? { modelSelection } : {}),
-          },
-        )
-      ) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
+      savePromptForRetry(
+        prompt,
+        `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+        {
+          context: additionalContext,
+          ...(modelSelection !== undefined ? { modelSelection } : {}),
+        },
+      );
+      setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      setShowNewDeckPrompt(true);
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryRequiresExactPrompt(true);
@@ -1481,19 +1482,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       ) {
         void navigate("/home", {
           replace: true,
-          state: {
-            retryPrompt: prompt,
-            retryFiles: filesForGeneration,
-            retryReferenceSelection: referenceSelection,
-            retryContext: additionalContext || undefined,
-            retryAttachments: attachmentsForGeneration,
-            modelSelection,
-          } satisfies DeckGenerationRetryState,
+          // HomeLayout retains this component on deck routes; file bodies stay in React state.
+          state: null,
           flushSync: true,
         });
-      } else if (isHome) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-        setNewDeckPromptOpen(true, { clearInitialPrompt: false });
       }
     };
 
