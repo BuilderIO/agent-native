@@ -36,6 +36,8 @@ type ToolSearchResult = {
   score: number;
   callable: boolean;
   planAvailability: "read" | "conditional" | "act-only";
+  /** Present on a tool that deletes or cancels; absent on every other. */
+  destructive?: true;
   parameters: ToolParameterSummary[];
 };
 
@@ -73,7 +75,7 @@ export function createToolSearchEntry(
   return frameworkMcpTool({
     tool: {
       description:
-        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. When no listed name clearly fits, search for the task itself. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. When no listed name clearly fits, search for the task itself. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Search ranks by words, not intent, so a request not to delete still finds delete tools: before calling a result marked `destructive`, confirm the user asked for that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -314,8 +316,7 @@ function searchOnce(
       })),
     };
   }
-  const parsedQuery = parseQuery(query);
-  const queryTokens = parsedQuery.tokens;
+  const queryTokens = tokenize(query);
 
   const candidates: ToolSearchResult[] = [];
   const rankable: RankableTool[] = [];
@@ -367,6 +368,7 @@ function searchOnce(
       score: 0,
       callable,
       planAvailability,
+      ...(isDestructiveTool(name, entry) ? { destructive: true } : {}),
       parameters: parameters
         .slice(0, MAX_PARAMETER_COUNT)
         .map(boundParameterSummary),
@@ -379,9 +381,7 @@ function searchOnce(
     }
     rankable.push({
       candidate,
-      prior:
-        (isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1) *
-        negationPrior(name, entry, parsedQuery),
+      prior: isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1,
       fields: searchDocumentFields({
         name,
         source,
@@ -724,7 +724,7 @@ const SEARCH_FIELDS = Object.keys(FIELD_WEIGHTS) as SearchField[];
 type FieldTerms = { counts: Map<string, number>; length: number };
 type RankableTool = {
   candidate: ToolSearchResult;
-  /** Multiplies the text score; see the two priors below. */
+  /** Multiplies the text score; see `FRAMEWORK_TOOL_PRIOR`. */
   prior: number;
   fields: Record<SearchField, FieldTerms>;
 };
@@ -734,17 +734,15 @@ type RankableTool = {
 // email logs. A request made in an app is usually about that app's own work,
 // so on similar text the app's actions rank first. Exact names still win.
 const FRAMEWORK_TOOL_PRIOR = 0.8;
-// "Do not delete this email" must not rank delete tools as if it asked to
-// delete.
-const NEGATED_DESTRUCTIVE_PRIOR = 0.5;
 
 // Stemming would fold these nouns into an unrelated word ("news" into "new",
-// which then expands to the create synonyms; "settings" into "set"), so they
-// are indexed as themselves. Declared before the stemmed sets below, which call
-// `stem` as the module loads.
+// which then expands to the create synonyms; "setting" into "set"), so they
+// are indexed as themselves. Declared before the stemmed set below, which
+// calls `stem` as the module loads.
 const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
   ["news", "news"],
-  ["settings", "settings"],
+  ["setting", "setting"],
+  ["settings", "setting"],
   ["recording", "recording"],
   ["recordings", "recording"],
   ["mapping", "mapping"],
@@ -753,15 +751,6 @@ const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
   ["headings", "heading"],
 ]);
 
-const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never"]);
-const CLAUSE_WORDS: ReadonlySet<string> = new Set([
-  "and",
-  "but",
-  "or",
-  "then",
-  "instead",
-  "so",
-]);
 const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
   [
     "delete",
@@ -776,88 +765,17 @@ const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
   ].map(stem),
 );
 
-function leadingNameVerb(name: string): string | undefined {
-  return searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
-}
-
 /**
- * Halves a destructive tool's score when the request negates the verb it
- * performs: "delete this email, but don't trash that draft" demotes
- * `trash-email`, not `delete-email`. A declared `destructiveHint` decides what
- * is destructive; without annotations, a name that leads with a destructive
- * verb does, since most delete actions declare none. A destructive tool whose
- * name carries no destructive verb is demoted only when the request asks for
- * no destruction at all.
+ * Whether a result is marked `destructive`. Ranking ignores it: whether the
+ * user wants the change ("delete it" or "don't delete it") is the agent's call,
+ * so a search finds the tool either way and the mark tells the agent to check.
+ * A declared `destructiveHint` decides; without annotations, a name that leads
+ * with a destructive verb does, since most delete actions declare none.
  */
-function negationPrior(
-  name: string,
-  entry: ActionEntry,
-  query: ParsedQuery,
-): number {
-  if (query.negatedVerbs.size === 0) return 1;
-  const verb = leadingNameVerb(name);
-  const destructive = entry.mcpAnnotations
-    ? entry.mcpAnnotations.destructiveHint
-    : verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
-  if (!destructive) return 1;
-  if (verb !== undefined && query.negatedVerbs.has(verb)) {
-    return NEGATED_DESTRUCTIVE_PRIOR;
-  }
-  return query.requestsDestruction ? 1 : NEGATED_DESTRUCTIVE_PRIOR;
-}
-
-type ParsedQuery = {
-  tokens: string[];
-  /** Destructive verb stems the request negates. */
-  negatedVerbs: ReadonlySet<string>;
-  /** The request names a destructive verb without negating it. */
-  requestsDestruction: boolean;
-};
-
-/**
- * Query terms, minus each destructive verb the request negates. Negation words
- * are stop words for matching, so they are read here, before filtering; other
- * negated words ("emails with no subject") still search.
- */
-function parseQuery(query: string): ParsedQuery {
-  const words =
-    query
-      .replace(/\bcannot\b/giu, "can not")
-      .replace(/\bcan['’]t\b/giu, "can not")
-      .replace(/\bwon['’]t\b/giu, "will not")
-      .replace(/n['’]t\b/giu, " not")
-      .match(/[A-Za-z0-9]+|[.,;:!?]/gu) ?? [];
-  const tokens: string[] = [];
-  const negatedVerbs = new Set<string>();
-  let negating = false;
-  for (const word of words) {
-    // A negation reaches past modifiers ("don't really delete") to the first
-    // destructive verb, but never past punctuation ("No, delete it") or into
-    // the next clause ("don't archive it and delete the draft").
-    if (/^[.,;:!?]$/u.test(word) || CLAUSE_WORDS.has(word.toLowerCase())) {
-      negating = false;
-      continue;
-    }
-    if (NEGATIONS.has(word.toLowerCase())) {
-      negating = true;
-      continue;
-    }
-    const terms = searchTerms(word);
-    const negated = negating
-      ? terms.filter((term) => DESTRUCTIVE_VERBS.has(term))
-      : [];
-    if (negated.length > 0) negating = false;
-    for (const verb of negated) negatedVerbs.add(verb);
-    tokens.push(...terms.filter((term) => !negated.includes(term)));
-  }
-  const unique = [...new Set(tokens)];
-  return {
-    // "Don't delete it" still finds the delete tools, ranked down, so the
-    // agent never reads a negated request as a missing capability.
-    tokens: unique.length > 0 ? unique : [...negatedVerbs],
-    negatedVerbs,
-    requestsDestruction: unique.some((term) => DESTRUCTIVE_VERBS.has(term)),
-  };
+function isDestructiveTool(name: string, entry: ActionEntry): boolean {
+  if (entry.mcpAnnotations) return entry.mcpAnnotations.destructiveHint;
+  const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
+  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
 }
 
 function fieldTerms(value: string): FieldTerms {

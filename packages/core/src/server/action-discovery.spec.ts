@@ -96,6 +96,41 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "fails on malformed searchHints in the generated registry a bundle falls back to",
+    async () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-bundle-"),
+      );
+      tmpDirs.push(root);
+      fs.mkdirSync(path.join(root, "actions"));
+      fs.mkdirSync(path.join(root, ".generated"));
+      const writeRegistry = (searchHints: string) =>
+        fs.writeFileSync(
+          path.join(root, ".generated", `actions-registry.js`),
+          [
+            "export default {",
+            '  "manage-rules": { default: {',
+            '    tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+            `    searchHints: ${searchHints},`,
+            "    run: async () => ({}),",
+            "  } },",
+            "};",
+            "",
+          ].join("\n"),
+        );
+
+      writeRegistry('["inbox rule", 7]');
+      await expect(
+        autoDiscoverActions(path.join(root, "actions")),
+      ).rejects.toSatisfy(
+        (error) =>
+          isActionDefinitionError(error) && error.actionName === "manage-rules",
+      );
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "mutating-read": {

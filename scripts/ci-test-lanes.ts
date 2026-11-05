@@ -237,7 +237,8 @@ const CATALOG_CONTRACT_CORE_SPECS = [
 // The tool-search benchmark ranks requests against templates' action
 // registries, which it imports through a generated file `vitest --changed`
 // cannot see. Core changes reach it through the import graph; a template
-// action (its name, description, schema, or search hints) needs this.
+// action (its name, description, schema, or search hints) needs this, and so
+// does a `shared/` module, where actions keep schemas they share with the UI.
 const TOOL_SEARCH_BENCHMARK_CORE_SPEC =
   "src/agent/tool-search.benchmark.spec.ts";
 
@@ -247,7 +248,7 @@ export function toolSearchBenchmarkCoreSpecs(
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
-      /^templates\/[^/]+\/actions\/.+\.tsx?$/u.test(normalized) &&
+      /^templates\/[^/]+\/(?:actions|shared)\/.+\.tsx?$/u.test(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized)
     );

@@ -156,16 +156,18 @@ test("runs the catalog contract specs for any workspace source change", () => {
   );
 });
 
-test("runs the tool-search benchmark only for template action changes", () => {
+test("runs the tool-search benchmark only for template action and shared changes", () => {
   const spec = ["src/agent/tool-search.benchmark.spec.ts"];
   for (const changed of [
     "templates/mail/actions/manage-draft.ts",
     "templates/newapp/actions/nested/create-thing.ts",
+    "templates/mail/shared/automation-schema.ts",
   ]) {
     assert.deepEqual(toolSearchBenchmarkCoreSpecs([changed]), spec, changed);
   }
   for (const unrelated of [
     "templates/mail/actions/manage-draft.spec.ts",
+    "templates/mail/shared/automation-schema.spec.ts",
     "templates/mail/app/routes/inbox.tsx",
     "templates/mail/server/lib/automations.ts",
     "templates/mail/actions/README.md",

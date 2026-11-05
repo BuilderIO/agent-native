@@ -910,7 +910,7 @@ describe("tool-search ranking", () => {
   it("meets a doubled-consonant -ing form at its base verb, and keeps base double letters", () => {
     const registry = {
       "run-check": action("Run a check now."),
-      "set-theme": action("Set the theme."),
+      "stop-timer": action("Stop the timer."),
       "add-label": action("Add a label."),
       "fill-form": action("Fill a form."),
       "dress-slide": action("Dress a slide up."),
@@ -920,8 +920,8 @@ describe("tool-search ranking", () => {
 
     expect(rank("running")).toBe("run-check");
     expect(rank("run")).toBe("run-check");
-    expect(rank("setting")).toBe("set-theme");
-    expect(rank("set")).toBe("set-theme");
+    expect(rank("stopping")).toBe("stop-timer");
+    expect(rank("stopped")).toBe("stop-timer");
     for (const [base, name] of [
       ["add", "add-label"],
       ["fill", "fill-form"],
@@ -932,89 +932,50 @@ describe("tool-search ranking", () => {
     }
   });
 
-  it("demotes declared destructive tools when the request negates the verb", () => {
+  it("marks destructive results and still finds them for a negated request", () => {
     const annotations = (destructiveHint: boolean) => ({
       readOnlyHint: false,
       destructiveHint,
       openWorldHint: false,
     });
     const registry = {
-      "delete-email": {
-        ...action("Delete an email."),
-        mcpAnnotations: annotations(true),
-      },
-      "archive-email": {
-        ...action("Archive an email, out of the inbox."),
+      "delete-email": action("Delete an email."),
+      // A declared hint wins over the name in both directions.
+      "remove-label": {
+        ...action("Remove a label from an email."),
         mcpAnnotations: annotations(false),
       },
+      "manage-email-rules": {
+        ...action("Create, update, or delete email rules."),
+        mcpAnnotations: annotations(true),
+      },
+      "archive-email": action("Archive an email."),
     };
-    const names = (query: string) =>
-      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+    const results = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => ({
+        name: r.name,
+        destructive: r.destructive,
+      }));
 
-    expect(names("delete this email")[0]).toBe("delete-email");
-    expect(names("do not delete this email")).toEqual([
-      "archive-email",
-      "delete-email",
-    ]);
-    expect(names("don't delete this email")).toEqual([
-      "archive-email",
-      "delete-email",
-    ]);
-    // Negating something else leaves the word searchable, and a negation
-    // never reaches past punctuation.
-    expect(names("delete the email, not the inbox")[0]).toBe("delete-email");
-    expect(names("No, delete that email")[0]).toBe("delete-email");
-    expect(names("I cannot delete this email")).toEqual([
-      "archive-email",
-      "delete-email",
-    ]);
-    // The negation reaches past a modifier, but not into the next clause.
-    expect(names("don't really delete this email")).toEqual([
-      "archive-email",
-      "delete-email",
-    ]);
-    expect(names("don't archive it and delete the email")[0]).toBe(
-      "delete-email",
+    expect(results("delete email")).toEqual(
+      expect.arrayContaining([
+        { name: "delete-email", destructive: true },
+        { name: "manage-email-rules", destructive: true },
+        { name: "archive-email", destructive: undefined },
+      ]),
     );
-    // A request that is only a negated verb still finds the tool.
-    expect(names("don't delete it")).toEqual(["delete-email"]);
+    expect(results("remove label")[0]).toEqual({
+      name: "remove-label",
+      destructive: undefined,
+    });
+    // Ranking reads words, not intent: the agent decides from the mark.
+    expect(results("don't delete this email")[0]).toEqual({
+      name: "delete-email",
+      destructive: true,
+    });
   });
 
-  it("demotes only the tools for the verb the request negates", () => {
-    const registry = {
-      "delete-email": action("Delete an email."),
-      "trash-draft": action("Trash a draft."),
-      // Outranks a halved delete-email, so it shows whether delete was demoted.
-      "star-email": action("Star an email or a draft."),
-      "cancel-meeting": action("Cancel a meeting."),
-      "move-meeting": action("Move a meeting to a new time."),
-    };
-    const names = (query: string) =>
-      searchToolRegistry(registry, { query }).results.map((r) => r.name);
-
-    expect(names("delete this email, but don't trash that draft")[0]).toBe(
-      "delete-email",
-    );
-    expect(names("don't cancel my meeting, move it")[0]).toBe("move-meeting");
-    expect(names("cancel my meeting")[0]).toBe("cancel-meeting");
-  });
-
-  it("treats an unannotated tool named for a destructive verb as destructive", () => {
-    const registry = {
-      "trash-email": action("Trash an email."),
-      "star-email": action("Star an email, trash-free."),
-    };
-    const names = (query: string) =>
-      searchToolRegistry(registry, { query }).results.map((r) => r.name);
-
-    expect(names("trash this email")[0]).toBe("trash-email");
-    expect(names("never trash this email")).toEqual([
-      "star-email",
-      "trash-email",
-    ]);
-  });
-
-  it("keeps 'settings' apart from the verb 'set'", () => {
+  it("keeps 'setting' and 'settings' apart from the verb 'set'", () => {
     const registry = {
       "set-theme": action("Set the theme."),
       "get-mail-settings": action("Read mail settings."),
@@ -1023,6 +984,7 @@ describe("tool-search ranking", () => {
       searchToolRegistry(registry, { query }).results.map((r) => r.name);
 
     expect(rank("settings")).toEqual(["get-mail-settings"]);
+    expect(rank("mail setting")).toEqual(["get-mail-settings"]);
     expect(rank("set")).toEqual(["set-theme"]);
   });
 

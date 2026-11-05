@@ -307,7 +307,10 @@ export async function autoDiscoverActions(
             `Consider switching to loadActionsFromStaticRegistry(actionsRegistry) for production reliability.`,
         );
       }
-    } catch {
+    } catch (error) {
+      // An action in the registry that defines itself wrongly is not "no
+      // registry": the app would boot with no template tools at all.
+      if (isActionDefinitionError(error)) throw error;
       // No generated registry available — registry stays empty.
     }
   }
