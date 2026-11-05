@@ -49,8 +49,7 @@ describe("SnapshotShareLinks", () => {
     ];
     render(<SnapshotShareLinks deckId="deck-1" />);
 
-    const [, second] = screen.getAllByRole("button");
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- this tsconfig leaves index reads unchecked, but guard:compiler-strictness requires narrowing them
+    const second = screen.getAllByRole("button").at(1);
     if (!second) throw new Error("expected two revoke buttons");
     fireEvent.click(second);
 
