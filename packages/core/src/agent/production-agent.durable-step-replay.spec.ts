@@ -146,6 +146,350 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("recovers the last settled batch after an earlier read without repeating work", async () => {
+    const read = vi.fn(async () => ({ title: "Draft" }));
+    const write = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return { id: "deck-1" };
+    });
+    const actions = {
+      "read-deck": {
+        tool: {
+          description: "Read",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: read,
+      },
+      "create-deck": {
+        tool: {
+          description: "Create",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: false,
+        run: write,
+      },
+    };
+    const prompt: EngineMessage = {
+      role: "user",
+      content: [{ type: "text", text: "Create a deck" }],
+    };
+    const persisted: AgentChatEvent[] = [];
+    await expect(
+      withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor(
+            [
+              [{ type: "tool-call", id: "read", name: "read-deck", input: {} }],
+              [toolCall("write")],
+            ],
+            [],
+          ),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [structuredClone(prompt)],
+          actions,
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          signal: new AbortController().signal,
+          send: (event) => {
+            if (
+              event.type === "model_stream" &&
+              event.status === "start" &&
+              persisted.some(
+                (prior) =>
+                  prior.type === "tool_done" && prior.tool === "create-deck",
+              )
+            )
+              throw new Error("interrupted after write");
+            persisted.push(event);
+          },
+        }),
+      ),
+    ).rejects.toThrow("interrupted after write");
+    durableStep.priorEvents = persisted;
+    const { loadPriorTurnToolCallJournal } =
+      await import("./engine/tool-call-journal-seed.js");
+    const journal = await loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+      { recoverCompletedExecutionSteps: true },
+    );
+    if (journal.status !== "read") throw new Error(journal.error);
+    const { buildTurnResumeContext } = await import("./turn-resume-context.js");
+    const context = buildTurnResumeContext({
+      messages: [structuredClone(prompt)],
+      journal: journal.toolCallJournal,
+      events: journal.events,
+      steeredUserContent: (message) => [{ type: "text", text: message.text }],
+    });
+    expect(
+      context.messages
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === "tool-call"),
+    ).toHaveLength(2);
+    appendAgentLoopContinuation(
+      context.messages,
+      "network_interrupted",
+      context.journalNote ? { journalNote: context.journalNote } : {},
+    );
+    const seen: string[] = [];
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Continued.")]], seen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: context.messages,
+        actions,
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveLength(1);
+    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+  });
+  it("does not settle a recovered batch when a sibling never started", async () => {
+    const write = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return { id: "deck-1" };
+    });
+    const other = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return { id: "deck-2" };
+    });
+    const actions = {
+      "create-deck": {
+        tool: {
+          description: "Create",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: false,
+        run: write,
+      },
+      "other-write": {
+        tool: {
+          description: "Create another",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: false,
+        run: other,
+      },
+    };
+    const prompt: EngineMessage = {
+      role: "user",
+      content: [{ type: "text", text: "Create both decks" }],
+    };
+    const persisted: AgentChatEvent[] = [];
+    await expect(
+      withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor(
+            [
+              [
+                toolCall("write"),
+                {
+                  type: "tool-call",
+                  id: "other",
+                  name: "other-write",
+                  input: {},
+                },
+              ],
+            ],
+            [],
+          ),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [structuredClone(prompt)],
+          actions,
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          signal: new AbortController().signal,
+          send: (event) => {
+            if (event.type === "tool_done")
+              throw new Error("interrupted mid-batch");
+            persisted.push(event);
+          },
+        }),
+      ),
+    ).rejects.toThrow("interrupted mid-batch");
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
+    durableStep.priorEvents = persisted;
+    const { loadPriorTurnToolCallJournal } =
+      await import("./engine/tool-call-journal-seed.js");
+    const journal = await loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+      { recoverCompletedExecutionSteps: true },
+    );
+    if (journal.status !== "read") throw new Error(journal.error);
+    const { buildTurnResumeContext } = await import("./turn-resume-context.js");
+    const context = buildTurnResumeContext({
+      messages: [structuredClone(prompt)],
+      journal: journal.toolCallJournal,
+      events: journal.events,
+      steeredUserContent: (message) => [{ type: "text", text: message.text }],
+    });
+    appendAgentLoopContinuation(
+      context.messages,
+      "network_interrupted",
+      context.journalNote ? { journalNote: context.journalNote } : {},
+    );
+    const seen: string[] = [];
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Still need the second deck.")]], seen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: context.messages,
+        actions,
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(seen).toHaveLength(2);
+    expect(events).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Still need the second deck.",
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("does not settle when a completed sibling in the last batch did not opt in", async () => {
+    const write = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return { id: "deck-1" };
+    });
+    const other = vi.fn(async () => ({ id: "deck-2" }));
+    const actions = {
+      "create-deck": {
+        tool: {
+          description: "Create",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: false,
+        run: write,
+      },
+      "other-write": {
+        tool: {
+          description: "Create another",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: false,
+        run: other,
+      },
+    };
+    const prompt: EngineMessage = {
+      role: "user",
+      content: [{ type: "text", text: "Create both decks" }],
+    };
+    const persisted: AgentChatEvent[] = [];
+    await expect(
+      withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor(
+            [
+              [
+                toolCall("write"),
+                {
+                  type: "tool-call",
+                  id: "other",
+                  name: "other-write",
+                  input: {},
+                },
+              ],
+            ],
+            [],
+          ),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [structuredClone(prompt)],
+          actions,
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          signal: new AbortController().signal,
+          send: (event) => {
+            if (
+              event.type === "model_stream" &&
+              event.status === "start" &&
+              persisted.some(
+                (prior) =>
+                  prior.type === "tool_done" && prior.tool === "other-write",
+              )
+            )
+              throw new Error("interrupted after batch");
+            persisted.push(event);
+          },
+        }),
+      ),
+    ).rejects.toThrow("interrupted after batch");
+    durableStep.priorEvents = persisted;
+    const { loadPriorTurnToolCallJournal } =
+      await import("./engine/tool-call-journal-seed.js");
+    const journal = await loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+      { recoverCompletedExecutionSteps: true },
+    );
+    if (journal.status !== "read") throw new Error(journal.error);
+    const { buildTurnResumeContext } = await import("./turn-resume-context.js");
+    const context = buildTurnResumeContext({
+      messages: [structuredClone(prompt)],
+      journal: journal.toolCallJournal,
+      events: journal.events,
+      steeredUserContent: (message) => [{ type: "text", text: message.text }],
+    });
+    appendAgentLoopContinuation(
+      context.messages,
+      "network_interrupted",
+      context.journalNote ? { journalNote: context.journalNote } : {},
+    );
+    const seen: string[] = [];
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Continued.")]], seen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: context.messages,
+        actions,
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(seen).toHaveLength(2);
+    expect(events).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(other).toHaveBeenCalledTimes(1);
+  });
+
   it("replays a successfully settled write without running it again", async () => {
     const actionRun = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
       ctx?.settle?.();
@@ -230,7 +574,10 @@ describe("durable execution step replay", () => {
       }),
     );
     durableStep.priorEvents = firstEvents.filter(
-      (event) => event.type === "tool_start",
+      (event) =>
+        event.type === "tool_start" ||
+        (event.type === "rich_event" &&
+          event.event.namespace === "agent-native.tool-batch"),
     );
     const { loadPriorTurnToolCallJournal } =
       await import("./engine/tool-call-journal-seed.js");

@@ -8141,28 +8141,97 @@ export async function runAgentLoop(opts: {
       previousMessage?.role === "assistant"
         ? previousMessage.content.filter((part) => part.type === "tool-call")
         : [];
+    const events = journalRead.status === "read" ? journalRead.events : [];
+    const batchIndex = events
+      .map(
+        (event) =>
+          event.type === "rich_event" &&
+          event.event.namespace === "agent-native.tool-batch" &&
+          event.event.name === "declared" &&
+          event.event.version === 1,
+      )
+      .lastIndexOf(true);
+    const batchEvent = events[batchIndex];
+    const batchData =
+      batchEvent?.type === "rich_event" ? batchEvent.event.data : undefined;
+    const batchCalls =
+      isRecord(batchData) && Array.isArray(batchData.calls)
+        ? batchData.calls
+        : [];
+    const afterBatch = events.slice(batchIndex + 1);
+    const starts = afterBatch.filter((event) => event.type === "tool_start");
+    const dones = afterBatch.filter((event) => event.type === "tool_done");
     if (
+      batchIndex >= 0 &&
+      batchCalls.length > 0 &&
+      batchCalls.every(
+        (call) =>
+          isRecord(call) &&
+          typeof call.id === "string" &&
+          call.id.length > 0 &&
+          typeof call.name === "string" &&
+          call.name.length > 0,
+      ) &&
+      new Set(batchCalls.map((call) => call.id)).size === batchCalls.length &&
+      starts.length === batchCalls.length &&
+      dones.length === batchCalls.length &&
+      !afterBatch.some(
+        (event) =>
+          event.type === "user_message" ||
+          event.type === "tool_input_start" ||
+          event.type === "tool_input_delta" ||
+          (event.type === "model_stream" &&
+            event.status === "end" &&
+            event.reason !== "end_turn"),
+      ) &&
       lastMessage?.role === "user" &&
       lastMessage.content.length > 0 &&
-      calls.length === lastMessage.content.length &&
-      lastMessage.content.every((part) => {
+      lastMessage.content.every(
+        (part) =>
+          part.type === "tool-result" &&
+          !part.isError &&
+          part.outcome !== "unknown" &&
+          !part.approvalPause,
+      ) &&
+      batchCalls.every((call) => {
         if (
-          part.type !== "tool-result" ||
-          part.isError ||
-          part.outcome === "unknown" ||
-          part.approvalPause ||
-          !part.executionStepId
+          !isRecord(call) ||
+          typeof call.id !== "string" ||
+          typeof call.name !== "string"
         )
           return false;
-        const pair = pairs.find((match) => match.result === part);
+        const matchingStarts = starts.filter(
+          (start) => start.id === call.id && start.tool === call.name,
+        );
+        if (matchingStarts.length !== 1 || !matchingStarts[0]?.executionStepId)
+          return false;
+        const stepId = matchingStarts[0].executionStepId;
+        const matchingDones = dones.filter(
+          (done) =>
+            done.executionStepId === stepId &&
+            done.tool === call.name &&
+            done.id === call.id,
+        );
+        const matchingPairs = pairs.filter(
+          (pair) =>
+            calls.includes(pair.call) &&
+            lastMessage.content.includes(pair.result) &&
+            pair.call.executionStepId === stepId &&
+            pair.result.executionStepId === stepId &&
+            pair.call.name === call.name &&
+            pair.result.toolName === call.name,
+        );
         const entries = toolCallJournal.completed.filter(
           (entry) =>
-            entry.executionStepId === part.executionStepId &&
-            entry.tool === part.toolName,
+            entry.executionStepId === stepId && entry.tool === call.name,
         );
         return (
-          pair !== undefined &&
-          calls.includes(pair.call) &&
+          matchingDones.length === 1 &&
+          matchingDones[0]?.actionSettled === true &&
+          matchingDones[0].settledOnCleanToolStop === true &&
+          !matchingDones[0].isError &&
+          matchingDones[0].outcomeUnknown !== true &&
+          matchingPairs.length === 1 &&
           entries.length === 1 &&
           entries[0]?.actionSettled === true &&
           entries[0].settledOnCleanToolStop === true &&
@@ -9471,6 +9540,25 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     settlementCandidate = false;
+    const batchCallIds = toolCallParts.map((call) => call.id);
+    if (
+      currentExecutionFence() &&
+      toolCallHasCleanStop &&
+      followUpResults.length === 0 &&
+      !send.isPrivateTurn() &&
+      batchCallIds.every(Boolean) &&
+      new Set(batchCallIds).size === batchCallIds.length
+    ) {
+      await send({
+        type: "rich_event",
+        event: {
+          namespace: "agent-native.tool-batch",
+          name: "declared",
+          version: 1,
+          data: { calls: toolCallParts.map(({ id, name }) => ({ id, name })) },
+        },
+      });
+    }
     const settledToolCalls = new Set<
       import("./engine/types.js").EngineToolCallPart
     >();
