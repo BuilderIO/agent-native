@@ -62,7 +62,6 @@ import {
   markSlideEditingActive,
   mergeServerAddedSlides,
   mergeServerSlideUpdate,
-  onDeckSaveFailed,
   pendingWriteSlideIds,
   useDeckContentConflicts,
   useDecks,
@@ -2174,7 +2173,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
-  it("notifies once when a slide delete ends in a terminal revision conflict", async () => {
+  it("reports a slide delete that ends in a terminal revision conflict", async () => {
     const deckId = "terminal-delete-revision-conflict-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     const { setAccessibleDeck } = setupFetch({
@@ -2197,23 +2196,109 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
-    const onFailed = vi.fn();
+    const onSaveFailed = vi.fn();
     vi.useFakeTimers();
     act(() => {
-      result.current.deleteSlides(deckId, ["slide-1"]);
+      result.current.deleteSlides(deckId, ["slide-1"], onSaveFailed);
     });
-    onDeckSaveFailed(deckId, onFailed);
-    expect(onFailed).not.toHaveBeenCalled();
+    expect(onSaveFailed).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
 
-    expect(hasFailedDeckSave(deckId)).toBe(true);
     expect(getDeckSaveError(deckId)).toMatchObject({
       errorCode: "deck_revision_conflict",
     });
-    expect(onFailed).toHaveBeenCalledTimes(1);
+    expect(onSaveFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a saved slide delete for another slide's field conflict", async () => {
+    const deckId = "delete-beside-field-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const fetchOptions: NonNullable<Parameters<typeof setupFetch>[0]> = {
+      slideFieldConflicts: {
+        deckId,
+        count: 1,
+        slideId: "slide-1",
+        field: "notes",
+        remoteValue: "Peer notes",
+      },
+      serverFaithfulClientWrites: true,
+    };
+    const { setAccessibleDeck, getAccessibleDeck, getPatchAttempts } =
+      setupFetch(fetchOptions);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: deckId,
+      title: "Delete beside field conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "Old notes", layout: "title" },
+        { id: "slide-2", content: "Two", notes: "", layout: "content" },
+        { id: "slide-3", content: "Three", notes: "", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "Local notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() =>
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        errorCode: "slide_field_conflict",
+      }),
+    );
+
+    const onSaveFailed = vi.fn();
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlides(deckId, ["slide-2"], onSaveFailed);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(getAccessibleDeck()?.slides.map((slide) => slide.id)).toEqual([
+      "slide-1",
+      "slide-3",
+    ]);
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+
+    fetchOptions.slideFieldConflicts = {
+      deckId,
+      count: getPatchAttempts(deckId) + 1,
+      slideId: "slide-3",
+      field: "notes",
+      remoteValue: "Peer notes",
+    };
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-3",
+        { notes: "Local notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(getAccessibleDeck()?.slides[1]).toMatchObject({
+      id: "slide-3",
+      notes: "Peer notes",
+    });
+    expect(onSaveFailed).not.toHaveBeenCalled();
   });
 
   it("retries a mixed content and metadata patch across an unrelated revision conflict", async () => {

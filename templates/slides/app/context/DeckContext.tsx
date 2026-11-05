@@ -605,8 +605,15 @@ interface DeckContextType {
     }[],
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
-  /** Returns the history step's token, for an Undo bound to this delete. */
-  deleteSlides: (deckId: string, slideIds: string[]) => string | null;
+  /**
+   * Returns the history step's token, for an Undo bound to this delete.
+   * `onSaveFailed` runs if the save batch carrying this delete fails.
+   */
+  deleteSlides: (
+    deckId: string,
+    slideIds: string[],
+    onSaveFailed?: () => void,
+  ) => string | null;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   pasteSlide: (
     deckId: string,
@@ -924,11 +931,23 @@ export class DeckSaveError extends Error {
   }
 }
 
+// Keyed by op identity so a caller hears only about the batch that carried its
+// own op; deck-wide failure state also covers held conflicts on other slides.
+const opSaveFailureHandlers = new WeakMap<GranularOp, () => void>();
+
 function markDeckSaveFailed(
   deckId: string,
   cause?: unknown,
   message?: string,
 ): void {
+  const failedOpHandlers = new Set<() => void>();
+  for (const op of inFlightOpSlides.get(deckId) ?? []) {
+    const handler = opSaveFailureHandlers.get(op);
+    if (!handler) continue;
+    opSaveFailureHandlers.delete(op);
+    failedOpHandlers.add(handler);
+  }
+  for (const handler of failedOpHandlers) handler();
   const createFailure = deckUnavailableErrors.get(deckId);
   if (createFailure && hasFailedDeckCreate(deckId)) {
     // Every write to a deck that never got created answers 404; that is the
@@ -1705,19 +1724,6 @@ export function hasFailedDeckSave(deckId: string): boolean {
     staleFullReplaceDrafts.has(deckId) ||
     deckUnavailableErrors.has(deckId)
   );
-}
-
-/** Calls `listener` once, the first time this deck reaches a failed save state. */
-export function onDeckSaveFailed(
-  deckId: string,
-  listener: () => void,
-): () => void {
-  const unsubscribe = subscribeSaveState(() => {
-    if (!hasFailedDeckSave(deckId)) return;
-    unsubscribe();
-    listener();
-  });
-  return unsubscribe;
 }
 
 export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
@@ -8340,7 +8346,7 @@ export function DeckProvider({
   );
 
   const deleteSlides = useCallback(
-    (deckId: string, slideIds: string[]) => {
+    (deckId: string, slideIds: string[], onSaveFailed?: () => void) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before) return null;
       const ids = new Set(slideIds);
@@ -8397,7 +8403,12 @@ export function DeckProvider({
         };
       };
       setDecksLocal((prev) => prev.map(removeSlides));
-      for (const op of ops) enqueueDeckOp(deckId, op);
+      for (const op of ops) {
+        const queued = enqueueDeckOp(deckId, op);
+        if (queued && onSaveFailed) {
+          opSaveFailureHandlers.set(queued, onSaveFailed);
+        }
+      }
       if (placeholder) {
         undoControllerForDeck(deckId).push({
           undo: [

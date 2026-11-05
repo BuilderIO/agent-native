@@ -134,7 +134,6 @@ import {
   flushPendingSaves,
   hasUnsavedDeckChanges,
   markSlideEditingActive,
-  onDeckSaveFailed,
   type Deck,
   type Slide,
   useDecks,
@@ -4214,16 +4213,13 @@ export default function DeckEditor() {
 
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
-      const historyToken = deleteSlides(deckId, slideIds);
-      if (!historyToken) return;
       // A refused delete is restored by the deck resync and reported by the save
       // banner, so "Slide deleted" with Undo would contradict both.
-      const stopWatchingSave = onDeckSaveFailed(deckId, () =>
+      const historyToken = deleteSlides(deckId, slideIds, () =>
         toast.dismiss(toastId),
       );
+      if (!historyToken) return;
       const toastId = toast(t("editorSidebar.slideDeleted"), {
-        onDismiss: stopWatchingSave,
-        onAutoClose: stopWatchingSave,
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         closeButton: true,
