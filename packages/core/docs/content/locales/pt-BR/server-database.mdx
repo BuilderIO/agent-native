@@ -258,10 +258,11 @@ Desde a versão 0.177.0, o SQL das migrações precisa ser válido para PostgreS
 Essa é uma mudança incompatível para migrações antigas no estilo SQLite.
 `runMigrations()` envia as instruções SQL como foram escritas, sem reescrevê-las.
 Revise os tipos e as expressões pretendidos em cada migração em vez de fazer
-substituições generalizadas. Use `BIGINT` para milissegundos desde a época Unix,
-mas mantenha `INTEGER` para valores comuns como prioridades. Em uma coluna de
-data e hora, use `CURRENT_TIMESTAMP` em vez de `datetime('now')` e a sintaxe de
-identidade do PostgreSQL em vez de `AUTOINCREMENT`:
+substituições generalizadas. Para novos esquemas, use `BIGINT` para milissegundos
+desde a época Unix e `INTEGER` para valores comuns como prioridades. Em uma
+coluna de data e hora, use `CURRENT_TIMESTAMP` em vez de `datetime('now')` e a
+sintaxe de identidade do PostgreSQL em vez de `AUTOINCREMENT`. Este exemplo é
+para um novo esquema, não substitui um esquema existente:
 
 ```sql
 CREATE TABLE task_events (
@@ -272,13 +273,22 @@ CREATE TABLE task_events (
 );
 ```
 
-Migrações antigas já registradas não serão executadas novamente. Inspecione o
-esquema real de cada banco existente antes de planejar a atualização. Em um
-banco novo, uma migração antiga inválida pode falhar antes que uma correção
-adicionada depois seja executada. Não edite silenciosamente o histórico de
-migrações. Para aplicativos antigos, planeje e revise uma linha de base ou uma
-estratégia de atualização específica da implantação que considere bancos
-existentes e novos.
+Entradas antigas aplicadas são ignoradas quando seus identificadores originais
+de nome ou versão permanecem inalterados. Adicionar um `name` a uma versão antiga
+sem nome pode fazer com que ela seja executada novamente. Preserve a cadeia
+original de migrações e seus identificadores para bancos existentes e não edite
+silenciosamente o histórico de migrações.
+
+Inspecione o esquema real e os tipos de coluna de cada banco existente antes de
+planejar a atualização. O adaptador antigo podia ampliar até colunas `INTEGER`
+comuns para `BIGINT`, portanto não presuma que correspondam ao exemplo para novos
+esquemas. Em um banco novo, uma migração antiga inválida pode falhar antes que
+uma correção adicionada depois seja executada. Como parte de uma estratégia
+específica da implantação, cuidadosamente planejada e revisada, crie e teste uma
+linha de base PostgreSQL para bancos novos que reproduza o esquema e os tipos
+existentes inspecionados. Garanta que o registro de migrações da linha de base
+represente corretamente as migrações que ela substitui antes de executar as mais
+recentes. O runner não seleciona uma linha de base automaticamente.
 
 <Callout tone="warning">
   O template Chat fornece `pnpm migrate:production` para executar migrações como

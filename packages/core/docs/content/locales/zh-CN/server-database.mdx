@@ -253,9 +253,10 @@ export const getDb = createGetDb(schema);
 
 从 0.177.0 开始，迁移 SQL 必须符合 PostgreSQL 语法。这是对旧版 SQLite 风格迁移的
 破坏性变更。`runMigrations()` 按原样发送 SQL 语句，不会改写。请逐条检查迁移中预期的
-类型和表达式，不要一概替换。Unix 纪元毫秒值使用 `BIGINT`，优先级等普通值仍使用
-`INTEGER`。时间戳列使用 `CURRENT_TIMESTAMP` 而不是 `datetime('now')`，并使用
-PostgreSQL 的 identity 语法而不是 `AUTOINCREMENT`：
+类型和表达式，不要一概替换。对于新 schema，Unix 纪元毫秒值使用 `BIGINT`，优先级等
+普通值使用 `INTEGER`。时间戳列使用 `CURRENT_TIMESTAMP` 而不是 `datetime('now')`，
+并使用 PostgreSQL 的 identity 语法而不是 `AUTOINCREMENT`。此示例适用于新 schema，
+不能替代现有 schema：
 
 ```sql
 CREATE TABLE task_events (
@@ -266,9 +267,14 @@ CREATE TABLE task_events (
 );
 ```
 
-已记录的旧迁移不会重新执行。规划升级之前，请检查每个现有数据库的实际 schema。在新数据库
-中，旧的无效迁移可能在后来追加的修复执行之前失败。不要悄悄修改迁移历史。对于旧应用，请
-规划并审查一个基线或针对部署环境的升级策略，同时考虑现有数据库和新数据库。
+已应用的旧条目在原有名称或版本标识符不变时会被跳过。为旧的未命名版本添加 `name`
+可能导致它再次运行。对于现有数据库，请保留原始迁移链及其标识符，不要悄悄修改迁移历史。
+
+规划升级之前，请检查每个现有数据库的实际 schema 和列类型。旧适配器甚至可能将普通
+`INTEGER` 列扩展为 `BIGINT`，因此不要假设新 schema 示例与之相同。在新数据库中，旧的
+无效迁移可能在后来追加的修复执行之前失败。作为精心规划并审查的部署专用策略的一部分，
+请构建并测试适用于新数据库的 PostgreSQL 基线，使其重现检查过的现有 schema 和类型。
+运行较新的迁移之前，确保基线的迁移记录正确反映其替代的迁移。运行器不会自动选择基线。
 
 <Callout tone="warning">
   Chat 模板提供 `pnpm migrate:production`，用于在发布步骤中运行迁移。

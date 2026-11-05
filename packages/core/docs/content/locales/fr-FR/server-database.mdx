@@ -261,10 +261,11 @@ PostgreSQL. Ce changement est incompatible avec les anciennes migrations de styl
 SQLite. `runMigrations()` transmet les instructions SQL telles qu'elles sont
 écrites, sans les réécrire. Vérifiez les types et les expressions prévus dans
 chaque migration plutôt que d'appliquer des remplacements systématiques.
-Utilisez `BIGINT` pour les millisecondes depuis l'époque Unix, mais conservez
-`INTEGER` pour les valeurs ordinaires comme les priorités. Pour une colonne
-horodatée, utilisez `CURRENT_TIMESTAMP` au lieu de `datetime('now')` et la
-syntaxe d'identité PostgreSQL au lieu de `AUTOINCREMENT` :
+Pour les nouveaux schémas, utilisez `BIGINT` pour les millisecondes depuis
+l'époque Unix et `INTEGER` pour les valeurs ordinaires comme les priorités. Pour
+une colonne horodatée, utilisez `CURRENT_TIMESTAMP` au lieu de `datetime('now')`
+et la syntaxe d'identité PostgreSQL au lieu de `AUTOINCREMENT`. Cet exemple
+concerne un nouveau schéma et ne remplace pas un schéma existant :
 
 ```sql
 CREATE TABLE task_events (
@@ -275,13 +276,23 @@ CREATE TABLE task_events (
 );
 ```
 
-Les anciennes migrations déjà enregistrées ne seront pas réexécutées. Inspectez
-le schéma réel de chaque base existante avant de planifier la mise à niveau.
-Dans une nouvelle base, une ancienne migration invalide peut échouer avant
-l'exécution d'une correction ajoutée ensuite. Ne modifiez pas silencieusement
-l'historique des migrations. Pour les applications existantes, planifiez et
-examinez une base de référence ou une stratégie de mise à niveau propre au
-déploiement qui tient compte des bases existantes et nouvelles.
+Les anciennes entrées appliquées sont ignorées si leurs identifiants de nom ou
+de version d'origine restent inchangés. Ajouter un `name` à une ancienne version
+sans nom peut provoquer sa réexécution. Conservez la chaîne de migrations
+originale et ses identifiants pour les bases existantes et ne modifiez pas
+silencieusement l'historique des migrations.
+
+Inspectez le schéma réel et les types de colonnes de chaque base existante avant
+de planifier la mise à niveau. L'ancien adaptateur pouvait élargir même les
+colonnes `INTEGER` ordinaires en `BIGINT`. Ne supposez donc pas que l'exemple
+pour les nouveaux schémas leur correspond. Dans une nouvelle base, une ancienne
+migration invalide peut échouer avant l'exécution d'une correction ajoutée ensuite.
+Dans le cadre d'une stratégie propre au déploiement, soigneusement planifiée et
+examinée, construisez et testez une base de référence PostgreSQL pour les
+nouvelles bases qui reproduit le schéma et les types existants inspectés.
+Assurez-vous que son suivi des migrations représente correctement les migrations
+remplacées avant l'exécution des migrations plus récentes. Le runner ne choisit
+pas automatiquement une base de référence.
 
 <Callout tone="warning">
   Le template Chat fournit `pnpm migrate:production` pour exécuter les

@@ -259,10 +259,10 @@ Seit Version 0.177.0 muss Migrations-SQL für PostgreSQL gültig sein. Dies ist
 für ältere Migrationen im SQLite-Stil eine inkompatible Änderung.
 `runMigrations()` sendet SQL-Anweisungen unverändert. Prüfen Sie die vorgesehenen
 Typen und Ausdrücke jeder Migration statt pauschaler Ersetzungen. Verwenden Sie
-`BIGINT` für Epoch-Millisekunden und behalten Sie für gewöhnliche Werte wie
-Prioritäten `INTEGER` bei. Verwenden Sie für Zeitstempelspalten
-`CURRENT_TIMESTAMP` statt `datetime('now')` und PostgreSQL-Identitätssyntax statt
-`AUTOINCREMENT`:
+für neue Schemata `BIGINT` für Epoch-Millisekunden und `INTEGER` für gewöhnliche
+Werte wie Prioritäten. Verwenden Sie für Zeitstempelspalten `CURRENT_TIMESTAMP`
+statt `datetime('now')` und PostgreSQL-Identitätssyntax statt `AUTOINCREMENT`.
+Dieses Beispiel gilt für ein neues Schema und ersetzt kein bestehendes:
 
 ```sql
 CREATE TABLE task_events (
@@ -273,13 +273,23 @@ CREATE TABLE task_events (
 );
 ```
 
-Bereits protokollierte alte Migrationen werden nicht erneut ausgeführt. Prüfen
-Sie vor der Upgradeplanung das tatsächliche Schema jeder bestehenden Datenbank.
-In einer neuen Datenbank kann eine alte ungültige Migration fehlschlagen, bevor
-eine später angehängte Reparatur ausgeführt wird. Bearbeiten Sie die
-Migrationshistorie nicht stillschweigend. Planen und prüfen Sie für ältere
-Anwendungen eine Baseline oder eine deployment-spezifische Upgrade-Strategie,
-die bestehende und neue Datenbanken berücksichtigt.
+Angewendete alte Einträge werden übersprungen, wenn ihre bisherigen Namens- oder
+Versionskennungen unverändert bleiben. Wird einer alten unbenannten Version ein
+`name` hinzugefügt, kann sie erneut ausgeführt werden. Bewahren Sie die
+ursprüngliche Migrationskette und ihre Kennungen für bestehende Datenbanken und
+bearbeiten Sie die Migrationshistorie nicht stillschweigend.
+
+Prüfen Sie vor der Upgradeplanung das tatsächliche Schema und die Spaltentypen
+jeder bestehenden Datenbank. Der alte Adapter konnte auch gewöhnliche
+`INTEGER`-Spalten zu `BIGINT` erweitern. Gehen Sie daher nicht davon aus, dass
+das Beispiel für neue Schemata diesen entspricht. In einer neuen Datenbank kann
+eine alte ungültige Migration fehlschlagen, bevor eine später angehängte
+Reparatur ausgeführt wird. Erstellen und testen Sie im Rahmen einer sorgfältig
+geplanten und geprüften deployment-spezifischen Strategie eine PostgreSQL-Baseline
+für neue Datenbanken, die das geprüfte bestehende Schema und seine Typen
+nachbildet. Stellen Sie sicher, dass ihre Migrationsbuchführung die ersetzten
+Migrationen korrekt abbildet, bevor neuere Migrationen laufen. Der Runner wählt
+nicht automatisch eine Baseline aus.
 
 <Callout tone="warning">
   Das Chat-Template stellt `pnpm migrate:production` bereit, um Migrationen als

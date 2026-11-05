@@ -268,10 +268,11 @@ tracked independently of their version number.
 Since 0.177.0, migration SQL must be valid PostgreSQL. This is a breaking change
 for legacy SQLite-style migrations. `runMigrations()` sends SQL statements as
 written without rewriting them. Review each migration for its intended types and
-expressions rather than applying blanket replacements. Use `BIGINT` for epoch
-milliseconds, but keep ordinary values such as priorities as `INTEGER`. Use
-`CURRENT_TIMESTAMP` for a timestamp column instead of `datetime('now')`, and
-PostgreSQL identity syntax instead of `AUTOINCREMENT`:
+expressions rather than applying blanket replacements. For new schemas, use
+`BIGINT` for epoch milliseconds and `INTEGER` for ordinary values such as
+priorities. Use `CURRENT_TIMESTAMP` for a timestamp column instead of
+`datetime('now')`, and PostgreSQL identity syntax instead of `AUTOINCREMENT`.
+This example is for a new schema, not a replacement for an existing one:
 
 ```sql
 CREATE TABLE task_events (
@@ -282,12 +283,20 @@ CREATE TABLE task_events (
 );
 ```
 
-Already-recorded legacy migrations will not rerun. Inspect the actual schema of
-each existing database before planning upgrades. On a fresh database, an old
-invalid migration can fail before a newly appended repair runs. Do not silently
-edit migration history. For legacy applications, plan and review a baseline or a
-deployment-specific upgrade strategy that accounts for both existing and fresh
-databases.
+Applied legacy entries are skipped when their existing name or version
+identifiers remain unchanged. Adding a `name` to an old unnamed version can
+cause it to run again. Preserve the original migration chain and identifiers for
+existing databases, and do not silently edit migration history.
+
+Inspect the actual schema and column types of each existing database before
+planning an upgrade. The legacy adapter could widen even ordinary `INTEGER`
+columns to `BIGINT`, so do not assume the new-schema example matches them. On a
+fresh database, an old invalid migration can fail before a newly appended repair
+runs. As part of a carefully planned and reviewed deployment-specific strategy,
+build and test a PostgreSQL baseline for fresh databases that reproduces the
+inspected existing schema and types. Ensure its migration bookkeeping correctly
+represents the migrations it replaces before newer migrations run. The runner
+does not automatically select a baseline.
 
 ### Generate new app migrations with Drizzle Kit {#drizzle-migrations}
 

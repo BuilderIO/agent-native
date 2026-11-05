@@ -259,10 +259,11 @@ Desde la versión 0.177.0, el SQL de las migraciones debe ser válido para
 PostgreSQL. Este cambio rompe las migraciones antiguas de estilo SQLite.
 `runMigrations()` envía las sentencias SQL tal como están escritas, sin
 reescribirlas. Revisa los tipos y expresiones previstos en cada migración en vez
-de aplicar sustituciones generalizadas. Usa `BIGINT` para milisegundos desde la
-época Unix y conserva `INTEGER` para valores ordinarios como prioridades. Para
-una columna de fecha y hora usa `CURRENT_TIMESTAMP` en vez de `datetime('now')`,
-y usa la sintaxis de identidad de PostgreSQL en vez de `AUTOINCREMENT`:
+de aplicar sustituciones generalizadas. Para esquemas nuevos, usa `BIGINT` para
+milisegundos desde la época Unix e `INTEGER` para valores ordinarios como
+prioridades. Para una columna de fecha y hora usa `CURRENT_TIMESTAMP` en vez de
+`datetime('now')`, y usa la sintaxis de identidad de PostgreSQL en vez de
+`AUTOINCREMENT`. Este ejemplo es para un esquema nuevo, no sustituye uno existente:
 
 ```sql
 CREATE TABLE task_events (
@@ -273,13 +274,23 @@ CREATE TABLE task_events (
 );
 ```
 
-Las migraciones antiguas ya registradas no volverán a ejecutarse. Inspecciona el
-esquema real de cada base de datos existente antes de planificar la actualización.
-En una base de datos nueva, una migración antigua no válida puede fallar antes de
-que se ejecute una reparación añadida posteriormente. No edites el historial de
-migraciones de forma silenciosa. Para aplicaciones antiguas, planifica y revisa
-una línea base o una estrategia de actualización específica del despliegue que
-contemple tanto las bases existentes como las nuevas.
+Las entradas antiguas aplicadas se omiten si sus identificadores de nombre o
+versión originales permanecen sin cambios. Añadir un `name` a una versión
+antigua sin nombre puede hacer que se ejecute de nuevo. Conserva la cadena de
+migraciones original y sus identificadores para las bases existentes y no edites
+el historial de migraciones de forma silenciosa.
+
+Inspecciona el esquema real y los tipos de columna de cada base existente antes
+de planificar la actualización. El adaptador antiguo podía ampliar incluso las
+columnas `INTEGER` ordinarias a `BIGINT`, así que no supongas que coinciden con
+el ejemplo para esquemas nuevos. En una base nueva, una migración antigua no
+válida puede fallar antes de ejecutar una reparación añadida después. Como parte
+de una estrategia específica del despliegue cuidadosamente planificada y revisada,
+crea y prueba una línea base de PostgreSQL para bases nuevas que reproduzca el
+esquema y los tipos inspeccionados de las bases existentes. Asegúrate de que el
+registro de migraciones de la línea base represente correctamente las migraciones
+que sustituye antes de ejecutar las más recientes. El ejecutor no selecciona una
+línea base automáticamente.
 
 <Callout tone="warning">
   La plantilla Chat incluye `pnpm migrate:production` para ejecutar migraciones
