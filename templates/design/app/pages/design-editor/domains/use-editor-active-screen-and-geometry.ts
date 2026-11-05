@@ -1761,6 +1761,7 @@ export function useEditorActiveScreenAndGeometry({
           canEditDesign,
           canvasFrameGeometryById,
           files,
+          availableFiles,
           id,
           overviewScreens,
           setActiveFileId,

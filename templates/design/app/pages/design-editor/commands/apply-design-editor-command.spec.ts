@@ -11,8 +11,8 @@ import {
 function makeArgs(
   overrides: Partial<ApplyDesignEditorCommandArgs> = {},
 ): ApplyDesignEditorCommandArgs {
-  return {
-    annotateLab: "on",
+  const args = {
+    annotateLab: "on" as const,
     canEditDesign: true,
     canvasFrameGeometryById: {},
     files: [],
@@ -35,8 +35,15 @@ function makeArgs(
     setSelectedLayerIdsState: vi.fn(),
     setViewMode: vi.fn(),
     setZoomForView: vi.fn(),
-    viewModeRef: { current: "single" },
+    viewModeRef: { current: "single" as const },
     ...overrides,
+  };
+  const listed = new Map(
+    [...args.files, ...args.overviewScreens].map((file) => [file.id, file]),
+  );
+  return {
+    ...args,
+    availableFiles: overrides.availableFiles ?? [...listed.values()],
   };
 }
 
@@ -53,6 +60,24 @@ const overviewScreen: OverviewScreen = {
 };
 
 describe("runApplyDesignEditorCommand: overview camera fit", () => {
+  it("resolves a route to the board before its source has loaded", () => {
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      availableFiles: [screenFile, { id: "board", filename: "__board__.html" }],
+    });
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "board",
+    });
+
+    expect(applied).toBe(true);
+    expect(args.setActiveFileId).toHaveBeenCalledWith("board");
+  });
+
   it("fits the camera to a named screen's real geometry", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({

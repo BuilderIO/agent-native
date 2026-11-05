@@ -180,7 +180,7 @@ export function useEditorLayerModels({
             routeSelectionFileId:
               initialRouteSelectionId && initialRouteScreenTarget
                 ? findDesignFileByScreenTarget(
-                    overviewScreens,
+                    overviewFiles,
                     initialRouteScreenTarget,
                   )?.id
                 : undefined,
@@ -431,7 +431,7 @@ export function useEditorLayerModels({
   const resolvedInitialRouteSelectionId = useMemo(() => {
     if (!initialRouteSelectionId) return null;
     const targetFile = initialRouteScreenTarget
-      ? findDesignFileByScreenTarget(overviewScreens, initialRouteScreenTarget)
+      ? findDesignFileByScreenTarget(overviewFiles, initialRouteScreenTarget)
       : null;
     if (initialRouteScreenTarget && !targetFile) return null;
     const directOwner = codeLayerOwnerByNodeId.get(initialRouteSelectionId);

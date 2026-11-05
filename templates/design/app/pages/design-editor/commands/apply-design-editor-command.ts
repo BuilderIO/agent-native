@@ -45,6 +45,8 @@ export interface ApplyDesignEditorCommandArgs {
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   files: DesignFile[];
+  /** Every file in the design, loaded or not, so a route can name the board. */
+  availableFiles: readonly Pick<DesignFile, "id" | "filename">[];
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
@@ -87,6 +89,7 @@ export function runApplyDesignEditorCommand(
     canEditDesign,
     canvasFrameGeometryById,
     files,
+    availableFiles,
     id,
     overviewScreens,
     setActiveFileId,
@@ -140,7 +143,7 @@ export function runApplyDesignEditorCommand(
         : typeof commandRecord.layerId === "string"
           ? commandRecord.layerId
           : null;
-  const targetFile = findDesignFileByScreenTarget(overviewScreens, target);
+  const targetFile = findDesignFileByScreenTarget(availableFiles, target);
   if (target && !targetFile) return false;
   // A restored URL or agent request for Annotate/Draw waits for the Labs answer
   // rather than being downgraded while the lab is still unknown.

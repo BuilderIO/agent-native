@@ -236,6 +236,7 @@ export function useEditorSourceAndSync({
     selectedPromptDesignSystemId,
     files,
     handleToggleLayoutGrids,
+    overviewFiles,
     overviewScreens,
     remoteVisualEditPending,
   } = editorFilesAndSaving;
@@ -1428,18 +1429,18 @@ export function useEditorSourceAndSync({
     resolvedInitialRouteSelectionId,
   ]);
 
-  const overviewScreenIdentityKey = useMemo(
+  const fileIdentityKey = useMemo(
     () =>
-      JSON.stringify(overviewScreens.map(({ id, filename }) => [id, filename])),
-    [overviewScreens],
+      JSON.stringify(overviewFiles.map(({ id, filename }) => [id, filename])),
+    [overviewFiles],
   );
   useEffect(() => {
-    if (!id || overviewScreens.length === 0) return;
+    if (!id || overviewFiles.length === 0) return;
     const guardedInitialRouteScreenTarget = initialRouteScreenGuardRef.current;
     const currentScreenId = activeFileId ?? activeFile?.id;
     const initialRouteScreen = guardedInitialRouteScreenTarget
       ? findDesignFileByScreenTarget(
-          overviewScreens,
+          overviewFiles,
           guardedInitialRouteScreenTarget,
         )
       : undefined;
@@ -1524,7 +1525,7 @@ export function useEditorSourceAndSync({
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
-    overviewScreenIdentityKey,
+    fileIdentityKey,
     id,
     location.hash,
     location.pathname,

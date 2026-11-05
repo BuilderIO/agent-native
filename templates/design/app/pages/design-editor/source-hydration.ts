@@ -230,31 +230,18 @@ export class SourceHydration {
             .then(
               (file) => {
                 if (!this.disposed && this.versions.get(id) === version) {
-                  if (file.updatedAt !== version) {
-                    const error = new Error(
-                      "Screen source changed while loading",
-                    );
-                    this.states.set(
-                      id,
-                      previous.status === "ready"
-                        ? {
-                            ...previous,
-                            refreshing: false,
-                            refreshError: error,
-                          }
-                        : { status: "error", error },
-                    );
-                  } else {
-                    this.removeReady(id);
-                    this.needsRefresh.delete(id);
-                    this.states.set(id, { status: "ready", ...file });
-                    const bytes = new TextEncoder().encode(
-                      file.content,
-                    ).byteLength;
-                    this.lru.set(id, bytes);
-                    this.readyBytes += bytes;
-                    this.evict();
-                  }
+                  // A read returns the current source; one newer than the
+                  // metadata is the latest save, not a failed load.
+                  this.versions.set(id, file.updatedAt);
+                  this.removeReady(id);
+                  this.needsRefresh.delete(id);
+                  this.states.set(id, { status: "ready", ...file });
+                  const bytes = new TextEncoder().encode(
+                    file.content,
+                  ).byteLength;
+                  this.lru.set(id, bytes);
+                  this.readyBytes += bytes;
+                  this.evict();
                 }
               },
               (error) => {

@@ -1184,8 +1184,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     () => getBoardSurfaceContentBounds(boardFileContent),
     [boardFileContent],
   );
-  const boardSourcePending =
-    Boolean(boardFileId) && boardFileContent === undefined;
+  // Only a board-only canvas fits to the board, so only its load refits.
+  const boardOnlySourcePending =
+    screens.length === 0 &&
+    Boolean(boardFileId) &&
+    boardFileContent === undefined;
   const boardViewportGeometry = useMemo((): FrameGeometry | undefined => {
     if (surfaceSize.width <= 0 || surfaceSize.height <= 0) return undefined;
     const scale = Math.max(0.0001, canvasZoom / 100);
@@ -2845,7 +2848,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     chromeInsetRight,
     // Fit once when a pending board loads; drawing on a loaded board must not
     // move the camera.
-    boardSourcePending,
+    boardOnlySourcePending,
     preserveCameraOnScreenCountChange,
     deferLineupZoomChange,
     initialFitScreenId,

@@ -342,6 +342,22 @@ describe("SourceHydration", () => {
     });
   });
 
+  it("accepts a read newer than its metadata as the current source", async () => {
+    const loader = new SourceHydration(
+      async () => ({ content: "saved again", updatedAt: "3" }),
+      () => {},
+    );
+    loader.sync([{ id: "a", updatedAt: "2" }]);
+    await loader.request("a");
+    expect(loader.get("a")).toEqual({
+      status: "ready",
+      content: "saved again",
+      updatedAt: "3",
+    });
+    loader.sync([{ id: "a", updatedAt: "3" }]);
+    expect(loader.get("a").status).toBe("ready");
+  });
+
   it("drops a stale source once nothing holds it", async () => {
     const loader = new SourceHydration(
       async () => ({ content: "old", updatedAt: "1" }),
