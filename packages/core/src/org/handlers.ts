@@ -2211,7 +2211,7 @@ export const syncA2ASecretHandler = defineEventHandler(
       : [];
     const selfAppId =
       app.workspaceId ??
-      (matchingMounts.length === 1 ? matchingMounts[0].id : undefined) ??
+      (matchingMounts.length === 1 ? matchingMounts[0]?.id : undefined) ??
       (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
     const [discoveredAgents, builtins] = await Promise.all([
       discoverAgents(selfAppId, { workspaceAppsManifest: workspaceApps }),
@@ -2253,6 +2253,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     };
     const agents = discoveredAgents.filter((agent) => {
       if (agent.source === "builtin") {
+        if (isFirstPartyApp(app) && agent.id === app.slug) return false;
         const trustedUrl = registeredBuiltins.get(agent.id);
         return Boolean(trustedUrl && matchesPath(agent.url, trustedUrl));
       }

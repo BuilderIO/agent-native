@@ -955,6 +955,54 @@ describe("syncA2ASecretHandler", () => {
     }
   });
 
+  it.each([undefined, "workspace-sender"])(
+    "excludes a proven first-party sender with a workspace manifest and workspace ID %s",
+    async (workspaceId) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", workspaceId);
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      vi.stubEnv("VITE_APP_BASE_PATH", undefined);
+      vi.stubEnv("APP_BASE_PATH", undefined);
+      vi.stubEnv("npm_package_name", "calendar");
+      resetAppConfigForTests();
+      mockLoadWorkspaceAppsManifest.mockResolvedValue([
+        { id: "other", path: "/other" },
+      ]);
+      mockGetBuiltinAgentsForSeeding.mockReturnValue([
+        { id: "calendar", url: "https://calendar.example.test" },
+        { id: "mail", url: "https://mail.example.test" },
+      ]);
+      mockDiscoverAgents.mockResolvedValue([
+        {
+          id: "calendar",
+          name: "Calendar",
+          url: "https://calendar.example.test",
+          source: "builtin",
+        },
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.example.test",
+          source: "builtin",
+        },
+      ]);
+      try {
+        await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+          total: 1,
+          succeeded: 1,
+          failed: 0,
+        });
+        expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+        expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+          "https://mail.example.test/_agent-native/org/a2a-secret/receive",
+          expect.anything(),
+          expect.anything(),
+        );
+      } finally {
+        resetAppConfigForTests();
+      }
+    },
+  );
+
   it("uses proven first-party identity for standalone builtin discovery", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);

@@ -259,7 +259,7 @@ async function createSsrfSafeDispatcherUncached(
     connect: {
       lookup: (
         hostname: string,
-        lookupOptions: any,
+        lookupOptions: { all?: boolean },
         callback: (
           err: NodeJS.ErrnoException | null,
           address?: string | { address: string; family: number }[],
@@ -294,7 +294,7 @@ async function createSsrfSafeDispatcherUncached(
                 return callback(e);
               }
             }
-            if (lookupOptions && lookupOptions.all) {
+            if (lookupOptions.all) {
               return callback(null, list as any);
             }
             const first = list[0];
@@ -460,7 +460,7 @@ export async function ssrfSafeFetch(
         : options.allowedPrivateOrigins,
       currentUrl,
       {
-        required: Boolean(allowedLocalhostOrigin) || options.requireDispatcher,
+        required: Boolean(allowedLocalhostOrigin || options.requireDispatcher),
         loopbackOnly: Boolean(allowedLocalhostOrigin),
       },
     );
