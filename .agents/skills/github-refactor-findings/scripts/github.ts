@@ -48,10 +48,7 @@ interface RawIssue {
   html_url: string;
 }
 
-export function parseIssueKey(
-  raw: string,
-  repo = commonConfig().repo,
-): string {
+export function parseIssueKey(raw: string, repo = commonConfig().repo): string {
   const text = raw.trim();
   const url = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)\/?$/.exec(
     text,
