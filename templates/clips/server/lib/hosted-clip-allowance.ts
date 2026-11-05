@@ -305,15 +305,17 @@ interface HostedClipEvent {
   userId?: string | undefined;
 }
 
-function hostedLevel(retainedBytes: number, globalRetainedByteCap?: number) {
+/** The level only matters against a cap, so an uncapped deployment reports none. */
+function hostedLevel(
+  retainedBytes: number | undefined,
+  globalRetainedByteCap?: number,
+) {
+  if (retainedBytes === undefined || globalRetainedByteCap === undefined)
+    return {};
   return {
     retainedBytes,
-    ...(globalRetainedByteCap === undefined
-      ? {}
-      : {
-          globalRetainedByteCap,
-          ratio: retainedBytes / globalRetainedByteCap,
-        }),
+    globalRetainedByteCap,
+    ratio: retainedBytes / globalRetainedByteCap,
   };
 }
 
@@ -334,8 +336,12 @@ function emitHostedClipEvents(events: HostedClipEvent[]): void {
         { app_name: "clips", template_name: "clips", ...event.props },
         event.userId ? { userId: event.userId } : undefined,
       );
-    } catch {
-      // coercion-ok: analytics is best-effort; the log line above already carries the event.
+    } catch (error) {
+      // coercion-ok: analytics is best-effort and must never fail a user path; the failure is logged.
+      console.warn("[clips-hosted] tracking failed", {
+        event: event.name,
+        error: error instanceof Error ? error.message : "non-Error thrown",
+      });
     }
   }
 }
@@ -344,7 +350,7 @@ function hostedDeniedEvent(
   recordingId: string,
   userId: string | undefined,
   denyReason: HostedClipAllowanceDenialReason,
-  stage: "reserve" | "retry" | "consume",
+  stage: "reserve" | "retry" | "consume" | "adjust",
 ): HostedClipEvent {
   return {
     name: "clips_hosted_denied",
@@ -356,13 +362,18 @@ function hostedDeniedEvent(
 function retainedByteThresholdEvent(input: {
   recordingId: string;
   userId: string;
-  retainedBytesBefore: number;
-  retainedBytesAfter: number;
+  retainedBytesBefore: number | undefined;
+  retainedBytesAfter: number | undefined;
   globalRetainedByteCap?: number | undefined;
   retainedByteAlertRatio?: number | undefined;
 }): HostedClipEvent | null {
   const { globalRetainedByteCap, retainedByteAlertRatio = 0.8 } = input;
-  if (globalRetainedByteCap === undefined) return null;
+  if (
+    globalRetainedByteCap === undefined ||
+    input.retainedBytesBefore === undefined ||
+    input.retainedBytesAfter === undefined
+  )
+    return null;
   const threshold = Math.max(
     1,
     Math.ceil(globalRetainedByteCap * retainedByteAlertRatio),
@@ -491,6 +502,15 @@ async function readActiveByteTotal(
   return assertAggregate(result?.value, "retained byte count");
 }
 
+/** The SUM scans the table under the global lock, so it only runs when a cap needs the level. */
+async function readRetainedBytes(
+  db: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+  globalRetainedByteCap: number | undefined,
+): Promise<number | undefined> {
+  if (globalRetainedByteCap === undefined) return undefined;
+  return readActiveByteTotal(db);
+}
+
 async function hostedReleasedEvent(
   tx: HostedClipAllowanceTransaction,
   input: {
@@ -509,7 +529,7 @@ async function hostedReleasedEvent(
       reason: input.reason,
       releasedBytes: input.releasedBytes,
       ...hostedLevel(
-        await readActiveByteTotal(tx),
+        await readRetainedBytes(tx, input.globalRetainedByteCap),
         input.globalRetainedByteCap,
       ),
     },
@@ -692,7 +712,10 @@ export async function reserveHostedClipAllowance(input: {
       return { ok: false, reason: denialReason };
     }
 
-    const retainedBytesBefore = await readActiveByteTotal(tx);
+    const retainedBytesBefore = await readRetainedBytes(
+      tx,
+      input.policy.globalRetainedByteCap,
+    );
     const [allowance] = await tx
       .insert(allowanceTable)
       .values({
@@ -713,7 +736,9 @@ export async function reserveHostedClipAllowance(input: {
       );
     }
     const retainedBytesAfter =
-      retainedBytesBefore + input.policy.reservationBytes;
+      retainedBytesBefore === undefined
+        ? undefined
+        : retainedBytesBefore + input.policy.reservationBytes;
     events.push({
       name: "clips_hosted_reserved",
       userId,
@@ -747,6 +772,7 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
     maxClipBytes: reservationBytes,
     perIdentityClipLimit,
     globalRetainedByteCap,
+    retainedByteAlertRatio,
   } = hostedStorageConfig();
   assertPolicy({
     enabled: true,
@@ -829,9 +855,13 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
       return { ok: false, reason: "exhausted" };
     }
 
-    const retainedBytesBefore = await readActiveByteTotal(tx);
+    const retainedBytesBefore = await readRetainedBytes(
+      tx,
+      globalRetainedByteCap,
+    );
     if (
       globalRetainedByteCap !== undefined &&
+      retainedBytesBefore !== undefined &&
       retainedBytesBefore + reservationBytes > globalRetainedByteCap
     ) {
       events.push(
@@ -879,6 +909,10 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
           ),
         ),
       );
+    const retainedBytesAfter =
+      retainedBytesBefore === undefined
+        ? undefined
+        : retainedBytesBefore + reservationBytes;
     events.push({
       name: "clips_hosted_reserved",
       userId: input.userId,
@@ -886,12 +920,18 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
         recordingId: input.recordingId,
         reservedBytes: reservationBytes,
         retry: true,
-        ...hostedLevel(
-          retainedBytesBefore + reservationBytes,
-          globalRetainedByteCap,
-        ),
+        ...hostedLevel(retainedBytesAfter, globalRetainedByteCap),
       },
     });
+    const crossed = retainedByteThresholdEvent({
+      recordingId: input.recordingId,
+      userId: input.userId,
+      retainedBytesBefore,
+      retainedBytesAfter,
+      globalRetainedByteCap,
+      retainedByteAlertRatio,
+    });
+    if (crossed) events.push(crossed);
     return { ok: true, allowance, alreadyReserved: false };
   });
 }
@@ -921,10 +961,14 @@ export async function consumeHostedClipAllowance(input: {
         "A released hosted recording allowance cannot be consumed.",
       );
     }
-    const retainedBytes = await readActiveByteTotal(tx);
-    const nextTotal = retainedBytes - current.quotaBytes + input.actualBytes;
+    const retainedBytes = await readRetainedBytes(tx, globalRetainedByteCap);
+    const nextTotal =
+      retainedBytes === undefined
+        ? undefined
+        : retainedBytes - current.quotaBytes + input.actualBytes;
     if (
       globalRetainedByteCap !== undefined &&
+      nextTotal !== undefined &&
       nextTotal > globalRetainedByteCap
     ) {
       events.push(
@@ -1004,13 +1048,25 @@ export async function adjustHostedClipRetainedBytes(input: {
         "Only a consumed hosted recording allowance can have retained bytes adjusted.",
       );
     }
-    const retainedBytes = await readActiveByteTotal(tx);
-    const nextTotal = retainedBytes - current.quotaBytes + input.retainedBytes;
+    const retainedBytes = await readRetainedBytes(tx, globalRetainedByteCap);
+    const nextTotal =
+      retainedBytes === undefined
+        ? undefined
+        : retainedBytes - current.quotaBytes + input.retainedBytes;
     if (input.retainedBytes > current.quotaBytes) {
       if (
         globalRetainedByteCap !== undefined &&
+        nextTotal !== undefined &&
         nextTotal > globalRetainedByteCap
       ) {
+        events.push(
+          hostedDeniedEvent(
+            input.recordingId,
+            input.userId,
+            "global_storage_cap",
+            "adjust",
+          ),
+        );
         return { ok: false, reason: "global_storage_cap" };
       }
     }
@@ -1078,8 +1134,8 @@ async function addHostedClipRetainedBytes(
 
     const nextClipBytes = current.quotaBytes + input.additionalBytes;
     assertByteCount(nextClipBytes, "retained byte count");
-    const retainedBytes = await readActiveByteTotal(tx);
-    if (enforcedCap !== undefined) {
+    const retainedBytes = await readRetainedBytes(tx, globalRetainedByteCap);
+    if (enforcedCap !== undefined && retainedBytes !== undefined) {
       if (retainedBytes + input.additionalBytes > enforcedCap) {
         events.push({
           name: "clips_hosted_derivative_rejected",
@@ -1105,23 +1161,24 @@ async function addHostedClipRetainedBytes(
         "Hosted recording allowance disappeared during byte accounting.",
       );
     }
+    const retainedBytesAfter =
+      retainedBytes === undefined
+        ? undefined
+        : retainedBytes + input.additionalBytes;
     events.push({
       name: "clips_hosted_derivative_added",
       userId: input.userId,
       props: {
         recordingId: input.recordingId,
         additionalBytes: input.additionalBytes,
-        ...hostedLevel(
-          retainedBytes + input.additionalBytes,
-          globalRetainedByteCap,
-        ),
+        ...hostedLevel(retainedBytesAfter, globalRetainedByteCap),
       },
     });
     const crossed = retainedByteThresholdEvent({
       recordingId: input.recordingId,
       userId: input.userId,
       retainedBytesBefore: retainedBytes,
-      retainedBytesAfter: retainedBytes + input.additionalBytes,
+      retainedBytesAfter,
       globalRetainedByteCap,
       retainedByteAlertRatio,
     });
@@ -1188,7 +1245,10 @@ export async function subtractHostedClipRetainedBytes(input: {
       props: {
         recordingId: input.recordingId,
         freedBytes: current.quotaBytes - quotaBytes,
-        ...hostedLevel(await readActiveByteTotal(tx), globalRetainedByteCap),
+        ...hostedLevel(
+          await readRetainedBytes(tx, globalRetainedByteCap),
+          globalRetainedByteCap,
+        ),
       },
     });
     return { adjusted: true, quotaBytes };

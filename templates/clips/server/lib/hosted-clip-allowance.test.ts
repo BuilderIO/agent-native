@@ -927,6 +927,253 @@ describe("hosted clip allowance", () => {
     expect(mockTrack).toHaveBeenCalled();
   });
 
+  it("runs no retained-byte SUM and reports no level while no cap is configured", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const statements: string[] = [];
+    // Allowance queries run on the PGlite transaction handle, so wrap that.
+    type Transaction = { query: (...args: unknown[]) => unknown };
+    const originalTransaction = client.transaction.bind(client) as (
+      callback: (tx: Transaction) => Promise<unknown>,
+    ) => Promise<unknown>;
+    vi.spyOn(client, "transaction").mockImplementation(((
+      callback: (tx: Transaction) => Promise<unknown>,
+    ) =>
+      originalTransaction((tx) => {
+        const originalQuery = tx.query.bind(tx);
+        tx.query = (text, ...rest) => {
+          statements.push(String(text));
+          return originalQuery(text, ...rest);
+        };
+        return callback(tx);
+      })) as typeof client.transaction);
+    const sums = () => statements.filter((text) => /sum\(/i.test(text));
+
+    await reserve({ recordingId: "uncapped" });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "uncapped",
+      userId: "user-1",
+      actualBytes: 50,
+      now: NOW,
+    });
+    await allowance.adjustHostedClipRetainedBytes({
+      recordingId: "uncapped",
+      userId: "user-1",
+      retainedBytes: 40,
+      now: NOW,
+    });
+    await allowance.accountHostedClipAdditionalBytes({
+      recordingId: "uncapped",
+      userId: "user-1",
+      additionalBytes: 5,
+    });
+    await allowance.subtractHostedClipRetainedBytes({
+      recordingId: "uncapped",
+      deletedBytes: 5,
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "uncapped-release",
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "uncapped-release",
+      userId: "user-2",
+      reason: "abort",
+    });
+    await reserve({
+      email: "third@example.com",
+      userId: "user-3",
+      recordingId: "uncapped-reaped",
+    });
+    await allowance.releaseOrphanedHostedClipAllowance({
+      recordingId: "uncapped-reaped",
+      userId: "user-3",
+      createdBefore: new Date(NOW.getTime() + 1),
+      now: NOW,
+    });
+
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'failed', 'hosted', $2), ($3, 'failed', 'hosted', $2)`,
+      ["uncapped-retry", "retry@example.com", "uncapped-cleanup"],
+    );
+    const retryOwner = {
+      email: "retry@example.com",
+      userId: "user-4",
+    };
+    await reserve({ ...retryOwner, recordingId: "uncapped-retry" });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "uncapped-retry",
+      userId: "user-4",
+      reason: "abort",
+      now: NOW,
+    });
+    await expect(
+      allowance.reacquireHostedClipAllowanceForRetry({
+        recordingId: "uncapped-retry",
+        userId: "user-4",
+        ownerEmail: "retry@example.com",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReserved: false });
+    await reserve({ ...retryOwner, recordingId: "uncapped-cleanup" });
+    await client.query(
+      `INSERT INTO application_state (session_id, key, value, updated_at) VALUES ($1, $2, $3, $4)`,
+      [
+        "retry@example.com",
+        allowance.hostedCleanupConfirmedKey("uncapped-cleanup"),
+        "marker",
+        NOW.getTime(),
+      ],
+    );
+    await expect(
+      allowance.releaseHostedClipAllowanceAfterCleanup({
+        recordingId: "uncapped-cleanup",
+        ownerEmail: "retry@example.com",
+        expectedUpdatedAt: NOW.toISOString(),
+        cleanupMarkerValue: "marker",
+        now: NOW,
+      }),
+    ).resolves.toBe(true);
+
+    expect(sums()).toEqual([]);
+    expect(mockTrack).toHaveBeenCalled();
+    for (const [, props] of mockTrack.mock.calls) {
+      expect(props).not.toHaveProperty("retainedBytes");
+      expect(props).not.toHaveProperty("ratio");
+      expect(props).not.toHaveProperty("globalRetainedByteCap");
+    }
+
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    mockTrack.mockClear();
+    await reserve({
+      email: "fourth@example.com",
+      userId: "user-4",
+      recordingId: "capped-release",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "capped-release",
+      userId: "user-4",
+      reason: "abort",
+    });
+    expect(sums().length).toBeGreaterThan(0);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_released",
+      expect.objectContaining({ retainedBytes: 140, ratio: 0.14 }),
+      { userId: "user-4" },
+    );
+  });
+
+  it("tracks a threshold crossing when a retry reservation crosses the alert level", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'failed', 'hosted', 'owner@example.com')`,
+      ["retry-threshold"],
+    );
+    await reserve({ recordingId: "retry-threshold" });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "retry-threshold",
+      userId: "user-1",
+      reason: "abort",
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "retry-fill",
+      policy: policy({ reservationBytes: 750 }),
+    });
+    setHostedConfig({
+      maxClipBytes: 100,
+      globalRetainedByteCap: 1_000,
+      retainedByteAlertRatio: 0.8,
+    });
+    mockTrack.mockClear();
+    await expect(
+      allowance.reacquireHostedClipAllowanceForRetry({
+        recordingId: "retry-threshold",
+        userId: "user-1",
+        ownerEmail: "owner@example.com",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReserved: false });
+    const crossings = mockTrack.mock.calls.filter(
+      ([name]) => name === "clips_hosted_retained_bytes_threshold",
+    );
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0]?.[1]).toMatchObject({
+      recordingId: "retry-threshold",
+      retainedBytes: 850,
+      thresholdBytes: 800,
+    });
+  });
+
+  it("denies an adjust over the cap with an adjust-stage denial", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "adjust-cap" });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "adjust-cap",
+      userId: "user-1",
+      actualBytes: 50,
+      now: NOW,
+    });
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    mockTrack.mockClear();
+    await expect(
+      allowance.adjustHostedClipRetainedBytes({
+        recordingId: "adjust-cap",
+        userId: "user-1",
+        retainedBytes: 5_000,
+        now: NOW,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "global_storage_cap" });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_denied",
+      expect.objectContaining({
+        recordingId: "adjust-cap",
+        denyReason: "global_storage_cap",
+        stage: "adjust",
+      }),
+      { userId: "user-1" },
+    );
+  });
+
+  it("logs a tracking failure whose thrown value cannot be stringified", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockTrack.mockImplementation(() => {
+      throw Object.create(null);
+    });
+    await expect(
+      reserve({ recordingId: "track-null-proto" }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-hosted] tracking failed",
+      expect.objectContaining({ event: "clips_hosted_reserved" }),
+    );
+  });
+
+  it("logs a tracking failure without failing the write", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockTrack.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+    await expect(
+      reserve({ recordingId: "track-warns" }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(warn).toHaveBeenCalledWith("[clips-hosted] tracking failed", {
+      event: "clips_hosted_reserved",
+      error: "analytics down",
+    });
+    const { rows } = await client.query(
+      "SELECT status FROM clips_hosted_clip_allowances WHERE recording_id = 'track-warns'",
+    );
+    expect(rows).toEqual([{ status: "reserved" }]);
+  });
+
   it("emits no denial event or IP log from the status snapshot", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
