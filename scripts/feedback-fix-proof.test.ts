@@ -500,7 +500,7 @@ describe("feedback-fix-proof", () => {
 
   it("passes a test-only PR whose reports have no proof", () => {
     const r = gate(
-      "## Reports\n- https://app.slack.com/a\n  fix-proof: test-only\n- https://app.slack.com/b\n",
+      "## Reports\n- https://app.slack.com/a\n  fix-proof: test-only\n- https://app.slack.com/b\n  fix-proof: test-only\n",
       fix,
     );
     assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -508,6 +508,16 @@ describe("feedback-fix-proof", () => {
       r.stdout,
       /test-only PR \(2 changed files[^)]*\); 2 reports need no fix proof/,
     );
+  });
+
+  it("still requires proof for a report not marked test-only on a test-only diff", () => {
+    const r = gate(
+      "## Reports\n- https://app.slack.com/a\n  fix-proof: test-only\n- https://app.slack.com/b\n",
+      fix,
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /NO PROOF: https:\/\/app.slack.com\/b/);
+    assert.doesNotMatch(r.stdout, /NO PROOF: https:\/\/app.slack.com\/a/);
   });
 
   it("still requires proof when a test-only claim sits on a source change", () => {

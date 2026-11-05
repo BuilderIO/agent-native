@@ -331,8 +331,9 @@ reason to park a report or make it `needs-person`: settle them and move on.
   `prUrl` at the survivor; the watcher keeps babysitting it.
 - **A human's PR fixes the same thing.** Prefer it, and never close, push to,
   comment on, or take it over. Close your own PR pointing to theirs, point
-  the report's `prUrl` at their PR so the watcher follows it, and note it in
-  the report's thread, including how yours differs if it is better.
+  the report's `prUrl` at their PR so the watcher tracks its merge state only
+  (never babysits, nudges, or pushes to it), and note it in the report's
+  thread, including how yours differs if it is better.
 
 Never close a PR the factory didn't open. In dry mode, record what you would
 close and say in `note`.

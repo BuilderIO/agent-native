@@ -13,9 +13,8 @@
 // that still needs a human to inspect its before/after screenshots before merge.
 //
 // A PR whose diff touches only TEST_PATH files (a flaky-test fix) has no
-// source change to revert, so no proof can exist; it passes without one.
-// The decision comes from the diff, so a `fix-proof: test-only` line under
-// a report is for readers only.
+// source change to revert, so no proof can exist. Each report it covers must
+// say so with a `fix-proof: test-only` line; the diff alone never clears one.
 //
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
@@ -51,6 +50,8 @@ export type Report = {
   link: string;
   proven: string[];
   visual: [before: string, after: string] | null;
+  /** Set only by a `fix-proof: test-only` line under the report. */
+  testOnly?: true;
 };
 type VisualReport = Report & {
   visual: [before: string, after: string];
@@ -227,7 +228,9 @@ export function parseReports(body: string): Report[] | null {
     const visual = /^visual:\s*(https?:\/\/\S+)\s+(https?:\/\/\S+)\s*$/.exec(
       evidence.replace(/`\s*$/, ""),
     );
+    const testOnly = /^fix-proof: test-only\b/.test(evidence);
     for (const report of targets) {
+      if (testOnly) report.testOnly = true;
       if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
       if (visual) report.visual = [visual[1], visual[2]];
     }
@@ -280,14 +283,20 @@ function main() {
     process.exit(2);
   }
   const changed = diff.stdout.split("\n").filter(Boolean);
-  if (isTestOnlyChange(changed)) {
+  // The diff decides that nothing needs proving, the report line says which
+  // reports are test work, so a test-only diff can't clear a product report.
+  const testOnlyDiff = isTestOnlyChange(changed);
+  const exempt = (r: Report) => testOnlyDiff && r.testOnly === true;
+  if (testOnlyDiff && reports.every(exempt)) {
     console.log(
       `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests or changesets); ${reports.length} reports need no fix proof`,
     );
     return;
   }
 
-  const missing = reports.filter((r) => r.proven.length === 0 && !r.visual);
+  const missing = reports.filter(
+    (r) => r.proven.length === 0 && !r.visual && !exempt(r),
+  );
   const visualOnly = reports.filter(
     (r): r is VisualReport => r.proven.length === 0 && r.visual !== null,
   );
