@@ -7638,9 +7638,6 @@ importers:
       '@excalidraw/excalidraw':
         specifier: ^0.18.0
         version: 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@excalidraw/mermaid-to-excalidraw':
-        specifier: ^2.2.2
-        version: 2.2.2
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8

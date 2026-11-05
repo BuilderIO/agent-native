@@ -307,7 +307,7 @@ async function exposeGoogleFontStylesheetsForPdf(
   return cleanup;
 }
 
-async function waitForExportStage(
+export async function waitForExportStage(
   stage: HTMLElement,
   signal?: AbortSignal,
 ): Promise<void> {

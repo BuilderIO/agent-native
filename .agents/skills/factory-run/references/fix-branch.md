@@ -70,6 +70,8 @@ reported failure, or change anything beyond fixing it.
    PROOF: <the fix-proof line, "visual: <before> <after>", or "fix-proof: test-only">
    ROOT CAUSE: confirmed | likely | unconfirmed - <one sentence, naming the evidence or what you couldn't check>
    CHANGE: <one plain sentence about what the reporter will notice>
+   CONFIDENCE: root-cause <0-100> - <rubric rows> | fix <0-100> - <rubric rows>
+   DESIGN: none | <one question for a designer, with the options and your pick>
    ```
 
    If you could not reproduce or fix it, end with:
@@ -78,7 +80,17 @@ reported failure, or change anything beyond fixing it.
    OUTCOME: could-not-reproduce | already-fixed <sha or PR url> | blocked | not-code
    ROOT CAUSE: <as above>
    WHY: <one sentence>
+   CONFIDENCE: root-cause <0-100> - <rubric rows>
+   DESIGN: none | <as above>
    ```
+
+   Score with the rubric in
+   `git show origin/main:.agents/skills/factory-run/references/confidence.md`.
+   A fix under 70 still ships its PR, but it waits for a person's approval
+   before it merges. When the right behavior is a design, workflow, or UX
+   call rather than a bug, ship the smallest sensible default and ask the
+   question in `DESIGN`; when nothing sensible can ship without the answer,
+   end with `OUTCOME: blocked` and the question in `DESIGN`.
 
 ## Follow-ups
 
