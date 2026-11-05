@@ -854,7 +854,7 @@ describe("ingestException", () => {
         type: "RangeError",
         message,
         environment,
-        rawStack: `RangeError: ${message}\n    at ${message.replaceAll(" ", "")} (https://app.example.com/assets/${message.replaceAll(" ", "")}.js:1:1)`,
+        rawStack: `RangeError: ${message}\n    at ${message} (https://app.example.com/assets/${message}.js:1:1)`,
       });
 
     const onBoth = await ingestException(
@@ -869,17 +869,17 @@ describe("ingestException", () => {
     );
     const onBeta = await ingestException(
       SCOPE,
-      otherFailure("beta failure", "production"),
+      otherFailure("betaFailure", "production"),
       derivedFor({ url: betaUrl }),
     );
     const noHostMarkedBeta = await ingestException(
       SCOPE,
-      otherFailure("marked failure", "beta"),
+      otherFailure("markedFailure", "beta"),
       derivedFor({ url: null }),
     );
     const noHost = await ingestException(
       SCOPE,
-      otherFailure("unmarked failure", null),
+      otherFailure("unmarkedFailure", null),
       derivedFor({ url: null }),
     );
     const viewer = { userEmail: SCOPE.ownerEmail, orgId: null };

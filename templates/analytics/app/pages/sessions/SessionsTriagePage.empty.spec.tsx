@@ -520,7 +520,7 @@ describe("Sessions empty states", () => {
       );
     });
 
-    expect(listCalls()[0][1]).toMatchObject({ environment: "beta" });
+    expect(listCalls().map(([, args]) => args.environment)).toContain("beta");
     const rowText = (id: string) =>
       container.querySelector(`a[href*="/sessions/${id}"]`)?.textContent;
     expect(rowText("r1")).toContain("sessions.betaTraffic");
@@ -538,7 +538,9 @@ describe("Sessions empty states", () => {
       );
     });
 
-    expect(listCalls()[0][1].environment).toBeUndefined();
+    expect(new Set(listCalls().map(([, args]) => args.environment))).toEqual(
+      new Set([undefined]),
+    );
   });
 
   it("keeps the list and offers a retry when row friction fails to load", async () => {
