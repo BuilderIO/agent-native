@@ -391,9 +391,15 @@ describe("save-time reveal identity across a content edit", () => {
     ).not.toThrow();
   });
 
-  it("refuses a text edit to the target that also appends a sibling after it, since text cannot prove the pairing", () => {
-    const error = refusalOf(() =>
+  it("accepts a text edit to the target that also appends a sibling after it, since the kept text shows the pairing", () => {
+    expect(() =>
       saveWith(box("<p>One</p><p>Two, revised</p><p>Three</p>")),
+    ).not.toThrow();
+  });
+
+  it("refuses a rewrite of the target that also appends a sibling after it, since no text shows which element it became", () => {
+    const error = refusalOf(() =>
+      saveWith(box("<p>One</p><p>Rewritten</p><p>Three</p>")),
     );
     expect(error).toMatchObject({
       errorCode: "slide_animation_retargeted",
@@ -401,7 +407,7 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
-  it("accepts a pasted copy of the target placed after it, which leaves the target's path alone", () => {
+  it("accepts a pasted copy beside the target, treating the first identical copy as the original", () => {
     expect(() =>
       saveWith(box("<p>One</p><p>Two</p><p>Two</p><p>Three</p>")),
     ).not.toThrow();
@@ -504,5 +510,113 @@ describe("save-time reveal validation of sanitizer-dropped targets", () => {
       errorCode: "slide_animation_missing_element",
       details: { animationId: "diagram" },
     });
+  });
+});
+
+describe("save-time reveals following a content edit", () => {
+  const slide = (...children: string[]) =>
+    `<div class="fmd-slide">${children.join("")}</div>`;
+  const textBox = (...paragraphs: string[]) =>
+    `<div class="text-box">${paragraphs.join("")}</div>`;
+  const reveal = (id: string, elementPath: number[]) => ({
+    id,
+    elementIndex: elementPath.at(-1) ?? 0,
+    elementPath,
+  });
+  const follow = (
+    before: string,
+    after: string,
+    animations: ReturnType<typeof reveal>[],
+    steps?: string[],
+  ) =>
+    assertSlideAnimationsResolve({
+      slideId: "s1",
+      content: after,
+      animations,
+      baseline: { content: before, animations, ...(steps ? { steps } : {}) },
+      followContent: true,
+    }).animations.map((animation) => animation.elementPath);
+
+  it("keeps a reveal on a paragraph typed in when the same save inserts a shape", () => {
+    expect(
+      follow(
+        slide("<h1>T</h1>", textBox("<p>A</p>", "<p>B</p>")),
+        slide(
+          "<h1>T</h1>",
+          textBox("<p>A</p>", "<p>B!</p>"),
+          '<div class="fmd-shape"></div>',
+        ),
+        [reveal("b", [1, 1])],
+      ),
+    ).toEqual([[1, 1]]);
+  });
+
+  it("keeps a reveal on a paragraph typed in and then ended with Enter", () => {
+    expect(
+      follow(
+        slide(textBox("<p>A</p>", "<p>B</p>")),
+        slide(textBox("<p>A</p>", "<p>B!</p>", "<p></p>")),
+        [reveal("b", [0, 1])],
+      ),
+    ).toEqual([[0, 1]]);
+  });
+
+  it("keeps a reveal on the first half of a bullet split with Enter and moves the reveal after it", () => {
+    expect(
+      follow(
+        slide("<ul><li>one</li><li>two three</li><li>four</li></ul>"),
+        slide("<ul><li>one</li><li>two</li><li>three</li><li>four</li></ul>"),
+        [reveal("two", [0, 1]), reveal("four", [0, 2])],
+      ),
+    ).toEqual([
+      [0, 1],
+      [0, 3],
+    ]);
+  });
+
+  it("pairs each edit of a multi-edit save on its own", () => {
+    const before = slide(textBox("<p>One</p>", "<p>Two</p>"));
+    const rewritten = slide(textBox("<p>One</p>", "<p>Second</p>"));
+    const after = slide(textBox("<p>One</p>", "<p>New</p>", "<p>Second</p>"));
+    const animations = [reveal("two", [0, 1])];
+
+    expect(refusalOf(() => follow(before, after, animations))).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+    });
+    expect(follow(before, after, animations, [rewritten, after])).toEqual([
+      [0, 2],
+    ]);
+  });
+
+  it("refuses a swap that also edits both elements, since their order no longer shows which is which", () => {
+    expect(
+      refusalOf(() =>
+        follow(
+          slide("<p>A</p>", "<p>B</p>", "<p>C</p>"),
+          slide("<p>B2</p>", "<p>A2</p>", "<p>C</p>"),
+          [reveal("b", [1])],
+        ),
+      ),
+    ).toMatchObject({ errorCode: "slide_animation_retargeted" });
+  });
+
+  it("refuses a rewrite into elements of other tags with no text in common", () => {
+    expect(
+      refusalOf(() =>
+        follow(
+          slide("<p>A</p>", "<p>B</p>"),
+          slide("<h2>X</h2>", '<img src="y.png">'),
+          [reveal("b", [1])],
+        ),
+      ),
+    ).toMatchObject({ errorCode: "slide_animation_retargeted" });
+  });
+
+  it("keeps a reveal on an element retagged in place", () => {
+    expect(
+      follow(slide("<p>A</p>", "<p>B</p>"), slide("<p>A</p>", "<h2>B</h2>"), [
+        reveal("b", [1]),
+      ]),
+    ).toEqual([[1]]);
   });
 });

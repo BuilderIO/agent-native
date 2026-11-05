@@ -884,6 +884,19 @@ function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   );
 }
 
+function sentPatchOperations(
+  fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+): unknown[] {
+  return fetchMock.mock.calls
+    .filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    )
+    .flatMap(([, init]) => {
+      const { operations } = actionCallBody(init);
+      return Array.isArray(operations) ? operations : [];
+    });
+}
+
 function actionCallBody(
   init: RequestInit | undefined,
 ): Record<string, unknown> {
@@ -2802,7 +2815,7 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   it("carries a slide's reveals along when an edit moves their elements", async () => {
-    const { setAccessibleDeck } = setupFetch();
+    const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -2841,6 +2854,84 @@ describe("DeckContext deck creation persistence", () => {
       ?.slides.find((candidate) => candidate.id === "slide-1");
     expect(slide?.animations).toEqual([
       { id: "b", type: "fade", elementIndex: 3, elementPath: [3] },
+    ]);
+
+    await act(async () => result.current.flushDeckSave(initial.id));
+    expect(sentPatchOperations(fetchMock).at(-1)).toMatchObject({
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: {
+        animations: [
+          { id: "b", type: "fade", elementIndex: 3, elementPath: [3] },
+        ],
+      },
+    });
+
+    act(() => result.current.undo(initial.id));
+    expect(result.current.getDeck(initial.id)?.slides[0]).toMatchObject({
+      content: initial.slides[0]?.content,
+      animations: [reveal],
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+    expect(sentPatchOperations(fetchMock).at(-1)).toMatchObject({
+      fields: { content: initial.slides[0]?.content, animations: [reveal] },
+    });
+  });
+
+  it("sends the reveal list with a batched save of typing and inserting a shape, so the server only checks that it resolves", async () => {
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 1,
+      elementPath: [1, 1],
+    };
+    const slideHtml = (box: string, extra = "") =>
+      `<div class="fmd-slide"><h1>T</h1><div class="text-box">${box}</div>${extra}</div>`;
+    const shape = '<div class="fmd-shape"></div>';
+    const initial: Deck = {
+      id: "reveal-batch-deck",
+      title: "Reveal batch deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("<p>A</p><p>B</p>"),
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: slideHtml("<p>A</p><p>B</p>", shape),
+      });
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: slideHtml("<p>A</p><p>B!</p>", shape) },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+
+    expect(sentPatchOperations(fetchMock)).toMatchObject([
+      {
+        fields: {
+          content: slideHtml("<p>A</p><p>B!</p>", shape),
+          animations: [reveal],
+        },
+      },
     ]);
   });
 

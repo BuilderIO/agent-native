@@ -2,7 +2,7 @@ import { fail } from "@agent-native/core/action";
 import { parseHTML } from "linkedom/worker";
 
 import {
-  matchSlideElements,
+  matchSlideElementsAcross,
   revealsAfterRootEdit,
 } from "../../app/lib/reveal-after-edit.js";
 import {
@@ -18,10 +18,15 @@ interface SlideAnimation extends AnimationTarget {
   id?: string;
 }
 
-/** The stored content and reveal list that a save replaces. */
+/**
+ * The stored content and reveal list that a save replaces. `steps` holds the
+ * content after each edit of a multi-edit save, so every edit is paired on its
+ * own instead of being diffed as one combined change.
+ */
 export interface SlideAnimationBaseline {
   content: string;
   animations: readonly SlideAnimation[];
+  steps?: readonly string[];
 }
 
 /**
@@ -116,10 +121,11 @@ function unresolvedIdentities(baseline: SlideAnimationBaseline): Set<string> {
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
+  baselineRoot: Element | null,
+  matched: ReadonlyMap<Element, Element>,
   root: Element,
   animations: readonly SlideAnimation[],
 ): number {
-  const baselineRoot = slideRootOf(baseline.content);
   if (!baselineRoot) {
     const baselineIds = new Set(baseline.animations.map(revealIdentity));
     return resolveRevealSteps(root, animations).findIndex(
@@ -127,7 +133,6 @@ function retargetedRevealIndex(
         outcome.ok && baselineIds.has(revealIdentity(animations[index]!)),
     );
   }
-  const matched = matchSlideElements(baselineRoot, root);
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
@@ -144,6 +149,22 @@ function retargetedRevealIndex(
     if (prior === undefined) return false;
     return prior === null || matched.get(prior) !== outcome.element;
   });
+}
+
+// A step without a slide root pairs nothing, so no reveal survives it.
+function matchAcrossSteps(
+  baselineRoot: Element,
+  steps: readonly string[],
+  root: Element,
+): Map<Element, Element> {
+  const roots = [baselineRoot];
+  for (const step of steps) {
+    const stepRoot = slideRootOf(step);
+    if (!stepRoot) return new Map();
+    roots.push(stepRoot);
+  }
+  roots.push(root);
+  return matchSlideElementsAcross(roots);
 }
 
 export function summarizeSlideAnimationTargets(
@@ -223,11 +244,14 @@ export function assertSlideAnimationsResolve<T extends SlideAnimation>({
   followContent?: boolean;
 }): { animations: T[]; repointed: RepointedReveal[] } {
   const root = slideRootOf(content);
-  const baselineRoot =
-    followContent && baseline && root ? slideRootOf(baseline.content) : null;
-  const animations =
+  const baselineRoot = baseline && root ? slideRootOf(baseline.content) : null;
+  const matched =
     baselineRoot && root
-      ? revealsAfterRootEdit(baselineRoot, root, requested)
+      ? matchAcrossSteps(baselineRoot, baseline?.steps ?? [], root)
+      : new Map<Element, Element>();
+  const animations =
+    followContent && baselineRoot && root
+      ? revealsAfterRootEdit(baselineRoot, root, requested, matched)
       : [...requested];
   const repointed: RepointedReveal[] = [];
   animations.forEach((animation, animationIndex) => {
@@ -285,7 +309,15 @@ export function assertSlideAnimationsResolve<T extends SlideAnimation>({
   );
   if (!failure) {
     const retargeted =
-      baseline && root ? retargetedRevealIndex(baseline, root, animations) : -1;
+      baseline && root
+        ? retargetedRevealIndex(
+            baseline,
+            baselineRoot,
+            matched,
+            root,
+            animations,
+          )
+        : -1;
     if (retargeted === -1) return result;
     const moved = animations[retargeted]!;
     refuse(

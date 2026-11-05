@@ -874,7 +874,7 @@ describe("update-slide", () => {
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent:
-          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>New</p><p>Two edited</p></div></div>',
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>New</p><p>Rewritten</p></div></div>',
       }),
     ).rejects.toMatchObject({
       errorCode: "slide_animation_retargeted",

@@ -1492,9 +1492,11 @@ function slideAnimationRefusalSlideId(error: unknown): string | null {
   return typeof slideId === "string" ? slideId : null;
 }
 
-// A content edit that moves elements carries its reveals along, so a reveal keeps
-// its element instead of the save refusing it as retargeted. An update that sets
-// animations itself already placed them.
+// Every content edit sends its slide's reveal list, each reveal moved to the
+// element its target became in this one edit. A save collapses a slide's batched
+// ops into one, so without the list the server would pair elements across the
+// combined change, and a later op without a list would keep an earlier op's list
+// for content it no longer matches. An update that sets animations placed them.
 function withRevealsFollowingContent(
   previousSlide: Slide | undefined,
   updates: Partial<Omit<Slide, "id">>,
@@ -1506,16 +1508,14 @@ function withRevealsFollowingContent(
   ) {
     return updates;
   }
-  const animations = revealsAfterEdit(
-    previousSlide.content,
-    updates.content,
-    previousSlide.animations,
-  );
-  return animations.every(
-    (animation, index) => animation === previousSlide.animations?.[index],
-  )
-    ? updates
-    : { ...updates, animations };
+  return {
+    ...updates,
+    animations: revealsAfterEdit(
+      previousSlide.content,
+      updates.content,
+      previousSlide.animations,
+    ),
+  };
 }
 
 // Only the refused slide reverts. Other slides' edits in the same batch are re-queued,

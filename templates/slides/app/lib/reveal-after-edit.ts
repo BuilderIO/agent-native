@@ -36,6 +36,84 @@ function commonSubsequence<T>(
   return pairs;
 }
 
+/**
+ * How much of their text two elements share at its start and end, ranked by the
+ * shared start first: splitting an element keeps the original's start on the
+ * first half. 0 unless the shared text covers at least half the shorter text,
+ * so a common word or letter does not make unrelated elements look alike.
+ */
+function textAffinity(a: Element, b: Element): number {
+  const x = a.textContent.trim();
+  const y = b.textContent.trim();
+  let start = 0;
+  while (start < x.length && start < y.length && x[start] === y[start]) {
+    start++;
+  }
+  let end = 0;
+  while (
+    end < x.length - start &&
+    end < y.length - start &&
+    x[x.length - 1 - end] === y[y.length - 1 - end]
+  ) {
+    end++;
+  }
+  const shared = start + end;
+  if (shared === 0 || shared * 2 < Math.min(x.length, y.length)) return 0;
+  // Slide text is far shorter than this, so any shared start outranks any end.
+  return start * 1_000_000 + end;
+}
+
+function sharesChild(a: Element, b: Element): boolean {
+  const html = new Set(getPersistedChildren(b).map((child) => child.outerHTML));
+  return getPersistedChildren(a).some((child) => html.has(child.outerHTML));
+}
+
+/**
+ * Pairs the edited elements of a gap between unchanged siblings. An old element
+ * pairs with the new one it shares the most text with when each is the other's
+ * only best match. With no text in common anywhere in its row and column, an
+ * element pairs with the one at its position when the gap kept its length and
+ * the two still look alike (same tag, or a shared child). A pair that crosses
+ * another is a reorder whose pairing is a guess, so neither is kept.
+ */
+function pairGap(
+  gapOld: readonly Element[],
+  gapNew: readonly Element[],
+): [Element, Element][] {
+  const scores = gapOld.map((old) =>
+    gapNew.map((next) => textAffinity(old, next)),
+  );
+  const score = (i: number, j: number) => scores.at(i)?.at(j) ?? 0;
+  const candidates: [number, number][] = [];
+  gapOld.forEach((old, i) => {
+    const row = gapNew.map((_, j) => score(i, j));
+    const best = Math.max(0, ...row);
+    if (best > 0) {
+      const j = row.indexOf(best);
+      const unique =
+        row.filter((value) => value === best).length === 1 &&
+        gapOld.every((_, k) => k === i || score(k, j) < best);
+      if (unique) candidates.push([i, j]);
+      return;
+    }
+    const next = gapNew.at(i);
+    if (
+      next &&
+      gapOld.length === gapNew.length &&
+      gapOld.every((_, k) => score(k, i) === 0) &&
+      (old.tagName === next.tagName || sharesChild(old, next))
+    ) {
+      candidates.push([i, i]);
+    }
+  });
+  return candidates.flatMap(([i, j]) => {
+    const old = gapOld.at(i);
+    const next = gapNew.at(j);
+    const crosses = candidates.some(([k, l]) => (k - i) * (l - j) < 0);
+    return old && next && !crosses ? [[old, next] as [Element, Element]] : [];
+  });
+}
+
 function htmlCounts(root: Element): Map<string, number> {
   const counts = new Map<string, number>();
   for (const element of root.querySelectorAll("*")) {
@@ -47,10 +125,13 @@ function htmlCounts(root: Element): Map<string, number> {
 /**
  * Pairs each element of the `before` slide root with the element it became in
  * `after`. An element with no pair was removed, or cannot be told apart from
- * an identical sibling. Unchanged subtrees pair first; an edited element pairs
- * with the one that took its place when no sibling was added or removed beside it; a moved element (grouped, reordered) pairs
- * only when its HTML is unique on both sides, so a move is never mistaken for
- * an edit of whatever now sits at its old position.
+ * what replaced it. Unchanged subtrees pair first, and identical siblings pair
+ * in order, so of two identical copies the first is assumed to be the original.
+ * An edited element pairs with the element between the same unchanged
+ * siblings that it still resembles (see pairGap).
+ * A moved element (grouped, reordered) pairs only when its HTML is unique on
+ * both sides, so a move is never mistaken for an edit of whatever now sits at
+ * its old position.
  */
 export function matchSlideElements(
   before: Element,
@@ -97,13 +178,8 @@ export function matchSlideElements(
       const gapNew = news
         .slice(newStart, newEnd)
         .filter((element) => !beforeCounts.has(element.outerHTML));
-      // Only a gap that kept its length pairs edits in place: with an element
-      // removed or added, which old element an edited one came from is a guess.
-      if (gapOld.length === gapNew.length) {
-        gapOld.forEach((element, index) => {
-          const counterpart = gapNew.at(index);
-          if (counterpart) align(element, counterpart);
-        });
+      for (const [element, counterpart] of pairGap(gapOld, gapNew)) {
+        align(element, counterpart);
       }
       const oldAnchor = olds.at(oldEnd);
       const newAnchor = news.at(newEnd);
@@ -156,14 +232,40 @@ export function revealsAfterEdit<T extends AnimationTarget>(
   return revealsAfterRootEdit(beforeRoot, afterRoot, animations);
 }
 
+/**
+ * {@link matchSlideElements} across a slide that went through each root in
+ * turn, so every edit is paired on its own instead of as one combined change.
+ */
+export function matchSlideElementsAcross(
+  roots: readonly Element[],
+): Map<Element, Element> {
+  let matched: Map<Element, Element> | undefined;
+  for (const [index, root] of roots.entries()) {
+    const previous = roots.at(index - 1);
+    if (index === 0 || !previous) continue;
+    const step = matchSlideElements(previous, root);
+    matched = matched
+      ? new Map(
+          [...matched].flatMap(([element, current]) => {
+            const counterpart = step.get(current);
+            return counterpart ? [[element, counterpart] as const] : [];
+          }),
+        )
+      : step;
+  }
+  return matched ?? new Map();
+}
+
 /** {@link revealsAfterEdit} for slide roots the caller already parsed. */
 export function revealsAfterRootEdit<T extends AnimationTarget>(
   beforeRoot: Element,
   afterRoot: Element,
   animations: readonly T[],
+  matched: ReadonlyMap<Element, Element> = matchSlideElements(
+    beforeRoot,
+    afterRoot,
+  ),
 ): T[] {
-  const matched = matchSlideElements(beforeRoot, afterRoot);
-
   return animations.map((animation) => {
     const target = resolveSlideAnimationElement(beforeRoot, animation);
     const counterpart = target ? matched.get(target) : undefined;

@@ -1241,13 +1241,17 @@ export function slideContents(deck: any): Map<string, string> {
 // Reveal objects are replaced, never mutated, so a shallow copy is a true baseline.
 export function slideAnimationBaselines(
   deck: any,
-): Map<string, SlideAnimationBaseline> {
-  const baselines = new Map<string, SlideAnimationBaseline>();
+): Map<string, SlideAnimationBaseline & { steps: string[] }> {
+  const baselines = new Map<
+    string,
+    SlideAnimationBaseline & { steps: string[] }
+  >();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
     if (typeof slide?.id !== "string") continue;
     baselines.set(slide.id, {
       content: typeof slide.content === "string" ? slide.content : "",
       animations: Array.isArray(slide.animations) ? [...slide.animations] : [],
+      steps: [],
     });
   }
   return baselines;
@@ -1734,6 +1738,16 @@ export default defineAction({
           sourceContentHashes,
         });
         structuralOperationApplied ||= operationChangedStructure;
+        if (op.op === "patch-slide" && op.fields.content !== undefined) {
+          const patched = (
+            deck.slides as Array<{ id?: string; content?: unknown }>
+          ).find((slide) => slide.id === op.slideId);
+          animationBaselinesBeforeOperations
+            .get(op.slideId)
+            ?.steps.push(
+              typeof patched?.content === "string" ? patched.content : "",
+            );
+        }
         if (
           existedBeforeDelete &&
           !(deck.slides as Array<{ id?: string }>).some(
