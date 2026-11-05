@@ -1,5 +1,24 @@
 # @agent-native/toolkit
 
+## 0.224.0
+
+### Minor Changes
+
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+- 810b9e0: Two writers changing one record no longer silently overwrite each other. Core adds `saveIfCurrent` in `@agent-native/core/save-conflict/server`, which writes only when the record still has the revision the caller read and otherwise throws a typed `save_conflict` carrying the current value, and `saveWithMerge` in `@agent-native/core/save-conflict`, which merges and saves again before asking anyone. Toolkit adds `useSaveConflictPrompt` in `@agent-native/toolkit/app/save-conflict`, the one prompt for when both writers changed the same field. Forms, Clips and Mail use them first.
+
+### Patch Changes
+
+- aa0b323: Keep the caret on a block dragged downward with the drag handle, instead of the block after it.
+- Release all public npm packages with a patch version bump.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- Updated dependencies
+  - @agent-native/agentkit@0.224.0
+
 ## 0.223.1
 
 ### Patch Changes
@@ -1573,12 +1592,5 @@
 
 - 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
 - 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.1
-
-### Patch Changes
-
-- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
-- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
