@@ -492,6 +492,7 @@ import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import { toolCallInputSignature } from "./tool-call-input-signature.js";
 import {
   ambiguousLegacyCallEffectKey,
+  buildResumeJournalNote,
   findAmbiguousLegacyJournalEntryForCall,
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
@@ -4572,6 +4573,7 @@ interface DurableExecutionStepOutcome {
   completedSideEffect: boolean;
   replayTruncated?: boolean;
   actionSettled?: true;
+  settledOnCleanToolStop?: true;
   hasAgentWarnings?: true;
   artifacts?: ArtifactReceipt[];
   receipt?: WriteReceipt;
@@ -8098,8 +8100,42 @@ export async function runAgentLoop(opts: {
     toolCallJournal &&
     toolCallJournal.interrupted.length === 0
   ) {
-    const lastMessage = journalHistory.at(-1);
-    const previousMessage = journalHistory.at(-2);
+    const tail = journalHistory.at(-1);
+    const continuationText =
+      tail?.role === "user" &&
+      tail.content.length === 1 &&
+      tail.content[0]?.type === "text"
+        ? tail.content[0].text
+        : undefined;
+    const journalNote = buildResumeJournalNote(toolCallJournal);
+    const safeContinuation =
+      continuationText !== undefined &&
+      (
+        [
+          "run_timeout",
+          "loop_limit",
+          "stream_ended",
+          "gateway_timeout",
+          "rate_limited",
+          "network_interrupted",
+          "no_progress",
+        ] as const
+      ).some((reason) =>
+        [undefined, journalNote ?? undefined].some((note) => {
+          const expected: EngineMessage[] = [];
+          appendAgentLoopContinuation(
+            expected,
+            reason,
+            note ? { journalNote: note } : {},
+          );
+          return (
+            expected[0]?.content[0]?.type === "text" &&
+            expected[0].content[0].text === continuationText
+          );
+        }),
+      );
+    const lastMessage = journalHistory.at(safeContinuation ? -2 : -1);
+    const previousMessage = journalHistory.at(safeContinuation ? -3 : -2);
     const pairs = matchToolCallResultsInHistory(journalHistory);
     const calls =
       previousMessage?.role === "assistant"
@@ -8129,6 +8165,7 @@ export async function runAgentLoop(opts: {
           calls.includes(pair.call) &&
           entries.length === 1 &&
           entries[0]?.actionSettled === true &&
+          entries[0].settledOnCleanToolStop === true &&
           !entries[0].isError
         );
       }) &&
@@ -9417,6 +9454,7 @@ export async function runAgentLoop(opts: {
     consecutiveMaxTokensContinuations = 0;
 
     const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
+    const toolCallHasCleanStop = terminalStopReason === "tool_use";
     if (toolCallTruncatedByOutputCap) {
       if (truncatedToolCallRetries < TRUNCATED_TOOL_CALL_RETRY_LIMIT) {
         truncatedToolCallRetries += 1;
@@ -10443,8 +10481,13 @@ export async function runAgentLoop(opts: {
           ...(receipt ? { receipt } : {}),
           ...(outcome.isError === false &&
           outcome.actionSettled === true &&
+          outcome.settledOnCleanToolStop === true &&
+          toolCallHasCleanStop &&
           outcome.replayTruncated !== true
-            ? { actionSettled: true as const }
+            ? {
+                actionSettled: true as const,
+                settledOnCleanToolStop: true as const,
+              }
             : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(chatUI ? { chatUI } : {}),
@@ -10459,6 +10502,7 @@ export async function runAgentLoop(opts: {
           outcome.isError === false &&
           typeof outcome.completedSideEffect === "boolean" &&
           outcome.actionSettled === true &&
+          outcome.settledOnCleanToolStop === true &&
           outcome.replayTruncated !== true
         ) {
           settledToolCalls.add(originalToolCall);
@@ -10596,8 +10640,14 @@ export async function runAgentLoop(opts: {
             ...(replayedFailure ? { isError: true } : {}),
             ...(journaled.errorCode ? { errorCode: journaled.errorCode } : {}),
             ...(journaled.receipt ? { receipt: journaled.receipt } : {}),
-            ...(!replayedFailure && journaled.actionSettled
-              ? { actionSettled: true as const }
+            ...(!replayedFailure &&
+            journaled.actionSettled &&
+            journaled.settledOnCleanToolStop &&
+            toolCallHasCleanStop
+              ? {
+                  actionSettled: true as const,
+                  settledOnCleanToolStop: true as const,
+                }
               : {}),
             completedSideEffect: true,
             replayed: true,
@@ -10622,7 +10672,11 @@ export async function runAgentLoop(opts: {
             journaled.receipt,
             false,
           );
-          if (!replayedFailure && journaled.actionSettled)
+          if (
+            !replayedFailure &&
+            journaled.actionSettled &&
+            journaled.settledOnCleanToolStop
+          )
             settledToolCalls.add(originalToolCall);
           if (!replayedFailure) {
             noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
@@ -11493,7 +11547,7 @@ export async function runAgentLoop(opts: {
           settlementOnReturn &&
           !requiresNextAction &&
           callEffect !== "unknown" &&
-          !toolCallTruncatedByOutputCap &&
+          toolCallHasCleanStop &&
           agentWarnings.length === 0 &&
           !writeReceiptGuard(
             receipt ? [{ tool: toolCall.name, ...receipt }] : [],
@@ -11567,7 +11621,10 @@ export async function runAgentLoop(opts: {
                   : {}),
                 completedSideEffect: callEffect === "committed",
                 ...(!isPrivateCall() && actionSettled
-                  ? { actionSettled: true as const }
+                  ? {
+                      actionSettled: true as const,
+                      settledOnCleanToolStop: true as const,
+                    }
                   : {}),
                 ...(agentWarnings.length > 0
                   ? { hasAgentWarnings: true as const }
@@ -11619,7 +11676,12 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
           ...(receipt ? { receipt } : {}),
-          ...(actionSettled ? { actionSettled: true as const } : {}),
+          ...(actionSettled
+            ? {
+                actionSettled: true as const,
+                settledOnCleanToolStop: true as const,
+              }
+            : {}),
           ...(agentWarnings.length > 0
             ? { hasAgentWarnings: true as const }
             : {}),
@@ -11846,7 +11908,7 @@ export async function runAgentLoop(opts: {
         await deliverSteeredMessagesAtToolBoundary(toolResultParts);
       settlementCandidate =
         delivered === 0 &&
-        !toolCallTruncatedByOutputCap &&
+        toolCallHasCleanStop &&
         followUpResults.length === 0 &&
         toolCallParts.length > 0 &&
         toolCallParts.every((call) => settledToolCalls.has(call)) &&

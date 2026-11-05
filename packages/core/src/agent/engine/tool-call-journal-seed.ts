@@ -207,8 +207,9 @@ function durableStepToolDone(
     ...(receipt ? { receipt } : {}),
     ...(!outcome.isError &&
     outcome.actionSettled === true &&
+    outcome.settledOnCleanToolStop === true &&
     outcome.replayTruncated !== true
-      ? { actionSettled: true as const }
+      ? { actionSettled: true as const, settledOnCleanToolStop: true as const }
       : {}),
     ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,

@@ -22504,6 +22504,8 @@ describe("runAgentLoop", () => {
     "critical warning",
     "prior critical warning",
     "truncated tool round",
+    "tool round missing stop",
+    "tool round ends without tool-use stop",
     "failed receipt",
     "unverified receipt",
     "next action required",
@@ -22596,11 +22598,17 @@ describe("runAgentLoop", () => {
                 : []),
             ],
           };
-          yield {
-            type: "stop",
-            reason:
-              scenario === "truncated tool round" ? "max_tokens" : "tool_use",
-          };
+          if (scenario !== "tool round missing stop") {
+            yield {
+              type: "stop",
+              reason:
+                scenario === "truncated tool round"
+                  ? "max_tokens"
+                  : scenario === "tool round ends without tool-use stop"
+                    ? "end_turn"
+                    : "tool_use",
+            };
+          }
         } else if (streamCalls === 2 && scenario === "prior critical warning") {
           yield {
             type: "assistant-content",
@@ -22662,6 +22670,14 @@ describe("runAgentLoop", () => {
         }),
     );
     expect(save).toHaveBeenCalledTimes(1);
+    if (
+      scenario === "tool round missing stop" ||
+      scenario === "tool round ends without tool-use stop"
+    ) {
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "tool_done", actionSettled: true }),
+      );
+    }
     if (parallel || scenario === "prior critical warning")
       expect(other).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBeGreaterThanOrEqual(3);

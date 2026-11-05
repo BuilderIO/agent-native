@@ -38,6 +38,7 @@ export interface ToolCallJournalEntry {
   errorCode?: string;
   receipt?: WriteReceipt;
   actionSettled?: true;
+  settledOnCleanToolStop?: true;
   /** The call recorded a completed side effect, its own or a nested call's. */
   committed?: true;
   /** Exact identity of the arguments the call ran with, defaults applied. */
@@ -390,6 +391,7 @@ function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
       entry.errorCode,
       entry.receipt,
       entry.actionSettled,
+      entry.settledOnCleanToolStop,
       entry.committed,
       entry.outcomeUnknown,
       entry.artifacts,
@@ -502,8 +504,11 @@ export function classifyToolCallJournal(
         if (event.errorCode) entry.errorCode = event.errorCode;
         const receipt = readWriteReceipt({ _receipt: event.receipt });
         if (receipt) entry.receipt = receipt;
-        if (event.actionSettled === true && event.isError !== true)
+        if (event.actionSettled === true && event.isError !== true) {
           entry.actionSettled = true;
+          if (event.settledOnCleanToolStop === true)
+            entry.settledOnCleanToolStop = true;
+        }
         if (event.completedSideEffect === true) entry.committed = true;
         if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);

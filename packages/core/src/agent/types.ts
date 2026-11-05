@@ -466,6 +466,8 @@ type AgentChatEventPayload =
       receipt?: WriteReceipt;
       /** A successful invocation explicitly settled its work. */
       actionSettled?: true;
+      /** The model completed the tool-call round before the action ran. */
+      settledOnCleanToolStop?: true;
       /** The action emitted warnings the model must reconcile. */
       hasAgentWarnings?: true;
       /**

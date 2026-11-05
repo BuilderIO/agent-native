@@ -71,6 +71,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
 const {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+  appendAgentLoopContinuation,
   runAgentLoop,
 } = await import("./production-agent.js");
 
@@ -272,40 +273,42 @@ describe("durable execution step replay", () => {
     if (!step) throw new Error("Expected completed step");
     const resumeSeen: string[] = [];
     const resumeEvents: AgentChatEvent[] = [];
+    const resumeMessages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "step-1",
+            name: "create-deck",
+            input: {},
+            executionStepId: step.stepId,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "step-1",
+            toolName: "create-deck",
+            toolInput: "{}",
+            content: "Deck saved",
+            executionStepId: step.stepId,
+          },
+        ],
+      },
+    ];
+    appendAgentLoopContinuation(resumeMessages, "stream_ended");
     await withExecutionFence(fence, () =>
       runAgentLoop({
         engine: engineFor([[], [text("Continued.")]], resumeSeen),
         model: "test-model",
         systemPrompt: "system",
         tools: [],
-        messages: [
-          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "tool-call",
-                id: "step-1",
-                name: "create-deck",
-                input: {},
-                executionStepId: step.stepId,
-              },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool-result",
-                toolCallId: "step-1",
-                toolName: "create-deck",
-                toolInput: "{}",
-                content: "Deck saved",
-                executionStepId: step.stepId,
-              },
-            ],
-          },
-        ],
+        messages: resumeMessages,
         actions: { "create-deck": action },
         threadId: fence.threadId,
         turnId: fence.turnId,
@@ -319,43 +322,79 @@ describe("durable execution step replay", () => {
       type: "done",
       reason: "action_settled",
     });
+    const { buildResumeJournalNote } = await import("./tool-call-journal.js");
+    if (!journal.toolCallJournal) throw new Error("Expected recovered journal");
+    const journalNote = buildResumeJournalNote(journal.toolCallJournal);
+    if (!journalNote) throw new Error("Expected journal note");
+    for (const actionPreparationTool of [undefined, "create-deck"]) {
+      const messages = structuredClone(resumeMessages.slice(0, -1));
+      appendAgentLoopContinuation(messages, "stream_ended", {
+        journalNote,
+        ...(actionPreparationTool ? { actionPreparationTool } : {}),
+      });
+      const resumed: string[] = [];
+      const events: AgentChatEvent[] = [];
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[], [text("Continued.")]], resumed),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages,
+          actions: { "create-deck": action },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          recoverCompletedExecutionSteps: true,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+      expect(resumed).toHaveLength(actionPreparationTool ? 2 : 1);
+      expect(events.at(-1)).toEqual(
+        actionPreparationTool
+          ? { type: "done" }
+          : { type: "done", reason: "action_settled" },
+      );
+    }
     const steeredSeen: string[] = [];
     const steeredEvents: AgentChatEvent[] = [];
+    const steeredMessages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "step-1",
+            name: "create-deck",
+            input: {},
+            executionStepId: step.stepId,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "step-1",
+            toolName: "create-deck",
+            toolInput: "{}",
+            content: "Deck saved",
+            executionStepId: step.stepId,
+          },
+          { type: "text", text: "Also change the title" },
+        ],
+      },
+    ];
+    appendAgentLoopContinuation(steeredMessages, "stream_ended");
     await withExecutionFence(fence, () =>
       runAgentLoop({
         engine: engineFor([[], [text("Continued.")]], steeredSeen),
         model: "test-model",
         systemPrompt: "system",
         tools: [],
-        messages: [
-          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "tool-call",
-                id: "step-1",
-                name: "create-deck",
-                input: {},
-                executionStepId: step.stepId,
-              },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool-result",
-                toolCallId: "step-1",
-                toolName: "create-deck",
-                toolInput: "{}",
-                content: "Deck saved",
-                executionStepId: step.stepId,
-              },
-              { type: "text", text: "Also change the title" },
-            ],
-          },
-        ],
+        messages: steeredMessages,
         actions: { "create-deck": action },
         threadId: fence.threadId,
         turnId: fence.turnId,
@@ -367,6 +406,32 @@ describe("durable execution step replay", () => {
     expect(steeredSeen).toHaveLength(2);
     expect(steeredEvents).toContainEqual({ type: "text", text: "Continued." });
     expect(steeredEvents).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    const oldOutcome = JSON.parse(step.resultJson);
+    delete oldOutcome.settledOnCleanToolStop;
+    step.resultJson = JSON.stringify(oldOutcome);
+    const oldSeen: string[] = [];
+    const oldEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Continued.")]], oldSeen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: structuredClone(resumeMessages),
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => oldEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(oldSeen).toHaveLength(2);
+    expect(oldEvents).not.toContainEqual({
       type: "done",
       reason: "action_settled",
     });
