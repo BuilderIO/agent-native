@@ -582,6 +582,8 @@ async function downloadDeckPdf(
     await waitForDocumentFonts(signal);
     throwIfExportAborted(signal);
     for (let i = 0; i < slides.length; i++) {
+      // A macrotask, not a frame: rAF stalls while the tab is hidden and would hang the export.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       throwIfExportAborted(signal);
       const slideId = slides[i].id;
       const source = findSlideExportSource(
