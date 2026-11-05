@@ -453,11 +453,15 @@ function initToolbar(): void {
       const resume = state.phase === "paused";
       const command = resume ? "CLIPS_OVERLAY_RESUME" : "CLIPS_OVERLAY_PAUSE";
       pauseCommandPending = true;
+      stateRevision++;
+      const now = Date.now();
+      if (resume) state.baseEpochMs = now;
+      else state.baseElapsedMs += Math.max(0, now - state.baseEpochMs);
       state.phase = resume ? "recording" : "paused";
       toolbarRender?.();
-      send(command, {}, (ok) => {
+      send(command, {}, () => {
         pauseCommandPending = false;
-        if (!ok) sendHello();
+        sendHello();
       });
     },
     true,
@@ -532,6 +536,7 @@ const state: OverlayState = {
   countdownEndsAtMs: 0,
 };
 let toolbarRender: (() => void) | null = null;
+let stateRevision = 0;
 
 function applyOverlayState(next: Partial<OverlayState> | undefined): void {
   if (!next) return;
@@ -549,14 +554,16 @@ function applyOverlayState(next: Partial<OverlayState> | undefined): void {
 // runtime broadcasts, so the HELLO reply is the only way a reloaded toolbar
 // learns how long the recording has been running.
 function sendHello(): void {
-  send("CLIPS_OVERLAY_HELLO", { part }, (_ok, response) => {
-    applyOverlayState(response?.state);
+  const revision = stateRevision;
+  send("CLIPS_OVERLAY_HELLO", { part }, (ok, response) => {
+    if (ok && revision === stateRevision) applyOverlayState(response?.state);
   });
 }
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return;
   if ((message as { type?: unknown }).type !== "CLIPS_OVERLAY_STATE") return;
+  stateRevision++;
   applyOverlayState((message as { state?: Partial<OverlayState> }).state);
 });
 
