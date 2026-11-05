@@ -4744,3 +4744,95 @@ isFavorite: true
     );
   },
 );
+
+describe.skipIf(!POSTGRES_URL)("Deleting a comment thread", () => {
+  /** Holds an Ask AI request's row lock, as the AI's own writes take it. */
+  async function holdAiRequest(id: string) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const done = getDb().transaction(async (tx) => {
+      await tx
+        .select({ id: schema.commentAiRequests.id })
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, id))
+        .for("update");
+      held();
+      await released;
+    });
+    await Promise.race([
+      holding,
+      done.then(() => {
+        throw new Error("The holder ended before it held its row.");
+      }),
+    ]);
+    return { release, done };
+  }
+
+  it("refuses at once, rather than waiting, while the AI holds one of its requests", async () => {
+    (await import("../server/plugins/suggested-edits.js")).default();
+    const deleteComment = (await import("./delete-comment.js")).default;
+    const key = fixtureKey();
+    const page = `${key}_page`;
+    const root = `${key}_root`;
+    const request = `${key}_request`;
+    await getDb()
+      .insert(schema.documents)
+      .values(pageValues(page, null, "Comment thread"));
+    await getDb().insert(schema.documentComments).values({
+      id: root,
+      ownerEmail: OWNER,
+      documentId: page,
+      threadId: root,
+      content: "Asked the AI",
+      authorEmail: OWNER,
+    });
+    await getDb().insert(schema.commentAiRequests).values({
+      id: request,
+      ownerEmail: OWNER,
+      requesterEmail: OWNER,
+      documentId: page,
+      threadId: root,
+      rootCommentId: root,
+      fieldId: "body",
+      intent: "suggest",
+      status: "needs-review",
+      threadDigest: "digest",
+      snapshotJson: "[]",
+      baseRevision: "base",
+      suggestionRevision: "suggestion",
+    });
+    const remove = () =>
+      asOwner(() => deleteComment.run({ id: root, documentId: page }, agent));
+
+    // Saving a suggestion locks its request and then the thread's comments,
+    // so a delete that waited here while holding the thread could deadlock.
+    const holder = await holdAiRequest(request);
+    try {
+      const outcome = await Promise.race([
+        remove().then(
+          () => "deleted",
+          (error: unknown) => error,
+        ),
+        sleep(5_000).then(() => "waited"),
+      ]);
+      expect(outcome).toMatchObject({ errorCode: "comment_ai_already_active" });
+    } finally {
+      holder.release();
+      await holder.done;
+    }
+
+    await remove();
+    expect(
+      await getDb()
+        .select({ id: schema.commentAiRequests.id })
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, request)),
+    ).toEqual([]);
+  });
+});

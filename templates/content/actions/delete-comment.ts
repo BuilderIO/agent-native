@@ -42,6 +42,24 @@ const refusePendingAiSuggestion = (): never =>
     { statusCode: 409, errorCode: "comment_ai_suggestion_pending" },
   );
 
+const refuseActiveAi = (): never =>
+  fail("Stop the AI working on this thread before deleting it", {
+    statusCode: 409,
+    errorCode: "comment_ai_already_active",
+  });
+
+/** Whether a NOWAIT lock failed because another transaction holds the row. */
+function isLockNotAvailable(error: unknown) {
+  let current = error;
+  // Drizzle wraps the driver's error in `cause`.
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!current || typeof current !== "object") return false;
+    if ((current as { code?: unknown }).code === "55P03") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export default defineAction({
   description:
     "Delete a document comment. Deleting a thread's first comment deletes the whole thread with its replies. Authors can delete their own replies, and a thread no one else has commented in; otherwise editor access is required. A comment synced with Notion is deleted in Notion instead. A thread can't be deleted while the AI works on it or while its AI suggestion waits for review.",
@@ -149,9 +167,12 @@ export default defineAction({
       }
       let requestIds: string[] = [];
       if (deletesThread) {
-        // Each Ask AI request keeps a copy of the thread. Locked, as resuming
-        // one locks it, so a resume either commits first and shows as active
-        // here, or waits and then finds its request gone.
+        // Each Ask AI request keeps a copy of the thread. Locked without
+        // waiting: one another transaction holds is the AI at work on it
+        // (resuming it, saving its suggestion, resolving the thread), and
+        // some of those lock the thread's comments next, so waiting for it
+        // while holding the thread could deadlock. A resume that comes after
+        // waits for this delete and then finds its request gone.
         const requests = await tx
           .select({
             id: schema.commentAiRequests.id,
@@ -164,12 +185,13 @@ export default defineAction({
               eq(schema.commentAiRequests.threadId, threadId),
             ),
           )
-          .for("update");
-        if (requests.some(({ status }) => ACTIVE_AI_STATUSES.has(status))) {
-          fail("Stop the AI working on this thread before deleting it", {
-            statusCode: 409,
-            errorCode: "comment_ai_already_active",
+          .for("update", { noWait: true })
+          .catch((error: unknown) => {
+            if (isLockNotAvailable(error)) refuseActiveAi();
+            throw error;
           });
+        if (requests.some(({ status }) => ACTIVE_AI_STATUSES.has(status))) {
+          refuseActiveAi();
         }
         // Again under the lock, which saving a suggestion also takes, in case
         // a request finished with one since the check above.
