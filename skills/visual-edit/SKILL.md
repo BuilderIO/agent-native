@@ -19,13 +19,13 @@ The editor is hosted at `https://design.agent-native.com`. Never start local
 Design; only the target app and bridge run locally.
 
 See the [Visual Edit guide](https://github.com/BuilderIO/agent-native/blob/main/skills/visual-edit/README.md)
-for a worked onboarding-flow example.
+for an onboarding-flow example.
 
 ## Fast local startup
 
 - Do not install this skill into the target app or start a local Design server.
   The skill belongs to the coding host; Design is always the hosted app above.
-- If you need to start an Agent-Native framework app yourself, use
+- If you need to start an Agent-Native framework app, use
   `AUTH_DISABLED=1` with its normal dev command. This is local-only and gives
   the visual editor the framework's dev identity without a user login.
 - If an agent-owned local server redirects a requested screen to `/sign-in`,
@@ -37,8 +37,8 @@ for a worked onboarding-flow example.
   localhost URL in the canvas.
 - Preserve a server you did not start; use its existing authenticated browser
   session or explain that the target app, rather than Design, requires login.
-- When the user gives explicit paths, skip route inventory and place those
-  paths directly. Discover routes only when paths were not supplied.
+- Given explicit paths, skip route inventory and place those paths directly.
+  Discover routes only without supplied paths.
 
 ## Installation
 

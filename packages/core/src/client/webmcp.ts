@@ -647,7 +647,7 @@ export function createAgentNativeWebMcpClient(
     const usesPolyfill =
       (context as { __isWebMCPPolyfill?: unknown }).__isWebMCPPolyfill === true;
     const userAgent = getDocument(options.document)?.defaultView?.navigator
-      ?.userAgent;
+      .userAgent;
     const usesLegacyChrome =
       typeof context.codexExecuteTool !== "function" &&
       typeof context.codexGetTools !== "function" &&
