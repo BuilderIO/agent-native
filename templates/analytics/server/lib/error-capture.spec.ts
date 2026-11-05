@@ -1982,6 +1982,33 @@ describe("error ingest flood control", () => {
     expect(await events()).toHaveLength(22);
   });
 
+  it("samples each kind of traffic on its own once an issue is hot", async () => {
+    const at = (n: number, url: string | null) =>
+      derivedFor({
+        userKey: "same-user",
+        anonymousId: "same-user",
+        sessionId: `s${n}`,
+        url,
+      });
+    const production = "https://app.example.com/dashboard";
+    const beta = "https://beta.app.example.com/dashboard";
+    for (let i = 0; i < 21; i += 1) {
+      await ingestException(SCOPE, baseRaw(), at(i, production));
+    }
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(21, production));
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(22, beta));
+    expect(await events()).toHaveLength(22);
+    await ingestException(SCOPE, baseRaw(), at(23, beta));
+    expect(await events()).toHaveLength(22);
+
+    const [issue] = await issues();
+    expect(issue.eventCount).toBe(24);
+  });
+
   it("still stores the first event from each new user so usersAffected keeps growing", async () => {
     for (let i = 0; i < 25; i += 1) {
       await ingestException(

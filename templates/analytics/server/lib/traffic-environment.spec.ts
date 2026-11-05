@@ -8,7 +8,11 @@ import {
   trafficEnvironmentOfHost,
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
-import { trafficEnvironmentCondition, urlHostSql } from "./traffic-environment";
+import {
+  trafficEnvironmentCondition,
+  trafficEnvironmentOfRow,
+  urlHostSql,
+} from "./traffic-environment";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -92,6 +96,36 @@ describe("trafficEnvironmentCondition", () => {
         .filter((host) => trafficEnvironmentOfHost(host) === "production")
         .sort(),
     );
+  });
+
+  it("gives the same answer for a row in hand as the SQL does", async () => {
+    const rows = [
+      { id: "a", url: "https://beta.slides.agent-native.com/deck?x=1" },
+      { id: "b", url: "https://slides.agent-native.com:8443/deck" },
+      { id: "c", url: "http://[::1]:3000/" },
+      { id: "d", url: "/relative/path", property: "beta" },
+      { id: "e", url: "/relative/path", property: "production" },
+      { id: "f", url: "", property: "PREVIEW" },
+      { id: "g", property: "test" },
+      { id: "h" },
+      { id: "i", url: "https://slides.agent-native.com/", property: "beta" },
+    ];
+    await insert(rows);
+    const columns = { host: urlHostSql(sql`url`), property: sql`property` };
+
+    const beta = await idsIn("beta", columns);
+
+    expect(beta.sort()).toEqual(
+      rows
+        .filter(
+          (row) =>
+            trafficEnvironmentOfRow(row.url ?? null, row.property ?? null) ===
+            "beta",
+        )
+        .map((row) => row.id)
+        .sort(),
+    );
+    expect(beta.sort()).toEqual(["a", "c", "d", "f", "g"]);
   });
 
   it("counts a row with no host as production", async () => {

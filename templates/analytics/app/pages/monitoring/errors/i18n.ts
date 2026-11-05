@@ -14,7 +14,8 @@ const MESSAGES = {
     allTraffic: "All traffic",
     productionTraffic: "Production",
     betaTraffic: "Beta",
-    countsAllEnvironments: "Counts and trends cover all environments.",
+    countsAllEnvironments:
+      "Counts and trends cover all environments. This filter reads stored samples, and a noisy issue keeps only its latest, so it can miss older occurrences.",
     statusUnresolved: "Unresolved",
     statusResolved: "Resolved",
     statusIgnored: "Ignored",
