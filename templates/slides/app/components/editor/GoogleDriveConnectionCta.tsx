@@ -127,7 +127,11 @@ export function GoogleDriveConnectionCta({
     return null;
   }
 
-  const displayStatus = status ?? { configured: false, connected: false };
+  const configured = status?.configured === true;
+  const retry = () => {
+    setLoading(true);
+    void refreshStatus();
+  };
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs">
@@ -142,19 +146,32 @@ export function GoogleDriveConnectionCta({
         <p className="font-medium text-foreground">
           Google Drive {/* i18n-ignore stable provider label */}
         </p>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {displayStatus.configured
-            ? t("home.googleSlidesReferenceConnect")
-            : t("raw.googleOAuthNotConfigured")}
-        </p>
-        {displayStatus.googleSlidesUrlImportError && (
+        {status && (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            {configured
+              ? t("home.googleSlidesReferenceConnect")
+              : t("raw.googleOAuthNotConfigured")}
+          </p>
+        )}
+        {status?.googleSlidesUrlImportError && (
           <p className="mt-1 text-[11px] text-destructive">
-            {displayStatus.googleSlidesUrlImportError}
+            {status.googleSlidesUrlImportError}
           </p>
         )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
-      {displayStatus.configured && (
+      {!status && !loading && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={retry}
+          className="h-7 shrink-0 rounded-md px-2.5 text-[11px]"
+        >
+          {t("home.retry")}
+        </Button>
+      )}
+      {configured && (
         <Button
           type="button"
           size="sm"

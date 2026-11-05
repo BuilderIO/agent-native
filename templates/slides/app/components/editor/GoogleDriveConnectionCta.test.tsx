@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "Connect Google Drive to import a Slides deck.",
       "raw.googleOAuthNotConfigured": "Google Drive OAuth is not configured.",
       "home.googleSlidesReferencePicking": "Working...",
+      "home.retry": "Retry",
       "editorExport.connectGoogle": "Connect Google",
       "comments.close": "Close",
     })[key] ?? key,
@@ -195,5 +196,34 @@ describe("<GoogleDriveConnectionCta>", () => {
     render(<GoogleDriveConnectionCta />);
 
     expect(await screen.findByText("OAuth status unavailable")).toBeTruthy();
+    expect(
+      screen.queryByText("Google Drive OAuth is not configured."),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect Google" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("restores the Connect button when a retry after a failed status check succeeds", async () => {
+    const responses = [
+      new Response(JSON.stringify({ error: "OAuth status unavailable" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+      new Response(JSON.stringify({ configured: true, connected: false }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => responses.shift() ?? new Response("{}")),
+    );
+
+    render(<GoogleDriveConnectionCta />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("OAuth status unavailable")).toBeNull();
   });
 });
