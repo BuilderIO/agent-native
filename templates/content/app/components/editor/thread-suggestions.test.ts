@@ -8,6 +8,7 @@ import {
   reviewedInThread,
   piecesOfStaleUnits,
   refreshedProposalMembers,
+  reviewedAsOne,
   reviewUnitDiffParts,
   reviewUnitOperations,
   reviewUnits,
@@ -243,6 +244,23 @@ describe("reviewUnitOperations", () => {
       unitOf(swap("Teh", "The"), swap("Keep this line.", "<empty-block/>")),
     );
     expect(operations).toHaveLength(2);
+  });
+});
+
+describe("reviewedAsOne", () => {
+  const piece = (id: string, reviewUnit?: string) =>
+    suggestion(id, reviewUnit ? { reviewUnit } : {}, undefined, {
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+
+  it("counts a unit's pieces as one decision", () => {
+    expect(reviewedAsOne([piece("a", "k:0"), piece("b", "k:0")])).toBe(true);
+    expect(reviewedAsOne([piece("a")])).toBe(true);
+  });
+
+  it("counts different units, or pieces with no unit, separately", () => {
+    expect(reviewedAsOne([piece("a", "k:0"), piece("b", "k:1")])).toBe(false);
+    expect(reviewedAsOne([piece("a"), piece("b")])).toBe(false);
   });
 });
 

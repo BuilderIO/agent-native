@@ -391,6 +391,7 @@ import {
 } from "./suggestions/presentation-rebase";
 import {
   refreshedProposalMembers,
+  reviewedAsOne,
   reviewedInThread,
   reviewUnits,
   suggestionSourceThreadId,
@@ -9573,9 +9574,10 @@ function PageEditorSessionBody({
         suggestionDecisionView(pageId)?.failed(entry, error);
         const unplaceable = isSuggestionStaleActionError(error);
         const accepting = entry.decision === "accepted";
+        const asOne = single || reviewedAsOne(entry.members);
         toast.error(
           t(
-            single
+            asOne
               ? accepting
                 ? "editor.suggestionAcceptFailed"
                 : "editor.suggestionRejectFailed"
@@ -9586,10 +9588,10 @@ function PageEditorSessionBody({
           {
             description: t(
               unplaceable
-                ? single
+                ? asOne
                   ? "editor.suggestionUnplaceable"
                   : "editor.proposalUnplaceable"
-                : single
+                : asOne
                   ? "editor.suggestionDecisionReverted"
                   : "editor.proposalDecisionReverted",
             ),
@@ -10090,7 +10092,9 @@ function PageEditorSessionBody({
             t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
             {
               description: unplaceable
-                ? t("editor.proposalUnplaceable")
+                ? reviewedAsOne(members)
+                  ? t("editor.suggestionUnplaceable")
+                  : t("editor.proposalUnplaceable")
                 : (actionErrorMessage(error) ?? t("empty.genericError")),
             },
           );

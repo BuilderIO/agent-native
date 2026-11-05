@@ -17,7 +17,7 @@ import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { SuggestionReviewCardSkeleton } from "./SuggestionReviewCardSkeleton";
-import { proposalGroups } from "./thread-suggestions";
+import { proposalGroups, reviewedAsOne } from "./thread-suggestions";
 import { ThreadSuggestionBody } from "./ThreadSuggestion";
 
 type DecisionProblem = { groupKey: string; message: string };
@@ -102,7 +102,7 @@ export function SuggestionReviewCard({
       setProblem({
         groupKey: key,
         message: t(
-          decided.length === 1
+          reviewedAsOne(decided)
             ? "editor.suggestionUnplaceable"
             : "editor.proposalUnplaceable",
         ),

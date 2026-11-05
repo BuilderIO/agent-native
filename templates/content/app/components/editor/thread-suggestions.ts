@@ -136,6 +136,11 @@ export function reviewUnits(
   });
 }
 
+/** Whether these pieces are one decision to the reviewer, however many they are. */
+export function reviewedAsOne(pieces: readonly ResourceSuggestion[]) {
+  return reviewUnits(pieces).length === 1;
+}
+
 /**
  * The pending pieces of units with a stale piece. Accepting them would land
  * half of a sentence, so they can only be rejected. Give this every piece of a
