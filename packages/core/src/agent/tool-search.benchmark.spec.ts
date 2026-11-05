@@ -78,29 +78,41 @@ describe("tool-search retrieval benchmark", () => {
     expect(summarize(results).mrr).toBeGreaterThanOrEqual(MIN_MRR);
   });
 
-  it("marks Mail's multi-operation rule and filter actions destructive", () => {
-    const flags = Object.fromEntries(
-      searchToolRegistry(registries.get("mail")!, {
-        names: ["manage-gmail-filters", "manage-email-rules", "archive-email"],
-      }).results.map((result) => [result.name, result.destructive]),
-    );
-
-    expect(flags).toEqual({
-      "manage-gmail-filters": true,
-      "manage-email-rules": true,
-      "archive-email": undefined,
-    });
-  });
-
   it(
-    "marks Design's update-design, whose dataOperations can delete",
+    "marks the real delete and cancel actions destructive, and archive not",
     async () => {
-      const design = await loadTemplateRegistry("design");
-      const [result] = searchToolRegistry(design, {
-        names: ["update-design"],
-      }).results;
+      const marks = (registry: Record<string, ActionEntry>, names: string[]) =>
+        Object.fromEntries(
+          searchToolRegistry(registry, { names }).results.map((result) => [
+            result.name,
+            result.destructive,
+          ]),
+        );
 
-      expect(result?.destructive).toBe(true);
+      expect(
+        marks(registries.get("mail")!, [
+          "manage-gmail-filters",
+          "manage-email-rules",
+          "cancel-scheduled-email",
+          "archive-email",
+        ]),
+      ).toEqual({
+        "manage-gmail-filters": true,
+        "manage-email-rules": true,
+        "cancel-scheduled-email": true,
+        "archive-email": undefined,
+      });
+      expect(marks(registries.get("calendar")!, ["cancel-booking"])).toEqual({
+        "cancel-booking": true,
+      });
+      // `update-design` deletes through `dataOperations[].op: "delete"`, and
+      // `apply-visual-edit` through an edit of `kind: "deleteNode"`.
+      expect(
+        marks(await loadTemplateRegistry("design"), [
+          "update-design",
+          "apply-visual-edit",
+        ]),
+      ).toEqual({ "update-design": true, "apply-visual-edit": true });
     },
     LOAD_TIMEOUT_MS,
   );

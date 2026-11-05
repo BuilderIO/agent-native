@@ -932,119 +932,137 @@ describe("tool-search ranking", () => {
     }
   });
 
-  it("marks destructive results and still finds them for a negated request", () => {
+  describe("destructive mark", () => {
+    const writeAction = (
+      description: string,
+      properties: Record<string, unknown> = {},
+    ): ActionEntry => ({ ...action(description, properties), readOnly: false });
     const annotations = (destructiveHint: boolean) => ({
       readOnlyHint: false,
       destructiveHint,
       openWorldHint: false,
     });
-    const registry = {
-      "delete-email": action("Delete an email."),
-      // A declared hint wins over the name in both directions.
-      "remove-label": {
-        ...action("Remove a label from an email."),
-        mcpAnnotations: annotations(false),
-      },
-      "manage-email-rules": {
-        ...action("Create, update, or delete email rules."),
-        mcpAnnotations: annotations(true),
-      },
-      "archive-email": action("Archive an email."),
-    };
-    const results = (query: string) =>
-      searchToolRegistry(registry, { query }).results.map((r) => ({
-        name: r.name,
-        destructive: r.destructive,
-      }));
+    const marks = (registry: Record<string, ActionEntry>) =>
+      Object.fromEntries(
+        searchToolRegistry(registry, {
+          names: Object.keys(registry),
+        }).results.map((r) => [r.name, r.destructive]),
+      );
 
-    expect(results("delete email")).toEqual(
-      expect.arrayContaining([
-        { name: "delete-email", destructive: true },
-        { name: "manage-email-rules", destructive: true },
-        { name: "archive-email", destructive: undefined },
-      ]),
-    );
-    expect(results("remove label")[0]).toEqual({
-      name: "remove-label",
-      destructive: undefined,
-    });
-    // Ranking reads words, not intent: the agent decides from the mark.
-    expect(results("don't delete this email")[0]).toEqual({
-      name: "delete-email",
-      destructive: true,
-    });
-  });
+    it("marks results and still finds them for a negated request", () => {
+      const registry = {
+        "delete-email": writeAction("Delete an email."),
+        "archive-email": writeAction("Archive an email."),
+      };
 
-  it("marks a multi-operation tool destructive when one operation deletes", () => {
-    const registry = {
-      "manage-filters": action("List, create, or change filters.", {
-        operation: { type: "string", enum: ["list", "create", "delete"] },
-      }),
-      "manage-rules": action("List or change rules.", {
-        action: {
-          type: "string",
-          enum: ["list", "update", "permanently-remove"],
-        },
-      }),
-      // A tagged operation nested in a list, as `update-design` declares it.
-      "update-doc": action("Apply edits to a document.", {
-        edits: {
-          type: "array",
-          items: {
-            oneOf: [
-              { type: "object", properties: { op: { const: "set" } } },
-              { type: "object", properties: { op: { const: "delete" } } },
-            ],
+      expect(
+        searchToolRegistry(registry, { query: "don't delete this email" })
+          .results[0],
+      ).toMatchObject({ name: "delete-email", destructive: true });
+      expect(marks(registry)).toEqual({
+        "delete-email": true,
+        "archive-email": undefined,
+      });
+    });
+
+    it("reads a destructive verb from the name, the hint, or any schema value", () => {
+      expect(
+        marks({
+          "cancel-booking": writeAction("Cancel a booking."),
+          "remove-tag": writeAction("Remove a tag from an email."),
+          // A declared hint wins over the name in both directions.
+          "trash-preview": {
+            ...writeAction("Preview what trashing would move."),
+            mcpAnnotations: annotations(false),
           },
-        },
-      }),
-      // An enum that is not an operation, or names no deletion, is not one.
-      "manage-labels": action("List or change labels.", {
-        operation: { type: "string", enum: ["list", "rename"] },
-        color: { type: "string", enum: ["red", "delete-red"] },
-      }),
-      // Removing or clearing is often a reversible edit.
-      "manage-tags": action("Add or remove tags.", {
-        action: { type: "string", enum: ["add", "remove", "clear"] },
-      }),
-      "remove-tag": action("Remove a tag from an email."),
-    };
-
-    const flags = Object.fromEntries(
-      searchToolRegistry(registry, {
-        names: Object.keys(registry),
-      }).results.map((r) => [r.name, r.destructive]),
-    );
-
-    expect(flags).toEqual({
-      "manage-filters": true,
-      "manage-rules": true,
-      "update-doc": true,
-      "manage-labels": undefined,
-      "manage-tags": undefined,
-      "remove-tag": undefined,
+          "manage-email-rules": {
+            ...writeAction("Create, update, or remove rules."),
+            mcpAnnotations: annotations(true),
+          },
+          "manage-filters": writeAction("Change filters.", {
+            operation: { type: "string", enum: ["list", "create", "delete"] },
+          }),
+          // Any key, in camelCase, nested in a list of tagged edits.
+          "apply-edit": writeAction("Apply edits.", {
+            edits: {
+              type: "array",
+              items: {
+                anyOf: [
+                  { properties: { kind: { const: "setText" } } },
+                  { properties: { kind: { const: "deleteNode" } } },
+                ],
+              },
+            },
+          }),
+          "purge-cache": writeAction("Rebuild the cache.", {
+            scope: { type: "string", enum: ["all_purge", "purge_all"] },
+          }),
+          // Removing or clearing is often a reversible edit.
+          "manage-tags": writeAction("Add or remove tags.", {
+            change: { type: "string", enum: ["addTag", "removeTag", "clear"] },
+          }),
+          // A read is never destructive, whatever its filters are called.
+          "list-bookings": {
+            ...action("List bookings.", {
+              status: { type: "string", enum: ["confirmed", "cancelled"] },
+            }),
+          },
+        }),
+      ).toEqual({
+        "cancel-booking": true,
+        "remove-tag": undefined,
+        "trash-preview": undefined,
+        "manage-email-rules": true,
+        "manage-filters": true,
+        "apply-edit": true,
+        "purge-cache": true,
+        "manage-tags": undefined,
+        "list-bookings": undefined,
+      });
     });
-  });
 
-  it("stops walking an operation schema past its depth bound", () => {
-    let schema: Record<string, unknown> = {
-      type: "object",
-      properties: { op: { const: "delete" } },
-    };
-    for (let level = 0; level < 10; level++) {
-      schema = { type: "object", properties: { nested: schema } };
-    }
-    const registry = {
-      "deep-edit": {
-        ...action("Edit."),
-        tool: { description: "Edit.", parameters: schema },
-      },
-    };
+    it("stops walking a schema past its depth bound", () => {
+      let schema: Record<string, unknown> = {
+        type: "object",
+        properties: { op: { const: "delete" } },
+      };
+      for (let level = 0; level < 10; level++) {
+        schema = { type: "object", properties: { nested: schema } };
+      }
+      const deep = writeAction("Edit.");
 
-    expect(
-      searchToolRegistry(registry, { names: ["deep-edit"] }).results[0]
-        ?.destructive,
-    ).toBeUndefined();
+      expect(
+        marks({
+          "deep-edit": { ...deep, tool: { ...deep.tool, parameters: schema } },
+        }),
+      ).toEqual({ "deep-edit": undefined });
+    });
+
+    it("keeps the mark on a repeated search and in the menu", () => {
+      const registry = {
+        "delete-email": writeAction("Delete an email."),
+        "send-email": writeAction("Send an email."),
+      };
+
+      const [first, second, menu] = runWithRequestContext(
+        { userEmail: "agent@example.com", run: {} },
+        () => [
+          searchToolRegistry(registry, { query: "delete email" }),
+          searchToolRegistry(registry, { query: "delete email" }),
+          searchToolRegistry(registry, {}),
+        ],
+      );
+
+      expect(second.repeated).toBe(true);
+      for (const result of [first, second, menu]) {
+        expect(
+          result.results.find((r) => r.name === "delete-email")?.destructive,
+        ).toBe(true);
+        expect(
+          result.results.find((r) => r.name === "send-email")?.destructive,
+        ).toBeUndefined();
+      }
+    });
   });
 
   it("keeps 'setting' and 'settings' apart from the verb 'set'", () => {

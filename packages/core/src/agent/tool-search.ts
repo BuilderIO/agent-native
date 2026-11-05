@@ -310,6 +310,7 @@ function searchOnce(
         score: 0,
         callable: registry[name]?.allowInPlanMode !== false,
         planAvailability: getPlanAvailability(name, registry[name]),
+        ...destructiveMark(name, registry[name]),
         description:
           "Already returned by an earlier identical tool-search call.",
         parameters: [],
@@ -354,6 +355,7 @@ function searchOnce(
         score: 0,
         callable,
         planAvailability,
+        ...destructiveMark(name, entry),
         parameters: [],
       });
       continue;
@@ -368,7 +370,7 @@ function searchOnce(
       score: 0,
       callable,
       planAvailability,
-      ...(isDestructiveTool(name, entry) ? { destructive: true } : {}),
+      ...destructiveMark(name, entry),
       parameters: parameters
         .slice(0, MAX_PARAMETER_COUNT)
         .map(boundParameterSummary),
@@ -754,90 +756,74 @@ const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
 // Verbs that lose data. "Remove" and "clear" also name reversible edits
 // (removing a tag, clearing a filter), so they count only through a declared
 // `destructiveHint`, as does "permanently remove" spelled any other way.
+// Verbs that lose data or undo something another person relies on. "Remove"
+// and "clear" also name reversible edits (removing a tag, clearing a filter),
+// so they count only through a declared `destructiveHint`.
 const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
-  ["delete", "destroy", "trash", "purge", "erase", "wipe"].map(stem),
+  ["delete", "destroy", "trash", "purge", "cancel"].map(stem),
 );
 
-function namesDestruction(value: string): boolean {
-  const terms = searchTerms(value);
-  return (
-    terms.some((term) => DESTRUCTIVE_VERBS.has(term)) ||
-    (terms.includes(stem("permanently")) && terms.includes(stem("remove")))
-  );
+/** "delete", "deleteNode", "delete-node", "delete_node": the value leads with one. */
+function leadsWithDestructiveVerb(value: string): boolean {
+  const verb = searchTerms(value).at(0);
+  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
 }
 
 /**
- * Whether a result is marked `destructive`. Ranking ignores it: whether the
- * user wants the change ("delete it" or "don't delete it") is the agent's call,
- * so a search finds the tool either way and the mark tells the agent to check.
- * A tool is destructive when it declares `destructiveHint`, or when one of its
- * operations deletes (`manage-gmail-filters`' `operation: "delete"`, or an
- * `op: "delete"` inside `update-design`'s `dataOperations`). Without
- * annotations, a name that leads with a destructive verb also counts, since
- * most delete actions declare none.
+ * The `destructive` mark every result carries, on every path that builds one.
+ * Ranking ignores it: whether the user wants the change ("delete it" or "don't
+ * delete it") is the agent's call, so a search finds the tool either way and
+ * the mark tells the agent to check.
+ *
+ * A declared `destructiveHint` decides first, then a read-only tool is never
+ * destructive (a `status: "cancelled"` filter on a list is not a write). Any
+ * other tool is destructive when an `enum` or `const` value anywhere in its
+ * input schema leads with a destructive verb (`operation: "delete"`,
+ * `op: "delete"`, `kind: "deleteNode"`), or, without annotations, when its own
+ * name does, since most delete actions declare none.
  */
-function isDestructiveTool(name: string, entry: ActionEntry): boolean {
-  if (entry.mcpAnnotations?.destructiveHint === true) return true;
-  if (hasDestructiveOperation(entry.tool.parameters, 0)) return true;
-  if (entry.mcpAnnotations) return false;
-  const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
-  return verb !== undefined && namesDestruction(verb);
+function destructiveMark(
+  name: string,
+  entry: ActionEntry | undefined,
+): { destructive?: true } {
+  if (!entry) return {};
+  const annotations = entry.mcpAnnotations;
+  if (annotations?.destructiveHint === true) return { destructive: true };
+  if (entry.readOnly === true || annotations?.readOnlyHint === true) return {};
+  if (schemaHasDestructiveValue(entry.tool.parameters, 0)) {
+    return { destructive: true };
+  }
+  if (annotations) return {};
+  return leadsWithDestructiveVerb(parseMcpToolName(name)?.toolName ?? name)
+    ? { destructive: true }
+    : {};
 }
 
-const OPERATION_PARAMETERS: ReadonlySet<string> = new Set([
-  "action",
-  "operation",
-  "op",
-  "mode",
-]);
 // Deep enough for a list of tagged operations (properties → items → oneOf →
 // properties → op), shallow enough that a huge or cyclic schema cannot stall a
 // search.
-const MAX_OPERATION_SCHEMA_DEPTH = 6;
+const MAX_SCHEMA_DEPTH = 6;
 
-function hasDestructiveOperation(schema: unknown, depth: number): boolean {
-  if (depth > MAX_OPERATION_SCHEMA_DEPTH) return false;
-  if (!schema || typeof schema !== "object") return false;
-  const node = schema as {
-    properties?: unknown;
-    items?: unknown;
-    oneOf?: unknown;
-    anyOf?: unknown;
-    allOf?: unknown;
-  };
-  const properties =
-    node.properties && typeof node.properties === "object"
-      ? Object.entries(node.properties)
-      : [];
-  if (
-    properties.some(
-      ([key, property]) =>
-        OPERATION_PARAMETERS.has(key) &&
-        operationValues(property).some(namesDestruction),
-    )
-  ) {
-    return true;
+function schemaHasDestructiveValue(schema: unknown, depth: number): boolean {
+  if (depth > MAX_SCHEMA_DEPTH || !schema || typeof schema !== "object") {
+    return false;
   }
+  const node = schema as Record<string, unknown>;
+  const literals = [
+    ...(Array.isArray(node.enum) ? node.enum : []),
+    node.const,
+  ].filter((value): value is string => typeof value === "string");
+  if (literals.some(leadsWithDestructiveVerb)) return true;
   const children = [
-    ...properties.map(([, property]) => property),
+    ...(node.properties && typeof node.properties === "object"
+      ? Object.values(node.properties)
+      : []),
     ...(Array.isArray(node.items) ? node.items : [node.items]),
     ...[node.oneOf, node.anyOf, node.allOf].flatMap((list) =>
       Array.isArray(list) ? list : [],
     ),
   ];
-  return children.some((child) => hasDestructiveOperation(child, depth + 1));
-}
-
-/** The literal values an operation parameter can take: its `enum` or `const`. */
-function operationValues(property: unknown): string[] {
-  if (!property || typeof property !== "object") return [];
-  const { enum: values, const: value } = property as {
-    enum?: unknown;
-    const?: unknown;
-  };
-  return [...(Array.isArray(values) ? values : []), value].filter(
-    (item): item is string => typeof item === "string",
-  );
+  return children.some((child) => schemaHasDestructiveValue(child, depth + 1));
 }
 
 function fieldTerms(value: string): FieldTerms {
