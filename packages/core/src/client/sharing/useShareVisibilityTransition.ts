@@ -60,6 +60,11 @@ export interface ShareVisibilityTransitionOptions {
   current: ShareVisibility;
   /** The organization the resource belongs to, from the share listing. */
   orgId: string | null;
+  /**
+   * The resource type asks before going from private to organization
+   * (`policy.confirmOrgVisibility`); otherwise every change saves at once.
+   */
+  confirmOrgVisibility?: boolean;
   canManage: boolean;
   /** False while the share surface is closed; a pending request is dropped. */
   active: boolean;
@@ -212,7 +217,10 @@ export function useShareVisibilityTransition(
       if (!latest.canManage || !latest.active) {
         return notSaved("ignored");
       }
-      if (!visibilityNeedsConfirmation(latest.current, next)) {
+      if (
+        latest.confirmOrgVisibility !== true ||
+        !visibilityNeedsConfirmation(latest.current, next)
+      ) {
         reset();
         const generation = generationRef.current;
         const saved = latest.apply(next);

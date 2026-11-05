@@ -5,12 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../../db/schema.js";
 import { runWithRequestContext } from "../../server/request-context.js";
-import { ForbiddenError } from "../access.js";
+import { ForbiddenError, resolveAccess } from "../access.js";
 import {
   registerShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
 import { createSharesTable } from "../schema.js";
+import listResourceShares from "./list-resource-shares.js";
 import setResourceVisibility from "./set-resource-visibility.js";
 
 const calls = vi.hoisted(() => ({
@@ -167,6 +168,7 @@ function approval(args: {
   resourceId?: string;
   resourceIds?: string[];
   visibility: Visibility;
+  role?: "viewer" | "commenter" | "editor";
 }) {
   const needsApproval = setResourceVisibility.needsApproval;
   if (typeof needsApproval !== "function") {
@@ -946,5 +948,302 @@ describe("set-resource-visibility approval", () => {
     await expect(
       approval({ resourceId: "doc-private", visibility: "public" }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("set-resource-visibility organization role", () => {
+  const memberEmail = "member+visibility@example.com";
+
+  const setOrg = (
+    resourceId: string,
+    role: "viewer" | "commenter" | "editor",
+  ) =>
+    as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId,
+        visibility: "org",
+        role,
+      }),
+    ) as Promise<Record<string, any>>;
+
+  async function orgGrants() {
+    return (await db.select().from(docShares))
+      .filter((row) => row.principalType === "org")
+      .map((row) => ({
+        resourceId: row.resourceId,
+        principalId: row.principalId,
+        role: row.role,
+      }));
+  }
+
+  async function memberRole(resourceId: string) {
+    const access = await as({ userEmail: memberEmail, orgId }, () =>
+      resolveAccess(resourceType, resourceId),
+    );
+    return access?.role ?? null;
+  }
+
+  beforeEach(async () => {
+    await pglite.exec(`
+      INSERT INTO organizations (id, name, created_by, created_at)
+      VALUES ('${orgId}', 'Visibility Org', '${ownerEmail}', 0);
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      VALUES ('member-1', '${orgId}', '${memberEmail}', 'member', 0);
+    `);
+  });
+
+  it("lets everyone in the organization edit", async () => {
+    await insertDoc({ id: "doc-edit" });
+
+    const result = await setOrg("doc-edit", "editor");
+
+    expect(result).toMatchObject({
+      ok: true,
+      visibility: "org",
+      role: "editor",
+    });
+    expect(await visibilities()).toEqual({ "doc-edit": "org" });
+    expect(await orgGrants()).toEqual([
+      { resourceId: "doc-edit", principalId: orgId, role: "editor" },
+    ]);
+    expect(await memberRole("doc-edit")).toBe("editor");
+  });
+
+  it("goes back to view-only without leaving a grant behind", async () => {
+    await insertDoc({ id: "doc-view" });
+    await setOrg("doc-view", "editor");
+
+    await setOrg("doc-view", "viewer");
+
+    expect(await orgGrants()).toEqual([]);
+    expect(await memberRole("doc-view")).toBe("viewer");
+  });
+
+  it("keeps the organization's role when the call names none", async () => {
+    await insertDoc({ id: "doc-keep" });
+    await setOrg("doc-keep", "commenter");
+
+    await setOne("doc-keep", "org");
+
+    expect(await orgGrants()).toEqual([
+      { resourceId: "doc-keep", principalId: orgId, role: "commenter" },
+    ]);
+  });
+
+  it("removes the organization's role when the resource leaves org", async () => {
+    await insertDoc({ id: "doc-leave" });
+    await setOrg("doc-leave", "editor");
+
+    await setOne("doc-leave", "private");
+
+    expect(await orgGrants()).toEqual([]);
+    expect(await memberRole("doc-leave")).toBeNull();
+  });
+
+  it("keeps an organization grant on a resource that was never org", async () => {
+    await insertDoc({ id: "doc-granted" });
+    await db.insert(docShares).values({
+      id: "share-org-granted",
+      resourceId: "doc-granted",
+      principalType: "org",
+      principalId: orgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    } as never);
+
+    await setOne("doc-granted", "private");
+
+    expect(await orgGrants()).toEqual([
+      { resourceId: "doc-granted", principalId: orgId, role: "editor" },
+    ]);
+  });
+
+  it("puts the visibility back when the organization grant is refused", async () => {
+    register({
+      assertSharingChange: async ({ change }) => {
+        if (change.kind === "grant") throw new ForbiddenError("No grants.");
+      },
+    });
+    await insertDoc({ id: "doc-refused" });
+
+    await expect(setOrg("doc-refused", "editor")).rejects.toThrow("No grants.");
+
+    expect(await visibilities()).toEqual({ "doc-refused": "private" });
+    expect(await orgGrants()).toEqual([]);
+  });
+
+  it("puts back the role it replaced when a later resource fails", async () => {
+    register({
+      persistVisibilityChange: persistUnless((resourceId) =>
+        resourceId === "doc-b" ? new Error("write failed") : undefined,
+      ),
+    });
+    await insertDoc({ id: "doc-a", visibility: "org" });
+    await insertDoc({ id: "doc-b" });
+    await db.insert(docShares).values({
+      id: "share-org-a",
+      resourceId: "doc-a",
+      principalType: "org",
+      principalId: orgId,
+      role: "commenter",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    } as never);
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceIds: ["doc-a", "doc-b"],
+          visibility: "org",
+          role: "editor",
+        }),
+      ),
+    ).rejects.toThrow("write failed");
+
+    expect(await visibilities()).toEqual({
+      "doc-a": "org",
+      "doc-b": "private",
+    });
+    expect(await orgGrants()).toEqual([
+      { resourceId: "doc-a", principalId: orgId, role: "commenter" },
+    ]);
+  });
+
+  it("rejects a role for any visibility but org", () => {
+    const parsed = setResourceVisibility.schema.safeParse({
+      resourceType,
+      resourceId: "doc-any",
+      visibility: "private",
+      role: "editor",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("set-resource-visibility link role", () => {
+  const readerEmail = "reader+visibility@example.com";
+
+  const setPublic = (resourceId: string, role?: "viewer" | "commenter") =>
+    as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId,
+        visibility: "public",
+        ...(role ? { role } : {}),
+      }),
+    ) as Promise<Record<string, any>>;
+
+  async function grants() {
+    return (await db.select().from(docShares)).map((row) => ({
+      principalType: row.principalType,
+      role: row.role,
+    }));
+  }
+
+  async function roleOf(resourceId: string, userEmail?: string) {
+    const access = await as(userEmail ? { userEmail } : {}, () =>
+      resolveAccess(resourceType, resourceId),
+    );
+    return access?.role ?? null;
+  }
+
+  it("lets signed-in people with the link comment", async () => {
+    await insertDoc({ id: "doc-link" });
+
+    await setPublic("doc-link", "commenter");
+
+    expect(await visibilities()).toEqual({ "doc-link": "public" });
+    expect(await grants()).toEqual([
+      { principalType: "link", role: "commenter" },
+    ]);
+    expect(await roleOf("doc-link", readerEmail)).toBe("commenter");
+  });
+
+  it("gives signed-out readers only the view role", async () => {
+    await insertDoc({ id: "doc-anon" });
+    await setPublic("doc-anon", "commenter");
+
+    expect(await roleOf("doc-anon")).toBe("viewer");
+  });
+
+  it("removes the link role when the resource leaves public", async () => {
+    await insertDoc({ id: "doc-close" });
+    await setPublic("doc-close", "commenter");
+
+    await setOne("doc-close", "private");
+
+    expect(await grants()).toEqual([]);
+  });
+
+  it("moves the role from the organization to the link", async () => {
+    await insertDoc({ id: "doc-move" });
+    await as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-move",
+        visibility: "org",
+        role: "editor",
+      }),
+    );
+
+    await setPublic("doc-move", "commenter");
+
+    expect(await grants()).toEqual([
+      { principalType: "link", role: "commenter" },
+    ]);
+  });
+
+  it("refuses edit access for anyone with the link", () => {
+    const parsed = setResourceVisibility.schema.safeParse({
+      resourceType,
+      resourceId: "doc-any",
+      visibility: "public",
+      role: "editor",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("asks before anyone with the link can do more", async () => {
+    await insertDoc({ id: "doc-public", visibility: "public" });
+
+    await expect(
+      approval({
+        resourceId: "doc-public",
+        visibility: "public",
+        role: "commenter",
+      }),
+    ).resolves.toBe(true);
+    await setPublic("doc-public", "commenter");
+    await expect(
+      approval({
+        resourceId: "doc-public",
+        visibility: "public",
+        role: "commenter",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      approval({
+        resourceId: "doc-public",
+        visibility: "public",
+        role: "viewer",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("lists the link role apart from the people with access", async () => {
+    await insertDoc({ id: "doc-listed" });
+    await setPublic("doc-listed", "commenter");
+
+    const listed = (await as({ userEmail: ownerEmail, orgId }, () =>
+      listResourceShares.run({ resourceType, resourceId: "doc-listed" }),
+    )) as Record<string, any>;
+
+    expect(listed.linkRole).toBe("commenter");
+    expect(listed.shares).toEqual([]);
   });
 });

@@ -120,10 +120,10 @@ description: "框架內建了熟悉且一致的共享方式。使用者建立的
 
 - 一個邀請欄位，可新增人員、組織群組和組織的代理，並附有角色選擇器和「邀請」按鈕。輸入電子郵件後也會顯示 `Notify people` 核取方塊。
 - 擁有存取權的人員：擁有者、人員、群組和代理顯示在同一份清單中。角色為「可檢視」「可留言」「可編輯」和「可管理存取權」。「移除存取權」是每列角色選單的最後一項。
-- 一般存取權：僅限受邀人員 / 組織內的任何人 / 知道連結的任何人。
+- 一般存取權：僅限受邀人員 / 組織內的任何人 / 知道連結的任何人。「組織內的任何人」附有角色選擇器（可檢視、可留言、可編輯），「知道連結的任何人」也有（可檢視、可留言）。
 - 「複製連結」和「傳送至」選單：在 Claude、Claude Code 或 Codex 中開啟、複製代理提示詞、複製代理連結、MCP 伺服器設定，以及應用程式新增的其他目的地。
 
-將資源從 `Private` 改為 `Organization` 時會先要求確認。確認之前不會有任何變更。取消或按 Escape 會保留目前的存取權。如果儲存失敗，對話方塊會顯示錯誤，使用者可以重試。其他可見性變更會立即儲存。確認只存在於共用 UI 中。`set-resource-visibility` 維持不變，因此代理和其他呼叫端仍然直接變更可見性，資源的共用政策仍然決定允許什麼。
+可見性變更會立即儲存。內容容易被忽略的資源類型可以先要求確認：聊天在註冊時設定了 `confirmOrgVisibility: true`，因此將聊天從 `Private` 改為 `Organization` 時，確認之前不會有任何變更。取消或按 Escape 會保留目前的存取權。如果儲存失敗，對話方塊會顯示錯誤，使用者可以重試。確認只存在於共用 UI 中，因此代理和其他呼叫端仍然透過 `set-resource-visibility` 直接變更可見性，資源的共用政策仍然決定允許什麼。
 
 共用按鈕是一次匯入：
 
@@ -185,7 +185,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 | `share-resource`             | 授予使用者或組織特定角色的存取權限。可選的 `notify` 控制電子郵件通知。                  |
 | `unshare-resource`           | 撤銷使用者或組織的存取權限。                                                            |
 | `list-resource-shares`       | 顯示目前可見性以及所有顯式授權。                                                        |
-| `set-resource-visibility`    | 更改為 `private`、`org` 或 `public`。                                                   |
+| `set-resource-visibility`    | 更改為 `private`、`org` 或 `public`。選用的 `role` 設定組織（檢視、留言、編輯）或知道連結的任何人（檢視、留言）可以執行的操作。 |
 | `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource. |
 
 告訴代理“與作為編輯的行銷團隊共用此設計”，它會針對 UI 使用的同一端點呼叫 `share-resource`。結果將顯示在下一次渲染的共用對話框中。

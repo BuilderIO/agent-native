@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ActionChange } from "../../action-ui.js";
@@ -12,10 +12,17 @@ import {
   ForbiddenError,
   resolveRegisteredAccessContext,
 } from "../access.js";
+import { grantResourceAccess } from "../grant.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
+import {
+  LINK_PRINCIPAL_ID,
+  LINK_PRINCIPAL_TYPE,
+  LINK_ROLES,
+  type ShareRole,
+} from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
@@ -45,10 +52,30 @@ const schema = z
         `Up to ${MAX_VISIBILITY_BATCH} resources of this type to change in one call. Every one is checked before any changes, so if one can't change, none do.`,
       ),
     visibility: z.enum(["private", "org", "public"]),
+    role: z
+      .enum(["viewer", "commenter", "editor"])
+      .optional()
+      .describe(
+        "What the people this visibility opens to can do. With 'org', everyone in the organization: 'viewer' can read, 'commenter' can also comment, 'editor' can edit. With 'public', signed-in people with the link: 'viewer' or 'commenter'. Omit to keep the current role.",
+      ),
   })
   .refine((args) => Boolean(args.resourceId) || Boolean(args.resourceIds), {
     message: "Provide resourceId or resourceIds.",
-  });
+  })
+  .refine((args) => !args.role || args.visibility !== "private", {
+    message: "role applies only to visibility 'org' or 'public'.",
+    path: ["role"],
+  })
+  .refine(
+    (args) =>
+      args.visibility !== "public" ||
+      !args.role ||
+      (LINK_ROLES as readonly string[]).includes(args.role),
+    {
+      message: "Anyone with the link can only view or comment.",
+      path: ["role"],
+    },
+  );
 
 type Args = z.infer<typeof schema>;
 
@@ -76,17 +103,67 @@ function requestedIds(args: Args): string[] {
 
 type Access = Awaited<ReturnType<typeof assertAccess>>;
 
+type GeneralAccessPrincipal = "org" | typeof LINK_PRINCIPAL_TYPE;
+
+interface GrantRow {
+  id: string;
+  resourceId: string;
+  principalType: GeneralAccessPrincipal;
+  principalId: string;
+  role: ShareRole;
+  createdBy: string;
+  createdAt: string;
+  notifiedAt: string | null;
+}
+
+/**
+ * General access keeps its role as a share grant: to the resource's own
+ * organization for "Anyone at <org>", to the link principal for "Anyone with
+ * the link". Each lives and dies with its visibility: a grant left behind
+ * after leaving it would keep those people in while the panel says only
+ * invited people are.
+ */
+interface GeneralAccessGrantChange {
+  principalType: GeneralAccessPrincipal;
+  principalId: string;
+  before: GrantRow | null;
+  /** null removes the grant, leaving the visibility's viewer role. */
+  role: ShareRole | null;
+  written: boolean;
+}
+
 interface PreparedChange {
   resourceId: string;
   access: Access;
   update: Record<string, unknown>;
   visibilityChanged: boolean;
   resourceChanged: boolean;
+  grants: GeneralAccessGrantChange[];
+}
+
+async function readGrant(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  principalType: GeneralAccessPrincipal,
+  principalId: string,
+): Promise<GrantRow | null> {
+  const [row] = await reg
+    .getDb()
+    .select()
+    .from(reg.sharesTable)
+    .where(
+      and(
+        eq(reg.sharesTable.resourceId, resourceId),
+        eq(reg.sharesTable.principalType, principalType),
+        eq(reg.sharesTable.principalId, principalId),
+      ),
+    );
+  return (row as GrantRow | undefined) ?? null;
 }
 
 export default defineAction({
   description:
-    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
+    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
@@ -97,7 +174,7 @@ export default defineAction({
     const reg = requireShareableResource(args.resourceType);
     if (reg.allowPublic === false) return false;
     // One approval covers the whole call; it is needed when any resource in it
-    // would become public.
+    // would become public, or would let anyone with its link do more.
     for (const resourceId of requestedIds(args)) {
       const access = await assertAccess(
         args.resourceType,
@@ -107,6 +184,15 @@ export default defineAction({
         { skipResourceBody: true },
       );
       if (access.resource.visibility !== "public") return true;
+      if (args.role && args.role !== "viewer") {
+        const current = await readGrant(
+          reg,
+          resourceId,
+          LINK_PRINCIPAL_TYPE,
+          LINK_PRINCIPAL_ID,
+        );
+        if (current?.role !== args.role) return true;
+      }
     }
     return false;
   },
@@ -165,13 +251,153 @@ export default defineAction({
           change: { kind: "visibility", visibility: args.visibility },
         });
       }
+      const grants = await planGrants(resourceId, access, update);
       return {
         resourceId,
         access,
         update,
         visibilityChanged,
-        resourceChanged: visibilityChanged || update.orgId !== undefined,
+        resourceChanged:
+          visibilityChanged || update.orgId !== undefined || grants.length > 0,
+        grants,
       };
+    };
+
+    const planGrants = async (
+      resourceId: string,
+      access: Access,
+      update: Record<string, unknown>,
+    ): Promise<GeneralAccessGrantChange[]> => {
+      const from = access.resource.visibility as Visibility;
+      const wanted: Array<{
+        principalType: GeneralAccessPrincipal;
+        principalId: string;
+        role: ShareRole | null;
+      }> = [];
+      const resourceOrgId =
+        (access.resource.orgId as string | null | undefined) ?? null;
+      if (from === "org" && args.visibility !== "org" && resourceOrgId) {
+        wanted.push({
+          principalType: "org",
+          principalId: resourceOrgId,
+          role: null,
+        });
+      }
+      if (from === "public" && args.visibility !== "public") {
+        wanted.push({
+          principalType: LINK_PRINCIPAL_TYPE,
+          principalId: LINK_PRINCIPAL_ID,
+          role: null,
+        });
+      }
+      if (args.role) {
+        const role: ShareRole | null =
+          args.role === "viewer" ? null : args.role;
+        if (args.visibility === "public") {
+          wanted.push({
+            principalType: LINK_PRINCIPAL_TYPE,
+            principalId: LINK_PRINCIPAL_ID,
+            role,
+          });
+        } else {
+          const grantOrgId =
+            (update.orgId as string | undefined) ?? resourceOrgId;
+          if (grantOrgId) {
+            wanted.push({
+              principalType: "org",
+              principalId: grantOrgId,
+              role,
+            });
+          } else if (role) {
+            throw new ForbiddenError(
+              `${reg.displayName} has no organization, so its members can only view it.`,
+            );
+          }
+        }
+      }
+      const changes: GeneralAccessGrantChange[] = [];
+      for (const target of wanted) {
+        const before = await readGrant(
+          reg,
+          resourceId,
+          target.principalType,
+          target.principalId,
+        );
+        if ((before?.role ?? null) === target.role) continue;
+        changes.push({ ...target, before, written: false });
+      }
+      return changes;
+    };
+
+    const writeGrant = async (
+      change: PreparedChange,
+      grant: GeneralAccessGrantChange,
+    ) => {
+      if (grant.role && grant.principalType === "org") {
+        await grantResourceAccess({
+          resourceType: args.resourceType,
+          resourceId: change.resourceId,
+          principalType: "org",
+          principalId: grant.principalId,
+          role: grant.role,
+        });
+      } else if (grant.role) {
+        await reg.assertSharingChange?.({
+          resource: change.access.resource,
+          change: { kind: "grant" },
+        });
+        if (grant.before) {
+          await db
+            .update(reg.sharesTable)
+            .set({ role: grant.role })
+            .where(eq(reg.sharesTable.id, grant.before.id));
+        } else {
+          await db.insert(reg.sharesTable).values({
+            id: crypto.randomUUID(),
+            resourceId: change.resourceId,
+            principalType: grant.principalType,
+            principalId: grant.principalId,
+            role: grant.role,
+            createdBy: rawAccess.userEmail ?? "",
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } else if (grant.before) {
+        await db
+          .delete(reg.sharesTable)
+          .where(eq(reg.sharesTable.id, grant.before.id));
+      }
+      grant.written = true;
+    };
+
+    // Puts back each grant this call replaced, unless another request has
+    // changed it since.
+    const restoreGrants = async (change: PreparedChange) => {
+      for (const grant of [...change.grants].reverse()) {
+        if (!grant.written) continue;
+        const ownRow = and(
+          eq(reg.sharesTable.resourceId, change.resourceId),
+          eq(reg.sharesTable.principalType, grant.principalType),
+          eq(reg.sharesTable.principalId, grant.principalId),
+        );
+        if (!grant.role) {
+          if (grant.before) {
+            await db
+              .insert(reg.sharesTable)
+              .values(grant.before)
+              .onConflictDoNothing();
+          }
+        } else if (grant.before) {
+          await db
+            .update(reg.sharesTable)
+            .set({ role: grant.before.role })
+            .where(and(ownRow, eq(reg.sharesTable.role, grant.role)));
+        } else {
+          await db
+            .delete(reg.sharesTable)
+            .where(and(ownRow, eq(reg.sharesTable.role, grant.role)));
+        }
+      }
     };
 
     // Check every resource before changing any.
@@ -225,6 +451,7 @@ export default defineAction({
     const restore = async (
       change: PreparedChange,
     ): Promise<"visibility" | "organization" | null> => {
+      await restoreGrants(change);
       // Another request may have changed the resource since this call wrote
       // it; keep that newer value rather than putting back an older one.
       // Reading first narrows that window without closing it, since a
@@ -304,6 +531,7 @@ export default defineAction({
             change: { kind: "visibility", visibility: args.visibility },
           });
         }
+        for (const grant of change.grants) await writeGrant(change, grant);
       }
     } catch (error) {
       const stillVisible: string[] = [];
@@ -386,18 +614,26 @@ export default defineAction({
     const changed = prepared.filter((change) => change.resourceChanged);
     const firstChanged = changed.at(0);
     const card = firstChanged
-      ? sharingChangeFor(reg, firstChanged, changed.length, args.visibility)
+      ? sharingChangeFor(
+          reg,
+          firstChanged,
+          changed.length,
+          args.role ? `${args.visibility} · ${args.role}` : args.visibility,
+        )
       : undefined;
+    const roleResult = args.role ? { role: args.role } : {};
     if (!args.resourceIds) {
       return {
         ok: true,
         visibility: args.visibility,
+        ...roleResult,
         ...(card ? { change: card } : {}),
       };
     }
     return {
       ok: true,
       visibility: args.visibility,
+      ...roleResult,
       results: prepared.map((change) => ({
         resourceId: change.resourceId,
         status: change.resourceChanged
@@ -416,13 +652,13 @@ function sharingChangeFor(
   reg: ShareableResourceRegistration,
   firstChanged: PreparedChange,
   changedCount: number,
-  visibility: Visibility,
+  detail: string,
 ): ActionChange {
   const first = resourceSharingChange(
     reg,
     firstChanged.access.resource,
     "updated",
-    visibility,
+    detail,
   ).change;
   if (changedCount === 1) return first;
   const suffix = ` and ${changedCount - 1} more`;

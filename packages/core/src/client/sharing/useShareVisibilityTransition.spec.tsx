@@ -49,6 +49,7 @@ describe("useShareVisibilityTransition resource locks", () => {
       resourceId: "a",
       current: "private",
       orgId: null,
+      confirmOrgVisibility: true,
       canManage: true,
       active: true,
       apply: vi.fn(),
@@ -60,6 +61,30 @@ describe("useShareVisibilityTransition resource locks", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("saves private to organization at once for a type that does not ask", async () => {
+    const apply = vi.fn(async () => undefined);
+    render({ apply, confirmOrgVisibility: false });
+
+    await act(async () => {
+      await transition.request("org");
+    });
+
+    expect(apply).toHaveBeenCalledWith("org");
+    expect(transition.pending).toBeNull();
+  });
+
+  it("holds private to organization for a type that asks", () => {
+    const apply = vi.fn(async () => undefined);
+    render({ apply });
+
+    act(() => {
+      void transition.request("org");
+    });
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(transition.pending).toMatchObject({ from: "private", to: "org" });
   });
 
   it.each(["org", "private"] as const)(
