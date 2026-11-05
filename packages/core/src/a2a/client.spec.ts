@@ -1977,6 +1977,7 @@ describe("A2AClient", () => {
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     process.env.A2A_SECRET = "global-a2a-secret";
     const calls: Array<{ method: string; token: string }> = [];
     vi.stubGlobal(
@@ -2013,7 +2014,7 @@ describe("A2AClient", () => {
         orgId: "sender-org-row",
         orgDomain: "builder.io",
         orgSecret: "org-a2a-secret",
-        timeoutMs: 30_000,
+        timeoutMs: 25,
         pollIntervalMs: 1,
       }),
     ).resolves.toBe("polled with fallback org secret");
