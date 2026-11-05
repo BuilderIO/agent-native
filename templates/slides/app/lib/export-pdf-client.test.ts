@@ -627,14 +627,12 @@ describe("exportDeckAsPdf", () => {
 
   it("still exports, without a sidecar, when the deck source is too large to carry", async () => {
     renderSlide("s1");
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await exportDeckAsPdf("Q3 review", [
+    const result = await exportDeckAsPdf("Q3 review", [
       { id: "s1", content: "x".repeat(SLIDES_PDF_SIDECAR_MAX_JSON_BYTES + 1) },
     ]);
 
     expect(mocks.addImage).toHaveBeenCalledTimes(1);
     expect(mocks.addMetadata).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    expect(result.sidecarSkipped).toBe(true);
   });
 });

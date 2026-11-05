@@ -5594,10 +5594,18 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
-            analytics: deckExportAnalytics,
-            signal,
-          });
+          const { sidecarSkipped } = await exportDeckAsPdf(
+            deck.title,
+            exportSlides,
+            deck.aspectRatio,
+            {
+              analytics: deckExportAnalytics,
+              signal,
+            },
+          );
+          if (sidecarSkipped) {
+            toast.warning(t("editorExport.pdfSidecarSkipped"));
+          }
         }}
         flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {

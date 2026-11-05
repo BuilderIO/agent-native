@@ -658,7 +658,7 @@ export default function PresentationView({
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(
+        const { sidecarSkipped } = await exportDeckAsPdf(
           pdfExportRequest.title,
           pdfExportRequest.slides,
           pdfExportRequest.aspectRatio,
@@ -670,6 +670,7 @@ export default function PresentationView({
             ...(isShared ? {} : { analytics: { deckId } }),
           },
         );
+        if (sidecarSkipped) toast.warning(t("editorExport.pdfSidecarSkipped"));
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
