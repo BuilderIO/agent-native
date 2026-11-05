@@ -1311,7 +1311,11 @@ export interface ActionDefinition<TInput, TReturn> {
 const MAX_SEARCH_HINTS = 12;
 const MAX_SEARCH_HINT_CHARS = 60;
 
-function validateSearchHints(value: unknown): readonly string[] | undefined {
+/** Throws, naming `label`, unless `value` is absent or a valid hint list. */
+export function validateSearchHints(
+  value: unknown,
+  label = "searchHints",
+): readonly string[] | undefined {
   if (value === undefined) return undefined;
   if (
     !Array.isArray(value) ||
@@ -1324,7 +1328,7 @@ function validateSearchHints(value: unknown): readonly string[] | undefined {
     )
   ) {
     throw new TypeError(
-      `searchHints must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+      `${label} must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
     );
   }
   return Object.freeze([...value]);

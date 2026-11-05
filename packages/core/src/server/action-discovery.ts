@@ -190,7 +190,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
-          ...preserveActionFlags(mod),
+          ...preserveActionFlags(mod, name),
         };
       } else if (
         mod.default &&
@@ -202,7 +202,7 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
-          ...preserveActionFlags(mod.default),
+          ...preserveActionFlags(mod.default, name),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
@@ -231,7 +231,7 @@ export function loadActionsFromStaticRegistry(
         tool: mod.tool,
         run: mod.run,
         ...(mod.http !== undefined ? { http: mod.http } : {}),
-        ...preserveActionFlags(mod),
+        ...preserveActionFlags(mod, name),
       };
       continue;
     }
@@ -247,7 +247,7 @@ export function loadActionsFromStaticRegistry(
         tool: def.tool,
         run: def.run,
         ...(def.http !== undefined ? { http: def.http } : {}),
-        ...preserveActionFlags(def),
+        ...preserveActionFlags(def, name),
       };
       continue;
     }
@@ -950,7 +950,7 @@ export async function mergeCoreSharingActions(
           // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
-          ...preserveActionFlags(def),
+          ...preserveActionFlags(def, name),
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),

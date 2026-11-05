@@ -964,6 +964,29 @@ describe("tool-search ranking", () => {
     // never reaches past punctuation.
     expect(names("delete the email, not the inbox")[0]).toBe("delete-email");
     expect(names("No, delete that email")[0]).toBe("delete-email");
+    expect(names("I cannot delete this email")).toEqual([
+      "archive-email",
+      "delete-email",
+    ]);
+  });
+
+  it("demotes only the tools for the verb the request negates", () => {
+    const registry = {
+      "delete-email": action("Delete an email."),
+      "trash-draft": action("Trash a draft."),
+      // Outranks a halved delete-email, so it shows whether delete was demoted.
+      "star-email": action("Star an email or a draft."),
+      "cancel-meeting": action("Cancel a meeting."),
+      "move-meeting": action("Move a meeting to a new time."),
+    };
+    const names = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(names("delete this email, but don't trash that draft")[0]).toBe(
+      "delete-email",
+    );
+    expect(names("don't cancel my meeting, move it")[0]).toBe("move-meeting");
+    expect(names("cancel my meeting")[0]).toBe("cancel-meeting");
   });
 
   it("treats an unannotated tool named for a destructive verb as destructive", () => {
@@ -991,6 +1014,29 @@ describe("tool-search ranking", () => {
 
     expect(rank("settings")).toEqual(["get-mail-settings"]);
     expect(rank("set")).toEqual(["set-theme"]);
+  });
+
+  it("keeps protected nouns apart and meets -e verbs in every tense", () => {
+    const registry = {
+      "create-post": action("Make a new post."),
+      "list-news": action("List company news."),
+      "save-draft": action("Save a draft."),
+      "move-email": action("Move an email to a label."),
+      "list-recordings": action("List session recordings."),
+      "record-feedback": action("Record feedback on an email."),
+    };
+    const rank = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(rank("news")).toEqual(["list-news"]);
+    for (const query of ["save", "saved", "saving"]) {
+      expect(rank(query)[0]).toBe("save-draft");
+    }
+    for (const query of ["move", "moved", "moving"]) {
+      expect(rank(query)[0]).toBe("move-email");
+    }
+    expect(rank("recording")).toEqual(["list-recordings"]);
+    expect(rank("record")).toEqual(["record-feedback"]);
   });
 
   it("drops a stray letter from an apostrophe but keeps single digits", () => {

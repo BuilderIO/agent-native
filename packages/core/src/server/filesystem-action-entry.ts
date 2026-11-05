@@ -1,5 +1,5 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { ACTION_EXECUTION_KEY } from "../action.js";
+import { ACTION_EXECUTION_KEY, validateSearchHints } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { carryFrameworkMcpTool } from "../mcp/framework-tools.js";
 
@@ -57,6 +57,7 @@ function isMcpAnnotations(value: unknown): value is Flag<"mcpAnnotations"> {
  */
 export function preserveActionFlags(
   entry: Record<string, unknown>,
+  actionName?: string,
 ): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   carryFrameworkMcpTool(entry, out);
@@ -88,12 +89,13 @@ export function preserveActionFlags(
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
-  if (
-    Array.isArray(entry.searchHints) &&
-    entry.searchHints.every((hint) => typeof hint === "string")
-  ) {
-    out.searchHints = entry.searchHints;
-  }
+  // Not dropped like the flags above: a malformed list would silently leave
+  // the action harder to find, so loading it fails instead.
+  const searchHints = validateSearchHints(
+    entry.searchHints,
+    actionName ? `Action "${actionName}" searchHints` : "searchHints",
+  );
+  if (searchHints) out.searchHints = searchHints;
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
   }

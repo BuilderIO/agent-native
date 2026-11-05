@@ -314,7 +314,8 @@ function searchOnce(
       })),
     };
   }
-  const { tokens: queryTokens, negatesDestruction } = parseQuery(query);
+  const parsedQuery = parseQuery(query);
+  const queryTokens = parsedQuery.tokens;
 
   const candidates: ToolSearchResult[] = [];
   const rankable: RankableTool[] = [];
@@ -380,9 +381,7 @@ function searchOnce(
       candidate,
       prior:
         (isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1) *
-        (negatesDestruction && isDestructiveTool(name, entry)
-          ? NEGATED_DESTRUCTIVE_PRIOR
-          : 1),
+        negationPrior(name, entry, parsedQuery),
       fields: searchDocumentFields({
         name,
         source,
@@ -739,32 +738,19 @@ const FRAMEWORK_TOOL_PRIOR = 0.8;
 // delete.
 const NEGATED_DESTRUCTIVE_PRIOR = 0.5;
 
-// A declared `destructiveHint` decides. Without annotations, a name that leads
-// with a destructive verb (`delete-event`, `trash-email`) is the signal, since
-// most delete actions declare none.
-function isDestructiveTool(name: string, entry: ActionEntry): boolean {
-  if (entry.mcpAnnotations) return entry.mcpAnnotations.destructiveHint;
-  return searchTerms(parseMcpToolName(name)?.toolName ?? name)
-    .slice(0, 1)
-    .some((verb) => DESTRUCTIVE_VERBS.has(verb));
-}
-
-// Nouns that app UIs name things with, which stripping "-ing" would fold into
-// an unrelated verb: "heading" is not "head". "Setting" is also the verb, so
-// only the plural "settings" stays a noun. "Meetings" and "bookings" are left
-// to stem: they should meet "meet" and "book". Declared before the stemmed
-// sets below, which call `stem` as the module loads.
-const ING_NOUNS: ReadonlySet<string> = new Set([
-  "heading",
-  "padding",
-  "string",
-  "morning",
-  "evening",
-]);
-const PLURAL_ING_NOUNS: ReadonlySet<string> = new Set([
-  "setting",
-  "recording",
-  "mapping",
+// Stemming would fold these nouns into an unrelated word ("news" into "new",
+// which then expands to the create synonyms; "settings" into "set"), so they
+// are indexed as themselves. Declared before the stemmed sets below, which call
+// `stem` as the module loads.
+const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
+  ["news", "news"],
+  ["settings", "settings"],
+  ["recording", "recording"],
+  ["recordings", "recording"],
+  ["mapping", "mapping"],
+  ["mappings", "mapping"],
+  ["heading", "heading"],
+  ["headings", "heading"],
 ]);
 
 const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never"]);
@@ -778,27 +764,66 @@ const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
     "destroy",
     "wipe",
     "purge",
+    "cancel",
   ].map(stem),
 );
 
+function leadingNameVerb(name: string): string | undefined {
+  return searchTerms(parseMcpToolName(name)?.toolName ?? name)
+    .slice(0, 1)
+    .find(() => true);
+}
+
 /**
- * Query terms, minus a destructive verb the request negates. Negation words
+ * Halves a destructive tool's score when the request negates the verb it
+ * performs: "delete this email, but don't trash that draft" demotes
+ * `trash-email`, not `delete-email`. A declared `destructiveHint` decides what
+ * is destructive; without annotations, a name that leads with a destructive
+ * verb does, since most delete actions declare none. A destructive tool whose
+ * name carries no destructive verb is demoted only when the request asks for
+ * no destruction at all.
+ */
+function negationPrior(
+  name: string,
+  entry: ActionEntry,
+  query: ParsedQuery,
+): number {
+  if (query.negatedVerbs.size === 0) return 1;
+  const verb = leadingNameVerb(name);
+  const destructive = entry.mcpAnnotations
+    ? entry.mcpAnnotations.destructiveHint
+    : verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+  if (!destructive) return 1;
+  if (verb !== undefined && query.negatedVerbs.has(verb)) {
+    return NEGATED_DESTRUCTIVE_PRIOR;
+  }
+  return query.requestsDestruction ? 1 : NEGATED_DESTRUCTIVE_PRIOR;
+}
+
+type ParsedQuery = {
+  tokens: string[];
+  /** Destructive verb stems the request negates. */
+  negatedVerbs: ReadonlySet<string>;
+  /** The request names a destructive verb without negating it. */
+  requestsDestruction: boolean;
+};
+
+/**
+ * Query terms, minus each destructive verb the request negates. Negation words
  * are stop words for matching, so they are read here, before filtering; other
  * negated words ("emails with no subject") still search.
  */
-function parseQuery(query: string): {
-  tokens: string[];
-  negatesDestruction: boolean;
-} {
+function parseQuery(query: string): ParsedQuery {
   const words =
     query
+      .replace(/\bcannot\b/giu, "can not")
       .replace(/\bcan['’]t\b/giu, "can not")
       .replace(/\bwon['’]t\b/giu, "will not")
       .replace(/n['’]t\b/giu, " not")
       .match(/[A-Za-z0-9]+|[.,;:!?]/gu) ?? [];
   const tokens: string[] = [];
+  const negatedVerbs = new Set<string>();
   let negateNext = false;
-  let negatesDestruction = false;
   for (const word of words) {
     // "No, delete it": a negation never reaches past punctuation.
     if (/^[.,;:!?]$/u.test(word)) {
@@ -811,16 +836,19 @@ function parseQuery(query: string): {
     }
     const terms = searchTerms(word);
     if (terms.length === 0) continue;
-    const negatedDestruction =
-      negateNext && terms.some((term) => DESTRUCTIVE_VERBS.has(term));
+    const negated = negateNext
+      ? terms.filter((term) => DESTRUCTIVE_VERBS.has(term))
+      : [];
     negateNext = false;
-    if (negatedDestruction) {
-      negatesDestruction = true;
-      continue;
-    }
-    tokens.push(...terms);
+    for (const verb of negated) negatedVerbs.add(verb);
+    tokens.push(...terms.filter((term) => !negated.includes(term)));
   }
-  return { tokens: [...new Set(tokens)], negatesDestruction };
+  const unique = [...new Set(tokens)];
+  return {
+    tokens: unique,
+    negatedVerbs,
+    requestsDestruction: unique.some((term) => DESTRUCTIVE_VERBS.has(term)),
+  };
 }
 
 function fieldTerms(value: string): FieldTerms {
@@ -1026,10 +1054,14 @@ const STOP_WORDS: ReadonlySet<string> = new Set(
   ).split(" "),
 );
 
-// Light suffix stripping, the same on both sides of the match, so "archived",
-// "archiving" and "archive" meet at "archiv". It only has to be consistent,
-// not produce real words.
+// Light, inflection-only stemming, the same on both sides of the match:
+// plurals, "-ed" and "-ing" (undoubling "running" to "run"), and a final
+// "-e", so "archived", "archiving" and "archive" meet at "archiv" and "saved"
+// meets "save". Full Porter stemming was measured on the benchmark and lost a
+// held-out case: it folds derivations together ("engineering" into "engine").
 function stem(term: string): string {
+  const protectedTerm = PROTECTED_TERMS.get(term);
+  if (protectedTerm) return protectedTerm;
   let stemmed = term;
   if (stemmed.length > 4 && stemmed.endsWith("ies")) {
     stemmed = `${stemmed.slice(0, -3)}y`;
@@ -1042,18 +1074,12 @@ function stem(term: string): string {
   ) {
     stemmed = stemmed.slice(0, -1);
   }
-  if (
-    ING_NOUNS.has(stemmed) ||
-    (stemmed !== term && PLURAL_ING_NOUNS.has(stemmed))
-  ) {
-    return stemmed;
-  }
   if (stemmed.length > 5 && stemmed.endsWith("ing")) {
     stemmed = undoubleFinalConsonant(stemmed.slice(0, -3));
   } else if (stemmed.length > 4 && stemmed.endsWith("ed")) {
     stemmed = undoubleFinalConsonant(stemmed.slice(0, -2));
   }
-  if (stemmed.length > 4 && stemmed.endsWith("e")) {
+  if (stemmed.length >= 4 && stemmed.endsWith("e")) {
     stemmed = stemmed.slice(0, -1);
   }
   return stemmed;

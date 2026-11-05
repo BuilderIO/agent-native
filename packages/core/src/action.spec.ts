@@ -425,21 +425,27 @@ describe("defineAction", () => {
     expect(() => define("auto-archive")).toThrow(TypeError);
   });
 
-  it("drops searchHints a loaded module declares in the wrong shape", () => {
+  it("fails loading a module whose searchHints are malformed, naming the action", () => {
+    // oracle-change: malformed hints used to be dropped silently; loading now fails loudly
     const loaded = (searchHints: unknown) =>
       loadActionsFromStaticRegistry({
-        x: {
+        "manage-rules": {
           default: {
             tool: { description: "d", parameters: { type: "object" } },
             run: async () => "ok",
             searchHints,
           },
         },
-      }).x?.searchHints;
+      })["manage-rules"]?.searchHints;
 
     expect(loaded(["inbox rule"])).toEqual(["inbox rule"]);
-    expect(loaded(["inbox rule", 7])).toBeUndefined();
-    expect(loaded("inbox rule")).toBeUndefined();
+    expect(loaded(undefined)).toBeUndefined();
+    expect(() => loaded(["inbox rule", 7])).toThrow(
+      /Action "manage-rules" searchHints/,
+    );
+    expect(() => loaded("inbox rule")).toThrow(
+      /Action "manage-rules" searchHints/,
+    );
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
