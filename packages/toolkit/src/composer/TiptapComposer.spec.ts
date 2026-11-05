@@ -23,7 +23,6 @@ import { PromptComposer } from "./PromptComposer.js";
 import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   canSubmitComposerContent,
-  composerReferenceSignature,
   canRemoveVoicePreview,
   compactComposerModelName,
   createTiptapComposerExtensions,
@@ -5662,23 +5661,72 @@ describe("voice composer insertion", () => {
   });
 });
 
-describe("composerReferenceSignature", () => {
-  it("stays stable across text edits and changes when a reference is added", () => {
-    const editor = new Editor({
-      element: document.createElement("div"),
-      extensions: createTiptapComposerExtensions(() => "Message agent..."),
-    });
-    try {
-      const empty = composerReferenceSignature(editor.state.doc);
-      editor.commands.insertContent("hello");
-      expect(composerReferenceSignature(editor.state.doc)).toBe(empty);
-      editor.commands.insertContent({
-        type: "mentionReference",
-        attrs: { label: "Property agent" },
-      });
-      expect(composerReferenceSignature(editor.state.doc)).not.toBe(empty);
-    } finally {
-      editor.destroy();
+describe("TiptapComposer editor updates", () => {
+  it("settles plain text updates and reports inline reference changes", async () => {
+    const onTextChange = vi.fn();
+    const onReferencesChange = vi.fn();
+    let handle: TiptapComposerHandle | null = null;
+    let handleUpdates = 0;
+    const focusRef = (next: TiptapComposerHandle | null) => {
+      handle = next;
+      if (next) handleUpdates += 1;
+    };
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onTextChange,
+            onReferencesChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
     }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+    });
+    await act(async () => handle?.insertTextAtCursor?.("Hello"));
+    await act(async () => handle?.insertTextAtCursor?.(" world"));
+    handleUpdates = 0;
+    await act(async () => handle?.insertTextAtCursor?.("!"));
+
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Hello world!");
+    expect(onTextChange).toHaveBeenLastCalledWith("Hello world!");
+    expect(handleUpdates).toBe(0);
+
+    await act(async () =>
+      handle?.insertReference({
+        label: "Document",
+        refType: "file",
+        refId: "one",
+      }),
+    );
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ name: "Document", refId: "one" }),
+    ]);
+    await act(async () =>
+      handle?.replaceReference("file", {
+        label: "Updated",
+        refType: "file",
+        refId: "two",
+      }),
+    );
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ name: "Updated", refId: "two" }),
+    ]);
+    await act(async () => handle?.replaceReference("file", null));
+    expect(onReferencesChange).toHaveBeenLastCalledWith([]);
   });
 });

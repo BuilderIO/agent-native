@@ -14,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -795,9 +796,11 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
   return hasContent;
 }
 
-export function composerReferenceSignature(doc: ComposerDocument): string {
+function composerReferenceSignature(
+  doc: Pick<ProseMirrorNode, "descendants">,
+): string {
   const references: unknown[] = [];
-  doc.descendants((node: any) => {
+  doc.descendants((node) => {
     if (
       node.type.name === "mentionReference" ||
       node.type.name === "fileReference" ||
