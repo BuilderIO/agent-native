@@ -66,7 +66,7 @@ export function runCase(
 ): CaseResult {
   const missing = benchmarkCase.expected
     .flat()
-    .filter((name) => !registry[name]);
+    .filter((name) => !Object.hasOwn(registry, name));
   if (missing.length > 0) {
     throw new Error(
       `templates/${benchmarkCase.template}: expected tools are not registered: ${missing.join(", ")} (prompt: "${benchmarkCase.prompt}")`,
