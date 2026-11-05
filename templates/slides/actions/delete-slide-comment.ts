@@ -44,6 +44,7 @@ export default defineAction({
   },
   needsApproval: async ({ id, deckId }, ctx) => {
     if (commentAuthorKind(ctx?.caller) !== "agent") return false;
+    await assertAccess("deck", deckId, "commenter");
     const db = getDb();
     const targetRows = await db
       .select({

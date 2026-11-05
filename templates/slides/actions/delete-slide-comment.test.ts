@@ -258,6 +258,19 @@ describe("delete-slide-comment", () => {
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 
+  it("checks deck access before the approval preflight reads comments", async () => {
+    mockAssertAccess.mockRejectedValueOnce(new Error("no access"));
+
+    await expect(
+      deleteAction.needsApproval(
+        { id: "c-1", deckId: "deck-1" },
+        {
+          caller: "tool",
+        },
+      ),
+    ).rejects.toThrow("no access");
+  });
+
   it("lets an agent delete another person's reply once the user approved the call", async () => {
     const result = await deleteAction.run({ id: "c-1", deckId: "deck-1" }, {
       caller: "tool",
