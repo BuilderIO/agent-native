@@ -2804,6 +2804,11 @@ audio.media-block__content {
   color: hsl(var(--suggestion));
 }
 
+/* A line break has no ink of its own to highlight. */
+.content-editor .suggestion-line-break::before {
+  content: "↵";
+}
+
 .content-editor .suggestion-insert[data-suggestion-widget],
 .content-editor .suggestion-add-block[data-suggestion-widget] {
   border-radius: 0.2em;

@@ -144,6 +144,19 @@ function stripInlineContext(
   return result;
 }
 
+/** Where each link in presented suggestion text points. */
+export function suggestionLinkDestinations(
+  nodes: readonly SuggestionPresentationNode[],
+): string[] {
+  return nodes.flatMap((node) =>
+    node.type === "link"
+      ? [node.url, ...suggestionLinkDestinations(node.children)]
+      : "children" in node
+        ? suggestionLinkDestinations(node.children)
+        : [],
+  );
+}
+
 export function suggestionTextPresentation(
   content: string,
 ): SuggestionPresentationNode[] {

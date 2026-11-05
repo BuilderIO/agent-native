@@ -2145,6 +2145,43 @@ describe("DeckContext fallback polling", () => {
     expect(listCallUrls(api.fetchMock)).toHaveLength(previewListBefore + 1);
   });
 
+  it("asks for card previews again after the organization scope resets the deck list", async () => {
+    orgQueryState.data = { orgId: "org-a" };
+    const gridDeck: Deck = {
+      id: "grid-deck",
+      title: "Grid Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([gridDeck]);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const previewCount = () =>
+      listCallUrls(api.fetchMock).filter((url) =>
+        url.includes("includePreview"),
+      ).length;
+    await act(async () => {
+      await result.current.loadDeckPreviews([gridDeck.id]);
+    });
+    expect(previewCount()).toBe(1);
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Same id at the same updatedAt: the reset must not count it as answered.
+    await act(async () => {
+      await result.current.loadDeckPreviews([gridDeck.id]);
+    });
+    expect(previewCount()).toBe(2);
+  });
+
   it("does not let a stale list snapshot clobber a rename that finished saving while the poll was in flight", async () => {
     const deck: Deck = {
       id: "open-deck",

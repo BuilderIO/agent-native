@@ -405,4 +405,23 @@ describe("hosted Clips storage mode pinning", () => {
     );
     expect(JSON.stringify(wheres[1])).not.toContain("allowances.identityKey");
   });
+
+  it.each([
+    ["missing user row", [], "hosted_identity_unverifiable"],
+    [
+      "email mismatch",
+      [{ email: "someone-else@example.com", email_verified: true }],
+      "hosted_identity_mismatch",
+    ],
+  ])(
+    "fails the status read with a typed non-auth error for a %s",
+    async (_name, rows, errorCode) => {
+      state.activeProvider = null;
+      mockDbExec.mockResolvedValue({ rows });
+      await expect(getClipsVideoStorageStatus()).rejects.toMatchObject({
+        errorCode,
+        statusCode: 500,
+      });
+    },
+  );
 });

@@ -15,11 +15,21 @@ export interface BuildStepFailureInput {
  */
 export function buildStepFailureReport(input: BuildStepFailureInput): {
   error: Error;
+  fingerprint: string[];
   tags: Record<string, string>;
   extra: Record<string, unknown>;
 } {
   return {
-    error: new KnownCliError(`Build step "${input.label}" failed`),
+    error: new KnownCliError(
+      input.signal
+        ? `Build step "${input.label}" killed by ${input.signal}`
+        : `Build step "${input.label}" failed`,
+    ),
+    fingerprint: [
+      "build-step",
+      input.label,
+      input.signal ? "signal" : "failed",
+    ],
     tags: {
       source: "build-step",
       buildStep: input.label,
