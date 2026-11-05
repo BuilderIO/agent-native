@@ -426,6 +426,7 @@ const messages = {
     deckTitle: "Deck title",
     presentPresenterViewDescription: "View speaker notes while presenting",
     presenterViewBlocked: "Allow pop-ups to open Presenter View.",
+    presenterViewUnsupported: "Presenter View isn't supported in this browser.",
     export: "Export",
     privacyPrivate: "Private",
     privacyOrg: "Shared with org",

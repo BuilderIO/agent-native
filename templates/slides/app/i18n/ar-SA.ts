@@ -423,6 +423,7 @@ const messages = {
     deckTitle: "عنوان العرض",
     presentPresenterViewDescription: "عرض ملاحظات المتحدث أثناء التقديم",
     presenterViewBlocked: "اسمح بالنوافذ المنبثقة لفتح عرض مقدّم العرض.",
+    presenterViewUnsupported: "عرض مقدّم العرض غير مدعوم في هذا المتصفح.",
     export: "تصدير",
     privacyPrivate: "خاص",
     privacyOrg: "مشترك مع المؤسسة",

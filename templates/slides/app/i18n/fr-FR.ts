@@ -443,6 +443,8 @@ const messages = {
       "Afficher les notes du présentateur pendant la présentation",
     presenterViewBlocked:
       "Autorisez les fenêtres contextuelles pour ouvrir le mode présentateur.",
+    presenterViewUnsupported:
+      "Le mode présentateur n'est pas pris en charge par ce navigateur.",
     export: "Exporter",
     privacyPrivate: "Privé",
     privacyOrg: "Partagé avec l’organisation",

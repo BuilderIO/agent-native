@@ -413,6 +413,7 @@ const messages = {
     deckTitle: "簡報標題",
     presentPresenterViewDescription: "播放簡報時檢視演講者備註",
     presenterViewBlocked: "請允許彈出式視窗以開啟簡報者檢視。",
+    presenterViewUnsupported: "此瀏覽器不支援簡報者檢視。",
     export: "匯出",
     privacyPrivate: "私人",
     privacyOrg: "已與組織共用",
