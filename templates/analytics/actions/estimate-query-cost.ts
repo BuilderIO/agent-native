@@ -178,7 +178,7 @@ export default defineAction({
     if (!stored && !seed) {
       if (dashboard) {
         fail(
-          `estimate-query-cost only supports SQL dashboards; "${dashboardId}" is ${dashboard.kind}.`,
+          `Saved-dashboard cost estimates require a SQL dashboard; "${dashboardId}" is ${dashboard.kind}.`,
           { errorCode: "dashboard_not_sql", statusCode: 400 },
         );
       }

@@ -1073,24 +1073,33 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(calPkg.dependencies["@agent-native/scheduling"]).toBe("workspace:*");
   });
 
-  it("resolves @agent-native/toolkit in workspacified apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
-    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
-    expect(appPkg.dependencies["@agent-native/toolkit"]).toBe(
-      _getToolkitDependencyVersion(),
-    );
-  });
-
-  it("resolves @agent-native/agentkit in workspacified Chat apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
-    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
-    expect(appPkg.dependencies["@agent-native/agentkit"]).toBe(
-      _getAgentKitDependencyVersion(),
-    );
-    expect(appPkg.dependencies["@agent-native/agentkit"]).not.toMatch(
-      /^workspace:/,
-    );
-    expect(appPkg.dependencies["@agent-native/agentkit"]).not.toBe("latest");
+  // oracle-change: scaffolds pin the exact released version of every framework package, replacing the tests that expected `^` ranges for Toolkit/AgentKit and `latest` for Dispatch.
+  it("pins framework packages to the exact versions released with this Core", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = await scaffoldWorkspace("my-ws", ["chat", "dispatch"]);
+      const packagesDir = path.join(__dirname, "../../..");
+      const frameworkDeps = {
+        chat: ["agentkit", "core", "otel", "toolkit"],
+        dispatch: ["core", "dispatch", "otel", "toolkit"],
+      };
+      for (const [app, packageDirs] of Object.entries(frameworkDeps)) {
+        const appPkg = readPkg(path.join(wsDir, "apps", app));
+        for (const packageDir of packageDirs) {
+          expect(
+            appPkg.dependencies[`@agent-native/${packageDir}`],
+            `apps/${app} @agent-native/${packageDir}`,
+          ).toBe(readPkg(path.join(packagesDir, packageDir)).version);
+        }
+      }
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("builds missing local package exports before packing", () => {
@@ -1206,22 +1215,6 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     }
   });
 
-  it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
-    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    try {
-      const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
-      const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
-      expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
-    } finally {
-      if (previous === undefined) {
-        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-      } else {
-        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
-      }
-    }
-  });
-
   it("can opt into local dispatch linking for framework development", async () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
@@ -1240,13 +1233,13 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     }
   });
 
-  it("keeps the OTel startup plugin and resolves @agent-native/otel to latest", async () => {
+  // oracle-change: OTel is now pinned to its released version, which "pins framework packages to the exact versions released with this Core" asserts.
+  it("keeps the OTel startup plugin in workspacified apps", async () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
       const appDir = path.join(wsDir, "apps", "chat");
-      expect(readPkg(appDir).dependencies["@agent-native/otel"]).toBe("latest");
       expect(
         fs.readFileSync(path.join(appDir, "server/plugins/otel.ts"), "utf-8"),
       ).toContain("startAgentNativeOtel()");
@@ -1538,84 +1531,6 @@ describe("template/core version compatibility", () => {
     try {
       expect(_getCoreDependencyVersion()).toBe(_getCorePackageVersion());
     } finally {
-      if (previous === undefined) {
-        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-      } else {
-        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
-      }
-    }
-  });
-
-  it("keeps core and toolkit paired even when a stale CLI scaffolds after a newer core/toolkit pair has published", () => {
-    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    const originalReadFileSync = fs.readFileSync;
-    const readFileSyncSpy = vi
-      .spyOn(fs, "readFileSync")
-      .mockImplementation((filePath: any, options: any) => {
-        if (String(filePath).endsWith(path.join("core", "package.json"))) {
-          return JSON.stringify({
-            version: "0.114.2",
-            dependencies: { "@agent-native/toolkit": "^0.8.0" },
-          });
-        }
-        return originalReadFileSync(filePath, options);
-      });
-    try {
-      expect(_getCoreDependencyVersion()).toBe("0.114.2");
-      expect(_getToolkitDependencyVersion()).toBe("^0.8.0");
-    } finally {
-      readFileSyncSpy.mockRestore();
-      if (previous === undefined) {
-        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-      } else {
-        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
-      }
-    }
-  });
-
-  it("pins unpublished generated framework dependencies to compatible versions", () => {
-    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    try {
-      expect(_getToolkitDependencyVersion()).toBe(
-        `^${_getCorePackageVersion()}`,
-      );
-      expect(_getAgentKitDependencyVersion()).toBe(
-        `^${readPkg(path.join(__dirname, "../../../agentkit")).version}`,
-      );
-    } finally {
-      if (previous === undefined) {
-        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-      } else {
-        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
-      }
-    }
-  });
-
-  it("pins generated framework dependencies to core published ranges", () => {
-    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
-    const originalReadFileSync = fs.readFileSync;
-    const readFileSyncSpy = vi
-      .spyOn(fs, "readFileSync")
-      .mockImplementation((filePath: any, options: any) => {
-        if (String(filePath).endsWith(path.join("core", "package.json"))) {
-          return JSON.stringify({
-            dependencies: {
-              "@agent-native/toolkit": "^0.9.1",
-              "@agent-native/agentkit": "^0.2.3",
-            },
-          });
-        }
-        return originalReadFileSync(filePath, options);
-      });
-    try {
-      expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
-      expect(_getAgentKitDependencyVersion()).toBe("^0.2.3");
-      expect(_getDispatchDependencyVersion()).toBe("latest");
-    } finally {
-      readFileSyncSpy.mockRestore();
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
       } else {

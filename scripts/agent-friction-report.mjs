@@ -4179,7 +4179,7 @@ const PATTERNS = [
     key: "feedback-reports-missed",
     label: "Had to point out reports the feedback sweep never picked up",
     fixedBy:
-      ".agents/skills/review-latest-feedback (helpers return every unmarked root, 2026-10-30)",
+      ".agents/skills/review-latest-feedback (unmarked-root backstop search every run, 2026-11-05)",
     re: FEEDBACK_REPORTS_MISSED_RE,
   },
   {

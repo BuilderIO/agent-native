@@ -23,7 +23,8 @@ Ownership, who may push or comment, the merge gate, cadence, and the Codex
 goal and heartbeat all live in `ship`. Under `/ship` this is a step inside it:
 keep going through the merge. Standalone, stop after 30 minutes of green
 GitHub Actions and no new feedback, and merge only if the user asks. On a
-factory PR, each watcher prompt is one tick and the watcher pushes and merges:
+factory PR, each watcher prompt is one tick, the watcher pushes and merges,
+and the round skips the login check below:
 see `factory-run/references/babysit-round.md`.
 
 ## Each tick

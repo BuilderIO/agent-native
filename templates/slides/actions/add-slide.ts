@@ -228,6 +228,8 @@ export default defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
+  // Only creates a slide; `reuseLabels: []` is the default and inherits labels.
+  emptyListsEraseNothing: true,
   run: async (
     {
       deckId,

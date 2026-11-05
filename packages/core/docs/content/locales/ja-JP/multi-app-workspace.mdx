@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 ワークスペース内のどこからでも:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI では、既にインストールされているアプリがフィルターされて除外されたテンプレート ピッカーが再度表示されます。 1 つ以上を選択すると、`apps/` の下に足場が作成されます。非対話型のバリエーション:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 すべてのファーストパーティ テンプレートはワークスペース アプリとして機能します。CLI は、共有パッケージを dep として追加し、`workspace:*` 参照を解決するテンプレート上で小さな **workspacify** 変換を実行します。維持する必要のある並列「ワークスペース アプリ」スキャフォールドはありません。
@@ -295,6 +295,10 @@ my-company-platform/
 ## 共有認証情報 {#shared-credentials}
 
 同じワークスペース内のアプリはデフォルトで同じ `DATABASE_URL` を指すため、フレームワーク認証情報ストレージにより、アプリごとの構成を行わずにすべてのアプリで認証情報を利用できるようになります。 `@agent-native/core/credentials` を直接使用するか、ワークスペースでより厳密な命名規則が必要な場合は、`packages/shared` にシン ヘルパーを追加します。
+
+## `/` のデフォルトアプリ {#default-app}
+
+ワークスペースに `dispatch` アプリがある場合、`/` は Dispatch を開き、ない場合は最初のアプリを開きます。別のアプリを開くには `WORKSPACE_DEFAULT_APP=<app-id>` を設定します。`agent-native dev` とワークスペースのデプロイはどちらも、まずプロセス環境から、次にワークスペースルートの `.env` から読み取ります。どのアプリにも一致しない値は無視されます。デプロイはビルド時に読み取るため、ビルドを実行する場所で設定してください。Dispatch は独自の `/dispatch` リダイレクトを維持し、`deployment.workspace.rootPage: "directory"` では引き続きアプリ一覧が表示されます。
 
 ## 共有デザイン トークン {#design-tokens}
 
