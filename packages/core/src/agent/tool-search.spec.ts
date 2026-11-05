@@ -902,8 +902,93 @@ describe("tool-search ranking", () => {
       searchToolRegistry(registry, { query }).results[0]?.name;
 
     expect(rank("archived")).toBe("archive-email");
+    expect(rank("archiving")).toBe("archive-email");
     expect(rank("powerpoint")).toBe("import-pptx");
     expect(rank("copy this deck")).toBe("duplicate-deck");
+  });
+
+  it("drops a stray letter from an apostrophe but keeps single digits", () => {
+    const registry = {
+      "list-events": action("List calendar events."),
+      "get-profile": action("Read the user's profile."),
+      "set-aspect-ratio": action("Set the slide shape to 4:3."),
+    };
+    const names = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(names("what's on my calendar")).toEqual(["list-events"]);
+    expect(names("4:3")).toEqual(["set-aspect-ratio"]);
+  });
+
+  it("ranks a word in the first sentence above the same word later on", () => {
+    // Alphabetical order, the tie-break, would put deck-a first.
+    const registry = {
+      "deck-a": action("Read a deck. Export it later."),
+      "deck-b": action("Export a deck. Keeps its slides."),
+    };
+
+    const names = searchToolRegistry(registry, {
+      query: "export",
+    }).results.map((r) => r.name);
+
+    expect(names).toEqual(["deck-b", "deck-a"]);
+  });
+
+  it("ranks a short description above a long one with the same match", () => {
+    const registry = {
+      "tool-a": action(
+        "Read a deck. It returns slides, notes, comments, owners, history, layout, theme, and export settings.",
+      ),
+      "tool-b": action("Read a deck. It returns export settings."),
+    };
+
+    const names = searchToolRegistry(registry, {
+      query: "export",
+    }).results.map((r) => r.name);
+
+    expect(names).toEqual(["tool-b", "tool-a"]);
+  });
+
+  it("indexes parameter descriptions but not their JSON types", () => {
+    const registry = {
+      "send-email": action("Send a message.", {
+        to: { type: "string", description: "Recipient address" },
+      }),
+    };
+    const names = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(names("recipient")).toEqual(["send-email"]);
+    expect(names("string")).toEqual([]);
+  });
+
+  it("gives the name phrase bonus only to whole tokens in order", () => {
+    // Each pair differs only by a name whose tokens merely end in the query.
+    const scores = (query: string, registry: Record<string, ActionEntry>) =>
+      Object.fromEntries(
+        searchToolRegistry(registry, { query }).results.map((r) => [
+          r.name,
+          r.score,
+        ]),
+      );
+
+    const view = scores("view email", {
+      "view-email": action("Open an email."),
+      "preview-email": action("Show an email."),
+      "send-email": action("Show an email."),
+    });
+    expect(view["preview-email"]).toBe(view["send-email"]);
+    expect(view["view-email"]).toBeGreaterThan(view["preview-email"]! + 5);
+
+    const archive = scores("archive email", {
+      "archive-email": action("Move an email out of the inbox."),
+      "unarchive-email": action("Restore an email."),
+      "restore-email": action("Restore an email."),
+    });
+    expect(archive["unarchive-email"]).toBe(archive["restore-email"]);
+    expect(archive["archive-email"]).toBeGreaterThan(
+      archive["unarchive-email"]! + 5,
+    );
   });
 
   it("drops conversational words, so a description's 'you can' never matches", () => {

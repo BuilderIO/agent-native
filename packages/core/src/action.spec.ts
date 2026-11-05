@@ -413,12 +413,33 @@ describe("defineAction", () => {
         run: async () => "ok",
       });
 
+    const twelve = Array.from({ length: 12 }, (_, i) => `h${i}`);
+    expect(define(twelve).searchHints).toEqual(twelve);
+    expect(define(["x".repeat(60)]).searchHints).toEqual(["x".repeat(60)]);
+
     expect(() => define(["ok", ""])).toThrow(TypeError);
+    expect(() => define(["   "])).toThrow(TypeError);
+    expect(() => define([7])).toThrow(TypeError);
     expect(() => define(["x".repeat(61)])).toThrow(TypeError);
-    expect(() => define(Array.from({ length: 13 }, (_, i) => `h${i}`))).toThrow(
-      TypeError,
-    );
+    expect(() => define([...twelve, "h12"])).toThrow(TypeError);
     expect(() => define("auto-archive")).toThrow(TypeError);
+  });
+
+  it("drops searchHints a loaded module declares in the wrong shape", () => {
+    const loaded = (searchHints: unknown) =>
+      loadActionsFromStaticRegistry({
+        x: {
+          default: {
+            tool: { description: "d", parameters: { type: "object" } },
+            run: async () => "ok",
+            searchHints,
+          },
+        },
+      }).x?.searchHints;
+
+    expect(loaded(["inbox rule"])).toEqual(["inbox rule"]);
+    expect(loaded(["inbox rule", 7])).toBeUndefined();
+    expect(loaded("inbox rule")).toBeUndefined();
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {

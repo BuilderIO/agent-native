@@ -835,7 +835,6 @@ function rankByBm25(
     }),
   );
   const wholeQuery = query.trim().toLowerCase();
-  const phrase = queryTokens.length > 1 ? queryTokens.join(" ") : "";
   return docs.flatMap((doc) => {
     const { candidate } = doc;
     if (candidate.name.toLowerCase() === wholeQuery) {
@@ -860,12 +859,26 @@ function rankByBm25(
         ((weightedFrequency * (BM25_K1 + 1)) / (weightedFrequency + BM25_K1));
     }
     if (score <= 0) return [];
-    if (phrase && tokenize(candidate.name).join(" ").includes(phrase)) {
+    if (
+      queryTokens.length > 1 &&
+      containsTokenRun(tokenize(candidate.name), queryTokens)
+    ) {
       score += NAME_PHRASE_BONUS;
     }
     score *= doc.prior;
     return [{ ...candidate, score: Math.round(score * 100) / 100 }];
   });
+}
+
+// Whole tokens in order, so "view email" never matches inside "preview-email"
+// and "archive email" never matches inside "unarchive-email".
+function containsTokenRun(tokens: string[], run: string[]): boolean {
+  for (let start = 0; start + run.length <= tokens.length; start++) {
+    if (run.every((token, offset) => tokens[start + offset] === token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Suggestions are never loaded, so a query with no exact term still points the

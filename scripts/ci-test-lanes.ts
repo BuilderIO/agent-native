@@ -232,10 +232,29 @@ const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
   "src/mcp/hidden-inline-apps.spec.ts",
-  // Ranks requests against templates' real action registries, which it
-  // imports through a generated file the module graph does not show.
-  "src/agent/tool-search.benchmark.spec.ts",
 ] as const;
+
+// The tool-search benchmark ranks requests against templates' action
+// registries, which it imports through a generated file `vitest --changed`
+// cannot see. Core changes reach it through the import graph; a template
+// action (its name, description, schema, or search hints) needs this.
+const TOOL_SEARCH_BENCHMARK_CORE_SPEC =
+  "src/agent/tool-search.benchmark.spec.ts";
+
+export function toolSearchBenchmarkCoreSpecs(
+  paths: readonly string[],
+): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^templates\/[^/]+\/actions\/.+\.tsx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized) &&
+      !/\.d\.[cm]?ts$/u.test(normalized)
+    );
+  })
+    ? [TOOL_SEARCH_BENCHMARK_CORE_SPEC]
+    : [];
+}
 const NON_CODE_ASSET_RE =
   /\.(?:css|scss|sass|less|png|jpe?g|gif|webp|avif|ico|svg|woff2?|ttf|otf|eot|mp3|mp4|wav|webm|mov)$/iu;
 
@@ -648,6 +667,7 @@ function main(): void {
       ...new Set([
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
         ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : toolSearchBenchmarkCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;

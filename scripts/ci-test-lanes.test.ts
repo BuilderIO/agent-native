@@ -8,6 +8,7 @@ import {
   partitionWeighted,
   requiresFullCoreFastTests,
   splitLargePackages,
+  toolSearchBenchmarkCoreSpecs,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -102,7 +103,6 @@ test("runs the catalog contract specs for any workspace source change", () => {
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
     "src/mcp/hidden-inline-apps.spec.ts",
-    "src/agent/tool-search.benchmark.spec.ts",
   ];
   for (const changed of [
     "templates/mail/actions/send-email.ts",
@@ -154,6 +154,26 @@ test("runs the catalog contract specs for any workspace source change", () => {
     [],
     "a docs-only change",
   );
+});
+
+test("runs the tool-search benchmark only for template action changes", () => {
+  const spec = ["src/agent/tool-search.benchmark.spec.ts"];
+  for (const changed of [
+    "templates/mail/actions/manage-draft.ts",
+    "templates/newapp/actions/nested/create-thing.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([changed]), spec, changed);
+  }
+  for (const unrelated of [
+    "templates/mail/actions/manage-draft.spec.ts",
+    "templates/mail/app/routes/inbox.tsx",
+    "templates/mail/server/lib/automations.ts",
+    "templates/mail/actions/README.md",
+    "packages/core/src/agent/tool-search.ts",
+    "packages/creative-context/src/actions/x.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([unrelated]), [], unrelated);
+  }
 });
 
 test("refuses lanes that skip or repeat a core shard", () => {
