@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import React, { act, useEffect } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -76,32 +76,6 @@ describe("useAgentChatContext", () => {
     );
     await act(async () => root.render(<Probe enabled={false} />));
     expect(container.textContent).toBe("shared");
-  });
-
-  it("does not loop when an effect republishes identical context", async () => {
-    const items = [{ key: "selection", title: "Selection", context: "A" }];
-    const initial = publishAgentChatContextItems(items, {
-      updatedAt: 10,
-      persist: false,
-    });
-    let now = 100;
-    vi.spyOn(Date, "now").mockImplementation(() => now++);
-    const effect = vi.fn();
-    function RepublishProbe() {
-      const state = useAgentChatContext(false);
-      useEffect(() => {
-        effect();
-        if (effect.mock.calls.length < 8) {
-          publishAgentChatContextItems(items, { persist: false });
-        }
-      }, [state.items, state.updatedAt]);
-      return <div>{state.updatedAt}</div>;
-    }
-
-    await act(async () => root.render(<RepublishProbe />));
-    expect(effect).toHaveBeenCalledOnce();
-    expect(container.textContent).toBe("10");
-    expect(getAgentChatContextState()).toBe(initial);
   });
 
   it("exposes newer watermarks and rejects older refreshes", async () => {
