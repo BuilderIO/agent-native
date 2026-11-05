@@ -598,92 +598,98 @@ export default function PromptPopover({
           </div>
         )}
 
-        <div className={inline ? undefined : "px-2.5 pb-2.5"}>
-          <PromptComposer
-            {...context?.props}
-            contextMenuItems={context?.props.contextMenuItems ?? []}
-            composerRef={composerRef}
-            autoFocus={!inline || (active && open)}
-            layoutVariant={inline ? "hero" : undefined}
-            className={inline ? "slides-home-prompt-composer-area" : undefined}
-            voiceEnabled
-            voiceChatEnabled={false}
-            attachmentsEnabled={active && fileStorageConfigured}
-            attachmentAdapter={slidesPromptAttachmentAdapter}
-            inlineTextAttachments={false}
-            showModelSelector={showModelSelector}
-            modelStatusChecksEnabled={modelStatusChecksEnabled}
-            requireAgentEngine={requireAgentEngine}
-            showMissingApiKeySetup={showMissingApiKeySetup}
-            submissionDisabled={submissionDisabled}
-            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
-            documentAttachmentLimitLabel="Slides reference files"
-            disabled={disabled || loading || uploading || submitting}
-            submitting={submitting}
-            placeholder={placeholder}
-            onSubmit={handleSubmit}
-            onBeforeSubmit={onBeforeSubmit}
-            onAttachmentsChange={handleAttachmentsChange}
-            onTextChange={(text) => {
-              setPromptText(text);
-              onPromptTextChange?.(text);
-            }}
-            headerSlot={composerHeaderSlot}
-            draftScope={draftScope}
-            initialText={initialText}
-            initialTextKey={initialTextKey}
-            initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
-            selectedModel={
-              initialModelSelection ? modelSelection?.model : undefined
-            }
-            selectedEngine={
-              initialModelSelection ? modelSelection?.engine : undefined
-            }
-            selectedEffort={
-              initialModelSelection ? modelSelection?.effort : undefined
-            }
-            onModelChange={
-              initialModelSelection ? handleModelChange : undefined
-            }
-            onEffortChange={
-              initialModelSelection ? handleEffortChange : undefined
-            }
-            onModelSelectionChange={setModelSelection}
-            onAttachmentRequest={
-              fileStorageConfigured
-                ? undefined
-                : () => setStoragePromptOpen(true)
-            }
-          />
-        </div>
+        <div>
+          <div>
+            <div className={inline ? undefined : "px-2.5 pb-2.5"}>
+              <PromptComposer
+                {...context?.props}
+                contextMenuItems={context?.props.contextMenuItems ?? []}
+                composerRef={composerRef}
+                autoFocus={!inline || (active && open)}
+                layoutVariant={inline ? "hero" : undefined}
+                className={
+                  inline ? "slides-home-prompt-composer-area" : undefined
+                }
+                voiceEnabled
+                voiceChatEnabled={false}
+                attachmentsEnabled={active && fileStorageConfigured}
+                attachmentAdapter={slidesPromptAttachmentAdapter}
+                inlineTextAttachments={false}
+                showModelSelector={showModelSelector}
+                modelStatusChecksEnabled={modelStatusChecksEnabled}
+                requireAgentEngine={requireAgentEngine}
+                showMissingApiKeySetup={showMissingApiKeySetup}
+                submissionDisabled={submissionDisabled}
+                maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+                documentAttachmentLimitLabel="Slides reference files"
+                disabled={disabled || loading || uploading || submitting}
+                submitting={submitting}
+                placeholder={placeholder}
+                onSubmit={handleSubmit}
+                onBeforeSubmit={onBeforeSubmit}
+                onAttachmentsChange={handleAttachmentsChange}
+                onTextChange={(text) => {
+                  setPromptText(text);
+                  onPromptTextChange?.(text);
+                }}
+                headerSlot={composerHeaderSlot}
+                draftScope={draftScope}
+                initialText={initialText}
+                initialTextKey={initialTextKey}
+                initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
+                selectedModel={
+                  initialModelSelection ? modelSelection?.model : undefined
+                }
+                selectedEngine={
+                  initialModelSelection ? modelSelection?.engine : undefined
+                }
+                selectedEffort={
+                  initialModelSelection ? modelSelection?.effort : undefined
+                }
+                onModelChange={
+                  initialModelSelection ? handleModelChange : undefined
+                }
+                onEffortChange={
+                  initialModelSelection ? handleEffortChange : undefined
+                }
+                onModelSelectionChange={setModelSelection}
+                onAttachmentRequest={
+                  fileStorageConfigured
+                    ? undefined
+                    : () => setStoragePromptOpen(true)
+                }
+              />
+            </div>
 
-        <UploadStorageGate
-          configured={fileStorageConfigured}
-          unavailable={!storageQuery.isSuccess}
-          open={storagePromptOpen}
-          onOpenChange={setStoragePromptOpen}
-          onRetry={() => void storageQuery.refetch()}
-          anchorRef={panelRef}
-        />
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={!storageQuery.isSuccess}
+              open={storagePromptOpen}
+              onOpenChange={setStoragePromptOpen}
+              onRetry={() => void storageQuery.refetch()}
+              anchorRef={panelRef}
+            />
 
-        {uploading && (
-          <div
-            className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            <IconLoader2 className="size-3.5 animate-spin" />
-            <span>{t("raw.uploading")}</span>
+            {uploading && (
+              <div
+                className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <IconLoader2 className="size-3.5 animate-spin" />
+                <span>{t("raw.uploading")}</span>
+              </div>
+            )}
+
+            {children}
+            {context?.dialogs}
+
+            <GoogleDocImportHint
+              promptText={promptText}
+              onSourceContextChange={setGoogleDocContext}
+            />
           </div>
-        )}
-
-        {children}
-        {context?.dialogs}
-
-        <GoogleDocImportHint
-          promptText={promptText}
-          onSourceContextChange={setGoogleDocContext}
-        />
+        </div>
       </div>
     </>
   );
