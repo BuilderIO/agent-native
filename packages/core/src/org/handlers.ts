@@ -31,6 +31,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { workspacePrivateOrigins } from "../a2a/workspace-private-origins.js";
 import { warnAgent } from "../agent/action-warnings.js";
+import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
@@ -41,6 +42,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
+import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   getAppProductionUrl,
   resolveAppRuntimeUrl,
@@ -2194,17 +2196,24 @@ export const syncA2ASecretHandler = defineEventHandler(
     // Only first-party built-ins and apps mounted on this deployment may receive
     // the organization secret. A workspace manifest can contain external URLs.
     const app = getAppConfig().app;
-    const selfAppId = app.workspaceId ?? app.id ?? app.slug;
-    if (!selfAppId) {
-      throw createError({
-        statusCode: 503,
-        message: "Cannot sync A2A secrets without a configured app identity",
-      });
-    }
-    const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
+    const workspaceApps = await loadWorkspaceAppsManifest();
+    const matchingMounts = app.basePath
+      ? (workspaceApps ?? []).filter(
+          (entry) =>
+            typeof entry.path === "string" &&
+            entry.path.startsWith("/") &&
+            !entry.path.startsWith("//") &&
+            normalizeAppBasePath(entry.path) ===
+              normalizeAppBasePath(app.basePath),
+        )
+      : [];
+    const selfAppId =
+      app.workspaceId ??
+      (matchingMounts.length === 1 ? matchingMounts[0].id : undefined) ??
+      (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
+    const [discoveredAgents, builtins] = await Promise.all([
       discoverAgents(selfAppId),
       Promise.resolve(getBuiltinAgentsForSeeding()),
-      loadWorkspaceAppsManifest(),
     ]);
     const registeredBuiltins = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
@@ -2313,6 +2322,7 @@ export const syncA2ASecretHandler = defineEventHandler(
             {
               maxRedirects: 0,
               followRedirects: false,
+              requireDispatcher: true,
               allowedPrivateOrigins,
               ...(allowedLocalhostOrigin ? { allowedLocalhostOrigin } : {}),
             },

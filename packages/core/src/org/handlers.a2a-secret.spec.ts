@@ -266,6 +266,7 @@ describe("syncA2ASecretHandler", () => {
     "localhost-other-port",
     "localhost-other-scheme",
     "self-and-sibling",
+    "basepath-self-and-sibling",
     "wrong-previous-secret",
     "redirect",
     "unconfigured",
@@ -378,6 +379,7 @@ describe("syncA2ASecretHandler", () => {
             "success",
             "localhost-success",
             "self-and-sibling",
+            "basepath-self-and-sibling",
             "wrong-previous-secret",
           ].includes(mode)
         ) {
@@ -415,13 +417,23 @@ describe("syncA2ASecretHandler", () => {
         );
         mockLoadWorkspaceAppsManifest.mockResolvedValue([
           { id: "sibling", path: "/sibling" },
-          ...(mode === "self-and-sibling"
+          ...(mode === "self-and-sibling" ||
+          mode === "basepath-self-and-sibling"
             ? [{ id: "sender", path: "/sender" }]
             : []),
         ]);
-        if (mode === "self-and-sibling") {
-          vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "sender");
+        if (
+          mode === "self-and-sibling" ||
+          mode === "basepath-self-and-sibling"
+        ) {
+          vi.stubEnv(
+            "AGENT_NATIVE_WORKSPACE_APP_ID",
+            mode === "self-and-sibling" ? "sender" : undefined,
+          );
+          vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
           vi.stubEnv("AGENT_NATIVE_APP_ID", "sibling");
+          if (mode === "basepath-self-and-sibling")
+            vi.stubEnv("VITE_APP_BASE_PATH", "/sender");
         }
         mockGetBuiltinAgentsForSeeding.mockReturnValue([
           { id: "sibling", url: `${origin}/sibling` },
@@ -435,7 +447,8 @@ describe("syncA2ASecretHandler", () => {
             color: "#000000",
             source: mode === "builtin" ? "builtin" : "workspace",
           },
-          ...(mode === "self-and-sibling"
+          ...(mode === "self-and-sibling" ||
+          mode === "basepath-self-and-sibling"
             ? [
                 {
                   id: "sender",
@@ -448,7 +461,10 @@ describe("syncA2ASecretHandler", () => {
               ]
             : []),
         ];
-        if (mode === "self-and-sibling") {
+        if (
+          mode === "self-and-sibling" ||
+          mode === "basepath-self-and-sibling"
+        ) {
           vi.stubEnv(
             "AGENT_NATIVE_WORKSPACE_APPS_JSON",
             JSON.stringify([
@@ -465,7 +481,7 @@ describe("syncA2ASecretHandler", () => {
         }
 
         const event =
-          mode === "self-and-sibling"
+          mode === "self-and-sibling" || mode === "basepath-self-and-sibling"
             ? {
                 url: new URL(
                   `${origin}/sibling/_agent-native/org/a2a-secret/sync`,
@@ -474,7 +490,7 @@ describe("syncA2ASecretHandler", () => {
               }
             : {};
         const result = await syncA2ASecretHandler(event as any);
-        if (mode === "self-and-sibling")
+        if (mode === "self-and-sibling" || mode === "basepath-self-and-sibling")
           expect(mockDiscoverAgents).toHaveBeenCalledWith("sender");
         if (mode === "unregistered") {
           expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
@@ -770,7 +786,52 @@ describe("syncA2ASecretHandler", () => {
     }
   });
 
-  it("fails closed when no server-side app identity is available", async () => {
+  it("fails closed for a public recipient when the dispatcher is unavailable", async () => {
+    const preflightLookup = vi
+      .fn()
+      .mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+    vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+    vi.doMock("node:dns", () => {
+      throw new Error("DNS unavailable");
+    });
+    vi.resetModules();
+    try {
+      const origin = "https://public.example.test";
+      const { ssrfSafeFetch } = await vi.importActual<
+        typeof import("../extensions/url-safety.js")
+      >("../extensions/url-safety.js");
+      mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+      mockFetch
+        .mockReset()
+        .mockRejectedValue(new Error("unexpected network request"));
+      mockGetBuiltinAgentsForSeeding.mockReturnValue([
+        { id: "builtin-app", url: origin },
+      ]);
+      mockDiscoverAgents.mockResolvedValue([
+        { id: "builtin-app", name: "Built-in", url: origin, source: "builtin" },
+      ]);
+      const result = await syncA2ASecretHandler({} as any);
+      expect(result).toMatchObject({
+        total: 1,
+        succeeded: 0,
+        failed: 1,
+        results: [
+          { error: expect.stringContaining("dispatcher could not be loaded") },
+        ],
+      });
+      expect(preflightLookup).toHaveBeenCalledWith("public.example.test", {
+        all: true,
+        verbatim: true,
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.resetModules();
+    }
+  });
+
+  it("syncs a registered builtin from a standalone app without an identity", async () => {
     for (const key of [
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
@@ -781,13 +842,65 @@ describe("syncA2ASecretHandler", () => {
     ])
       vi.stubEnv(key, undefined);
     resetAppConfigForTests();
-    await expect(
-      syncA2ASecretHandler({
-        url: new URL("https://remote.example.test/"),
-      } as any),
-    ).rejects.toMatchObject({ statusCode: 503 });
-    expect(mockDiscoverAgents).not.toHaveBeenCalled();
-    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "builtin-app",
+        name: "Built-in",
+        url: "https://builtin.example.test",
+        source: "builtin",
+      },
+    ]);
+    await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+      total: 1,
+      succeeded: 1,
+      failed: 0,
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://builtin.example.test/_agent-native/org/a2a-secret/receive",
+      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ requireDispatcher: true }),
+    );
+  });
+
+  it("does not treat a deployment app ID as a workspace ID when the mount is unknown", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "sibling");
+    vi.stubEnv("VITE_APP_BASE_PATH", undefined);
+    vi.stubEnv("APP_BASE_PATH", undefined);
+    resetAppConfigForTests();
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "sender", path: "/sender" },
+      { id: "sibling", path: "/sibling" },
+    ]);
+    const agents = ["sender", "sibling"].map((id) => ({
+      id,
+      name: id,
+      url: `https://workspace.example.test/${id}`,
+      source: "workspace",
+    }));
+    mockDiscoverAgents.mockImplementation(async (selfId?: string) =>
+      agents.filter((agent) => agent.id !== selfId),
+    );
+    const result = await syncA2ASecretHandler({} as any);
+    expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined);
+    expect(result).toMatchObject({ total: 2, succeeded: 2, failed: 0 });
+    expect(mockSsrfSafeFetch.mock.calls.map(([url]) => url).sort()).toEqual([
+      "https://workspace.example.test/sender/_agent-native/org/a2a-secret/receive",
+      "https://workspace.example.test/sibling/_agent-native/org/a2a-secret/receive",
+    ]);
+  });
+
+  it("uses proven first-party identity for standalone builtin discovery", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("npm_package_name", "calendar");
+    resetAppConfigForTests();
+    mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+    await syncA2ASecretHandler({} as any);
+    expect(mockDiscoverAgents).toHaveBeenCalledWith("calendar");
   });
 
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {
@@ -824,7 +937,12 @@ describe("syncA2ASecretHandler", () => {
           orgDomain: "example.test",
         }),
       }),
-      { maxRedirects: 0, followRedirects: false, allowedPrivateOrigins: [] },
+      {
+        maxRedirects: 0,
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [],
+      },
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -940,7 +1058,12 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
       expect.any(Object),
-      { maxRedirects: 0, followRedirects: false, allowedPrivateOrigins: [] },
+      {
+        maxRedirects: 0,
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [],
+      },
     );
   });
 
