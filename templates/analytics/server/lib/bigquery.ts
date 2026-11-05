@@ -1310,7 +1310,15 @@ export async function runQuery(
 ): Promise<QueryResult> {
   // Acquire the lease before a panel can stop awaiting this query. Finalization
   // may otherwise begin after its request has already closed the pool.
-  return retainRequestDbPoolScope(runQueryWithDateRetry(sql, options));
+  let start: (() => void) | undefined;
+  const work = new Promise<QueryResult>((resolve, reject) => {
+    start = () => {
+      void runQueryWithDateRetry(sql, options).then(resolve, reject);
+    };
+  });
+  const retained = retainRequestDbPoolScope(work);
+  start?.();
+  return retained;
 }
 
 async function runQueryWithDateRetry(

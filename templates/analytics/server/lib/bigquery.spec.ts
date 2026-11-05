@@ -339,6 +339,25 @@ describe("runQuery cancellation", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not start warehouse work when its request scope is already closed", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let lateQuery!: Promise<unknown>;
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      lateQuery = gate.then(() => runQuery("SELECT 1 AS closed_request"));
+    });
+    release();
+    await expect(lateQuery).rejects.toThrow("already closed");
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(getBigQueryAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(persistUsage).not.toHaveBeenCalled();
+  });
+
   it("retains query pools when a panel stops awaiting the warehouse job", async () => {
     let releaseToken!: (token: string) => void;
     let tokenStarted!: () => void;
