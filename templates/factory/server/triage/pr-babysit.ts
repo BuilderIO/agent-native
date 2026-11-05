@@ -79,14 +79,22 @@ export function hasMergeConflict(input: {
   );
 }
 
+/**
+ * Green means: coverage is complete, at least one check really passed, and
+ * nothing is failed, cancelled or still running. Skipped and neutral checks
+ * (`informational`) do not block: a real pull request carries dozens of them.
+ * A list of only informational checks is not green, since nothing ran.
+ */
 export function hasCompletePassingChecks(input: {
   checks: readonly PullRequestCheckObservation[];
   checksCoverage?: TriageCoverage;
 }): boolean {
   return (
     input.checksCoverage === "complete" &&
-    input.checks.length > 0 &&
-    input.checks.every((check) => check.state === "passed")
+    input.checks.some((check) => check.state === "passed") &&
+    input.checks.every(
+      (check) => check.state === "passed" || check.state === "informational",
+    )
   );
 }
 

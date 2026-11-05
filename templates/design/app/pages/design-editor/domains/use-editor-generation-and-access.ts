@@ -55,6 +55,10 @@ import {
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
+  reportDesignWriteFailure,
+  SURFACE_MUTATION_ERROR,
+} from "@/lib/design-write-failure";
+import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
   hasFreshPendingGeneration,
@@ -112,6 +116,8 @@ type RequestDesignAccessResult = {
 };
 
 const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
+// Each refetch re-renders the live canvas; the ghost refetches on its own when its call lands.
+const GENERATION_REFETCH_INTERVAL_MS = 3000;
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -715,10 +721,10 @@ export function useEditorGenerationAndAccess({
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
         ? pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : 30_000
         : pendingGenerationActive || generating
-          ? 1000
+          ? GENERATION_REFETCH_INTERVAL_MS
           : false,
     },
   );
@@ -1340,6 +1346,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+    { meta: SURFACE_MUTATION_ERROR },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1390,7 +1397,8 @@ export function useEditorGenerationAndAccess({
         return { ...old, designSystemId };
       });
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

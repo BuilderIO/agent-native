@@ -81,8 +81,8 @@ the `add-app` picker lists first-party templates only. Omit `?app` to choose
 from the source workspace interactively, or include it for a scriptable install:
 
 ```bash
-npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+pnpm exec agent-native add-app my-app --template community:owner/repo#v1.2.0
+pnpm exec agent-native add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
 ```
 
 Only public GitHub repositories are accepted. Private repositories, non-GitHub

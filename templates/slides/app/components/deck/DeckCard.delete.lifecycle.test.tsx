@@ -76,6 +76,8 @@ const deck: Deck = {
   title: "Test deck",
   createdAt: "2026-08-07T00:00:00.000Z",
   updatedAt: "2026-08-07T00:00:00.000Z",
+  canEdit: true,
+  canManage: true,
   slides: [
     {
       id: "slide-1",

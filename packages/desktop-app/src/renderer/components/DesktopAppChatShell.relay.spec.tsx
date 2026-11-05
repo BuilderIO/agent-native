@@ -128,7 +128,7 @@ describe("desktop app chat shell relay attribution", () => {
   it("refuses to guess an app when mounted shells have no active relay owner", async () => {
     await mountShells(["mail", "calendar"], null);
 
-    expect(() => window.fetch("/_agent-native/poll")).toThrow(
+    await expect(window.fetch("/_agent-native/poll")).rejects.toThrow(
       /Unattributed .*mail, calendar/,
     );
     expect(requested).toEqual([]);

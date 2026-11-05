@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "Aún no hay recursos.",
     assetUploadFailed: "Algunas subidas fallaron",
     assetDeleteFailed: "No se pudo eliminar el recurso",
+    assetDeleteInUse:
+      "Este recurso se usa en una presentación. Quítalo primero de la presentación",
+    assetDeleteStorageRemains:
+      "Se quitó de la biblioteca, pero no se pudo eliminar el archivo almacenado",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
@@ -302,6 +306,7 @@ const messages = {
       "Empieza a escribir o genera notas del presentador rápidamente con el agente",
   },
   editorToolbar: {
+    saving: "Guardando...",
     layoutTitle: "Título",
     layoutSection: "Separador de sección",
     layoutContent: "Contenido",
@@ -871,6 +876,10 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    alreadyAtVersion: "Ya está en esta versión",
+    restoreReloadFailed: "No se pudo actualizar el deck",
+    restoreReloadFailedDescription:
+      "Recarga la página para ver la versión actual de este deck.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -900,9 +909,6 @@ const messages = {
     newSlideSaveFailed:
       "No se pudo guardar la nueva diapositiva. Inténtalo de nuevo.",
     addSlides: "Añadir diapositivas",
-    addEmptySlide: "Añadir diapositiva vacía",
-    noAi: "sin AI",
-    duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
     newSlide: "Nueva diapositiva",
     slidesHeading: "Diapositivas",

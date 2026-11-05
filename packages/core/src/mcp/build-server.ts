@@ -217,6 +217,11 @@ export interface MCPConfig {
   catalogMode?: "app" | "directory";
   directoryProfile?: {
     connectorCatalog: string[];
+    /**
+     * `false` keeps the profile's scoped cards on the app's own connector and
+     * mounts no directory route, for an app with cards but no directory listing.
+     */
+    directoryRoute?: false;
     instructions?: string;
     widgets?: boolean;
     widgetDomain?: string;
