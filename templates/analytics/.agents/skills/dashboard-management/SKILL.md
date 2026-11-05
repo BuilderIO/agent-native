@@ -735,6 +735,8 @@ and a predicate that consumes the declared filter, such as
 its options; date variables must have a matching date-range filter. The server
 rejects unbound first-party SQL during dashboard validation.
 
+**Traffic.** `traffic_environment` is a reserved filter id for first-party panels, with the values `all`, `production` and `beta` (beta includes PR previews and local runs). It never appears in panel SQL; reads apply it through the query scope, so don't add a hostname condition for it. A dashboard created now starts with it set to `production`. One saved without it shows the menu on `all` until someone saves a default view with another value. A report saved without `f_traffic_environment` reads all traffic whatever the dashboard shows; set it in the report's `filters` to switch. Save verification reads all traffic unless `filters` names one. Alerts always read all traffic. `get-traffic-counts` reports the events counted as production only because they have no host and no recorded environment.
+
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
 **Use `type: "date-range"` for paired start/end dates.** Don't add two `type: "date"` filters labeled "Start" and "End" — even with distinct ids, that ships the wrong UX. A single date-range filter renders as the "from … to …" pair and exposes both halves to SQL via `{{<id>Start}}` / `{{<id>End}}`.

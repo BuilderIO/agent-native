@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   readTrafficEnvironment,
   trafficEnvironmentOfHost,
+  withNewDashboardTrafficFilter,
+  withTrafficFilterOf,
 } from "./traffic-environment";
 
 describe("trafficEnvironmentOfHost", () => {
@@ -39,6 +41,59 @@ describe("trafficEnvironmentOfHost", () => {
       expect(trafficEnvironmentOfHost(hostname)).toBeNull();
     },
   );
+});
+
+describe("withNewDashboardTrafficFilter", () => {
+  it("starts a new dashboard on production, after its own filters", () => {
+    const own = { id: "app", label: "App", type: "select" };
+
+    const config = withNewDashboardTrafficFilter({
+      panels: [],
+      filters: [own],
+    });
+
+    expect(config.panels).toEqual([]);
+    expect(config.filters).toEqual([
+      own,
+      expect.objectContaining({
+        id: "traffic_environment",
+        type: "select",
+        default: "production",
+      }),
+    ]);
+  });
+
+  it("adds it to a config with no filters", () => {
+    const config: { filters?: unknown } = {};
+
+    expect(withNewDashboardTrafficFilter(config).filters).toHaveLength(1);
+  });
+
+  it("leaves a dashboard that already chose alone", () => {
+    const config = {
+      filters: [{ id: "traffic_environment", default: "beta" }],
+    };
+
+    expect(withNewDashboardTrafficFilter(config)).toBe(config);
+  });
+});
+
+describe("withTrafficFilterOf", () => {
+  const traffic = { id: "traffic_environment", default: "beta" };
+
+  it("carries the choice onto the rebuilt config", () => {
+    const own = { id: "app" };
+
+    expect(
+      withTrafficFilterOf({ filters: [traffic] }, { filters: [own] }).filters,
+    ).toEqual([own, traffic]);
+  });
+
+  it("gives nothing to a dashboard that never chose", () => {
+    const rebuilt = { filters: [{ id: "app" }] };
+
+    expect(withTrafficFilterOf({ filters: [] }, rebuilt)).toBe(rebuilt);
+  });
 });
 
 describe("readTrafficEnvironment", () => {

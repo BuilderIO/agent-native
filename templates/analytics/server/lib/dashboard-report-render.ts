@@ -59,6 +59,10 @@ import {
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
 import { numberTableColumns } from "../../shared/table-columns";
+import {
+  readTrafficEnvironment,
+  TRAFFIC_FILTER_ID,
+} from "../../shared/traffic-environment";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
   buildPanelQuery,
@@ -183,7 +187,16 @@ async function fetchOnePanel(
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-  return runResolvedPanel({ source, query, ctx, timeoutMs });
+  // Only the report's own saved filters choose its traffic, not the
+  // dashboard's default: a report saved without one keeps reading all traffic.
+  const trafficEnvironment = readTrafficEnvironment(vars[TRAFFIC_FILTER_ID]);
+  return runResolvedPanel({
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    ...(trafficEnvironment ? { trafficEnvironment } : {}),
+  });
 }
 
 export async function fetchReportPanelData(args: {

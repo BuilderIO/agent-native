@@ -30,6 +30,10 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import {
+  readTrafficEnvironment,
+  TRAFFIC_FILTER_ID,
+} from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
@@ -677,6 +681,12 @@ async function verifyOne(
     return finish({ status: "unverified", note: "timeout" });
   }
 
+  // Only a traffic filter the caller names applies. Checking a save against the
+  // dashboard's default would call a panel broken on a database with no
+  // production traffic, such as a local one.
+  const trafficEnvironment = readTrafficEnvironment(
+    opts.filters?.[TRAFFIC_FILTER_ID],
+  );
   const data = await runResolvedPanel({
     source: source as DashboardPanelSource,
     query,
@@ -684,6 +694,7 @@ async function verifyOne(
     timeoutMs: remainingMs(),
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
+    ...(trafficEnvironment ? { trafficEnvironment } : {}),
   });
   if (opts.signal?.aborted) throw cancelled();
   if (data.status === "missing-credential") {

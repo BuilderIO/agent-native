@@ -32,6 +32,31 @@ describe("query-dashboard-panel", () => {
     mocks.resolveAnalyticsPanelSource.mockReset();
   });
 
+  it("passes the dashboard's traffic to the source", async () => {
+    mocks.getCredentialContext.mockReturnValue({
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("select 1");
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({ rows: [] });
+
+    await queryDashboardPanel.run(
+      { source: "bigquery", query: "select 1", environment: "beta" },
+      {} as ActionRunContext,
+    );
+
+    expect(mocks.resolveAnalyticsPanelSource.mock.calls[0]?.[0]).toMatchObject({
+      trafficEnvironment: "beta",
+    });
+    expect(
+      queryDashboardPanel.schema.safeParse({
+        source: "bigquery",
+        query: "select 1",
+        environment: "staging",
+      }).success,
+    ).toBe(false);
+  });
+
   it("preserves the dashboard panel wire shape through the source registry", async () => {
     const context = { userEmail: "alice@example.com", orgId: "org-1" };
     const descriptor = { promql: "up", mode: "instant" };

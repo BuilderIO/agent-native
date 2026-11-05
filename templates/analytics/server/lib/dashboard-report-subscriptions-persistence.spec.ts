@@ -74,6 +74,55 @@ describe("report subscription dashboard locking", () => {
     await client.close();
   });
 
+  describe("traffic on a report", () => {
+    const openedWith = (filters: unknown[]) => ({
+      saved: { ...opened.saved, config: { filters } },
+    });
+    const productionDefault = {
+      id: "traffic_environment",
+      label: "Traffic",
+      type: "select",
+      default: "production",
+    };
+
+    it("gives a new report the dashboard's default", async () => {
+      mocks.openDashboard.mockResolvedValue(openedWith([productionDefault]));
+
+      const saved = await saveDashboardReportSubscription(input, ctx);
+
+      expect(saved.filters).toEqual({ f_traffic_environment: "production" });
+    });
+
+    it("keeps a choice the new report already made", async () => {
+      mocks.openDashboard.mockResolvedValue(openedWith([productionDefault]));
+
+      const saved = await saveDashboardReportSubscription(
+        { ...input, filters: { f_traffic_environment: "beta" } },
+        ctx,
+      );
+
+      expect(saved.filters).toEqual({ f_traffic_environment: "beta" });
+    });
+
+    it("gives nothing to a new report on a dashboard with no default", async () => {
+      const saved = await saveDashboardReportSubscription(input, ctx);
+
+      expect(saved.filters).toEqual({});
+    });
+
+    it("leaves an existing report on the traffic it was reading", async () => {
+      const existing = await saveDashboardReportSubscription(input, ctx);
+      mocks.openDashboard.mockResolvedValue(openedWith([productionDefault]));
+
+      const saved = await saveDashboardReportSubscription(
+        { ...input, id: existing.id, name: "Changed" },
+        ctx,
+      );
+
+      expect(saved.filters).toEqual({});
+    });
+  });
+
   it("locks the parent before inserting a report subscription", async () => {
     const saved = await saveDashboardReportSubscription(input, ctx);
     expect(saved.dashboardId).toBe(input.dashboardId);

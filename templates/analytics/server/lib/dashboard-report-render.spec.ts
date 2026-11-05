@@ -138,6 +138,41 @@ describe("fetchReportPanelData", () => {
     expect(data.get("empty")).toEqual({ status: "rows", rows: [], schema: [] });
   });
 
+  it("reads only the traffic the report saved, never the dashboard's default", async () => {
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "production" },
+      },
+    });
+    expect(mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0]).toMatchObject({
+      trafficEnvironment: "production",
+    });
+
+    await fetchReportPanelData({ ...owner, snapshot: snapshotOf(panels) });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "all" },
+      },
+    });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+  });
+
   it("maps a missing-credential response to its own status", async () => {
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({
       error: "missing_api_key",

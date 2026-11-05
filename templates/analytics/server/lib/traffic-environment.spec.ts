@@ -8,7 +8,13 @@ import {
   trafficEnvironmentOfHost,
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
-import { trafficEnvironmentCondition, urlHostSql } from "./traffic-environment";
+import {
+  readTrafficCounts,
+  trafficCountsSql,
+  trafficEnvironmentCondition,
+  unknownTrafficCondition,
+  urlHostSql,
+} from "./traffic-environment";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -141,6 +147,29 @@ describe("trafficEnvironmentCondition", () => {
     ]);
   });
 
+  it("counts as unknown only rows with no host and no known environment", async () => {
+    await insert([
+      { id: "a-no-host" },
+      { id: "b-empty-host", host: "" },
+      { id: "c-unrecognized", property: "staging" },
+      { id: "d-marked-production", property: "production" },
+      { id: "e-marked-beta", property: "BETA" },
+      { id: "f-host", host: "slides.agent-native.com" },
+      { id: "g-beta-host", host: "beta.slides.agent-native.com" },
+    ]);
+
+    const result = await db.execute(
+      sql`select id from rows where ${unknownTrafficCondition({
+        host: sql`host`,
+        property: sql`property`,
+      })} order by id`,
+    );
+
+    expect((result.rows as Array<{ id: string }>).map((row) => row.id)).toEqual(
+      ["a-no-host", "b-empty-host", "c-unrecognized"],
+    );
+  });
+
   it("reads the host out of a URL", async () => {
     await insert([
       { id: "a-beta", url: "https://beta.slides.agent-native.com/deck?x=1" },
@@ -169,5 +198,29 @@ describe("trafficEnvironmentCondition", () => {
       "f-relative",
       "h-none",
     ]);
+  });
+});
+
+describe("trafficCountsSql", () => {
+  it("binds nothing and leaves out what the events model lacks", () => {
+    const counts = trafficCountsSql("2026-10-28");
+
+    expect(counts).toContain("event_date >= '2026-10-28'");
+    expect(counts).toContain("event_name <> 'http.response'");
+    expect(counts).not.toMatch(/\$\d/);
+  });
+});
+
+describe("readTrafficCounts", () => {
+  it("reads no events as zero", () => {
+    expect(
+      readTrafficCounts([
+        { production_events: null, beta_events: null, unknown_events: null },
+      ]),
+    ).toEqual({ production: 0, beta: 0, unknown: 0 });
+  });
+
+  it("refuses a result that isn't one row", () => {
+    expect(() => readTrafficCounts([])).toThrow("did not return one row");
   });
 });

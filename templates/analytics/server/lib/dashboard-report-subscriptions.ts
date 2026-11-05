@@ -5,6 +5,10 @@ import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
+import {
+  TRAFFIC_FILTER_ID,
+  TRAFFIC_FILTER_PARAM,
+} from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
@@ -201,6 +205,33 @@ export function normalizeDashboardReportRecipients(
     );
   }
   return normalized;
+}
+
+/**
+ * A new report saved without a traffic choice starts on what its dashboard
+ * shows. A report that already exists is never given one: without it, it stays
+ * on all traffic until someone switches it.
+ */
+function withDashboardTraffic(
+  filters: Record<string, string> | undefined,
+  config: Record<string, unknown>,
+): Record<string, string> | undefined {
+  if (filters?.[TRAFFIC_FILTER_PARAM]) return filters;
+  const dashboardFilters: unknown[] = Array.isArray(config.filters)
+    ? config.filters
+    : [];
+  const traffic = dashboardFilters.find(
+    (filter): filter is { default: string } =>
+      typeof filter === "object" &&
+      filter !== null &&
+      "id" in filter &&
+      filter.id === TRAFFIC_FILTER_ID &&
+      "default" in filter &&
+      typeof filter.default === "string",
+  );
+  return traffic
+    ? { ...filters, [TRAFFIC_FILTER_PARAM]: traffic.default }
+    : filters;
 }
 
 function normalizeFilters(filters: Record<string, string> | undefined) {
@@ -491,7 +522,11 @@ export async function saveDashboardReportSubscription(
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
-  const filters = normalizeFilters(input.filters);
+  const filters = normalizeFilters(
+    input.id
+      ? input.filters
+      : withDashboardTraffic(input.filters, dashboard.config),
+  );
   const updatedAt = nowIso();
   const nextRunAt = input.enabled ? nextDailyRunAt(timeOfDay, timezone) : null;
   const name =

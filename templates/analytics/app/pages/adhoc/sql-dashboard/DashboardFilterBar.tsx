@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -165,6 +166,8 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  /** Rendered after the filters, inside the part of the bar that collapses. */
+  trailing?: ReactNode;
   loadedDashboardId?: string | null;
   // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
   views?: readonly DashboardSavedView[] | null;
@@ -235,6 +238,7 @@ export function DashboardFilterBar(props: DashboardFilterBarProps) {
 
 function DashboardFilterBarContent({
   filters,
+  trailing,
   loadedDashboardId,
   views = NO_VIEWS,
   viewsRefreshing = false,
@@ -410,6 +414,7 @@ function DashboardFilterBarContent({
                   shared={shared}
                 />
               ))}
+              {trailing}
             </div>
           </CollapsibleContent>
           <div className="flex shrink-0 items-center gap-1 self-center">

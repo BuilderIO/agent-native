@@ -12,6 +12,7 @@ import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   ROW_BREAKDOWN_MAX_BYTES_BILLED,
 } from "../shared/row-breakdown";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 export default defineAction({
   description:
@@ -23,6 +24,7 @@ export default defineAction({
     // Interaction budgets are fixed here. The normal SQL operation retains its
     // source budget; purpose is not an authorization boundary for arbitrary SQL.
     purpose: z.enum(["row-breakdown", "panel-drilldown"]).optional(),
+    environment: z.enum(TRAFFIC_ENVIRONMENTS).optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -42,6 +44,7 @@ export default defineAction({
           query,
           ...(args.forceRefresh ? { forceRefresh: true } : {}),
           ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
+          ...(args.environment ? { trafficEnvironment: args.environment } : {}),
           ...(args.purpose
             ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
             : {}),

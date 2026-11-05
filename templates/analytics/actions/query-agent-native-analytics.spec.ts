@@ -305,6 +305,25 @@ describe("query-agent-native-analytics", () => {
     );
   });
 
+  it("reads only the traffic asked for, and all of it otherwise", async () => {
+    const sql = "SELECT events FROM analytics_event_daily_rollups";
+
+    await action.run({ sql, environment: "production" });
+
+    expect(mocks.queryFirstPartyAnalyticsWithBackend).toHaveBeenCalledWith(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      {
+        cache: true,
+        includeTestIdentities: false,
+        trafficEnvironment: "production",
+      },
+    );
+    expect(
+      action.schema.safeParse({ sql, environment: "staging" }).success,
+    ).toBe(false);
+  });
+
   it("requires Postgres when backend is postgres and reports the backend that served it", async () => {
     const sql = "SELECT events FROM analytics_event_daily_rollups";
 

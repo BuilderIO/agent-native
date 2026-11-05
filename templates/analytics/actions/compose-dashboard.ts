@@ -36,6 +36,10 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
+import {
+  withNewDashboardTrafficFilter,
+  withTrafficFilterOf,
+} from "../shared/traffic-environment";
 
 const WINDOWS = new Set<MetricWindow>(["30d", "90d", "all"]);
 
@@ -382,7 +386,7 @@ export default defineAction({
       if (latest && !args.overwrite) {
         await appendToExisting();
       } else if (latest) {
-        const composed = finalConfig;
+        const composed = withTrafficFilterOf(latest.config, finalConfig);
         const saved = await upsertDashboardWithRetryOutcome(
           args.dashboardId,
           ctx,
@@ -392,6 +396,7 @@ export default defineAction({
         updatedAt = saved.dashboard.updatedAt;
         changed = saved.didWrite;
       } else {
+        finalConfig = withNewDashboardTrafficFilter(finalConfig);
         const saved = await upsertDashboard(
           args.dashboardId,
           "sql",

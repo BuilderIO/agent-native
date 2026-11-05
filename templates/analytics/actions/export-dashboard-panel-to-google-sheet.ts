@@ -10,6 +10,10 @@ import {
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
 import { exportDashboardPanelToGoogleSheet } from "../server/lib/google-sheets-export";
 import { openDashboard } from "../server/lib/open-dashboard";
+import {
+  readTrafficEnvironment,
+  TRAFFIC_FILTER_ID,
+} from "../shared/traffic-environment";
 
 type DashboardPanel = {
   id?: unknown;
@@ -97,8 +101,15 @@ export default defineAction({
         ? interpolateDashboardPanelSql(panel.sql, filters, panel)
         : panel.sql;
     const query = normalizeDashboardPanelQuery(panel.source, rawQuery);
+    const trafficEnvironment = readTrafficEnvironment(
+      filters[TRAFFIC_FILTER_ID],
+    );
     const result = await resolveAnalyticsPanelSource(
-      { source: panel.source, query },
+      {
+        source: panel.source,
+        query,
+        ...(trafficEnvironment ? { trafficEnvironment } : {}),
+      },
       context,
     );
     const failure = panelFailureMessage(result);
