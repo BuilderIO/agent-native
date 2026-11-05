@@ -24,6 +24,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { isUnreadableSecret } from "../server/lib/unreadable-secret.js";
 import {
   createFactoryAutomation,
   factoryAutomationTemplatePrompt,
@@ -124,6 +125,8 @@ export default defineAction({
           verb: "creating",
         });
       } catch (error) {
+        // Typed already: `fail(message)` would drop its code and read as a plain setup error.
+        if (isUnreadableSecret(error)) throw error;
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(
           error instanceof Error ? error.message : "Connector is not ready.",

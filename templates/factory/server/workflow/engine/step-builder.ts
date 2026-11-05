@@ -2,7 +2,7 @@ import { WORKFLOW_STORE_LIMITS } from "../adapter.js";
 import type { RunMode, StepRecord, StepStatus } from "../contract.js";
 import { MAX_INLINE_ITEMS, jsonByteLength } from "../items.js";
 import { fitText } from "./bounds.js";
-import type { ItemFailure, PortItems, StopReason } from "./types.js";
+import type { FlowItem, ItemFailure, PortItems, StopReason } from "./types.js";
 
 const PROBLEM_BYTES = 500;
 
@@ -30,6 +30,8 @@ export class StepBuilder {
   private inputCut = false;
   private readonly receiptKeys: string[] = [];
   private threadId: string | undefined;
+  private readonly routed: FlowItem[] = [];
+  private firstRouted: ItemFailure | undefined;
 
   constructor(private readonly base: StepBase) {}
 
@@ -76,6 +78,21 @@ export class StepBuilder {
     this.firstFailure ??= failure;
   }
 
+  /**
+   * An item that failed at this node and leaves by its `error` port instead.
+   * It is not a failed item: the step stays clean, so the way it is shown
+   * (`routedErrors`, `firstRoutedError`) must keep what went wrong in view.
+   */
+  itemRouted(item: FlowItem, failure: ItemFailure): void {
+    this.routed.push(item);
+    this.firstRouted ??= failure;
+  }
+
+  /** The items `itemRouted` took, for the walker to put on the `error` port. */
+  get routedItems(): readonly FlowItem[] {
+    return this.routed;
+  }
+
   truncated(totalAvailable: number): void {
     this.truncatedTotal = totalAvailable;
   }
@@ -119,7 +136,19 @@ export class StepBuilder {
         itemIds: items.slice(0, MAX_INLINE_ITEMS).map((item) => item.id),
       };
     }
-    const fields = boundStepFields(this.fields);
+    // First, so a step too full for its fields drops the others before it drops why items left by the error output.
+    const fields = boundStepFields({
+      ...(this.firstRouted === undefined
+        ? {}
+        : {
+            routedErrors: this.routed.length,
+            firstRoutedError: fitText(
+              `${this.firstRouted.code}: ${this.firstRouted.message}`,
+              PROBLEM_BYTES,
+            ),
+          }),
+      ...this.fields,
+    });
     return {
       runId: this.base.runId,
       nodeId: this.base.nodeId,

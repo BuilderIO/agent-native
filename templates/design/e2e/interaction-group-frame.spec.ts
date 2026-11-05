@@ -373,6 +373,65 @@ test.describe("Cmd+Shift+G ungroup", () => {
     });
   });
 
+  test("Cmd+Shift+G on a Group made inside a flex row puts its cards back in the row", async ({
+    app,
+    page,
+  }) => {
+    const id = await app.seed(`<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Flex Row</title></head>
+  <body style="margin:0;min-height:700px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <div data-agent-native-node-id="row" data-agent-native-layer-name="Row"
+         style="display:flex;gap:20px;padding:40px">
+      <div data-agent-native-node-id="card-a" data-agent-native-layer-name="Card A"
+           style="width:100px;height:60px;background:#ef4444"></div>
+      <div data-agent-native-node-id="card-b" data-agent-native-layer-name="Card B"
+           style="width:100px;height:60px;background:#22c55e"></div>
+      <div data-agent-native-node-id="card-c" data-agent-native-layer-name="Card C"
+           style="width:100px;height:60px;background:#3b82f6"></div>
+    </div>
+  </body>
+</html>`);
+    await app.open(id);
+    await app.zoomToFit();
+    const rects = {
+      "card-a": { x: 40, y: 40, width: 100, height: 60 },
+      "card-b": { x: 160, y: 40, width: 100, height: 60 },
+      "card-c": { x: 280, y: 40, width: 100, height: 60 },
+    };
+    const before = await app.savedNodes(id);
+    for (const [name, point] of [
+      ["Card A", { x: 90, y: 70 }],
+      ["Card B", { x: 210, y: 70 }],
+    ] as const) {
+      const at = await app.pagePoint(point.x, point.y);
+      if (name === "Card B") await page.keyboard.down("Shift");
+      await page.mouse.click(at.x, at.y);
+    }
+    await page.keyboard.up("Shift");
+    await expect
+      .poll(async () => (await app.selectedLayers()).sort())
+      .toEqual(["Card A", "Card B"]);
+    await page.keyboard.press("ControlOrMeta+G");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Group"]);
+    await app.settled();
+
+    await page.keyboard.press("ControlOrMeta+Shift+G");
+
+    await expect
+      .poll(async () => (await app.selectedLayers()).sort())
+      .toEqual(["Card A", "Card B"]);
+    await app.settled();
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "row")).toEqual(["card-a", "card-b", "card-c"]);
+    expect(styleOf(after.get("card-a")).position).toBeUndefined();
+    expect(styleOf(after.get("card-b")).position).toBeUndefined();
+    expectOnlyChanged(before, after, ["card-a", "card-b"]);
+    for (const [nodeId, rect] of Object.entries(rects)) {
+      expect(await app.designRect(nodeId)).toEqual(rect);
+    }
+  });
+
   test("one undo after an ungroup restores the exact Group", async ({
     app,
     page,
