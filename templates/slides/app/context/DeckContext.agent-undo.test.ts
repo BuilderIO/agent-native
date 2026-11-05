@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
+import { hashSlideContent } from "@shared/slide-fit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
@@ -282,5 +283,76 @@ describe("agent change undo", () => {
     });
     expect(outcome).toBe("undone");
     expect(contents(result.current.getDeck("deck-1")).b).toBe("<p>b</p>");
+  });
+
+  it("records an agent write that reaches this tab after the run ends", async () => {
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(DeckProvider, { openDeckId: "deck-1", children }),
+      );
+    const rendered = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() =>
+      expect(rendered.result.current.getDeck("deck-1")).toBeDefined(),
+    );
+    const changes: AgentChange[] = [];
+    rendered.result.current.subscribeAgentChanges((change) =>
+      changes.push(change),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "thread-1" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            completedSideEffect: true,
+            tabId: "thread-1",
+            result: JSON.stringify({
+              ok: true,
+              deckId: "deck-1",
+              slideId: "b",
+              contentHash: hashSlideContent("<p>agent</p>"),
+            }),
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "thread-1" },
+        }),
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(changes).toHaveLength(0);
+
+    serverDeck = {
+      ...serverDeck,
+      updatedAt: "2026-07-02T00:00:00.000Z",
+      slides: serverDeck.slides.map((entry) =>
+        entry.id === "b" ? { ...entry, content: "<p>agent</p>" } : entry,
+      ),
+    };
+    await act(async () => {
+      await rendered.result.current.refreshOpenDeck("deck-1", {
+        clearPendingWrites: true,
+      });
+    });
+    await waitFor(() => expect(changes).toHaveLength(1));
+
+    act(() => {
+      rendered.result.current.undo("deck-1");
+    });
+    await waitFor(() =>
+      expect(contents(rendered.result.current.getDeck("deck-1")).b).toBe(
+        "<p>b</p>",
+      ),
+    );
   });
 });

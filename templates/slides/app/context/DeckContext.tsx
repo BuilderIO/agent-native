@@ -4345,6 +4345,36 @@ export function isAgentSlideContent(
   return hash !== undefined && hash === hashSlideContent(content);
 }
 
+// Bounds how long a run stays open for its write to arrive; past this, the run
+// settles with whatever was captured, so a write that never lands cannot keep
+// later user edits recording as agent changes.
+const AGENT_WRITE_WAIT_MS = 15_000;
+
+/**
+ * Whether every slide a run's writes named already shows the content the
+ * write reported. Until it does, the write has not reached this tab, so the
+ * run's "before" state is still open to capture.
+ */
+function agentWritesReflected(
+  capture: AgentRunCapture,
+  deckFor: (deckId: string) => Deck | undefined,
+): boolean {
+  for (const [deckId, slideIds] of capture.scopes) {
+    if (slideIds === null) continue;
+    const deck = deckFor(deckId);
+    if (!deck) return false;
+    for (const slideId of slideIds) {
+      // A write that reported no hash has nothing to verify against.
+      if (!agentSlideContentHashes.get(deckId)?.has(slideId)) continue;
+      const slide = deck.slides.find((entry) => entry.id === slideId);
+      if (!slide || !isAgentSlideContent(deckId, slideId, slide.content)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /** Records, once per slide, the state a remote update replaced or added. */
 export function captureAgentBeforeSlides(
   before: Map<string, AgentChangeBefore>,
@@ -5103,6 +5133,29 @@ export function DeckProvider({
   const agentRunCapturesRef = useRef(new Map<string, AgentRunCapture>());
   const settledAgentRunsRef = useRef<AgentRunCapture[]>([]);
   const [settledAgentRunCount, setSettledAgentRunCount] = useState(0);
+  // A run can end before its write reaches this tab, so it stays open here
+  // until a remote update shows the write or the wait times out.
+  const awaitingAgentRunsRef = useRef(
+    new Map<
+      AgentRunCapture,
+      { tabId: string; timer: ReturnType<typeof setTimeout> }
+    >(),
+  );
+  const settleAgentRun = useCallback(
+    (tabId: string, capture: AgentRunCapture) => {
+      if (agentRunCapturesRef.current.get(tabId) === capture) {
+        agentRunCapturesRef.current.delete(tabId);
+      }
+      const waiting = awaitingAgentRunsRef.current.get(capture);
+      if (waiting) {
+        clearTimeout(waiting.timer);
+        awaitingAgentRunsRef.current.delete(capture);
+      }
+      settledAgentRunsRef.current.push(capture);
+      setSettledAgentRunCount((count) => count + 1);
+    },
+    [],
+  );
   const agentChangesRef = useRef(
     new Map<string, { deckId: string; entry: LocalOpUndoEntry<DeckUndoOp> }>(),
   );
@@ -6049,6 +6102,17 @@ export function DeckProvider({
           if (before.size > 0) capture.before.set(updated.id, before);
         }
       }
+      for (const [capture, waiting] of awaitingAgentRunsRef.current) {
+        if (
+          agentWritesReflected(capture, (id) =>
+            id === updated.id
+              ? updated
+              : decksRef.current.find((deck) => deck.id === id),
+          )
+        ) {
+          settleAgentRun(waiting.tabId, capture);
+        }
+      }
       const confirmedHashes =
         confirmedSlideContentHashes.get(updated.id) ?? new Map();
       const confirmedContents =
@@ -6102,7 +6166,7 @@ export function DeckProvider({
         return [...prev, updated];
       });
     },
-    [clearDeckDeleteTombstones],
+    [clearDeckDeleteTombstones, settleAgentRun],
   );
 
   const refreshDeckListIfChanged = useCallback(async (): Promise<
@@ -7239,10 +7303,24 @@ export function DeckProvider({
           })
           .finally(() => {
             if (agentRunCapturesRef.current.get(tabId) !== capture) return;
-            agentRunCapturesRef.current.delete(tabId);
             if (!capture) return;
-            settledAgentRunsRef.current.push(capture);
-            setSettledAgentRunCount((count) => count + 1);
+            if (
+              agentWritesReflected(capture, (id) =>
+                decksRef.current.find((deck) => deck.id === id),
+              )
+            ) {
+              settleAgentRun(tabId, capture);
+              return;
+            }
+            // The refetch can finish before the run's write reaches this tab;
+            // a later remote update that shows it settles the run.
+            awaitingAgentRunsRef.current.set(capture, {
+              tabId,
+              timer: setTimeout(
+                () => settleAgentRun(tabId, capture),
+                AGENT_WRITE_WAIT_MS,
+              ),
+            });
           });
       } else {
         agentRunCapturesRef.current.delete(tabId);
@@ -7257,7 +7335,7 @@ export function DeckProvider({
       window.removeEventListener("agent-native:tool-done", onToolDone);
       window.removeEventListener("agentNative.chatRunning", onChatRunning);
     };
-  }, [refetchOpenDeckIfChanged, runHomeGridListRefresh]);
+  }, [refetchOpenDeckIfChanged, runHomeGridListRefresh, settleAgentRun]);
 
   // Runs after the commit that applied the run's last write, so `decksRef`
   // holds the deck the agent left.
