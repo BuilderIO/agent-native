@@ -191,6 +191,20 @@ describe("toggle-slide-comment-reaction", () => {
     ]);
   });
 
+  it("reports the agent's own reaction as reacted in the toggle summary", async () => {
+    const result = await run(
+      { commentId: "comment-1", deckId: "deck-1", emoji: "🎉" },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({ reacted: true });
+    expect(result.reactions).toContainEqual({
+      emoji: "🎉",
+      count: 1,
+      reacted: true,
+    });
+  });
+
   it("does not expose or mutate a comment outside the requested deck", async () => {
     await expect(
       run({ commentId: "comment-1", deckId: "deck-2", emoji: "👍" }),

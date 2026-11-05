@@ -653,6 +653,7 @@ const messages = {
     noMatches: "沒有符合項目。",
     noTranscript: "還沒有逐字稿。",
     noTranscriptCaptured: "沒有擷取到任何逐字稿。",
+    partialTranscript: "部分逐字稿：錄製內容被截斷，可能缺少部分內容。",
     backupFailed:
       "本機未擷取到任何語音，備份轉錄也未完成。請重試或檢查麥克風和語音權限。",
     backupNotSetup: "本機未擷取到任何語音，且未設定備份轉錄。",

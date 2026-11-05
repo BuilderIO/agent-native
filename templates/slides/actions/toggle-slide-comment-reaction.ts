@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { commentAuthorKind } from "../shared/comment-author.js";
+import { commentActorKey } from "../shared/comment-author.js";
 import {
   parseSlideCommentReactionBuckets,
   serializeSlideCommentReactionBuckets,
@@ -44,12 +44,7 @@ export default defineAction({
     }
     await assertAccess("deck", deckId, "commenter");
     const normalizedEmoji = emoji.trim();
-    // The agent runs as the signed-in user, so its reactions need their own key
-    // or the user's toggle would remove them.
-    const actor =
-      commentAuthorKind(ctx?.caller) === "agent"
-        ? `agent:${viewerEmail}`
-        : viewerEmail;
+    const actor = commentActorKey(ctx?.caller, viewerEmail);
 
     const db = getDb();
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
@@ -105,7 +100,7 @@ export default defineAction({
           reacted: !had,
           reactions: summarizeSlideCommentReactions(
             JSON.stringify(next),
-            viewerEmail,
+            actor,
           ),
         };
       }

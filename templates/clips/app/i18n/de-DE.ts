@@ -726,6 +726,8 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    partialTranscript:
+      "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:
       "Es wurde keine Rede lokal erfasst und die Sicherungstranskription wurde nicht abgeschlossen. Versuchen Sie es noch einmal oder überprüfen Sie die Mikrofon- und Sprachberechtigungen.",
     backupNotSetup:
