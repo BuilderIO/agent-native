@@ -280,6 +280,7 @@ export default defineAction({
               await releaseHostedClipRecording({
                 recordingId: id,
                 userId: authUserId,
+                reason: "create_failed",
               });
               cleanupConfirmed = true;
             }
@@ -322,6 +323,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         userId: hostedUserId,
+        reason: "create_failed",
       });
     };
     const maxUploadBytes =

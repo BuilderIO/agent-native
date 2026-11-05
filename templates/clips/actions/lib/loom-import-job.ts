@@ -546,7 +546,11 @@ export async function runLoomImportJob({
             throw new Error(LOOM_IMPORT_LEASE_LOST_REASON);
           }
           resolvedStorageMode = null;
-          await releaseHostedClipRecording({ recordingId, ownerEmail });
+          await releaseHostedClipRecording({
+            recordingId,
+            ownerEmail,
+            reason: "create_failed",
+          });
         }
       }
     }
