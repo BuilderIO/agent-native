@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 
 // Imported by fix-proof.ts; this file has no top-level side effects.
 export const TEST_PATH =
-  /(^|\/)(__tests__|e2e|tests?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|\.md$|^\.changeset\//;
+  /(^|\/)(__tests__|e2e)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
 
 export function isTestOnlyChange(paths: string[]): boolean {
   return paths.length > 0 && paths.every((path) => TEST_PATH.test(path));

@@ -54,7 +54,8 @@ writeFileSync(
   join(repo, "always.test.mjs"),
   'import assert from "node:assert/strict";\nimport { test } from "node:test";\ntest("still passes", () => assert.ok(true));\n',
 );
-writeFileSync(join(repo, "NOTES.md"), "deflaked\n");
+mkdirSync(join(repo, "e2e"));
+writeFileSync(join(repo, "e2e", "notes.ts"), "deflaked\n");
 git("add", "-A");
 git("commit", "-qm", "test-only change");
 
@@ -201,7 +202,7 @@ describe("isTestOnlyChange", () => {
         "templates/mail/e2e/inbox.ts",
         "packages/x/__tests__/y.ts",
         ".changeset/flaky.md",
-        "README.md",
+        "packages/x/e2e/y.ts",
       ]),
       true,
     );
@@ -212,6 +213,12 @@ describe("isTestOnlyChange", () => {
       ]),
       false,
     );
+    assert.equal(
+      isTestOnlyChange(["packages/core/src/tests/helper.ts"]),
+      false,
+    );
+    assert.equal(isTestOnlyChange([".agents/skills/x/SKILL.md"]), false);
+    assert.equal(isTestOnlyChange(["README.md"]), false);
     assert.equal(isTestOnlyChange([]), false);
   });
 });

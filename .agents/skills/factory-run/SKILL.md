@@ -304,13 +304,16 @@ under "Duplicate and competing PRs".
 
 ### Duplicate and competing PRs
 
-The factory's own PRs are the ones recorded as a report's `prUrl`. Before
+The factory's own PRs are the ones recorded as a report's `prUrl`; confirm
+that record (and that the PR's author is the factory's bot) before closing
+anything, and close nothing without it. Before
 replying on a report, and in every live sweep for each open one, check its PR
 against merged and open PRs for the same problem (`factory-state active`,
 `gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
 reason to park a report or make it `needs-person`: settle them and move on.
 
-- **Superseded.** A merged PR already has the same fix (three docs-baseline
+- **Superseded.** A merged PR that fixes the same report or issue (check its
+  linked issue or diff, not just the title) already has the same fix (three docs-baseline
   PRs after #8676 merged that change): close the factory PR with
   `gh pr close <prUrl> --comment "Superseded by #<n>."`, set `triage`
   `already-fixed`, and post one line saying it was superseded in the report's
