@@ -903,9 +903,6 @@ const messages = {
     newSlideSaveFailed:
       "Não foi possível salvar o novo slide. Tente novamente.",
     addSlides: "Adicionar slides",
-    addEmptySlide: "Adicionar slide vazio",
-    noAi: "sem IA",
-    duplicateCurrentSlide: "Duplicar slide atual",
     promptPlaceholder: "Descreva os slides que você quer...",
     newSlide: "Novo slide",
     slidesHeading: "Slides",

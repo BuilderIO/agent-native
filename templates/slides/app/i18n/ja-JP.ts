@@ -894,9 +894,6 @@ const messages = {
     newSlideSaveFailed:
       "新しいスライドを保存できませんでした。もう一度お試しください。",
     addSlides: "スライドを追加",
-    addEmptySlide: "空のスライドを追加",
-    noAi: "AI なし",
-    duplicateCurrentSlide: "現在のスライドを複製",
     promptPlaceholder: "作成したいスライドを説明してください...",
     newSlide: "新しいスライド",
     slidesHeading: "スライド",
