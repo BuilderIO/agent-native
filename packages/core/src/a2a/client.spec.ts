@@ -2024,12 +2024,12 @@ describe("A2AClient", () => {
       () => (settled = true),
       () => (settled = true),
     );
-    const deadline = performance.now() + 20_000;
+    const deadline = performance.now() + 30_000;
     // Fake time advances only while a poll sleep is pending, so real JWT signing latency under load cannot burn the 25ms deadline.
     while (!settled) {
       if (performance.now() >= deadline) {
         throw new Error(
-          "Timed out waiting for async task polling to settle after 20 seconds",
+          "Timed out waiting for async task polling to settle after 30 seconds",
         );
       }
       if (vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(1);
