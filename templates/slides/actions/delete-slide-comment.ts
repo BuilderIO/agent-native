@@ -1,6 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  resolveAccess,
+  ROLE_RANK,
+} from "@agent-native/core/sharing";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -44,6 +48,9 @@ export default defineAction({
   },
   needsApproval: async ({ id, deckId }, ctx) => {
     if (commentAuthorKind(ctx?.caller) !== "agent") return false;
+    // Without commenter access run() refuses the call, so there is nothing to approve.
+    const access = await resolveAccess("deck", deckId);
+    if (!access || ROLE_RANK[access.role] < ROLE_RANK.commenter) return false;
     const db = getDb();
     const targetRows = await db
       .select({

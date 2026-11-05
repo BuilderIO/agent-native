@@ -14,8 +14,12 @@ const state = vi.hoisted(() => ({ rows: [] as Row[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 
+const mockResolveAccess = vi.hoisted(() => vi.fn());
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  ROLE_RANK: { viewer: 0, commenter: 1, editor: 2, owner: 3 },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -136,6 +140,8 @@ function run(args: DeleteArgs, ctx?: { caller: string }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockResolveAccess.mockResolvedValue({ role: "editor" });
+
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.rows = [
     {
@@ -227,6 +233,16 @@ describe("delete-slide-comment", () => {
     const needsApproval = deleteAction.needsApproval;
     expect(
       await needsApproval({ id: "c-5", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(false);
+  });
+
+  it("does not ask an agent that lacks commenter access, since run() refuses it", async () => {
+    mockResolveAccess.mockResolvedValueOnce({ role: "viewer" });
+    expect(
+      await deleteAction.needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "tool" },
+      ),
     ).toBe(false);
   });
 
