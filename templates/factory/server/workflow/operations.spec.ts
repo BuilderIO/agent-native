@@ -111,6 +111,19 @@ describe("operationDefinitionSchema", () => {
     expect(accepts({ ...source, nodeKinds: ["source", "lookup"] })).toBe(true);
   });
 
+  it("lets only a lookup read declare an answer budget", () => {
+    expect(accepts({ ...lookup, answerBudgetChars: 5_000 })).toBe(true);
+    expect(accepts({ ...lookup, answerBudgetChars: 999 })).toBe(false);
+    expect(accepts({ ...source, answerBudgetChars: 5_000 })).toBe(false);
+    expect(
+      accepts({
+        ...lookup,
+        nodeKinds: ["lookup", "source"],
+        answerBudgetChars: 5_000,
+      }),
+    ).toBe(false);
+  });
+
   it("requires the id to be provider.name and to start with the provider", () => {
     expect(accepts({ ...lookup, id: "ticketThread" })).toBe(false);
     expect(accepts({ ...lookup, id: "Pylon.ticketThread" })).toBe(false);
@@ -269,6 +282,86 @@ describe("operationDefinitionSchema", () => {
           },
           [{ name: "order", type: "string" }],
         ),
+      ).toBe(false);
+    });
+  });
+
+  describe("a cursor that sorts in code", () => {
+    const inCode = {
+      itemPath: "created_at",
+      sortInCode: { morePath: "pagination.has_next_page" },
+    };
+    const withCursor = (cursor: unknown) => accepts({ ...source, cursor });
+
+    it("reads each row's own position, so it names no response path for one", () => {
+      expect(withCursor({ param: "since", forward: inCode })).toBe(true);
+      expect(
+        withCursor({
+          param: "since",
+          path: "data[0].created_at",
+          forward: inCode,
+        }),
+      ).toBe(false);
+      expect(withCursor({ param: "since" })).toBe(false);
+    });
+
+    it("names where the response says the page is only part of the rows", () => {
+      expect(
+        withCursor({
+          param: "since",
+          forward: { itemPath: "created_at", sortInCode: {} },
+        }),
+      ).toBe(false);
+      expect(
+        withCursor({
+          param: "since",
+          forward: {
+            itemPath: "created_at",
+            sortInCode: { morePath: "a b" },
+          },
+        }),
+      ).toBe(false);
+    });
+
+    it("is either sorted by the provider or in code, never both and never neither", () => {
+      const sorted = {
+        sortParam: "order",
+        newestFirst: "DESC",
+        oldestFirst: "ASC",
+      };
+      expect(
+        withCursor({ param: "since", forward: { ...inCode, ...sorted } }),
+      ).toBe(false);
+      expect(
+        withCursor({
+          param: "since",
+          forward: { ...inCode, sortParam: "order" },
+        }),
+      ).toBe(false);
+      expect(
+        withCursor({
+          param: "since",
+          path: "data[0].id",
+          forward: { itemPath: "created_at" },
+        }),
+      ).toBe(false);
+      expect(
+        withCursor({
+          param: "since",
+          path: "data[0].id",
+          forward: { itemPath: "created_at", ...sorted },
+        }),
+      ).toBe(true);
+      expect(
+        withCursor({
+          param: "since",
+          path: "data[0].id",
+          forward: {
+            itemPath: "created_at",
+            sortParam: "order",
+            newestFirst: "DESC",
+          },
+        }),
       ).toBe(false);
     });
   });

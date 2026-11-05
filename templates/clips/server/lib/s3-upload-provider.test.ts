@@ -158,6 +158,7 @@ describe("s3FileUploadProvider", () => {
       url: output.url,
       uploadConfirmed: true,
     });
+    expect(output.url).toMatch(/\/rec_1\/\d+-[0-9a-f-]{36}\.mp4$/);
     expect(await s3MediaCleanupFingerprint(output.url, "own")).toBe(
       journal[0]?.storageFingerprint,
     );
