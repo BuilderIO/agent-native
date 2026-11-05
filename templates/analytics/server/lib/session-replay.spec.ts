@@ -3940,6 +3940,11 @@ describe("replay viewport", () => {
     const again = mergeReplayMetadata(spanned, { commit_sha: newer });
     expect(again).toEqual({ commit_sha: started, commit_sha_latest: newer });
 
+    expect(mergeReplayMetadata(again, { commit_sha: started })).toEqual({
+      commit_sha: started,
+      commit_sha_latest: started,
+    });
+
     expect(mergeReplayMetadata({}, { commit_sha: started })).toEqual({
       commit_sha: started,
     });

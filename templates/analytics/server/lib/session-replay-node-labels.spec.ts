@@ -167,6 +167,49 @@ describe("createReplayNodeLabels", () => {
     expect(labels.describe(5)).toBeNull();
   });
 
+  it("takes no name from an attribute under the replay mask", () => {
+    const labels = labelsFor(
+      element(2, "button", { "aria-label": "Invoice for a private client" }),
+      element(3, "button", {
+        "aria-label": "A private name",
+        "data-an-mask": "",
+      }),
+      element(4, "button", {
+        title: "A private title",
+        class: "row an-mask",
+      }),
+      element(5, "section", { "data-an-mask": "" }, [
+        element(6, "div", {}, [
+          element(7, "button", { "aria-label": "Private under a parent" }),
+        ]),
+      ]),
+      element(8, "button", { class: "an-masked", title: "Not the marker" }),
+    );
+
+    expect(labels.describe(2)).toBe('button "Invoice for a private client"');
+    expect(labels.describe(3)).toBeNull();
+    expect(labels.describe(4)).toBeNull();
+    expect(labels.describe(7)).toBeNull();
+    expect(labels.describe(8)).toBe('button "Not the marker"');
+  });
+
+  it("stops naming a node once a mutation marks it masked", () => {
+    const labels = labelsFor(
+      element(2, "button", { "aria-label": "Named for now" }),
+    );
+    expect(labels.describe(2)).toBe('button "Named for now"');
+
+    labels.observe({
+      type: 3,
+      data: {
+        source: 0,
+        attributes: [{ id: 2, attributes: { "data-an-mask": "" } }],
+      },
+    });
+
+    expect(labels.describe(2)).toBeNull();
+  });
+
   it("takes no name from text being typed in a rich-text editor", () => {
     const labels = labelsFor(
       element(2, "div", { role: "button", contenteditable: "true" }, [

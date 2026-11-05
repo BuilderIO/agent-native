@@ -1518,9 +1518,8 @@ function mergedReplayCommits(
   const started = existing.commit_sha;
   const latest = incoming.commit_sha;
   if (typeof started !== "string" || typeof latest !== "string") return {};
-  return started === latest
-    ? {}
-    : { commit_sha: started, commit_sha_latest: latest };
+  if (started === latest && existing.commit_sha_latest === undefined) return {};
+  return { commit_sha: started, commit_sha_latest: latest };
 }
 
 export function mergeReplayMetadata(

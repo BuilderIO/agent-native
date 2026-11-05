@@ -1,3 +1,5 @@
+import { SESSION_REPLAY_MASK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
+
 const RRWEB_FULL_SNAPSHOT = 2;
 const RRWEB_INCREMENTAL_SNAPSHOT = 3;
 const SOURCE_MUTATION = 0;
@@ -10,6 +12,7 @@ const MAX_ANCESTORS_CHECKED = 6;
 // they can loop, and text we can't place counts as typed.
 const MAX_EDITOR_ANCESTORS_CHECKED = 256;
 const MAX_SHOWN_ERROR_CHARS = 500;
+const SESSION_REPLAY_MASK_CLASS = "an-mask";
 const TOAST_TEXT_JOINER = " — ";
 // Recordings from before the recorder marked failed runs show only this copy.
 const AGENT_RUN_ERROR_HEADINGS: ReadonlySet<string> = new Set([
@@ -63,6 +66,7 @@ interface ReplayNode {
   toast: boolean;
   toastTitle: boolean;
   editable: boolean;
+  masked: boolean;
 }
 
 /** An error the person saw that neither the console nor the network reported. */
@@ -74,6 +78,15 @@ export interface ReplayShownError {
 
 function isEditableAttribute(value: unknown): boolean {
   return value !== undefined && value !== null && value !== "false";
+}
+
+function isMaskMarked(attributes: Record<string, unknown>): boolean {
+  const marker = attributes[SESSION_REPLAY_MASK_ATTRIBUTE];
+  if (marker !== undefined && marker !== null) return true;
+  return (
+    typeof attributes.class === "string" &&
+    attributes.class.split(/\s+/).includes(SESSION_REPLAY_MASK_CLASS)
+  );
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -114,6 +127,7 @@ function elementNode(
     toast: "data-sonner-toast" in attributes,
     toastTitle: "data-title" in attributes,
     editable: isEditableAttribute(attributes.contenteditable),
+    masked: isMaskMarked(attributes),
   };
 }
 
@@ -155,6 +169,22 @@ export function createReplayNodeLabels() {
       if (!cursor) return true;
     }
     return false;
+  }
+
+  /**
+   * rrweb masks text under the marker but records its attributes as they are,
+   * so a name read from one is private too. Past the depth limit, it counts as
+   * masked.
+   */
+  function isMasked(id: number): boolean {
+    let cursor = nodes.get(id);
+    for (let depth = 0; depth < MAX_EDITOR_ANCESTORS_CHECKED; depth += 1) {
+      if (!cursor) return false;
+      if (cursor.masked) return true;
+      cursor =
+        cursor.parentId === null ? undefined : nodes.get(cursor.parentId);
+    }
+    return true;
   }
 
   /** A control's text names it, wherever in the control the text sits. */
@@ -246,6 +276,7 @@ export function createReplayNodeLabels() {
       if (node && "contenteditable" in changed) {
         node.editable = isEditableAttribute(changed.contenteditable);
       }
+      if (node && isMaskMarked(changed)) node.masked = true;
     }
   }
 
@@ -356,7 +387,7 @@ export function createReplayNodeLabels() {
 
     /** `button "Send"`, or null when the replay never named the node. */
     describe(id: unknown): string | null {
-      if (typeof id !== "number") return null;
+      if (typeof id !== "number" || isMasked(id)) return null;
       let name = "";
       let control: string | null = null;
       let cursor = nodes.get(id);

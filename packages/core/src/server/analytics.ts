@@ -1,11 +1,10 @@
 import { getAppConfig } from "../app-config/index.js";
-import { AGENT_ACCESS_PARAM } from "../shared/agent-access.js";
+import { SIGNED_LINK_PARAMS } from "../shared/agent-access.js";
 import {
   CONSENT_REGION_PATH,
   CONSENT_REGION_TIME_ZONE_LIST,
   type ConsentCategory,
 } from "../shared/consent.js";
-import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 import { SIGN_IN_CONTINUATION_PARAM } from "../shared/sign-in-journey.js";
 import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
@@ -143,13 +142,6 @@ export function getGaInlineConfigScriptBody(options?: {
   );
 }
 
-// Each grants access to whoever holds the URL. Clips owns `clip_intake`; core
-// can't import from a template.
-const SIGNED_LINK_PARAMS = [
-  AGENT_ACCESS_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-  "clip_intake",
-];
 const MAX_SIGNED_LINK_DECODE_DEPTH = 8;
 
 /**
