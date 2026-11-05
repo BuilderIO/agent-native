@@ -908,8 +908,10 @@ describe("clampSelectionToTextRoot", () => {
     "leaves the live selection untouched for a %s",
     (kind) => {
       const { a, b } = mountLeaves();
-      const selection = window.getSelection()!;
-      selection.setBaseAndExtent(b.firstChild!, 1, b.firstChild!, 4);
+      const selection = window.getSelection();
+      const text = b.firstChild;
+      if (!selection || !text) throw new Error("expected selection and text");
+      selection.setBaseAndExtent(text, 1, text, 4);
       const before = {
         anchorNode: selection.anchorNode,
         anchorOffset: selection.anchorOffset,
@@ -959,6 +961,9 @@ describe("clampSelectionToTextRoot", () => {
     const tree = document.createElement("div");
     tree.innerHTML = "<p>Alpha text</p><p>Beta text</p>";
     const [a, b] = tree.children;
+    if (!(a instanceof HTMLElement) || !(b instanceof HTMLElement)) {
+      throw new Error("expected two HTML elements");
+    }
     const setBaseAndExtent = vi.fn();
     const selection = {
       anchorNode: a.firstChild,
@@ -968,7 +973,7 @@ describe("clampSelectionToTextRoot", () => {
       setBaseAndExtent,
     } as unknown as Selection;
 
-    clampSelectionToTextRoot(selection, a as HTMLElement);
+    clampSelectionToTextRoot(selection, a);
 
     expect(setBaseAndExtent).toHaveBeenCalledWith(a.firstChild, 3, a, 1);
   });
