@@ -11,6 +11,8 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  SidebarGroup,
+  SidebarGroupLabel,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -111,7 +113,11 @@ function AppContextMenuContent({
   app: ChatFirstAppItem;
   copy: ChatFirstCopy;
   index: number;
-  onMove: (id: string, direction: -1 | 1) => void;
+  /**
+   * Omitted when the host owns the order; pins then join the host's Pinned
+   * section rather than the top of this list.
+   */
+  onMove?: (id: string, direction: -1 | 1) => void;
   onReloadApp?: (app: ChatFirstAppItem) => void;
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
@@ -121,26 +127,32 @@ function AppContextMenuContent({
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => onTogglePinned(app.id)}>
-        {pinned ? copy("removePinned") : copy("pinTop")}
+        {onMove
+          ? copy(pinned ? "removePinned" : "pinTop")
+          : copy(pinned ? "unpinApp" : "pinApp", { name: app.name })}
       </ContextMenuItem>
       {onReloadApp ? (
         <ContextMenuItem onSelect={() => onReloadApp(app)}>
           {copy("reloadApp")}
         </ContextMenuItem>
       ) : null}
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        disabled={index === 0}
-        onSelect={() => onMove(app.id, -1)}
-      >
-        {copy("moveUp")}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={index === total - 1}
-        onSelect={() => onMove(app.id, 1)}
-      >
-        {copy("moveDown")}
-      </ContextMenuItem>
+      {onMove ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={index === 0}
+            onSelect={() => onMove(app.id, -1)}
+          >
+            {copy("moveUp")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={index === total - 1}
+            onSelect={() => onMove(app.id, 1)}
+          >
+            {copy("moveDown")}
+          </ContextMenuItem>
+        </>
+      ) : null}
       {onRemoveApp ? (
         <>
           <ContextMenuSeparator />
@@ -158,6 +170,7 @@ function AppContextMenuContent({
 
 function AppRows({
   apps,
+  reorderable = true,
   defaultAppIds,
   surface,
   layout,
@@ -174,6 +187,8 @@ function AppRows({
   copy,
 }: {
   apps: ChatFirstAppItem[];
+  /** False keeps `apps` in the given order with no drag or move controls. */
+  reorderable?: boolean;
   defaultAppIds?: readonly string[];
   surface: ChatFirstActiveSurface | undefined;
   layout: ChatFirstAppLayoutPreference;
@@ -181,8 +196,8 @@ function AppRows({
   onDrop: (id: string) => void;
   onDragEnd: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;
-  onReloadApp?: (app: ChatFirstAppItem) => void;
-  onRemoveApp?: (app: ChatFirstAppItem) => void;
+  onReloadApp?: ((app: ChatFirstAppItem) => void) | undefined;
+  onRemoveApp?: ((app: ChatFirstAppItem) => void) | undefined;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
   renderIcon: (
@@ -192,11 +207,13 @@ function AppRows({
   grayscaleInactiveIcons: boolean;
   copy: ChatFirstCopy;
 }) {
-  const orderedIds = orderChatFirstAppIds(
-    apps.map((app) => app.id),
-    layout,
-    defaultAppIds,
-  );
+  const orderedIds = reorderable
+    ? orderChatFirstAppIds(
+        apps.map((app) => app.id),
+        layout,
+        defaultAppIds,
+      )
+    : apps.map((app) => app.id);
   const appsById = new Map(apps.map((app) => [app.id, app]));
   const orderedApps = orderedIds
     .map((id) => appsById.get(id))
@@ -212,7 +229,7 @@ function AppRows({
           <ContextMenu key={app.id}>
             <ContextMenuTrigger asChild>
               <li
-                draggable
+                draggable={reorderable}
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
@@ -221,20 +238,26 @@ function AppRows({
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  onDragStart(app.id);
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => onDrop(app.id)}
-                onDragEnd={onDragEnd}
+                onDragStart={
+                  reorderable
+                    ? (event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        onDragStart(app.id);
+                      }
+                    : undefined
+                }
+                onDragOver={
+                  reorderable ? (event) => event.preventDefault() : undefined
+                }
+                onDrop={reorderable ? () => onDrop(app.id) : undefined}
+                onDragEnd={reorderable ? onDragEnd : undefined}
               >
                 <button
                   type="button"
                   className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-start"
                   onClick={() => onOpenApp(app)}
                   onKeyDown={(event) => {
-                    if (!event.altKey) return;
+                    if (!reorderable || !event.altKey) return;
                     if (event.key === "ArrowUp") {
                       event.preventDefault();
                       onMove(app.id, -1);
@@ -243,7 +266,9 @@ function AppRows({
                       onMove(app.id, 1);
                     }
                   }}
-                  aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                  aria-keyshortcuts={
+                    reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined
+                  }
                   aria-label={copy("openApp", { name: app.name })}
                 >
                   <ChatFirstRailAppIcon
@@ -281,7 +306,7 @@ function AppRows({
               app={app}
               copy={copy}
               index={index}
-              onMove={onMove}
+              onMove={reorderable ? onMove : undefined}
               onReloadApp={onReloadApp}
               onRemoveApp={onRemoveApp}
               onTogglePinned={onTogglePinned}
@@ -297,6 +322,7 @@ function AppRows({
 
 export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
+  sections,
   defaultAppIds,
   activeAppId,
   activeTab,
@@ -307,6 +333,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   layout: controlledLayout,
   onLayoutChange,
   onLayoutError,
+  onTogglePinned,
   onRetry,
   onOpenApp,
   onReloadApp,
@@ -358,6 +385,19 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     return activeApp ? [...defaultApps, activeApp] : defaultApps;
   }, [activeAppId, defaultAppIds, orderedApps, showAllApps]);
   const hasMoreApps = orderedApps.length > visibleApps.length;
+  const sectionRows = useMemo(() => {
+    if (!sections) return null;
+    const appsById = new Map(apps.map((app) => [app.id, app]));
+    return sections.map((section) => ({
+      section,
+      apps: section.appIds
+        .map((id) => appsById.get(id))
+        .filter((app): app is ChatFirstAppItem => Boolean(app)),
+    }));
+  }, [apps, sections]);
+  const collapsedApps = sectionRows
+    ? sectionRows.flatMap((row) => row.apps)
+    : visibleApps;
   const createTrigger =
     createAppTrigger ??
     (onCreateApp ? (
@@ -380,6 +420,10 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   }
 
   function togglePinned(appId: string) {
+    if (onTogglePinned) {
+      onTogglePinned(appId);
+      return;
+    }
     const pinnedIds = layout.pinnedIds.includes(appId)
       ? layout.pinnedIds.filter((id) => id !== appId)
       : [appId, ...layout.pinnedIds];
@@ -432,7 +476,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
             ? [0, 1, 2].map((index) => (
                 <Skeleton key={index} className="size-9 rounded-md" />
               ))
-            : visibleApps.map((app) => (
+            : collapsedApps.map((app) => (
                 <ContextMenu key={app.id}>
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger asChild>
@@ -465,7 +509,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                     app={app}
                     copy={copy}
                     index={orderedApps.indexOf(app)}
-                    onMove={moveApp}
+                    onMove={sections ? undefined : moveApp}
                     onReloadApp={onReloadApp}
                     onRemoveApp={onRemoveApp}
                     onTogglePinned={togglePinned}
@@ -506,14 +550,66 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   return (
     <section
       data-chat-first-apps-rail
-      className="mt-3 px-2 pb-2 pt-2"
+      className={sectionRows ? "px-2" : "mt-3 px-2 pb-2 pt-2"}
       aria-label={copy("workspaceApps")}
     >
-      <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">
-        <span>{copy("workspaceApps")}</span>
-        <span className="ml-auto">{createTrigger}</span>
-      </div>
-      {loading && apps.length === 0 ? (
+      {sectionRows ? null : (
+        <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">
+          <span>{copy("workspaceApps")}</span>
+          <span className="ml-auto">{createTrigger}</span>
+        </div>
+      )}
+      {sectionRows ? (
+        sectionRows.map(({ section, apps: sectionApps }) =>
+          sectionApps.length > 0 || section.action || section.emptyLabel ? (
+            <SidebarGroup
+              key={section.id}
+              role="group"
+              aria-label={section.label}
+              data-chat-first-app-section={section.id}
+              className="px-0"
+            >
+              <SidebarGroupLabel className="gap-1.5">
+                <span>{section.label}</span>
+                {section.action ? (
+                  <span className="ms-auto">{section.action}</span>
+                ) : null}
+              </SidebarGroupLabel>
+              {loading && apps.length === 0 ? (
+                <div className="space-y-0.5 px-2">
+                  {[0, 1, 2].map((index) => (
+                    <Skeleton key={index} className="h-8 w-full rounded-md" />
+                  ))}
+                </div>
+              ) : sectionApps.length === 0 ? (
+                section.emptyLabel ? (
+                  <p className="px-2 text-xs text-sidebar-foreground/55">
+                    {section.emptyLabel}
+                  </p>
+                ) : null
+              ) : (
+                <AppRows
+                  apps={sectionApps}
+                  reorderable={false}
+                  surface={surface}
+                  layout={layout}
+                  onDragStart={setDraggedAppId}
+                  onDrop={reorderApps}
+                  onDragEnd={() => setDraggedAppId(null)}
+                  onOpenApp={onOpenApp}
+                  onReloadApp={onReloadApp}
+                  onRemoveApp={onRemoveApp}
+                  onTogglePinned={togglePinned}
+                  onMove={moveApp}
+                  renderIcon={renderIcon}
+                  grayscaleInactiveIcons={grayscaleInactiveIcons}
+                  copy={copy}
+                />
+              )}
+            </SidebarGroup>
+          ) : null,
+        )
+      ) : loading && apps.length === 0 ? (
         <div className="space-y-0.5 px-2">
           {[0, 1, 2].map((index) => (
             <Skeleton key={index} className="h-8 w-full rounded-md" />
@@ -558,7 +654,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           copy={copy}
         />
       )}
-      {hasMoreApps || showAllApps ? (
+      {!sectionRows && (hasMoreApps || showAllApps) ? (
         <button
           type="button"
           className="mt-0.5 flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"

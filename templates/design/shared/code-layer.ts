@@ -8605,6 +8605,8 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
+const MEASURED_FLOW_STYLE_ATTR = "data-agent-native-group-flow-style";
+
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
   "left",
@@ -8796,16 +8798,70 @@ function rebaseMeasuredFlowChild(
   top: number,
 ): string {
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const authored = declarations.declarations
+    .filter((declaration) =>
+      isMeasuredFlowStrippedProp(cssPropertyKey(declaration.prop)),
+    )
+    .map(
+      (declaration) =>
+        `${declaration.prop}: ${styleDeclarationValue(declaration)}`,
+    );
   removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
   setStyleDeclaration(declarations, "position", "absolute");
   setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
   setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
-  return replaceOrInsertAttribute(
-    html,
-    child,
-    "style",
-    serializeStyleDeclarations(declarations),
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]:
+          authored.length > 0 ? authored.join("; ") : null,
+      },
+    },
+  ]);
+}
+
+function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
+  if (parseStyle(attributeValue(child, "style")).position !== "absolute") {
+    return html;
+  }
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["position", "left", "top"]);
+  // A family the user set again while grouped keeps their value: appending the
+  // snapshot's shorthand after a newer longhand would silently override it.
+  const keys = declarations.declarations.map((declaration) =>
+    cssPropertyKey(declaration.prop),
   );
+  const editedMargin = keys.some((key) => key.startsWith("margin"));
+  const editedOffset = keys.some(
+    (key) => isMeasuredFlowStrippedProp(key) && !key.startsWith("margin"),
+  );
+  const saved = parseStyleDeclarations(
+    attributeValue(child, MEASURED_FLOW_STYLE_ATTR),
+  ).declarations;
+  for (const declaration of saved) {
+    const isMargin = cssPropertyKey(declaration.prop).startsWith("margin");
+    if (isMargin ? editedMargin : editedOffset) continue;
+    setStyleDeclaration(
+      declarations,
+      declaration.prop,
+      styleDeclarationValue(declaration),
+    );
+  }
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]: null,
+      },
+    },
+  ]);
+}
+
+function isMeasuredFlowStrippedProp(key: string): boolean {
+  return (MEASURED_FLOW_REBASE_STRIP_PROPS as readonly string[]).includes(key);
 }
 
 function nextSequentialWrapperName(
@@ -10440,9 +10496,20 @@ function applyUnwrap(
   const hasMeasuredFlowOrigin =
     measuredGroupLeft !== null || measuredGroupTop !== null;
   const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
+  // A measured-flow group only exists around children that were in flow, and
+  // a pinned child is out of flow, so its siblings would reflow around the gap.
+  const releaseIntoFlow = hasMeasuredFlowOrigin && !hasPositionedOffset;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase) {
+  if (releaseIntoFlow) {
+    const fragmentElements = parseHtmlElements(innerContent);
+    const directChildren = fragmentElements.filter(
+      (fe) => fe.parentIndex === undefined,
+    );
+    for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
+      innerContent = releaseMeasuredFlowChild(innerContent, child);
+    }
+  } else if (shouldRebase) {
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =

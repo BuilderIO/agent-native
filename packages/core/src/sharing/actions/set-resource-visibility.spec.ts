@@ -1,0 +1,950 @@
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/pglite";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../../a2a/test-pglite.js";
+import { table, text, ownableColumns } from "../../db/schema.js";
+import { runWithRequestContext } from "../../server/request-context.js";
+import { ForbiddenError } from "../access.js";
+import {
+  registerShareableResource,
+  type ShareableResourceRegistration,
+} from "../registry.js";
+import { createSharesTable } from "../schema.js";
+import setResourceVisibility from "./set-resource-visibility.js";
+
+const calls = vi.hoisted(() => ({
+  tracked: [] as Array<{ properties: unknown; source: unknown }>,
+  invalidated: [] as string[],
+  notified: [] as Array<{ resourceId: string; before: unknown }>,
+  noticeFails: new Set<string>(),
+}));
+
+vi.mock("../../tracking/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../tracking/registry.js")>()),
+  track: (name: string, properties: unknown, source: unknown) => {
+    if (name === "share_visibility_change") {
+      calls.tracked.push({ properties, source });
+    }
+  },
+}));
+
+vi.mock("../../server/poll.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../server/poll.js")>()),
+  invalidateCollabAccessCache: (type: string, resourceId: string) => {
+    calls.invalidated.push(`${type}:${resourceId}`);
+  },
+}));
+
+vi.mock("./extension-change.js", () => ({
+  getExtensionShareChangeTargets: async (_type: string, resourceId: string) => [
+    `before-${resourceId}`,
+  ],
+  notifyExtensionShareChanged: async (
+    _type: string,
+    resourceId: string,
+    before: unknown,
+  ) => {
+    calls.notified.push({ resourceId, before });
+    if (calls.noticeFails.has(resourceId)) throw new Error("notice failed");
+  },
+}));
+
+const resourceType = "visibility-doc";
+const ownerEmail = "owner+visibility@example.com";
+const adminEmail = "admin+visibility@example.com";
+const outsiderEmail = "outsider+visibility@example.com";
+const orgId = "org-visibility";
+
+const docs = table("visibility_docs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+const docShares = createSharesTable("visibility_doc_shares");
+
+type Visibility = "private" | "org" | "public";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let db: ReturnType<typeof drizzle>;
+
+function register(extra: Partial<ShareableResourceRegistration> = {}) {
+  registerShareableResource({
+    type: resourceType,
+    resourceTable: docs,
+    sharesTable: docShares,
+    displayName: "Visibility Doc",
+    titleColumn: "title",
+    getDb: () => db,
+    ...extra,
+  });
+}
+
+/** Writes the update itself, failing for the resources `refuse` names. */
+function persistUnless(
+  refuse: (resourceId: string, visibility: Visibility) => Error | undefined,
+): ShareableResourceRegistration["persistVisibilityChange"] {
+  return async ({ resourceId, visibility, update }) => {
+    const error = refuse(resourceId, visibility);
+    if (error) throw error;
+    await db.update(docs).set(update).where(eq(docs.id, resourceId));
+  };
+}
+
+async function insertDoc(values: {
+  id: string;
+  title?: string;
+  ownerEmail?: string;
+  orgId?: string | null;
+  visibility?: Visibility;
+}) {
+  await db.insert(docs).values({
+    id: values.id,
+    title: values.title ?? values.id,
+    ownerEmail: values.ownerEmail ?? ownerEmail,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
+    visibility: values.visibility ?? "private",
+  });
+}
+
+async function shareWith(resourceId: string, email: string, role: string) {
+  await db.insert(docShares).values({
+    id: `share-${resourceId}-${email}`,
+    resourceId,
+    principalType: "user",
+    principalId: email,
+    role,
+    createdBy: ownerEmail,
+    createdAt: new Date().toISOString(),
+  } as never);
+}
+
+const as = <T>(
+  ctx: { userEmail?: string; orgId?: string },
+  fn: () => Promise<T>,
+) => runWithRequestContext(ctx, fn);
+
+const setOne = (
+  resourceId: string,
+  visibility: Visibility,
+  ctx: { userEmail?: string; orgId?: string } = {
+    userEmail: ownerEmail,
+    orgId,
+  },
+) =>
+  as(ctx, () =>
+    setResourceVisibility.run({ resourceType, resourceId, visibility }),
+  ) as Promise<Record<string, any>>;
+
+const batch = (
+  resourceIds: string[],
+  visibility: Visibility,
+  ctx: { userEmail?: string; orgId?: string } = {
+    userEmail: ownerEmail,
+    orgId,
+  },
+) =>
+  as(ctx, () =>
+    setResourceVisibility.run({ resourceType, resourceIds, visibility }),
+  ) as Promise<Record<string, any>>;
+
+async function rows() {
+  return Object.fromEntries(
+    (await db.select().from(docs)).map((row) => [
+      row.id,
+      { visibility: row.visibility, orgId: row.orgId },
+    ]),
+  );
+}
+
+async function visibilities() {
+  return Object.fromEntries(
+    Object.entries(await rows()).map(([id, row]) => [id, row.visibility]),
+  );
+}
+
+function approval(args: {
+  resourceId?: string;
+  resourceIds?: string[];
+  visibility: Visibility;
+}) {
+  const needsApproval = setResourceVisibility.needsApproval;
+  if (typeof needsApproval !== "function") {
+    throw new Error("set-resource-visibility approval predicate is missing");
+  }
+  return as({ userEmail: ownerEmail, orgId }, () =>
+    needsApproval({ resourceType, ...args }),
+  );
+}
+
+beforeEach(async () => {
+  calls.tracked.length = 0;
+  calls.invalidated.length = 0;
+  calls.notified.length = 0;
+  calls.noticeFails.clear();
+  pglite = await createTestPglite();
+  await pglite.exec(`
+    CREATE TABLE visibility_docs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE TABLE visibility_doc_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
+    );
+    CREATE TABLE org_invitations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE workspace_user_groups (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      member_emails_json TEXT NOT NULL DEFAULT '[]',
+      created_by_email TEXT NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL DEFAULT 0
+    );
+  `);
+  db = drizzle(pglite.db);
+  register();
+});
+
+afterEach(async () => {
+  await pglite.close();
+});
+
+describe("set-resource-visibility on one resource", () => {
+  it("changes it and returns one card without a per-resource list", async () => {
+    await insertDoc({ id: "doc-one", title: "Quarterly plan" });
+
+    const result = await setOne("doc-one", "org");
+
+    expect(result).toEqual({
+      ok: true,
+      visibility: "org",
+      change: {
+        verb: "updated",
+        kind: "resource-share",
+        title: "Quarterly plan",
+        detail: "org",
+      },
+    });
+    expect(await visibilities()).toEqual({ "doc-one": "org" });
+    expect(calls.tracked).toEqual([
+      {
+        properties: expect.objectContaining({
+          resource_type: resourceType,
+          resource_id: "doc-one",
+          visibility: "org",
+          is_public: false,
+        }),
+        source: { userId: ownerEmail },
+      },
+    ]);
+    expect(calls.invalidated).toEqual([`${resourceType}:doc-one`]);
+    expect(calls.notified).toEqual([
+      { resourceId: "doc-one", before: ["before-doc-one"] },
+    ]);
+  });
+
+  it("returns no card and tracks nothing when it already has that visibility", async () => {
+    await insertDoc({ id: "doc-same", visibility: "public" });
+
+    await expect(setOne("doc-same", "public")).resolves.toEqual({
+      ok: true,
+      visibility: "public",
+    });
+    expect(calls.tracked).toEqual([]);
+  });
+
+  it("marks a public change as public when tracking it", async () => {
+    await insertDoc({ id: "doc-out" });
+
+    await setOne("doc-out", "public");
+
+    expect(calls.tracked).toEqual([
+      {
+        properties: expect.objectContaining({
+          visibility: "public",
+          is_public: true,
+        }),
+        source: { userId: ownerEmail },
+      },
+    ]);
+  });
+
+  it("attaches an unscoped resource to the owner's active organization", async () => {
+    await insertDoc({ id: "doc-loose", orgId: null });
+
+    await setOne("doc-loose", "org");
+
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "org", orgId },
+    });
+  });
+
+  it("lets only the owner attach a resource to an organization", async () => {
+    await insertDoc({ id: "doc-shared", orgId: null });
+    await shareWith("doc-shared", adminEmail, "admin");
+
+    await expect(
+      setOne("doc-shared", "org", { userEmail: adminEmail, orgId }),
+    ).rejects.toThrow(
+      "Visibility Doc can only be attached to an organization by its owner.",
+    );
+    expect(await rows()).toEqual({
+      "doc-shared": { visibility: "private", orgId: null },
+    });
+  });
+
+  it("refuses org visibility for an unscoped resource with no active organization", async () => {
+    await insertDoc({ id: "doc-loose", orgId: null });
+
+    const refused = setOne("doc-loose", "org", { userEmail: ownerEmail });
+    await expect(refused).rejects.toThrow(
+      "Visibility Doc cannot be shared with your organization because no active organization is selected.",
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("keeps an owner's resource unscoped when the registration drops the organization", async () => {
+    register({ resolveAccessContext: (ctx) => ({ userEmail: ctx.userEmail }) });
+    await insertDoc({ id: "doc-loose", orgId: null });
+
+    await setOne("doc-loose", "org");
+
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "org", orgId: null },
+    });
+  });
+
+  it("refuses public visibility for a type that doesn't allow it", async () => {
+    register({ allowPublic: false });
+    await insertDoc({ id: "doc-closed" });
+
+    const refused = setOne("doc-closed", "public");
+    await expect(refused).rejects.toThrow(
+      "Visibility Doc cannot be made public — share with specific people or your organization instead.",
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({ "doc-closed": "private" });
+  });
+
+  it("passes a hook refusal through unchanged", async () => {
+    register({
+      persistVisibilityChange: persistUnless(
+        () => new ForbiddenError("Missing permission: docs.edit"),
+      ),
+    });
+    await insertDoc({ id: "doc-locked", visibility: "public" });
+
+    await expect(setOne("doc-locked", "private")).rejects.toThrow(
+      /^Missing permission: docs\.edit$/,
+    );
+  });
+});
+
+describe("set-resource-visibility on several resources", () => {
+  it("changes each resource, lists what changed, and shows one card", async () => {
+    await insertDoc({ id: "doc-a", visibility: "public" });
+    await insertDoc({ id: "doc-b", visibility: "org" });
+    await insertDoc({ id: "doc-c" });
+
+    const result = await batch(["doc-a", "doc-b", "doc-c"], "private");
+
+    expect(result).toEqual({
+      ok: true,
+      visibility: "private",
+      changedCount: 2,
+      unchangedCount: 1,
+      results: [
+        { resourceId: "doc-a", status: "changed" },
+        { resourceId: "doc-b", status: "changed" },
+        { resourceId: "doc-c", status: "unchanged" },
+      ],
+      change: {
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-a and 1 more",
+        detail: "private",
+      },
+    });
+    expect(await visibilities()).toEqual({
+      "doc-a": "private",
+      "doc-b": "private",
+      "doc-c": "private",
+    });
+    expect(calls.tracked.map(({ properties }) => properties)).toEqual([
+      expect.objectContaining({ resource_id: "doc-a" }),
+      expect.objectContaining({ resource_id: "doc-b" }),
+    ]);
+    // doc-c already had that visibility, so it gets no change notice.
+    expect(calls.notified).toEqual([
+      { resourceId: "doc-a", before: ["before-doc-a"] },
+      { resourceId: "doc-b", before: ["before-doc-b"] },
+    ]);
+  });
+
+  it("counts an organization attachment as a change", async () => {
+    await insertDoc({ id: "doc-scoped", visibility: "org" });
+    await insertDoc({ id: "doc-loose", orgId: null, visibility: "org" });
+
+    const result = await batch(["doc-scoped", "doc-loose"], "org");
+
+    expect(result.results).toEqual([
+      { resourceId: "doc-scoped", status: "unchanged" },
+      { resourceId: "doc-loose", status: "changed" },
+    ]);
+    expect(result.change.title).toBe("doc-loose");
+    expect(calls.tracked).toEqual([]);
+  });
+
+  it("still succeeds, and sends the other notices, when one notice fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    calls.noticeFails.add("doc-a");
+    await insertDoc({ id: "doc-a" });
+    await insertDoc({ id: "doc-b" });
+
+    const result = await batch(["doc-a", "doc-b"], "org");
+
+    expect(result.changedCount).toBe(2);
+    expect(await visibilities()).toEqual({ "doc-a": "org", "doc-b": "org" });
+    expect(calls.notified.map(({ resourceId }) => resourceId)).toEqual([
+      "doc-a",
+      "doc-b",
+    ]);
+    expect(consoleError).toHaveBeenCalledWith(
+      `[sharing] Could not send the change notice for ${resourceType} doc-a:`,
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("returns no card when nothing changes", async () => {
+    await insertDoc({ id: "doc-a" });
+    await insertDoc({ id: "doc-b" });
+
+    const result = await batch(["doc-a", "doc-b"], "private");
+
+    expect(result).toEqual({
+      ok: true,
+      visibility: "private",
+      changedCount: 0,
+      unchangedCount: 2,
+      results: [
+        { resourceId: "doc-a", status: "unchanged" },
+        { resourceId: "doc-b", status: "unchanged" },
+      ],
+    });
+  });
+
+  it("names one changed resource without a count", async () => {
+    await insertDoc({ id: "doc-a", visibility: "public" });
+
+    const result = await batch(["doc-a"], "private");
+
+    expect(result.change.title).toBe("doc-a");
+  });
+
+  it("shortens a long first title to make room for the count", async () => {
+    await insertDoc({ id: "doc-long", title: "x".repeat(180) });
+    await insertDoc({ id: "doc-short" });
+    await insertDoc({ id: "doc-third" });
+
+    const result = await batch(["doc-long", "doc-short", "doc-third"], "org");
+
+    // 180 characters at most: 168 of the title, an ellipsis, " and 2 more".
+    expect(result.change.title).toBe(`${"x".repeat(168)}… and 2 more`);
+  });
+
+  it("keeps a first title that fits beside the count", async () => {
+    const title = "y".repeat(169);
+    await insertDoc({ id: "doc-fits", title });
+    await insertDoc({ id: "doc-next" });
+
+    const result = await batch(["doc-fits", "doc-next"], "org");
+
+    expect(result.change.title).toBe(`${title} and 1 more`);
+  });
+
+  it("treats a resource named twice as one", async () => {
+    await insertDoc({ id: "doc-a" });
+    await insertDoc({ id: "doc-b" });
+
+    const result = await as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-a",
+        resourceIds: ["doc-a", "doc-b", "doc-b"],
+        visibility: "org",
+      }),
+    );
+
+    expect((result as Record<string, any>).results).toEqual([
+      { resourceId: "doc-a", status: "changed" },
+      { resourceId: "doc-b", status: "changed" },
+    ]);
+  });
+
+  it("changes nothing, and names the resource, when the caller can't manage one", async () => {
+    await insertDoc({ id: "doc-mine", visibility: "public" });
+    await insertDoc({
+      id: "doc-theirs",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    const refused = batch(["doc-mine", "doc-theirs"], "private");
+    await expect(refused).rejects.toThrow(
+      /^Nothing was changed: 1 of 2 can't change visibility\. doc-theirs: \S/,
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-mine": "public",
+      "doc-theirs": "public",
+    });
+    expect(calls.tracked).toEqual([]);
+    expect(calls.notified).toEqual([]);
+  });
+
+  it("lists every refusal, and is a plain error when one isn't a permission refusal", async () => {
+    register({
+      assertSharingChange: ({ resource }) => {
+        if (resource.id === "doc-odd") throw new Error("odd one out");
+        if (resource.id === "doc-held") {
+          throw new ForbiddenError("held for review");
+        }
+      },
+    });
+    await insertDoc({ id: "doc-ok" });
+    await insertDoc({ id: "doc-odd" });
+    await insertDoc({ id: "doc-held" });
+
+    const refused = batch(["doc-ok", "doc-odd", "doc-held"], "org");
+    await expect(refused).rejects.toThrow(
+      "Nothing was changed: 2 of 3 can't change visibility. doc-odd: odd one out; doc-held: held for review",
+    );
+    await expect(refused).rejects.not.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-ok": "private",
+      "doc-odd": "private",
+      "doc-held": "private",
+    });
+  });
+
+  it("checks a sharing change only for resources whose visibility changes", async () => {
+    const checked: string[] = [];
+    register({
+      assertSharingChange: ({ resource, change }) => {
+        checked.push(
+          `${resource.id}:${resource.visibility}:${change.kind === "visibility" ? change.visibility : change.kind}`,
+        );
+      },
+    });
+    await insertDoc({ id: "doc-moves" });
+    await insertDoc({ id: "doc-stays", visibility: "org" });
+
+    await batch(["doc-moves", "doc-stays"], "org");
+
+    // Once before the write, against the stored row, and once after it.
+    expect(checked).toEqual(["doc-moves:private:org", "doc-moves:org:org"]);
+  });
+
+  it("puts back every write when the check after a write refuses", async () => {
+    register({
+      assertSharingChange: ({ resource }) => {
+        if (resource.id === "doc-late" && resource.visibility === "public") {
+          throw new ForbiddenError("now holds private content");
+        }
+      },
+    });
+    await insertDoc({ id: "doc-early" });
+    await insertDoc({ id: "doc-late" });
+
+    const refused = batch(["doc-early", "doc-late"], "public");
+    await expect(refused).rejects.toThrow(
+      "Nothing was changed: 1 of 2 can't change visibility. doc-late: now holds private content",
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-early": "private",
+      "doc-late": "private",
+    });
+  });
+
+  it("puts back resources already written when a later write fails", async () => {
+    register({
+      persistVisibilityChange: persistUnless((resourceId, visibility) =>
+        resourceId === "doc-fails" && visibility === "private"
+          ? new Error("storage refused")
+          : undefined,
+      ),
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-second", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    await expect(
+      batch(["doc-first", "doc-second", "doc-fails"], "private"),
+    ).rejects.toThrow(/^storage refused$/);
+    expect(await visibilities()).toEqual({
+      "doc-first": "public",
+      "doc-second": "public",
+      "doc-fails": "public",
+    });
+    expect(calls.invalidated).toEqual([
+      `${resourceType}:doc-second`,
+      `${resourceType}:doc-first`,
+    ]);
+    expect(calls.tracked).toEqual([]);
+    expect(calls.notified).toEqual([]);
+  });
+
+  it("puts back an organization it attached", async () => {
+    register({
+      persistVisibilityChange: persistUnless((resourceId) =>
+        resourceId === "doc-fails" ? new Error("storage refused") : undefined,
+      ),
+    });
+    await insertDoc({ id: "doc-loose", orgId: null });
+    await insertDoc({ id: "doc-fails" });
+
+    await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
+      "storage refused",
+    );
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "private", orgId: null },
+      "doc-fails": { visibility: "private", orgId },
+    });
+  });
+
+  it("doesn't write a resource that already has the visibility", async () => {
+    const written: string[] = [];
+    register({
+      persistVisibilityChange: persistUnless((resourceId) => {
+        written.push(resourceId);
+        return resourceId === "doc-same"
+          ? new ForbiddenError("Missing permission: docs.edit")
+          : undefined;
+      }),
+    });
+    await insertDoc({ id: "doc-moves" });
+    await insertDoc({ id: "doc-same", visibility: "org" });
+
+    const result = await batch(["doc-moves", "doc-same"], "org");
+
+    expect(result.results).toEqual([
+      { resourceId: "doc-moves", status: "changed" },
+      { resourceId: "doc-same", status: "unchanged" },
+    ]);
+    expect(written).toEqual(["doc-moves"]);
+  });
+
+  it("keeps a newer change another request made before the rollback", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else moves doc-first on while this batch is mid-write.
+          await db
+            .update(docs)
+            .set({ visibility: "org" })
+            .where(eq(docs.id, "doc-first"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    await expect(batch(["doc-first", "doc-fails"], "private")).rejects.toThrow(
+      /^storage refused$/,
+    );
+    expect(await visibilities()).toEqual({
+      "doc-first": "org",
+      "doc-fails": "public",
+    });
+    expect(calls.invalidated).toEqual([`${resourceType}:doc-first`]);
+  });
+
+  it("keeps, and names, a resource another request moved to another organization before the rollback", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else moves doc-loose to another organization, leaving its
+          // visibility as this batch wrote it.
+          await db
+            .update(docs)
+            .set({ orgId: "org-other" })
+            .where(eq(docs.id, "doc-loose"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-loose", orgId: null });
+    await insertDoc({ id: "doc-fails" });
+
+    await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
+      'storage refused Not every earlier change could be put back, so these still have visibility "org": doc-loose.',
+    );
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "org", orgId: "org-other" },
+      "doc-fails": { visibility: "private", orgId },
+    });
+  });
+
+  it("names a resource still attached to the organization after another request changed its visibility", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else makes doc-loose public, keeping the organization
+          // this batch attached.
+          await db
+            .update(docs)
+            .set({ visibility: "public" })
+            .where(eq(docs.id, "doc-loose"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-loose", orgId: null });
+    await insertDoc({ id: "doc-fails" });
+
+    await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
+      "storage refused Not every earlier change could be put back, so these are still attached to your organization: doc-loose.",
+    );
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "public", orgId },
+      "doc-fails": { visibility: "private", orgId },
+    });
+  });
+
+  it("puts everything back when a resource is deleted after the checks", async () => {
+    register({
+      // Runs in the up-front checks, before any write.
+      assertSharingChange: async ({ resource }) => {
+        if (resource.id === "doc-gone") {
+          await db.delete(docs).where(eq(docs.id, "doc-gone"));
+        }
+      },
+    });
+    await insertDoc({ id: "doc-first" });
+    await insertDoc({ id: "doc-gone" });
+
+    await expect(batch(["doc-first", "doc-gone"], "org")).rejects.toThrow(
+      "Visibility Doc doc-gone no longer exists.",
+    );
+    expect(await visibilities()).toEqual({ "doc-first": "private" });
+  });
+
+  it("reports a refusal from a persistence hook like one found up front", async () => {
+    // Forms checks an org permission inside its hook, after the batch's checks.
+    register({
+      persistVisibilityChange: persistUnless((resourceId) =>
+        resourceId === "doc-locked"
+          ? new ForbiddenError("Missing permission: docs.edit")
+          : undefined,
+      ),
+    });
+    await insertDoc({ id: "doc-open", visibility: "public" });
+    await insertDoc({ id: "doc-locked", visibility: "public" });
+
+    const refused = batch(["doc-open", "doc-locked"], "private");
+    await expect(refused).rejects.toThrow(
+      "Nothing was changed: 1 of 2 can't change visibility. doc-locked: Missing permission: docs.edit",
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-open": "public",
+      "doc-locked": "public",
+    });
+  });
+
+  it("names the resources it couldn't put back", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    register({
+      persistVisibilityChange: persistUnless((resourceId, visibility) => {
+        if (resourceId === "doc-fails") return new Error("storage refused");
+        if (visibility === "public") return new Error("storage went away");
+        return undefined;
+      }),
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-second", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    const failed = batch(["doc-first", "doc-second", "doc-fails"], "private");
+    await expect(failed).rejects.toThrow(
+      'storage refused Not every earlier change could be put back, so these still have visibility "private": doc-second, doc-first.',
+    );
+    expect(await visibilities()).toEqual({
+      "doc-first": "private",
+      "doc-second": "private",
+      "doc-fails": "public",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      `[sharing] Could not restore the visibility of ${resourceType} doc-second:`,
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("refuses a widget grant that names only one of the resources", async () => {
+    await insertDoc({ id: "doc-granted", visibility: "public" });
+    await insertDoc({ id: "doc-other", visibility: "public" });
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run(
+          {
+            resourceType,
+            resourceIds: ["doc-granted", "doc-other"],
+            visibility: "private",
+          },
+          {
+            caller: "mcp-widget-write",
+            mcpDirectoryWidgetWrite: {
+              actionNames: ["set-resource-visibility"],
+              resourceIds: {
+                resourceType,
+                [`${resourceType}Id`]: "doc-granted",
+              },
+            },
+          } as never,
+        ),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-granted": "public",
+      "doc-other": "public",
+    });
+  });
+
+  it("refuses more than 100 resources, or none", async () => {
+    const hundred = Array.from({ length: 100 }, (_, i) => `doc-${i}`);
+    const schema = setResourceVisibility.schema;
+    expect(
+      schema.safeParse({
+        resourceType,
+        resourceIds: hundred,
+        visibility: "org",
+      }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        resourceType,
+        resourceIds: [...hundred, "doc-100"],
+        visibility: "org",
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ resourceType, resourceIds: [], visibility: "org" })
+        .success,
+    ).toBe(false);
+    expect(schema.safeParse({ resourceType, visibility: "org" }).success).toBe(
+      false,
+    );
+    expect(
+      schema.safeParse({ resourceType, resourceId: "doc-0", visibility: "org" })
+        .success,
+    ).toBe(true);
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-extra",
+          resourceIds: hundred,
+          visibility: "org",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Change at most 100 resources per call; this one named 101.",
+    );
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({ resourceType, visibility: "org" } as never),
+      ),
+    ).rejects.toThrow("Provide resourceId or resourceIds.");
+  });
+});
+
+describe("set-resource-visibility approval", () => {
+  it("asks once when any resource would become public", async () => {
+    await insertDoc({ id: "doc-private" });
+    await insertDoc({ id: "doc-public", visibility: "public" });
+
+    await expect(
+      approval({
+        resourceIds: ["doc-public", "doc-private"],
+        visibility: "public",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      approval({ resourceId: "doc-private", visibility: "public" }),
+    ).resolves.toBe(true);
+  });
+
+  it("doesn't ask when every resource is already public", async () => {
+    await insertDoc({ id: "doc-public", visibility: "public" });
+    await insertDoc({ id: "doc-also", visibility: "public" });
+
+    await expect(
+      approval({
+        resourceIds: ["doc-public", "doc-also"],
+        visibility: "public",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("doesn't ask for a change that isn't public", async () => {
+    await insertDoc({ id: "doc-public", visibility: "public" });
+
+    await expect(
+      approval({ resourceIds: ["doc-public"], visibility: "org" }),
+    ).resolves.toBe(false);
+  });
+
+  it("doesn't ask for a type that can't be made public", async () => {
+    register({ allowPublic: false });
+    await insertDoc({ id: "doc-private" });
+
+    await expect(
+      approval({ resourceId: "doc-private", visibility: "public" }),
+    ).resolves.toBe(false);
+  });
+});

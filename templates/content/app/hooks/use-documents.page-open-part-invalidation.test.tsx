@@ -1,0 +1,336 @@
+// @vitest-environment happy-dom
+
+import { QueryClient, type QueryKey } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// A collection's page answers its table's first reads along with the page.
+// A change to one of those parts while the read is out (a row added, the
+// view's filter saved) invalidates that part's key alone: the page itself is
+// unchanged, so the read still owns its answer. That part of the answer
+// predates the change, so it must not be put where the table looks for it.
+
+const server = vi.hoisted(() => ({
+  held: [] as Array<(value: unknown) => void>,
+}));
+
+// What sync has invalidated so far, by the version of the change behind it,
+// or `unknown` once its log no longer reaches back far enough.
+const syncLog = vi.hoisted(() => ({
+  entries: [] as Array<{ version: number; queryKey?: readonly unknown[] }>,
+  unknown: false,
+}));
+
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
+  // The session these reads were sent as is the one the tab accepts.
+  sessionReadIdentityStatus: () => "current",
+}));
+vi.mock("@agent-native/core/client/use-db-sync", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-db-sync")
+  >()),
+  // Like sync's log: what it invalidated for changes after the cursor, or
+  // all of it with no cursor.
+  syncInvalidationsAfter: (_queryClient: object, cursor?: string) => {
+    if (syncLog.unknown) return undefined;
+    const readAt = cursor === undefined ? -1 : Number(cursor.split(".")[0]);
+    return syncLog.entries
+      .filter((entry) => entry.version > readAt)
+      .map(({ queryKey }) => (queryKey ? { queryKey } : {}));
+  },
+}));
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  isOpenAiMcpAppHost: () => false,
+}));
+vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
+  isEmbedMcpChatBridgeActive: () => false,
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  // The page-open read is held until the test releases it.
+  callAction: (name: string) => {
+    if (name !== "get-page-open-read") return Promise.resolve(null);
+    return new Promise((resolve) => server.held.push(resolve));
+  },
+}));
+
+import {
+  openingDatabaseQueryKey,
+  pageOpenReadOwner,
+  seedPageOpenCollection,
+} from "../lib/page-open-collection";
+import { claimPageOpenRead } from "../lib/page-open-reads";
+import { startPageOpenDocumentReads } from "./use-documents";
+
+const tableQuery = {
+  search: "",
+  filters: [],
+  sorts: [],
+  filterMode: "and" as const,
+};
+const parts: Array<[string, QueryKey]> = [
+  ["the collection", openingDatabaseQueryKey("page-1")],
+  [
+    "the personal view",
+    ["action", "get-content-database-personal-view", { databaseId: "db-1" }],
+  ],
+  [
+    "the first rows",
+    [
+      "action",
+      "query-content-database-items",
+      { documentId: "page-1", limit: 100, tableQuery },
+    ],
+  ],
+];
+
+// The answer, read before the change it is released after.
+const answer = {
+  document: { id: "page-1", title: "Roadmap", canEdit: true },
+  collection: {
+    database: { read: "before the change", items: [], properties: [] },
+    personalView: {
+      databaseId: "db-1",
+      overrides: null,
+      read: "before the change",
+    },
+    rows: { tableQuery, page: { read: "before the change", items: [] } },
+  },
+};
+
+describe("a collection part invalidated while the page-open read is out", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    server.held = [];
+    queryClient = new QueryClient();
+  });
+
+  afterEach(() => queryClient.clear());
+
+  async function release() {
+    for (const resolve of server.held) resolve(answer);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  it.each(parts)(
+    "keeps %s's older data, still invalidated, for the table to read again",
+    async (_part, queryKey) => {
+      // A previous visit left this part cached.
+      queryClient.setQueryData(
+        queryKey,
+        { read: "on a previous visit" },
+        { updatedAt: Date.now() - 60_000 },
+      );
+      startPageOpenDocumentReads(queryClient, "page-1");
+      expect(server.held).toHaveLength(1);
+
+      await queryClient.invalidateQueries({ queryKey, exact: true });
+      await release();
+
+      const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+      expect(query?.state.data).toEqual({ read: "on a previous visit" });
+      expect(query?.state.isInvalidated).toBe(true);
+      expect(claimPageOpenRead(queryClient, queryKey).adoption).toBe("none");
+    },
+  );
+
+  it.each(parts)(
+    "does not seed %s when its key was invalidated before anything cached it",
+    async (_part, queryKey) => {
+      startPageOpenDocumentReads(queryClient, "page-1");
+      expect(server.held).toHaveLength(1);
+
+      // Nothing holds this key yet, so the cache sees no invalidation.
+      await queryClient.invalidateQueries({ queryKey: queryKey.slice(0, 2) });
+      await release();
+
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+      expect(claimPageOpenRead(queryClient, queryKey).adoption).toBe("none");
+    },
+  );
+
+  it("still seeds the parts nothing invalidated", async () => {
+    startPageOpenDocumentReads(queryClient, "page-1");
+    const invalidatedPart = openingDatabaseQueryKey("page-1");
+    const otherParts = parts.slice(1).map(([, key]) => key);
+
+    await queryClient.invalidateQueries({
+      queryKey: invalidatedPart,
+      exact: true,
+    });
+    await release();
+
+    expect(queryClient.getQueryData(invalidatedPart)).toBeUndefined();
+    for (const queryKey of otherParts) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+      expect(claimPageOpenRead(queryClient, queryKey).adoption).toBe("fresh");
+    }
+  });
+});
+
+describe("a cached collection part already invalidated when the read's answer is seeded", () => {
+  const pageKey = ["action", "get-document", { id: "page-1" }];
+  const identity = { generation: 0, transport: {} };
+  let queryClient: QueryClient;
+
+  beforeEach(async () => {
+    queryClient = new QueryClient();
+    queryClient.setQueryData(pageKey, answer.document);
+    // A previous visit left every part cached; then one of them changed.
+    for (const [, queryKey] of parts) {
+      queryClient.setQueryData(
+        queryKey,
+        { read: "on a previous visit" },
+        { updatedAt: Date.now() - 60_000 },
+      );
+    }
+    await queryClient.invalidateQueries({
+      queryKey: openingDatabaseQueryKey("page-1"),
+      exact: true,
+    });
+  });
+
+  afterEach(() => queryClient.clear());
+
+  function seedWith(sentAt?: number) {
+    const owner = pageOpenReadOwner(
+      queryClient,
+      pageKey,
+      new AbortController().signal,
+      identity,
+      sentAt,
+    );
+    seedPageOpenCollection(queryClient, "page-1", answer.collection, {
+      owner,
+    });
+  }
+
+  it("is left to its own read when the head sent the read before the tab watched", () => {
+    seedWith(Date.now() - 500);
+
+    const changed = queryClient
+      .getQueryCache()
+      .find({ queryKey: openingDatabaseQueryKey("page-1"), exact: true });
+    expect(changed?.state.data).toEqual({ read: "on a previous visit" });
+    expect(changed?.state.isInvalidated).toBe(true);
+    for (const [, queryKey] of parts.slice(1)) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+    }
+  });
+
+  it("is seeded by a read the app sent after the change", () => {
+    seedWith();
+
+    for (const [, queryKey] of parts) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+    }
+  });
+});
+
+describe("a part's key invalidated by sync after the head's read was answered at its cursor, before the tab watched or cached it", () => {
+  const pageKey = ["action", "get-document", { id: "page-1" }];
+  const identity = { generation: 0, transport: {} };
+  const [, rowsKey] = parts[2] as [string, QueryKey];
+  const otherParts = parts.slice(0, 2).map(([, key]) => key);
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient();
+    queryClient.setQueryData(pageKey, answer.document);
+    // A row was added at change 5. Sync invalidated the rows' key prefix,
+    // but nothing had cached a rows query yet, so the cache kept no trace.
+    syncLog.entries = [
+      { version: 5, queryKey: ["action", "query-content-database-items"] },
+    ];
+    syncLog.unknown = false;
+  });
+
+  afterEach(() => {
+    syncLog.entries = [];
+    syncLog.unknown = false;
+    queryClient.clear();
+  });
+
+  // The head sent the read half a second before the tab could watch.
+  function seedHeadRead(syncCursor: string | undefined) {
+    const owner = pageOpenReadOwner(
+      queryClient,
+      pageKey,
+      new AbortController().signal,
+      identity,
+      Date.now() - 500,
+    );
+    seedPageOpenCollection(queryClient, "page-1", answer.collection, {
+      owner,
+      syncCursor,
+    });
+  }
+
+  it("leaves that part to its own read when the server read before the change", () => {
+    seedHeadRead("4.e4");
+
+    expect(queryClient.getQueryData(rowsKey)).toBeUndefined();
+    expect(claimPageOpenRead(queryClient, rowsKey).adoption).toBe("none");
+    for (const queryKey of otherParts) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+    }
+  });
+
+  it("seeds that part when the server read at or after the change", () => {
+    seedHeadRead("5.e5");
+
+    expect(queryClient.getQueryData(rowsKey)).toMatchObject({
+      read: "before the change",
+    });
+    expect(claimPageOpenRead(queryClient, rowsKey).adoption).toBe("fresh");
+  });
+
+  it("leaves that part to its own read when the answer names no cursor", () => {
+    seedHeadRead(undefined);
+
+    expect(queryClient.getQueryData(rowsKey)).toBeUndefined();
+    for (const queryKey of otherParts) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+    }
+  });
+
+  it("seeds no part when sync can no longer tell what changed after the cursor", () => {
+    syncLog.unknown = true;
+    seedHeadRead("4.e4");
+
+    for (const [, queryKey] of parts) {
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    }
+  });
+
+  it("is not asked about by a read the app sent while it watched", () => {
+    const owner = pageOpenReadOwner(
+      queryClient,
+      pageKey,
+      new AbortController().signal,
+      identity,
+    );
+    seedPageOpenCollection(queryClient, "page-1", answer.collection, {
+      owner,
+      syncCursor: "4.e4",
+    });
+
+    expect(queryClient.getQueryData(rowsKey)).toMatchObject({
+      read: "before the change",
+    });
+  });
+});

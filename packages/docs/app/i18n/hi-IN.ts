@@ -2652,6 +2652,7 @@ const hiIN = {
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",
     updatingUiInProduction: "Production में UI अपडेट करना",
     environmentVariables: "पर्यावरण चर",
+    telemetry: "टेलीमेट्री",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "बहु-किरायेदारी",
