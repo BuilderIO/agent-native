@@ -426,6 +426,15 @@ describe("Design HTML integrity", () => {
     ).toMatchObject({ valid: false, issue: "style-invalid" });
   });
 
+  it("does not count a noscript style as an active cloak rule", () => {
+    const content =
+      '<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><noscript><style>[x-cloak]{display:none}</style></noscript><div x-cloak>Hidden</div></body></html>';
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "runtime-cloak-missing",
+    });
+  });
+
   it("rejects an orphan closing tag in a noscript fallback", () => {
     const content = "<main><noscript>fallback</div></noscript></main>";
     expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({

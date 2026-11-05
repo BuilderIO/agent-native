@@ -351,12 +351,14 @@ function childrenOf(node: Parse5Node): Parse5Node[] {
   ];
 }
 
-function parseDocument(source: string): ParsedDocument {
+function parseDocument(
+  source: string,
+  scriptingEnabled = true,
+): ParsedDocument {
   const errors: ParserError[] = [];
   const document = parse(source, {
     sourceCodeLocationInfo: true,
-    // Validate fallback markup too; otherwise parse5 treats noscript as raw text.
-    scriptingEnabled: false,
+    scriptingEnabled,
     onParseError: (error) => errors.push(error),
   });
 
@@ -964,6 +966,10 @@ function collectStructuralIssues(
   value: string,
   parsed = parseDocument(value),
 ): DesignHtmlIntegrityIssueDetail[] {
+  // Validate fallback markup without treating it as active runtime content.
+  if (parsed.elements.some((element) => element.tagName === "noscript")) {
+    parsed = parseDocument(value, false);
+  }
   const locate = createLocator(value);
   const unterminated = findUnterminatedTag(parsed);
   if (unterminated) {
