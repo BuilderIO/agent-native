@@ -118,6 +118,7 @@ function setupFetch(options?: {
   hangPut?: boolean;
   deferredPut?: boolean;
   deferredPatch?: boolean;
+  deferredSecondPatch?: boolean;
   deferredKeepalivePatch?: boolean;
   serverFaithfulClientWrites?: boolean;
   failDeckList?: boolean;
@@ -150,6 +151,7 @@ function setupFetch(options?: {
     | ((status?: number, errorCode?: string) => void)
     | null = null;
   let rejectDeferredPatch: ((error: unknown) => void) | null = null;
+  let resolveSecondDeferredPatch: (() => void) | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
@@ -544,14 +546,14 @@ function setupFetch(options?: {
         );
       }
       if (
-        options?.deferredPatch &&
         accessibleDeck?.id === deckId &&
-        attempts === 1
+        ((options?.deferredPatch && attempts === 1) ||
+          (options?.deferredSecondPatch && attempts === 2))
       ) {
-        firstPatchSignal = init?.signal ?? undefined;
+        if (attempts === 1) firstPatchSignal = init?.signal ?? undefined;
         const serverAtRequest = cloneDeck(accessibleDeck);
         return new Promise<Response>((resolve, reject) => {
-          resolveDeferredPatch = (status = 200, errorCode?: string) => {
+          const settle = (status = 200, errorCode?: string) => {
             let responseStatus = status;
             let responseBody: Record<string, unknown> =
               status === 409
@@ -596,7 +598,12 @@ function setupFetch(options?: {
               }),
             );
           };
-          rejectDeferredPatch = reject;
+          if (attempts === 1) {
+            resolveDeferredPatch = settle;
+            rejectDeferredPatch = reject;
+          } else {
+            resolveSecondDeferredPatch = () => settle();
+          }
         });
       }
       if (
@@ -842,6 +849,7 @@ function setupFetch(options?: {
       resolveDeferredPatch?.(status, errorCode),
     rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
       rejectDeferredPatch?.(error),
+    resolveSecondDeferredPatch: () => resolveSecondDeferredPatch?.(),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
@@ -1298,16 +1306,21 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges("hidden-large-deck")).toBe(false);
   });
 
-  it("sends edits queued behind an active save as a plain request when the tab hides", async () => {
-    window.history.pushState({}, "", "/deck/hidden-queued-deck");
-    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+  async function startHiddenQueuedSave(
+    deckId: string,
+    queuedUpdate: Partial<Slide>,
+  ) {
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const fetchSetup = setupFetch({
       deferredPatch: true,
+      deferredSecondPatch: true,
+      serverFaithfulClientWrites: true,
     });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    setAccessibleDeck({
-      id: "hidden-queued-deck",
+    fetchSetup.setAccessibleDeck({
+      id: deckId,
       title: "Hidden queued deck",
       createdAt: "2026-05-12T00:00:00.000Z",
       updatedAt: "2026-05-12T00:00:00.000Z",
@@ -1327,7 +1340,7 @@ describe("DeckContext deck creation persistence", () => {
     vi.useFakeTimers();
     act(() => {
       result.current.updateSlide(
-        "hidden-queued-deck",
+        deckId,
         "slide-1",
         { content: "<p>Draft</p>" },
         { persistence: "immediate" },
@@ -1337,18 +1350,14 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const largeContent = `<p>${"x".repeat(100_000)}</p>`;
     act(() => {
-      result.current.updateSlide(
-        "hidden-queued-deck",
-        "slide-1",
-        { content: largeContent },
-        { persistence: "debounced" },
-      );
+      result.current.updateSlide(deckId, "slide-1", queuedUpdate, {
+        persistence: "debounced",
+      });
     });
 
     const patchCalls = () =>
-      fetchMock.mock.calls.filter(([url]) =>
+      fetchSetup.fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       );
     expect(patchCalls()).toHaveLength(1);
@@ -1362,30 +1371,113 @@ describe("DeckContext deck creation persistence", () => {
     });
     delete (document as { visibilityState?: unknown }).visibilityState;
 
+    const settle = async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      });
+    };
+    return { ...fetchSetup, result, patchCalls, settle };
+  }
+
+  const keepaliveFailureLogs = () =>
+    vi
+      .mocked(console.error)
+      .mock.calls.filter(([message]) =>
+        String(message).startsWith("Failed to keepalive save deck"),
+      );
+
+  const largeContent = `<p>${"x".repeat(100_000)}</p>`;
+
+  it("sends only the queued edits, based on the active save, when the tab hides", async () => {
+    const { patchCalls } = await startHiddenQueuedSave("hidden-queued-deck", {
+      content: largeContent,
+    });
+
     expect(patchCalls()).toHaveLength(2);
-    expect(patchCalls()[1]?.[1]?.keepalive).not.toBe(true);
-    const operations = actionCallBody(patchCalls()[1]?.[1])
-      .operations as Array<{
-      fields: { content?: string };
-    }>;
-    expect(operations.at(-1)?.fields.content).toBe(largeContent);
-
-    act(() => {
-      window.dispatchEvent(new Event("pagehide"));
-    });
-    expect(patchCalls().at(-1)?.[1]?.keepalive).not.toBe(true);
-
-    resolveDeferredPatch();
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await result.current.flushDeckSave("hidden-queued-deck");
-    expect(hasUnsavedDeckChanges("hidden-queued-deck")).toBe(false);
+    expect(actionCallBody(patchCalls()[1]?.[1]).operations).toEqual([
+      expect.objectContaining({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: largeContent },
+        baseContentHash: hashSlideContent("<p>Draft</p>"),
+      }),
+    ]);
   });
 
-  it("asks the browser to confirm leaving while a save is pending", async () => {
+  it("applies the hidden-tab request once the active save lands first", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-a-first", {
+      content: largeContent,
+    });
+
+    resolveDeferredPatch();
+    await settle();
+    resolveSecondDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-a-first");
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(2);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasUnsavedDeckChanges("hidden-queued-a-first")).toBe(false);
+  });
+
+  it("drains the queue after the active save when the hidden-tab request lands first", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-b-first", {
+      content: largeContent,
+    });
+
+    resolveSecondDeferredPatch();
+    await settle();
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("<p>Before</p>");
+    resolveDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-b-first");
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(3);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasFailedDeckSave("hidden-queued-b-first")).toBe(false);
+    expect(hasUnsavedDeckChanges("hidden-queued-b-first")).toBe(false);
+  });
+
+  it("keeps queued edits that could land before the active save behind it", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-notes", { notes: "Later" });
+
+    expect(patchCalls()).toHaveLength(1);
+    resolveDeferredPatch();
+    await settle();
+    expect(patchCalls()).toHaveLength(2);
+    resolveSecondDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-notes");
+    expect(getAccessibleDeck()?.slides[0]).toMatchObject({
+      content: "<p>Draft</p>",
+      notes: "Later",
+    });
+  });
+
+  it("starts pending saves as plain requests at beforeunload without prompting", async () => {
     window.history.pushState({}, "", "/deck/unload-pending-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -1409,16 +1501,12 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
-    const idleUnload = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(idleUnload);
-    expect(idleUnload.defaultPrevented).toBe(false);
-
     vi.useFakeTimers();
     act(() => {
       result.current.updateSlide(
         "unload-pending-deck",
         "slide-1",
-        { content: "<p>Draft</p>" },
+        { content: largeContent },
         { persistence: "debounced" },
       );
     });
@@ -1432,9 +1520,13 @@ describe("DeckContext deck creation persistence", () => {
     act(() => {
       window.dispatchEvent(pendingUnload);
     });
-    expect(pendingUnload.defaultPrevented).toBe(true);
+    expect(pendingUnload.defaultPrevented).toBe(false);
     expect(patchCalls()).toHaveLength(1);
-    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+    expect(
+      actionCallBody(patchCalls()[0]?.[1]).operations as Array<{
+        fields: { content?: string };
+      }>,
+    ).toEqual([expect.objectContaining({ fields: { content: largeContent } })]);
 
     await result.current.flushDeckSave("unload-pending-deck");
   });

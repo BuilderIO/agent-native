@@ -2247,15 +2247,19 @@ function drainPendingDeckOps(
     const controller = inFlightSaveControllers.get(deckId);
     const keepalive = options?.keepalive === true;
     const parallelSave = inFlightKeepaliveSaves.get(deckId);
-    // Any hide flush sends the queued edits now: waiting for the active request
-    // to finish first may never happen in a closing tab.
+    const queuedOps = pendingOpsQueue.get(deckId) ?? [];
+    // Mostly a tab switch, where the active save still lands; on a real close
+    // beforeunload has already sent this and pagehide replays as keepalive.
+    const opsBehindActive =
+      options?.keepalive === false && activeOps
+        ? opsThatOnlyApplyAfter(activeOps, queuedOps)
+        : null;
     if (
-      options?.keepalive !== undefined &&
+      (keepalive || opsBehindActive) &&
       !keepaliveAlreadyRequested &&
       (!parallelSave || (keepalive && plainHiddenSaves.has(parallelSave))) &&
       activeOps?.length
     ) {
-      const queuedOps = pendingOpsQueue.get(deckId) ?? [];
       const replacementIndex = queuedOps.findIndex(
         (op) => op.op === "full-replace",
       );
@@ -2270,11 +2274,14 @@ function drainPendingDeckOps(
         }
       } else {
         const keepaliveOps =
-          replacementIndex >= 0
+          opsBehindActive ??
+          (replacementIndex >= 0
             ? queuedOps.slice(replacementIndex)
-            : collapseKeepaliveSlidePatches([...activeOps, ...queuedOps]);
+            : collapseKeepaliveSlidePatches([...activeOps, ...queuedOps]));
         const coveredQueuedOps =
-          replacementIndex >= 0 ? queuedOps.slice(replacementIndex) : queuedOps;
+          replacementIndex >= 0 && !opsBehindActive
+            ? queuedOps.slice(replacementIndex)
+            : queuedOps;
         const coveredSlideSequences = new Map(
           slideLocalWriteSequences.get(deckId) ?? [],
         );
@@ -2306,7 +2313,17 @@ function drainPendingDeckOps(
             );
           },
           (err) => {
-            if (!controller?.signal.aborted) {
+            // Landing before the active save is expected; the queue drains
+            // after it as usual.
+            const landedFirst =
+              opsBehindActive !== null &&
+              Boolean(
+                err &&
+                typeof err === "object" &&
+                "errorCode" in err &&
+                err.errorCode === "slide_content_stale",
+              );
+            if (!landedFirst && !controller?.signal.aborted) {
               console.error(`Failed to keepalive save deck ${deckId}:`, err);
             }
             throw err;
@@ -3206,6 +3223,36 @@ function acknowledgeKeepaliveDeckOps(
   } else {
     pendingPersistedResultHandlers.delete(deckId);
   }
+}
+
+// A parallel save that applied before the active one would make the server
+// reject the active save's older sequence and drop its edits. Content patches
+// based on what the active save writes stay stale until it lands, so only those
+// may go out alongside it.
+function opsThatOnlyApplyAfter(
+  activeOps: GranularOp[],
+  queuedOps: GranularOp[],
+): GranularOp[] | null {
+  const activeBases = new Map<string, string>();
+  for (const op of collapseKeepaliveSlidePatches(activeOps)) {
+    if (
+      op.op === "patch-slide" &&
+      typeof op.fields.content === "string" &&
+      op.baseContentHash
+    ) {
+      activeBases.set(op.slideId, op.baseContentHash);
+    }
+  }
+  const queued = collapseKeepaliveSlidePatches(queuedOps);
+  const onlyAfter = queued.every(
+    (op) =>
+      op.op === "patch-slide" &&
+      typeof op.fields.content === "string" &&
+      op.baseContentHash !== undefined &&
+      activeBases.has(op.slideId) &&
+      activeBases.get(op.slideId) !== op.baseContentHash,
+  );
+  return queued.length > 0 && onlyAfter ? queued : null;
 }
 
 function collapseKeepaliveSlidePatches(ops: GranularOp[]): GranularOp[] {
@@ -7523,14 +7570,9 @@ export function DeckProvider({
       }
     };
     const onPageHide = () => flushPendingSaves();
-    // A body over the 64 KB keepalive cap cannot outlive the page, so ask the
-    // browser to confirm leaving while the plain request still has time to land.
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!getSaveSnapshot().saving) return;
-      flushPendingSaves({ keepalive: false });
-      event.preventDefault();
-      event.returnValue = "";
-    };
+    // Bodies over the 64 KB keepalive cap only survive as plain requests, and
+    // beforeunload is the earliest point a close gives us to start one.
+    const onBeforeUnload = () => flushPendingSaves({ keepalive: false });
     document.addEventListener("visibilitychange", onHidden);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("beforeunload", onBeforeUnload);
