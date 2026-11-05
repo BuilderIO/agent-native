@@ -43,8 +43,12 @@ Deliberate differences from `review-latest-feedback`, in both modes:
 - **Its own Slack app.** Replies post as the factory's bot, not a person's
   account: no `**This was sent from a bot**` line and no connected-profile
   check. Find the factory's earlier replies by their author (the bot user)
-  instead of that line. Replies still never name a person; the watcher's
-  "Needs a person" digest routes `needs-person` work.
+  instead of that line. Replies still never name a person. When a Slack
+  message needs a person to act (a 🎫 reply, an alert reply, a "say who
+  can" answer, the recap's "Needs a person" section), mention
+  `<!subteam^S0C43BD9CMT|@agentnative-oncall>` once in it. That is the only
+  mention allowed, it overrides `review-latest-feedback`'s no-mention rule,
+  and GitHub comments never carry it.
 - **Its configured channels.** This overrides `review-latest-feedback`'s
   Slack boundary: the feedback channels are exactly the channels in
   `$FACTORY_SLACK_CHANNELS` (the watcher's run prompt and env carry them),
@@ -62,7 +66,8 @@ Deliberate differences from `review-latest-feedback`, in both modes:
 
 ## Never (both modes)
 
-- Merge, enable auto-merge, or close a PR; label an issue; close an issue
+- Merge, enable auto-merge, or close a PR, except closing the factory's own
+  PR under "Duplicate and competing PRs"; label an issue; close an issue
   except a fixed one after its PR merged (the close-out); assign anyone to a
   PR or issue.
 - Approve a PR any way except `factory-github approve` (never `gh pr review`,
@@ -72,7 +77,8 @@ Deliberate differences from `review-latest-feedback`, in both modes:
 - Push, force-push, or delete any branch from this machine. Fixes are
   committed by their Builder branch's cloud agent.
 - Post a new top-level Slack message, react or reply outside
-  `$FACTORY_SLACK_CHANNELS` and `$FACTORY_SLACK_ALERT_CHANNELS`, or @-mention anyone.
+  `$FACTORY_SLACK_CHANNELS` and `$FACTORY_SLACK_ALERT_CHANNELS`, or @-mention
+  anyone but the oncall group (see "Its own Slack app").
 - Use Slack MCP write tools (send, react, schedule): they act as the
   operator's own account. Read Slack through MCP; write only through
   `factory-slack` and `factory-digest`.
@@ -302,7 +308,39 @@ With it `off`, in every live sweep, check each report's `prUrl` with
 `white_check_mark` with no second reply; for a GitHub issue, comment a
 one-line thank-you linking the PR and `gh issue close <url>`; set `triage`
 `already-fixed`; `factory-digest report "<key>" --force`. A closed, unmerged
-PR goes under "Needs a person" in the recap.
+PR goes under "Needs a person" in the recap, unless the factory closed it
+under "Duplicate and competing PRs".
+
+### Duplicate and competing PRs
+
+The factory's own PRs are the ones recorded as a report's `prUrl`; confirm
+that record (and that the PR's author is the factory's bot) before closing
+anything, and close nothing without it. Before
+replying on a report, and in every live sweep for each open one, check its PR
+against merged and open PRs for the same problem (`factory-state active`,
+`gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
+reason to park a report or make it `needs-person`: settle them and move on.
+
+- **Superseded.** A merged PR that fixes the same report or issue (check its
+  linked issue or diff, not just the title) already has the same fix (three docs-baseline
+  PRs after #8676 merged that change): close the factory PR with
+  `gh pr close <prUrl> --comment "Superseded by #<n>."`, set `triage`
+  `already-fixed`, and post one line saying it was superseded in the report's
+  thread (`factory-slack reply "<key>" --again`), or with `factory-digest post`
+  when the report has no thread.
+- **Competing factory PRs.** Two or more factory PRs or approaches fix the
+  same report (#8706 and #8714 for one clipping report): compare correctness,
+  scope, and tests, keep the best, and close the rest with a comment pointing
+  to it ("Closing in favor of #<n>, which …"). Point every covered report's
+  `prUrl` at the survivor; the watcher keeps babysitting it.
+- **A human's PR fixes the same thing.** Prefer it, and never close, push to,
+  comment on, or take it over. Close your own PR pointing to theirs, point
+  the report's `prUrl` at their PR so the watcher tracks its merge state only
+  (never babysits, nudges, or pushes to it), and note it in the report's
+  thread, including how yours differs if it is better.
+
+Never close a PR the factory didn't open. In dry mode, record what you would
+close and say in `note`.
 
 ## Mentions
 
@@ -323,7 +361,7 @@ this", "try again", "why did you skip this?", or a question).
   flight (step 3) like any report.
 - Live mode: the watcher already put 👀 on the mentioning message. React 👀
   on the root too if you'll work on it, then answer in the thread with what
-  you did or found, or why you can't. Per the reply contract, no @-mention.
+  you did or found, or why you can't. No @-mention beyond the oncall group.
   Dry mode: record `wouldReply`.
 - If the ask is unclear, reply once with one short question. If it asks for
   something on the Never list, say you can't and who can.
@@ -351,7 +389,8 @@ don't apply, and there is no reporter to thank.
   `not-actionable` with a suggested threshold.
 - Live mode: once investigated, reply once in the alert's thread with
   `factory-slack reply` (what's failing, the root cause and how sure you are,
-  the PR link or who should act). No reactions on alerts.
+  the PR link, or the oncall mention when a person must act). No reactions
+  on alerts.
 
 ## Pull requests
 
@@ -378,7 +417,8 @@ mode only a real approval sets `triage` `approved`; a dry or rehearsal
   and set `triage` `approved`. It refuses forks, non-members, unverifiable
   membership, drafts, and a moved head; re-review instead of working around
   it. When a gate applies: `needs-person`, with the gate in the note. Don't
-  comment on internal PRs.
+  comment on internal PRs, except the one alternative-approach comment under
+  "Duplicate and competing PRs".
 - **One approval per PR.** Approvals here survive new pushes, so a member PR
   that already has a standing approval (the factory's or a BuilderIO
   member's, not dismissed or followed by a changes request) gets no new
@@ -527,6 +567,8 @@ Fixed 2 · needs a person 1 · not picked 12 · sources unavailable: Sentry
 
 ## Needs a person
 
+<!subteam^S0C43BD9CMT|@agentnative-oncall>
+
 - [GitHub issue #8360 Clips recordings over 24 MB](<issue url>): one line on why
 
 ## Not picked
@@ -534,7 +576,8 @@ Fixed 2 · needs a person 1 · not picked 12 · sources unavailable: Sentry
 - [Short title](link): reason
 ```
 
-Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
+Include the oncall mention only when "Needs a person" has an item; otherwise
+omit the whole section. Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
 "Fixed on a branch" with Builder branch links. For an `events` run, start with
 `## Triggered by`: one bullet per event, linked to what started it. Every
 report gets its own one-line bullet linked to its permalink or issue URL.
