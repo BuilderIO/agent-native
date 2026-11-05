@@ -258,6 +258,10 @@ export function isDeckEditorPath(pathname: string): boolean {
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
 }
 
+export function isDeckHomePath(pathname: string): boolean {
+  return pathname.replace(/\/+$/, "") === "/home";
+}
+
 export function computeSessionBypass(pathname: string): boolean {
   return (
     isBareContentPath(pathname) ||
@@ -398,9 +402,13 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
-    realtime: isPrivateDeckEditorPath(location.pathname)
-      ? { reason: "other collaborators can edit this deck while it is open" }
-      : undefined,
+    realtime: isDeckHomePath(location.pathname)
+      ? {
+          reason: "collaborators and API calls can add or change decks on Home",
+        }
+      : isPrivateDeckEditorPath(location.pathname)
+        ? { reason: "other collaborators can edit this deck while it is open" }
+        : undefined,
     pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
@@ -525,7 +533,7 @@ function AppContent() {
       </CommandMenu>
       <DeckProvider
         key={DECK_KEY}
-        realtimeEnabled={isDeckEditor}
+        realtimeEnabled={isDeckEditor || isDeckHomePath(location.pathname)}
         openDeckId={deckIdFromPathname(location.pathname)}
       >
         <AppLayout>
