@@ -1235,6 +1235,74 @@ describe("set-resource-visibility link role", () => {
     ).resolves.toBe(false);
   });
 
+  it("undoes the link role when the policy refuses it after the write", async () => {
+    let grantChecks = 0;
+    register({
+      assertSharingChange: async ({ change }) => {
+        if (change.kind === "grant" && ++grantChecks === 2) {
+          throw new ForbiddenError("Refused after write.");
+        }
+      },
+    });
+    await insertDoc({ id: "doc-late", visibility: "public" });
+
+    await expect(setPublic("doc-late", "commenter")).rejects.toThrow(
+      "Refused after write.",
+    );
+
+    expect(await grants()).toEqual([]);
+  });
+
+  it("keeps one link row when two saves race", async () => {
+    await insertDoc({ id: "doc-race", visibility: "public" });
+
+    await Promise.all([
+      setPublic("doc-race", "commenter"),
+      setPublic("doc-race", "commenter"),
+    ]);
+
+    expect(await grants()).toEqual([
+      { principalType: "link", role: "commenter" },
+    ]);
+  });
+
+  it("leaves grants alone in a rollback once another request changed visibility", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-second") {
+          // Another request makes the first resource public in between.
+          await db
+            .update(docs)
+            .set({ visibility: "public" })
+            .where(eq(docs.id, "doc-first"));
+          throw new Error("write failed");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-first", visibility: "org" });
+    await insertDoc({ id: "doc-second", visibility: "org" });
+    await db.insert(docShares).values({
+      id: "share-org-first",
+      resourceId: "doc-first",
+      principalType: "org",
+      principalId: orgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    } as never);
+
+    await expect(batch(["doc-first", "doc-second"], "private")).rejects.toThrow(
+      "write failed",
+    );
+
+    expect(await visibilities()).toEqual({
+      "doc-first": "public",
+      "doc-second": "org",
+    });
+    expect(await grants()).toEqual([]);
+  });
+
   it("lists the link role apart from the people with access", async () => {
     await insertDoc({ id: "doc-listed" });
     await setPublic("doc-listed", "commenter");

@@ -21,6 +21,7 @@ import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
   LINK_ROLES,
+  linkShareId,
   type ShareRole,
 } from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
@@ -346,26 +347,41 @@ export default defineAction({
           resource: change.access.resource,
           change: { kind: "grant" },
         });
-        if (grant.before) {
-          await db
-            .update(reg.sharesTable)
-            .set({ role: grant.role })
-            .where(eq(reg.sharesTable.id, grant.before.id));
-        } else {
-          await db.insert(reg.sharesTable).values({
-            id: crypto.randomUUID(),
+        // One row per resource, keyed by its id, so concurrent writes upsert
+        // the same row instead of each inserting one.
+        await db
+          .insert(reg.sharesTable)
+          .values({
+            id: linkShareId(change.resourceId),
             resourceId: change.resourceId,
             principalType: grant.principalType,
             principalId: grant.principalId,
             role: grant.role,
             createdBy: rawAccess.userEmail ?? "",
             createdAt: new Date().toISOString(),
+          })
+          .onConflictDoUpdate({
+            target: reg.sharesTable.id,
+            set: { role: grant.role },
           });
-        }
+        grant.written = true;
+        // The check above runs before the write, so a change that commits in
+        // between is missed by it; a refusal here is undone by the rollback.
+        await reg.assertSharingChange?.({
+          resource: change.access.resource,
+          change: { kind: "grant" },
+        });
+        return;
       } else if (grant.before) {
         await db
           .delete(reg.sharesTable)
-          .where(eq(reg.sharesTable.id, grant.before.id));
+          .where(
+            and(
+              eq(reg.sharesTable.resourceId, change.resourceId),
+              eq(reg.sharesTable.principalType, grant.principalType),
+              eq(reg.sharesTable.principalId, grant.principalId),
+            ),
+          );
       }
       grant.written = true;
     };
@@ -451,7 +467,6 @@ export default defineAction({
     const restore = async (
       change: PreparedChange,
     ): Promise<"visibility" | "organization" | null> => {
-      await restoreGrants(change);
       // Another request may have changed the resource since this call wrote
       // it; keep that newer value rather than putting back an older one.
       // Reading first narrows that window without closing it, since a
@@ -472,6 +487,9 @@ export default defineAction({
       const ours = current?.visibility === args.visibility;
       const movedOrg = attachedOrg && current?.orgId !== change.update.orgId;
       if (ours && !movedOrg) {
+        // Grants go back only while this call's visibility stands; a newer
+        // visibility removed or kept them on its own terms.
+        await restoreGrants(change);
         const previous: Record<string, unknown> = {
           visibility: change.access.resource.visibility,
         };

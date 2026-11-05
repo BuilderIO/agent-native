@@ -35,8 +35,10 @@ export function createSharesTable(tableName: string) {
   return table(tableName, {
     id: text("id").primaryKey(),
     resourceId: text("resource_id").notNull(),
+    // Also holds LINK_PRINCIPAL_TYPE, which core reads and writes itself and
+    // never hands to apps, so it stays out of this enum's row type.
     principalType: text("principal_type", {
-      enum: ["user", "group", "org", "link"],
+      enum: ["user", "group", "org"],
     }).notNull(),
     principalId: text("principal_id").notNull(),
     role: text("role", {
@@ -64,6 +66,11 @@ export const LINK_PRINCIPAL_ID = "anyone";
 /** Anyone with a link can view or comment; editing needs an invitation. */
 export const LINK_ROLES = ["viewer", "commenter"] as const;
 export type LinkRole = (typeof LINK_ROLES)[number];
+
+/** The link principal's share row id; a resource has at most one. */
+export function linkShareId(resourceId: string): string {
+  return `${LINK_PRINCIPAL_TYPE}:${resourceId}`;
+}
 
 export const ROLE_RANK: Record<ShareRole | "owner", number> = {
   viewer: 1,
