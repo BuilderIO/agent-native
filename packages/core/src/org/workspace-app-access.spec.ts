@@ -181,6 +181,13 @@ describe("isWorkspaceAppAccessAllowed", () => {
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "local-access-lookup-failed",
       });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[workspace-app-access] local Dispatch membership lookup failed",
+        { kind: "Error" },
+      );
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        "sensitive database detail",
+      );
     } finally {
       consoleError.mockRestore();
     }
@@ -246,6 +253,13 @@ describe("isWorkspaceAppAccessAllowed", () => {
           orgId: "org-1",
         }),
       ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+      expect(consoleError).toHaveBeenCalledWith(
+        "[workspace-app-access] local access lookup failed",
+        { kind: "Error" },
+      );
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        "org member query unavailable",
+      );
     } finally {
       consoleError.mockRestore();
     }
@@ -1492,6 +1506,13 @@ describe("isWorkspaceAppAccessAllowed", () => {
         reason: "local-access-lookup-failed",
       });
       expect(fetchMock).not.toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(
+        "[workspace-app-access] local organization app lookup failed",
+        { kind: "Error" },
+      );
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        "sensitive database detail",
+      );
     } finally {
       consoleError.mockRestore();
     }

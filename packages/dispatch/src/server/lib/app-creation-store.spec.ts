@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,7 +11,6 @@ import {
 } from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createApp } from "../../../../core/node_modules/h3/dist/_entries/node.mjs";
 import { resetAppConfigForTests } from "../../../../core/src/app-config/index.js";
 import { __resetProcessMemberOrgCacheForTests } from "../../../../core/src/org/request-org-cache.js";
 import { mountActionRoutes } from "../../../../core/src/server/action-routes.js";
@@ -32,6 +32,11 @@ import {
   orgAppsDirectoryAccessCache,
   orgAppsDirectoryCache,
 } from "./org-apps-directory-cache.js";
+
+const coreRequire = createRequire(
+  new URL("../../../../core/package.json", import.meta.url),
+);
+const { createApp } = await import(coreRequire.resolve("h3/node"));
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -2310,6 +2315,42 @@ describe("listWorkspaceApps", () => {
     errorLog.mockRestore();
   });
 
+  it("reports metadata read failures during access-record preparation as unavailable", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubManifest([
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    const getSetting = mocks.getSetting.getMockImplementation();
+    let metadataReads = 0;
+    mocks.getSetting.mockImplementation(async (key) => {
+      if (key.includes("workspace-app-metadata") && ++metadataReads === 2) {
+        throw new Error("sensitive settings detail");
+      }
+      return getSetting?.(key);
+    });
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "member@example.test", orgId: "org-123" },
+          () => listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "workspace_app_access_unavailable",
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        "[dispatch] workspace app access record lookup failed",
+        { kind: "Error" },
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        "sensitive settings detail",
+      );
+    } finally {
+      if (getSetting) mocks.getSetting.mockImplementation(getSetting);
+      errorLog.mockRestore();
+    }
+  });
+
   it("does not return registry apps when access records cannot be read", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     stubManifest([
@@ -3164,7 +3205,10 @@ describe("listWorkspaceApps", () => {
         { userEmail: "dev@example.test", orgId: "org-123" },
         () => updateWorkspaceAppMetadata({ appId: "todo", name: "Updated" }),
       ),
-    ).rejects.toThrow("metadata settings unavailable");
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
 
     expect(metadataReads).toBe(2);
     expect(mocks.putSetting).not.toHaveBeenCalled();

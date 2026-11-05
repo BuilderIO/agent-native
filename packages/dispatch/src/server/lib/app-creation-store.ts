@@ -1673,7 +1673,6 @@ async function ensureWorkspaceAppRecords(
   // Read-only calls (persist: false) are allowed without an org; any call that
   // may write must have one before it touches the database.
   const orgId = shouldPersist ? requireWorkspaceAppOrgId() : null;
-  const metadata = await readWorkspaceAppMetadataSettings();
   const records = new Map<
     string,
     {
@@ -1686,6 +1685,7 @@ async function ensureWorkspaceAppRecords(
   const unresolvedIds: string[] = [];
 
   try {
+    const metadata = await readWorkspaceAppMetadataSettings();
     const db = getDbExec();
     const existingRecords = new Map<
       string,
@@ -1895,7 +1895,7 @@ async function filterWorkspaceAppsByAccess(
       try {
         dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
           email: userEmail,
-          orgId,
+          ...(orgId ? { orgId } : {}),
         });
       } catch (error) {
         console.error(

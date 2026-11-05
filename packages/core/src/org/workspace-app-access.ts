@@ -705,7 +705,11 @@ async function localOrganizationAppEnabled(
     );
     rememberWorkspaceAccess(key, enabled, generation);
     return enabled;
-  } catch {
+  } catch (error) {
+    console.error(
+      "[workspace-app-access] local organization app lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
@@ -905,6 +909,10 @@ async function isDispatchWorkspaceAppAccessAllowed(
     ) {
       return true;
     }
+    console.error(
+      "[workspace-app-access] local Dispatch membership lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
@@ -1046,7 +1054,11 @@ export async function checkWorkspaceAppAccess(
       )
       .filter(Boolean);
     return await workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
-  } catch {
+  } catch (error) {
+    console.error(
+      "[workspace-app-access] local access lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }

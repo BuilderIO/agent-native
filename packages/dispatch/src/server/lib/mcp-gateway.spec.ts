@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -222,7 +223,12 @@ afterEach(() => {
 
 describe("Dispatch MCP gateway app discovery", () => {
   it("does not grant discovered agents when mounted app lookup fails", async () => {
-    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.listWorkspaceApps.mockRejectedValue(
+      new ActionContractError(
+        "Workspace app access is temporarily unavailable.",
+        { statusCode: 503, errorCode: "workspace_app_access_unavailable" },
+      ),
+    );
 
     await expect(
       runWithRequestContext(
@@ -232,11 +238,19 @@ describe("Dispatch MCP gateway app discovery", () => {
         },
         () => listGrantedDispatchMcpApps(),
       ),
-    ).rejects.toMatchObject({ status: 503 });
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   });
 
   it("refuses a Workspace app on its Dispatch page URL while the mounted lookup is unavailable", async () => {
-    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.listWorkspaceApps.mockRejectedValue(
+      new ActionContractError(
+        "Workspace app access is temporarily unavailable.",
+        { statusCode: 503, errorCode: "workspace_app_access_unavailable" },
+      ),
+    );
     mocks.discoverAgents.mockResolvedValue([
       {
         id: "customer-ticket-triage",
@@ -255,11 +269,19 @@ describe("Dispatch MCP gateway app discovery", () => {
         },
         () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
       ),
-    ).rejects.toMatchObject({ status: 503 });
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   });
 
   it("keeps Dispatch-page apps out of the granted list while the mounted lookup is unavailable", async () => {
-    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.listWorkspaceApps.mockRejectedValue(
+      new ActionContractError(
+        "Workspace app access is temporarily unavailable.",
+        { statusCode: 503, errorCode: "workspace_app_access_unavailable" },
+      ),
+    );
     mocks.discoverAgents.mockResolvedValue([
       {
         id: "customer-ticket-triage",
@@ -278,7 +300,10 @@ describe("Dispatch MCP gateway app discovery", () => {
         },
         () => listGrantedDispatchMcpApps(),
       ),
-    ).rejects.toMatchObject({ status: 503 });
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   });
 
   it("refuses a Dispatch-page app whose mounted path is invalid", async () => {

@@ -14,6 +14,7 @@ import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../.
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import {
+  ActionContractError,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -2551,6 +2552,57 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     afterEach(() => {
       vi.unstubAllEnvs();
+    });
+
+    it("reports retryable CSP lookup failures instead of omitting widgets", async () => {
+      const widgetConfig = scopedWidgetConfig({
+        ...config,
+        actions: {
+          "echo-thing": {
+            ...config.actions["echo-thing"],
+            mcpApp: {
+              resource: {
+                ...config.actions["echo-thing"].mcpApp.resource,
+                csp: async () => {
+                  throw new ActionContractError(
+                    "Workspace app access is temporarily unavailable.",
+                    {
+                      statusCode: 503,
+                      errorCode: "workspace_app_access_unavailable",
+                    },
+                  );
+                },
+              },
+            },
+          },
+        },
+      });
+      const headers = await mcpAppsFullCatalogHeaders();
+      for (const method of ["resources/list", "resources/read"]) {
+        const out = await callWeb(
+          {
+            jsonrpc: "2.0",
+            id: 140,
+            method,
+            params:
+              method === "resources/read"
+                ? { uri: "ui://mail/echo-thing/shell-v65" }
+                : {},
+          },
+          { headers, config: widgetConfig },
+        );
+        expect(out.result).toBeUndefined();
+        expect(out.error).toMatchObject({
+          message: expect.stringContaining(
+            "Workspace app access is temporarily unavailable.",
+          ),
+          data: {
+            statusCode: 503,
+            errorCode: "workspace_app_access_unavailable",
+            retryable: true,
+          },
+        });
+      }
     });
 
     it("validates legacy metadata before resolving widget resource CSP", async () => {

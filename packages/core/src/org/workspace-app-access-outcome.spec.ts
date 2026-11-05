@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { workspaceAccessFailureDiagnostic } from "./index.js";
 import {
   describeFetchFailure,
   isWorkspaceAppAccessUnavailable,
@@ -7,7 +8,6 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
   workspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
-  workspaceAccessFailureDiagnostic,
 } from "./workspace-app-access-outcome.js";
 
 describe("workspace app access outcome", () => {
