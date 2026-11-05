@@ -186,22 +186,32 @@ function withoutStatus({ statusCode: _statusCode, ...failure }: FrameFailure) {
 }
 
 function failAllFrames(failures: FrameFailure[]): never {
-  const [first] = failures;
-  const code =
-    first.failureKind === "unsupported"
-      ? "frames_unsupported"
-      : first.failureKind === "media"
-        ? "media_unavailable"
-        : "frame_extraction_failed";
-  return errors.fail(
-    `No frame could be returned. ${first.error} ${first.nextStep}`,
-    code,
-    {
-      statusCode: first.statusCode,
-      details: {
-        failures: failures.map(withoutStatus),
+  // The first failure names the error.
+  for (const first of failures) {
+    const code =
+      first.failureKind === "unsupported"
+        ? "frames_unsupported"
+        : first.failureKind === "media"
+          ? "media_unavailable"
+          : "frame_extraction_failed";
+    return errors.fail(
+      `No frame could be returned. ${first.error} ${first.nextStep}`,
+      code,
+      {
+        statusCode: first.statusCode,
+        details: {
+          failures: failures.map(withoutStatus),
+        },
       },
-    },
+    );
+  }
+  // No timestamp was asked for: the clip has no recommended frames.
+  return failWithNextStep(
+    "invalid_input",
+    400,
+    "This clip has no recommended frames.",
+    "Pass atMs with the timestamps to look at.",
+    "request",
   );
 }
 

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ZodType } from "zod";
 
-const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
+const mockRecordings = vi.hoisted(() => ({
+  rows: [] as Record<string, unknown>[],
+}));
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockUserEmail = vi.hoisted(() => ({ value: null as string | null }));
 const mockLoadAgentFrame = vi.hoisted(() => vi.fn());
@@ -41,6 +44,7 @@ vi.mock("@agent-native/core/server", () => ({
       ? { ok: true, agentLabel: null, viewerEmail: null }
       : { ok: false },
 }));
+// raw-sql-ok: a mock; no SQL is built
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn((column: unknown) => column),
   eq: vi.fn((column: unknown, value: unknown) => [column, value]),
@@ -90,8 +94,49 @@ vi.mock("../server/lib/agent-frame-store.js", () => ({
 
 import action from "./get-recording-frames.js";
 
+type FramesOutput = {
+  recordingId: string;
+  title: string;
+  durationMs: number | null;
+  frames: Array<{
+    atMs: number;
+    timestamp: string;
+    label: string;
+    requestedAtMs?: number;
+  }>;
+  recommendedFrames: Array<{ atMs: number; timestamp: string; reason: string }>;
+  failures: Array<{
+    atMs: number;
+    failureKind: string;
+    error: string;
+    nextStep: string;
+  }>;
+  _agentImages: Array<{ data: string; mediaType: string; label: string }>;
+};
+
+type FramesFailure = {
+  message: string;
+  errorCode: string;
+  statusCode: number;
+  details: { nextStep: string; failures: unknown[] };
+};
+
+// defineAction is mocked to return its options.
+const def = action as unknown as {
+  run: (args: Record<string, unknown>) => Promise<FramesOutput>;
+  schema: ZodType<{ recordingId: string; atMs?: number[] }>;
+  description: string;
+  outputSchema: unknown;
+  mcpApp: unknown;
+  mcpTool?: unknown;
+  readOnly: boolean;
+  http: unknown;
+  mcpAnnotations: { readOnlyHint?: boolean };
+  errors: { codes: string[] };
+};
+
 const OWNER = "owner@example.com";
-const run = (args: Record<string, unknown>) => (action as any).run(args);
+const run = (args: Record<string, unknown>) => def.run(args);
 
 function makeRecording(overrides: Record<string, unknown> = {}) {
   return {
@@ -127,11 +172,11 @@ function frameBytes(atMs: number) {
   return Uint8Array.from([0xff, 0xd8, atMs % 251, 0xff, 0xd9]);
 }
 
-async function failureOf(promise: Promise<unknown>): Promise<any> {
+async function failureOf(promise: Promise<unknown>): Promise<FramesFailure> {
   try {
     await promise;
   } catch (error) {
-    return error;
+    return error as FramesFailure;
   }
   throw new Error("expected the call to fail");
 }
@@ -154,7 +199,6 @@ beforeEach(() => {
 
 describe("get-recording-frames definition", () => {
   it("is a read-only MCP tool in the compact catalog with an output schema", () => {
-    const def = action as any;
     expect(def.mcpApp).toEqual({ compactCatalog: true });
     expect(def.mcpTool).toBeUndefined();
     expect(def.readOnly).toBe(true);
@@ -167,7 +211,7 @@ describe("get-recording-frames definition", () => {
   });
 
   it("rejects more than 4 timestamps and negative or fractional ones", () => {
-    const schema = (action as any).schema;
+    const schema = def.schema;
     expect(
       schema.safeParse({ recordingId: "rec-1", atMs: [1, 2, 3, 4] }).success,
     ).toBe(true);
@@ -188,7 +232,7 @@ describe("get-recording-frames definition", () => {
 
 describe("atMs shapes", () => {
   const parse = (atMs: unknown) =>
-    (action as any).schema.safeParse({ recordingId: "rec-1", atMs });
+    def.schema.safeParse({ recordingId: "rec-1", atMs });
 
   it.each([
     [6789, [6789]],
@@ -211,9 +255,7 @@ describe("atMs shapes", () => {
   });
 
   it("leaves atMs optional", () => {
-    expect(
-      (action as any).schema.safeParse({ recordingId: "rec-1" }).success,
-    ).toBe(true);
+    expect(def.schema.safeParse({ recordingId: "rec-1" }).success).toBe(true);
   });
 
   it.each([
@@ -241,13 +283,13 @@ describe("atMs shapes", () => {
   it("serves a numeric string through the action", async () => {
     const parsed = parse("1000,2000");
     const result = await run(parsed.data);
-    expect(result.frames.map((f: any) => f.atMs)).toEqual([1000, 2000]);
+    expect(result.frames.map((f) => f.atMs)).toEqual([1000, 2000]);
   });
 });
 
 describe("input", () => {
   it("needs a recordingId", async () => {
-    const schema = (action as any).schema;
+    const schema = def.schema;
     expect(schema.safeParse({}).success).toBe(false);
     expect(schema.safeParse({ recordingId: " " }).success).toBe(false);
   });
@@ -383,6 +425,13 @@ describe("clip-level refusals", () => {
 });
 
 describe("frames", () => {
+  it("asks for atMs when the clip has no recommended frames", async () => {
+    mockRecommended.mockResolvedValue([]);
+    const error = await failureOf(run({ recordingId: "rec-1" }));
+    expect(error.errorCode).toBe("invalid_input");
+    expect(error.details.nextStep).toContain("atMs");
+  });
+
   it("takes and reports atMs on the edited timeline of a trimmed clip", async () => {
     // The owner cut 10s-20s, so 15s as played is 25s of the original.
     mockRecordings.rows = [
@@ -398,13 +447,13 @@ describe("frames", () => {
       25_000,
       expect.anything(),
     );
-    expect(result.frames.map((f: any) => f.atMs)).toEqual([15_000]);
+    expect(result.frames.map((f) => f.atMs)).toEqual([15_000]);
     expect(result.durationMs).toBe(50_000);
   });
 
   it("returns the first 4 recommended frames and lists all of them", async () => {
     const result = await run({ recordingId: "rec-1" });
-    expect(result.frames.map((f: any) => f.atMs)).toEqual([
+    expect(result.frames.map((f) => f.atMs)).toEqual([
       0, 10_000, 20_000, 30_000,
     ]);
     expect(result._agentImages).toHaveLength(4);
@@ -418,7 +467,7 @@ describe("frames", () => {
   it("returns images as base64 JPEG data, never urls", async () => {
     const result = await run({ recordingId: "rec-1", atMs: [1000, 2000] });
     expect(result._agentImages).toHaveLength(2);
-    result._agentImages.forEach((image: any, i: number) => {
+    result._agentImages.forEach((image, i: number) => {
       expect(Object.keys(image).sort()).toEqual(["data", "label", "mediaType"]);
       expect(image.mediaType).toBe("image/jpeg");
       expect(image).not.toHaveProperty("url");
@@ -435,7 +484,7 @@ describe("frames", () => {
       recordingId: "rec-1",
       atMs: [5000, 99_999, 5000, 70_000],
     });
-    expect(result.frames.map((f: any) => f.atMs)).toEqual([5000, 59_999]);
+    expect(result.frames.map((f) => f.atMs)).toEqual([5000, 59_999]);
     expect(result.frames[1].requestedAtMs).toBe(99_999);
   });
 
@@ -471,7 +520,7 @@ describe("frames", () => {
       recordingId: "rec-1",
       atMs: [1000, 2000, 3000],
     });
-    expect(result.frames.map((f: any) => f.atMs)).toEqual([1000, 3000]);
+    expect(result.frames.map((f) => f.atMs)).toEqual([1000, 3000]);
     expect(result._agentImages).toHaveLength(2);
     expect(result.failures).toEqual([
       {

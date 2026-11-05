@@ -299,15 +299,18 @@ export async function convertImageToJpeg({
   imageBytes: Uint8Array;
   mimeType: string;
 }): Promise<Uint8Array> {
+  // observed-write-ok: temp file, removed below
   const dir = await mkdtemp(join(tmpdir(), "clips-image-input-"));
   const inputPath = join(
     dir,
     `input${isSupportedImageMimeType(mimeType) ? IMAGE_EXTENSION_BY_MIME[mimeType] : ".img"}`,
   );
   try {
+    // observed-write-ok: temp file, removed below
     await writeFile(inputPath, imageBytes);
     return await extractJpegFrameFromFile({ mediaPath: inputPath, atMs: 0 });
   } finally {
+    // observed-write-ok: removes this call's temp directory
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }

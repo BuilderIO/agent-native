@@ -35,11 +35,16 @@ export function createAgentFrameMediaSource(
   recording: PublicAgentRecording,
 ): AgentFrameMediaSource {
   let loading: ReturnType<typeof loadRecordingMediaFile> | null = null;
+  // Set once the download lands; a failed download left nothing on disk.
+  let loaded: Awaited<ReturnType<typeof loadRecordingMediaFile>> | null = null;
   return {
-    load: () => (loading ??= loadRecordingMediaFile(recording)),
+    load: () =>
+      (loading ??= loadRecordingMediaFile(recording).then((media) => {
+        loaded = media;
+        return media;
+      })),
     cleanup: async () => {
-      const media = await loading?.catch(() => null);
-      await media?.cleanup().catch(() => {});
+      await loaded?.cleanup().catch(() => {});
     },
   };
 }
