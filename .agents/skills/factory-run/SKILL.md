@@ -194,9 +194,10 @@ it with the factory runner's `deploy/SETUP.md`.
   Analytics MCP tools, then triage like a Sentry issue. There is no reporter:
   no reactions or replies.
 - **`chat-health`**: an app over the chat-run health budgets (`app`, `date`,
-  `badRate`, `stallRate`, `a2aFailRate`). Report key is
-  `chat-health:<app>:<date>`, `source` `chat-health`, title
-  "<app>: chat runs over budget". Investigate with
+  `title`, `badRate`, `stallRate`, `a2aFailRate`). Report key is
+  `chat-health:<app>:<date>`, `source` `chat-health`, and the report title is
+  the item's `title`, which names the dominant failure (for example "Forms:
+  A2A credential_store_unavailable (4 of 9 tasks)"). Investigate with
   `node scripts/chat-health.mjs --app <app> --hours 6` and
   `review-latest-feedback`'s `references/chat-run-health.md`. A cause in this
   repo's code gets a fix branch; an outage or provider failure is
