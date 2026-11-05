@@ -1034,7 +1034,7 @@ describe("tool-search ranking", () => {
       ).toEqual({ "delete-preview": undefined });
     });
 
-    it("marks a connected MCP tool by its server's destructiveHint", () => {
+    it("marks a connected MCP tool by its server's hints and MCP's defaults", () => {
       const upstream = (
         name: string,
         hints: Record<string, unknown>,
@@ -1052,6 +1052,7 @@ describe("tool-search ranking", () => {
           upstream("tidy_folder", { destructiveHint: true }),
           upstream("delete_draft", { destructiveHint: false }),
           upstream("sync_folder", {}),
+          upstream("read_folder", { readOnlyHint: true }),
         ],
       } as unknown as McpClientManager);
 
@@ -1060,13 +1061,17 @@ describe("tool-search ranking", () => {
         destructiveHint: true,
         openWorldHint: true,
       });
-      expect(
-        entries["mcp__files__sync_folder"]?.mcpAnnotations,
-      ).toBeUndefined();
+      // MCP's default: a tool that is not read-only may be destructive.
+      expect(entries["mcp__files__sync_folder"]?.mcpAnnotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      });
       expect(marks(entries)).toEqual({
         mcp__files__tidy_folder: true,
         mcp__files__delete_draft: undefined,
-        mcp__files__sync_folder: undefined,
+        mcp__files__sync_folder: true,
+        mcp__files__read_folder: undefined,
       });
     });
 
