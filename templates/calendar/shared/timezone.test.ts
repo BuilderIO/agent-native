@@ -41,6 +41,25 @@ describe("isCalendarTimezone", () => {
 });
 
 describe("dateTimeInTimezoneToIso", () => {
+  it.each([
+    ["-01-01", "09:30"],
+    ["2026--01", "09:30"],
+    ["2026- -01", "09:30"],
+    ["2026-01-", "09:30"],
+    ["2026-01", "09:30"],
+    ["2026-01-01", ":30"],
+    ["2026-01-01", "09:"],
+    ["2026-01-01", "09: "],
+    ["2026-01-01", "09"],
+    ["2026-01-01", "09:30:"],
+    ["2026-01-01", "09:30:.123"],
+    ["2026-01-01", "09:30:05."],
+  ])("rejects missing or empty components in %s %s", (date, time) => {
+    expect(() => dateTimeInTimezoneToIso(date, time, "UTC")).toThrow(
+      `Invalid date or time: ${date} ${time}`,
+    );
+  });
+
   it("resolves an ordinary wall clock", () => {
     expect(
       dateTimeInTimezoneToIso("2026-08-19", "09:00", "America/New_York"),
