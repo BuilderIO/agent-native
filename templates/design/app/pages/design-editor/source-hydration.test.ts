@@ -132,4 +132,26 @@ describe("SourceHydration", () => {
       updatedAt: "2",
     });
   });
+  it("keeps a temporarily leased target available even when pinned sources exceed the cache budget", async () => {
+    const loader = new SourceHydration(
+      async (id) => ({ content: id.repeat(10), updatedAt: "1" }),
+      () => {},
+      4,
+      5,
+    );
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "b", updatedAt: "1" },
+    ]);
+    loader.setPinned(new Set(["a"]));
+    await loader.request("a");
+    const release = loader.lease("b");
+    await loader.request("b");
+    expect(loader.get("b")).toMatchObject({
+      status: "ready",
+      content: "bbbbbbbbbb",
+    });
+    release();
+    expect(loader.get("b").status).toBe("unloaded");
+  });
 });

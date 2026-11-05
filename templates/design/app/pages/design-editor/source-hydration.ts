@@ -25,6 +25,7 @@ export class SourceHydration {
   private readonly versions = new Map<string, string>();
   private readonly lru = new Map<string, number>();
   private pinned = new Set<string>();
+  private readonly leases = new Map<string, number>();
   private dirty = new Set<string>();
   private readonly needsRefresh = new Set<string>();
   private readyBytes = 0;
@@ -83,6 +84,16 @@ export class SourceHydration {
     this.evict();
   }
 
+  lease(id: string): () => void {
+    this.leases.set(id, (this.leases.get(id) ?? 0) + 1);
+    return () => {
+      const remaining = (this.leases.get(id) ?? 1) - 1;
+      if (remaining > 0) this.leases.set(id, remaining);
+      else this.leases.delete(id);
+      this.evict();
+    };
+  }
+
   setDirty(ids: ReadonlySet<string>): void {
     const previous = this.dirty;
     this.dirty = new Set(ids);
@@ -109,7 +120,8 @@ export class SourceHydration {
   private evict(): void {
     for (const [id] of this.lru) {
       if (this.readyBytes <= this.maxBytes) break;
-      if (this.pinned.has(id) || this.dirty.has(id)) continue;
+      if (this.pinned.has(id) || this.dirty.has(id) || this.leases.has(id))
+        continue;
       this.removeReady(id);
       this.states.delete(id);
     }

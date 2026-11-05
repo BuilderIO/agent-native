@@ -198,6 +198,7 @@ export function useEditorContentAndComponents({
   const {
     restoreSelectionSnapshot,
     sourceMetadata,
+    sourceLoader,
     canEditDesign,
     canEditDesignRef,
     rawServerFilesByIdRef,
@@ -1876,12 +1877,22 @@ export function useEditorContentAndComponents({
   );
 
   const applyLinkedComponentSelection = useCallback(
-    (selection: { fileId: string; nodeIds: string[] }) => {
+    (
+      selection: { fileId: string; nodeIds: string[] },
+      hydratedContent?: string,
+    ) => {
       const file = files.find((candidate) => candidate.id === selection.fileId);
-      if (!file || file.sourceState === "error") {
+      if (
+        (!file || file.sourceState === "error") &&
+        hydratedContent === undefined
+      ) {
         throw new Error(t("common.genericError"));
       }
-      const content = getScreenContent(selection.fileId);
+      const content =
+        file && file.sourceState !== "error"
+          ? getScreenContent(selection.fileId)
+          : hydratedContent;
+      if (content === undefined) throw new Error(t("common.genericError"));
       const { snapshot, nodes } = resolveLinkedComponentSelection({
         ...selection,
         content,
@@ -1918,7 +1929,7 @@ export function useEditorContentAndComponents({
         fileId: activeFileId ?? undefined,
       },
       {
-        onSuccess: (result: {
+        onSuccess: async (result: {
           isMain?: boolean;
           ctaRequired?: boolean;
           ctaMessage?: string;
@@ -1946,13 +1957,23 @@ export function useEditorContentAndComponents({
             toast.error(t("designEditor.componentInstances.resolveMainFailed"));
             return;
           }
+          const releaseSource = sourceLoader?.lease(main.fileId);
           try {
-            applyLinkedComponentSelection({
-              fileId: main.fileId,
-              nodeIds: [main.nodeId],
-            });
+            await sourceLoader?.request(main.fileId);
+            const state = sourceLoader?.get(main.fileId);
+            if (state?.status !== "ready" || state.refreshError)
+              throw new Error(t("common.genericError"));
+            applyLinkedComponentSelection(
+              {
+                fileId: main.fileId,
+                nodeIds: [main.nodeId],
+              },
+              state.content,
+            );
           } catch {
             toast.error(t("designEditor.componentInstances.resolveMainFailed"));
+          } finally {
+            releaseSource?.();
           }
         },
         onError: () =>
@@ -1965,6 +1986,7 @@ export function useEditorContentAndComponents({
     goToMainComponentMutation,
     id,
     selectedInstanceActionNodeId,
+    sourceLoader,
     t,
   ]);
 
