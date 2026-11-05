@@ -12,7 +12,7 @@ metadata:
 
 # Concurrent Agents
 
-Steve runs many Claude Code and Codex sessions against this one checkout on
+Many Claude Code and Codex sessions run against this one checkout on
 purpose, often on the same branch or file. Default assumption on every task:
 the working tree is shared branch state. Read existing changes before editing
 them, and never reset, clean, stash, or overwrite local work without explicit
