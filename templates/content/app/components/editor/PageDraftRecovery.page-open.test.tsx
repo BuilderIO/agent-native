@@ -63,6 +63,10 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => {
 vi.mock("@agent-native/core/client/hooks", () => {
   const callAction = (name: string, params: unknown) => {
     server.calls.push({ name, params });
+    // The page-open read answers with get-document's page.
+    if (name === "get-page-open-read") {
+      return Promise.resolve({ document: server.documentResponse });
+    }
     return Promise.resolve(
       name === "get-preview-document-draft"
         ? server.draftResponse

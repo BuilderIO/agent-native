@@ -16,6 +16,11 @@ const ACTION_HEADERS = {
   "X-Agent-Native-Build-Id": "development",
 };
 
+// A page's open reads through get-page-open-read and a later refetch through
+// get-document, so a test holding a panel's page read holds both.
+const PAGE_READ_PATTERN =
+  "**/_agent-native/actions/{get-page-open-read,get-document}**";
+
 type ActionResult = Record<string, any>;
 
 type PreviewRowFixture = {
@@ -517,7 +522,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
 }) => {
   test.setTimeout(240_000);
   let fixture: DatabaseFixture | null = null;
-  const getDocumentPattern = "**/_agent-native/actions/get-document**";
+  const getDocumentPattern = PAGE_READ_PATTERN;
   try {
     await ensureAuthenticatedLocalSession(page);
     fixture = await createDatabaseFixture(page);
@@ -572,10 +577,15 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
           return;
         }
         mockedReads += 1;
+        const document = { ...ownedDocument, ...role };
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ ...ownedDocument, ...role }),
+          body: JSON.stringify(
+            url.pathname.endsWith("/get-page-open-read")
+              ? { document }
+              : document,
+          ),
         });
       });
 
@@ -802,7 +812,7 @@ test("a preview draws the next row while its slow page read finishes", async ({
 }) => {
   test.setTimeout(240_000);
   let fixture: DatabaseFixture | null = null;
-  const readPattern = "**/_agent-native/actions/get-document**";
+  const readPattern = PAGE_READ_PATTERN;
   let releaseRead = () => {};
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -854,7 +864,7 @@ test("a preview's Row menu holds its place, and Duplicate waits for the page's r
 }) => {
   test.setTimeout(240_000);
   let fixture: DatabaseFixture | null = null;
-  const readPattern = "**/_agent-native/actions/get-document**";
+  const readPattern = PAGE_READ_PATTERN;
   let releaseRead = () => {};
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -955,7 +965,7 @@ test("a row's reads start when the pointer rests on it, and the switch uses them
 }) => {
   test.setTimeout(240_000);
   let fixture: DatabaseFixture | null = null;
-  const getDocumentPattern = "**/_agent-native/actions/get-document**";
+  const getDocumentPattern = PAGE_READ_PATTERN;
   try {
     await ensureAuthenticatedLocalSession(page);
     // Three rows, since the row beside the open one is read when the panel opens.

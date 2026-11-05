@@ -11616,12 +11616,13 @@ export default function SlideEditor({
     layersOpen,
     onToggleLayers,
     imageFit: imageOverlay?.objectFit,
-    onReplaceImage: imageOverlay
-      ? () => {
-          finishImageCrop(true);
-          onUploadImage(imageOverlay.src);
-        }
-      : undefined,
+    onReplaceImage:
+      imageOverlay && !readOnly
+        ? () => {
+            finishImageCrop(true);
+            onUploadImage(imageOverlay.src);
+          }
+        : undefined,
     onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
     onCropImage:
       imageToCrop && canCropImage(imageToCrop)
@@ -12225,6 +12226,7 @@ export default function SlideEditor({
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           objectPosition={imageOverlay.objectPosition}
+          readOnly={readOnly}
           onGenerate={() => {
             finishImageCrop(true);
             onGenerateImage();

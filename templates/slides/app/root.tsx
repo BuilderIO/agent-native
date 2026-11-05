@@ -13,6 +13,7 @@ import {
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import {
+  AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
   type LocaleCode,
@@ -70,6 +71,7 @@ import {
 import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -592,7 +594,22 @@ export default function Root() {
     ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
-    return <Outlet />;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          persistPreference={false}
+        >
+          <Outlet />
+          <Toaster
+            richColors
+            position="bottom-left"
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
+        </AgentNativeI18nProvider>
+      </QueryClientProvider>
+    );
   }
 
   return (
