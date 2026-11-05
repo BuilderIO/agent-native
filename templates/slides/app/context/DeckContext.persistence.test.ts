@@ -9372,6 +9372,41 @@ describe("DeckContext deck creation persistence", () => {
     expect(secondFailure).not.toHaveBeenCalled();
   });
 
+  it("does not send a held duplicate after switching organizations", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let sourceId = "";
+    act(() => {
+      sourceId = result.current.createDeck(undefined, {
+        noDefaultSlides: true,
+      }).id;
+    });
+    await act(async () => {
+      await result.current.duplicateDeck(sourceId, "held-copy");
+    });
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      resolveCreate(new Response("", { status: 200 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/duplicate-deck"),
+      ),
+    ).toBe(false);
+  });
+
   it("does not let an old duplicate failure mutate a new-organization duplicate", async () => {
     window.history.pushState({}, "", "/");
     orgQueryState.data = { orgId: "org-a" };
