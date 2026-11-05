@@ -768,6 +768,26 @@ describe("session replay key moments", () => {
     serve([], {}, { metadata: {} });
     expect((await readContext()).build.commit).toBeNull();
   });
+
+  it("names both commits when a recording spans a deploy", async () => {
+    const later = "b".repeat(40);
+    serve(
+      [],
+      {},
+      {
+        metadata: {
+          commit_sha: COMMIT.toUpperCase(),
+          commit_sha_latest: later,
+        },
+      },
+    );
+
+    const { build } = await readContext();
+
+    expect(build.commit).toBe(COMMIT);
+    expect(build.latestCommit).toBe(later);
+    expect(build.note).toContain("spans a deploy");
+  });
 });
 
 describe("session replay agent context links", () => {

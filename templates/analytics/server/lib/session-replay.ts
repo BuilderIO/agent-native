@@ -1507,6 +1507,22 @@ function isVisibleSessionRecording(row: any): boolean {
   );
 }
 
+/**
+ * A recording carries on across a reload, so it can span a deploy. It stays
+ * named for the commit it started on, with the newest one kept beside it.
+ */
+function mergedReplayCommits(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const started = existing.commit_sha;
+  const latest = incoming.commit_sha;
+  if (typeof started !== "string" || typeof latest !== "string") return {};
+  return started === latest
+    ? {}
+    : { commit_sha: started, commit_sha_latest: latest };
+}
+
 export function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
@@ -1523,7 +1539,11 @@ export function mergeReplayMetadata(
     pre_auth_base_path: _incomingPreAuthBasePath,
     ...incomingMetadata
   } = incoming;
-  const merged = { ...existingMetadata, ...incomingMetadata };
+  const merged = {
+    ...existingMetadata,
+    ...incomingMetadata,
+    ...mergedReplayCommits(existingMetadata, incomingMetadata),
+  };
   assertReplayMetadataCap(merged);
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);

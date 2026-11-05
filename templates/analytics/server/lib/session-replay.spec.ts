@@ -3920,6 +3920,34 @@ describe("replay viewport", () => {
     });
   });
 
+  it("keeps the commit a recording started on when it spans a deploy", () => {
+    const started = "a".repeat(40);
+    const deployed = "b".repeat(40);
+    const newer = "c".repeat(40);
+
+    const same = mergeReplayMetadata(
+      { commit_sha: started },
+      { commit_sha: started },
+    );
+    expect(same).toEqual({ commit_sha: started });
+
+    const spanned = mergeReplayMetadata(same, { commit_sha: deployed });
+    expect(spanned).toEqual({
+      commit_sha: started,
+      commit_sha_latest: deployed,
+    });
+
+    const again = mergeReplayMetadata(spanned, { commit_sha: newer });
+    expect(again).toEqual({ commit_sha: started, commit_sha_latest: newer });
+
+    expect(mergeReplayMetadata({}, { commit_sha: started })).toEqual({
+      commit_sha: started,
+    });
+    expect(
+      mergeReplayMetadata({ commit_sha: started }, { pageCount: 2 }),
+    ).toEqual({ commit_sha: started, pageCount: 2 });
+  });
+
   it("keeps the stored first size across uploads and takes the newest last size", () => {
     const first = mergeReplayMetadata(
       {},

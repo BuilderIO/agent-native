@@ -981,10 +981,19 @@ function buildReplayKeyMoments(
 
 function replayBuild(recording: SessionRecordingSummary): {
   commit: string | null;
+  latestCommit?: string;
   note?: string;
 } {
   const reported = recording.metadata.commit_sha;
+  const latest = recording.metadata.commit_sha_latest;
   if (typeof reported === "string" && COMMIT_SHA.test(reported)) {
+    if (typeof latest === "string" && COMMIT_SHA.test(latest)) {
+      return {
+        commit: reported.toLowerCase(),
+        latestCommit: latest.toLowerCase(),
+        note: "This recording spans a deploy: it started on commit and a reload moved it to latestCommit. It does not say which one a given moment ran on.",
+      };
+    }
     return { commit: reported.toLowerCase() };
   }
   return {

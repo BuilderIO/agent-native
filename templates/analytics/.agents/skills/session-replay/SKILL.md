@@ -53,7 +53,8 @@ agent answers about browser recordings in the Analytics template.
   for `[data-replay-frame="ready"]`, and screenshots the page.
   `[data-replay-frame="error"]` means it could not be shown, and
   `window.__anReplayFrame.reason` says why. `build.commit` is the commit the page
-  was built from; null means the recording did not report one. Failed agent
+  was built from; null means the recording did not report one. `build.latestCommit`
+  appears when a reload moved the recording onto a newer deploy. Failed agent
   runs and error toasts count as moments because neither reaches the console
   or network capture. A failed run's message is masked in newer recordings, so
   its moment carries the error code instead.
