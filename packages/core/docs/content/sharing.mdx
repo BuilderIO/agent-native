@@ -204,13 +204,13 @@ Pins are personal: `pinnedAt` is the caller's pin, including on shared chats; li
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:
 
-| Action                       | What it does                                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------------------------------- |
-| `share-resource`             | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
-| `unshare-resource`           | Revoke access for a user or org.                                                               |
-| `list-resource-shares`       | Show current visibility plus all explicit grants.                                              |
+| Action                       | What it does                                                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Grant a user or org access at a specific role. Optional `notify` controls email notifications.                                                            |
+| `unshare-resource`           | Revoke access for a user or org.                                                                                                                          |
+| `list-resource-shares`       | Show current visibility plus all explicit grants.                                                                                                         |
 | `set-resource-visibility`    | Change to `private`, `org`, or `public`. Optional `role` sets what the organization (view, comment, edit) or anyone with the link (view, comment) can do. |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.        |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                   |
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
 

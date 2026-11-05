@@ -87,6 +87,54 @@ describe("useShareVisibilityTransition resource locks", () => {
     expect(transition.pending).toMatchObject({ from: "private", to: "org" });
   });
 
+  it("refuses a visibility change while a role save runs", async () => {
+    const role = deferred();
+    const apply = vi.fn(async () => undefined);
+    render({ current: "public", apply, confirmOrgVisibility: false });
+    let saved!: Promise<void>;
+    act(() => {
+      saved = transition.runExclusive(() => role.promise);
+    });
+    expect(transition.submitting).toBe(true);
+
+    await expect(transition.request("private")).rejects.toMatchObject({
+      name: "ShareVisibilityNotSavedError",
+      reason: "ignored",
+    });
+    expect(apply).not.toHaveBeenCalled();
+
+    await act(async () => {
+      role.resolve();
+      await saved;
+    });
+    expect(transition.submitting).toBe(false);
+  });
+
+  it("refuses a role save while a visibility change runs", async () => {
+    const visibility = deferred();
+    render({
+      current: "public",
+      apply: () => visibility.promise,
+      confirmOrgVisibility: false,
+    });
+    let changed!: Promise<void>;
+    act(() => {
+      changed = transition.request("private");
+    });
+    const save = vi.fn(async () => undefined);
+
+    await expect(transition.runExclusive(save)).rejects.toMatchObject({
+      name: "ShareVisibilityNotSavedError",
+      reason: "ignored",
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      visibility.resolve();
+      await changed;
+    });
+  });
+
   it.each(["org", "private"] as const)(
     "locks a revisited resource with %s current visibility while another resource saves",
     async (current) => {

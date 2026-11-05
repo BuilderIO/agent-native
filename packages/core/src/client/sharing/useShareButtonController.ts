@@ -20,6 +20,7 @@ import {
   useShareQuery,
 } from "./share-controller-helpers.js";
 import {
+  ShareVisibilityNotSavedError,
   useShareVisibilityTransition,
   type ShareVisibilityTransition,
 } from "./useShareVisibilityTransition.js";
@@ -578,13 +579,15 @@ export function useShareButtonController(
         token,
         value: next,
       });
-      void setVisibility
-        .mutateAsync({
-          resourceType: options.resourceType,
-          resourceId: options.resourceId,
-          visibility,
-          role: next,
-        } as never)
+      void visibilityTransition
+        .runExclusive(async () => {
+          await setVisibility.mutateAsync({
+            resourceType: options.resourceType,
+            resourceId: options.resourceId,
+            visibility,
+            role: next,
+          } as never);
+        })
         .then(
           async () => {
             notifyShareChanged(options.resourceType);
@@ -598,6 +601,8 @@ export function useShareButtonController(
           },
           (error: unknown) => {
             clear();
+            // Another save on the resource was running; nothing was sent.
+            if (error instanceof ShareVisibilityNotSavedError) return;
             if (!generalAccessRoleGuard.isLatest(requestId)) return;
             setShareError(extractShareErrorMessage(error));
             void sharesQuery.refetch();
@@ -614,6 +619,7 @@ export function useShareButtonController(
       setVisibility,
       sharesQuery,
       visibility,
+      visibilityTransition,
     ],
   );
 

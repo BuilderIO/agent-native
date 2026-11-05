@@ -180,13 +180,13 @@ Les épingles sont personnelles : `pinnedAt` désigne celle de l'appelant, même
 
 Le framework monte automatiquement ces actions dans chaque modèle : l'agent les appelle en tant qu'outils et le UI les appelle via `useActionQuery` / `useActionMutation` :
 
-| Actions                      | Ce qu'il fait                                                                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `share-resource`             | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail. |
-| `unshare-resource`           | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
-| `list-resource-shares`       | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
+| Actions                      | Ce qu'il fait                                                                                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail.                                                      |
+| `unshare-resource`           | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                                                                        |
+| `list-resource-shares`       | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                                                                                  |
 | `set-resource-visibility`    | Passez à `private`, `org` ou `public`. Le `role` facultatif définit ce que peut faire l'organisation (afficher, commenter, modifier) ou toute personne disposant du lien (afficher, commenter). |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                    |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                                                         |
 
 Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'éditeurs" et il appellera `share-resource` sur le même point de terminaison que celui utilisé par UI. Le résultat apparaît dans la boîte de dialogue de partage lors du prochain rendu.
 
