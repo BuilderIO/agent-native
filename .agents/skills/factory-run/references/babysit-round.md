@@ -76,7 +76,8 @@ as `--fix <sha>`, so the fix must be one real commit on the PR, which
 3. Make the fix and its test in the worktree.
 4. Worktrees `merge` it. That commits the fix and fast-forwards the PR
    branch onto that commit.
-5. Still in the worktree: `node scripts/fix-proof.ts --fix HEAD -- <check>`.
+5. `merge` leaves the original active, so `activate` the worktree again,
+   then run `node scripts/fix-proof.ts --fix HEAD -- <check>` there.
    If it is not proven, fix the test or the code, `merge` again, and re-run
    with the new HEAD.
 6. Copy the `fix-proof: proven ...` line into the PR body under its report
