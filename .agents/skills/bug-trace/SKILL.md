@@ -28,7 +28,7 @@ pnpm exec tsx .agents/skills/bug-trace/scripts/bug-intake.ts \
 It writes `bug.json` to the run directory and prints the run id
 (`bug-gh-123`, `bug-eng-456`, or `bug-<date>-<hash>`). Re-running with the
 same report reuses the run. Jira intake uses `jira-refactor-findings`'
-client and credentials.
+client and credentials, whichever tracker files findings.
 
 ## 2. Split symptoms
 

@@ -425,6 +425,7 @@ function runBuildStep(
         extra: report.extra,
       });
       reportToSentryAndExit(exitCode, err, {
+        fingerprint: report.fingerprint,
         tags: report.tags,
         extra: report.extra,
       });

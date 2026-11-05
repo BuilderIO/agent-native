@@ -623,6 +623,18 @@ const messages = {
     desktopHint:
       "لبدء الملاحظات، افتح Clips Desktop من شريط القوائم واختر Start Meeting Notes، أو انقر على Start notes عند ظهور التذكير. يلتقط Clips الميكروفون وصوت النظام ويكتب النص هنا.",
     getDesktopApp: "احصل على تطبيق سطح المكتب",
+    earlierAudioAdded_zero: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_one: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_two: "تمت إضافة {{count}} دقيقتين من قبل أن تبدأ",
+    earlierAudioAdded_few: "تمت إضافة {{count}} دقائق من قبل أن تبدأ",
+    earlierAudioAdded_many: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_other: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioUnreadable:
+      "تعذّر التحقق مما إذا كان هذا النص المكتوب يتضمن صوتًا سابقًا",
+    removeEarlierAudioTitle: "هل تريد إزالة الصوت السابق؟",
+    removeEarlierAudioDescription:
+      "سيؤدي هذا إلى حذفه من النص المكتوب وإعادة إنشاء الملخص وعناصر الإجراءات ووصف المقطع، حتى إذا كنت قد كتبت هذا الوصف بنفسك. وسيُعاد إنشاء العنوان المُنشأ تلقائيًا أيضًا، أما العنوان الذي اخترته فيبقى كما هو. كما ستُحذف أي فصول.",
+    couldNotRemoveEarlierAudio: "تعذرت إزالة الصوت السابق",
     generateNotesFailed: "تعذر إنشاء الملخص. حاول ثانية.",
     attendee_one: "الحضور {{count}}",
     attendee_other: "الحضور {{count}}",
@@ -783,7 +795,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر على أداتك إرجاع الصور أو فتح هذه الروابط، فوضّح أن هذا قيد في أداتك وليس خطأ في Clips.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر عليك فتح عناوين URL للإطارات كصور، فاستدعِ أداة Clips المسماة get-recording-frames مع معرّف التسجيل من عنوان URL للسياق هذا إن كانت متاحة. وإن لم تكن متاحة، فأخبر المستخدم أن ربط Clips عبر {{connectUrl}} يتيح لك رؤية الإطارات.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
@@ -1514,6 +1526,7 @@ const messages = {
   transcriptBubbles: {
     listening: "يستمع…",
     noTranscript: "لا يوجد نص بعد.",
+    unreadable: "تعذّرت قراءة هذا النص المكتوب.",
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",

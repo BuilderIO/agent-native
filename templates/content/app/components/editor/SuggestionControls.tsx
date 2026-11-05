@@ -85,6 +85,7 @@ export function ProposalGroup({
   acceptDisabled = false,
   canDecide,
   onDecide,
+  onAcceptAndResolve,
   onHeightChange,
   children,
 }: {
@@ -100,6 +101,8 @@ export function ProposalGroup({
   acceptDisabled?: boolean;
   canDecide: boolean;
   onDecide: (decision: SuggestionDecision) => void;
+  /** Accepts the pending edits, then resolves the thread that asked for them. */
+  onAcceptAndResolve?: () => void;
   onHeightChange?: (height: number) => void;
   children: ReactNode;
 }) {
@@ -165,7 +168,22 @@ export function ProposalGroup({
         </div>
       ) : null}
       {canDecide && pending.length > 0 ? (
-        <div className="flex justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+        <div className="flex flex-wrap justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+          {onAcceptAndResolve ? (
+            <button
+              type="button"
+              disabled={deciding || acceptDisabled}
+              onClick={onAcceptAndResolve}
+              className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+              data-suggestion-accept-resolve
+            >
+              {t(
+                undecided
+                  ? "comments.acceptAllAndResolve"
+                  : "comments.acceptAndResolve",
+              )}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={deciding || acceptDisabled}
