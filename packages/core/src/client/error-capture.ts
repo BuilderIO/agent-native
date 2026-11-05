@@ -574,7 +574,7 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
 }
 
 const DOM_MUTATION_ERROR =
-  /Failed to execute '(?:removeChild|insertBefore)' on 'Node'/;
+  /(?:Failed to execute '(?:removeChild|insertBefore)' on 'Node'|Node\.(?:removeChild|insertBefore):)/;
 
 // A removeChild/insertBefore NotFoundError means something other than React
 // moved a node. Browser translation is the usual suspect, so record whether
@@ -599,7 +599,7 @@ function domMutationDiagnostics(
       translatedClass:
         root.classList.contains("translated-ltr") ||
         root.classList.contains("translated-rtl"),
-      fontWrapperNodes: document.body?.querySelector("font") != null,
+      fontWrapperNodes: document.querySelector("body font") != null,
       navigatorLanguage:
         typeof navigator === "undefined" ? null : navigator.language,
     },

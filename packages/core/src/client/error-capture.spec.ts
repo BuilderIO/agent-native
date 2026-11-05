@@ -532,7 +532,10 @@ describe("installErrorCapture stale-chunk recovery exhaustion", () => {
 });
 
 describe("DOM mutation diagnostics", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    delete (globalThis as any)[errorCaptureStateKey];
+    vi.unstubAllGlobals();
+  });
 
   it("attaches translation fingerprints to the first removeChild NotFoundError only", () => {
     installBrowser();
@@ -543,6 +546,7 @@ describe("DOM mutation diagnostics", () => {
         classList: { contains: (c: string) => c === "translated-ltr" },
       },
       body: { querySelector: () => ({}) },
+      querySelector: () => ({}),
     });
     vi.stubGlobal("navigator", { language: "fr-FR" });
     const send = vi.fn();
@@ -569,6 +573,83 @@ describe("DOM mutation diagnostics", () => {
     });
     expect(second.extra).toBeUndefined();
     expect(other.extra).toBeUndefined();
+    dispose();
+  });
+
+  it.each([
+    [
+      "Firefox removeChild",
+      "Node.removeChild: The node is not a child of this node",
+    ],
+    [
+      "Firefox insertBefore",
+      "Node.insertBefore: Child to insert before is not a child of this node",
+    ],
+    [
+      "Chromium insertBefore",
+      "Failed to execute 'insertBefore' on 'Node': The node is not a child of this node.",
+    ],
+  ])(
+    "captures %s diagnostics once without matching unrelated errors",
+    (_browser, message) => {
+      installBrowser();
+      vi.stubGlobal("document", {
+        documentElement: {
+          getAttribute: () => null,
+          classList: { contains: () => false },
+        },
+        body: { querySelector: () => null },
+        querySelector: () => null,
+      });
+      const send = vi.fn();
+      const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+
+      captureException(new DOMException(message, "InvalidStateError"));
+      captureException(
+        new DOMException("Node.replaceChild: unrelated", "NotFoundError"),
+      );
+      captureException(new DOMException(message, "NotFoundError"));
+      captureException(new DOMException(message, "NotFoundError"));
+
+      expect(send).toHaveBeenCalledTimes(4);
+      const [wrongType, wrongMethod, first, second] = send.mock.calls.map(
+        ([e]) => e,
+      );
+      expect(wrongType.extra).toBeUndefined();
+      expect(wrongMethod.extra).toBeUndefined();
+      expect(first.extra).toMatchObject({
+        domMutationDiagnostics: { fontWrapperNodes: false },
+      });
+      expect(second.extra).toBeUndefined();
+      dispose();
+    },
+  );
+
+  it("reports no font wrappers when the document has no body", () => {
+    installBrowser();
+    const querySelector = vi.fn(() => null);
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: () => null,
+        classList: { contains: () => false },
+      },
+      body: null,
+      querySelector,
+    });
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+
+    captureException(
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': child missing",
+        "NotFoundError",
+      ),
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].extra).toMatchObject({
+      domMutationDiagnostics: { fontWrapperNodes: false },
+    });
     dispose();
   });
 });
