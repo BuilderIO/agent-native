@@ -28,8 +28,8 @@ describe("cross-origin preview iframe scroll", () => {
     const openAt = vi.fn();
     const container = document.createElement("div");
     container.appendChild(crossOriginIframe());
-    const args = {
-      activeFile: { id: "screen-1" },
+    const args: IframeContextMenuArgs = {
+      activeFile: { id: "screen-1" } as IframeContextMenuArgs["activeFile"],
       activeFileId: "screen-1",
       boardFileId: undefined,
       canvasContainerRef: { current: container },
@@ -42,7 +42,7 @@ describe("cross-origin preview iframe scroll", () => {
       setCanvasLayerHitCandidates: vi.fn(),
       viewMode: "single",
       zoom: 100,
-    } as IframeContextMenuArgs;
+    };
 
     expect(() =>
       runIframeContextMenu(args, { clientX: 20, clientY: 30 }),
