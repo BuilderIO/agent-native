@@ -543,9 +543,6 @@ export default defineAction({
       const ours = current?.visibility === args.visibility;
       const movedOrg = attachedOrg && current?.orgId !== change.update.orgId;
       if (ours && !movedOrg) {
-        // Grants go back only while this call's visibility stands; a newer
-        // visibility removed or kept them on its own terms.
-        await restoreGrants(change);
         const previous: Record<string, unknown> = {
           visibility: change.access.resource.visibility,
         };
@@ -557,6 +554,10 @@ export default defineAction({
           change.access.resource.visibility,
           previous,
         );
+        // Grants go back only while this call's visibility stands, and only
+        // after it is undone: a grant put back first would keep authorizing
+        // if putting the visibility back then failed.
+        await restoreGrants(change);
       }
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
       if (ours) return movedOrg ? "visibility" : null;

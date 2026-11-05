@@ -53,6 +53,7 @@ describe("recording sharing adoption", () => {
   it("shares private with the organization at once", async () => {
     await render();
     await select(button("General access"), "Anyone in your organization");
+    // oracle-change: recordings no longer ask before opening to the organization; only resource types that set confirmOrgVisibility (chats) show the confirm, cancel and retry dialog
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(mocks.visibility).toHaveBeenCalledWith({
       resourceType: "recording",
