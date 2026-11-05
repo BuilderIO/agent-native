@@ -1154,6 +1154,8 @@ const overrides = {
     deleteRefusedReplied: "已有其他人回覆，只有編輯者可以刪除此留言串。",
     deleteRefusedNotion: "此留言已與 Notion 同步。請在 Notion 中刪除。",
     deleteRefusedAiWorking: "AI 正在處理此留言串。刪除留言串前請先停止它。",
+    deleteRefusedAiSuggestion:
+      "此留言串中的 AI 建議正在等待審閱。刪除留言串前請先接受或拒絕它。",
     submit: "評論",
     askAi: "詢問 AI",
     aiSuggestChanges: "建議變更",

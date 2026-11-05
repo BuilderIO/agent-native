@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import listSuggestions from "@agent-native/core/review/suggestions/actions/list-resource-suggestions";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -7,16 +8,43 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import { ACTIVE_COMMENT_AI_STATUSES } from "../shared/comment-ai.js";
+
+/**
+ * Whether an Ask AI suggestion made in this thread still waits for review.
+ * Reviewing it needs the thread and its request, which a thread delete removes.
+ */
+async function hasPendingAiSuggestion(
+  documentId: string,
+  threadId: string,
+  ctx: Parameters<typeof listSuggestions.run>[1],
+) {
+  const { suggestions } = await listSuggestions.run(
+    { resourceType: "document", resourceId: documentId, statuses: ["pending"] },
+    ctx,
+  );
+  return suggestions.some(
+    (suggestion) =>
+      suggestion.adapterKind === CONTENT_DOCUMENT_SUGGESTION_ADAPTER &&
+      suggestion.metadata?.sourceThreadId === threadId,
+  );
+}
+
+const refusePendingAiSuggestion = (): never =>
+  fail(
+    "Accept or reject the AI's suggestion in this thread before deleting it",
+    { statusCode: 409, errorCode: "comment_ai_suggestion_pending" },
+  );
 
 export default defineAction({
   description:
-    "Delete a document comment. Deleting a thread's first comment deletes the whole thread with its replies. Authors can delete their own replies, and a thread no one else has commented in; otherwise editor access is required. A comment synced with Notion is deleted in Notion instead.",
+    "Delete a document comment. Deleting a thread's first comment deletes the whole thread with its replies. Authors can delete their own replies, and a thread no one else has commented in; otherwise editor access is required. A comment synced with Notion is deleted in Notion instead. A thread can't be deleted while the AI works on it or while its AI suggestion waits for review.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [comment] = await db
       .select({
@@ -71,6 +99,12 @@ export default defineAction({
       documentId,
       authorOnly ? "commenter" : "editor",
     );
+    if (
+      deletesThread &&
+      (await hasPendingAiSuggestion(documentId, threadId, ctx))
+    ) {
+      refusePendingAiSuggestion();
+    }
 
     const deletedIds = await db.transaction(async (tx) => {
       if (deletesThread) {
@@ -127,6 +161,11 @@ export default defineAction({
             statusCode: 409,
             errorCode: "comment_ai_already_active",
           });
+        }
+        // Again under the lock, which saving a suggestion also takes, in case
+        // a request finished with one since the check above.
+        if (await hasPendingAiSuggestion(documentId, threadId, ctx)) {
+          refusePendingAiSuggestion();
         }
       }
       const ids = targets.map(({ id }) => id);

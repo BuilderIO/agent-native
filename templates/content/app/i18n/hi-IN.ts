@@ -1765,6 +1765,8 @@ const overrides = {
       "किसी और ने जवाब दिया है, इसलिए यह थ्रेड केवल संपादक हटा सकता है।",
     deleteRefusedNotion: "यह टिप्पणी Notion से सिंक है। इसे Notion में हटाएँ।",
     deleteRefusedAiWorking: "AI इस थ्रेड पर काम कर रहा है। थ्रेड हटाने से पहले उसे रोकें।",
+    deleteRefusedAiSuggestion:
+      "इस थ्रेड में AI का सुझाव समीक्षा के लिए बाकी है। थ्रेड हटाने से पहले उसे स्वीकार या अस्वीकार करें।",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",

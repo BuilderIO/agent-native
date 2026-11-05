@@ -47,6 +47,7 @@ const DELETE_REFUSALS: Record<string, string> = {
   comment_thread_changed: "comments.deleteRefusedReplied",
   comment_synced_with_notion: "comments.deleteRefusedNotion",
   comment_ai_already_active: "comments.deleteRefusedAiWorking",
+  comment_ai_suggestion_pending: "comments.deleteRefusedAiSuggestion",
 };
 
 export function getAiCommentSource(

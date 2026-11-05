@@ -1796,6 +1796,8 @@ const overrides = {
     deleteRefusedNotion: "هذا التعليق متزامن مع Notion. احذفه في Notion.",
     deleteRefusedAiWorking:
       "الذكاء الاصطناعي يعمل على هذا الموضوع. أوقفه قبل حذف الموضوع.",
+    deleteRefusedAiSuggestion:
+      "اقتراح الذكاء الاصطناعي في هذا الموضوع بانتظار المراجعة. اقبله أو ارفضه قبل حذف الموضوع.",
     submit: "تعليق",
     askAi: "اسأل الذكاء الاصطناعي",
     aiBadge: "الذكاء الاصطناعي",

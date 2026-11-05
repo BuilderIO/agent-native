@@ -1843,6 +1843,8 @@ const overrides = {
       "Este comentário está sincronizado com o Notion. Exclua-o no Notion.",
     deleteRefusedAiWorking:
       "A IA está trabalhando nesta conversa. Pare-a antes de excluir a conversa.",
+    deleteRefusedAiSuggestion:
+      "A sugestão da IA nesta conversa está aguardando revisão. Aceite-a ou rejeite-a antes de excluir a conversa.",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

@@ -30,6 +30,7 @@ beforeAll(async () => {
   addComment = (await import("./add-comment.js")).default;
   deleteComment = (await import("./delete-comment.js")).default;
   reactToComment = (await import("./react-to-comment.js")).default;
+  (await import("../server/plugins/suggested-edits.js")).default();
   const db = dbModule.getDb();
   await db.insert(dbModule.schema.documents).values({
     id: documentId,
@@ -223,4 +224,47 @@ it("deletes a thread's finished Ask AI requests, which hold copies of it", async
       .from(dbModule.schema.commentAiAttempts)
       .where(eq(dbModule.schema.commentAiAttempts.requestId, requestId)),
   ).toEqual([]);
+});
+
+it("refuses a thread whose AI suggestion waits for review", async () => {
+  const root = await comment(commenter, "Suggest a better intro");
+  const { getDbExec } = await import("@agent-native/core/db");
+  const listSuggestions = (
+    await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
+  ).default;
+  // Creates the suggestion tables.
+  await as(owner, () =>
+    listSuggestions.run(
+      { resourceType: "document", resourceId: documentId },
+      ctxFor(owner),
+    ),
+  );
+  const suggestionId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await getDbExec().execute({
+    sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, author_email, actor_kind, base_revision, summary, owner_email, created_at, updated_at, metadata_json) VALUES (?, 'document', ?, 'content.document-markdown', 1, ?, ?, 'agent', 'base', 'Tighten the intro', ?, ?, ?, ?)",
+    args: [
+      suggestionId,
+      documentId,
+      `suggestion-${suggestionId}`,
+      commenter,
+      owner,
+      now,
+      now,
+      JSON.stringify({
+        sourceThreadId: root.id,
+        commentAiRequestId: "request",
+      }),
+    ],
+  });
+
+  await expect(remove(commenter, root.id)).rejects.toThrow(/suggestion/);
+  expect(await commentIds(root.id)).toEqual([root.id]);
+
+  await getDbExec().execute({
+    sql: "UPDATE agent_review_suggestions SET status = 'rejected' WHERE id = ?",
+    args: [suggestionId],
+  });
+  await remove(commenter, root.id);
+  expect(await commentIds(root.id)).toEqual([]);
 });

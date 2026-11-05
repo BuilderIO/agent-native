@@ -1807,6 +1807,8 @@ const overrides = {
       "このコメントは Notion と同期されています。Notion で削除してください。",
     deleteRefusedAiWorking:
       "AI がこのスレッドで作業中です。スレッドを削除する前に停止してください。",
+    deleteRefusedAiSuggestion:
+      "このスレッドの AI の提案が確認待ちです。スレッドを削除する前に、提案を承認または却下してください。",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

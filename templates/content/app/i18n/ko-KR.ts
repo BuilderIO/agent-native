@@ -1789,6 +1789,8 @@ const overrides = {
       "이 댓글은 Notion과 동기화되어 있습니다. Notion에서 삭제하세요.",
     deleteRefusedAiWorking:
       "AI가 이 스레드에서 작업 중입니다. 스레드를 삭제하기 전에 중지하세요.",
+    deleteRefusedAiSuggestion:
+      "이 스레드의 AI 제안이 검토를 기다리고 있습니다. 스레드를 삭제하기 전에 제안을 수락하거나 거절하세요.",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",

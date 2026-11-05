@@ -1835,6 +1835,8 @@ const overrides = {
     deleteRefusedReplied: "已有其他人回复，只有编辑者可以删除此线程。",
     deleteRefusedNotion: "此评论已与 Notion 同步。请在 Notion 中删除。",
     deleteRefusedAiWorking: "AI 正在处理此线程。删除线程前请先停止它。",
+    deleteRefusedAiSuggestion:
+      "此线程中的 AI 建议正在等待审阅。删除线程前请先接受或拒绝它。",
     submit: "评论",
     askAi: "询问 AI",
     aiBadge: "AI",

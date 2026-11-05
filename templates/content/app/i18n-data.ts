@@ -1817,6 +1817,8 @@ const enUS = {
       "This comment is synced with Notion. Delete it in Notion.",
     deleteRefusedAiWorking:
       "The AI is working on this thread. Stop it before deleting the thread.",
+    deleteRefusedAiSuggestion:
+      "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",

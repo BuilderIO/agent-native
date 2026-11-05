@@ -1856,6 +1856,8 @@ const overrides = {
       "Ce commentaire est synchronisé avec Notion. Supprimez-le dans Notion.",
     deleteRefusedAiWorking:
       "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
+    deleteRefusedAiSuggestion:
+      "La suggestion de l'IA dans ce fil attend votre examen. Acceptez-la ou refusez-la avant de supprimer le fil.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

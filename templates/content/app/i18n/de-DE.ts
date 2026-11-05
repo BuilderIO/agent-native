@@ -1851,6 +1851,8 @@ const overrides = {
       "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
     deleteRefusedAiWorking:
       "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
+    deleteRefusedAiSuggestion:
+      "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
