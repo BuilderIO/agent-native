@@ -145,8 +145,11 @@ jobs:
           RELEASE_ERROR=$(mktemp)
           TAG_ERROR=$(mktemp)
           if RELEASE_JSON=$(gh release view "$TAG" --json isDraft,targetCommitish 2>"$RELEASE_ERROR"); then
+            # Rebuilding would replace bundles people may already have
+            # downloaded. A run that failed after publishing resumes with
+            # "Re-run failed jobs", which does not rerun this job.
             if [ "$(jq -r '.isDraft' <<< "$RELEASE_JSON")" != "true" ]; then
-              echo "::error::Release $TAG is already published. Choose a new version instead of rebuilding it."
+              echo "::error::Release $TAG is already published. To finish publishing it, use \"Re-run failed jobs\" on the run that published it; to rebuild, release a new version."
               exit 1
             fi
             # A draft gets its tag only when it publishes, unless one was
