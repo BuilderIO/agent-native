@@ -9,6 +9,7 @@ import {
   replayFrameAtMs,
   replayFrameFailureReason,
   replayFrameFitScale,
+  replayFramePauseMs,
   replayFramePath,
 } from "./session-replay-frame";
 import { ReplayScreenshotAssetError } from "./session-replay-screenshot";
@@ -158,6 +159,17 @@ describe("replayFrameAtMs", () => {
         "replay_capture_offset_invalid",
       );
     }
+  });
+});
+
+describe("replayFramePauseMs", () => {
+  it("pauses on the moment itself inside the recording", () => {
+    expect(replayFramePauseMs(0, 5_000)).toBe(0);
+    expect(replayFramePauseMs(4_999, 5_000)).toBe(4_999);
+  });
+
+  it("pauses past the end, so the final event reaches the screen", () => {
+    expect(replayFramePauseMs(5_000, 5_000)).toBe(5_001);
   });
 });
 

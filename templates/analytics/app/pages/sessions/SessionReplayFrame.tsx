@@ -13,6 +13,7 @@ import {
   replayFrameAtMs,
   replayFrameFailureReason,
   replayFrameFitScale,
+  replayFramePauseMs,
   replayFramePath,
   type ReplayFrameCapture,
 } from "./session-replay-frame";
@@ -178,7 +179,7 @@ export default function SessionReplayFrame({
         }
         const dimensions =
           replayViewportDimensionsAtTime(timeline, playheadOffsetMs) ?? initial;
-        replayer.pause(playheadOffsetMs);
+        replayer.pause(replayFramePauseMs(playheadOffsetMs, totalTimeMs));
         replayer.handleResize?.(dimensions);
         sizeStage(dimensions.width, dimensions.height);
         await nextPaint();

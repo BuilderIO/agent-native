@@ -250,14 +250,14 @@ describe("session replay key moments", () => {
     });
     mockVerifyScopedAgentAccessToken.mockReturnValue({
       ok: true,
-      viewerEmail: "owner@example.com",
+      agentLabel: "sessions-triage",
     });
     mockGetSessionReplaySummary.mockResolvedValue(makeRecording());
     mockIsSessionsTriageLabEnabled.mockResolvedValue(true);
     serve([meta(0, "/start")]);
   });
 
-  it("names the creator on a new link only when their Lab is on", async () => {
+  it("marks a new link only when its creator's Lab is on, and never names them", async () => {
     const scope = { userEmail: "owner@example.com", orgId: "org_1" };
 
     mockIsSessionsTriageLabEnabled.mockResolvedValue(false);
@@ -274,7 +274,7 @@ describe("session replay key moments", () => {
       resourceKind: "analytics-session-replay-agent-context",
       resourceId: "sr_1",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
-      viewerEmail: "owner@example.com",
+      agentLabel: "sessions-triage",
     });
   });
 
@@ -291,19 +291,18 @@ describe("session replay key moments", () => {
       "Couldn't read the Sessions triage Lab state.",
     );
     expect(
-      mockCreateScopedAgentAccessGrant.mock.calls[0][0],
-    ).not.toHaveProperty("viewerEmail");
+      mockCreateScopedAgentAccessGrant.mock.calls[0]?.[0],
+    ).not.toHaveProperty("agentLabel");
   });
 
-  it("keeps the old shape with the Lab off", async () => {
-    mockIsSessionsTriageLabEnabled.mockResolvedValue(false);
+  it("keeps the old shape on a link made with the Lab off", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     serve([meta(0, "/start"), routeChange(10, "/deck"), click(20)]);
 
     const context = await readContext();
 
     expect(context).not.toHaveProperty("keyMoments");
     expect(context).not.toHaveProperty("build");
-    expect(context).not.toHaveProperty("labStateError");
     expect(context.instructions.join(" ")).not.toContain("keyMoments");
     expect(context.timeline.markers.map((marker: any) => marker.kind)).toEqual([
       "navigation",
@@ -311,24 +310,11 @@ describe("session replay key moments", () => {
     ]);
   });
 
-  it("reads the Lab from the link's creator, in the recording's org", async () => {
-    await readContext();
-
-    expect(mockIsSessionsTriageLabEnabled).toHaveBeenCalledWith(
-      "owner@example.com",
-      "org_1",
-    );
-  });
-
-  it("reports a failed Lab read instead of looking like the Lab is off", async () => {
-    mockIsSessionsTriageLabEnabled.mockRejectedValue(new Error("db down"));
-
+  it("takes the Lab from the link, so opening it reads no one's settings", async () => {
     const context = await readContext();
 
-    expect(context.labStateError).toBe(
-      "Couldn't read the Sessions triage Lab state.",
-    );
-    expect(context).not.toHaveProperty("keyMoments");
+    expect(context).toHaveProperty("keyMoments");
+    expect(mockIsSessionsTriageLabEnabled).not.toHaveBeenCalled();
   });
 
   it("returns nothing it did not read when the timeline is skipped", async () => {

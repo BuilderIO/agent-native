@@ -89,6 +89,108 @@ describe("createReplayNodeLabels", () => {
     expect(labels.describe(5)).toBeNull();
   });
 
+  it("takes no name from text being typed in a rich-text editor", () => {
+    const labels = labelsFor(
+      element(2, "div", { role: "button", contenteditable: "true" }, [
+        element(3, "p", {}, [
+          element(4, "span", {}, [text(5, "a private note")]),
+        ]),
+      ]),
+    );
+    labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        adds: [{ parentId: 4, node: text(6, "more private text") }],
+      },
+    });
+
+    expect(labels.describe(2)).toBeNull();
+    expect(labels.describe(4)).toBeNull();
+  });
+
+  it.each([
+    ["an empty attribute", ""],
+    ["plain text only", "plaintext-only"],
+  ])("treats %s as an editor", (_label, contenteditable) => {
+    const labels = labelsFor(
+      element(2, "button", { contenteditable }, [text(3, "a private note")]),
+    );
+
+    expect(labels.describe(2)).toBeNull();
+  });
+
+  it("still names a control marked as not editable", () => {
+    const labels = labelsFor(
+      element(2, "button", { contenteditable: "false" }, [text(3, "Send")]),
+    );
+
+    expect(labels.describe(2)).toBe('button "Send"');
+  });
+
+  it("follows an element that becomes editable, or stops being", () => {
+    const labels = labelsFor(element(2, "button"), element(3, "button"));
+    labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        attributes: [
+          { id: 2, attributes: { contenteditable: "true" } },
+          { id: 3, attributes: { contenteditable: "true" } },
+        ],
+      },
+    });
+    labels.observe({
+      type: 3,
+      timestamp: 3,
+      data: {
+        source: 0,
+        attributes: [{ id: 3, attributes: { contenteditable: null } }],
+        adds: [
+          { parentId: 2, node: text(4, "typed") },
+          { parentId: 3, node: text(5, "Save") },
+        ],
+      },
+    });
+
+    expect(labels.describe(2)).toBeNull();
+    // A mutation's adds are read before its attribute changes.
+    expect(labels.describe(3)).toBeNull();
+    labels.observe({
+      type: 3,
+      timestamp: 4,
+      data: { source: 0, adds: [{ parentId: 3, node: text(6, "Save") }] },
+    });
+    expect(labels.describe(3)).toBe('button "Save"');
+  });
+
+  it("never reports what was typed as an agent error's message", () => {
+    const labels = labelsFor(
+      element(2, "div", {}, [
+        element(3, "div"),
+        element(4, "div", { contenteditable: "true" }),
+      ]),
+    );
+
+    const shown = labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        adds: [
+          { parentId: 4, node: text(5, "a private note") },
+          { parentId: 3, node: text(6, "The agent hit an error") },
+        ],
+      },
+    });
+
+    expect(shown).toEqual([
+      { kind: "agent-error", label: "The agent hit an error", detail: null },
+    ]);
+  });
+
   it("does not name a select after its first option", () => {
     const labels = labelsFor(
       element(2, "select", {}, [

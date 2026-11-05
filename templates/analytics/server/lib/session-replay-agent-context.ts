@@ -769,7 +769,7 @@ function buildReplayKeyMoments(
     kind: ReplayStep["kind"],
     label: string,
   ) => {
-    const last = steps.at(-1);
+    const last: (typeof steps)[number] | undefined = steps[steps.length - 1];
     if (
       last?.kind === kind &&
       last.label === label &&
@@ -1037,16 +1037,23 @@ export function verifySessionReplayAgentAccess(
   return resolveSessionReplayAgentAccess(recordingId, token) !== null;
 }
 
+// Anyone holding a link can read its claims, so a link says its creator had the
+// Sessions triage Lab on rather than naming them.
+const SESSIONS_TRIAGE_LINK_LABEL = "sessions-triage";
+
 export function resolveSessionReplayAgentAccess(
   recordingId: string,
   token: string,
-): { viewerEmail?: string } | null {
+): { viewerEmail?: string; labEnabled: boolean } | null {
   const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
   });
   if (!result.ok) return null;
-  return { viewerEmail: result.viewerEmail };
+  return {
+    viewerEmail: result.viewerEmail,
+    labEnabled: result.agentLabel === SESSIONS_TRIAGE_LINK_LABEL,
+  };
 }
 
 export async function createSessionReplayAgentLink({
@@ -1074,9 +1081,7 @@ export async function createSessionReplayAgentLink({
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recording.id,
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
-    // Anyone holding a link can read its claims, so it names its creator only
-    // to carry their Sessions triage Lab to whoever opens it.
-    ...(labEnabled ? { viewerEmail: scope.userEmail } : {}),
+    ...(labEnabled ? { agentLabel: SESSIONS_TRIAGE_LINK_LABEL } : {}),
   });
   const resolvedOrigin = appOrigin(origin);
   const basePath = appBasePath();
@@ -1176,20 +1181,7 @@ export async function buildSessionReplayAgentContext({
   const diagnosticsTruncated =
     diagnostics.console.truncated || diagnostics.network.truncated;
 
-  let labEnabled = false;
-  let labStateError: string | undefined;
-  try {
-    labEnabled = await isSessionsTriageLabEnabled(
-      access.viewerEmail,
-      recording.orgId,
-    );
-  } catch (error) {
-    labStateError = sessionsTriageReadFailure(
-      "labState",
-      "[session-replay-agent-context]",
-      error,
-    );
-  }
+  const { labEnabled } = access;
   const startedAtMs = Date.parse(recording.startedAt);
   const keyMoments =
     labEnabled && eventsResponse
@@ -1220,7 +1212,6 @@ export async function buildSessionReplayAgentContext({
     ],
     recording: compactSessionRecordingSummary(recording),
     ...(labEnabled ? { build: replayBuild(recording) } : {}),
-    ...(labStateError ? { labStateError } : {}),
     ...(keyMoments && eventsResponse
       ? {
           keyMoments: {

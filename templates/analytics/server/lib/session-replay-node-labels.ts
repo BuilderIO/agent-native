@@ -57,6 +57,7 @@ interface ReplayNode {
   name: string;
   toast: boolean;
   toastTitle: boolean;
+  editable: boolean;
 }
 
 /** An error the person saw that neither the console nor the network reported. */
@@ -64,6 +65,10 @@ export interface ReplayShownError {
   kind: "error-toast" | "agent-error";
   label: string;
   detail: string | null;
+}
+
+function isEditableAttribute(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "false";
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -102,6 +107,7 @@ function elementNode(
     name,
     toast: "data-sonner-toast" in attributes,
     toastTitle: "data-title" in attributes,
+    editable: isEditableAttribute(attributes.contenteditable),
   };
 }
 
@@ -129,6 +135,18 @@ export function createReplayNodeLabels() {
     return null;
   }
 
+  /** Whether text under this parent is the page's, not something being typed. */
+  function holdsReadableText(parentId: unknown): boolean {
+    let cursor = typeof parentId === "number" ? nodes.get(parentId) : undefined;
+    if (!cursor || UNREADABLE_TEXT_TAGS.has(cursor.tag)) return false;
+    while (cursor) {
+      if (cursor.editable) return false;
+      cursor =
+        cursor.parentId === null ? undefined : nodes.get(cursor.parentId);
+    }
+    return true;
+  }
+
   /** A control's text names it, wherever in the control the text sits. */
   function nameFromText(parentId: number | null, text: string): void {
     let cursor = parentId === null ? undefined : nodes.get(parentId);
@@ -154,8 +172,8 @@ export function createReplayNodeLabels() {
       const id = serialized.id;
       if (typeof id !== "number") continue;
       if (serialized.type === NODE_TEXT) {
-        const parent = parentId === null ? undefined : nodes.get(parentId);
-        if (parent && !UNREADABLE_TEXT_TAGS.has(parent.tag)) {
+        if (holdsReadableText(parentId)) {
+          const parent = parentId === null ? undefined : nodes.get(parentId);
           nameFromText(parentId, readableText(serialized.textContent));
           const toast = toastHolding(parentId);
           const text = readableText(
@@ -166,7 +184,7 @@ export function createReplayNodeLabels() {
             const others = toastTexts.get(toast) ?? [];
             toastTexts.set(
               toast,
-              parent.toastTitle ? [text, ...others] : [...others, text],
+              parent?.toastTitle ? [text, ...others] : [...others, text],
             );
           }
         }
@@ -201,12 +219,17 @@ export function createReplayNodeLabels() {
         errorToasts.add(serialized.id);
       }
       const text =
-        serialized.type === NODE_TEXT
+        serialized.type === NODE_TEXT && holdsReadableText(parentId)
           ? readableText(serialized.textContent, MAX_SHOWN_ERROR_CHARS)
           : "";
       if (text) texts.push({ parentId, text });
     }
     for (const { id, attributes } of changes) {
+      const node = typeof id === "number" ? nodes.get(id) : undefined;
+      const changed = record(attributes);
+      if (node && "contenteditable" in changed) {
+        node.editable = isEditableAttribute(changed.contenteditable);
+      }
       if (
         typeof id === "number" &&
         nodes.get(id)?.toast &&

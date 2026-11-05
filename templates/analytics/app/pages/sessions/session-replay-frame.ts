@@ -590,6 +590,18 @@ export function replayFrameAtMs(search: string): number | null {
 }
 
 /** Shrinks a recorded viewport to fit a smaller browser window, never grows it. */
+/**
+ * Where to pause so the screen shows `playheadOffsetMs`. rrweb leaves out an
+ * event at the exact time it pauses on, so the recording's end needs one past
+ * it, or its final event never reaches the screen.
+ */
+export function replayFramePauseMs(
+  playheadOffsetMs: number,
+  totalTimeMs: number,
+): number {
+  return playheadOffsetMs >= totalTimeMs ? totalTimeMs + 1 : playheadOffsetMs;
+}
+
 export function replayFrameFitScale(
   recorded: { width: number; height: number },
   available: { width: number; height: number },

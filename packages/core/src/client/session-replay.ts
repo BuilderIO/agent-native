@@ -4284,9 +4284,9 @@ export type SessionReplayAgentChatEvent = {
   phase: "surface-mounted" | "run-observed" | "run-stopped" | "run-failed";
   surface: string | number;
   threadId?: string | number;
-  runId?: string | number;
-  tabId?: string | number;
-  errorCode?: string;
+  runId?: string | number | undefined;
+  tabId?: string | number | undefined;
+  errorCode?: string | undefined;
   recoverable?: boolean;
 };
 

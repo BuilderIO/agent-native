@@ -3003,13 +3003,22 @@ function patchReactRouterServerManifestSource(
     /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
-    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
-    const serverManifest = evaluateReactRouterServerManifest(
-      source,
-      serverBuildFile,
-      valueStart,
-      valueEnd,
-    );
+    let valueEnd: number;
+    let serverManifest: unknown;
+    // Any bundled library can assign an object with an `entry` key, and one
+    // that reads a variable can't be evaluated here. The real manifest is plain
+    // data; if nothing matches, the caller reports the manifest as not found.
+    try {
+      valueEnd = findJavaScriptObjectEnd(source, valueStart);
+      serverManifest = evaluateReactRouterServerManifest(
+        source,
+        serverBuildFile,
+        valueStart,
+        valueEnd,
+      );
+    } catch {
+      continue;
+    }
     if (
       !serverManifest ||
       typeof serverManifest !== "object" ||

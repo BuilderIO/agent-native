@@ -478,7 +478,7 @@ describe("consent bootstrap", () => {
     expect(page.loaded).toEqual([widget]);
   });
 
-  describe("on a URL holding an agent link's token", () => {
+  describe("on a URL holding a signed link's token", () => {
     const signInSearch = (returnPath: string) =>
       `?c=${encodeContinuation(returnPath)}`;
     const linkPath = "/sessions/sr_1?agent_access=fake-test-token";
@@ -495,6 +495,21 @@ describe("consent bootstrap", () => {
       ],
       ["a legacy return path", `?return=${encodeURIComponent(linkPath)}`],
       ["a return path it can't read", "?c=%25%25%25"],
+      ["an encoded parameter name", "?agent%5Faccess=fake-test-token"],
+      [
+        "a doubly encoded parameter name",
+        "?target=agent%255Faccess%253Dfake-test-token",
+      ],
+      [
+        "a sign-in page whose return path encodes the name",
+        signInSearch("/sessions/sr_1?agent%5Faccess=fake-test-token"),
+      ],
+      [
+        "a Clips intake link",
+        "?clip_intake_id=i_1&clip_intake=fake-test-token",
+      ],
+      ["an embed link", "?__an_embed_token=fake-test-token"],
+      ["encoding deeper than any real URL", `?target=%${"25".repeat(9)}41`],
     ])("loads no tag on %s", async (_page, search) => {
       const page = await loadPage({
         region: "none",
@@ -516,6 +531,15 @@ describe("consent bootstrap", () => {
       for (const [, load] of queued) load();
 
       expect(page.loaded).toEqual([]);
+    });
+
+    it.each([
+      ["a stray percent sign", "?utm_term=50%off"],
+      ["an encoded ordinary value", "?q=agent%20access"],
+    ])("still loads tags on a URL with %s", async (_page, search) => {
+      const page = await loadPage({ region: "none", search });
+
+      expect(page.tags.sort()).toEqual(["ga", "gtm"]);
     });
 
     it("still loads tags on a sign-in page with an ordinary return path", async () => {

@@ -76,11 +76,11 @@ const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
 /** The action name when a captured request called an Agent-Native action. */
 export function replayActionName(url: string | undefined): string | null {
   if (!url) return null;
-  const match = ACTION_ROUTE_PATTERN.exec(url);
-  if (!match) return null;
+  const name = ACTION_ROUTE_PATTERN.exec(url)?.[1];
+  if (!name) return null;
   try {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(name);
   } catch {
-    return match[1];
+    return name;
   }
 }
