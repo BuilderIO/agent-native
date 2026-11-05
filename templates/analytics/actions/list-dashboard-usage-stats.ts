@@ -109,6 +109,7 @@ function dashboardUrl(row: { id: string; kind: string }): string {
 }
 
 export default defineAction({
+  searchHints: ["most used dashboards", "dashboard views", "unused dashboards"],
   description:
     "List admin-only dashboard usage and cleanup stats for every dashboard in the active organization. Includes lifecycle metadata, owner, last tracked modifier, pageviews, edit counts, engagement events, unique viewers, saved view counts, archive/hidden state, and dashboard links. Requires active organization owner/admin role.",
   schema: z.object({}),

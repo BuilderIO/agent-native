@@ -52,6 +52,7 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
+import { ActionDefinitionError, isActionDefinitionError } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -131,6 +132,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -155,7 +157,9 @@ import {
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
+  hasPrivateActionHistory,
   mergeThreadDataForClientSave,
+  sanitizeThreadDataForPrivateActions,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -301,7 +305,8 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
+import { discoverAgentContextAgents } from "./agent-context-agents.js";
+import { getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -327,9 +332,8 @@ import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
-  actionDefinition,
   discoveredActionMcpAnnotations,
-  filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 import {
   getH3App,
@@ -816,13 +820,19 @@ export function resolveConfiguredAgentModel(
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
     AgentChatPluginOptions,
-    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+    | "runSoftTimeoutMs"
+    | "runNoProgressTimeoutMs"
+    | "durableBackgroundRuns"
+    | "reasoningEffort"
   >,
 ) {
   return {
     runSoftTimeoutMs: options?.runSoftTimeoutMs,
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
+    ...(options?.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
   };
 }
 
@@ -1786,7 +1796,8 @@ export function createAgentChatPlugin(
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
           templateScriptsAll = await autoDiscoverActions("auto");
-        } catch {
+        } catch (error) {
+          if (isActionDefinitionError(error)) throw error;
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
       }
@@ -1888,6 +1899,7 @@ export function createAgentChatPlugin(
         // Auto-discover template action files and register as bash-based tools.
         // This ensures templates without a custom agent-chat plugin (e.g., analytics)
         // still have their domain actions available as tools.
+        const definitionErrors: ActionDefinitionError[] = [];
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
@@ -1904,16 +1916,21 @@ export function createAgentChatPlugin(
               // run function (not a shell wrapper). This makes HTTP endpoints
               // work correctly. Only fall back to shell wrapper if the import
               // fails (e.g., CLI-style scripts that throw at top level).
+              // A definition error is rethrown below, past the catch that
+              // skips unreadable discovery, so it fails the load instead.
               try {
-                const mod = await import(/* @vite-ignore */ filePath);
-                const def = actionDefinition(mod);
-                if (def) {
-                  discoveredActionsAll[name] = filesystemActionEntry(def);
+                const entry = await importDevActionEntry(filePath, name);
+                if (entry) {
+                  discoveredActionsAll[name] = entry;
                   continue;
                 }
-              } catch {
-                // Fall through to shell wrapper for CLI-style scripts
-                // (and .ts files Node can't parse natively).
+              } catch (error) {
+                if (isActionDefinitionError(error)) {
+                  definitionErrors.push(error);
+                  continue;
+                }
+                // Anything else falls through to the shell wrapper, as an
+                // unimportable CLI script does.
               }
 
               // Static-parse the source for `http`, `agentTool: false`,
@@ -2023,6 +2040,11 @@ export function createAgentChatPlugin(
               `[agent-chat] Auto-discovered ${Object.keys(discoveredActionsAll).length} action(s): ${Object.keys(discoveredActionsAll).join(", ")}`,
             );
         } catch {}
+        if (definitionErrors.length > 0) {
+          throw new ActionDefinitionError(
+            definitionErrors.map((error) => error.message).join("\n"),
+          );
+        }
       }
 
       // Agent-facing views of the discovered actions: actions that opted out of
@@ -2239,7 +2261,7 @@ export function createAgentChatPlugin(
         workspaceFileActions = createWorkspaceFileActionEntries();
       } catch {}
       let toolActions: Record<string, ActionEntry> =
-        createDataWidgetActionEntries();
+        createDataWidgetActionEntries(options?.validateDataWidget);
       if (extensionToolsEnabled) {
         try {
           const { createExtensionActionEntries } =
@@ -3990,6 +4012,11 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const privateChatHistoryActionNames = new Set(
+        Object.entries(httpActions)
+          .filter(([, action]) => action.persistInChatHistory === false)
+          .map(([name]) => name),
+      );
       reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
@@ -4470,7 +4497,12 @@ export function createAgentChatPlugin(
         if (!threadId) return;
         const ownerEmail =
           getRequestRunContext()?.owner ?? getRequestUserEmail();
-        if (!ownerEmail) return;
+        if (!ownerEmail) {
+          console.warn(
+            `[agent-chat] prompt not saved for run ${details.runId}: no owner on the request (thread ${threadId}, turn ${details.turnId})`,
+          );
+          return;
+        }
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;
@@ -5409,7 +5441,7 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 
 1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
 2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent-Native Desktop, Claude Code, or Codex in the project directory.
-3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core@latest add-app\` in this workspace directory as the CLI path.
+3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`pnpm exec agent-native add-app\` in this workspace directory as the CLI path.
 
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
@@ -7154,9 +7186,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId, {
-                    includePersonalAgents: true,
-                  });
+                  const agents = await discoverAgentContextAgents(
+                    options?.appId,
+                    { includePersonalAgents: true },
+                  );
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,
@@ -7804,6 +7837,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // to `getActiveRunForThreadAsync`'s return type does NOT reach
               // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
+              // Whether sending the same prompt again can succeed. Null when
+              // the run has not errored or recorded no reason, so a client
+              // keeps its own default.
+              retryable:
+                run.status === "errored" && run.terminalReason
+                  ? isRunFailureRetryable(run.terminalReason)
+                  : null,
             };
           }
 
@@ -8360,7 +8400,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
-                const nextPreview =
+                let nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
@@ -8379,6 +8419,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }
                 };
                 let isSnapshotDelta = false;
+                let privateHistoryDetected = false;
                 let existing: unknown;
                 try {
                   existing = JSON.parse(thread.threadData);
@@ -8394,6 +8435,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 500);
                   return { error: "Stored thread data is invalid JSON" };
                 }
+                privateHistoryDetected = hasPrivateActionHistory(
+                  existing,
+                  privateChatHistoryActionNames,
+                );
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
@@ -8429,6 +8474,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       retryable: false,
                     };
                   }
+                  privateHistoryDetected ||= hasPrivateActionHistory(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
+                  incoming = sanitizeThreadDataForPrivateActions(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
                   const incomingAgentKit = (incoming as Record<string, unknown>)
                     .agentKit;
                   isSnapshotDelta =
@@ -8438,11 +8493,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     (incomingAgentKit as Record<string, unknown>)
                       ._snapshotDelta === true;
                   if (isSnapshotDelta) {
+                    newThreadData = JSON.stringify(incoming);
                     preserveTitleOverride(existing);
                   } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
+                      {
+                        privateActionNames: privateChatHistoryActionNames,
+                      },
                     );
                     newThreadData = JSON.stringify(merged);
                     if (Array.isArray(merged.messages)) {
@@ -8464,6 +8523,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     body.title !== thread.title)
                 ) {
                   assertThreadOwner(thread, owner);
+                }
+                if (privateHistoryDetected) {
+                  nextTitle = thread.title;
+                  nextPreview = thread.preview;
                 }
                 let updated: boolean;
                 try {
@@ -9993,6 +10056,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
             };
           } catch (error) {
+            if (error && typeof error === "object" && "statusCode" in error) {
+              if (error.statusCode === 403) {
+                setResponseStatus(event, 403);
+                return { error: "Workspace membership required" };
+              }
+              if (error.statusCode === 503) {
+                setResponseStatus(event, 503);
+                return {
+                  error: "Organization scope is temporarily unavailable.",
+                };
+              }
+            }
             console.error("[agent-chat] stream token unavailable:", error);
             setResponseStatus(event, 503);
             return { error: "Agent-chat streaming is not configured" };
@@ -10066,7 +10141,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the

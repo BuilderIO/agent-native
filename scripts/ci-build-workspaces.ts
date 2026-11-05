@@ -11,6 +11,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
+
 export function isPrerenderConfig(source: string): boolean {
   return /\bprerender\s*:/.test(source);
 }
@@ -71,19 +73,19 @@ export function buildPasses(input: {
 export function selectedPrerenderPackages(
   filters: readonly string[],
 ): string[] {
+  const pnpm = pnpmCommand([
+    "-r",
+    ...filters.flatMap((filter) => ["--filter", filter]),
+    "ls",
+    "--depth",
+    "-1",
+    "--json",
+  ]);
   const listed = JSON.parse(
-    execFileSync(
-      "pnpm",
-      [
-        "-r",
-        ...filters.flatMap((filter) => ["--filter", filter]),
-        "ls",
-        "--depth",
-        "-1",
-        "--json",
-      ],
-      { encoding: "utf8" },
-    ),
+    execFileSync(pnpm.command, pnpm.args, {
+      encoding: "utf8",
+      shell: pnpm.shell,
+    }),
   ) as Array<{ name?: string; path: string }>;
   return listed
     .filter((pkg) => {
@@ -115,7 +117,11 @@ function main(): void {
     rootPackage,
   })) {
     console.log(`\n$ pnpm ${args.join(" ")}`);
-    const result = spawnSync("pnpm", args, { stdio: "inherit" });
+    const pnpm = pnpmCommand(args);
+    const result = spawnSync(pnpm.command, pnpm.args, {
+      stdio: "inherit",
+      shell: pnpm.shell,
+    });
     if (result.status === 0) continue;
     failed = true;
     if (full) break;

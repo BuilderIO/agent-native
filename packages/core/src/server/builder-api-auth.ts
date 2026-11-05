@@ -20,6 +20,7 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 import {
@@ -416,6 +417,18 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
+}
+
+/** A Builder OAuth grant is stored for this request, readable or not. */
+export async function hasStoredBuilderApiOAuthGrant(): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return false;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
+  return readCredentialStore(() =>
+    storageOnly
+      ? hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId, { orgOnly: true })
+      : hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId),
+  );
 }
 
 export async function canAuthorizeBuilderApiRequest(

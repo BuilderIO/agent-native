@@ -13263,6 +13263,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
             />
           ))}
+        {ghostDesignId && generatingScreenOrigin ? (
+          <GeneratingScreenGhost
+            designId={ghostDesignId}
+            origin={generatingScreenOrigin}
+            showPendingSkeleton={screens.length === 0}
+          />
+        ) : null}
       </div>
 
       {showPixelGrid && !focusedInteract ? (
@@ -13463,15 +13470,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           />
         )
-      ) : null}
-
-      {ghostDesignId && generatingScreenOrigin ? (
-        <GeneratingScreenGhost
-          designId={ghostDesignId}
-          origin={generatingScreenOrigin}
-          pan={pan}
-          scale={scale}
-        />
       ) : null}
 
       {duplicatePreview ? (

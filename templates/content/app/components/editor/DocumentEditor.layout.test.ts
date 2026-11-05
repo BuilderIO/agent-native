@@ -195,6 +195,7 @@ describe("document editor layout", () => {
       contentChanged: false,
       editorSessionId: "editor-session",
       editGeneration: 4,
+      confirmedEditGeneration: 0,
       isLinkedLocalSource: false,
       isLocalFile: false,
     };
@@ -203,6 +204,15 @@ describe("document editor layout", () => {
     expect(
       shouldAttestUnchangedEditorSave({ ...base, editorSessionId: undefined }),
     ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, editGeneration: 0 }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, confirmedEditGeneration: 4 }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, confirmedEditGeneration: 3 }),
+    ).toBe(true);
     expect(
       shouldAttestUnchangedEditorSave({ ...base, contentChanged: true }),
     ).toBe(false);
@@ -1112,6 +1122,46 @@ describe("document editor layout", () => {
     expect(
       presented.slice(1).map((part) => part.settlementReadbackContent),
     ).toEqual([readback, readback]);
+  });
+  it("draws a draft that mostly rewrites a paragraph as it draws once saved", () => {
+    const before =
+      "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.";
+    const after =
+      "Plenty of neighbors had the same problem, and the shelf grew.";
+    const operation = markdownSuggestionOperation(before, after);
+    if (!operation) throw new Error("no operation");
+    const from = operation.anchor.from;
+    const drawn = (
+      presentations: ReturnType<typeof suggestionPresentations> | null,
+    ) =>
+      presentations?.map(({ beforeText, afterText }) => [
+        beforeText,
+        afterText,
+      ]);
+    const draft = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from,
+          to: from + operation.after.changedText.length,
+          prefix: "",
+          suffix: "",
+        },
+      } as never,
+      after,
+    );
+    const saved = suggestionPresentations(
+      { id: "saved", status: "pending", operations: [operation] },
+      before,
+    );
+    expect(drawn(draft)).toEqual([
+      [
+        "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected",
+        "Plenty of neighbors had the same problem, and the shelf grew",
+      ],
+    ]);
+    expect(drawn(draft)).toEqual(drawn(saved));
   });
   it("maps multi-hunk draft previews through the parent anchor into the current draft", () => {
     const before =

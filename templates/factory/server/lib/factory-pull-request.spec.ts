@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { GitHubRequestError } from "../triage/github-client.js";
 import {
   DEFAULT_BABYSIT_BOT_AUTHORS,
   isBabysitBotAuthor,
@@ -12,6 +13,7 @@ import {
 import {
   BUILDER_MERGE_AUTHOR_LOGINS,
   classifyPullRequestAuthor,
+  failGitHubStep,
   parseRepositoryInput,
   readPullRequestEvidence,
 } from "./factory-pull-request.js";
@@ -84,6 +86,45 @@ describe("classifyPullRequestAuthor", () => {
     ).toBe("bot");
     // A person's id on the list does not make their login Builder's.
     expect(classifyPullRequestAuthor("octocat", 1001, ids)).toBe("human");
+  });
+});
+
+describe("failGitHubStep", () => {
+  const failureOf = (error: unknown) => {
+    try {
+      failGitHubStep(error, "reading the pull request");
+    } catch (thrown) {
+      return thrown as Error & { errorCode: string; retryable?: boolean };
+    }
+    throw new Error("expected a failure");
+  };
+
+  it("types a rejected token (401) apart from a token that is missing and from one that lacks permission, and says to refresh it", () => {
+    const rejected = failureOf(
+      new GitHubRequestError("Bad credentials", true, 401),
+    );
+    expect(rejected.errorCode).toBe("github_credential_rejected");
+    expect(rejected.message).toContain("Refresh the saved GitHub token");
+    expect(rejected.message).toContain("HTTP 401");
+    expect(rejected.retryable).toBeFalsy();
+
+    expect(
+      failureOf(new GitHubRequestError("Forbidden", true, 403)).errorCode,
+    ).toBe("github_access_denied");
+    expect(failureOf(new GitHubRequestError("no token", false)).errorCode).toBe(
+      "github_not_connected",
+    );
+  });
+
+  it("never puts GitHub's response text in the message", () => {
+    const rejected = failureOf(
+      new GitHubRequestError(
+        "GitHub API request failed: HTTP 401 - PLANTED-RESPONSE-TEXT",
+        true,
+        401,
+      ),
+    );
+    expect(rejected.message).not.toContain("PLANTED-RESPONSE-TEXT");
   });
 });
 

@@ -198,6 +198,46 @@ describe("ReviewCommentComposer", () => {
     ).not.toBeNull();
   });
 
+  it("keeps the reply variant expanded until a press outside it has finished", async () => {
+    await render(
+      <ReviewCommentComposer
+        variant="reply"
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+    const field = container.querySelector("[data-review-composer-field]");
+    const dispatchFocus = (type: "focusin" | "focusout") =>
+      act(() => {
+        editorDom().dispatchEvent(new FocusEvent(type, { bubbles: true }));
+      });
+    const press = (type: "pointerdown" | "pointerup") =>
+      act(() => {
+        document.body.dispatchEvent(new Event(type, { bubbles: true }));
+      });
+
+    dispatchFocus("focusin");
+    expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+    vi.useFakeTimers();
+    try {
+      press("pointerdown");
+      dispatchFocus("focusout");
+      expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+      press("pointerup");
+      expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      expect(field?.hasAttribute("data-expanded")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stays expanded while the reply has content", async () => {
     await render(
       <ReviewCommentComposer
@@ -303,7 +343,6 @@ describe("ReviewCommentComposer", () => {
         onSubmit={onSubmit}
         showCommentAction={false}
         showAgentAction
-        submitOnEnter
       />,
     );
     const event = keydown("Enter");
@@ -406,11 +445,7 @@ describe("ReviewCommentComposer", () => {
     const onSubmit = vi.fn();
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(
-      <Harness
-        submitOnEnter
-        onSubmit={onSubmit}
-        onState={(next) => (state = next)}
-      />,
+      <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
     );
     typeText("Hello");
     const shiftEnter = keydown("Enter", { shiftKey: true });
@@ -424,15 +459,48 @@ describe("ReviewCommentComposer", () => {
     expect(state).toEqual({ value: "Hello\nworld", mentions: [] });
   });
 
+  it("sends on Enter and Cmd/Ctrl+Enter, but not while an input method is composing", async () => {
+    const onSubmit = vi.fn();
+    await render(<Harness initialValue="Hello" onSubmit={onSubmit} />);
+
+    keydown("Enter", { isComposing: true });
+    const legacyComposing = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(legacyComposing, "keyCode", { value: 229 });
+    act(() => {
+      editorDom().dispatchEvent(legacyComposing);
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    keydown("Enter", { metaKey: true });
+    keydown("Enter", { ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves Enter for new lines when submitOnEnter is off, and still sends on Cmd/Ctrl+Enter", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <Harness
+        initialValue="Hello"
+        submitOnEnter={false}
+        onSubmit={onSubmit}
+      />,
+    );
+    keydown("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    keydown("Enter", { ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledWith("human");
+  });
+
   it("opens the picker above the field on @ and picks with the keyboard", async () => {
     const onSubmit = vi.fn();
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(
-      <Harness
-        submitOnEnter
-        onSubmit={onSubmit}
-        onState={(next) => (state = next)}
-      />,
+      <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
     );
     typeText("Hey ");
     const atKey = keydown("@");
@@ -688,6 +756,17 @@ describe("ReviewCommentComposer", () => {
     } finally {
       window.removeEventListener("keydown", onWindowKeyDown);
     }
+  });
+
+  it("leaves Escape to an input method that is composing", async () => {
+    const onEscape = vi.fn();
+    await render(<Harness onEscape={onEscape} />);
+
+    keydown("Escape", { isComposing: true });
+    expect(onEscape).not.toHaveBeenCalled();
+
+    keydown("Escape");
+    expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
   it("opens the picker from the toolbar button", async () => {

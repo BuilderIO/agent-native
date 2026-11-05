@@ -2,6 +2,7 @@ import type {
   ReviewMention,
   ReviewResolutionTarget,
 } from "@agent-native/core/review/types";
+import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -28,6 +29,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 
+import { isComposingKey, isCommentSendKey } from "./comment-send-key.js";
 import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
@@ -93,6 +95,11 @@ export interface ReviewCommentComposerProps {
   agentLabel?: string;
   contextLabel?: string | undefined;
   autoFocus?: boolean | undefined;
+  /**
+   * Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too,
+   * as in every comment box. Pass `false` to make Enter start a new line,
+   * leaving Cmd/Ctrl+Enter to send.
+   */
   submitOnEnter?: boolean | undefined;
   enterSubmitTarget?: ReviewResolutionTarget;
   onEscape?: (() => void) | undefined;
@@ -136,7 +143,7 @@ export function ReviewCommentComposer({
   agentLabel = "Send to agent",
   contextLabel,
   autoFocus = false,
-  submitOnEnter = false,
+  submitOnEnter = true,
   enterSubmitTarget = "human",
   onEscape,
   variant = "expanded",
@@ -150,7 +157,7 @@ export function ReviewCommentComposer({
   const editorRef = useRef<ReviewComposerEditorHandle>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const [editorReady, setEditorReady] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const { focused, focusWithinProps } = useFocusWithinThroughPress(fieldRef);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -300,6 +307,9 @@ export function ReviewCommentComposer({
   };
 
   const handleKeyDown = (event: KeyboardEvent): boolean => {
+    // While an input method is composing, its keys (Escape to cancel, arrows
+    // to pick a candidate, Enter to confirm) belong to it.
+    if (isComposingKey(event)) return false;
     if (event.key === "Escape") {
       if (mentionMenuOpen) {
         closeMention();
@@ -314,8 +324,7 @@ export function ReviewCommentComposer({
       }
       return false;
     }
-    const isComposing = event.isComposing || event.keyCode === 229;
-    if (mentionListOpen && !isComposing) {
+    if (mentionListOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -335,7 +344,6 @@ export function ReviewCommentComposer({
     if (
       mentionOptions.length > 0 &&
       event.key === "@" &&
-      !isComposing &&
       !event.metaKey &&
       !event.ctrlKey &&
       !event.altKey
@@ -354,10 +362,8 @@ export function ReviewCommentComposer({
       }
     }
     if (
-      submitOnEnter &&
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !isComposing
+      isCommentSendKey(event) &&
+      (submitOnEnter || event.metaKey || event.ctrlKey)
     ) {
       event.preventDefault();
       submitVisibleAction(enterSubmitTarget);
@@ -434,11 +440,7 @@ export function ReviewCommentComposer({
               ? "border-input focus-within:border-[color:var(--review-composer-focus,hsl(var(--ring)))]"
               : "border-transparent",
           )}
-          onFocusCapture={() => setFocused(true)}
-          onBlurCapture={(event) => {
-            if (!fieldRef.current?.contains(event.relatedTarget as Node | null))
-              setFocused(false);
-          }}
+          {...focusWithinProps}
           onClick={(event) => {
             if (
               !disabled &&

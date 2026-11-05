@@ -26,6 +26,40 @@ export interface AppDefinition {
   placeholder?: boolean;
 }
 
+export interface NativeManifest {
+  uses: Array<
+    | "capture.screen@1"
+    | "capture.audio@1"
+    | "capture.camera@1"
+    | "speech.transcribe@1"
+    | "dictation.insert@1"
+    | "meetings.detect@1"
+    | "calendar.read@1"
+    | "screen.memory@1"
+    | "hotkeys@1"
+    | "menubar@1"
+    | "surfaces@1"
+    | "notifications@1"
+    | "background@1"
+  >;
+  menubar?: {
+    id: string;
+    icon: string;
+    popover: string;
+    size: [number, number];
+  };
+  hotkeys?: Array<{ id: string; default: string; action: string }>;
+  surfaces?: Array<{
+    id: string;
+    route: string;
+    kind: "overlay" | "window";
+    excludeFromCapture?: boolean;
+    clickThrough?: boolean;
+  }>;
+  background?: { keepAlive?: boolean; launchAtLogin?: boolean | "ask" };
+  extensions?: Array<{ id: string; version: string }>;
+}
+
 export interface AppConfig {
   id: string;
   name: string;
@@ -42,6 +76,7 @@ export interface AppConfig {
   enabled: boolean;
   mode?: "dev" | "prod";
   workspaceSso?: boolean;
+  native?: NativeManifest;
 }
 
 export const WORKSPACE_APP_LIST_FLAG_KEY = "dispatch.workspace-app-list";
