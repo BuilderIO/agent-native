@@ -173,6 +173,16 @@ function requireWorkspaceAppOrgId(): string {
   return orgId;
 }
 
+function workspaceAppAccessUnavailableError(): ActionContractError {
+  return new ActionContractError(
+    "Workspace app access is temporarily unavailable.",
+    {
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    },
+  );
+}
+
 class WorkspaceAppsGatewayAuthorizationError extends ActionContractError {
   constructor(
     statusCode: 401 | 403 | 503,
@@ -1663,7 +1673,6 @@ async function ensureWorkspaceAppRecords(
   // may write must have one before it touches the database.
   const orgId = shouldPersist ? requireWorkspaceAppOrgId() : null;
   const metadata = await readWorkspaceAppMetadataSettings();
-  const db = getDbExec();
   const records = new Map<
     string,
     {
@@ -1676,6 +1685,7 @@ async function ensureWorkspaceAppRecords(
   const unresolvedIds: string[] = [];
 
   try {
+    const db = getDbExec();
     const existingRecords = new Map<
       string,
       {
@@ -1822,9 +1832,8 @@ async function ensureWorkspaceAppRecords(
         `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
       );
     }
-  } catch (error) {
-    console.warn("[dispatch] workspace app access records unavailable", error);
-    return apps;
+  } catch {
+    throw workspaceAppAccessUnavailableError();
   }
 
   return apps.map((app) => {
@@ -1877,10 +1886,18 @@ async function filterWorkspaceAppsByAccess(
       continue;
     }
     if (app.isDispatch) {
-      const dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
-        email: userEmail,
-        orgId,
-      });
+      let dispatchAccess: boolean | "unavailable";
+      try {
+        dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
+          email: userEmail,
+          orgId,
+        });
+      } catch {
+        throw workspaceAppAccessUnavailableError();
+      }
+      if (dispatchAccess === "unavailable") {
+        throw workspaceAppAccessUnavailableError();
+      }
       if (dispatchAccess === true) {
         visibleIds.add(app.id);
       }
@@ -1898,8 +1915,8 @@ async function filterWorkspaceAppsByAccess(
         { skipResourceBody: true },
       );
       for (const id of access.keys()) visibleIds.add(id);
-    } catch (error) {
-      console.warn("[dispatch] workspace app access lookup failed", error);
+    } catch {
+      throw workspaceAppAccessUnavailableError();
     }
   }
 

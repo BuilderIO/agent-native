@@ -596,6 +596,32 @@ describe("listWorkspaceApps", () => {
       expect((await request()).status).toBe(200);
     });
 
+    it.each(["membership", "claim"])(
+      "reports claim %s failures as unavailable",
+      async (step) => {
+        const execute = vi.fn();
+        if (step === "claim")
+          execute.mockResolvedValueOnce({ rows: [{ role: "admin" }] });
+        execute.mockRejectedValue(new Error("sensitive database detail"));
+        mocks.getDbExec.mockImplementation(() => ({ execute }));
+
+        await expect(
+          runWithRequestContext(
+            { userEmail: "dev@example.test", orgId: "org-123" },
+            () =>
+              claimWorkspaceAppOrganization.run(
+                { appId: "analytics" },
+                undefined,
+              ),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          errorCode: "workspace_app_access_unavailable",
+          message: "Workspace app access is temporarily unavailable.",
+        });
+      },
+    );
+
     it("reports a genuinely disabled app as denied", async () => {
       const { request, registryCalls, registryResults, run } =
         await exerciseRegistryAccess("deny");
@@ -2143,12 +2169,16 @@ describe("listWorkspaceApps", () => {
       new Error('relation "workspace_app_shares" does not exist'),
     );
 
-    const apps = await runWithRequestContext(
-      { userEmail: "dev@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
-
-    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+      message: "Workspace app access is temporarily unavailable.",
+    });
   });
 
   it("does not expose Dispatch after federated membership is revoked", async () => {
@@ -2167,16 +2197,41 @@ describe("listWorkspaceApps", () => {
     });
   });
 
-  it("does not expose Dispatch when its access check is unavailable", async () => {
+  it("reports an unavailable Dispatch access check without returning a list", async () => {
     stubManifest();
     mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
 
-    const apps = await runWithRequestContext(
-      { userEmail: "member@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
+  });
 
-    expect(apps).toEqual([]);
+  it("does not return registry apps when access records cannot be read", async () => {
+    stubManifest([
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.getDbExec.mockImplementation(() => ({
+      execute: vi
+        .fn()
+        .mockRejectedValue(new Error("sensitive database detail")),
+    }));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+      message: "Workspace app access is temporarily unavailable.",
+    });
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {
@@ -2862,12 +2917,15 @@ describe("listWorkspaceApps", () => {
     mocks.getDbExec.mockReturnValue({ execute });
     mocks.resolveAccess.mockResolvedValue(null);
 
-    const apps = await runWithRequestContext(
-      { userEmail: "viewer@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
-
-    expect(apps).toEqual([]);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "viewer@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   });
 
   it("hides expired pending Builder app rows", async () => {

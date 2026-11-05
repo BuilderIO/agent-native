@@ -6,6 +6,7 @@ import {
   signA2AOrgMemberDelegationToken,
   signA2AToken,
 } from "../a2a/client.js";
+import { ActionContractError } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -29,6 +30,7 @@ import {
   registryErrorDetail,
   workspaceAppAccessUnavailable,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
   type WorkspaceAppAccessCheck,
   type WorkspaceAppAccessOutcome,
   type WorkspaceAppAccessUnavailable,
@@ -671,7 +673,7 @@ async function claimHostedWorkspaceApp(
 async function localOrganizationAppEnabled(
   appId: string,
   orgId: string | null,
-): Promise<boolean | null> {
+): Promise<boolean | null | WorkspaceAppAccessUnavailable> {
   if (!orgId) return null;
   const key = `local-app:${appId}:${orgId}`;
   const cached = getCachedWorkspaceAccess<boolean>(key);
@@ -695,14 +697,8 @@ async function localOrganizationAppEnabled(
     );
     rememberWorkspaceAccess(key, enabled, generation);
     return enabled;
-  } catch (error) {
-    if (!isMissingOrganizationTableError(error)) {
-      console.error(
-        "[workspace-app-access] local organization app state unavailable",
-        error,
-      );
-    }
-    return null;
+  } catch {
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
 
@@ -863,21 +859,23 @@ export async function claimWorkspaceAppForOrganization(
     }
     const role = effectiveOrgMemberRole(member.role, orgId, email);
     return role
-      ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+      ? await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
           ...member,
           role,
         })
       : false;
-  } catch (error) {
-    console.error("[workspace-app-access] organization claim failed", error);
-    return false;
+  } catch {
+    throw new ActionContractError(WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE, {
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   }
 }
 
 async function isDispatchWorkspaceAppAccessAllowed(
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<boolean> {
+): Promise<WorkspaceAppAccessCheck> {
   const orgId = context.orgId?.trim() || null;
   if (!orgId) return true;
 
@@ -893,8 +891,7 @@ async function isDispatchWorkspaceAppAccessAllowed(
     ) {
       return true;
     }
-    console.error("[workspace-app-access] Dispatch access check failed", error);
-    return false;
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
 
@@ -931,7 +928,12 @@ export async function checkWorkspaceAppAccess(
       normalizedAppId,
       context.orgId?.trim() || null,
     );
-    if (locallyEnabled === false) return false;
+    if (
+      locallyEnabled === false ||
+      isWorkspaceAppAccessUnavailable(locallyEnabled)
+    ) {
+      return locallyEnabled;
+    }
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(
@@ -956,7 +958,7 @@ export async function checkWorkspaceAppAccess(
       }
       const role = effectiveOrgMemberRole(member.role, orgId, email);
       return role
-        ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+        ? await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
             ...member,
             role,
           })
@@ -1029,9 +1031,8 @@ export async function checkWorkspaceAppAccess(
         typeof row.principal_id === "string" ? row.principal_id : "",
       )
       .filter(Boolean);
-    return workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
-  } catch (error) {
-    console.error("[workspace-app-access] access check failed", error);
-    return false;
+    return await workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
+  } catch {
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }

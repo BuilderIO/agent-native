@@ -166,7 +166,27 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
-  it("fails closed for hosted Dispatch when its org schema is absent", async () => {
+  it("reports Dispatch membership lookup failures as unavailable", async () => {
+    mocks.execute.mockRejectedValueOnce(new Error("sensitive database detail"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      await expect(
+        checkWorkspaceAppAccess("dispatch", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "local-access-lookup-failed",
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports an absent hosted Dispatch org schema as unavailable", async () => {
     vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     resetAppConfigForTests();
@@ -179,7 +199,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         email: "member@example.com",
         orgId: "org-1",
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
   });
 
   it("allows organization members for org-visible apps", async () => {
@@ -225,7 +245,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
           email: "member@example.com",
           orgId: "org-1",
         }),
-      ).resolves.toBe(false);
+      ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
     } finally {
       consoleError.mockRestore();
     }
@@ -1442,6 +1462,41 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not grant hosted access when the local disable check fails", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockRejectedValueOnce(new Error("sensitive database detail"))
+      .mockResolvedValue({ rows: [{ allowed_domain: "example.test" }] });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json([{ id: "analytics", orgEnabled: true }]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      await expect(
+        checkWorkspaceAppAccess("analytics", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "local-access-lookup-failed",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   describe("unavailable outcome names its cause", () => {
     beforeEach(() => {
       invalidateMemberOrgCaches();
@@ -1513,9 +1568,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
     it("reports an organization domain lookup failure without calling the registry", async () => {
       stubDirectory("https://domain-lookup.example.test/dispatch");
-      mocks.execute.mockRejectedValue(
-        new Error("organization store unavailable"),
-      );
+      mocks.execute
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValue(new Error("organization store unavailable"));
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -1537,6 +1592,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       async (identity) => {
         stubDirectory("https://secret-lookup.example.test/dispatch");
         mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => {
+          if (sql?.includes("SELECT org_enabled")) return { rows: [] };
           if (sql?.includes("SELECT allowed_domain")) {
             return { rows: [{ allowed_domain: "example.test" }] };
           }

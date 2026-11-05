@@ -16,7 +16,8 @@ export type WorkspaceAppAccessUnavailableReason =
   | "registry-http-error"
   | "registry-malformed-response"
   | "claim-http-error"
-  | "claim-malformed-response";
+  | "claim-malformed-response"
+  | "local-access-lookup-failed";
 
 /**
  * The access check could not reach a verdict. Distinct from `false`: the
