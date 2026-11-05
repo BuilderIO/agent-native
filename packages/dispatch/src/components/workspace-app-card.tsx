@@ -16,7 +16,6 @@ import {
   IconEyeOff,
   IconFileText,
   IconKey,
-  IconPin,
   IconShare3,
   IconSettings,
   IconTrash,
@@ -44,7 +43,8 @@ import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { AppKeysPanel } from "./app-keys-popover";
 import { AppListRow } from "./app-list-row";
-import { AppOpenActions } from "./app-open-actions";
+import { AppOpenActions, appOpenActionLabels } from "./app-open-actions";
+import { AppPinButton } from "./app-pin-button";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -248,13 +248,6 @@ export function WorkspaceAppCard({
       ...(whenToUseChanged ? { whenToUse: draftWhenToUseValues } : {}),
     });
   };
-  const pinLabel = t(
-    isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
-    {
-      name: app.name,
-      defaultValue: isPinned ? "Unpin this app" : "Pin this app",
-    },
-  );
 
   return (
     <>
@@ -297,16 +290,21 @@ export function WorkspaceAppCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {onTogglePinned ? (
+            <AppPinButton
+              appId={app.id}
+              name={app.name}
+              pinned={isPinned}
+              onToggle={onTogglePinned}
+            />
+          ) : null}
           <WorkspaceAppOpenActions
             app={app}
             href={directHref ?? href}
             openDirectly={Boolean(
               directHref && shouldOpenWorkspaceAppInTopWindow(),
             )}
-            isPinned={isPinned}
-            pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}
-            onTogglePinned={onTogglePinned}
           />
           <WorkspaceAppSettings
             app={app}
@@ -432,19 +430,14 @@ function WorkspaceAppOpenActions({
   app,
   href,
   openDirectly,
-  isPinned,
-  pinLabel,
   pendingOpenLabel,
-  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
   openDirectly: boolean;
-  isPinned: boolean;
-  pinLabel: string;
   pendingOpenLabel: string;
-  onTogglePinned?: () => void;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const appRoute = workspaceAppRoute(app.id);
   const isPending = app.status === "pending";
@@ -466,7 +459,7 @@ function WorkspaceAppOpenActions({
   if (!href) {
     return (
       <Button size="sm" variant="outline" disabled>
-        Open app
+        {t("dispatch.pages.openApp", { defaultValue: "Open" })}
       </Button>
     );
   }
@@ -476,22 +469,11 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
+      labels={appOpenActionLabels(t, app.name)}
       onOpen={() => {
         if (openDirectly && navigateToWorkspaceApp(href)) return;
         void navigate(appRoute);
       }}
-      menuItems={
-        onTogglePinned
-          ? [
-              {
-                id: "pin",
-                label: pinLabel,
-                icon: <IconPin size={14} strokeWidth={isPinned ? 2.2 : 1.7} />,
-                onSelect: onTogglePinned,
-              },
-            ]
-          : undefined
-      }
     />
   );
 }

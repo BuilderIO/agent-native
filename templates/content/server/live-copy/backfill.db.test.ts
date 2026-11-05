@@ -633,6 +633,13 @@ describe("a page whose live copy a tab already opened", () => {
       as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
     ).resolves.toEqual({ status: "deferred", reason: "live_edits" });
 
+    await expect(
+      as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx)),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_CONFLICT",
+      statusCode: 409,
+    });
+
     expect(await page(id)).toMatchObject({
       content: stored,
       bodyRevision: 1,
@@ -675,6 +682,13 @@ describe("a page whose live copy a tab already opened", () => {
     await expect(
       as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
     ).resolves.toEqual({ status: "deferred", reason: "live_edits" });
+
+    await expect(
+      as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx)),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_CONFLICT",
+      statusCode: 409,
+    });
 
     expect(await page(id)).toMatchObject({
       content: stored,

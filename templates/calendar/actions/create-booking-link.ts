@@ -33,6 +33,12 @@ const hostsSchema = z
   .optional();
 
 export default defineAction({
+  searchHints: [
+    "booking page",
+    "scheduling link",
+    "event type",
+    "let people book time",
+  ],
   description:
     "Create a new booking link/event type. Use this instead of raw SQL for booking links.",
   schema: z.object({

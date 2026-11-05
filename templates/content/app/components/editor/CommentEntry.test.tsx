@@ -10,17 +10,22 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync, createRetry } = vi.hoisted(() => ({
-  reconcile: vi.fn(),
-  mutateAsync: vi.fn(),
-  createRetry: vi.fn(),
-}));
+const { reconcile, mutateAsync, createRetry, deleteComment, toastError } =
+  vi.hoisted(() => ({
+    reconcile: vi.fn(),
+    mutateAsync: vi.fn(),
+    createRetry: vi.fn(),
+    deleteComment: vi.fn(),
+    toastError: vi.fn(),
+  }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     reconcileAmbiguous: reconcile,
     mutateAsync: createRetry,
   }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useDeleteComment: () => ({ isPending: false, mutateAsync: deleteComment }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -53,7 +58,21 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     children: ReactNode;
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
+  DropdownMenuSeparator: () => <hr />,
 }));
+vi.mock("@/components/ui/dialog", () => {
+  const Part = ({ children }: { children?: ReactNode }) => <>{children}</>;
+  return {
+    Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
+      open ? <div role="alertdialog">{children}</div> : null,
+    DialogClose: Part,
+    DialogContent: Part,
+    DialogDescription: Part,
+    DialogFooter: Part,
+    DialogHeader: Part,
+    DialogTitle: Part,
+  };
+});
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -132,9 +151,13 @@ function DraftProbe() {
 function Harness({
   visible = true,
   entry = comment,
+  canDeleteThread,
+  keepsAppliedAiChange,
 }: {
   visible?: boolean;
   entry?: Comment;
+  canDeleteThread?: boolean;
+  keepsAppliedAiChange?: boolean;
 }) {
   return (
     <CommentDraftProvider
@@ -148,6 +171,8 @@ function Harness({
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
+          canDeleteThread={canDeleteThread}
+          keepsAppliedAiChange={keepsAppliedAiChange}
         />
       )}
     </CommentDraftProvider>
@@ -510,4 +535,148 @@ it("keeps the exact AI conversation link in the comment overflow", async () => {
 
   await click("comments.aiOpenConversation");
   expect(onOpenAiConversation).toHaveBeenCalledOnce();
+});
+
+function hasButton(label: string) {
+  return [...container.querySelectorAll("button")].some(
+    (node) => node.textContent === label,
+  );
+}
+
+it("deletes your own reply once you confirm", async () => {
+  deleteComment.mockResolvedValue({ ok: true, deletedIds: ["reply-1"] });
+  const reply: Comment = {
+    ...comment,
+    id: "reply-1",
+    parent_id: "comment-1",
+    content: "My reply",
+  };
+  await act(async () => root.render(<Harness entry={reply} />));
+
+  await click("comments.deleteComment");
+  expect(container.textContent).toContain("comments.deleteCommentQuestion");
+  expect(deleteComment).not.toHaveBeenCalled();
+  await click("comments.delete");
+  expect(deleteComment).toHaveBeenCalledWith({
+    id: "reply-1",
+    documentId: "doc-1",
+  });
+  expect(container.querySelector("[role=alertdialog]")).toBeNull();
+});
+
+it("moves focus to what is left once a delete takes the row away", async () => {
+  deleteComment.mockResolvedValue({ ok: true });
+  const reply: Comment = {
+    ...comment,
+    id: "reply-1",
+    parent_id: "comment-1",
+    content: "My reply",
+  };
+  // The delete drops the row from the list; the cards stay, as in the
+  // sidebar, and the deleted thread's card stands in for its neighbor.
+  const renderCards = (entry: Comment, visible: boolean) =>
+    act(async () =>
+      root.render(
+        <div data-comments-sidebar>
+          <div data-thread-card="comment-1" tabIndex={0}>
+            <Harness visible={visible} entry={entry} canDeleteThread />
+          </div>
+          <div data-thread-card="comment-2" tabIndex={0} />
+        </div>,
+      ),
+    );
+  // Confirming focuses the dialog's button, as a real click would.
+  const confirm = async () => {
+    [...container.querySelectorAll("button")]
+      .find((node) => node.textContent === "comments.delete")
+      ?.focus();
+    await click("comments.delete");
+  };
+  const card = (id: string) =>
+    container.querySelector(`[data-thread-card="${id}"]`);
+
+  // A deleted reply leaves its thread, which takes focus.
+  await renderCards(reply, true);
+  await click("comments.deleteComment");
+  await confirm();
+  await renderCards(reply, false);
+  expect(document.activeElement).toBe(card("comment-1"));
+
+  // A deleted thread hands focus to the next thread.
+  await renderCards(comment, true);
+  await click("comments.deleteThread");
+  await confirm();
+  await renderCards(comment, false);
+  expect(document.activeElement).toBe(card("comment-2"));
+});
+
+it("says the AI's change stays in the page when its thread goes", async () => {
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+  await click("comments.deleteThread");
+  expect(container.textContent).toContain("comments.deleteThreadDescription");
+
+  await act(async () =>
+    root.render(
+      <Harness entry={comment} canDeleteThread keepsAppliedAiChange />,
+    ),
+  );
+  expect(container.textContent).toContain(
+    "comments.deleteThreadAiChangeDescription",
+  );
+});
+
+it("keeps the delete dialog open with the error when a delete fails", async () => {
+  deleteComment.mockRejectedValue(
+    Object.assign(new Error("Someone else replied"), {
+      errorCode: "comment_thread_changed",
+    }),
+  );
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+
+  await click("comments.deleteThread");
+  expect(container.textContent).toContain("comments.deleteThreadQuestion");
+  await click("comments.delete");
+  expect(deleteComment).toHaveBeenCalledWith({
+    id: "comment-1",
+    documentId: "doc-1",
+  });
+  expect(container.querySelector("[role=alertdialog]")).not.toBeNull();
+  // The reason in the reader's language, not the server's English.
+  expect(toastError).toHaveBeenCalledWith("empty.genericError", {
+    description: "comments.deleteRefusedReplied",
+  });
+});
+
+it("offers Delete thread only when the thread can go, and never for a Notion comment or someone else's", async () => {
+  await act(async () => root.render(<Harness entry={comment} />));
+  expect(hasButton("comments.deleteThread")).toBe(false);
+  expect(hasButton("comments.edit")).toBe(true);
+
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+  expect(hasButton("comments.deleteThread")).toBe(true);
+
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, notion_comment_id: "notion-1" }}
+        canDeleteThread
+      />,
+    ),
+  );
+  expect(hasButton("comments.deleteThread")).toBe(false);
+
+  const othersReply: Comment = {
+    ...comment,
+    id: "reply-2",
+    parent_id: "comment-1",
+    author_email: "someone-else@example.test",
+  };
+  await act(async () => root.render(<Harness entry={othersReply} />));
+  expect(hasButton("comments.deleteComment")).toBe(false);
 });

@@ -720,6 +720,9 @@ const generateDesignAction = defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
+  // `devices: []` asks for a fixed canvas; the other lists add to what's there.
+  // GPT-6 Luna sends `[]` for every list it isn't using, beside padded nulls.
+  emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
