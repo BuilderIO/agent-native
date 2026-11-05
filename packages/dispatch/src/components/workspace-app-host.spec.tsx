@@ -981,7 +981,10 @@ describe("WorkspaceAppKeepAlive", () => {
     ];
     await act(async () => {
       root.render(
-        <WorkspaceAppHost appId="docs" initialPath="/settings/integrations/notion" />,
+        <WorkspaceAppHost
+          appId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
       );
       await Promise.resolve();
       await Promise.resolve();

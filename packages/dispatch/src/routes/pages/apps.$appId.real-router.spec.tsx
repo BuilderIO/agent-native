@@ -36,10 +36,7 @@ function routes(): RouteObject[] {
   ];
 }
 
-async function renderAt(
-  url: string,
-  basename = "/",
-): Promise<{ root: Root }> {
+async function renderAt(url: string, basename = "/"): Promise<{ root: Root }> {
   const router = createMemoryRouter(routes(), {
     initialEntries: [url],
     basename,

@@ -2483,13 +2483,17 @@ function DispatchLayout({
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
-            {...(workspaceAppDeepPath ? { initialPath: workspaceAppDeepPath } : {})}
+            {...(workspaceAppDeepPath
+              ? { initialPath: workspaceAppDeepPath }
+              : {})}
           />
         </WorkspaceAppChatRail>
       ) : (
         <WorkspaceAppKeepAlive
           activeAppId={workspaceAppId}
-          {...(workspaceAppDeepPath ? { initialPath: workspaceAppDeepPath } : {})}
+          {...(workspaceAppDeepPath
+            ? { initialPath: workspaceAppDeepPath }
+            : {})}
         />
       )
     ) : (
