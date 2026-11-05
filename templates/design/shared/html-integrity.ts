@@ -205,6 +205,7 @@ export class DesignHtmlIntegrityError extends Error {
 }
 
 const RAW_TEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
 const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-breakpoints", tag: "style" },
@@ -934,7 +935,13 @@ function collectStyleBodyIssues(
   for (const element of parsed.elements) {
     if (element.tagName !== "style") continue;
     let ancestor = parsed.parents.get(element);
-    while (ancestor && ancestor.tagName !== "noscript") {
+    while (
+      ancestor &&
+      !(
+        ancestor.tagName === "noscript" &&
+        ancestor.namespaceURI === HTML_NAMESPACE
+      )
+    ) {
       ancestor = parsed.parents.get(ancestor);
     }
     if (ancestor) continue;
@@ -967,7 +974,13 @@ function collectStructuralIssues(
   parsed = parseDocument(value),
 ): DesignHtmlIntegrityIssueDetail[] {
   // Validate fallback markup without treating it as active runtime content.
-  if (parsed.elements.some((element) => element.tagName === "noscript")) {
+  if (
+    parsed.elements.some(
+      (element) =>
+        element.tagName === "noscript" &&
+        element.namespaceURI === HTML_NAMESPACE,
+    )
+  ) {
     parsed = parseDocument(value, false);
   }
   const locate = createLocator(value);

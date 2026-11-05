@@ -426,6 +426,15 @@ describe("Design HTML integrity", () => {
     ).toMatchObject({ valid: false, issue: "style-invalid" });
   });
 
+  it("checks active SVG styles under an SVG noscript element", () => {
+    const content =
+      "<svg><noscript><style>.x { color: red</style></noscript></svg>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "style-invalid",
+    });
+  });
+
   it("does not count a noscript style as an active cloak rule", () => {
     const content =
       '<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><noscript><style>[x-cloak]{display:none}</style></noscript><div x-cloak>Hidden</div></body></html>';
