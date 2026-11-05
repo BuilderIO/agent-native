@@ -3,16 +3,37 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-04
+
+### Fixed
+
+- Agent block edits work on collection rows using live editing
+- Submitting an unchanged page body no longer makes it look newly edited.
+- Switching a page to live editing preserves unsaved text, including intentional clears.
+
+## 2026-11-03
+
+### Fixed
+
+- After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
+- An expanded image, video or audio file shows above the dimmed page instead of under it, and clicking it or its toolbar no longer closes it
+
 ## 2026-11-02
 
 ### Improved
 
 - A row opened from a view lists its properties in that view's order, with the ones the view hides under a Hidden in this view line, in the row panel and on full pages.
 
+### Fixed
+
+- Fixed a video an agent uploads into a page over MCP saving as a Clip that can't play
+- Empty Trash now explains that you need to pick a workspace in the filter when you have several.
+
 ## 2026-11-01
 
 ### Fixed
 
+- One busy signed-out reader of a public page no longer stops its Clips playing for everyone else: each reader's network gets its own request budget.
 - Cleared pages stay empty when another editor opens them after a saved version has been synchronized.
 - Edited collection rows close without a save error after their changes have saved
 - A list item with a second paragraph or a line of code under its first line keeps all its text beside the bullet, instead of squeezing it into a narrow column.
@@ -25,10 +46,12 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Reloading a page you've opened before starts sooner: Content keeps its app code on your device, so the page draws without waiting on the network for it.
 - Adding a filter on a status, select, multi-select or person property that already has a chip now opens that chip, so a second value joins it, and two chips that mean the same thing fold into one.
 
 ### Fixed
 
+- A comment on a Clip in a page is saved once, even when you post it again after an error, and no longer shows an error while its emails send
 - Expanding or double-clicking an image, video or audio file opens it full screen again instead of crashing the page
 
 ## 2026-10-30
@@ -1253,12 +1276,5 @@ time from the command menu (Cmd+K → "What's new").
 - Sidebar page actions are now easier to see when hovering inactive pages.
 - Text selections in the editor no longer show white gaps when the formatting toolbar appears.
 - The /page command now leaves a Notion-style page reference and clears stale cursor labels when you return.
-
-## 2026-06-24
-
-### Added
-
-- A new Settings page gives quick access to language, workspace, and agent preferences.
-- Added a language picker and localized app chrome for supported languages.
 
 For the full list of updates, see the [changelog folder](./changelog/).
