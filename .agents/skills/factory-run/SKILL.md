@@ -330,10 +330,9 @@ reason to park a report or make it `needs-person`: settle them and move on.
   to it ("Closing in favor of #<n>, which …"). Point every covered report's
   `prUrl` at the survivor; the watcher keeps babysitting it.
 - **A human's PR fixes the same thing.** Prefer it, and never close, push to,
-  or take it over. If your approach is genuinely better, comment once on their
-  PR describing the alternative with a link to yours, and leave the choice to
-  them. Otherwise close your own PR pointing to theirs and note their PR in
-  the report's thread.
+  comment on, or take it over. Close your own PR pointing to theirs, point
+  the report's `prUrl` at their PR so the watcher follows it, and note it in
+  the report's thread, including how yours differs if it is better.
 
 Never close a PR the factory didn't open. In dry mode, record what you would
 close and say in `note`.

@@ -35,10 +35,16 @@ import { fileURLToPath } from "node:url";
 
 // Imported by fix-proof.ts; this file has no top-level side effects.
 export const TEST_PATH =
-  /(^|\/)(__tests__|e2e)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
+  /(^|\/)(__tests__|e2e)\/|^tests?\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
+
+const CHANGESET = /^\.changeset\//;
 
 export function isTestOnlyChange(paths: string[]): boolean {
-  return paths.length > 0 && paths.every((path) => TEST_PATH.test(path));
+  // A changeset rides along with a test change; alone it proves nothing.
+  return (
+    paths.every((path) => TEST_PATH.test(path)) &&
+    paths.some((path) => !CHANGESET.test(path))
+  );
 }
 
 export type Report = {
@@ -276,7 +282,7 @@ function main() {
   const changed = diff.stdout.split("\n").filter(Boolean);
   if (isTestOnlyChange(changed)) {
     console.log(
-      `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests, docs, or changesets); ${reports.length} reports need no fix proof`,
+      `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests or changesets); ${reports.length} reports need no fix proof`,
     );
     return;
   }

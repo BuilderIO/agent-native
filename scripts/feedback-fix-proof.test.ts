@@ -217,6 +217,8 @@ describe("isTestOnlyChange", () => {
       isTestOnlyChange(["packages/core/src/tests/helper.ts"]),
       false,
     );
+    assert.equal(isTestOnlyChange(["tests/unit/a.ts"]), true);
+    assert.equal(isTestOnlyChange([".changeset/flaky.md"]), false);
     assert.equal(isTestOnlyChange([".agents/skills/x/SKILL.md"]), false);
     assert.equal(isTestOnlyChange(["README.md"]), false);
     assert.equal(isTestOnlyChange([]), false);
