@@ -973,10 +973,7 @@ describe("list-events inventory contract", () => {
     });
 
     await expect(
-      listEventsAction.run(
-        { from: "2026-06-17", to: "2026-06-18" } as never,
-        undefined as never,
-      ),
+      listEventsAction.run({ from: "2026-06-17", to: "2026-06-18" }),
     ).rejects.toThrow("broken@example.com: Refresh failed");
   });
 
