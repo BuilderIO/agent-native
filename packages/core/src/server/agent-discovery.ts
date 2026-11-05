@@ -1516,7 +1516,9 @@ async function discoverWorkspaceAgents(
           : workspaceAppUrl(withOverride, builtin?.url);
       if (
         (strict || options?.requireResolvableWorkspaceUrls) &&
-        (!url || !isAbsoluteHttpUrl(url))
+        (!url ||
+          !isAbsoluteHttpUrl(url) ||
+          (options?.requireResolvableWorkspaceUrls && /[?#]/.test(url)))
       ) {
         throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
       }

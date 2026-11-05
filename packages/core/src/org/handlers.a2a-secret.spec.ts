@@ -903,6 +903,31 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
+  it.each(["?token=value", "#fragment", "?", "#"])(
+    "rejects a workspace recipient URL with %s before sending",
+    async (suffix) => {
+      mockResolveAppRuntimeUrl.mockReturnValue(
+        "https://workspace.example.test",
+      );
+      mockLoadWorkspaceAppsManifest.mockResolvedValue([
+        {
+          id: "sibling",
+          name: "Sibling",
+          path: "/sibling",
+          url: `https://workspace.example.test/sibling${suffix}`,
+        },
+      ]);
+      const discovery = await vi.importActual<
+        typeof import("../server/agent-discovery.js")
+      >("../server/agent-discovery.js");
+      mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+      await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
+        "Invalid workspace app URL: sibling",
+      );
+      expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses one validated workspace manifest even if the source changes during discovery", async () => {
     vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
