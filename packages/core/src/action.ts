@@ -1066,6 +1066,13 @@ interface DefineActionWithSchema<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** Words and short phrases a user says for this action that its name and
+   *  description do not: "auto-archive rule", "canned reply", "reschedule".
+   *  `tool-search` ranks them just below the name. They are never shown to a
+   *  model, so they add no context cost; keep them factual, not a list of
+   *  every request the action might serve. At most 12, each up to 60
+   *  characters. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   /** An empty list on this action sets an option and erases nothing saved, so
    *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
@@ -1201,6 +1208,8 @@ interface DefineActionWithParams<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` on the schema form above. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
@@ -1256,6 +1265,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
+  readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
   readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
@@ -1296,6 +1306,28 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
+}
+
+const MAX_SEARCH_HINTS = 12;
+const MAX_SEARCH_HINT_CHARS = 60;
+
+function validateSearchHints(value: unknown): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_SEARCH_HINTS ||
+    value.some(
+      (hint) =>
+        typeof hint !== "string" ||
+        hint.trim().length === 0 ||
+        hint.length > MAX_SEARCH_HINT_CHARS,
+    )
+  ) {
+    throw new TypeError(
+      `searchHints must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+    );
+  }
+  return Object.freeze([...value]);
 }
 
 export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
@@ -1622,6 +1654,7 @@ export function defineAction(options: any) {
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
       : undefined;
+  const searchHints = validateSearchHints(options.searchHints);
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1704,6 +1737,7 @@ export function defineAction(options: any) {
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
+    ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
       ? { eagerInputStreaming: options.eagerInputStreaming }
       : {}),

@@ -388,6 +388,39 @@ describe("defineAction", () => {
     expect(plain.deferLoading).toBeUndefined();
   });
 
+  it("keeps searchHints off the model-facing tool and through registry loading", () => {
+    const hinted = defineAction({
+      description: "Create, list, update, or delete inbox rules.",
+      parameters: { id: { type: "string" } },
+      searchHints: ["auto-archive rule"],
+      run: async () => "ok",
+    });
+
+    expect(hinted.searchHints).toEqual(["auto-archive rule"]);
+    expect(JSON.stringify(hinted.tool)).not.toContain("auto-archive");
+    expect(
+      loadActionsFromStaticRegistry({ rules: { default: hinted } }).rules
+        ?.searchHints,
+    ).toEqual(["auto-archive rule"]);
+  });
+
+  it("rejects searchHints that are not a short list of short strings", () => {
+    const define = (searchHints: unknown) =>
+      defineAction({
+        description: "d",
+        parameters: {},
+        searchHints: searchHints as string[],
+        run: async () => "ok",
+      });
+
+    expect(() => define(["ok", ""])).toThrow(TypeError);
+    expect(() => define(["x".repeat(61)])).toThrow(TypeError);
+    expect(() => define(Array.from({ length: 13 }, (_, i) => `h${i}`))).toThrow(
+      TypeError,
+    );
+    expect(() => define("auto-archive")).toThrow(TypeError);
+  });
+
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
     expect(isActionExposedToExternalAgents({})).toBe(true);
     expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);

@@ -88,6 +88,12 @@ export function preserveActionFlags(
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
+  if (
+    Array.isArray(entry.searchHints) &&
+    entry.searchHints.every((hint) => typeof hint === "string")
+  ) {
+    out.searchHints = entry.searchHints;
+  }
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
   }

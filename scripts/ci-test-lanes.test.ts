@@ -102,6 +102,7 @@ test("runs the catalog contract specs for any workspace source change", () => {
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
     "src/mcp/hidden-inline-apps.spec.ts",
+    "src/agent/tool-search.benchmark.spec.ts",
   ];
   for (const changed of [
     "templates/mail/actions/send-email.ts",

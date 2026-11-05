@@ -5,6 +5,7 @@ import {
   type McpClientManager,
   type McpTool,
 } from "../mcp-client/index.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
@@ -869,6 +870,68 @@ describe("tool-search ranking", () => {
     });
 
     expect(result.results.map((r) => r.name)).toEqual(["create-dashboard"]);
+  });
+
+  it("finds an action by its search hints, which never reach the model", () => {
+    const registry = {
+      "manage-automations": {
+        ...action("Create, list, update, or delete inbox automations."),
+        searchHints: ["auto-archive rule", "inbox rule"],
+      },
+      "archive-email": action("Archive one or more emails by ID."),
+      "list-labels": action("List labels for the connected accounts."),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "can you edit my auto archive rules?",
+    });
+
+    expect(result.results[0]?.name).toBe("manage-automations");
+    expect(JSON.stringify(result)).not.toContain("auto-archive rule");
+  });
+
+  it("matches tense, a joined camel-case word, and a common synonym", () => {
+    const registry = {
+      "archive-email": action("Archive one or more emails by ID."),
+      "import-pptx": action("Import a PowerPoint file as a new deck."),
+      "duplicate-deck": action("Duplicate a deck with new slide ids."),
+      "list-decks": action("List decks."),
+    };
+
+    const rank = (query: string) =>
+      searchToolRegistry(registry, { query }).results[0]?.name;
+
+    expect(rank("archived")).toBe("archive-email");
+    expect(rank("powerpoint")).toBe("import-pptx");
+    expect(rank("copy this deck")).toBe("duplicate-deck");
+  });
+
+  it("drops conversational words, so a description's 'you can' never matches", () => {
+    const registry = {
+      "list-events": action("List calendar events for a date range."),
+      "get-settings": action("Settings you can change, and what they do."),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "can you show me what events I have",
+    });
+
+    expect(result.results.map((r) => r.name)).toEqual(["list-events"]);
+  });
+
+  it("ranks the app's own action above a framework tool with the same words", () => {
+    // Same words, so only the prior separates them; alphabetically the
+    // framework tool would come first.
+    const registry = {
+      "email-list": frameworkMcpTool(action("List sent emails.")),
+      "list-email": action("List sent emails."),
+    };
+
+    const names = searchToolRegistry(registry, {
+      query: "sent emails",
+    }).results.map((r) => r.name);
+
+    expect(names).toEqual(["list-email", "email-list"]);
   });
 });
 
