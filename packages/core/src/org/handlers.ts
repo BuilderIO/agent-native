@@ -2271,11 +2271,19 @@ export const syncA2ASecretHandler = defineEventHandler(
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
           const recipientOrigin = new URL(agent.url).origin;
+          // The shared SSRF helper treats localhost aliases as equivalent; only
+          // literal IPs avoid trusting a hostname that can rebind at connect time.
+          const loopbackLiteral =
+            /^https?:\/\/(?:127\.0\.0\.1|\[::1\])(?=[:/?#]|$)/i;
           const allowedPrivateOrigins =
             agent.source === "workspace" &&
+            loopbackLiteral.test(agent.url) &&
             workspacePrivateOrigins().some((configured) => {
               try {
-                return new URL(configured).origin === recipientOrigin;
+                return (
+                  loopbackLiteral.test(configured) &&
+                  new URL(configured).origin === recipientOrigin
+                );
               } catch {
                 return false;
               }
