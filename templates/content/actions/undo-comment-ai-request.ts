@@ -1,12 +1,13 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   loadCommentAiRequest,
   readCommentAiSource,
+  reopenUndoneCommentAiThread,
   serializeCommentAiRequest,
 } from "../server/lib/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -97,26 +98,7 @@ export default defineAction({
       });
     }
 
-    const now = new Date().toISOString();
-    await getDb().transaction(async (tx) => {
-      await tx
-        .update(schema.documentComments)
-        .set({ resolved: 0, updatedAt: now })
-        .where(
-          and(
-            eq(schema.documentComments.documentId, request.documentId),
-            eq(schema.documentComments.threadId, request.threadId),
-            eq(schema.documentComments.ownerEmail, request.ownerEmail),
-          ),
-        );
-      await tx
-        .update(schema.commentAiRequests)
-        .set({
-          resultJson: JSON.stringify({ ...result, undone: true }),
-          updatedAt: now,
-        })
-        .where(eq(schema.commentAiRequests.id, request.id));
-    });
+    await reopenUndoneCommentAiThread(request, result);
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     const [current] = await getDb()
