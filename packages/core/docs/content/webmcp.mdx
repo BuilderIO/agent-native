@@ -117,7 +117,7 @@ const ctx = document.modelContext;
 const legacyChrome =
   typeof ctx.codexExecuteTool !== "function" &&
   typeof ctx.codexGetTools !== "function" &&
-  /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(
+  /\b(?:HeadlessChrome|Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(
     document.defaultView?.navigator.userAgent ?? "",
   );
 const args =

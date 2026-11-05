@@ -292,6 +292,18 @@ describe("WebMCP client", () => {
     ],
     ["Chrome/154.0.0.0", "string"],
     ["Chrome/155.0.0.0", "object"],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36",
+      "string",
+    ],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+      "string",
+    ],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+      "object",
+    ],
     ["Chrome/156.0.0.0", "object"],
     ["Firefox/154.0", "object"],
   ])(

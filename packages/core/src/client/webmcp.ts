@@ -652,7 +652,9 @@ export function createAgentNativeWebMcpClient(
       typeof context.codexExecuteTool !== "function" &&
       typeof context.codexGetTools !== "function" &&
       typeof userAgent === "string" &&
-      /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(userAgent);
+      /\b(?:HeadlessChrome|Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(
+        userAgent,
+      );
     const result = await context.executeTool(
       nativeTool,
       usesPolyfill || usesLegacyChrome ? JSON.stringify(input) : input,
