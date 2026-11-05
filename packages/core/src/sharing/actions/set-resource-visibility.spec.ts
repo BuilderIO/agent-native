@@ -1410,6 +1410,45 @@ describe("set-resource-visibility link role", () => {
     expect(await grants()).toEqual([]);
   });
 
+  it("puts back every duplicate grant it folded when a later resource fails", async () => {
+    register({
+      persistVisibilityChange: persistUnless((resourceId) =>
+        resourceId === "doc-fail" ? new Error("write failed") : undefined,
+      ),
+    });
+    await insertDoc({ id: "doc-dupes", visibility: "org" });
+    await insertDoc({ id: "doc-fail", visibility: "org" });
+    for (const [id, role] of [
+      ["share-org-1", "editor"],
+      ["share-org-2", "viewer"],
+    ]) {
+      await db.insert(docShares).values({
+        id,
+        resourceId: "doc-dupes",
+        principalType: "org",
+        principalId: orgId,
+        role,
+        createdBy: ownerEmail,
+        createdAt: new Date().toISOString(),
+      } as never);
+    }
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceIds: ["doc-dupes", "doc-fail"],
+          visibility: "org",
+          role: "commenter",
+        }),
+      ),
+    ).rejects.toThrow("write failed");
+
+    expect(
+      (await db.select().from(docShares)).map((row) => row.id).sort(),
+    ).toEqual(["share-org-1", "share-org-2"]);
+  });
+
   it("lists the link role apart from the people with access", async () => {
     await insertDoc({ id: "doc-listed" });
     await setPublic("doc-listed", "commenter");

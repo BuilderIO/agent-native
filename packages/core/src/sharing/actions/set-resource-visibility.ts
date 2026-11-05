@@ -131,7 +131,8 @@ interface GrantRow {
 interface GeneralAccessGrantChange {
   principalType: GeneralAccessPrincipal;
   principalId: string;
-  before: GrantRow | null;
+  /** Every row this principal had, all of which the write replaces. */
+  before: GrantRow[];
   /** null removes the grant, leaving the visibility's viewer role. */
   role: ShareRole | null;
   /** Marks this call's write, so its rollback touches no newer one. */
@@ -156,13 +157,13 @@ interface PreparedChange {
   grants: GeneralAccessGrantChange[];
 }
 
-async function readGrant(
+async function readGrants(
   reg: ShareableResourceRegistration,
   resourceId: string,
   principalType: GeneralAccessPrincipal,
   principalId: string,
-): Promise<GrantRow | null> {
-  const [row] = await reg
+): Promise<GrantRow[]> {
+  const rows = await reg
     .getDb()
     .select()
     .from(reg.sharesTable)
@@ -173,7 +174,7 @@ async function readGrant(
         eq(reg.sharesTable.principalId, principalId),
       ),
     );
-  return (row as GrantRow | undefined) ?? null;
+  return rows as GrantRow[];
 }
 
 export default defineAction({
@@ -200,13 +201,15 @@ export default defineAction({
       );
       if (access.resource.visibility !== "public") return true;
       if (args.role && args.role !== "viewer") {
-        const current = await readGrant(
+        const current = await readGrants(
           reg,
           resourceId,
           LINK_PRINCIPAL_TYPE,
           LINK_PRINCIPAL_ID,
         );
-        if (current?.role !== args.role) return true;
+        if (current.length !== 1 || current[0]?.role !== args.role) {
+          return true;
+        }
       }
     }
     return false;
@@ -284,7 +287,9 @@ export default defineAction({
         resourceChanged:
           visibilityChanged ||
           update.orgId !== undefined ||
-          grants.some((grant) => grant.role !== null || grant.before !== null),
+          grants.some(
+            (grant) => grant.role !== null || grant.before.length > 0,
+          ),
         grants,
       };
     };
@@ -344,7 +349,7 @@ export default defineAction({
       const stamp = new Date().toISOString();
       const changes: GeneralAccessGrantChange[] = [];
       for (const target of wanted) {
-        const before = await readGrant(
+        const before = await readGrants(
           reg,
           resourceId,
           target.principalType,
@@ -352,7 +357,13 @@ export default defineAction({
         );
         // A removal still runs with nothing read here: a grant another
         // request writes before this call's own write must go too.
-        if (target.role !== null && before?.role === target.role) continue;
+        if (
+          target.role !== null &&
+          before.length === 1 &&
+          before[0]?.role === target.role
+        ) {
+          continue;
+        }
         changes.push({ ...target, before, stamp, written: false });
       }
       return changes;
@@ -452,7 +463,7 @@ export default defineAction({
             .returning({ id: reg.sharesTable.id });
           if (!removed.length) continue;
         }
-        if (grant.before) {
+        if (grant.before.length) {
           await db
             .insert(reg.sharesTable)
             .values(grant.before)
