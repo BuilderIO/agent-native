@@ -249,6 +249,9 @@ describe("DeckCard delete flow", () => {
     );
     expect(screen.queryByText("home.setWorkspaceDefault")).toBeNull();
 
+    rerender(<DeckCard {...props} deck={viewer} />);
+    expect(screen.queryByText("home.setWorkspaceDefault")).toBeNull();
+
     rerender(<DeckCard {...props} deck={{ ...viewer, visibility: "org" }} />);
     expect(screen.getByText("home.setWorkspaceDefault")).toBeTruthy();
 

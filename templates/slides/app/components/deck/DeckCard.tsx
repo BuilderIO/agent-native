@@ -260,7 +260,8 @@ function DeckCard({
               onSetWorkspaceDefault &&
               // Defaulting a private deck first makes it org-visible, which only a manager can do.
               (isWorkspaceDefault ||
-                deck.visibility !== "private" ||
+                deck.visibility === "org" ||
+                deck.visibility === "public" ||
                 deck.canManage === true) && (
                 <DropdownMenuItem
                   onSelect={(event) => {
