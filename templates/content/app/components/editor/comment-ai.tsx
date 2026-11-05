@@ -161,6 +161,16 @@ function isAppliedResolution(request: CommentAiRequest) {
   );
 }
 
+/** Whether the request's applied change shows an Undo that can reverse it. */
+export function hasUndoableAiChange(request: CommentAiRequest | undefined) {
+  return (
+    !!request &&
+    isAppliedResolution(request) &&
+    !!request.result?.changes?.length &&
+    request.result.undoable !== false
+  );
+}
+
 /**
  * Keeps a thread that AI just resolved in view until the person is done with
  * it, instead of letting it vanish from the margin mid-read.

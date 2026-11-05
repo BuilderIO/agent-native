@@ -1809,6 +1809,8 @@ const enUS = {
     deleteThreadQuestion: "Delete thread?",
     deleteThreadDescription:
       "The thread and its replies are deleted for everyone, and this can't be undone.",
+    deleteThreadAiChangeDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone. The AI's change stays in the page, and its Undo goes with the thread.",
     delete: "Delete",
     deleting: "Deleting…",
     deleteRefusedReplied:

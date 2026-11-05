@@ -51,6 +51,25 @@ const DELETE_REFUSALS: Record<string, string> = {
   comment_thread_busy: "comments.deleteRefusedBusy",
 };
 
+/**
+ * What takes focus once a delete has removed a comment's row, menu and all:
+ * the thread a deleted reply was in, or the thread after (or before) a
+ * deleted one.
+ */
+function focusAfterDelete(row: HTMLElement | null, deletesThread: boolean) {
+  const card = row?.closest<HTMLElement>("[data-thread-card]");
+  if (!card || !deletesThread) return card ?? null;
+  const cards = [
+    ...(card
+      .closest("[data-comments-sidebar]")
+      ?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
+  ];
+  const index = cards.indexOf(card);
+  if (index < 0) return null;
+  if (index + 1 < cards.length) return cards[index + 1];
+  return index > 0 ? cards[index - 1] : null;
+}
+
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
 ): "mcp" | "agent" | null {
@@ -109,6 +128,7 @@ export function CommentEntry({
   footer,
   body,
   canDeleteThread = false,
+  deletesUndoableAiChange = false,
   onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
@@ -121,6 +141,12 @@ export function CommentEntry({
    * no one else has written in it and nothing is working on it.
    */
   canDeleteThread?: boolean;
+  /**
+   * Whether the thread holds a change the AI applied that its Undo could
+   * still reverse. The change stays when the thread goes, but its Undo
+   * doesn't, so the confirmation says so.
+   */
+  deletesUndoableAiChange?: boolean;
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -198,9 +224,18 @@ export function CommentEntry({
     !comment.notion_comment_id &&
     (!deletesThread || canDeleteThread);
   const confirmDelete = async () => {
+    // Found now, while this row is still here to start from.
+    const nextFocus = focusAfterDelete(menuRef.current, deletesThread);
     try {
       await remove.mutateAsync({ id: comment.id, documentId });
       setConfirmingDelete(false);
+      // The dialog hands focus back to this row's menu, which the delete
+      // took away with the row.
+      requestAnimationFrame(() => {
+        if (!menuRef.current?.isConnected && nextFocus?.isConnected) {
+          nextFocus.focus();
+        }
+      });
     } catch (error) {
       const reason =
         DELETE_REFUSALS[
@@ -425,9 +460,11 @@ export function CommentEntry({
           : "comments.deleteCommentQuestion",
       )}
       description={t(
-        deletesThread
-          ? "comments.deleteThreadDescription"
-          : "comments.deleteCommentDescription",
+        !deletesThread
+          ? "comments.deleteCommentDescription"
+          : deletesUndoableAiChange
+            ? "comments.deleteThreadAiChangeDescription"
+            : "comments.deleteThreadDescription",
       )}
       cancelLabel={t("comments.cancel")}
       confirmLabel={

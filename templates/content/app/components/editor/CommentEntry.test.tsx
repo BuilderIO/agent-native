@@ -152,10 +152,12 @@ function Harness({
   visible = true,
   entry = comment,
   canDeleteThread,
+  deletesUndoableAiChange,
 }: {
   visible?: boolean;
   entry?: Comment;
   canDeleteThread?: boolean;
+  deletesUndoableAiChange?: boolean;
 }) {
   return (
     <CommentDraftProvider
@@ -170,6 +172,7 @@ function Harness({
           currentUserEmail={comment.author_email}
           canComment
           canDeleteThread={canDeleteThread}
+          deletesUndoableAiChange={deletesUndoableAiChange}
         />
       )}
     </CommentDraftProvider>
@@ -559,6 +562,69 @@ it("deletes your own reply once you confirm", async () => {
     documentId: "doc-1",
   });
   expect(container.querySelector("[role=alertdialog]")).toBeNull();
+});
+
+it("moves focus to what is left once a delete takes the row away", async () => {
+  deleteComment.mockResolvedValue({ ok: true });
+  const reply: Comment = {
+    ...comment,
+    id: "reply-1",
+    parent_id: "comment-1",
+    content: "My reply",
+  };
+  // The delete drops the row from the list; the cards stay, as in the
+  // sidebar, and the deleted thread's card stands in for its neighbor.
+  const renderCards = (entry: Comment, visible: boolean) =>
+    act(async () =>
+      root.render(
+        <div data-comments-sidebar>
+          <div data-thread-card="comment-1" tabIndex={0}>
+            <Harness visible={visible} entry={entry} canDeleteThread />
+          </div>
+          <div data-thread-card="comment-2" tabIndex={0} />
+        </div>,
+      ),
+    );
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  const card = (id: string) =>
+    container.querySelector(`[data-thread-card="${id}"]`);
+
+  // A deleted reply leaves its thread, which takes focus.
+  await renderCards(reply, true);
+  await click("comments.deleteComment");
+  await click("comments.delete");
+  await renderCards(reply, false);
+  await nextFrame();
+  expect(document.activeElement).toBe(card("comment-1"));
+
+  // A deleted thread hands focus to the next thread.
+  await renderCards(comment, true);
+  await click("comments.deleteThread");
+  await click("comments.delete");
+  await renderCards(comment, false);
+  await nextFrame();
+  expect(document.activeElement).toBe(card("comment-2"));
+});
+
+it("says a thread's applied AI change stays in the page without its Undo", async () => {
+  await act(async () =>
+    root.render(<Harness entry={comment} canDeleteThread />),
+  );
+  await click("comments.deleteThread");
+  expect(container.textContent).toContain("comments.deleteThreadDescription");
+
+  await act(async () =>
+    root.render(
+      <Harness entry={comment} canDeleteThread deletesUndoableAiChange />,
+    ),
+  );
+  expect(container.textContent).toContain(
+    "comments.deleteThreadAiChangeDescription",
+  );
 });
 
 it("keeps the delete dialog open with the error when a delete fails", async () => {

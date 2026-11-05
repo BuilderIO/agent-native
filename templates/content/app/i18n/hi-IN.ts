@@ -1759,6 +1759,8 @@ const overrides = {
     deleteThreadQuestion: "थ्रेड हटाएँ?",
     deleteThreadDescription:
       "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadAiChangeDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता। AI का बदलाव पेज में बना रहेगा, और उसका पूर्ववत करें बटन थ्रेड के साथ हट जाएगा।",
     delete: "हटाएँ",
     deleting: "हटाया जा रहा है…",
     deleteRefusedReplied:

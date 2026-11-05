@@ -1790,6 +1790,8 @@ const overrides = {
     deleteThreadQuestion: "حذف السلسلة؟",
     deleteThreadDescription:
       "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك.",
+    deleteThreadAiChangeDescription:
+      "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك. يبقى تغيير الذكاء الاصطناعي في الصفحة، ويختفي زر التراجع عنه مع السلسلة.",
     delete: "حذف",
     deleting: "جارٍ الحذف…",
     deleteRefusedReplied: "ردّ شخص آخر، لذا لا يمكن حذف هذا الموضوع إلا لمحرر.",

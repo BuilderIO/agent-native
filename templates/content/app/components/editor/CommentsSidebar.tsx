@@ -142,6 +142,7 @@ import { useClipCommentWrites } from "./clip-embed/use-clip-comment-writes";
 import {
   CommentAiConversation,
   CommentAiRequestStatus,
+  hasUndoableAiChange,
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
@@ -3165,6 +3166,7 @@ export function CommentsSidebar({
                     currentUserEmail.toLowerCase(),
               )
             }
+            deletesUndoableAiChange={hasUndoableAiChange(aiRequest)}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}

@@ -1848,6 +1848,8 @@ const overrides = {
     deleteThreadQuestion: "Supprimer le fil ?",
     deleteThreadDescription:
       "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
+    deleteThreadAiChangeDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible. La modification de l'IA reste dans la page, et son bouton Annuler disparaît avec le fil.",
     delete: "Supprimer",
     deleting: "Suppression…",
     deleteRefusedReplied:

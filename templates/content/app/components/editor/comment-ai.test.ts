@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   commentAiRequestsRefetchInterval,
+  hasUndoableAiChange,
   latestCommentAiRequest,
 } from "./comment-ai";
 
@@ -61,6 +62,44 @@ describe("comment AI request selection", () => {
       commentAiRequestsRefetchInterval({
         requests: [request("a", "thread-a", "replied", "2026-09-14T10:00:00Z")],
       }),
+    ).toBe(false);
+  });
+});
+
+describe("an applied AI change's Undo", () => {
+  it("counts only an applied change the thread's Undo can still reverse", () => {
+    const applied = (
+      result: CommentAiRequest["result"],
+      status: CommentAiRequest["status"] = "resolved",
+    ) => ({
+      ...request("a", "thread-a", status, "2026-09-14T10:00:00Z"),
+      result,
+    });
+    const change = { before: "teh", after: "the" };
+
+    expect(
+      hasUndoableAiChange(
+        applied({ editApplied: true, undoable: true, changes: [change] }),
+      ),
+    ).toBe(true);
+    expect(hasUndoableAiChange(undefined)).toBe(false);
+    // Undone already, or removed text Undo can't bring back.
+    expect(
+      hasUndoableAiChange(
+        applied({ editApplied: true, undone: true, changes: [change] }),
+      ),
+    ).toBe(false);
+    expect(
+      hasUndoableAiChange(
+        applied({ editApplied: true, undoable: false, changes: [change] }),
+      ),
+    ).toBe(false);
+    // A reply or a suggestion changed nothing in the page.
+    expect(hasUndoableAiChange(applied({ commentId: "reply-1" }))).toBe(false);
+    expect(
+      hasUndoableAiChange(
+        applied({ editApplied: true, changes: [change] }, "needs-review"),
+      ),
     ).toBe(false);
   });
 });
