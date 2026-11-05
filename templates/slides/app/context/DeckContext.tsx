@@ -839,6 +839,9 @@ const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
 const inFlightKeepaliveSaves = new Map<string, Promise<void>>();
+// A plain request started when the tab hides can be cancelled by unload, so a
+// pagehide keepalive replay must still be allowed to supersede it.
+const plainHiddenSaves = new WeakSet<Promise<void>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
@@ -2242,10 +2245,14 @@ function drainPendingDeckOps(
     );
     const activeOps = inFlightOpSlides.get(deckId);
     const controller = inFlightSaveControllers.get(deckId);
+    const keepalive = options?.keepalive === true;
+    const parallelSave = inFlightKeepaliveSaves.get(deckId);
+    // Any hide flush sends the queued edits now: waiting for the active request
+    // to finish first may never happen in a closing tab.
     if (
-      options?.keepalive &&
+      options?.keepalive !== undefined &&
       !keepaliveAlreadyRequested &&
-      !inFlightKeepaliveSaves.has(deckId) &&
+      (!parallelSave || (keepalive && plainHiddenSaves.has(parallelSave))) &&
       activeOps?.length
     ) {
       const queuedOps = pendingOpsQueue.get(deckId) ?? [];
@@ -2257,8 +2264,10 @@ function drainPendingDeckOps(
         (op) => op.op === "full-replace" && !verifiedFullReplaceOps.has(op),
       );
       if (unverifiedReplacement?.op === "full-replace") {
-        const draft = deckWithQueuedFullReplaceOps(keepaliveCandidates);
-        if (draft) holdStaleFullReplace(deckId, draft, null);
+        if (keepalive) {
+          const draft = deckWithQueuedFullReplaceOps(keepaliveCandidates);
+          if (draft) holdStaleFullReplace(deckId, draft, null);
+        }
       } else {
         const keepaliveOps =
           replacementIndex >= 0
@@ -2274,13 +2283,19 @@ function drainPendingDeckOps(
           deckId,
           keepaliveOps,
           controller?.signal,
-          { keepalive: true },
+          { keepalive },
         ).then(
           (results) => {
             if (
               (deckSaveGenerations.get(deckId) ?? 0) !== keepaliveGeneration
             ) {
               return;
+            }
+            if (!keepalive) {
+              deckKeepaliveSuccessGenerations.set(
+                deckId,
+                (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) + 1,
+              );
             }
             acknowledgeKeepaliveDeckOps(
               deckId,
@@ -2298,6 +2313,7 @@ function drainPendingDeckOps(
           },
         );
         inFlightKeepaliveSaves.set(deckId, keepaliveSave);
+        if (!keepalive) plainHiddenSaves.add(keepaliveSave);
         const clearKeepaliveSave = () => {
           if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
             inFlightKeepaliveSaves.delete(deckId);
@@ -7507,11 +7523,21 @@ export function DeckProvider({
       }
     };
     const onPageHide = () => flushPendingSaves();
+    // A body over the 64 KB keepalive cap cannot outlive the page, so ask the
+    // browser to confirm leaving while the plain request still has time to land.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!getSaveSnapshot().saving) return;
+      flushPendingSaves({ keepalive: false });
+      event.preventDefault();
+      event.returnValue = "";
+    };
     document.addEventListener("visibilitychange", onHidden);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
   }, []);
 

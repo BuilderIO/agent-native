@@ -1298,6 +1298,147 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges("hidden-large-deck")).toBe(false);
   });
 
+  it("sends edits queued behind an active save as a plain request when the tab hides", async () => {
+    window.history.pushState({}, "", "/deck/hidden-queued-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "hidden-queued-deck",
+      title: "Hidden queued deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "hidden-queued-deck",
+        "slide-1",
+        { content: "<p>Draft</p>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const largeContent = `<p>${"x".repeat(100_000)}</p>`;
+    act(() => {
+      result.current.updateSlide(
+        "hidden-queued-deck",
+        "slide-1",
+        { content: largeContent },
+        { persistence: "debounced" },
+      );
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    delete (document as { visibilityState?: unknown }).visibilityState;
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).not.toBe(true);
+    const operations = actionCallBody(patchCalls()[1]?.[1])
+      .operations as Array<{
+      fields: { content?: string };
+    }>;
+    expect(operations.at(-1)?.fields.content).toBe(largeContent);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(patchCalls().at(-1)?.[1]?.keepalive).not.toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("hidden-queued-deck");
+    expect(hasUnsavedDeckChanges("hidden-queued-deck")).toBe(false);
+  });
+
+  it("asks the browser to confirm leaving while a save is pending", async () => {
+    window.history.pushState({}, "", "/deck/unload-pending-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "unload-pending-deck",
+      title: "Unload pending deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const idleUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(idleUnload);
+    expect(idleUnload.defaultPrevented).toBe(false);
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "unload-pending-deck",
+        "slide-1",
+        { content: "<p>Draft</p>" },
+        { persistence: "debounced" },
+      );
+    });
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(0);
+
+    const pendingUnload = new Event("beforeunload", { cancelable: true });
+    act(() => {
+      window.dispatchEvent(pendingUnload);
+    });
+    expect(pendingUnload.defaultPrevented).toBe(true);
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+
+    await result.current.flushDeckSave("unload-pending-deck");
+  });
+
   it("keeps an unload flush behind the active save chain", async () => {
     window.history.pushState({}, "", "/deck/flush-order-deck");
     const {
