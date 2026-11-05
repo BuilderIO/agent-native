@@ -512,6 +512,8 @@ const messages = {
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar Google",
+    disconnectGoogle: "Desconectar Google",
+    googleDisconnectFailed: "No se pudo desconectar Google Drive.",
     openInGoogleSlides: "Abrir en Google Slides",
     googleSlidesUnavailable: "No disponible",
     googleSlidesOpenImporter: "Abrir la importación de Google Slides",

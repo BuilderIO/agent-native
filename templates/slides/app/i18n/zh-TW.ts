@@ -479,6 +479,8 @@ const messages = {
     exportPdf: "匯出為 PDF",
     exportPptx: "匯出為 PPTX",
     connectGoogle: "連接 Google",
+    disconnectGoogle: "中斷 Google 連線",
+    googleDisconnectFailed: "無法中斷 Google Drive 連線。",
     openInGoogleSlides: "在 Google Slides 中開啟",
     googleSlidesUnavailable: "無法使用",
     googleSlidesOpenImporter: "開啟 Google Slides 匯入",

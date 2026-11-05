@@ -40,6 +40,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.openInGoogleSlides": "Export to Google Slides",
         "editorExport.googleSlidesUnavailable": "Unavailable",
+        "editorExport.disconnectGoogle": "Disconnect Google",
         "editorExport.googleSlidesUnavailableHint":
           "Google Slides export is unavailable right now.",
         "editorExport.exportFailed": "Export failed",
@@ -278,5 +279,52 @@ describe("<ExportMenu> Google Slides availability", () => {
     const item = await googleSlidesItem();
     expect(item.getAttribute("data-disabled")).toBeNull();
     expect(item.textContent).not.toContain("Unavailable");
+  });
+
+  it("disconnects a connected Google account from the export menu", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/google-docs/disconnect")
+        ? statusResponse({ ok: true })
+        : statusResponse({
+            connected: true,
+            googleSlidesExport: { available: true },
+          }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    renderMenu();
+    openExportMenu();
+
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect Google" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).includes("/google-docs/disconnect"),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("shows the reason when the Google disconnect request fails", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/google-docs/disconnect")
+        ? statusResponse({ error: "Google refused the request" })
+        : statusResponse({
+            connected: true,
+            googleSlidesExport: { available: true },
+          }),
+    ) as typeof fetch;
+
+    renderMenu();
+    openExportMenu();
+
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect Google" }),
+    );
+
+    expect(await screen.findByText("Google refused the request")).toBeTruthy();
   });
 });

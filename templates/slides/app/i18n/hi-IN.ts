@@ -490,6 +490,8 @@ const messages = {
     exportPdf: "PDF के रूप में निर्यात करें",
     exportPptx: "PPTX के रूप में निर्यात करें",
     connectGoogle: "Google कनेक्ट करें",
+    disconnectGoogle: "Google कनेक्शन हटाएं",
+    googleDisconnectFailed: "Google Drive कनेक्शन हटाया नहीं जा सका।",
     openInGoogleSlides: "Google Slides में खोलें",
     googleSlidesUnavailable: "अनुपलब्ध",
     googleSlidesOpenImporter: "Google Slides इंपोर्ट खोलें",

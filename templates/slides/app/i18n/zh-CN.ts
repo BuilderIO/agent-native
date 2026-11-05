@@ -480,6 +480,8 @@ const messages = {
     exportPdf: "导出为 PDF",
     exportPptx: "导出为 PPTX",
     connectGoogle: "连接 Google",
+    disconnectGoogle: "断开 Google 连接",
+    googleDisconnectFailed: "无法断开 Google Drive 连接。",
     openInGoogleSlides: "在 Google Slides 中打开",
     googleSlidesUnavailable: "不可用",
     googleSlidesOpenImporter: "打开 Google Slides 导入",

@@ -506,6 +506,8 @@ const messages = {
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
+    disconnectGoogle: "Google の接続を解除",
+    googleDisconnectFailed: "Google Drive の接続を解除できませんでした。",
     openInGoogleSlides: "Google Slides で開く",
     googleSlidesUnavailable: "利用不可",
     googleSlidesOpenImporter: "Google Slides のインポートを開く",

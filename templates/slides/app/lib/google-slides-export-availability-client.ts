@@ -5,6 +5,10 @@ export type GoogleSlidesExportAvailability =
   | { available: true }
   | { available: false; reason: "not-configured" | "oauth-rejected" };
 
+export type GoogleSlidesExportState = GoogleSlidesExportAvailability & {
+  connected: boolean;
+};
+
 export const GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY = [
   "slides",
   "google-slides-export-availability",
@@ -12,7 +16,15 @@ export const GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY = [
 
 const STALE_MS = 30_000;
 
-type StatusBody = { googleSlidesExport?: GoogleSlidesExportAvailability };
+const UNKNOWN_STATE: GoogleSlidesExportState = {
+  available: true,
+  connected: false,
+};
+
+type StatusBody = {
+  connected?: boolean;
+  googleSlidesExport?: GoogleSlidesExportAvailability;
+};
 
 async function readStatusBody(
   response: Response,
@@ -24,7 +36,7 @@ async function readStatusBody(
   }
 }
 
-async function load(): Promise<GoogleSlidesExportAvailability> {
+async function load(): Promise<GoogleSlidesExportState> {
   const response = await fetch(
     new URL(
       agentNativePath("/_agent-native/google-docs/status"),
@@ -33,12 +45,13 @@ async function load(): Promise<GoogleSlidesExportAvailability> {
     { credentials: "same-origin" },
   );
   const result = await readStatusBody(response);
-  if ("unreadable" in result) return { available: true };
+  if ("unreadable" in result) return UNKNOWN_STATE;
+  const connected = result.body?.connected === true;
   const reported = result.body?.googleSlidesExport;
   if (!reported || typeof reported.available !== "boolean") {
-    return { available: true };
+    return { available: true, connected };
   }
-  return reported;
+  return { ...reported, connected };
 }
 
 const availabilityQuery = {
@@ -49,10 +62,8 @@ const availabilityQuery = {
 
 export function fetchGoogleSlidesExportAvailability(
   queryClient: QueryClient,
-): Promise<GoogleSlidesExportAvailability> {
-  return queryClient
-    .fetchQuery(availabilityQuery)
-    .catch(() => ({ available: true }) as GoogleSlidesExportAvailability);
+): Promise<GoogleSlidesExportState> {
+  return queryClient.fetchQuery(availabilityQuery).catch(() => UNKNOWN_STATE);
 }
 
 export function invalidateGoogleSlidesExportAvailability(
@@ -63,9 +74,28 @@ export function invalidateGoogleSlidesExportAvailability(
   });
 }
 
+export async function disconnectGoogleDocs(
+  queryClient: QueryClient,
+): Promise<void> {
+  const response = await fetch(
+    new URL(
+      agentNativePath("/_agent-native/google-docs/disconnect"),
+      window.location.origin,
+    ),
+    { method: "POST", credentials: "same-origin" },
+  );
+  const body = (await response.json()) as { ok?: boolean; error?: string };
+  if (!response.ok || body.error || body.ok !== true) {
+    throw new Error(
+      body.error ?? `Request failed with status ${response.status}`,
+    );
+  }
+  invalidateGoogleSlidesExportAvailability(queryClient);
+}
+
 export function useGoogleSlidesExportAvailability(
   enabled: boolean,
-): GoogleSlidesExportAvailability {
+): GoogleSlidesExportState {
   const { data } = useQuery({ ...availabilityQuery, enabled });
-  return data ?? { available: true };
+  return data ?? UNKNOWN_STATE;
 }
