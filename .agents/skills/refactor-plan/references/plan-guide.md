@@ -1,12 +1,14 @@
 # Writing a plan
 
 `new-plan.ts` scaffolds the file with frontmatter and the measured evidence.
-You fill the reasoning. `jira-upsert.ts` refuses to file a plan that still
+You fill the reasoning. `findings-upsert.ts` refuses to file a plan that still
 has `TODO(agent)` markers, or a confidence that isn't `high`, `medium`, or
 `low`.
 
-The plan is attached to a Jira ticket, and the engineer reading it may not
-know this repo. Write so they can start work from it alone.
+The plan goes on the ticket: attached in Jira, or as the body of a GitHub
+issue. Whoever reads it may not know this repo. With the GitHub tracker,
+the factory's cloud agent implements the plan straight from the issue, so
+write it so that a reader can start, and finish, the work from it alone.
 
 ## Frontmatter
 
@@ -19,7 +21,7 @@ know this repo. Write so they can start work from it alone.
   `Design`, `Clips`, `Content`, `Dispatch`, `General`.
 - `systems` and `paths`: trim them to what the change really touches. Dedup
   matching uses them.
-- Do not edit `fingerprint`, `runId`, or `jira` by hand.
+- Do not edit `fingerprint`, `runId`, or `ticket` by hand.
 
 ## Sections
 

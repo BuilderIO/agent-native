@@ -217,6 +217,11 @@ export interface MCPConfig {
   catalogMode?: "app" | "directory";
   directoryProfile?: {
     connectorCatalog: string[];
+    /**
+     * `false` keeps the profile's scoped cards on the app's own connector and
+     * mounts no directory route, for an app with cards but no directory listing.
+     */
+    directoryRoute?: false;
     instructions?: string;
     widgets?: boolean;
     widgetDomain?: string;
@@ -3681,7 +3686,9 @@ export async function createMCPServerForRequest(
           } catch (err: any) {
             failure = describeMcpError(err);
             return {
-              content: [{ type: "text", text: `Error: ${err.message}` }],
+              content: [
+                { type: "text", text: `Error: ${failure.errorMessage}` },
+              ],
               isError: true,
             };
           }
@@ -3721,7 +3728,10 @@ export async function createMCPServerForRequest(
             failure = describeMcpError(err);
             return {
               content: [
-                { type: "text" as const, text: `Error: ${err.message}` },
+                {
+                  type: "text" as const,
+                  text: `Error: ${failure.errorMessage}`,
+                },
               ],
               isError: true,
             };

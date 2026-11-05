@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { noteExternalWrite } from "../../action.js";
 import type {
   SandboxAdapter,
   SandboxRunRequest,
@@ -109,6 +110,7 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
           ]
         : [tmpFile];
 
+      noteExternalWrite("child-process");
       const child = spawn(process.execPath, nodeArgs, {
         cwd: tmpDir,
         env: safeEnv,

@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import addComment from "./add-comment.js";
+import {
+  commentIdempotencyKeySchema,
+  saveRecordingReply,
+} from "../server/lib/recording-comment-writes.js";
 
 const mentionSchema = z.object({
   email: z.string().email(),
@@ -28,26 +29,16 @@ export default defineAction({
       .union([z.string(), z.array(mentionSchema).max(20)])
       .optional()
       .describe("Organization members mentioned in the reply"),
+    idempotencyKey: commentIdempotencyKeySchema,
   }),
   run: async (args) => {
-    const db = getDb();
-    const [parent] = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.id, args.commentId))
-      .limit(1);
-    if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
-
-    const result = await addComment.run({
-      recordingId: parent.recordingId,
-      threadId: parent.threadId,
-      parentId: parent.id,
-      videoTimestampMs: parent.videoTimestampMs,
-      content: args.content,
-      authorName: args.authorName,
-      mentions: args.mentions,
-    });
-
-    return { ...result, parentId: parent.id };
+    const saved = await saveRecordingReply(args);
+    return {
+      id: saved.id,
+      threadId: saved.threadId,
+      notified: saved.repeated ? null : await saved.notify(),
+      repeated: saved.repeated,
+      parentId: saved.parentId,
+    };
   },
 });

@@ -263,6 +263,14 @@ describe("database table loading", () => {
 });
 
 describe("database preview property saves", () => {
+  it("carries the view a row was opened from through full-page navigation", () => {
+    expect(
+      databaseItemPagePath("row-1", "database", "page", "view & one"),
+    ).toBe(
+      "/page/row-1?databaseId=database&databaseDocumentId=page&fromViewId=view+%26+one",
+    );
+  });
+
   it("carries the database and its page through full-page navigation", () => {
     expect(
       databaseItemPagePath("row-1", "database & one", "database/page"),
