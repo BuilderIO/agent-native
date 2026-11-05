@@ -9,6 +9,7 @@ import {
   summarize,
   type CaseResult,
 } from "./tool-search-benchmark.harness.js";
+import { searchToolRegistry } from "./tool-search.js";
 
 // Ratchets: raise these when ranking improves, never lower them. A change that
 // drops a score below its floor made tool-search worse at finding real tools.
@@ -75,6 +76,20 @@ describe("tool-search retrieval benchmark", () => {
 
   it("ranks the right tool near the top across every request", () => {
     expect(summarize(results).mrr).toBeGreaterThanOrEqual(MIN_MRR);
+  });
+
+  it("marks Mail's multi-operation rule and filter actions destructive", () => {
+    const flags = Object.fromEntries(
+      searchToolRegistry(registries.get("mail")!, {
+        names: ["manage-gmail-filters", "manage-email-rules", "archive-email"],
+      }).results.map((result) => [result.name, result.destructive]),
+    );
+
+    expect(flags).toEqual({
+      "manage-gmail-filters": true,
+      "manage-email-rules": true,
+      "archive-email": undefined,
+    });
   });
 
   it("finds the right tools in the top 5 for held-out requests", () => {

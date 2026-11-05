@@ -769,13 +769,45 @@ const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
  * Whether a result is marked `destructive`. Ranking ignores it: whether the
  * user wants the change ("delete it" or "don't delete it") is the agent's call,
  * so a search finds the tool either way and the mark tells the agent to check.
- * A declared `destructiveHint` decides; without annotations, a name that leads
- * with a destructive verb does, since most delete actions declare none.
+ * A tool is destructive when it declares `destructiveHint`, or when one of its
+ * operations deletes (`manage-gmail-filters`' `operation: "delete"`).
+ * Without annotations, a name that leads with a destructive verb also counts,
+ * since most delete actions declare none.
  */
 function isDestructiveTool(name: string, entry: ActionEntry): boolean {
-  if (entry.mcpAnnotations) return entry.mcpAnnotations.destructiveHint;
+  if (entry.mcpAnnotations?.destructiveHint === true) return true;
+  if (hasDestructiveOperation(entry.tool.parameters)) return true;
+  if (entry.mcpAnnotations) return false;
   const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
   return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+}
+
+const OPERATION_PARAMETERS: ReadonlySet<string> = new Set([
+  "action",
+  "operation",
+  "op",
+  "mode",
+]);
+
+function hasDestructiveOperation(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object") return false;
+  const { properties } = schema as { properties?: unknown };
+  if (!properties || typeof properties !== "object") return false;
+  return Object.entries(properties).some(([key, property]) => {
+    if (!OPERATION_PARAMETERS.has(key)) return false;
+    const values: unknown =
+      property && typeof property === "object"
+        ? (property as { enum?: unknown }).enum
+        : undefined;
+    return (
+      Array.isArray(values) &&
+      values.some(
+        (value) =>
+          typeof value === "string" &&
+          searchTerms(value).some((term) => DESTRUCTIVE_VERBS.has(term)),
+      )
+    );
+  });
 }
 
 function fieldTerms(value: string): FieldTerms {

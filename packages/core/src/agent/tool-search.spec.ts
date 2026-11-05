@@ -975,6 +975,34 @@ describe("tool-search ranking", () => {
     });
   });
 
+  it("marks a multi-operation tool destructive when one operation deletes", () => {
+    const registry = {
+      "manage-filters": action("List, create, or change filters.", {
+        operation: { type: "string", enum: ["list", "create", "delete"] },
+      }),
+      "manage-rules": action("List or change rules.", {
+        action: { type: "string", enum: ["list", "update", "remove"] },
+      }),
+      // An enum that is not an operation, or names no deletion, is not one.
+      "manage-labels": action("List or change labels.", {
+        operation: { type: "string", enum: ["list", "rename"] },
+        color: { type: "string", enum: ["red", "clear"] },
+      }),
+    };
+
+    const flags = Object.fromEntries(
+      searchToolRegistry(registry, {
+        names: ["manage-filters", "manage-rules", "manage-labels"],
+      }).results.map((r) => [r.name, r.destructive]),
+    );
+
+    expect(flags).toEqual({
+      "manage-filters": true,
+      "manage-rules": true,
+      "manage-labels": undefined,
+    });
+  });
+
   it("keeps 'setting' and 'settings' apart from the verb 'set'", () => {
     const registry = {
       "set-theme": action("Set the theme."),
