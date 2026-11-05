@@ -1191,9 +1191,8 @@ function scopeTenantKeys(scope: AnalyticsScope): string[] {
   return scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`];
 }
 
-const TRAFFIC_COLUMNS: Record<
-  string,
-  Parameters<typeof trafficEnvironmentCondition>[1]
+const TRAFFIC_COLUMNS: Partial<
+  Record<string, Parameters<typeof trafficEnvironmentCondition>[1]>
 > = {
   analytics_events: ANALYTICS_EVENT_TRAFFIC_COLUMNS,
   session_recordings: SESSION_RECORDING_TRAFFIC_COLUMNS,
@@ -1209,8 +1208,10 @@ const ROLLUP_TENANT_KEY_SQL =
  */
 function rollupFromEvents(tableName: string, eventsSql: string): string {
   if (tableName === "analytics_user_days") {
+    // raw-sql-ok: reads the scoped events subquery, tenant values bound // guard:allow-unbounded-read — that subquery bounds it
     return `(SELECT MIN(id) AS id, tenant_key, MIN(owner_email) AS owner_email, MIN(org_id) AS org_id, event_date, user_key FROM (SELECT id, ${ROLLUP_TENANT_KEY_SQL} AS tenant_key, owner_email, org_id, event_date, COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key FROM ${eventsSql} AS traffic_events) AS traffic_user_days WHERE user_key IS NOT NULL GROUP BY tenant_key, event_date, user_key)`;
   }
+  // raw-sql-ok: reads the scoped events subquery, tenant values bound // guard:allow-unbounded-read — that subquery bounds it
   return `(SELECT MIN(id) AS id, tenant_key, MIN(owner_email) AS owner_email, MIN(org_id) AS org_id, event_date, event_name, app, template, COUNT(*) AS event_count FROM (SELECT id, ${ROLLUP_TENANT_KEY_SQL} AS tenant_key, owner_email, org_id, event_date, event_name, COALESCE(app, '') AS app, COALESCE(template, '') AS template FROM ${eventsSql} AS traffic_events) AS traffic_rollup GROUP BY tenant_key, event_date, event_name, app, template)`;
 }
 
@@ -1318,6 +1319,7 @@ function scopedTableSource(
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
+      // raw-sql-ok: fixed table and condition text; tenant values stay bound
       return {
         sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter})`,
         args: [scope.orgId, today],
@@ -1325,11 +1327,13 @@ function scopedTableSource(
     }
     const ownerParameter = parameterOffset + 3;
     if (tableName === "analytics_events" && scopedEventsSingleScan) {
+      // raw-sql-ok: fixed table and condition text; tenant values stay bound
       return {
         sql: `(${select} FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter})`,
         args: [scope.orgId, today, ownerEmail],
       };
     }
+    // raw-sql-ok: fixed table and condition text; tenant values stay bound
     return {
       sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter} UNION ALL ${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${rowFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
@@ -1338,6 +1342,7 @@ function scopedTableSource(
   if (scope.credentialScope === "org") {
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
+  // raw-sql-ok: fixed table and condition text; tenant values stay bound
   return {
     sql: `(${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${rowFilter})`,
     args: [ownerEmail, today],
@@ -1572,6 +1577,7 @@ export function scopedAnalyticsSql(
         )
       : null;
   if (scopedEvents) args.push(...scopedEvents.args);
+  // raw-sql-ok: each source is a scoped subquery whose tenant values stay bound
   const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
     if (source.cte) return configuredSql.slice(source.start, source.end);
     if (source.name === "analytics_events") {

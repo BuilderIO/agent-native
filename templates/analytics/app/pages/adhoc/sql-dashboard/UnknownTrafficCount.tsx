@@ -29,7 +29,7 @@ export function UnknownTrafficCount() {
           {unavailable
             ? t("sqlDashboard.unknownTrafficUnavailable")
             : t("sqlDashboard.unknownTraffic", {
-                count: data?.unknown.toLocaleString() ?? "",
+                count: data.unknown.toLocaleString(),
               })}
         </span>
       </TooltipTrigger>

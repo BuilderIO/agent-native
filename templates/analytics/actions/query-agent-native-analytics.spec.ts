@@ -306,12 +306,12 @@ describe("query-agent-native-analytics", () => {
   });
 
   it("reads only the traffic asked for, and all of it otherwise", async () => {
-    const sql = "SELECT events FROM analytics_event_daily_rollups";
+    const rollups = "SELECT events FROM analytics_event_daily_rollups";
 
-    await action.run({ sql, environment: "production" });
+    await action.run({ sql: rollups, environment: "production" });
 
     expect(mocks.queryFirstPartyAnalyticsWithBackend).toHaveBeenCalledWith(
-      sql,
+      rollups,
       { userEmail: "alice@example.com", orgId: "org_123" },
       {
         cache: true,
@@ -320,7 +320,7 @@ describe("query-agent-native-analytics", () => {
       },
     );
     expect(
-      action.schema.safeParse({ sql, environment: "staging" }).success,
+      action.schema.safeParse({ sql: rollups, environment: "staging" }).success,
     ).toBe(false);
   });
 

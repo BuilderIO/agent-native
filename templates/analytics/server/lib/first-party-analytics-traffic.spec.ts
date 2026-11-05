@@ -3,8 +3,12 @@ import { createRequire } from "node:module";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { TrafficEnvironment } from "../../shared/traffic-environment";
-import { scopedAnalyticsSql } from "./first-party-analytics";
+import {
+  scopedAnalyticsSql,
+  validateFirstPartyAnalyticsSql,
+} from "./first-party-analytics";
 import { renderFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend";
+import { readTrafficCounts, trafficCountsSql } from "./traffic-environment";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -208,6 +212,17 @@ describe("first-party reads filtered by traffic", () => {
     ).toBe(scopedAnalyticsSql(content, scope, today).sql);
   });
 
+  it("counts each kind of traffic through the query policy", async () => {
+    const counts = trafficCountsSql("2026-01-01");
+
+    expect(() => validateFirstPartyAnalyticsSql(counts)).not.toThrow();
+    expect(readTrafficCounts(await run(counts))).toEqual({
+      production: 4,
+      beta: 3,
+      unknown: 1,
+    });
+  });
+
   it("adds no condition when no filter is chosen", () => {
     const sql = "SELECT id FROM analytics_events";
     expect(scopedAnalyticsSql(sql, scope, today).sql).not.toContain("hostname");
@@ -251,6 +266,24 @@ describe("first-party reads filtered by traffic", () => {
       expect(rendered.indexOf("QUALIFY ROW_NUMBER()")).toBeLessThan(
         rendered.indexOf("AS traffic_events"),
       );
+    });
+
+    it("can answer the traffic counts from the events model", () => {
+      const counts = scopedAnalyticsSql(
+        trafficCountsSql("2026-01-01"),
+        scope,
+        today,
+      );
+
+      const rendered = renderFirstPartyAnalyticsBigQuerySql(
+        counts.sql,
+        counts.args,
+        bigQueryTable,
+        { eventsModelTable: "example-project.analytics.events_model" },
+      );
+
+      expect(rendered).toContain("page_hostname AS hostname");
+      expect(rendered).not.toContain("::jsonb");
     });
 
     it("works on the events model, whose hostname has another name", () => {
