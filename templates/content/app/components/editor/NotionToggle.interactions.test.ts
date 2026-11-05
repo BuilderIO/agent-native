@@ -2,7 +2,7 @@
 import { Editor } from "@tiptap/core";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   NotionToggle,
@@ -56,6 +56,10 @@ afterEach(() => {
   for (const editor of editors.splice(0)) editor.destroy();
 });
 
+// oracle-change: a Toggle's title is page text now, so the old title input's
+// Enter handling (applyToggleSummaryEnter, focusToggleSummaryAtPosition) is
+// gone; NotionToggle.keys.test.ts covers Enter in a title.
+// oracle-change(templates/content/app/components/editor/VisualEditor.toggle-summary-undo.test.tsx): an old Toggle's title input is read-only now and moves its text into the page when clicked, so it keeps no undo history of its own.
 describe("Notion Toggle interactions", () => {
   it("outdents the active direct child and leaves an empty Toggle behind", () => {
     const editor = createEditor({

@@ -884,7 +884,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
     if (value || typeof pos !== "number" || !title) return;
     const bodyStart = pos + 1 + title.nodeSize;
     const { from, to } = editor.state.selection;
-    if (to > bodyStart && from < pos + node.nodeSize) {
+    if (to > bodyStart && pos + node.nodeSize > from) {
       editor.view.dispatch(
         editor.state.tr.setSelection(
           TextSelection.create(editor.state.doc, bodyStart - 1),
