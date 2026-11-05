@@ -651,6 +651,7 @@ export async function handleAbortRecordingUpload(
           recordingId,
           userId: authUserId,
           ownerEmail,
+          reason: "abort",
         });
       } else {
         console.error("[abort] hosted recording media remains reserved", {
