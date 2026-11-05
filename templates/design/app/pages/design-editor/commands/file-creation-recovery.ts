@@ -1,7 +1,10 @@
+import { callAction } from "@agent-native/core/client/hooks";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import { designMetadataQueryKey } from "../design-query-key";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -18,8 +21,24 @@ function isDesignFile(value: unknown): value is DesignFile {
   );
 }
 
-const designQueryKey = (designId: string) =>
-  ["action", "get-design", { id: designId }] as const;
+const designQueryKey = designMetadataQueryKey;
+
+type FileMetadata = Pick<DesignFile, "id" | "filename" | "fileType">;
+function cachedFileMetadata(
+  queryClient: QueryClient,
+  designId: string,
+): FileMetadata[] | undefined {
+  if (typeof queryClient.getQueryData !== "function") return undefined;
+  const cached = queryClient.getQueryData<unknown>(designQueryKey(designId));
+  if (!isRecord(cached) || !Array.isArray(cached.files)) return undefined;
+  return cached.files.filter(
+    (file: unknown): file is FileMetadata =>
+      isRecord(file) &&
+      typeof file.id === "string" &&
+      typeof file.filename === "string" &&
+      typeof file.fileType === "string",
+  );
+}
 
 function cachedDesignFiles(
   queryClient: QueryClient,
@@ -46,15 +65,15 @@ function matchesCreatedFile(
   );
 }
 
-async function refreshDesignFiles(
-  queryClient: QueryClient,
-  queryKey: ReturnType<typeof designQueryKey>,
-): Promise<void> {
-  if (typeof queryClient.refetchQueries === "function") {
-    await queryClient.refetchQueries({ queryKey });
-  } else {
-    await queryClient.invalidateQueries({ queryKey });
-  }
+async function readDesignMetadata(designId: string): Promise<FileMetadata[]> {
+  const result = await callAction<{ files: FileMetadata[] }>(
+    "get-design",
+    { id: designId, includeFileContent: false },
+    { method: "GET" },
+  );
+  if (!Array.isArray(result.files))
+    throw new Error("Design metadata was not returned");
+  return result.files;
 }
 
 export function createdFileIdFromResult(result: unknown): string | undefined {
@@ -71,7 +90,7 @@ export function captureDesignFileIds({
   designId: string;
   files: readonly DesignFile[];
 }): Set<string> {
-  const cached = cachedDesignFiles(queryClient, designQueryKey(designId));
+  const cached = cachedFileMetadata(queryClient, designId);
   return new Set([
     ...files.map((file) => file.id),
     ...(cached ?? []).map((file) => file.id),
@@ -107,9 +126,23 @@ export async function reconcileCreatedFile({
   const cachedFile = fromCurrent(cached ?? files);
   if (cachedFile) return cachedFile;
 
-  await refreshDesignFiles(queryClient, queryKey);
-  const refreshed = cachedDesignFiles(queryClient, queryKey);
-  return refreshed ? fromCurrent(refreshed) : undefined;
+  const metadata = await readDesignMetadata(designId);
+  const candidates = metadata.filter(
+    (file) =>
+      !beforeIds.has(file.id) &&
+      file.filename === filename &&
+      file.fileType === fileType,
+  );
+  for (const candidate of candidates) {
+    const result = await callAction<{ files: DesignFile[] }>(
+      "get-design",
+      { id: designId, fileId: candidate.id },
+      { method: "GET" },
+    );
+    const file = result.files.find((item) => item.id === candidate.id);
+    if (file && matchesCreatedFile(file, expected)) return file;
+  }
+  return undefined;
 }
 
 export async function isPersistedFilePresent({
@@ -121,9 +154,6 @@ export async function isPersistedFilePresent({
   designId: string;
   fileId: string;
 }): Promise<boolean | undefined> {
-  const queryKey = designQueryKey(designId);
-  await refreshDesignFiles(queryClient, queryKey);
-  const refreshed = cachedDesignFiles(queryClient, queryKey);
-  if (!refreshed) return undefined;
+  const refreshed = await readDesignMetadata(designId);
   return refreshed.some((file) => file.id === fileId);
 }

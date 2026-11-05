@@ -219,6 +219,16 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenLease: symbol | undefined;
   try {
+    if (
+      overviewScreens.some(
+        (screen) => screen.sourceState && screen.sourceState !== "ready",
+      )
+    ) {
+      throw new PngCaptureError(
+        "no-preview",
+        "Some screen sources have not loaded.",
+      );
+    }
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
       requestedScreenLease = prepareScreenForExport(screen.id);

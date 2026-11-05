@@ -107,6 +107,7 @@ export function useEditorLayerModels({
   } = editorHistory;
   const {
     files,
+    overviewFiles,
     codeLayerSourceForScreen,
     runtimeLayerSnapshotsById,
     designSourceType,
@@ -178,8 +179,10 @@ export function useEditorLayerModels({
             hiddenLayerIds,
             routeSelectionFileId:
               initialRouteSelectionId && initialRouteScreenTarget
-                ? findDesignFileByScreenTarget(files, initialRouteScreenTarget)
-                    ?.id
+                ? findDesignFileByScreenTarget(
+                    overviewScreens,
+                    initialRouteScreenTarget,
+                  )?.id
                 : undefined,
             selectedLayerIds: [
               ...selectedLayerIdsState,
@@ -428,7 +431,7 @@ export function useEditorLayerModels({
   const resolvedInitialRouteSelectionId = useMemo(() => {
     if (!initialRouteSelectionId) return null;
     const targetFile = initialRouteScreenTarget
-      ? findDesignFileByScreenTarget(files, initialRouteScreenTarget)
+      ? findDesignFileByScreenTarget(overviewScreens, initialRouteScreenTarget)
       : null;
     if (initialRouteScreenTarget && !targetFile) return null;
     const directOwner = codeLayerOwnerByNodeId.get(initialRouteSelectionId);
@@ -650,14 +653,14 @@ export function useEditorLayerModels({
   );
   const canonicalVisualFiles = useMemo(() => {
     const visualFileById = new Map(
-      files
+      overviewFiles
         .filter((file) => visualScreenFileIds.has(file.id))
         .map((file) => [file.id, file] as const),
     );
     return canonicalOverviewScreenIds
       .map((screenId) => visualFileById.get(screenId))
       .filter((file): file is (typeof files)[number] => Boolean(file));
-  }, [canonicalOverviewScreenIds, files, visualScreenFileIds]);
+  }, [canonicalOverviewScreenIds, overviewFiles, visualScreenFileIds]);
   const layerPanelFiles = useMemo<LayersPanelFile[]>(
     () =>
       canonicalVisualFiles.map((file) => ({
@@ -689,7 +692,9 @@ export function useEditorLayerModels({
           lockable: true,
           hideable: true,
           renamable: true,
-          childrenPending: !model && screenBodyHasElements(file.content ?? ""),
+          childrenPending:
+            (file.sourceState !== undefined && file.sourceState !== "ready") ||
+            (!model && screenBodyHasElements(file.content)),
           layers: cachedCodeLayerTreeToPanelNodes(
             model?.tree ?? [],
             layerStateIdsForScreen(lockedLayerIds, file.id),

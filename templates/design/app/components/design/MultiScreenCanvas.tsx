@@ -167,6 +167,7 @@ import {
   wantPreviewParses,
   subscribePreviewParses,
 } from "./multi-screen/preview-parse-warmer";
+import { selectSourceDemand } from "./multi-screen/source-demand";
 import type {
   AltHoverMeasurement,
   AltHoverMeasurementLine,
@@ -746,6 +747,8 @@ function areMultiScreenCanvasPropsEqual(
 
 export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   screens,
+  onSourceDemandChange,
+  onSourceRetry,
   zoom,
   activeId,
   selection: {
@@ -11882,6 +11885,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
+  const sourceDemandKey = useMemo(
+    () =>
+      selectSourceDemand(
+        canvasFrames.map(({ screen, geometry }) => ({
+          id: screen.id,
+          width: geometry.width,
+        })),
+        liveScreenIdsRef.current,
+        protectedLiveScreenIds,
+        canvasZoom,
+      ).join("\u0000"),
+    [canvasFrames, canvasZoom, protectedLiveScreenIds, screenCullTierById],
+  );
+  useEffect(() => {
+    onSourceDemandChange?.(
+      sourceDemandKey ? sourceDemandKey.split("\u0000") : [],
+    );
+  }, [onSourceDemandChange, sourceDemandKey]);
   // The widget camera: the opened screen with its breakpoint frames, as they
   // render now, fit whole and centered in the pane. It is a function of the
   // pane and the rendered group only, so every size, measured-height or
@@ -12316,6 +12337,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const cache = screenContentCacheRef.current;
     const next = new Map<string, ReactNode>();
     canvasFrames.forEach(({ screen, metadata, geometry }) => {
+      if (screen.sourceState && screen.sourceState !== "ready") return;
       if (
         !editorScreenIds.has(screen.id) &&
         !retainedEditorScreenIds.has(screen.id)
@@ -12858,6 +12880,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               key={screen.id}
               layoutGridBoardSize={layoutGridBoardSizeById[screen.id] ?? 0}
               screen={screen}
+              onSourceRetry={onSourceRetry}
               metadata={metadata}
               screenRootComputedStylesById={screenRootComputedStylesById}
               screenRootComputedStyles={
@@ -14440,6 +14463,7 @@ type StaticPreviewHandoff = "over-editor" | "under-editor";
 
 interface ScreenProps {
   screen: ScreenFile;
+  onSourceRetry?: (screenId: string) => void;
   metadata: ResolvedScreenMetadata;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   screenRootComputedStyles?: Record<string, string>;
@@ -14537,6 +14561,7 @@ function useNativePreviewSurfaceRef(
 const Screen = memo(function Screen({
   layoutGridBoardSize = 0,
   screen,
+  onSourceRetry,
   metadata,
   screenRootComputedStylesById,
   screenRootComputedStyles,
@@ -14652,7 +14677,11 @@ const Screen = memo(function Screen({
     (!screenContent &&
       iframeAdmitted &&
       (shouldMountContent ? !bootDeferred || !previewUrl : staticPreview));
+  const sourcePending = Boolean(
+    screen.sourceState && screen.sourceState !== "ready",
+  );
   const staticSrcdocNeeded =
+    !sourcePending &&
     !previewUrl &&
     (showStaticPreview ||
       (shouldMountContent &&
@@ -15010,7 +15039,10 @@ const Screen = memo(function Screen({
               "ring-2 ring-[var(--design-editor-accent-color)] ring-inset",
           )}
           style={{
-            pointerEvents: screenContentInteractive ? "auto" : "none",
+            pointerEvents:
+              screenContentInteractive || screen.sourceState === "error"
+                ? "auto"
+                : "none",
             backgroundColor: screenRootRequiresTransparentHost(
               screenRootComputedStyles,
             )
@@ -15033,7 +15065,33 @@ const Screen = memo(function Screen({
                 }),
           }}
         >
-          {!showStaticPreview ? (
+          {sourcePending ? (
+            screen.sourceState === "error" ? (
+              <div
+                role="alert"
+                className="flex h-full items-center justify-center bg-muted/40 text-muted-foreground"
+              >
+                <div>
+                  <span>{t("designEditor.sourceLoadFailed")}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSourceRetry?.(screen.id);
+                    }}
+                  >
+                    {t("designEditor.tryAgain")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                data-source-loading
+                aria-busy="true"
+                className="h-full w-full animate-pulse bg-muted/40"
+              />
+            )
+          ) : !showStaticPreview ? (
             screenContent ? null : (
               (deferredSnapshot ?? (
                 <div
@@ -15105,7 +15163,7 @@ const Screen = memo(function Screen({
               title={screen.filename}
             />
           )}
-          {screenContent}
+          {!sourcePending && screenContent}
           {layoutGridBoardSize > 0 ? (
             <span
               data-layout-grid={screen.id}
@@ -15268,6 +15326,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
       prev.measuredIframeHeights,
       next.measuredIframeHeights,
     ) &&
+    prev.onSourceRetry === next.onSourceRetry &&
     prev.screenContent === next.screenContent &&
     prev.bootDeferred === next.bootDeferred &&
     prev.staticPreview === next.staticPreview &&

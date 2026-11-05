@@ -1050,6 +1050,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Impossible de charger cet écran.",
     liveCollaboration: {
       title: "Collaboration en direct",
       description:

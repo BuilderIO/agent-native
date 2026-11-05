@@ -106,6 +106,8 @@ import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selecti
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 function duplicateStackZOperations(
   before: CanvasFrameGeometryById,
   after: CanvasFrameGeometryById,
@@ -1696,8 +1698,8 @@ export function runRedo({
           appliedDuplicateStackChanges.push(duplicateStack);
         }
         queryClient.setQueryData(
-          ["action", "get-design", { id }],
-          (old: any) => {
+          designMetadataQueryKey(id),
+          (old: Record<string, unknown> | undefined) => {
             if (!old || typeof old !== "object") return old;
             return { ...old, data: JSON.stringify(nextData) };
           },

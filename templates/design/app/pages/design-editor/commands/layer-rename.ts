@@ -18,6 +18,7 @@ import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-e
 import { shouldIncludeScreenRenameContentOverride } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
 import {
   mapAcceptedSelectionNode,
@@ -88,6 +89,14 @@ export function runLayerRename(
   if (!canEditDesign) return;
   const renamedFile = files.find((file) => file.id === layerId);
   if (renamedFile) {
+    if (
+      overviewScreens.some(
+        (screen) => screen.sourceState && screen.sourceState !== "ready",
+      )
+    ) {
+      toast.error(t("common.genericError"));
+      return;
+    }
     const nextFilename = renameFilenamePreservingExtension(
       renamedFile.filename,
       name,
@@ -126,17 +135,20 @@ export function runLayerRename(
     // snapshots returned below are then patched into live previews/Yjs in
     // place, avoiding the old rename -> N independent save race and white
     // flashes from srcdoc reloads.
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-        return old;
-      }
-      return {
-        ...old,
-        files: old.files.map((file: DesignFile) =>
-          file.id === layerId ? { ...file, filename: nextFilename } : file,
-        ),
-      };
-    });
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+          return old;
+        }
+        return {
+          ...old,
+          files: old.files.map((file: DesignFile) =>
+            file.id === layerId ? { ...file, filename: nextFilename } : file,
+          ),
+        };
+      },
+    );
 
     renameScreenMutation.mutate(
       {
@@ -170,8 +182,8 @@ export function runLayerRename(
             });
           });
           queryClient.setQueryData(
-            ["action", "get-design", { id }],
-            (old: any) => {
+            designMetadataQueryKey(id),
+            (old: Record<string, unknown> | undefined) => {
               if (
                 !old ||
                 typeof old !== "object" ||
@@ -190,7 +202,6 @@ export function runLayerRename(
                   return {
                     ...file,
                     filename: committed.filename,
-                    content: committed.content,
                     updatedAt: committed.updatedAt,
                   };
                 }),
@@ -200,8 +211,8 @@ export function runLayerRename(
         },
         onError: (error) => {
           queryClient.setQueryData(
-            ["action", "get-design", { id }],
-            (old: any) => {
+            designMetadataQueryKey(id),
+            (old: Record<string, unknown> | undefined) => {
               if (
                 !old ||
                 typeof old !== "object" ||
@@ -220,7 +231,7 @@ export function runLayerRename(
             },
           );
           void queryClient.invalidateQueries({
-            queryKey: ["action", "get-design", { id }],
+            queryKey: designMetadataQueryKey(id),
           });
           toast.error(
             error instanceof Error ? error.message : t("common.genericError"),

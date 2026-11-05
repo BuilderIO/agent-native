@@ -967,6 +967,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Could not load this screen.",
     liveCollaboration: {
       title: "Live collaboration",
       description:

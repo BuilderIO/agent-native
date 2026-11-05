@@ -1033,6 +1033,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
     liveCollaboration: {
       title: "लाइव सहयोग",
       description:

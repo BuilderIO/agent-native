@@ -18,6 +18,7 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import type { FileContentSaveCompletion } from "./save-file-content";
 
@@ -162,11 +163,17 @@ export function runApplyFileContentUpdate(
     return applyLocalContentUpdate(nextContent, options);
   }
   const previousFile = files.find((file) => file.id === fileId);
+  if (
+    !previousFile ||
+    (previousFile.sourceState && previousFile.sourceState !== "ready")
+  ) {
+    toast.error(t("designEditor.sourceLoadFailed"));
+    return { status: "refused" };
+  }
   const previousContent =
     options.historyBeforeContent ??
     getScreenContent(fileId) ??
-    previousFile?.content ??
-    "";
+    previousFile.content;
   let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
   try {
     prepared = prepareAcceptedSourceContent(nextContent, {
@@ -211,33 +218,31 @@ export function runApplyFileContentUpdate(
       after: acceptedContent,
     });
   }
-  if (options.updatedAt && !needsIdentityMigration) {
-    clearPendingLocalFileContent(fileId);
-  } else {
-    markPendingLocalFileContent(
-      fileId,
-      acceptedContent,
-      options.updatedAt ?? previousFile?.updatedAt,
-      identityMigrationSourceContent,
-    );
-  }
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-    if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-      return old;
-    }
-    return {
-      ...old,
-      files: old.files.map((file: DesignFile) =>
-        file.id === fileId
-          ? {
-              ...file,
-              content: acceptedContent,
-              ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
-            }
-          : file,
-      ),
-    };
-  });
+  markPendingLocalFileContent(
+    fileId,
+    acceptedContent,
+    previousFile.updatedAt,
+    identityMigrationSourceContent,
+  );
+  queryClient.setQueryData(
+    designMetadataQueryKey(id),
+    (old: Record<string, unknown> | undefined) => {
+      if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+        return old;
+      }
+      return {
+        ...old,
+        files: old.files.map((file: DesignFile) =>
+          file.id === fileId
+            ? {
+                ...file,
+                ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
+              }
+            : file,
+        ),
+      };
+    },
+  );
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,

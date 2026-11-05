@@ -27,6 +27,8 @@ import {
 } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface DeleteFilesArgs {
   activeFile: DesignFile;
   canvasFrameGeometryById: CanvasFrameGeometryById;
@@ -146,7 +148,7 @@ export async function runDeleteFiles(
   };
   const selectionRevisionAtStart = selectionRevisionRef?.current;
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
-  const designQueryKey = ["action", "get-design", { id }] as const;
+  const designQueryKey = designMetadataQueryKey(id);
   const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
   const recordDeletionHistory = options?.recordDeletionHistory === true;
   if (recordDeletionHistory) {

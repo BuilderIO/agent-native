@@ -1429,11 +1429,14 @@ export function useEditorSourceAndSync({
   ]);
 
   useEffect(() => {
-    if (!id || files.length === 0) return;
+    if (!id || overviewScreens.length === 0) return;
     const guardedInitialRouteScreenTarget = initialRouteScreenGuardRef.current;
     const currentScreenId = activeFileId ?? activeFile?.id;
     const initialRouteScreen = guardedInitialRouteScreenTarget
-      ? findDesignFileByScreenTarget(files, guardedInitialRouteScreenTarget)
+      ? findDesignFileByScreenTarget(
+          overviewScreens,
+          guardedInitialRouteScreenTarget,
+        )
       : undefined;
     if (
       guardedInitialRouteScreenTarget &&
@@ -1516,7 +1519,7 @@ export function useEditorSourceAndSync({
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
-    files,
+    overviewScreens,
     id,
     location.hash,
     location.pathname,

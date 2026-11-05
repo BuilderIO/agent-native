@@ -1172,6 +1172,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "無法載入此畫面。",
     liveCollaboration: {
       title: "即時協作",
       description:

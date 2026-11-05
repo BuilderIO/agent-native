@@ -1049,6 +1049,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "No se pudo cargar esta pantalla.",
     liveCollaboration: {
       title: "Colaboración en directo",
       description:

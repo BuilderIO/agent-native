@@ -1053,6 +1053,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
     liveCollaboration: {
       title: "Live-Zusammenarbeit",
       description:

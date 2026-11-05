@@ -1036,6 +1036,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
     liveCollaboration: {
       title: "실시간 협업",
       description:

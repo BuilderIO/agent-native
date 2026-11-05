@@ -1046,6 +1046,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Não foi possível carregar esta tela.",
     liveCollaboration: {
       title: "Colaboração ao vivo",
       description:

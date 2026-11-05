@@ -1032,6 +1032,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
     liveCollaboration: {
       title: "التعاون المباشر",
       description:

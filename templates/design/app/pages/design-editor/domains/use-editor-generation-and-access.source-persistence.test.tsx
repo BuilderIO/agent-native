@@ -39,6 +39,9 @@ function required<T>(value: T | null | undefined): T {
 
 const mocks = vi.hoisted(() => ({
   design: { current: undefined as unknown },
+  metadata: { current: undefined as unknown },
+  reads: [] as string[],
+  failIds: new Set<string>(),
   toast: {
     error: vi.fn(),
     warning: vi.fn(),
@@ -55,7 +58,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
   const mutations = new Map<string, unknown>();
   return {
     useActionQuery: (name: string) => ({
-      data: name === "get-design" ? mocks.design.current : undefined,
+      data: name === "get-design" ? mocks.metadata.current : undefined,
       error: null,
       isError: false,
       isLoading: false,
@@ -75,7 +78,19 @@ vi.mock("@agent-native/core/client/hooks", () => {
       return mutations.get(name);
     },
     actionErrorMessage: () => undefined,
-    callAction: async () => ({}),
+    callAction: async (name: string, params: { fileId?: string }) => {
+      if (name === "get-design" && params.fileId) {
+        mocks.reads.push(params.fileId);
+        if (mocks.failIds.has(params.fileId))
+          throw new Error("source unavailable");
+        const design = mocks.design.current as DesignData;
+        return {
+          ...design,
+          files: design.files.filter((file) => file.id === params.fileId),
+        };
+      }
+      return {};
+    },
     getBrowserTabId: () => "tab-1",
     readClientAppState: async () => null,
     setClientAppState: async () => {},
@@ -168,6 +183,7 @@ async function mountAccess(
   surface: Surface,
   design: DesignData,
   useWithAccess?: (access: () => Access) => void,
+  expectedInitialLoaded = design.files.length,
 ) {
   const queryClient = new QueryClient();
   const editorHistory = {
@@ -215,20 +231,36 @@ async function mountAccess(
     useWithAccess?.(() => required(latest.current));
     return null;
   }
+  const metadataOf = (value: DesignData) => ({
+    ...value,
+    files: value.files.map(({ content: _content, ...file }) => file),
+  });
   mocks.design.current = design;
+  mocks.metadata.current = metadataOf(design);
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(<Harness surface={surface} />));
+  await vi.waitFor(() =>
+    expect(required(latest.current).design?.files).toHaveLength(
+      expectedInitialLoaded,
+    ),
+  );
   unmounts.push(() =>
     act(async () => root.unmount()).then(() => host.remove()),
   );
   return {
     access: () => required(latest.current),
     queryClient,
-    rerender: (next: Surface, nextDesign: DesignData) => {
+    rerender: async (next: Surface, nextDesign: DesignData) => {
       mocks.design.current = nextDesign;
-      return act(async () => root.render(<Harness surface={next} />));
+      mocks.metadata.current = metadataOf(nextDesign);
+      await act(async () => root.render(<Harness surface={next} />));
+      await vi.waitFor(() =>
+        expect(required(latest.current).design?.files).toHaveLength(
+          nextDesign.files.length,
+        ),
+      );
     },
   };
 }
@@ -372,10 +404,108 @@ describe("automatic canonical source persistence", () => {
       globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     for (const fn of Object.values(mocks.toast)) fn.mockClear();
+    mocks.reads.length = 0;
+    mocks.failIds.clear();
   });
 
   afterEach(async () => {
     while (unmounts.length) await required(unmounts.pop())();
+  });
+
+  it("keeps a failed source out of editable files instead of publishing an empty body", async () => {
+    mocks.failIds.add(FILE_ID);
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({}),
+      undefined,
+      0,
+    );
+    await vi.waitFor(() =>
+      expect(access().sourceLoader?.get(FILE_ID).status).toBe("error"),
+    );
+    expect(access().design?.files).toEqual([]);
+    expect(access().sourceMetadata.map((file) => file.id)).toEqual([FILE_ID]);
+  });
+
+  it("hydrates local dependencies for the selected screen without reading unrelated screens", async () => {
+    const files = [
+      {
+        ...required(FILES[0]),
+        id: FILE_ID,
+        filename: "index.html",
+        content:
+          '<link rel="stylesheet" href="styles.css"><script src="app.js"></script>',
+      },
+      {
+        ...required(FILES[0]),
+        id: "css",
+        filename: "styles.css",
+        fileType: "css",
+        content: ".card { color: red }",
+      },
+      {
+        ...required(FILES[0]),
+        id: "js",
+        filename: "app.js",
+        fileType: "js",
+        content: 'import Card from "./Card.jsx"',
+      },
+      {
+        ...required(FILES[0]),
+        id: "component",
+        filename: "Card.jsx",
+        fileType: "jsx",
+        content: "export default function Card() {}",
+      },
+      {
+        ...required(FILES[0]),
+        id: "offscreen",
+        filename: "other.html",
+        content: "<p>unrelated</p>",
+      },
+    ] as DesignFile[];
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({ files }),
+      undefined,
+      4,
+    );
+    await vi.waitFor(() =>
+      expect(access().design?.files.map((file) => file.id)).toEqual(
+        expect.arrayContaining([FILE_ID, "css", "js", "component"]),
+      ),
+    );
+    expect(mocks.reads).not.toContain("offscreen");
+    expect(
+      access().design?.files.find((file) => file.id === "css")?.content,
+    ).toBe(".card { color: red }");
+  });
+
+  it("loads selected sources without fetching the other 499 screen bodies", async () => {
+    const files = Array.from({ length: 500 }, (_, index) => ({
+      ...required(FILES[0]),
+      id: index === 0 ? FILE_ID : `screen-${index + 1}`,
+      filename: index === 0 ? "index.html" : `screen-${index}.html`,
+      content: `<p>${index}</p>` + "x".repeat(100_000),
+    }));
+    const { access } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({ files }),
+      undefined,
+      1,
+    );
+    expect(access().sourceMetadata).toHaveLength(500);
+    expect(mocks.reads).toEqual([FILE_ID]);
+    await act(async () => access().onSourceDemandChange(["screen-500"]));
+    await vi.waitFor(() =>
+      expect(access().design?.files.map((file) => file.id)).toContain(
+        "screen-500",
+      ),
+    );
+    expect(mocks.reads).toEqual([FILE_ID, "screen-500"]);
+    expect(
+      access().design?.files.find((file) => file.id === "screen-500")?.content,
+    ).toBe(required(files[499]).content);
   });
 
   it("syncs on a Visual Edit link when the account itself can edit", async () => {
@@ -431,7 +561,11 @@ describe("automatic canonical source persistence", () => {
       designData({ canPersistSource: true }),
     );
 
-    expect(access().design?.files).toBe(FILES);
+    expect(
+      access().design?.files.map(
+        ({ sourceState: _sourceState, ...file }) => file,
+      ),
+    ).toEqual(FILES);
     expect(access().canPersistDesignSourceRef.current).toBe(true);
     const sync = sourceSync(access, queryClient, async (input) => ({
       updated: true,
@@ -514,7 +648,11 @@ describe("automatic canonical source persistence", () => {
     await sync.publish();
     await sync.publish();
 
-    expect(access().design?.files).toBe(FILES);
+    expect(
+      access().design?.files.map(
+        ({ sourceState: _sourceState, ...file }) => file,
+      ),
+    ).toEqual(FILES);
     expect(sync.updateFileMutation.mutateAsync).toHaveBeenCalledTimes(2);
     expect(sync.updateFileMutation.mutateAsync).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: FILE_ID, identityOnly: true }),

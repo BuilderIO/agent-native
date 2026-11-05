@@ -731,6 +731,14 @@ export function runDuplicateSelection({
       : activeFile
         ? [activeFile.id]
         : [];
+  if (
+    screenIdsToDuplicate.some(
+      (screenId) => !files.some((file) => file.id === screenId),
+    )
+  ) {
+    toast.error(t("common.genericError"));
+    return;
+  }
   const historyBatchId = `duplicate-selection-${++duplicateSelectionBatchSequence}`;
   screenIdsToDuplicate.forEach((screenId) =>
     handleDuplicateScreen(screenId, {

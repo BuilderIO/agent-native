@@ -37,6 +37,7 @@ import { runRedo } from "../commands/redo";
 import { runUndo } from "../commands/undo";
 import { applyDesignDataOperations } from "../data-operations";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -590,18 +591,10 @@ export function useEditorEditCommands({
       if (fileHistoryMutationPendingRef.current) {
         throw new Error(t("common.genericError"));
       }
-      const queryKey = ["action", "get-design", { id }] as const;
-      let file =
+      const file =
         files.find((candidate) => candidate.id === fileId) ??
         rawServerFilesByIdRef.current.get(fileId) ??
         historyFilesRef.current.find((candidate) => candidate.id === fileId);
-      if (!file) {
-        await queryClient.refetchQueries({ queryKey, exact: true });
-        const refreshed = queryClient.getQueryData<{
-          files?: DesignFile[];
-        }>(queryKey);
-        file = refreshed?.files?.find((candidate) => candidate.id === fileId);
-      }
       if (!file) throw new Error(t("common.genericError"));
 
       const targetFile = file;
@@ -645,12 +638,17 @@ export function useEditorEditCommands({
       const selectedFiles = files.filter(
         (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
       );
+      const explicitlySelectedIds = selectedIds.filter(
+        (id) =>
+          overviewScreenIds.has(id) &&
+          explicitOverviewScreenSelectionRef.current.includes(id),
+      );
       const explicitlySelectedFiles = selectedFiles.filter((file) =>
-        explicitOverviewScreenSelectionRef.current.includes(file.id),
+        explicitlySelectedIds.includes(file.id),
       );
       if (
         !explicitScreenDeletion &&
-        explicitlySelectedFiles.length === 0 &&
+        explicitlySelectedIds.length === 0 &&
         overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
@@ -660,8 +658,18 @@ export function useEditorEditCommands({
         handleDeleteSelection();
         return false;
       }
+      const intendedIds =
+        explicitlySelectedIds.length > 0
+          ? explicitlySelectedIds
+          : selectedIds.filter((id) => overviewScreenIds.has(id));
+      if (
+        intendedIds.some((id) => !selectedFiles.some((file) => file.id === id))
+      ) {
+        toast.error(t("common.genericError"));
+        return false;
+      }
       const filesToDelete =
-        explicitlySelectedFiles.length > 0
+        explicitlySelectedIds.length > 0
           ? explicitlySelectedFiles
           : selectedFiles;
       if (!filesToDelete.length) return false;
@@ -691,6 +699,7 @@ export function useEditorEditCommands({
       overviewScreens,
       selectedElement,
       selectedLayerIdsState,
+      t,
     ],
   );
 
@@ -1011,10 +1020,12 @@ export function useEditorEditCommands({
           locallyPinnedHeightIdsRef.current.delete(screenId);
         }
       }
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       return enqueueFrameGeometryDataSave(operations, {
         restoreClaims: direction === "undo" ? restoreClaims : undefined,

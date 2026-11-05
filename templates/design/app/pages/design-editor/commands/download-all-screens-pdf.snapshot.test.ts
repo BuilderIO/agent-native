@@ -207,6 +207,21 @@ describe("runDownloadAllScreensPdf snapshot fallback", () => {
     expect(fixture.showRasterCaptureError).not.toHaveBeenCalled();
   });
 
+  it("fails without downloading when a screen source is unloaded", async () => {
+    const fixture = makeArgs(null);
+    fixture.args.overviewScreens = fixture.args.overviewScreens.map(
+      (screen, index) =>
+        index === 0 ? { ...screen, sourceState: "unloaded" as const } : screen,
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await runDownloadAllScreensPdf(fixture.args);
+    expect(fixture.triggerBlobDownload).not.toHaveBeenCalled();
+    expect(fixture.showRasterCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "no-preview" }),
+      "pdf",
+    );
+  });
+
   it("reports cross-origin preview failure when no current snapshot is available", async () => {
     const fixture = makeArgs(null);
     vi.spyOn(console, "error").mockImplementation(() => {});

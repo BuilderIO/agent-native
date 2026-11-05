@@ -198,6 +198,7 @@ export function useEditorContentAndComponents({
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
+    sourceMetadata,
     canEditDesign,
     canEditDesignRef,
     rawServerFilesByIdRef,
@@ -1611,10 +1612,16 @@ export function useEditorContentAndComponents({
   linkedComponentQueueRuntimeRef.current = id
     ? {
         designId: id,
-        fileIds: () =>
-          files
-            .filter((file) => file.fileType === "html")
-            .map((file) => file.id),
+        fileIds: () => {
+          const required = sourceMetadata.filter(
+            (file) => file.fileType === "html",
+          );
+          const readyIds = new Set(files.map((file) => file.id));
+          if (required.some((file) => !readyIds.has(file.id))) {
+            throw new Error(t("common.genericError"));
+          }
+          return required.map((file) => file.id);
+        },
         getContent: getUnprojectedScreenContent,
         getSourceBaseContent: (fileId) =>
           sourceBaseForPublication(fileId, getUnprojectedScreenContent(fileId)),
@@ -1675,7 +1682,7 @@ export function useEditorContentAndComponents({
         syncUndoRedoState,
         refreshAfterConflict: () =>
           queryClient.invalidateQueries({
-            queryKey: ["action", "get-design", { id }],
+            queryKey: ["action", "get-design"],
           }),
         reportFailure: (message) =>
           toast.error(message, {
@@ -1871,20 +1878,14 @@ export function useEditorContentAndComponents({
 
   const applyLinkedComponentSelection = useCallback(
     (selection: { fileId: string; nodeIds: string[] }) => {
-      const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
-        "action",
-        "get-design",
-        { id },
-      ]);
-      const file = cached?.files.find((file) => file.id === selection.fileId);
-      if (typeof file?.content !== "string") {
-        throw new Error(
-          "The saved component file is unavailable for selection.",
-        );
+      const file = files.find((candidate) => candidate.id === selection.fileId);
+      if (!file || file.sourceState === "error") {
+        throw new Error(t("common.genericError"));
       }
+      const content = getScreenContent(selection.fileId);
       const { snapshot, nodes } = resolveLinkedComponentSelection({
         ...selection,
-        content: file.content,
+        content,
         previous: captureCurrentSelection(),
       });
       flushSync(() => {
@@ -1901,7 +1902,9 @@ export function useEditorContentAndComponents({
       captureCurrentSelection,
       id,
       pendingOverviewLayerSelectionRef,
-      queryClient,
+      files,
+      getScreenContent,
+      t,
       restoreSelectionSnapshot,
       setSelectedElement,
     ],

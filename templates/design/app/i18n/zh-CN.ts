@@ -1022,6 +1022,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
     liveCollaboration: {
       title: "实时协作",
       description:

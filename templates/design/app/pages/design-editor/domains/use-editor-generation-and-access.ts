@@ -79,12 +79,12 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
   createPendingLocalFileContent,
   type PendingLocalFileContent,
-  restorePendingFileContent,
 } from "../editor-state";
 import {
   formatUploadedFileContext,
@@ -98,7 +98,12 @@ import {
   applyMcpDirectoryWidgetWritePolicy,
 } from "../mcp-widget-write-capabilities";
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
-import { type DesignData, type DesignFile } from "../types";
+import {
+  type DesignData,
+  type DesignFile,
+  type DesignFileMetadata,
+} from "../types";
+import { useDesignSourceHydration } from "../use-design-source-hydration";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorHistory } from "./use-editor-history";
 
@@ -702,17 +707,31 @@ export function useEditorGenerationAndAccess({
     !pendingMatchesUnknownOutputVerification &&
     !pendingQuestionsVisible;
 
+  const pendingLocalFileContentsRef = useRef<
+    Map<string, PendingLocalFileContent>
+  >(new Map());
+  const [
+    pendingLocalFileContentsRevision,
+    setPendingLocalFileContentsRevision,
+  ] = useState(0);
+
   const {
-    data: designResult,
+    data: metadataResult,
     error: designQueryError,
     isError: designQueryFailed,
     isLoading: designLoading,
     isFetching: designFetching,
     dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
-  } = useActionQuery<DesignData | string>(
+  } = useActionQuery<
+    (Omit<DesignData, "files"> & { files: DesignFileMetadata[] }) | string
+  >(
     "get-design",
-    { id: id!, ...(reviewPreview ? { reviewPreview: true } : {}) },
+    {
+      id,
+      includeFileContent: false,
+      ...(reviewPreview ? { reviewPreview: true } : {}),
+    },
     {
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
@@ -724,6 +743,91 @@ export function useEditorGenerationAndAccess({
           : false,
     },
   );
+  const sourceMetadata = useMemo(
+    () =>
+      metadataResult &&
+      typeof metadataResult === "object" &&
+      Array.isArray(metadataResult.files)
+        ? metadataResult.files
+        : [],
+    [metadataResult],
+  );
+  const [visibleSourceIds, setVisibleSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const onSourceDemandChange = useCallback((ids: readonly string[]) => {
+    setVisibleSourceIds((previous) =>
+      previous.length === ids.length &&
+      previous.every((id, index) => id === ids[index])
+        ? previous
+        : ids,
+    );
+  }, []);
+  const demandedSourceIds = useMemo(() => {
+    const board = sourceMetadata.find(
+      (file) => file.filename === "__board__.html",
+    )?.id;
+    const first = sourceMetadata.find(
+      (file) => file.fileType === "html" && file.id !== board,
+    )?.id;
+    return [
+      ...new Set(
+        [
+          board,
+          activeFileId ?? first,
+          ...overviewSelectedScreenIds,
+          ...visibleSourceIds,
+        ].filter((value): value is string => Boolean(value)),
+      ),
+    ];
+  }, [
+    activeFileId,
+    overviewSelectedScreenIds,
+    sourceMetadata,
+    visibleSourceIds,
+  ]);
+  const dirtySourceIds = useMemo(
+    () => new Set(pendingLocalFileContentsRef.current.keys()),
+    [pendingLocalFileContentsRevision],
+  );
+  const pinnedSourceIds = useMemo(
+    () => new Set([...demandedSourceIds, ...dirtySourceIds]),
+    [demandedSourceIds, dirtySourceIds],
+  );
+  const {
+    loader: sourceLoader,
+    revision: sourceRevision,
+    dependencyOverflow,
+    retrySources,
+  } = useDesignSourceHydration(
+    id,
+    sourceMetadata,
+    demandedSourceIds,
+    pinnedSourceIds,
+    dirtySourceIds,
+  );
+  const designResult = useMemo<DesignData | string | undefined>(() => {
+    if (!metadataResult || typeof metadataResult !== "object")
+      return metadataResult;
+    return {
+      ...metadataResult,
+      files: metadataResult.files.flatMap((file) => {
+        const state = sourceLoader?.get(file.id);
+        return state?.status === "ready"
+          ? [
+              {
+                ...file,
+                content: state.content,
+                sourceState:
+                  state.refreshError || dependencyOverflow
+                    ? ("error" as const)
+                    : ("ready" as const),
+              },
+            ]
+          : [];
+      }),
+    };
+  }, [metadataResult, sourceLoader, sourceRevision, dependencyOverflow]);
   const {
     data: designAccessStatus,
     isLoading: designAccessStatusLoading,
@@ -968,7 +1072,8 @@ export function useEditorGenerationAndAccess({
           const refreshed = await refetchDesign();
           if (
             refreshed.isSuccess &&
-            isDesignData(refreshed.data) &&
+            refreshed.data &&
+            typeof refreshed.data === "object" &&
             typeof refreshed.data.liveCollaborationEnabled === "boolean"
           ) {
             setLiveCollaborationOverride(null);
@@ -1169,13 +1274,6 @@ export function useEditorGenerationAndAccess({
     },
     [applySelectionChange, restoreSelectionSnapshot],
   );
-  const pendingLocalFileContentsRef = useRef<
-    Map<string, PendingLocalFileContent>
-  >(new Map());
-  const [
-    pendingLocalFileContentsRevision,
-    setPendingLocalFileContentsRevision,
-  ] = useState(0);
 
   const markPendingLocalFileContent = useCallback(
     (
@@ -1240,17 +1338,10 @@ export function useEditorGenerationAndAccess({
     (fileId: string, expectedContent: string) => {
       const pending = pendingLocalFileContentsRef.current.get(fileId);
       if (!pending || pending.content !== expectedContent) return;
-      if (id) {
-        queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-          old && typeof old === "object"
-            ? restorePendingFileContent(old, fileId, pending, expectedContent)
-            : old,
-        );
-      }
       clearPendingLocalFileContent(fileId, expectedContent);
       failPendingTextCapture(fileId);
     },
-    [clearPendingLocalFileContent, id, queryClient],
+    [clearPendingLocalFileContent],
   );
 
   useLayoutEffect(() => {
@@ -1387,10 +1478,13 @@ export function useEditorGenerationAndAccess({
       ) {
         return;
       }
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, designSystemId };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, designSystemId };
+        },
+      );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
         onError: () => {
           void queryClient.invalidateQueries({
@@ -1663,6 +1757,11 @@ export function useEditorGenerationAndAccess({
     designAccessRequestSent,
     handleRequestDesignAccess,
     design,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    retrySources,
+    onSourceDemandChange,
     overviewDataReady,
     activeBreakpointStateVersion,
     designEditorCommandVersion,

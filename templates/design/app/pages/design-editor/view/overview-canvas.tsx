@@ -119,6 +119,8 @@ export function renderOverviewCanvas({
   } = editorHistory;
   const {
     canEditDesign,
+    onSourceDemandChange,
+    retrySources,
     generating,
     pendingGenerationActive,
     pinMode,
@@ -270,6 +272,8 @@ export function renderOverviewCanvas({
     <>
       <MultiScreenCanvas
         screens={overviewScreens}
+        onSourceDemandChange={onSourceDemandChange}
+        onSourceRetry={retrySources}
         zoom={
           responsiveInteractActive && overviewInteractScreenId
             ? interactZoom
@@ -288,8 +292,10 @@ export function renderOverviewCanvas({
             hasExplicitOverviewZoomCommand &&
             explicitOverviewCanvasZoom === null,
           initialFitScreenId: widgetEmbed
-            ? (findDesignFileByScreenTarget(files, initialRouteScreenTarget)
-                ?.id ?? null)
+            ? (findDesignFileByScreenTarget(
+                overviewScreens,
+                initialRouteScreenTarget,
+              )?.id ?? null)
             : undefined,
           fitFocusedViewport: widgetEmbed,
           chromeInsetLeft,

@@ -1048,6 +1048,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "この画面を読み込めませんでした。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:
