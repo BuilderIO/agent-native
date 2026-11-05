@@ -255,7 +255,10 @@ export default defineAction({
         filename.includes("/") ||
         filename.includes("\\"))
     ) {
-      throw new Error("Invalid filename: path traversal not allowed");
+      fail("Invalid filename: path traversal not allowed", {
+        errorCode: "invalid_filename",
+        statusCode: 400,
+      });
     }
 
     const widgetDesignId = designWidgetWriteDesignId(context, "update-file");
@@ -321,8 +324,9 @@ export default defineAction({
         !Number.isSafeInteger(operationRevision) ||
         (operationRevision ?? 0) <= 0
       ) {
-        throw new Error(
+        fail(
           "Identity-only updates require a source version and operation lineage, and cannot change file metadata or disable collaboration sync.",
+          { errorCode: "identity_update_invalid", statusCode: 400 },
         );
       }
       const write = await writeInlineSourceFile({
@@ -631,8 +635,12 @@ export default defineAction({
               )
               .limit(1);
             if (collision && collision.id !== id) {
-              throw new Error(
+              fail(
                 `File "${filename}" already exists in design ${file.designId}`,
+                {
+                  errorCode: "filename_taken",
+                  statusCode: 409,
+                },
               );
             }
             updateResult = await tx

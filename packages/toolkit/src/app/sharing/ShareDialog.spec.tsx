@@ -15,6 +15,7 @@ const sharesQuery = {
     visibility: "private" as const,
     role: "owner" as const,
     shares: [],
+    policy: { allowPublic: true, confirmOrgVisibility: true },
   },
   refetch: vi.fn(),
 };

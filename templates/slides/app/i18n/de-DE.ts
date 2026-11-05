@@ -911,9 +911,6 @@ const messages = {
     newSlideSaveFailed:
       "Die neue Folie konnte nicht gespeichert werden. Bitte versuche es erneut.",
     addSlides: "Folien hinzufügen",
-    addEmptySlide: "Leere Folie hinzufügen",
-    noAi: "ohne KI",
-    duplicateCurrentSlide: "Aktuelle Folie duplizieren",
     promptPlaceholder: "Beschreibe die gewünschten Folien...",
     newSlide: "Neue Folie",
     slidesHeading: "Folien",

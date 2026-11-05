@@ -58,7 +58,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   useBlocker,
   useLocation,
@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import { PdfExportStage } from "@/components/deck/PdfExportStage";
 import SlideRenderer, {
   getRenderedSlideSource,
   renderRawSlideHtml,
@@ -828,6 +829,9 @@ export default function DeckEditor() {
   const deniedPageAccessRequest = useRequestDeckAccess();
   const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [exportStageSlides, setExportStageSlides] = useState<Slide[] | null>(
+    null,
+  );
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
     slideId: string;
@@ -1378,7 +1382,7 @@ export default function DeckEditor() {
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
   const deckExportAnalytics = {
-    deckId: id,
+    ...(id ? { deckId: id } : {}),
     ...(typeof generationContext?.generationAttemptId === "string"
       ? { generationAttemptId: generationContext.generationAttemptId }
       : {}),
@@ -5228,6 +5232,17 @@ export default function DeckEditor() {
       return content === undefined ? slide : { ...slide, content };
     });
 
+  // Browser exports capture slides from the DOM, but the rail and canvas only
+  // render slides near the viewport, so mount every slide for the export.
+  const withExportStage = async <T,>(run: () => Promise<T>): Promise<T> => {
+    flushSync(() => setExportStageSlides(slidesWithLatestContent()));
+    try {
+      return await run();
+    } finally {
+      setExportStageSlides(null);
+    }
+  };
+
   const handleDownloadDeckBackup = () => {
     inlineEditFlushRef.current?.();
     const backupDeck: Deck = {
@@ -5594,14 +5609,11 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          const { sidecarSkipped } = await exportDeckAsPdf(
-            deck.title,
-            exportSlides,
-            deck.aspectRatio,
-            {
+          const { sidecarSkipped } = await withExportStage(() =>
+            exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
               analytics: deckExportAnalytics,
               signal,
-            },
+            }),
           );
           if (sidecarSkipped) {
             toast.warning(t("editorExport.pdfSidecarSkipped"));
@@ -5621,12 +5633,14 @@ export default function DeckEditor() {
           if (slides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          const { blankShapes } = await exportDeckAsPptx(
-            deck.title,
-            slides,
-            deck.aspectRatio,
-            deckExportAnalytics,
-            signal,
+          const { blankShapes } = await withExportStage(() =>
+            exportDeckAsPptx(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              deckExportAnalytics,
+              signal,
+            ),
           );
           if (blankShapes > 0) {
             toast.warning(
@@ -5662,12 +5676,14 @@ export default function DeckEditor() {
               deckExportAnalytics,
             );
           }
-          return exportDeckToGoogleSlides(
-            deck.title,
-            slides,
-            deck.aspectRatio,
-            undefined,
-            deckExportAnalytics,
+          return withExportStage(() =>
+            exportDeckToGoogleSlides(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              undefined,
+              deckExportAnalytics,
+            ),
           );
         }}
       />
@@ -5945,6 +5961,14 @@ export default function DeckEditor() {
               />
             </div>
           </div>
+        )}
+
+        {exportStageSlides && (
+          <PdfExportStage
+            slides={exportStageSlides}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+          />
         )}
 
         {transitionPreviewOpen && canPreviewTransition && (

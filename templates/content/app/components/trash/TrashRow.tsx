@@ -176,8 +176,9 @@ export function TrashRow({
     >
       <DatabaseTableGrid
         className={cn(
-          "grid min-h-12 min-w-max border-b hover:bg-muted/35 group-focus/trash-row:bg-muted/35 group-focus-within/trash-row:bg-muted/35",
-          selected && "bg-muted/55",
+          "grid min-h-12 min-w-max border-b hover:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))] group-focus/trash-row:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))] group-focus-within/trash-row:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))]",
+          selected &&
+            "bg-[color-mix(in_srgb,hsl(var(--muted))_55%,hsl(var(--background)))]",
         )}
         propertyIds={[...TRASH_TABLE_PROPERTY_IDS]}
         widths={widths}
