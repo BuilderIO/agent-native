@@ -741,8 +741,8 @@ function fieldTerms(value: string): FieldTerms {
 
 function searchDocumentFields(doc: {
   name: string;
-  source?: string;
-  hints?: readonly string[];
+  source: string | undefined;
+  hints: readonly string[] | undefined;
   description: string;
   parameters: ToolParameterSummary[];
 }): Record<SearchField, FieldTerms> {
