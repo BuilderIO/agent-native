@@ -109,9 +109,17 @@ mode forbids. Record it as a note and move on.
 | `factory-branch status <branchName>` / `factory-branch list` | One branch's state, or this run's branches |
 | `factory-slack react "<key>" <eyes\|white_check_mark\|ticket>` | React on a report's root (live only) |
 | `factory-slack reply "<key>" --file <file> [--again]` | Reply in a report's thread (live only); refuses a second reply without `--again` |
-| `factory-digest report "<key>" [--force]` / `factory-digest post --file <file>` | Post a report's digest card, or the recap |
+| `factory-digest report "<key>"` | Post the report's digest card once; later calls edit it in place, and a changed triage adds one line in its thread |
+| `factory-digest post --report "<key>"` (or `--pr "<url>"`) `--file <file>` | One line in that report's or PR's digest thread |
+| `factory-digest post --file <file>` | The recap, in today's factory log thread |
 | `factory-github membership <login>` | `member`, `not-member`, or `unknown` |
 | `factory-github approve "<PR url>" --sha <headRefOid>` | The only approval path (live only) |
+
+The digest channel holds one thread per issue: the report's card is its root,
+and everything later about the report or its PR goes in that thread. Never
+repost a card to show progress; run `factory-digest report` again and it edits
+the card. The watcher threads PR progress, needs-a-person asks, and merges
+itself.
 
 Write every prompt, reply, PR body, and recap with your file tool under
 `tmp/factory/` (gitignored) first. Report keys are the Slack root permalink,
@@ -301,13 +309,13 @@ contract allows.
 With `$FACTORY_BABYSIT` on or `shadow`, the watcher closes out each merge
 itself: ✅ on each Slack report (a reply only if none was ever sent), a
 thank-you comment and close on each fixed GitHub issue, `already-fixed`, and
-a fresh card. Skip this.
+an updated card. Skip this.
 
 With it `off`, in every live sweep, check each report's `prUrl` with
 `gh pr view <prUrl> --json state,mergedAt`. When merged: react
 `white_check_mark` with no second reply; for a GitHub issue, comment a
 one-line thank-you linking the PR and `gh issue close <url>`; set `triage`
-`already-fixed`; `factory-digest report "<key>" --force`. A closed, unmerged
+`already-fixed`; `factory-digest report "<key>"`. A closed, unmerged
 PR goes under "Needs a person" in the recap, unless the factory closed it
 under "Duplicate and competing PRs".
 
@@ -326,8 +334,8 @@ reason to park a report or make it `needs-person`: settle them and move on.
   PRs after #8676 merged that change): close the factory PR with
   `gh pr close <prUrl> --comment "Superseded by #<n>."`, set `triage`
   `already-fixed`, and post one line saying it was superseded in the report's
-  thread (`factory-slack reply "<key>" --again`), or with `factory-digest post`
-  when the report has no thread.
+  thread (`factory-slack reply "<key>" --again`), or with
+  `factory-digest post --report "<key>"` when the report has no Slack thread.
 - **Competing factory PRs.** Two or more factory PRs or approaches fix the
   same report (#8706 and #8714 for one clipping report): compare correctness,
   scope, and tests, keep the best, and close the rest with a comment pointing
@@ -554,7 +562,8 @@ add a comparison table (their outcome vs yours) after the recap.
 
 The digest renders markdown as Slack blocks, so write
 `review-latest-feedback`'s recap for scanning, to
-`tmp/factory/recap-<runId>.md`, then `factory-digest post --file …`:
+`tmp/factory/recap-<runId>.md`, then `factory-digest post --file …`, which
+posts it in today's factory log thread:
 
 ```markdown
 # Feedback sweep · 2026-10-30 (live)

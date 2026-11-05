@@ -466,6 +466,10 @@ function McpApprovalReviewBoundary({
   );
 }
 
+// Under ClientOnly the script is created by the client, where it never runs
+// and React 19 logs an error for it; the document's head script applies the theme.
+const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -482,9 +486,11 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
   themeAttribute?: Attribute | Attribute[];
@@ -544,6 +550,7 @@ function ProvidersInner({
           defaultTheme={defaultTheme}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
+          scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
         >
           <EmbeddedThemeSync />
           {content}
@@ -691,6 +698,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          clientOnly
         >
           {sessionBypass ? (
             gated

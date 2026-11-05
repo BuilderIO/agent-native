@@ -14,6 +14,7 @@ import {
   findSlideExportSource,
   preloadImagesWithCors,
   throwIfExportAborted,
+  waitForExportStage,
 } from "./export-pdf-client";
 import {
   type FontMetrics,
@@ -2190,6 +2191,11 @@ export async function buildDeckPptxBlob(
     await document.fonts.ready;
   }
 
+  const exportStage = document.querySelector<HTMLElement>(
+    "[data-pdf-export-stage]",
+  );
+  if (exportStage) await waitForExportStage(exportStage, signal);
+
   const dims = getAspectRatioDims(aspectRatio);
   const exportClones: Array<{
     element: HTMLElement;
@@ -2199,10 +2205,14 @@ export async function buildDeckPptxBlob(
   let blankShapes = 0;
 
   try {
-    for (let i = 0; i < slides.length; i++) {
+    for (const [i, exportSlide] of slides.entries()) {
       throwIfExportAborted(signal);
-      const exportSlide = slides[i];
-      const source = findSlideExportSource(exportSlide.id, i, slides.length);
+      const source = findSlideExportSource(
+        exportSlide.id,
+        i,
+        slides.length,
+        exportStage ?? document,
+      );
       await waitForImagesToSettle(source);
       const clone = createUnscaledExportClone(source, {
         width: dims.width,
