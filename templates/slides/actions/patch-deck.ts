@@ -56,6 +56,7 @@ import {
 } from "../server/lib/source-import.js";
 import {
   assertSlideAnimationsResolve,
+  type RepointedReveal,
   type SlideAnimationBaseline,
 } from "../server/lib/validate-slide-animations.js";
 import { ANIMATION_TRIGGERS } from "../shared/api.js";
@@ -191,7 +192,7 @@ const SlideFieldsSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one, or moves one onto a different element, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals: each follows its target to the target's new path, and the result lists every move in repointedReveals. A content change that strands one, or leaves it unclear which element its target became, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
     ),
   splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
@@ -1260,7 +1261,7 @@ export function assertPatchedSlideAnimationsResolve(
     contentChangedSlideIds?: ReadonlySet<string>;
     baselines?: ReadonlyMap<string, SlideAnimationBaseline>;
   },
-): void {
+): RepointedReveal[] {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) => {
       if (operation.op !== "patch-slide" && operation.op !== "add-slide") {
@@ -1274,7 +1275,7 @@ export function assertPatchedSlideAnimationsResolve(
         : [];
     }),
   );
-  if (slideIdsToValidate.size === 0) return;
+  if (slideIdsToValidate.size === 0) return [];
 
   // Only a reveal list the caller sent must carry element paths. Reveals that a
   // content patch keeps are checked the same way update-slide checks them.
@@ -1288,21 +1289,25 @@ export function assertPatchedSlideAnimationsResolve(
   );
 
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+  const repointed: RepointedReveal[] = [];
   for (const slideId of slideIdsToValidate) {
     const slide = slides.find((candidate) => candidate?.id === slideId);
     if (!slide || !Array.isArray(slide.animations) || !slide.animations.length)
       continue;
 
-    assertSlideAnimationsResolve({
+    const explicit = explicitAnimationSlideIds.has(slideId);
+    const saved = assertSlideAnimationsResolve({
       slideId,
       content: typeof slide.content === "string" ? slide.content : "",
       animations: slide.animations,
-      requireElementPaths:
-        options?.requireElementPaths === true &&
-        explicitAnimationSlideIds.has(slideId),
+      requireElementPaths: options?.requireElementPaths === true && explicit,
       baseline: options?.baselines?.get(slideId),
+      followContent: !explicit,
     });
+    slide.animations = saved.animations;
+    repointed.push(...saved.repointed);
   }
+  return repointed;
 }
 
 export function resolveDeckColumnUpdates(
@@ -1381,8 +1386,12 @@ export default defineAction({
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
     "then patch content and the complete ordered animations list together. " +
-    "A content patch that omits animations keeps the current reveals; one its " +
-    "change strands or moves onto a different element fails with a slide_animation_* error (400) and writes nothing. " +
+    "A content patch that omits animations keeps the current reveals and moves " +
+    "each to its target's new path; the result's repointedReveals lists every " +
+    "move as { slideId, animationIndex, animationId, fromPath, toPath }, so " +
+    "mention a moved reveal instead of assuming paths stayed put. A change that " +
+    "strands a reveal, or leaves it unclear which element its target became, " +
+    "fails with a slide_animation_* error (400) and writes nothing. " +
     "Send animations: [] to clear every reveal. " +
     "Use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
@@ -1861,11 +1870,15 @@ export default defineAction({
       }
 
       if (sourceImportCleared) delete deck.sourceImport;
-      assertPatchedSlideAnimationsResolve(deck, operations, {
-        requireElementPaths: isAgentCaller,
-        contentChangedSlideIds,
-        baselines: animationBaselinesBeforeOperations,
-      });
+      const repointedReveals = assertPatchedSlideAnimationsResolve(
+        deck,
+        operations,
+        {
+          requireElementPaths: isAgentCaller,
+          contentChangedSlideIds,
+          baselines: animationBaselinesBeforeOperations,
+        },
+      );
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
         resolveDeckColumnUpdates(
@@ -2169,6 +2182,7 @@ export default defineAction({
               })),
             )
           : {}),
+        ...(repointedReveals.length ? { repointedReveals } : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(sourceImportCleared && !sourceRewriteRequested
           ? { sourceImportCleared: true }

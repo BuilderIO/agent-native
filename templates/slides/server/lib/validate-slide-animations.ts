@@ -1,7 +1,10 @@
 import { fail } from "@agent-native/core/action";
 import { parseHTML } from "linkedom/worker";
 
-import { matchSlideElements } from "../../app/lib/reveal-after-edit.js";
+import {
+  matchSlideElements,
+  revealsAfterRootEdit,
+} from "../../app/lib/reveal-after-edit.js";
 import {
   animationElementKey,
   getElementPreview,
@@ -186,26 +189,60 @@ export function summarizeSlideAnimationTargets(
   );
 }
 
+/** A kept reveal a content-only save moved to the path its target now has. */
+export interface RepointedReveal {
+  slideId: string;
+  animationIndex: number;
+  animationId: string | null;
+  fromPath: number[] | null;
+  toPath: number[];
+}
+
 /**
- * Refuses a save whose reveal list introduces a reveal that does not resolve.
- * A reveal the baseline already had unresolved (same id, same target) may stay
- * or leave the list, so a partial repair saves; only a new unresolved reveal,
- * or one a content change strands or retargets, is refused.
+ * Returns the reveal list to save, refusing one that introduces a reveal that
+ * does not resolve. A reveal the baseline already had unresolved (same id, same
+ * target) may stay or leave the list, so a partial repair saves; only a new
+ * unresolved reveal, or one a content change strands or retargets, is refused.
+ * With `followContent` (the caller sent content but no reveal list), each kept
+ * reveal first moves to the path of the element its target became, and every
+ * such move is listed in `repointed` so the caller can report it.
  */
-export function assertSlideAnimationsResolve({
+export function assertSlideAnimationsResolve<T extends SlideAnimation>({
   slideId,
   content,
-  animations,
+  animations: requested,
   requireElementPaths = false,
   baseline,
+  followContent = false,
 }: {
   slideId: string;
   content: string;
-  animations: readonly SlideAnimation[];
+  animations: readonly T[];
   requireElementPaths?: boolean;
   baseline?: SlideAnimationBaseline;
-}): void {
-  if (animations.length === 0) return;
+  followContent?: boolean;
+}): { animations: T[]; repointed: RepointedReveal[] } {
+  const root = slideRootOf(content);
+  const baselineRoot =
+    followContent && baseline && root ? slideRootOf(baseline.content) : null;
+  const animations =
+    baselineRoot && root
+      ? revealsAfterRootEdit(baselineRoot, root, requested)
+      : [...requested];
+  const repointed: RepointedReveal[] = [];
+  animations.forEach((animation, animationIndex) => {
+    const before = requested.at(animationIndex);
+    if (animation === before || !animation.elementPath) return;
+    repointed.push({
+      slideId,
+      animationIndex,
+      animationId: animation.id ?? null,
+      fromPath: before?.elementPath ?? null,
+      toPath: animation.elementPath,
+    });
+  });
+  const result = { animations, repointed };
+  if (animations.length === 0) return result;
 
   const repeatedIndex = firstRepeatedIdIndex(animations);
   if (repeatedIndex !== -1) {
@@ -239,7 +276,6 @@ export function assertSlideAnimationsResolve({
     }
   }
 
-  const root = slideRootOf(content);
   const alreadyUnresolved = baseline
     ? unresolvedIdentities(baseline)
     : new Set<string>();
@@ -250,7 +286,7 @@ export function assertSlideAnimationsResolve({
   if (!failure) {
     const retargeted =
       baseline && root ? retargetedRevealIndex(baseline, root, animations) : -1;
-    if (retargeted === -1) return;
+    if (retargeted === -1) return result;
     const moved = animations[retargeted]!;
     refuse(
       "retargeted",

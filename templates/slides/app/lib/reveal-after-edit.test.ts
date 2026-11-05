@@ -9,7 +9,7 @@ const slide = (...children: string[]) =>
 
 const reveal = (id: string, path: number[]) => ({
   id,
-  elementIndex: path[path.length - 1],
+  elementIndex: path.at(-1) ?? 0,
   elementPath: path,
 });
 

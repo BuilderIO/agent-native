@@ -10,22 +10,27 @@ function commonSubsequence<T>(
   b: readonly T[],
   same: (x: T, y: T) => boolean,
 ): [number, number][] {
-  const lengths = Array.from({ length: a.length + 1 }, () =>
-    new Array<number>(b.length + 1).fill(0),
-  );
+  const width = b.length + 1;
+  const lengths = new Array<number>((a.length + 1) * width).fill(0);
+  const length = (i: number, j: number) => lengths.at(i * width + j) ?? 0;
+  const matches = (i: number, j: number) => {
+    const x = a.at(i);
+    const y = b.at(j);
+    return x !== undefined && y !== undefined && same(x, y);
+  };
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] = same(a[i], b[j])
-        ? lengths[i + 1][j + 1] + 1
-        : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+      lengths[i * width + j] = matches(i, j)
+        ? length(i + 1, j + 1) + 1
+        : Math.max(length(i + 1, j), length(i, j + 1));
     }
   }
   const pairs: [number, number][] = [];
   let i = 0;
   let j = 0;
   while (i < a.length && j < b.length) {
-    if (same(a[i], b[j])) pairs.push([i++, j++]);
-    else if (lengths[i + 1][j] >= lengths[i][j + 1]) i++;
+    if (matches(i, j)) pairs.push([i++, j++]);
+    else if (length(i + 1, j) >= length(i, j + 1)) i++;
     else j++;
   }
   return pairs;
@@ -65,7 +70,8 @@ export function matchSlideElements(
     const bChildren = getPersistedChildren(b);
     getPersistedChildren(a).forEach((child, index) => {
       // Identical HTML has the same children, so every index has a counterpart.
-      pairIdentical(child, bChildren[index]);
+      const counterpart = bChildren.at(index);
+      if (counterpart) pairIdentical(child, counterpart);
     });
   };
   const align = (a: Element, b: Element) => {
@@ -94,9 +100,14 @@ export function matchSlideElements(
       // Only a gap that kept its length pairs edits in place: with an element
       // removed or added, which old element an edited one came from is a guess.
       if (gapOld.length === gapNew.length) {
-        gapOld.forEach((element, index) => align(element, gapNew[index]));
+        gapOld.forEach((element, index) => {
+          const counterpart = gapNew.at(index);
+          if (counterpart) align(element, counterpart);
+        });
       }
-      if (oldEnd < olds.length) pairIdentical(olds[oldEnd], news[newEnd]);
+      const oldAnchor = olds.at(oldEnd);
+      const newAnchor = news.at(newEnd);
+      if (oldAnchor && newAnchor) pairIdentical(oldAnchor, newAnchor);
       oldStart = oldEnd + 1;
       newStart = newEnd + 1;
     }
@@ -142,6 +153,15 @@ export function revealsAfterEdit<T extends AnimationTarget>(
     .parseFromString(after, "text/html")
     .querySelector(".fmd-slide");
   if (!beforeRoot || !afterRoot) return [...animations];
+  return revealsAfterRootEdit(beforeRoot, afterRoot, animations);
+}
+
+/** {@link revealsAfterEdit} for slide roots the caller already parsed. */
+export function revealsAfterRootEdit<T extends AnimationTarget>(
+  beforeRoot: Element,
+  afterRoot: Element,
+  animations: readonly T[],
+): T[] {
   const matched = matchSlideElements(beforeRoot, afterRoot);
 
   return animations.map((animation) => {
