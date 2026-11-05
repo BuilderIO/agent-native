@@ -1391,6 +1391,25 @@ describe("set-resource-visibility link role", () => {
     ]);
   });
 
+  it("refuses a role change from a view of an older visibility", async () => {
+    await insertDoc({ id: "doc-stale", visibility: "private" });
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-stale",
+          visibility: "public",
+          expectedVisibility: "public",
+          role: "commenter",
+        }),
+      ),
+    ).rejects.toThrow("is now private, not public");
+
+    expect(await visibilities()).toEqual({ "doc-stale": "private" });
+    expect(await grants()).toEqual([]);
+  });
+
   it("lists the link role apart from the people with access", async () => {
     await insertDoc({ id: "doc-listed" });
     await setPublic("doc-listed", "commenter");

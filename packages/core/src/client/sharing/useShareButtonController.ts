@@ -585,6 +585,7 @@ export function useShareButtonController(
             resourceType: options.resourceType,
             resourceId: options.resourceId,
             visibility,
+            expectedVisibility: visibility,
             role: next,
           } as never);
         })

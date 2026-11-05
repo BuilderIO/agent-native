@@ -57,6 +57,12 @@ const schema = z
       .describe(
         "What the people this visibility opens to can do. With 'org', everyone in the organization: 'viewer' can read, 'commenter' can also comment, 'editor' can edit. With 'public', signed-in people with the link: 'viewer' or 'commenter'. Omit to keep the current role.",
       ),
+    expectedVisibility: z
+      .enum(["private", "org", "public"])
+      .optional()
+      .describe(
+        "The visibility the caller last saw. When set, a resource that has since changed is refused with a conflict instead of moved, so a role change made from a stale view can't change who can open it.",
+      ),
   })
   .refine((args) => Boolean(args.resourceId) || Boolean(args.resourceIds), {
     message: "Provide resourceId or resourceIds.",
@@ -232,6 +238,15 @@ export default defineAction({
 
     const prepare = async (resourceId: string): Promise<PreparedChange> => {
       const access = await assertAccess(args.resourceType, resourceId, "admin");
+      if (
+        args.expectedVisibility &&
+        access.resource.visibility !== args.expectedVisibility
+      ) {
+        fail(
+          `${reg.displayName} ${resourceId} is now ${access.resource.visibility}, not ${args.expectedVisibility}. Reload its sharing and try again.`,
+          { errorCode: "visibility_conflict", statusCode: 409 },
+        );
+      }
       const visibilityChanged = access.resource?.visibility !== args.visibility;
       const update: Record<string, unknown> = { visibility: args.visibility };
       if (args.visibility === "org" && !access.resource?.orgId) {

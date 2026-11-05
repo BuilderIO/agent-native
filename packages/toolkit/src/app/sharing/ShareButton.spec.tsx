@@ -1527,6 +1527,7 @@ describe("ShareButton", () => {
       resourceType: "document",
       resourceId: "doc-1",
       visibility: "org",
+      expectedVisibility: "org",
       role: "commenter",
     });
     expect(shareMutate).not.toHaveBeenCalled();
@@ -1572,6 +1573,7 @@ describe("ShareButton", () => {
       resourceType: "document",
       resourceId: "doc-1",
       visibility: "public",
+      expectedVisibility: "public",
       role: "viewer",
     });
   });
