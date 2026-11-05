@@ -314,7 +314,7 @@ function searchOnce(
       })),
     };
   }
-  const queryTokens = tokenize(query);
+  const { tokens: queryTokens, negatesDestruction } = parseQuery(query);
 
   const candidates: ToolSearchResult[] = [];
   const rankable: RankableTool[] = [];
@@ -378,7 +378,11 @@ function searchOnce(
     }
     rankable.push({
       candidate,
-      prior: isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1,
+      prior:
+        (isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1) *
+        (negatesDestruction && entry.mcpAnnotations?.destructiveHint === true
+          ? NEGATED_DESTRUCTIVE_PRIOR
+          : 1),
       fields: searchDocumentFields({
         name,
         source,
@@ -721,7 +725,7 @@ const SEARCH_FIELDS = Object.keys(FIELD_WEIGHTS) as SearchField[];
 type FieldTerms = { counts: Map<string, number>; length: number };
 type RankableTool = {
   candidate: ToolSearchResult;
-  /** Multiplies the text score; see `FRAMEWORK_TOOL_PRIOR`. */
+  /** Multiplies the text score; see the two priors below. */
   prior: number;
   fields: Record<SearchField, FieldTerms>;
 };
@@ -731,6 +735,59 @@ type RankableTool = {
 // email logs. A request made in an app is usually about that app's own work,
 // so on similar text the app's actions rank first. Exact names still win.
 const FRAMEWORK_TOOL_PRIOR = 0.8;
+// "Do not delete this email" must not rank delete tools as if it asked to
+// delete. Only an action's own declared `destructiveHint` counts.
+const NEGATED_DESTRUCTIVE_PRIOR = 0.5;
+
+const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never"]);
+const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
+  [
+    "delete",
+    "remove",
+    "trash",
+    "erase",
+    "clear",
+    "destroy",
+    "wipe",
+    "purge",
+  ].map(stem),
+);
+
+/**
+ * Query terms, minus a destructive verb the request negates. Negation words
+ * are stop words for matching, so they are read here, before filtering; other
+ * negated words ("emails with no subject") still search.
+ */
+function parseQuery(query: string): {
+  tokens: string[];
+  negatesDestruction: boolean;
+} {
+  const words = query
+    .replace(/\bcan['’]t\b/giu, "can not")
+    .replace(/\bwon['’]t\b/giu, "will not")
+    .replace(/n['’]t\b/giu, " not")
+    .split(/[^A-Za-z0-9]+/);
+  const tokens: string[] = [];
+  let negateNext = false;
+  let negatesDestruction = false;
+  for (const word of words) {
+    if (NEGATIONS.has(word.toLowerCase())) {
+      negateNext = true;
+      continue;
+    }
+    const terms = searchTerms(word);
+    if (terms.length === 0) continue;
+    const negatedDestruction =
+      negateNext && terms.some((term) => DESTRUCTIVE_VERBS.has(term));
+    negateNext = false;
+    if (negatedDestruction) {
+      negatesDestruction = true;
+      continue;
+    }
+    tokens.push(...terms);
+  }
+  return { tokens: [...new Set(tokens)], negatesDestruction };
+}
 
 function fieldTerms(value: string): FieldTerms {
   const terms = searchTerms(value);
@@ -952,14 +1009,24 @@ function stem(term: string): string {
     stemmed = stemmed.slice(0, -1);
   }
   if (stemmed.length > 5 && stemmed.endsWith("ing")) {
-    stemmed = stemmed.slice(0, -3);
+    stemmed = undoubleFinalConsonant(stemmed.slice(0, -3));
   } else if (stemmed.length > 4 && stemmed.endsWith("ed")) {
-    stemmed = stemmed.slice(0, -2);
+    stemmed = undoubleFinalConsonant(stemmed.slice(0, -2));
   }
   if (stemmed.length > 4 && stemmed.endsWith("e")) {
     stemmed = stemmed.slice(0, -1);
   }
   return stemmed;
+}
+
+// "running" and "stopped" double the consonant before the suffix, so their
+// stems must drop it to meet "run" and "stop". Base words that end in a double
+// letter ("fill", "dress", "buzz", "stuff") keep it, as do stems that would
+// shrink to two letters ("adding" stays "add").
+function undoubleFinalConsonant(stemmed: string): string {
+  return stemmed.length >= 4 && /([bcdgkmnprt])\1$/.test(stemmed)
+    ? stemmed.slice(0, -1)
+    : stemmed;
 }
 
 function searchTerms(value: string): string[] {

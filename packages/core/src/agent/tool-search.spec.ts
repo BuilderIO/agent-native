@@ -907,6 +907,63 @@ describe("tool-search ranking", () => {
     expect(rank("copy this deck")).toBe("duplicate-deck");
   });
 
+  it("meets a doubled-consonant -ing form at its base verb, and keeps base double letters", () => {
+    const registry = {
+      "run-check": action("Run a check now."),
+      "set-theme": action("Set the theme."),
+      "add-label": action("Add a label."),
+      "fill-form": action("Fill a form."),
+      "dress-slide": action("Dress a slide up."),
+    };
+    const rank = (query: string) =>
+      searchToolRegistry(registry, { query }).results[0]?.name;
+
+    expect(rank("running")).toBe("run-check");
+    expect(rank("run")).toBe("run-check");
+    expect(rank("setting")).toBe("set-theme");
+    expect(rank("set")).toBe("set-theme");
+    for (const [base, name] of [
+      ["add", "add-label"],
+      ["fill", "fill-form"],
+      ["dress", "dress-slide"],
+    ] as const) {
+      expect(rank(base)).toBe(name);
+      expect(rank(`${base}ing`)).toBe(name);
+    }
+  });
+
+  it("demotes declared destructive tools when the request negates the verb", () => {
+    const annotations = (destructiveHint: boolean) => ({
+      readOnlyHint: false,
+      destructiveHint,
+      openWorldHint: false,
+    });
+    const registry = {
+      "delete-email": {
+        ...action("Delete an email."),
+        mcpAnnotations: annotations(true),
+      },
+      "archive-email": {
+        ...action("Archive an email, out of the inbox."),
+        mcpAnnotations: annotations(false),
+      },
+    };
+    const names = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(names("delete this email")[0]).toBe("delete-email");
+    expect(names("do not delete this email")).toEqual([
+      "archive-email",
+      "delete-email",
+    ]);
+    expect(names("don't delete this email")).toEqual([
+      "archive-email",
+      "delete-email",
+    ]);
+    // Negating something else leaves the word searchable.
+    expect(names("delete the email, not the inbox")[0]).toBe("delete-email");
+  });
+
   it("drops a stray letter from an apostrophe but keeps single digits", () => {
     const registry = {
       "list-events": action("List calendar events."),

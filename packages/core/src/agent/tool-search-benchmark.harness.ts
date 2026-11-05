@@ -1,11 +1,16 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { loadActionsStrictly } from "../mcp/advertised-catalog.harness.js";
 import { mergeCoreSharingActions } from "../server/action-discovery.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import type { ActionEntry } from "./production-agent.js";
-import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
+import {
+  attachToolSearch,
+  filterActionsForAgentDiscovery,
+  searchToolRegistry,
+} from "./tool-search.js";
 
 const templatesRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -43,8 +48,8 @@ export interface Metrics {
 
 /**
  * The template's own actions plus the framework actions every app registers,
- * loaded the way the app loads them, so the benchmark ranks the descriptions
- * and schemas the agent actually sees.
+ * loaded the way the app loads them and filtered the way a chat request
+ * filters them, so the benchmark ranks only what the agent can actually see.
  */
 export async function loadTemplateRegistry(
   template: string,
@@ -57,19 +62,23 @@ export async function loadTemplateRegistry(
   const { default: modules } = await import(/* @vite-ignore */ registryUrl);
   const registry = loadActionsStrictly(template, modules);
   await mergeCoreSharingActions(registry);
-  return attachToolSearch(registry);
+  return filterActionsForAgentDiscovery(attachToolSearch(registry), {
+    caller: "tool",
+    appId: template,
+  });
 }
 
 export function runCase(
   registry: Record<string, ActionEntry>,
   benchmarkCase: BenchmarkCase,
 ): CaseResult {
-  const missing = benchmarkCase.expected
-    .flat()
-    .filter((name) => !Object.hasOwn(registry, name));
+  const missing = benchmarkCase.expected.flat().filter((name) => {
+    const entry = Object.hasOwn(registry, name) ? registry[name] : undefined;
+    return !entry || isActionHiddenFromEveryAgentSurface(entry);
+  });
   if (missing.length > 0) {
     throw new Error(
-      `templates/${benchmarkCase.template}: expected tools are not registered: ${missing.join(", ")} (prompt: "${benchmarkCase.prompt}")`,
+      `templates/${benchmarkCase.template}: expected tools are not visible to the agent: ${missing.join(", ")} (prompt: "${benchmarkCase.prompt}")`,
     );
   }
   const ranked = searchToolRegistry(
