@@ -115,6 +115,11 @@ describe("useShareButtonController", () => {
           role: "viewer",
         },
       ],
+      policy: {
+        allowPublic: true,
+        requireOrgMemberForUserShares: false,
+        confirmOrgVisibility: true,
+      },
     };
     mocks.query.refetch.mockClear();
     mocks.useActionQuery.mockReset().mockReturnValue(mocks.query);
