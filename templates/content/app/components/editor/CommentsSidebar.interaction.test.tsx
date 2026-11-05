@@ -582,6 +582,28 @@ describe("comment review interactions", () => {
       );
     });
 
+    it("won't accept all while a filter hides what's left of a stale unit", () => {
+      render(null, [], "history", {
+        suggestions: [
+          {
+            ...piece("one", "k:0", "Teh"),
+            status: "stale",
+          } as ResourceSuggestion,
+          piece("four", "k:0", "team"),
+          piece("two", "k:1", "recieve"),
+          piece("three", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit t" }));
+      expect(container.querySelector("[data-suggestion-id='four']")).toBeNull();
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("No Accept all on the group");
+      expect(acceptAll.disabled).toBe(true);
+    });
+
     it("counts a proposal in units when history shows only some of them", () => {
       const accepted = (id: string, reviewUnit: string, find: string) => ({
         ...piece(id, reviewUnit, find),

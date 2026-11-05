@@ -148,6 +148,7 @@ import {
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
+  threadHasAppliedAiChange,
   type CommentAiController,
 } from "./comment-ai";
 import {
@@ -3152,8 +3153,7 @@ export function CommentsSidebar({
         suggestions: members,
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
-        conflict: (suggestion: ResourceSuggestion) =>
-          isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id),
+        conflict: isUnplaceable,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3163,12 +3163,7 @@ export function CommentsSidebar({
           decision: SuggestionDecision,
         ) => {
           if (proposalId)
-            void onDecideSuggestionProposal?.(
-              proposalId,
-              decision,
-              unit.filter(({ status }) => status === "pending"),
-              true,
-            );
+            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
         },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
@@ -3389,6 +3384,23 @@ export function CommentsSidebar({
             // A Clip's comments are kept in Clips, so the page doesn't edit,
             // delete, or react to them.
             canComment={canComment && !thread.clip}
+            // Its author deletes a thread no one else has written in, while
+            // the AI isn't working on it.
+            canDeleteThread={
+              id === thread.comments[0]?.id &&
+              !aiWorking &&
+              !!currentUserEmail &&
+              thread.comments.every(
+                (comment) =>
+                  !comment.notion_comment_id &&
+                  comment.author_email.toLowerCase() ===
+                    currentUserEmail.toLowerCase(),
+              )
+            }
+            keepsAppliedAiChange={threadHasAppliedAiChange(
+              commentAi?.requests,
+              thread.threadId,
+            )}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}
@@ -3595,8 +3607,12 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(
-        (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+      // Accept all decides the whole proposal, even what a filter is hiding.
+      acceptDisabled={suggestions.some(
+        (suggestion) =>
+          suggestion.proposalId === proposalId &&
+          suggestion.status === "pending" &&
+          (isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id)),
       )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>

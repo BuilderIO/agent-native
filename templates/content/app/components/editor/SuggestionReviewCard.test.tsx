@@ -167,6 +167,36 @@ describe("SuggestionReviewCard", () => {
     );
   });
 
+  it("only rejects what's left of a unit with a stale piece", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      { ...labeled(first, "edit-0", "key:0"), status: "stale" },
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ] as ResourceSuggestion[];
+    render(["edit-1"]);
+
+    expect(button("comments.acceptRemaining")?.disabled).toBe(true);
+    expect(button("editor.acceptSuggestion")?.disabled).toBe(true);
+    await act(async () => button("editor.rejectSuggestion")?.click());
+
+    expect(review.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: "proposal-1",
+        decision: "rejected",
+        members: [
+          { id: "edit-1", observedRevision: 3, observedBase: "base-1" },
+        ],
+      }),
+    );
+  });
+
   it("decides a unit's pieces with one Accept and leaves the rest", async () => {
     const [first = null, second = null] = proposal();
     if (!first || !second) throw new Error("The proposal has two edits");

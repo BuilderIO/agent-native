@@ -180,6 +180,44 @@ describe("ThreadSuggestionBody", () => {
     expect(button("comments.rejectAll").disabled).toBe(false);
   });
 
+  it("only rejects what's left of a unit with a stale piece", () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const onDecideUnit = vi.fn();
+    const stale = {
+      ...first,
+      status: "stale",
+      metadata: { reviewUnit: "key:0" },
+    } as ResourceSuggestion;
+    const open = { ...second, metadata: { reviewUnit: "key:0" } };
+    render([stale, open], { onDecideUnit });
+
+    expect(button("editor.acceptSuggestion").disabled).toBe(true);
+    act(() => button("editor.rejectSuggestion").click());
+
+    expect(onDecideUnit).toHaveBeenCalledWith([open], "rejected");
+  });
+
+  it("keeps a group accept from taking what's left of a stale unit", () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    render(
+      [
+        {
+          ...first,
+          status: "stale",
+          metadata: { reviewUnit: "key:0" },
+        } as ResourceSuggestion,
+        { ...second, metadata: { reviewUnit: "key:0" } },
+        { ...second, id: "edit-2", metadata: { reviewUnit: "key:1" } },
+      ],
+      { onDecideRemaining: vi.fn() },
+    );
+
+    expect(button("comments.acceptRemaining").disabled).toBe(true);
+    expect(button("comments.rejectRemaining").disabled).toBe(false);
+  });
+
   it("gives a unit's pieces one Accept that decides them together", () => {
     const pieces = proposal().map((suggestion) => ({
       ...suggestion,
