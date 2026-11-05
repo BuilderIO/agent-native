@@ -2085,7 +2085,7 @@ const overrides = {
     deleteThreadDescription:
       "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer.",
     deleteThreadAiChangeDescription:
-      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer. El cambio de la IA se queda en la página, y su opción Deshacer desaparece con el hilo.",
+      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer. El cambio de la IA en la página se mantiene, pero no podrás deshacerlo desde el hilo.",
     delete: "Eliminar",
     deleting: "Eliminando…",
     deleteRefusedReplied:

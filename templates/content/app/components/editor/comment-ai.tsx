@@ -162,22 +162,22 @@ function isAppliedResolution(request: CommentAiRequest) {
 }
 
 /**
- * Whether any of these requests made in the thread applied a change Undo
- * can still reverse. Deleting the thread deletes all of them, not just the
- * latest. Another person's applied change leaves their receipt reply in the
- * thread, which keeps its author from deleting it, so the viewer's own
- * requests are the ones that matter.
+ * Whether any of these requests made in the thread changed the page and
+ * hasn't undone it, whether it resolved the thread or left it for review.
+ * Deleting the thread deletes all of its requests, not just the latest,
+ * while the change stays in the page. The client sees only the viewer's own
+ * requests; someone else's applied change leaves their receipt reply in the
+ * thread, which already keeps its author from deleting it.
  */
-export function threadHasUndoableAiChange(
+export function threadHasAppliedAiChange(
   requests: readonly CommentAiRequest[] | undefined,
   threadId: string,
 ) {
   return !!requests?.some(
     (request) =>
       request.threadId === threadId &&
-      isAppliedResolution(request) &&
-      !!request.result?.changes?.length &&
-      request.result.undoable !== false,
+      !!request.result?.editApplied &&
+      !request.result.undone,
   );
 }
 

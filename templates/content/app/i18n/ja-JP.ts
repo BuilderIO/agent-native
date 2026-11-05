@@ -1800,7 +1800,7 @@ const overrides = {
     deleteThreadDescription:
       "スレッドとその返信が全員に対して削除され、元に戻すことはできません。",
     deleteThreadAiChangeDescription:
-      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。AI による変更はページに残り、その「元に戻す」はスレッドと一緒になくなります。",
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。AI によるページの変更は残りますが、スレッドから元に戻すことはできなくなります。",
     delete: "削除",
     deleting: "削除中…",
     deleteRefusedReplied:

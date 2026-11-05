@@ -1150,7 +1150,7 @@ const overrides = {
     deleteThreadQuestion: "要刪除留言串嗎？",
     deleteThreadDescription: "留言串及其回覆將為所有人刪除，且無法復原。",
     deleteThreadAiChangeDescription:
-      "留言串及其回覆將為所有人刪除，且無法復原。AI 所做的變更會保留在頁面中，其復原按鈕會隨留言串一起刪除。",
+      "留言串及其回覆將為所有人刪除，且無法復原。AI 對頁面所做的變更會保留，但你將無法從留言串中復原它。",
     delete: "刪除",
     deleting: "正在刪除…",
     deleteRefusedReplied: "已有其他人回覆，只有編輯者可以刪除此留言串。",

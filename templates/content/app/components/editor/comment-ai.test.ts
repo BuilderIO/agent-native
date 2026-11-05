@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   commentAiRequestsRefetchInterval,
   latestCommentAiRequest,
-  threadHasUndoableAiChange,
+  threadHasAppliedAiChange,
 } from "./comment-ai";
 
 function request(
@@ -66,7 +66,7 @@ describe("comment AI request selection", () => {
   });
 });
 
-describe("an applied AI change's Undo", () => {
+describe("an AI change a thread delete leaves in the page", () => {
   const change = { before: "teh", after: "the" };
   const made = (
     id: string,
@@ -81,31 +81,18 @@ describe("an applied AI change's Undo", () => {
       updatedAt?: string;
     } = {},
   ) => ({ ...request(id, threadId, status, updatedAt), result });
-  const undoable = (requests: CommentAiRequest[]) =>
-    threadHasUndoableAiChange(requests, "thread-a");
+  const applied = (requests: CommentAiRequest[]) =>
+    threadHasAppliedAiChange(requests, "thread-a");
 
-  it("counts only an applied change Undo can still reverse", () => {
+  it("counts a change the AI made and hasn't undone, resolved or left for review", () => {
     expect(
-      undoable([
+      applied([
         made("a", { editApplied: true, undoable: true, changes: [change] }),
       ]),
     ).toBe(true);
-    expect(threadHasUndoableAiChange(undefined, "thread-a")).toBe(false);
-    // Undone already, or removed text Undo can't bring back.
+    // Saved, but the discussion changed, so the thread stayed open.
     expect(
-      undoable([
-        made("a", { editApplied: true, undone: true, changes: [change] }),
-      ]),
-    ).toBe(false);
-    expect(
-      undoable([
-        made("a", { editApplied: true, undoable: false, changes: [change] }),
-      ]),
-    ).toBe(false);
-    // A reply or a suggestion changed nothing in the page.
-    expect(undoable([made("a", { commentId: "reply-1" })])).toBe(false);
-    expect(
-      undoable([
+      applied([
         made(
           "a",
           { editApplied: true, changes: [change] },
@@ -113,6 +100,19 @@ describe("an applied AI change's Undo", () => {
             status: "needs-review",
           },
         ),
+      ]),
+    ).toBe(true);
+    expect(threadHasAppliedAiChange(undefined, "thread-a")).toBe(false);
+    expect(
+      applied([
+        made("a", { editApplied: true, undone: true, changes: [change] }),
+      ]),
+    ).toBe(false);
+    // A reply or a suggestion changed nothing in the page.
+    expect(applied([made("a", { commentId: "reply-1" })])).toBe(false);
+    expect(
+      applied([
+        made("a", { suggestionId: "suggestion-1" }, { status: "suggested" }),
       ]),
     ).toBe(false);
   });
@@ -127,10 +127,10 @@ describe("an applied AI change's Undo", () => {
         updatedAt: "2026-09-14T11:00:00Z",
       },
     );
-    expect(undoable([earlier, latest])).toBe(true);
+    expect(applied([earlier, latest])).toBe(true);
     // Another thread's change isn't this thread's.
     expect(
-      undoable([
+      applied([
         made(
           "c",
           { editApplied: true, changes: [change] },

@@ -134,7 +134,7 @@ export function CommentEntry({
   footer,
   body,
   canDeleteThread = false,
-  deletesUndoableAiChange = false,
+  keepsAppliedAiChange = false,
   onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
@@ -148,11 +148,11 @@ export function CommentEntry({
    */
   canDeleteThread?: boolean;
   /**
-   * Whether the thread holds a change the AI applied that its Undo could
-   * still reverse. The change stays when the thread goes, but its Undo
-   * doesn't, so the confirmation says so.
+   * Whether the AI changed the page from this thread and hasn't undone it.
+   * The change stays when the thread goes, but undoing or reviewing it from
+   * the thread doesn't, so the confirmation says so.
    */
-  deletesUndoableAiChange?: boolean;
+  keepsAppliedAiChange?: boolean;
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -476,7 +476,7 @@ export function CommentEntry({
       description={t(
         !deletesThread
           ? "comments.deleteCommentDescription"
-          : deletesUndoableAiChange
+          : keepsAppliedAiChange
             ? "comments.deleteThreadAiChangeDescription"
             : "comments.deleteThreadDescription",
       )}

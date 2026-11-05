@@ -1836,7 +1836,7 @@ const overrides = {
     deleteThreadDescription:
       "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito.",
     deleteThreadAiChangeDescription:
-      "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito. A alteração da IA continua na página, e o botão Desfazer dela some com a conversa.",
+      "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito. A alteração da IA na página continua, mas você não poderá desfazê-la pela conversa.",
     delete: "Excluir",
     deleting: "Excluindo…",
     deleteRefusedReplied:

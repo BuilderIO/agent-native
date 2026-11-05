@@ -76,7 +76,7 @@ const refuseWhenLocked =
 
 export default defineAction({
   description:
-    "Delete a document comment. Deleting a thread's first comment deletes the whole thread with its replies. Authors can delete their own replies, and a thread no one else has commented in; otherwise editor access is required. A comment synced with Notion is deleted in Notion instead. A thread can't be deleted while the AI works on it or while its AI suggestion waits for review.",
+    "Delete a document comment. Deleting a thread's first comment deletes the whole thread with its replies. Authors can delete their own replies, and a thread no one else has commented in; otherwise editor access is required. A comment synced with Notion is refused, because Notion sync would bring it back; delete it in Notion. A thread can't be deleted while the AI works on it or while its AI suggestion waits for review.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),

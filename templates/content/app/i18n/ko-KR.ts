@@ -1782,7 +1782,7 @@ const overrides = {
     deleteThreadDescription:
       "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다.",
     deleteThreadAiChangeDescription:
-      "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다. AI의 변경 사항은 페이지에 남고, 실행 취소 버튼은 스레드와 함께 사라집니다.",
+      "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다. AI가 페이지에 적용한 변경 사항은 남지만, 스레드에서 실행 취소할 수는 없게 됩니다.",
     delete: "삭제",
     deleting: "삭제 중…",
     deleteRefusedReplied:

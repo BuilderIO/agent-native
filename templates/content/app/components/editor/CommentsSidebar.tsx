@@ -145,7 +145,7 @@ import {
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
-  threadHasUndoableAiChange,
+  threadHasAppliedAiChange,
   type CommentAiController,
 } from "./comment-ai";
 import {
@@ -3166,7 +3166,7 @@ export function CommentsSidebar({
                     currentUserEmail.toLowerCase(),
               )
             }
-            deletesUndoableAiChange={threadHasUndoableAiChange(
+            keepsAppliedAiChange={threadHasAppliedAiChange(
               commentAi?.requests,
               thread.threadId,
             )}

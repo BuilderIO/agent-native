@@ -1844,7 +1844,7 @@ const overrides = {
     deleteThreadDescription:
       "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
     deleteThreadAiChangeDescription:
-      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI bleibt auf der Seite, und ihr „Rückgängig“ verschwindet mit dem Thread.",
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI an der Seite bleibt, aber über den Thread kannst du sie dann nicht mehr rückgängig machen.",
     delete: "Löschen",
     deleting: "Wird gelöscht…",
     deleteRefusedReplied:

@@ -152,12 +152,12 @@ function Harness({
   visible = true,
   entry = comment,
   canDeleteThread,
-  deletesUndoableAiChange,
+  keepsAppliedAiChange,
 }: {
   visible?: boolean;
   entry?: Comment;
   canDeleteThread?: boolean;
-  deletesUndoableAiChange?: boolean;
+  keepsAppliedAiChange?: boolean;
 }) {
   return (
     <CommentDraftProvider
@@ -172,7 +172,7 @@ function Harness({
           currentUserEmail={comment.author_email}
           canComment
           canDeleteThread={canDeleteThread}
-          deletesUndoableAiChange={deletesUndoableAiChange}
+          keepsAppliedAiChange={keepsAppliedAiChange}
         />
       )}
     </CommentDraftProvider>
@@ -610,7 +610,7 @@ it("moves focus to what is left once a delete takes the row away", async () => {
   expect(document.activeElement).toBe(card("comment-2"));
 });
 
-it("says a thread's applied AI change stays in the page without its Undo", async () => {
+it("says the AI's change stays in the page when its thread goes", async () => {
   await act(async () =>
     root.render(<Harness entry={comment} canDeleteThread />),
   );
@@ -619,7 +619,7 @@ it("says a thread's applied AI change stays in the page without its Undo", async
 
   await act(async () =>
     root.render(
-      <Harness entry={comment} canDeleteThread deletesUndoableAiChange />,
+      <Harness entry={comment} canDeleteThread keepsAppliedAiChange />,
     ),
   );
   expect(container.textContent).toContain(

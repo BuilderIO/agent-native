@@ -1831,7 +1831,7 @@ const overrides = {
     deleteThreadQuestion: "删除线程？",
     deleteThreadDescription: "线程及其回复将为所有人删除，且无法撤销。",
     deleteThreadAiChangeDescription:
-      "线程及其回复将为所有人删除，且无法撤销。AI 所做的更改会保留在页面中，其撤销按钮会随线程一起删除。",
+      "线程及其回复将为所有人删除，且无法撤销。AI 对页面所做的更改会保留，但你将无法从线程中撤销它。",
     delete: "删除",
     deleting: "正在删除…",
     deleteRefusedReplied: "已有其他人回复，只有编辑者可以删除此线程。",
