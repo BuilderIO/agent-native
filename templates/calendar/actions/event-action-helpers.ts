@@ -549,19 +549,42 @@ function requireIanaTimezone(timezone: string | undefined): string {
 }
 
 const ZONELESS_DATETIME_PATTERN =
-  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/;
+  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/;
+const EXPLICIT_TIMEZONE_PATTERN = /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC)$/i;
 
 function normalizedIso(
   value: string,
   label: "start" | "end",
   zonelessTimezone?: string,
 ): string {
-  const zoneless = ZONELESS_DATETIME_PATTERN.exec(value.trim());
+  const trimmed = value.trim();
+  const zoneless = ZONELESS_DATETIME_PATTERN.exec(trimmed);
   const [, zonelessDate, zonelessTime] = zoneless ?? [];
-  if (zonelessDate && zonelessTime && zonelessTimezone) {
-    return zonedDateTimeToUtcIso(zonelessDate, zonelessTime, zonelessTimezone);
+  if (zonelessDate && zonelessTime) {
+    const [hour, minute, second = "0"] = zonelessTime.split(":");
+    if (
+      !isValidDateOnly(zonelessDate) ||
+      Number(hour) > 23 ||
+      Number(minute) > 59 ||
+      Number(second) >= 60
+    ) {
+      throw new Error(`Invalid event ${label}: ${value}`);
+    }
+    if (zonelessTimezone) {
+      return zonedDateTimeToUtcIso(
+        zonelessDate,
+        zonelessTime,
+        zonelessTimezone,
+      );
+    }
+  } else if (
+    DATE_ONLY_PATTERN.test(trimmed)
+      ? !isValidDateOnly(trimmed)
+      : !EXPLICIT_TIMEZONE_PATTERN.test(trimmed)
+  ) {
+    throw new Error(`Invalid event ${label}: ${value}`);
   }
-  const date = new Date(value);
+  const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid event ${label}: ${value}`);
   }
