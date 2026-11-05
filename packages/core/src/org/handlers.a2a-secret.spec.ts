@@ -1,6 +1,10 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const mockExecute = vi.fn();
@@ -10,6 +14,9 @@ const mockPutUserSetting = vi.fn();
 const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
+const mockGetBuiltinAgentsForSeeding = vi.fn(() => [
+  { id: "builtin-app", url: "https://builtin.example.test" },
+]);
 const mockLoadWorkspaceAppsManifest = vi.fn();
 const mockSignA2AToken = vi.fn();
 const mockSignA2AOrganizationToken = vi.fn();
@@ -92,9 +99,7 @@ vi.mock("./free-email-providers.js", () => ({
 
 vi.mock("../server/agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mockDiscoverAgents(...args),
-  getBuiltinAgentsForSeeding: () => [
-    { id: "builtin-app", url: "https://builtin.example.test" },
-  ],
+  getBuiltinAgentsForSeeding: () => mockGetBuiltinAgentsForSeeding(),
   loadWorkspaceAppsManifest: (...args: any[]) =>
     mockLoadWorkspaceAppsManifest(...args),
 }));
@@ -199,6 +204,9 @@ describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetOrgSetting.mockResolvedValue(null);
+    mockGetBuiltinAgentsForSeeding.mockReturnValue([
+      { id: "builtin-app", url: "https://builtin.example.test" },
+    ]);
     mockResolveAppRuntimeUrl.mockReturnValue("https://remote.example.test");
     vi.stubGlobal("fetch", mockFetch);
     mockReadBody.mockResolvedValue({});
@@ -245,6 +253,144 @@ describe("syncA2ASecretHandler", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    "success",
+    "redirect",
+    "unconfigured",
+    "builtin",
+    "unregistered",
+  ] as const)(
+    "uses the real SSRF transport for a %s workspace recipient",
+    async (mode) => {
+      const received: Array<{
+        url?: string;
+        authorization?: string;
+        body: string;
+      }> = [];
+      const server = createServer(async (request, response) => {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        received.push({
+          url: request.url,
+          authorization: request.headers.authorization,
+          body,
+        });
+        if (mode === "redirect" && received.length === 1) {
+          response.writeHead(307, { location: "/redirected" });
+          response.end();
+          return;
+        }
+        response.writeHead(200);
+        response.end("ok");
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        vi.stubEnv(
+          "WORKSPACE_GATEWAY_URL",
+          mode === "unconfigured" ? "http://127.0.0.1:1" : origin,
+        );
+        vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
+        resetAppConfigForTests();
+        vi.unstubAllGlobals();
+        const { ssrfSafeFetch } = await vi.importActual<
+          typeof import("../extensions/url-safety.js")
+        >("../extensions/url-safety.js");
+        const { signA2AOrganizationToken } =
+          await vi.importActual<typeof import("../a2a/client.js")>(
+            "../a2a/client.js",
+          );
+        mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+        mockSignA2AOrganizationToken.mockImplementation(
+          signA2AOrganizationToken,
+        );
+        mockResolveAppRuntimeUrl.mockReturnValue(origin);
+        mockReadBody.mockResolvedValue({ signSecret: "fake-previous-secret" });
+        mockExecute.mockResolvedValue({
+          rows: [
+            { a2a_secret: "fake-new-secret", allowed_domain: "example.test" },
+          ],
+        });
+        mockLoadWorkspaceAppsManifest.mockResolvedValue([
+          { id: "sibling", path: "/sibling" },
+        ]);
+        mockGetBuiltinAgentsForSeeding.mockReturnValue([
+          { id: "sibling", url: `${origin}/sibling` },
+        ]);
+        mockDiscoverAgents.mockResolvedValue([
+          {
+            id: mode === "unregistered" ? "unregistered" : "sibling",
+            name: "Sibling",
+            description: "",
+            url: `${origin}/sibling`,
+            color: "#000000",
+            source: mode === "builtin" ? "builtin" : "workspace",
+          },
+        ]);
+
+        const result = await syncA2ASecretHandler({} as any);
+        if (mode === "unregistered") {
+          expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
+          expect(received).toEqual([]);
+        } else if (mode === "unconfigured" || mode === "builtin") {
+          expect(result).toMatchObject({
+            total: 1,
+            succeeded: 0,
+            failed: 1,
+            results: [
+              {
+                id: "sibling",
+                ok: false,
+                error: expect.stringContaining("SSRF blocked"),
+              },
+            ],
+          });
+          expect(received).toEqual([]);
+        } else {
+          if (mode === "success")
+            expect(result.results[0].error).toBeUndefined();
+          expect(received).toHaveLength(1);
+          expect(result).toMatchObject(
+            mode === "success"
+              ? { total: 1, succeeded: 1, failed: 0 }
+              : {
+                  total: 1,
+                  succeeded: 0,
+                  failed: 1,
+                  results: [{ id: "sibling", ok: false, status: 307 }],
+                },
+          );
+          expect(received[0].url).toBe(
+            "/sibling/_agent-native/org/a2a-secret/receive",
+          );
+          expect(JSON.parse(received[0].body)).toEqual({
+            secret: "fake-new-secret",
+            orgDomain: "example.test",
+          });
+          const token =
+            received[0].authorization?.replace(/^Bearer /, "") ?? "";
+          const { payload } = await jose.jwtVerify(
+            token,
+            new TextEncoder().encode("fake-previous-secret"),
+            { audience: `${origin}/sibling` },
+          );
+          expect(payload.org_domain).toBe("example.test");
+          await expect(
+            jose.jwtVerify(token, new TextEncoder().encode("fake-new-secret")),
+          ).rejects.toThrow();
+        }
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+        resetAppConfigForTests();
+      }
+    },
+  );
+
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
     vi.stubEnv("VERCEL_ENV", "preview");
@@ -279,7 +425,7 @@ describe("syncA2ASecretHandler", () => {
           orgDomain: "example.test",
         }),
       }),
-      { maxRedirects: 3, followRedirects: false },
+      { maxRedirects: 0, followRedirects: false, allowedPrivateOrigins: [] },
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -395,7 +541,7 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
       expect.any(Object),
-      { maxRedirects: 3 },
+      { maxRedirects: 0, followRedirects: false, allowedPrivateOrigins: [] },
     );
   });
 

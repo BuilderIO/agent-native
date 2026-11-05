@@ -29,6 +29,7 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+import { workspacePrivateOrigins } from "../a2a/workspace-private-origins.js";
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { routeAuditAttribution } from "../audit/attribution.js";
@@ -2269,6 +2270,18 @@ export const syncA2ASecretHandler = defineEventHandler(
           );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
+          const recipientOrigin = new URL(agent.url).origin;
+          const allowedPrivateOrigins =
+            agent.source === "workspace" &&
+            workspacePrivateOrigins().some((configured) => {
+              try {
+                return new URL(configured).origin === recipientOrigin;
+              } catch {
+                return false;
+              }
+            })
+              ? [recipientOrigin]
+              : [];
           const res = await ssrfSafeFetch(
             target,
             {
@@ -2281,10 +2294,9 @@ export const syncA2ASecretHandler = defineEventHandler(
               body: JSON.stringify({ secret, orgDomain }),
             },
             {
-              maxRedirects: 3,
-              ...(protectionHeaders["x-vercel-protection-bypass"]
-                ? { followRedirects: false }
-                : {}),
+              maxRedirects: 0,
+              followRedirects: false,
+              allowedPrivateOrigins,
             },
           );
 
