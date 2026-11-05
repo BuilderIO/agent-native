@@ -21,6 +21,7 @@ import {
   getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
+  workspaceAccessFailureDiagnostic,
   workspaceApps,
 } from "@agent-native/core/org";
 import {
@@ -1832,7 +1833,11 @@ async function ensureWorkspaceAppRecords(
         `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
       );
     }
-  } catch {
+  } catch (error) {
+    console.error(
+      "[dispatch] workspace app access record lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     throw workspaceAppAccessUnavailableError();
   }
 
@@ -1892,7 +1897,11 @@ async function filterWorkspaceAppsByAccess(
           email: userEmail,
           orgId,
         });
-      } catch {
+      } catch (error) {
+        console.error(
+          "[dispatch] workspace app Dispatch access check failed",
+          workspaceAccessFailureDiagnostic(error),
+        );
         throw workspaceAppAccessUnavailableError();
       }
       if (dispatchAccess === "unavailable") {
@@ -1915,7 +1924,11 @@ async function filterWorkspaceAppsByAccess(
         { skipResourceBody: true },
       );
       for (const id of access.keys()) visibleIds.add(id);
-    } catch {
+    } catch (error) {
+      console.error(
+        "[dispatch] workspace app batch access lookup failed",
+        workspaceAccessFailureDiagnostic(error),
+      );
       throw workspaceAppAccessUnavailableError();
     }
   }

@@ -1789,14 +1789,16 @@ describe("isWorkspaceAppAccessAllowed", () => {
         .mock.calls.filter(
           ([message, detail]) =>
             message === "[workspace-app-access] unavailable" &&
-            (detail as { audience?: string }).audience ===
-              "https://repeat.example.test/dispatch",
+            (detail as { reason?: string; upstreamStatus?: number }).reason ===
+              "registry-http-error" &&
+            (detail as { upstreamStatus?: number }).upstreamStatus === 401,
         );
       expect(reports).toHaveLength(1);
-      expect(reports[0]?.[1]).toMatchObject({
+      expect(reports[0]?.[1]).toEqual({
         reason: "registry-http-error",
         upstreamStatus: 401,
       });
+      expect(JSON.stringify(reports)).not.toContain("Unauthorized req-");
     });
   });
 });

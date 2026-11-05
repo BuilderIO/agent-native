@@ -7,9 +7,34 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
   workspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
+  workspaceAccessFailureDiagnostic,
 } from "./workspace-app-access-outcome.js";
 
 describe("workspace app access outcome", () => {
+  it("retains only allowlisted error diagnostics", () => {
+    const error = Object.assign(new Error("private payload"), {
+      code: "42P01",
+    });
+    error.name = "private user value";
+    expect(workspaceAccessFailureDiagnostic(error)).toEqual({
+      kind: "Error",
+      databaseCode: "42P01",
+    });
+    error.code = "secret";
+    expect(workspaceAccessFailureDiagnostic(error)).toEqual({ kind: "Error" });
+    expect(workspaceAccessFailureDiagnostic("private value")).toEqual({
+      kind: "NonError",
+    });
+    const unreadable = Object.defineProperty(new Error(), "code", {
+      get() {
+        throw new Error("secret");
+      },
+    });
+    expect(workspaceAccessFailureDiagnostic(unreadable)).toEqual({
+      kind: "UnreadableError",
+    });
+  });
+
   it("tells an unavailable outcome apart from a verdict", () => {
     const outcome = workspaceAppAccessUnavailable("registry-timeout");
 

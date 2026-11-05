@@ -222,6 +222,9 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
+    workspaceAccessFailureDiagnostic: (
+      await import("../../../../core/src/org/workspace-app-access-outcome.js")
+    ).workspaceAccessFailureDiagnostic,
     getOrgA2ASecret: (...args: any[]) => mocks.getOrgA2ASecret(...args),
     getOrgDomain: (...args: any[]) => mocks.getOrgDomain(...args),
     claimWorkspaceAppForOrganization: (
@@ -488,7 +491,9 @@ describe("listWorkspaceApps", () => {
       }));
       mocks.getDbExec.mockImplementation(() => ({
         execute: vi.fn(async (statement: unknown) => {
-          const query = statement as { sql: string; args?: unknown[] };
+          const query = statement as { sql?: string; args?: unknown[] };
+          if (typeof query.sql !== "string")
+            return { rows: [], rowsAffected: 0 };
           mocks.executedSql.push(query.sql);
           if (query.sql.includes("SELECT allowed_domain"))
             return {
@@ -512,71 +517,87 @@ describe("listWorkspaceApps", () => {
         }),
       }));
       if (mode === "throw")
-        mocks.resolveAccess.mockRejectedValue(new Error("batch unavailable"));
+        mocks.resolveAccess.mockRejectedValue(
+          Object.assign(new Error("secret provider payload"), {
+            code: "42P01",
+          }),
+        );
       else
         mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
       const registryCalls: string[] = [];
-      const registryResults: unknown[] = [];
+      const registryResults: { status: number; body: unknown }[] = [];
+      const registry = createApp();
+      mountActionRoutes(
+        { app: registry },
+        {
+          "list-workspace-apps": listWorkspaceAppsAction,
+          "claim-workspace-app-organization": claimWorkspaceAppOrganization,
+        },
+        {
+          actionRouteAuth: {
+            resolveCaller: async (event) => {
+              const token = event.req.headers
+                .get("authorization")
+                ?.replace(/^Bearer /, "");
+              if (!token) throw new Error("Missing bearer token");
+              verifyJwtWithSecret(token, "test-a2a-secret");
+              return {
+                owner: "dev@example.test",
+                anonymous: false,
+                orgId: "org-123",
+              };
+            },
+          },
+        },
+      );
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = new URL(String(input));
           registryCalls.push(url.pathname);
-          const result = await runWithRequestContext(
-            { userEmail: "dev@example.test", orgId: "org-123" },
-            () =>
-              url.pathname.endsWith("/list-workspace-apps")
-                ? listWorkspaceAppsAction.run(
-                    {
-                      includeAgentCards: false,
-                      includeArchived: false,
-                      audience: "all",
-                    },
-                    undefined,
-                  )
-                : claimWorkspaceAppOrganization.run(
-                    JSON.parse(String(init?.body)),
-                    undefined,
-                  ),
-          );
-          registryResults.push(result);
-          return Response.json(result);
+          const response = await registry.fetch(new Request(url, init));
+          registryResults.push({
+            status: response.status,
+            body: await response.clone().json(),
+          });
+          return response;
         }),
       );
-      const app = createApp();
       const run = vi.fn(async () => ({ ok: true }));
-      mountActionRoutes(
-        { app },
-        {
-          "list-resource-shares": {
-            http: { method: "GET" },
-            readOnly: false,
-            requiresAuth: true,
-            run,
+      const request = (appId = "analytics") => {
+        const app = createApp();
+        mountActionRoutes(
+          { app },
+          {
+            "list-resource-shares": {
+              http: { method: "GET" },
+              readOnly: false,
+              requiresAuth: true,
+              run,
+            },
           },
-        },
-        {
-          appId: "analytics",
-          mcpDirectoryWidgetAppId: "analytics",
-          mcpDirectoryWidgetResourceUri: "ui://analytics/shell",
-          mcpDirectoryWidgetReadActionArguments: {
-            "list-resource-shares": ["resourceType", "resourceId"],
+          {
+            appId,
+            mcpDirectoryWidgetAppId: appId,
+            mcpDirectoryWidgetResourceUri: `ui://${appId}/shell`,
+            mcpDirectoryWidgetReadActionArguments: {
+              "list-resource-shares": ["resourceType", "resourceId"],
+            },
+            mcpDirectoryWidgetReadOnlyActions: ["list-resource-shares"],
+            getOwnerContextFromEvent: async () => ({
+              owner: "dev@example.test",
+              anonymous: false,
+            }),
+            resolveOrgId: async () => "org-123",
           },
-          mcpDirectoryWidgetReadOnlyActions: ["list-resource-shares"],
-          getOwnerContextFromEvent: async () => ({
-            owner: "dev@example.test",
-            anonymous: false,
-          }),
-          resolveOrgId: async () => "org-123",
-        },
-      );
-      const request = () =>
-        app.fetch(
+        );
+        return app.fetch(
           new Request(
-            "http://analytics.example.test/_agent-native/actions/list-resource-shares?resourceType=board&resourceId=board-1",
+            `http://${appId}.example.test/_agent-native/actions/list-resource-shares?resourceType=board&resourceId=board-1`,
             { headers: { "x-agent-native-frontend": "1" } },
           ),
         );
+      };
       return { request, registryCalls, registryResults, run };
     }
 
@@ -589,16 +610,56 @@ describe("listWorkspaceApps", () => {
 
     it("reports a batch authorization failure as unavailable rather than denied", async () => {
       vi.spyOn(console, "warn").mockImplementation(() => {});
-      const { request } = await exerciseRegistryAccess("throw");
-      const response = await request();
-      expect(response.status).toBe(503);
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { request, registryCalls, registryResults, run } =
+        await exerciseRegistryAccess("throw");
+      for (const appId of ["analytics", "board"]) {
+        const response = await request(appId);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({
+          code: "registry-http-error",
+          upstreamStatus: 503,
+        });
+      }
+      expect(registryResults).toEqual([
+        {
+          status: 503,
+          body: {
+            error: "Workspace app access is temporarily unavailable.",
+            errorCode: "workspace_app_access_unavailable",
+          },
+        },
+        {
+          status: 503,
+          body: {
+            error: "Workspace app access is temporarily unavailable.",
+            errorCode: "workspace_app_access_unavailable",
+          },
+        },
+      ]);
+      expect(run).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith(
+        "[dispatch] workspace app batch access lookup failed",
+        { kind: "Error", databaseCode: "42P01" },
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        "secret provider payload",
+      );
       mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
       expect((await request()).status).toBe(200);
+      expect((await request("board")).status).toBe(200);
+      expect(registryCalls).toEqual(
+        Array(3).fill("/_agent-native/actions/list-workspace-apps"),
+      );
+      expect(run).toHaveBeenCalledTimes(2);
     });
 
     it.each(["membership", "claim"])(
       "reports claim %s failures as unavailable",
       async (step) => {
+        const errorLog = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
         const execute = vi.fn();
         if (step === "claim")
           execute.mockResolvedValueOnce({ rows: [{ role: "admin" }] });
@@ -619,6 +680,13 @@ describe("listWorkspaceApps", () => {
           errorCode: "workspace_app_access_unavailable",
           message: "Workspace app access is temporarily unavailable.",
         });
+        expect(errorLog).toHaveBeenCalledWith(
+          "[workspace-app-access] claim failed",
+          { stage: step, kind: "Error" },
+        );
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+          "sensitive database detail",
+        );
       },
     );
 
@@ -635,9 +703,14 @@ describe("listWorkspaceApps", () => {
         "/_agent-native/actions/claim-workspace-app-organization",
       ]);
       expect(
-        (registryResults[0] as Array<{ id: string }>).map((app) => app.id),
+        (registryResults[0]?.body as Array<{ id: string }>).map(
+          (app) => app.id,
+        ),
       ).toEqual(["dispatch", "board"]);
-      expect(registryResults[1]).toEqual({ allowed: false });
+      expect(registryResults[1]).toEqual({
+        status: 200,
+        body: { allowed: false },
+      });
       expect(
         mocks.executedSql.some((sql) => sql.includes("FROM org_members m")),
       ).toBe(true);
@@ -2212,7 +2285,33 @@ describe("listWorkspaceApps", () => {
     });
   });
 
+  it("logs a safe diagnostic when the Dispatch access check throws", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockRejectedValueOnce(
+      new TypeError("private identity"),
+    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[dispatch] workspace app Dispatch access check failed",
+      { kind: "TypeError" },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "private identity",
+    );
+    errorLog.mockRestore();
+  });
+
   it("does not return registry apps when access records cannot be read", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     stubManifest([
       { id: "private-app", name: "Private app", path: "/private-app" },
     ]);
@@ -2232,6 +2331,14 @@ describe("listWorkspaceApps", () => {
       errorCode: "workspace_app_access_unavailable",
       message: "Workspace app access is temporarily unavailable.",
     });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[dispatch] workspace app access record lookup failed",
+      { kind: "Error" },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "sensitive database detail",
+    );
+    errorLog.mockRestore();
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {
