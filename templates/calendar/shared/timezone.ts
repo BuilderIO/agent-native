@@ -70,17 +70,17 @@ export function dateTimeInTimezoneToIso(
   time: string,
   timezone: string,
 ): string {
-  const [year, month, day] = date.split("-");
-  const [hour, minute, seconds = "0"] = time.split(":");
-  const [second, fraction] = seconds.split(".");
+  const [year = "", month = "", day = ""] = date.split("-");
+  const [hour = "", minute = "", seconds = "0"] = time.split(":");
+  const [second = "", fraction = ""] = seconds.split(".");
   if (
-    !year?.trim() ||
-    !month?.trim() ||
-    !day?.trim() ||
-    !hour?.trim() ||
-    !minute?.trim() ||
-    !second?.trim() ||
-    (fraction !== undefined && !fraction.trim())
+    !year.trim() ||
+    !month.trim() ||
+    !day.trim() ||
+    !hour.trim() ||
+    !minute.trim() ||
+    !second.trim() ||
+    (seconds.includes(".") && !fraction.trim())
   ) {
     throw new RangeError(`Invalid date or time: ${date} ${time}`);
   }
@@ -91,7 +91,7 @@ export function dateTimeInTimezoneToIso(
     Number(hour),
     Number(minute),
     Number(second),
-    Number((fraction ?? "").padEnd(3, "0")),
+    Number(fraction.padEnd(3, "0")),
   );
   const offsets = new Set<number>();
   for (let hours = -36; hours <= 36; hours += 6) {
