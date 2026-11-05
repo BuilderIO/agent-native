@@ -260,6 +260,46 @@ describe("create-event recurrence", () => {
     );
   });
 
+  it.each(["explicit", "saved"])(
+    "preserves all-day calendar dates with a %s positive-offset timezone",
+    async (source) => {
+      getUserSettingMock.mockImplementation((_email: string, key: string) =>
+        key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+      );
+
+      const result = await createEventAction.run({
+        title: "Holiday",
+        allDay: true,
+        start: "2026-11-04T00:00:00",
+        end: "2026-11-06T00:00:00",
+        ...(source === "explicit" ? { startTimeZone: "Asia/Kolkata" } : {}),
+      });
+
+      expect(createEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allDay: true,
+          start: "2026-11-04",
+          end: "2026-11-06",
+        }),
+        expect.anything(),
+      );
+      expect(result.change.detail).toBe("Nov 4, 2026–Nov 5, 2026");
+    },
+  );
+
+  it("rejects an all-day range without a later exclusive end date", async () => {
+    await expect(
+      createEventAction.run({
+        title: "Holiday",
+        allDay: true,
+        start: "2026-11-04",
+        end: "2026-11-04T23:00:00",
+        startTimeZone: "Asia/Kolkata",
+      }),
+    ).rejects.toThrow("Event end must be after its start.");
+    expect(createEventMock).not.toHaveBeenCalled();
+  });
+
   it("saves a zoneless wall-clock time at that time in the saved Calendar timezone", async () => {
     getUserSettingMock.mockImplementation((_email: string, key: string) =>
       key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,

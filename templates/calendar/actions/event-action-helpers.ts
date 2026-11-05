@@ -691,8 +691,14 @@ export function normalizeCreateEventInput(
 
   const startZone = args.startTimeZone ?? defaultTimezone;
   const endZone = args.endTimeZone ?? startZone;
-  const start = normalizedIso(args.start, "start", startZone);
-  const end = normalizedIso(args.end, "end", endZone);
+  const startIso = normalizedIso(
+    args.start,
+    "start",
+    args.allDay ? "UTC" : startZone,
+  );
+  const endIso = normalizedIso(args.end, "end", args.allDay ? "UTC" : endZone);
+  const start = args.allDay ? startIso.slice(0, 10) : startIso;
+  const end = args.allDay ? endIso.slice(0, 10) : endIso;
   if (new Date(end).getTime() <= new Date(start).getTime()) {
     throw new Error("Event end must be after its start.");
   }
