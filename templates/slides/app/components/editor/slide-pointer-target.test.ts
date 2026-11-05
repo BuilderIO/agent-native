@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clampSelectionToTextRoot,
@@ -84,6 +84,7 @@ function objectOf(target: SlidePointerTarget) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.innerHTML = "";
 });
 
@@ -901,6 +902,75 @@ describe("clampSelectionToTextRoot", () => {
     selection.setBaseAndExtent(a.firstChild!, 2, a.firstChild!, 6);
     clampSelectionToTextRoot(selection, a);
     expect(selection.toString()).toBe("pha ");
+  });
+
+  it.each(["different document", "detached captured root"])(
+    "leaves the live selection untouched for a %s",
+    (kind) => {
+      const { a, b } = mountLeaves();
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(b.firstChild!, 1, b.firstChild!, 4);
+      const before = {
+        anchorNode: selection.anchorNode,
+        anchorOffset: selection.anchorOffset,
+        focusNode: selection.focusNode,
+        focusOffset: selection.focusOffset,
+      };
+      const setBaseAndExtent = vi.spyOn(selection, "setBaseAndExtent");
+      const foreignDocument = document.implementation.createHTMLDocument();
+      const root = kind === "different document" ? foreignDocument.body : a;
+      if (kind === "detached captured root") root.remove();
+
+      clampSelectionToTextRoot(selection, root);
+
+      expect(setBaseAndExtent).not.toHaveBeenCalled();
+      expect(selection.anchorNode).toBe(before.anchorNode);
+      expect(selection.anchorOffset).toBe(before.anchorOffset);
+      expect(selection.focusNode).toBe(before.focusNode);
+      expect(selection.focusOffset).toBe(before.focusOffset);
+      setBaseAndExtent.mockRestore();
+    },
+  );
+
+  it.each(["anchor", "focus"])(
+    "checks the %s tree before changing either endpoint",
+    (incomparable) => {
+      const { a, b } = mountLeaves();
+      const detached = document.createElement("p");
+      detached.textContent = "Detached";
+      const setBaseAndExtent = vi.fn();
+      const selection = {
+        anchorNode:
+          incomparable === "anchor" ? detached.firstChild : a.firstChild,
+        anchorOffset: 1,
+        focusNode:
+          incomparable === "focus" ? detached.firstChild : b.firstChild,
+        focusOffset: 2,
+        setBaseAndExtent,
+      } as unknown as Selection;
+
+      clampSelectionToTextRoot(selection, a);
+
+      expect(setBaseAndExtent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("clamps endpoints in the same disconnected tree", () => {
+    const tree = document.createElement("div");
+    tree.innerHTML = "<p>Alpha text</p><p>Beta text</p>";
+    const [a, b] = tree.children;
+    const setBaseAndExtent = vi.fn();
+    const selection = {
+      anchorNode: a.firstChild,
+      anchorOffset: 3,
+      focusNode: b.firstChild,
+      focusOffset: 2,
+      setBaseAndExtent,
+    } as unknown as Selection;
+
+    clampSelectionToTextRoot(selection, a as HTMLElement);
+
+    expect(setBaseAndExtent).toHaveBeenCalledWith(a.firstChild, 3, a, 1);
   });
 
   it("pins a forward drag that runs into the next leaf to the end of the press leaf (oracle 5.2)", () => {
