@@ -204,13 +204,8 @@ no reaction and no thread yet.
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
   `hasmy:` searches.
-- **Backstop for unclaimed roots.** Every run, also search
-  `in:<#channel> -has::eyes: -from:<@U0GCV21HC> after:<window start>` and
-  page through it. Treat each root it returns as a candidate even if it is
-  older than your last-seen point. A last-seen timestamp alone skips
-  reports: one set it to the bot's own reply and silently dropped three
-  roots posted minutes earlier. Advance a last-seen point only to the newest
-  report root handled, never to a bot reply.
+- **Backstop:** every run also searches for unclaimed roots
+  ([backstop](references/slack-reaction-replies.md#backstop-for-unclaimed-roots)).
 - **Open items first.** Verify Steve's 👀 on the root and workflow ownership
   from a matching run recap, proof-bearing PR, or automation memory claim.
   A bot reply, reaction, or memory entry alone is insufficient. Investigate

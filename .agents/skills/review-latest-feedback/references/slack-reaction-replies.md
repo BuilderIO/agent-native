@@ -287,3 +287,13 @@ ticket exists. Keep any existing ticket link in the internal inventory. Do not
 balance reactions for appearance. Treat
 reaction text in a reply, another actor's mark, or a reply-row reaction as no
 substitute for the required root read-back.
+
+## Backstop for unclaimed roots
+
+Every run, also search `in:<#channel> -has::eyes: -from:<@U0GCV21HC>
+after:<YYYY-MM-DD>` and page through every result. Slack's `after:` is
+date-only and excludes that day, so use the day before the window starts.
+Treat each root it returns as a candidate, even one older than your last-seen
+point. A last-seen timestamp alone skips reports: one was set to the bot's own
+reply and silently dropped three roots posted minutes earlier. Advance a
+last-seen point only to the newest report root handled, never to a bot reply.

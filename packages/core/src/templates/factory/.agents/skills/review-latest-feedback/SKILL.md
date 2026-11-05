@@ -197,6 +197,8 @@ no reaction and no thread yet.
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
   `hasmy:` searches.
+- **Backstop:** every run also searches for unclaimed roots
+  ([backstop](references/slack-reaction-replies.md#backstop-for-unclaimed-roots)).
 - **Open items first.** Verify Steve's 👀 on the root and workflow ownership
   from a matching run recap, proof-bearing PR, or automation memory claim.
   A bot reply, reaction, or memory entry alone is insufficient. Investigate
