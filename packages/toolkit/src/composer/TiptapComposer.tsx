@@ -14,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -469,6 +470,20 @@ export function mentionItemMatchesQuery(
   );
 }
 
+/**
+ * The items that match a query, in their given order except that one named
+ * exactly by the query comes first, so typing a whole name or alias and
+ * pressing Enter picks it over an earlier item that merely contains the text.
+ */
+export function mentionItemsForQuery(
+  items: MentionItem[],
+  query: string,
+): MentionItem[] {
+  const matches = items.filter((item) => mentionItemMatchesQuery(item, query));
+  const exact = findExactMentionItem(matches, query.trim());
+  return exact ? [exact, ...matches.filter((item) => item !== exact)] : matches;
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -793,6 +808,24 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
     return true;
   });
   return hasContent;
+}
+
+function composerReferenceSignature(
+  doc: Pick<ProseMirrorNode, "descendants">,
+): string {
+  const references: unknown[] = [];
+  doc.descendants((node) => {
+    if (
+      node.type.name === "mentionReference" ||
+      node.type.name === "fileReference" ||
+      node.type.name === "skillReference"
+    ) {
+      references.push([node.type.name, node.attrs]);
+      return false;
+    }
+    return true;
+  });
+  return JSON.stringify(references);
 }
 
 function persistComposerDraft(
@@ -3204,9 +3237,7 @@ function TiptapComposerSurface({
       filterMentionItemsForSlots(
         [
           // Host items arrive unfiltered; the default search filters itself.
-          ...hostMentionItems.filter((item) =>
-            mentionItemMatchesQuery(item, mentionQuery),
-          ),
+          ...mentionItemsForQuery(hostMentionItems, mentionQuery),
           ...mentionItems,
         ].filter(
           (item, index, items) =>
@@ -3686,6 +3717,7 @@ function TiptapComposerSurface({
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
   const applyingInitialContentRef = useRef(false);
+  const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
@@ -3703,9 +3735,22 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      setReferenceRevision((revision) => revision + 1);
-
       scheduleComposerDraftPersist(ed);
+    },
+    onTransaction: ({ editor: ed, transaction, appendedTransactions }) => {
+      if (
+        !transaction.docChanged &&
+        !appendedTransactions.some((appended) => appended.docChanged)
+      ) {
+        return;
+      }
+      // An unconditional bump can loop through React node views and the
+      // ProseMirror DOM observer, even when references have not changed.
+      const referenceSignature = composerReferenceSignature(ed.state.doc);
+      if (referenceSignature !== editorReferenceSignatureRef.current) {
+        editorReferenceSignatureRef.current = referenceSignature;
+        setReferenceRevision((revision) => revision + 1);
+      }
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to, anchor, head } = ed.state.selection;
@@ -6856,6 +6901,7 @@ function TiptapComposerSurface({
       <MentionPopover
         ref={popoverRef}
         density={mentionPopoverDensity}
+        keepSectionOrder={!includeDefaultMentionSearch}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={inlineMentionItems}

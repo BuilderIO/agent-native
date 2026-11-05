@@ -660,6 +660,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abre Clips Desktop desde la barra de menús y elige Start Meeting Notes, o haz clic en Start notes cuando aparezca el recordatorio. Clips captura micrófono y audio del sistema, y escribe la transcripción aquí.",
     getDesktopApp: "Obtener aplicación de escritorio",
+    earlierAudioAdded_one:
+      "Se añadió {{count}} minuto de antes de que empezaras",
+    earlierAudioAdded_other:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioAdded_many:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioUnreadable:
+      "No se pudo comprobar si esta transcripción incluye audio anterior",
+    removeEarlierAudioTitle: "¿Quitar el audio anterior?",
+    removeEarlierAudioDescription:
+      "Se quitará de la transcripción y se volverán a generar el resumen, las tareas y la descripción del clip, aunque hayas escrito tú esa descripción. También se regenerará un título generado automáticamente; el que hayas elegido se conserva. También se eliminarán los capítulos.",
+    couldNotRemoveEarlierAudio: "No se pudo quitar el audio anterior",
     generateNotesFailed: "No se pudo generar el resumen. Intentar otra vez.",
     attendee_one: "asistente {{count}}",
     attendee_other: "asistentes {{count}}",
@@ -817,7 +829,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error. Si tu herramienta no puede devolver imágenes ni abrir estos enlaces, indica que tu herramienta tiene ese límite; no es un error de Clips.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error. Si no puedes abrir las URL de los fotogramas como imágenes, llama a la herramienta get-recording-frames de Clips con el ID de la grabación de esta URL de contexto, si está disponible. Si no, dile al usuario que conectar Clips en {{connectUrl}} te permite ver los fotogramas.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:
@@ -1556,6 +1568,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Escuchando…",
     noTranscript: "Aún no hay transcripción.",
+    unreadable: "No se pudo leer esta transcripción.",
     liveTranscriptDescription:
       "La transcripción en vivo aparecerá aquí cuando empiecen las notas.",
     me: "Yo",

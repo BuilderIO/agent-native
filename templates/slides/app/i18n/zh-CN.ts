@@ -118,6 +118,8 @@ const messages = {
     noAssetsYet: "还没有素材。",
     assetUploadFailed: "部分上传失败",
     assetDeleteFailed: "删除素材失败",
+    assetDeleteInUse: "该素材正在演示文稿中使用，请先从演示文稿中移除",
+    assetDeleteStorageRemains: "已从素材库移除，但无法删除存储的文件",
     contentMarkdown: "内容 (Markdown)",
     speakerNotes: "演讲者备注",
     speakerNotesForSlide: "演讲者备注 — 幻灯片 {{index}} / {{count}}",

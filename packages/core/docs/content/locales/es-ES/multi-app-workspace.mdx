@@ -118,13 +118,13 @@ Cada aplicación ya sabe cómo iniciar sesión, compartir la misma base de datos
 Desde cualquier lugar dentro del espacio de trabajo:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 El CLI muestra nuevamente el selector de plantillas con las aplicaciones que ya ha instalado filtradas. Elija uno o más y se estructurarán en `apps/`. Variante no interactiva:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Cualquier plantilla propia funciona como una aplicación de espacio de trabajo: CLI ejecuta una pequeña transformación **workspacify** en la plantilla que agrega el paquete compartido como depósito y resuelve las referencias de `workspace:*`. No es necesario mantener un andamio paralelo de "aplicación de espacio de trabajo".
@@ -295,6 +295,10 @@ Algunos flujos de incorporación tienen en cuenta el espacio de trabajo desde el
 ## Credenciales compartidas {#shared-credentials}
 
 Las aplicaciones en el mismo espacio de trabajo apuntan al mismo `DATABASE_URL` de forma predeterminada, por lo que el almacenamiento de credenciales del marco puede hacer que una credencial esté disponible para cada aplicación sin configuración por aplicación. Utilice `@agent-native/core/credentials` directamente o agregue un asistente ligero en `packages/shared` si su espacio de trabajo desea una convención de nomenclatura más estricta.
+
+## Aplicación predeterminada en `/` {#default-app}
+
+`/` abre Dispatch cuando el workspace tiene una app `dispatch`, y en caso contrario la primera app. Define `WORKSPACE_DEFAULT_APP=<app-id>` para abrir otra app. `agent-native dev` y los despliegues del workspace la leen primero del entorno del proceso y luego del `.env` en la raíz del workspace; un valor que no coincide con ninguna app se ignora. Los despliegues la leen en tiempo de compilación, así que defínela donde compilas. Dispatch conserva su propia redirección `/dispatch`, y `deployment.workspace.rootPage: "directory"` sigue mostrando la lista de apps.
 
 ## Fichas de diseño compartidas {#design-tokens}
 

@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "Aún no hay recursos.",
     assetUploadFailed: "Algunas subidas fallaron",
     assetDeleteFailed: "No se pudo eliminar el recurso",
+    assetDeleteInUse:
+      "Este recurso se usa en una presentación. Quítalo primero de la presentación",
+    assetDeleteStorageRemains:
+      "Se quitó de la biblioteca, pero no se pudo eliminar el archivo almacenado",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
