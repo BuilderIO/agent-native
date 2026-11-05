@@ -43,7 +43,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.disconnectGoogle": "Disconnect Google",
         "editorExport.googleDisconnectFailed":
           "Could not disconnect Google Drive.",
-        "editorExport.disconnectGoogleConfirm": "Disconnect",
         "editorExport.googleSlidesUnavailableHint":
           "Google Slides export is unavailable right now.",
         "editorExport.exportFailed": "Export failed",
@@ -301,18 +300,17 @@ describe("<ExportMenu> Google Slides availability", () => {
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Disconnect Google" }),
     );
-    const disconnectSent = () =>
-      fetchMock.mock.calls.some(([input]) =>
-        String(input).includes("/google-docs/disconnect"),
-      );
-    expect(disconnectSent()).toBe(false);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
-
-    await vi.waitFor(() => expect(disconnectSent()).toBe(true));
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).includes("/google-docs/disconnect"),
+        ),
+      ).toBe(true),
+    );
   });
 
-  it("shows the reason when the Google disconnect request fails", async () => {
+  it("shows a localized failure when the Google disconnect request fails", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) =>
       String(input).includes("/google-docs/disconnect")
         ? statusResponse({ error: "Google refused the request" })
@@ -328,7 +326,6 @@ describe("<ExportMenu> Google Slides availability", () => {
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Disconnect Google" }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
 
     expect(
       await screen.findByText("Could not disconnect Google Drive."),
@@ -352,36 +349,5 @@ describe("<ExportMenu> Google Slides availability", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Disconnect Google" }),
     ).toBeNull();
-  });
-
-  it("sends nothing when the disconnect confirmation is cancelled", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).includes("/google-docs/disconnect")
-        ? statusResponse({ ok: true })
-        : statusResponse({
-            disconnectable: true,
-            googleSlidesExport: { available: true },
-          }),
-    );
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    renderMenu();
-    openExportMenu();
-
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect Google" }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "editorExport.cancel" }),
-    );
-
-    await vi.waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull(),
-    );
-    expect(
-      fetchMock.mock.calls.some(([input]) =>
-        String(input).includes("/google-docs/disconnect"),
-      ),
-    ).toBe(false);
   });
 });

@@ -514,10 +514,6 @@ const messages = {
     connectGoogle: "Google verbinden",
     disconnectGoogle: "Google trennen",
     googleDisconnectFailed: "Google Drive konnte nicht getrennt werden.",
-    disconnectGoogleConfirmTitle: "Google Drive trennen?",
-    disconnectGoogleConfirmDescription:
-      "Slides exportiert nicht mehr in deinen Google Drive und importiert nicht mehr daraus, bis du es erneut verbindest.",
-    disconnectGoogleConfirm: "Trennen",
     openInGoogleSlides: "In Google Slides öffnen",
     googleSlidesUnavailable: "Nicht verfügbar",
     googleSlidesOpenImporter: "Google Slides-Import öffnen",

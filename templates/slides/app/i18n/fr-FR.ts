@@ -519,10 +519,6 @@ const messages = {
     connectGoogle: "Connecter Google",
     disconnectGoogle: "Déconnecter Google",
     googleDisconnectFailed: "Impossible de déconnecter Google Drive.",
-    disconnectGoogleConfirmTitle: "Déconnecter Google Drive ?",
-    disconnectGoogleConfirmDescription:
-      "Slides n'exportera plus vers votre Google Drive et n'y importera plus rien tant que vous ne le reconnecterez pas.",
-    disconnectGoogleConfirm: "Déconnecter",
     openInGoogleSlides: "Ouvrir dans Google Slides",
     googleSlidesUnavailable: "Indisponible",
     googleSlidesOpenImporter: "Ouvrir l'import Google Slides",
