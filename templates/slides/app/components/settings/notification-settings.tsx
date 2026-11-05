@@ -24,7 +24,7 @@ function CommentEmailsControl({ label }: { label: string }): ReactNode {
   const query = useActionQuery<SlidesNotificationPreferences>(
     "get-slides-notification-prefs",
     undefined,
-    { retry: false },
+    { retry: false, refetchOnWindowFocus: true },
   );
   const mutation = useActionMutation<
     SlidesNotificationPreferences,
