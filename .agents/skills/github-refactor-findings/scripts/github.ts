@@ -19,6 +19,7 @@ import {
   runMarkerPattern,
   type Tracker,
 } from "../../fragility-common/lib/findings.ts";
+import { readPlan } from "../../fragility-common/lib/plan-format.ts";
 
 export interface GitHubFindingsConfig {
   label: string;
@@ -31,6 +32,8 @@ export function loadGitHubConfig(): GitHubFindingsConfig {
 }
 
 const BODY_LIMIT = 65_000;
+/** Released by a member: a bug-derived plan carries outside text the factory must not act on unreviewed. */
+export const APPROVAL_LABEL = "needs-member-approval";
 const PLAN_START = /<!-- fragility-plan:start name="([^"]+)" -->/;
 const PLAN_SECTION =
   /<!-- fragility-plan:start name="[^"]+" -->[\s\S]*?<!-- fragility-plan:end -->/;
@@ -105,7 +108,7 @@ function markdown(paragraph: Inline[]): string {
       i.code
         ? `\`${i.text}\``
         : i.href
-          ? `[${i.text.replace(/[[\]]/g, "\\$&")}](${i.href})`
+          ? `[${i.text.replace(/[[\]]/g, "\\$&")}](${i.href.replace(/[()\s]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`)})`
           : i.text,
     )
     .join("")
@@ -237,12 +240,8 @@ export class GitHubIssues implements Tracker {
       gh(["--method", "POST", `repos/${this.repo}/issues`], {
         title: `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250),
         body,
-        // A plan derived from a bug report carries outside text, so a member
-        // must remove this label before the factory will implement it.
         labels:
-          meta.trigger === "bug"
-            ? [this.label, "needs-member-approval"]
-            : [this.label],
+          meta.trigger === "bug" ? [this.label, APPROVAL_LABEL] : [this.label],
       }),
     ) as { number?: number };
     if (!created.number)
@@ -265,6 +264,16 @@ export class GitHubIssues implements Tracker {
   async attachPlan(key: string, file: string, planName: string): Promise<void> {
     const body = this.issue(key).body ?? "";
     this.setBody(key, withPlan(body, readFileSync(file, "utf8"), planName));
+    // Replacing the plan with a bug-derived one re-opens the approval gate.
+    if (readPlan(file).meta.trigger === "bug")
+      gh(
+        [
+          "--method",
+          "POST",
+          `repos/${this.repo}/issues/${this.number(key)}/labels`,
+        ],
+        { labels: [APPROVAL_LABEL] },
+      );
   }
 
   async ensureRecurrenceLink(key: string, recurrenceOf: string): Promise<void> {

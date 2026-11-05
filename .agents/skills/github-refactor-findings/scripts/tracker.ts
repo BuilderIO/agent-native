@@ -3,7 +3,13 @@
 import { commonConfig } from "../../fragility-common/lib/cli.ts";
 import type { Check } from "../../fragility-common/lib/doctor.ts";
 import type { Tracker } from "../../fragility-common/lib/findings.ts";
-import { gh, GitHubIssues, loadGitHubConfig, parseIssueKey } from "./github.ts";
+import {
+  APPROVAL_LABEL,
+  gh,
+  GitHubIssues,
+  loadGitHubConfig,
+  parseIssueKey,
+} from "./github.ts";
 
 export function createTracker(): Tracker {
   return new GitHubIssues();
@@ -54,6 +60,24 @@ export function doctorChecks(): Check[] {
           throw error;
         }
         return `label ${label} exists in ${repo}`;
+      },
+    },
+    {
+      name: "github-approval-label",
+      run: () => {
+        try {
+          gh([
+            `repos/${repo}/labels/${encodeURIComponent(APPROVAL_LABEL)}`,
+            "--silent",
+          ]);
+        } catch (error) {
+          if (/HTTP 404/.test((error as Error).message))
+            throw new Error(
+              `label ${APPROVAL_LABEL} doesn't exist; bug-derived plans can't be filed without it. Create it with: gh label create ${APPROVAL_LABEL} -R ${repo} --description "Bug-derived plan awaiting member approval"`,
+            );
+          throw error;
+        }
+        return `label ${APPROVAL_LABEL} exists in ${repo}`;
       },
     },
   ];
