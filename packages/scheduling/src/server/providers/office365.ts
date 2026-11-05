@@ -1,5 +1,9 @@
 import type { BusyInterval } from "../../shared/index.js";
-import { CalendarCredentialInvalidError } from "./errors.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+  parseRetryAfterSeconds,
+} from "./errors.js";
 import type { CalendarProvider } from "./types.js";
 
 export interface Office365ProviderConfig {
@@ -15,6 +19,7 @@ export interface Office365ProviderConfig {
 }
 
 const SCOPES = ["offline_access", "Calendars.ReadWrite", "User.Read"];
+const MAX_CALENDAR_VIEW_CONCURRENCY = 4;
 
 export function createOffice365Provider(
   config: Office365ProviderConfig,
@@ -40,6 +45,12 @@ export function createOffice365Provider(
       ...init,
       headers,
     });
+    if (res.status === 429) {
+      throw new CalendarLookupRateLimitedError(
+        "Graph: rate limited (429)",
+        parseRetryAfterSeconds(res.headers.get("retry-after")),
+      );
+    }
     if (res.status === 401 || res.status === 403) {
       await config.markInvalid?.(credentialId);
       throw new CalendarCredentialInvalidError(
@@ -127,8 +138,8 @@ export function createOffice365Provider(
     // does not accept (it takes SMTP addresses), so read each calendar's
     // calendarView. Times come back in UTC without an offset.
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
-      const out: BusyInterval[] = [];
-      for (const calendarId of calendarExternalIds) {
+      async function readCalendar(calendarId: string): Promise<BusyInterval[]> {
+        const out: BusyInterval[] = [];
         const params = new URLSearchParams({
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
@@ -162,8 +173,23 @@ export function createOffice365Provider(
           }
           path = page["@odata.nextLink"];
         }
+        return out;
       }
-      return out;
+
+      const perCalendar: BusyInterval[][] = [];
+      let next = 0;
+      async function worker(): Promise<void> {
+        while (next < calendarExternalIds.length) {
+          const index = next++;
+          perCalendar[index] = await readCalendar(calendarExternalIds[index]);
+        }
+      }
+      const workerCount = Math.min(
+        MAX_CALENDAR_VIEW_CONCURRENCY,
+        calendarExternalIds.length,
+      );
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      return perCalendar.flat();
     },
     async createEvent({ credentialId, calendarExternalId, booking }) {
       const body = {

@@ -10,7 +10,10 @@ import {
   getAvailableSlots,
 } from "./availability-engine.js";
 import { setSchedulingContext } from "./context.js";
-import { CalendarCredentialInvalidError } from "./providers/errors.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+} from "./providers/errors.js";
 import { registerCalendarProvider } from "./providers/registry.js";
 import type { CalendarProvider } from "./providers/types.js";
 
@@ -406,6 +409,49 @@ describe("aggregateBusy", () => {
       }),
     ]);
     expect(invalidBusy).not.toHaveBeenCalled();
+  });
+
+  it("reports a throttled lookup as a retryable lookup_failed with its Retry-After", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError(
+            "Test provider rate limited (403 rateLimitExceeded)",
+            45,
+          );
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        { id: "credential-throttled", type: "availability-throttled" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled",
+          externalId: "calendar-throttled",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).details).toEqual({
+      calendars: [
+        {
+          provider: "availability-throttled",
+          providerLabel: "Test provider availability-throttled",
+          reason: "lookup_failed",
+          retryAfterSeconds: 45,
+        },
+      ],
+      retryAfterSeconds: 45,
+    });
   });
 
   it("reports credential_invalid when the provider rejects the credential on this lookup", async () => {

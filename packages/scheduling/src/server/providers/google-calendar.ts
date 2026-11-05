@@ -10,8 +10,41 @@ import type { BusyInterval } from "../../shared/index.js";
  * the same for every scheduling consumer. Custom token stores are supported
  * via the `getAccessToken` callback.
  */
-import { CalendarCredentialInvalidError } from "./errors.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+  parseRetryAfterSeconds,
+} from "./errors.js";
 import type { CalendarProvider } from "./types.js";
+
+const GOOGLE_RATE_LIMIT_REASONS = new Set([
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+  "dailyLimitExceeded",
+]);
+
+function googleRateLimitReason(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // A non-JSON 403 carries no throttle reason; it is an authorization failure.
+    return undefined;
+  }
+  const errors = (parsed as { error?: { errors?: { reason?: unknown }[] } })
+    .error?.errors;
+  if (!Array.isArray(errors)) return undefined;
+  for (const entry of errors) {
+    if (
+      typeof entry.reason === "string" &&
+      GOOGLE_RATE_LIMIT_REASONS.has(entry.reason)
+    ) {
+      return entry.reason;
+    }
+  }
+  return undefined;
+}
 
 export interface GoogleCalendarProviderConfig {
   clientId: string;
@@ -45,7 +78,17 @@ export function createGoogleCalendarProvider(
       ...init,
       headers,
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      const body = await res.text();
+      // Google sends rate and quota limits as 403 (or 429); those are
+      // throttles on a good credential and must not force a reconnect.
+      const reason = googleRateLimitReason(body);
+      if (res.status === 429 || reason) {
+        throw new CalendarLookupRateLimitedError(
+          `Google Calendar: rate limited (${res.status} ${reason ?? "rateLimitExceeded"})`,
+          parseRetryAfterSeconds(res.headers.get("retry-after")),
+        );
+      }
       await config.markInvalid?.(credentialId);
       throw new CalendarCredentialInvalidError(
         `Google Calendar: credential invalid (${res.status})`,

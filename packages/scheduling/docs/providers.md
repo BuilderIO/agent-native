@@ -50,7 +50,10 @@ registerCalendarProvider({
 time", so a failure returned as `[]` lets bookers take slots the host is busy.
 When the provider rejects the credential (401/403), throw
 `CalendarCredentialInvalidError` so availability reports the calendar as
-needing reconnection rather than as a transient failure.
+needing reconnection rather than as a transient failure. When it throttles
+the request (rate or quota limits, which Google can send as 403), throw
+`CalendarLookupRateLimitedError` with any `Retry-After` seconds instead, and
+don't mark the credential invalid.
 
 All methods receive a `credentialId` — use it to look up the OAuth token via
 your token store. The package's `setSchedulingContext()` doesn't touch

@@ -13,7 +13,10 @@ import type {
   Slot,
 } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
-import { isCalendarCredentialInvalidError } from "./providers/errors.js";
+import {
+  isCalendarCredentialInvalidError,
+  isCalendarLookupRateLimitedError,
+} from "./providers/errors.js";
 import { getCalendarProvider } from "./providers/registry.js";
 import { getScheduleById } from "./schedules-repo.js";
 
@@ -39,6 +42,8 @@ export interface CalendarBusyFailure {
   calendarExternalIds: string[];
   reason: CalendarBusyFailureReason;
   cause?: string;
+  /** Set when the provider throttled the lookup and said when to retry. */
+  retryAfterSeconds?: number;
 }
 
 /**
@@ -52,6 +57,9 @@ export class CalendarAvailabilityUnavailableError extends ActionContractError {
 
   constructor(failures: CalendarBusyFailure[]) {
     const labels = Array.from(new Set(failures.map((f) => f.providerLabel)));
+    const retryAfters = failures.flatMap((f) =>
+      f.retryAfterSeconds === undefined ? [] : [f.retryAfterSeconds],
+    );
     super(
       `Couldn't check ${labels.join(", ")}, so availability can't be confirmed. Try again shortly.`,
       {
@@ -62,7 +70,13 @@ export class CalendarAvailabilityUnavailableError extends ActionContractError {
             provider: f.provider,
             providerLabel: f.providerLabel,
             reason: f.reason,
+            ...(f.retryAfterSeconds === undefined
+              ? {}
+              : { retryAfterSeconds: f.retryAfterSeconds }),
           })),
+          ...(retryAfters.length === 0
+            ? {}
+            : { retryAfterSeconds: Math.max(...retryAfters) }),
         },
       },
     );
@@ -269,12 +283,19 @@ export async function aggregateBusy(input: {
           end: input.rangeEnd,
         });
       } catch (error) {
-        failures[credentialIndex] = failure(
+        const lookupFailure = failure(
           isCalendarCredentialInvalidError(error)
             ? "credential_invalid"
             : "lookup_failed",
           error instanceof Error ? error.message : String(error),
         );
+        if (
+          isCalendarLookupRateLimitedError(error) &&
+          error.retryAfterSeconds !== undefined
+        ) {
+          lookupFailure.retryAfterSeconds = error.retryAfterSeconds;
+        }
+        failures[credentialIndex] = lookupFailure;
       }
     }
   }

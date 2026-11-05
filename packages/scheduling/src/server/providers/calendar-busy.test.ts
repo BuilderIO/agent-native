@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CalendarCredentialInvalidError } from "./errors.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+} from "./errors.js";
 import { createGoogleCalendarProvider } from "./google-calendar.js";
 import { createOffice365Provider } from "./office365.js";
 
@@ -17,11 +20,25 @@ function respondWith(...bodies: unknown[]) {
   return fetchMock;
 }
 
-function respondWithStatus(status: number) {
+function respondWithStatus(
+  status: number,
+  body = "denied",
+  headers: Record<string, string> = {},
+) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response("denied", { status })),
+    vi.fn(async () => new Response(body, { status, headers })),
   );
+}
+
+function googleError(code: number, reason: string) {
+  return JSON.stringify({
+    error: {
+      code,
+      message: "Error",
+      errors: [{ domain: "usageLimits", reason, message: "Error" }],
+    },
+  });
 }
 
 function providerConfig() {
@@ -111,6 +128,121 @@ describe("Google Calendar getBusy", () => {
       googleBusy(["host@example.com"], config),
     ).rejects.toBeInstanceOf(CalendarCredentialInvalidError);
     expect(config.markInvalid).toHaveBeenCalledWith("credential-example");
+  });
+});
+
+describe("Google Calendar getBusy throttling", () => {
+  it.each(["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"])(
+    "treats a 403 %s as a retryable throttle without invalidating the credential",
+    async (reason) => {
+      respondWithStatus(403, googleError(403, reason), {
+        "retry-after": "30",
+      });
+      const config = providerConfig();
+
+      const error = await googleBusy(["host@example.com"], config).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+
+      expect(error).toBeInstanceOf(CalendarLookupRateLimitedError);
+      expect(error).not.toBeInstanceOf(CalendarCredentialInvalidError);
+      expect((error as CalendarLookupRateLimitedError).retryAfterSeconds).toBe(
+        30,
+      );
+      expect(config.markInvalid).not.toHaveBeenCalled();
+    },
+  );
+
+  it("treats a 429 as a retryable throttle", async () => {
+    respondWithStatus(429, googleError(429, "rateLimitExceeded"));
+    const config = providerConfig();
+
+    await expect(
+      googleBusy(["host@example.com"], config),
+    ).rejects.toBeInstanceOf(CalendarLookupRateLimitedError);
+    expect(config.markInvalid).not.toHaveBeenCalled();
+  });
+
+  it("still invalidates the credential on a 403 that is not a throttle", async () => {
+    respondWithStatus(403, googleError(403, "insufficientPermissions"));
+    const config = providerConfig();
+
+    await expect(
+      googleBusy(["host@example.com"], config),
+    ).rejects.toBeInstanceOf(CalendarCredentialInvalidError);
+    expect(config.markInvalid).toHaveBeenCalledWith("credential-example");
+  });
+});
+
+describe("Office 365 getBusy concurrency", () => {
+  function calendarViewFor(_url: string) {
+    return {
+      value: [
+        {
+          start: { dateTime: "2030-01-07T10:00:00" },
+          end: { dateTime: "2030-01-07T11:00:00" },
+          showAs: "busy",
+        },
+      ],
+    };
+  }
+
+  it("reads several calendars at most four at a time and keeps their order", async () => {
+    const ids = Array.from({ length: 6 }, (_, index) => `calendar-${index}`);
+    let active = 0;
+    let maximumActive = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return new Response(JSON.stringify(calendarViewFor(url)), {
+          status: 200,
+        });
+      }),
+    );
+
+    const busy = await outlookBusy(ids);
+
+    expect(maximumActive).toBeGreaterThan(1);
+    expect(maximumActive).toBeLessThanOrEqual(4);
+    expect(busy.map((interval) => interval.source)).toEqual(ids);
+  });
+
+  it("fails the whole lookup when any one calendar can't be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("calendar-broken")
+          ? new Response("boom", { status: 500 })
+          : new Response(JSON.stringify(calendarViewFor(url)), {
+              status: 200,
+            }),
+      ),
+    );
+
+    await expect(
+      outlookBusy(["calendar-ok-1", "calendar-broken", "calendar-ok-2"]),
+    ).rejects.toThrow("Graph 500");
+  });
+
+  it("treats a Graph 429 as a retryable throttle with its Retry-After", async () => {
+    respondWithStatus(429, "throttled", { "retry-after": "12" });
+    const config = providerConfig();
+
+    const error = await outlookBusy([OUTLOOK_CALENDAR_ID], config).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarLookupRateLimitedError);
+    expect((error as CalendarLookupRateLimitedError).retryAfterSeconds).toBe(
+      12,
+    );
+    expect(config.markInvalid).not.toHaveBeenCalled();
   });
 });
 
