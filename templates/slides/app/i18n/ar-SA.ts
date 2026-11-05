@@ -473,6 +473,9 @@ const messages = {
   editorExport: {
     pptxFailed: "تعذر إنشاء ملف PPTX.",
     exportFailed: "فشل التصدير",
+    exportFinishedWithWarnings: "تم التصدير مع تحذيرات",
+    pdfSidecarSkipped:
+      "تم تصدير هذا الملف بدون مصدره القابل للتحرير. ستُعاد بناء الشرائح من محتوى الصفحات عند إعادة استيراده.",
     exporting: "جارٍ التصدير...",
     exportPptxError: "حدث خطأ أثناء التصدير بصيغة PPTX.",
     googleSlidesDownloaded: "تم التنزيل من أجل Google Slides",

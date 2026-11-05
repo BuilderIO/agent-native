@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   resolveAccess: vi.fn(),
+  readLocalImportedAsset: vi.fn(),
   track: vi.fn(),
+}));
+
+vi.mock("../server/lib/import-asset-storage.js", () => ({
+  readLocalImportedAsset: mocks.readLocalImportedAsset,
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -103,6 +108,34 @@ describe("export-pptx action", () => {
       app_name: "slides",
       template_name: "slides",
     });
+  });
+
+  it("reports an image that could not be fetched instead of dropping it silently", async () => {
+    mocks.ssrfSafeFetch.mockRejectedValue(new Error("getaddrinfo ENOTFOUND"));
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "s1",
+              content: importedSlide(
+                `<div class="fmd-pptx-image" data-pptx-element-kind="image" style="position:absolute;left:100px;top:300px;width:200px;height:100px;"><img src="https://cdn.example/missing.png" alt="" /></div>`,
+              ),
+            },
+          ],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: false },
+      { caller: "tool" } as never,
+    );
+
+    expect(result.warnings).toEqual([
+      "1 image(s) could not be loaded and were left out of the PowerPoint file (slides 1).",
+    ]);
   });
 
   it("reports a completed export with its slide count", async () => {
@@ -409,7 +442,7 @@ describe("fetchImageAsBase64", () => {
 
     await expect(
       fetchImageAsBase64("https://cdn.example/logo.png"),
-    ).resolves.toBe("data:image/png;base64,AQID");
+    ).resolves.toEqual({ ok: true, dataUri: "data:image/png;base64,AQID" });
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
       "https://cdn.example/logo.png",
       { signal: expect.any(AbortSignal) },
@@ -424,19 +457,55 @@ describe("fetchImageAsBase64", () => {
       }),
     );
 
-    await expect(fetchImageAsBase64("https://cdn.example/page")).resolves.toBe(
-      null,
-    );
+    await expect(
+      fetchImageAsBase64("https://cdn.example/page"),
+    ).resolves.toEqual({ ok: false, reason: "content-type text/html" });
   });
 
-  it("returns null when SSRF-safe fetch blocks a URL", async () => {
+  it("reports why an SSRF-blocked URL was not loaded", async () => {
     mocks.ssrfSafeFetch.mockRejectedValue(
       new Error("SSRF blocked: refusing to fetch private/internal address"),
     );
 
     await expect(
       fetchImageAsBase64("http://127.0.0.1/image.png"),
-    ).resolves.toBe(null);
+    ).resolves.toEqual({
+      ok: false,
+      reason: "SSRF blocked: refusing to fetch private/internal address",
+    });
+  });
+
+  it("skips a malformed image URL without failing the export", async () => {
+    await expect(fetchImageAsBase64("http://[")).resolves.toEqual({
+      ok: false,
+      reason: "malformed image URL",
+    });
+  });
+
+  it("reports a local import asset that is no longer stored", async () => {
+    mocks.readLocalImportedAsset.mockResolvedValue(null);
+
+    await expect(
+      fetchImageAsBase64("/api/import-assets/gone", "owner@example.com"),
+    ).resolves.toEqual({ ok: false, reason: "local asset not found" });
+  });
+
+  it("fails loudly when local import storage itself throws", async () => {
+    mocks.readLocalImportedAsset.mockRejectedValue(
+      new Error("disk unreadable"),
+    );
+
+    await expect(
+      fetchImageAsBase64("/api/import-assets/token", "owner@example.com"),
+    ).rejects.toThrow("disk unreadable");
+  });
+
+  it("reports the HTTP status of a missing image", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(new Response("", { status: 404 }));
+
+    await expect(
+      fetchImageAsBase64("https://cdn.example/gone.png"),
+    ).resolves.toEqual({ ok: false, reason: "HTTP 404" });
   });
 });
 
@@ -509,6 +578,18 @@ describe("parseSlideHtml", () => {
     ).toThrowError(
       /Slide 3 contains freeform positioned objects.*Export > PowerPoint.*stopped instead of silently reflowing/s,
     );
+  });
+
+  it("fails loudly on an editor freeform object on an imported slide", () => {
+    expect(() =>
+      parseSlideHtml(
+        importedSlide(
+          `<div class="fmd-freeform-object" data-slide-object-id="freeform-2" style="position: absolute; left: 120px; top: 80px">Text</div>`,
+        ),
+        undefined,
+        3,
+      ),
+    ).toThrowError(/Slide 3 contains freeform positioned objects/);
   });
 
   it("allows an absolute uploaded background without a persisted object id", () => {

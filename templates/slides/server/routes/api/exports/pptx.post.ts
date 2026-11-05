@@ -78,6 +78,13 @@ export default defineEventHandler(async (event) => {
         )}"`,
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
+        ...(result.warnings
+          ? {
+              "X-Slides-Export-Warnings": encodeURIComponent(
+                JSON.stringify(result.warnings),
+              ),
+            }
+          : {}),
       },
     });
   } catch (error) {

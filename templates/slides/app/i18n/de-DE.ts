@@ -493,6 +493,9 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX-Datei konnte nicht erstellt werden.",
     exportFailed: "Export fehlgeschlagen",
+    exportFinishedWithWarnings: "Export mit Warnungen abgeschlossen",
+    pdfSidecarSkipped:
+      "Diese PDF wurde ohne ihre bearbeitbare Quelle exportiert. Beim erneuten Import werden die Folien aus dem Seiteninhalt neu erstellt.",
     exporting: "Wird exportiert...",
     exportPptxError: "Beim Export als PPTX ist etwas schiefgelaufen.",
     googleSlidesDownloaded: "Für Google Slides heruntergeladen",

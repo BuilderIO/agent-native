@@ -494,6 +494,9 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exportFinishedWithWarnings: "Exportado con advertencias",
+    pdfSidecarSkipped:
+      "Este PDF se exportó sin su fuente editable. Al volver a importarlo, las diapositivas se reconstruirán a partir del contenido de las páginas.",
     exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",

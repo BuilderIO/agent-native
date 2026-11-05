@@ -462,6 +462,9 @@ const messages = {
   editorExport: {
     pptxFailed: "无法生成 PPTX 文件。",
     exportFailed: "导出失败",
+    exportFinishedWithWarnings: "已导出，但有警告",
+    pdfSidecarSkipped:
+      "此 PDF 导出时未包含可编辑源文件。重新导入时，将根据页面内容重建幻灯片。",
     exporting: "正在导出...",
     exportPptxError: "导出为 PPTX 时出了点问题。",
     googleSlidesDownloaded: "已为 Google Slides 下载",

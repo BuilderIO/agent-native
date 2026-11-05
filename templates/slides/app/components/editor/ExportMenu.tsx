@@ -108,6 +108,7 @@ export type ExportStatus =
       openUrl: string;
       openLabel?: string;
     }
+  | { state: "warnings"; messages: string[] }
   | { state: "error"; message: string };
 
 export function ExportStatusDialog({
@@ -177,6 +178,30 @@ export function ExportStatusDialog({
               >
                 {status.openLabel ?? t("editorExport.openInGoogleSlides")}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStatusChange({ state: "idle" })}
+              >
+                {t("comments.close")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : status.state === "warnings" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {t("editorExport.exportFinishedWithWarnings")}
+              </DialogTitle>
+              <DialogDescription asChild>
+                <ul className="list-disc break-words pl-5">
+                  {status.messages.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -509,20 +534,29 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           ".pptx",
         ),
       );
+      const encodedWarnings = res.headers.get("x-slides-export-warnings");
+      return encodedWarnings
+        ? (JSON.parse(decodeURIComponent(encodedWarnings)) as string[])
+        : [];
     };
 
-    const handleExportPptx = () =>
-      runExport(
+    const handleExportPptx = async () => {
+      let warnings: string[] = [];
+      await runExport(
         "pptx",
         async (signal) => {
           if (canExportPptxFromServer(getDeck(deckId))) {
-            await exportPptxFromServer(signal);
+            warnings = await exportPptxFromServer(signal);
             return;
           }
           await onExportPptx(signal);
         },
         t("editorExport.exportPptxError"),
       );
+      if (warnings.length > 0) {
+        updateExportStatus({ state: "warnings", messages: warnings });
+      }
+    };
 
     const handleExportPdf = () =>
       runExport(
