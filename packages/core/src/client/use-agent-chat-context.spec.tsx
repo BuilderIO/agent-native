@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   filterAgentChatContextItems,
+  getAgentChatContextState,
   refreshAgentChatContext,
+  subscribeAgentChatContext,
+  type AgentChatContextState,
 } from "./agent-chat.js";
 import { useAgentChatContext } from "./use-agent-chat-context.js";
 import {
@@ -48,6 +51,10 @@ describe("useAgentChatContext", () => {
     agentChatContextState.items = [];
     agentChatContextState.updatedAt = 0;
     vi.mocked(refreshAgentChatContext).mockClear();
+    vi.mocked(getAgentChatContextState).mockImplementation(
+      () => agentChatContextState,
+    );
+    vi.mocked(subscribeAgentChatContext).mockImplementation(() => () => {});
     _resetChangeVersionStoreForTests();
   });
 
@@ -92,6 +99,44 @@ describe("useAgentChatContext", () => {
     expect(filterAgentChatContextItems(agentChatContextState.items)).toEqual([
       agentChatContextState.items[0],
     ]);
+  });
+
+  it("does not rerender for a timestamp-only store notification", async () => {
+    let listener: () => void = () => {};
+    let snapshot: AgentChatContextState = { ...agentChatContextState };
+    vi.mocked(getAgentChatContextState).mockImplementation(() => snapshot);
+    vi.mocked(subscribeAgentChatContext).mockImplementation((callback) => {
+      listener = callback;
+      return () => {};
+    });
+    const render = vi.fn();
+    function TimestampProbe() {
+      const { items, updatedAt } = useAgentChatContext(false);
+      render(updatedAt);
+      return (
+        <div>{`${updatedAt}:${items.map((item) => item.key).join(",")}`}</div>
+      );
+    }
+
+    await act(async () => root.render(<TimestampProbe />));
+    expect(container.textContent).toBe("0:");
+    expect(render).toHaveBeenCalledTimes(1);
+
+    snapshot = { ...snapshot, updatedAt: 30 };
+    await act(async () => listener());
+    expect(render).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.render(<TimestampProbe />));
+    expect(container.textContent).toBe("30:");
+    expect(render).toHaveBeenCalledTimes(2);
+
+    snapshot = {
+      items: [{ key: "selection", title: "Selection", context: "A" }],
+      updatedAt: 40,
+    };
+    await act(async () => listener());
+    expect(container.textContent).toBe("40:selection");
+    expect(render).toHaveBeenCalledTimes(3);
   });
 
   it("refreshes for agent chat context and wildcard state changes only", async () => {

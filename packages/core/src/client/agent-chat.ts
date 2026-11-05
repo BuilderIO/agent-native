@@ -554,15 +554,15 @@ export function publishAgentChatContextItems(
   if (next.updatedAt < agentChatContextState.updatedAt) {
     return agentChatContextState;
   }
-  // A republish of identical items must not hand useSyncExternalStore a new
-  // snapshot, or effects that remove/refresh context re-render in a loop.
   if (
     JSON.stringify(next.items) === JSON.stringify(agentChatContextState.items)
   ) {
+    next.items = agentChatContextState.items;
+    agentChatContextState = next;
     if (options?.persist !== false) {
-      persistAgentChatContextState(agentChatContextState);
+      persistAgentChatContextState(next);
     }
-    return agentChatContextState;
+    return next;
   }
   agentChatContextState = next;
   notifyAgentChatContextListeners();

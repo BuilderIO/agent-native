@@ -23,19 +23,23 @@ export interface UseAgentChatContextResult extends AgentChatContextState {
   refresh(): Promise<AgentChatContextState>;
 }
 
+function getAgentChatContextItems(): AgentChatContextItem[] {
+  return getAgentChatContextState().items;
+}
+
 export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const appStateVersion = useChangeVersions([
     `app-state:${AGENT_CHAT_CONTEXT_STATE_KEY}`,
     "app-state:*",
   ]);
-  const state = useSyncExternalStore(
+  const contextItems = useSyncExternalStore(
     subscribeAgentChatContext,
-    getAgentChatContextState,
-    getAgentChatContextState,
+    getAgentChatContextItems,
+    getAgentChatContextItems,
   );
   const items = useMemo(
-    () => filterAgentChatContextItems(state.items),
-    [state.items],
+    () => filterAgentChatContextItems(contextItems),
+    [contextItems],
   );
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   }, []);
 
   return {
-    ...state,
+    updatedAt: getAgentChatContextState().updatedAt,
     items,
     set,
     remove,
