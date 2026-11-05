@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { NODE_KINDS, type NodeKind } from "./contract.js";
+import { NODE_KINDS, workflowNodeSchema, type NodeKind } from "./contract.js";
 import {
+  ERROR_PORT,
   LIMIT_REACHED_PORT,
   STATIC_PORTS,
   portsFor,
@@ -10,6 +11,7 @@ import {
 } from "./ports.js";
 import {
   buildGraph,
+  candidateNode,
   parseNode,
   rule,
   type EdgeSpec,
@@ -189,5 +191,51 @@ describe("portsWithLimit", () => {
       "timedOut",
       LIMIT_REACHED_PORT,
     ]);
+  });
+});
+
+describe("a step that routes errors", () => {
+  it.each(["lookup", "action", "ai", "agent"] as const)(
+    "gives a %s node an error port after its output, only when onError is route",
+    (kind) => {
+      const base = settingsFor[kind] as Record<string, unknown>;
+      expect(portsFor(parseNode(kind, base))).toEqual(["out"]);
+      expect(portsFor(parseNode(kind, { ...base, onError: "stop" }))).toEqual([
+        "out",
+      ]);
+      expect(portsFor(parseNode(kind, { ...base, onError: "route" }))).toEqual([
+        "out",
+        ERROR_PORT,
+      ]);
+    },
+  );
+
+  it.each([
+    "trigger",
+    "source",
+    "filter",
+    "switch",
+    "combine",
+    "split",
+    "wait",
+    "end",
+  ] as const)(
+    "refuses onError on a %s node, which has no item to fail on its own",
+    (kind) => {
+      const settings = {
+        ...(settingsFor[kind] as Record<string, unknown>),
+        onError: "route",
+      };
+      expect(
+        workflowNodeSchema.safeParse(candidateNode(kind, settings)).success,
+      ).toBe(false);
+    },
+  );
+
+  it("refuses a value other than stop or route", () => {
+    const settings = { ...(settingsFor.lookup as object), onError: "ignore" };
+    expect(
+      workflowNodeSchema.safeParse(candidateNode("lookup", settings)).success,
+    ).toBe(false);
   });
 });

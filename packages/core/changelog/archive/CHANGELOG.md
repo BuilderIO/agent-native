@@ -1,3 +1,15 @@
+## 0.171.3
+
+### Patch Changes
+
+- 2292fac: Allow shared loading spinners to provide localized accessible labels.
+
+## 0.171.2
+
+### Patch Changes
+
+- 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
+
 ## 0.171.1
 
 ### Patch Changes

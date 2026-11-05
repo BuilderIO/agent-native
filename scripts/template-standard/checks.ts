@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
+import { join, relative } from "node:path";
 
 import {
   AGENT_NATIVE_WORKSPACE_RANGE,
@@ -6,6 +7,9 @@ import {
   AUTH_MIDDLEWARE_REQUIRED_IMPORT,
   BYTE_SYNCED_FILES,
   REQUIRED_PACKAGE_SCRIPTS,
+  REPO_ROOT,
+  SSR_ROOT_ROUTE_REEXPORT,
+  SSR_ROOT_ROUTE_REL,
   SSR_ROUTE_REL,
   SSR_ROUTE_REQUIRED_IMPORT,
   TEMPLATE_PLACEHOLDER_PATTERN,
@@ -13,6 +17,7 @@ import {
   VERSION_BAND_PACKAGES,
   VITE_CONFIG_REL,
   VITE_PORT_PATTERN,
+  listScaffoldSourceDirs,
   templatePath,
 } from "./manifest.ts";
 
@@ -165,26 +170,54 @@ export function checkAuthMiddleware(templates: string[]): Violation[] {
   return violations;
 }
 
-export function checkSsrRouteHandler(templates: string[]): Violation[] {
+export function checkSsrRouteHandler(scaffoldDirs: string[]): Violation[] {
   const violations: Violation[] = [];
-  for (const template of templates) {
-    const path = templatePath(template, SSR_ROUTE_REL);
-    const content = readIfExists(path);
+  for (const dir of scaffoldDirs) {
+    const label = relative(REPO_ROOT, dir);
+    const content = readIfExists(join(dir, SSR_ROUTE_REL));
     if (content === undefined) {
       violations.push({
         rule: "ssr-route-handler",
-        template,
+        template: label,
         severity: "fail",
-        message: `templates/${template}/${SSR_ROUTE_REL} is missing.`,
+        message: `${label}/${SSR_ROUTE_REL} is missing.`,
       });
       continue;
     }
     if (!content.includes(SSR_ROUTE_REQUIRED_IMPORT)) {
       violations.push({
         rule: "ssr-route-handler",
-        template,
+        template: label,
         severity: "fail",
-        message: `templates/${template}/${SSR_ROUTE_REL} does not import ${SSR_ROUTE_REQUIRED_IMPORT}.`,
+        message: `${label}/${SSR_ROUTE_REL} does not import ${SSR_ROUTE_REQUIRED_IMPORT}.`,
+      });
+    }
+  }
+  return violations;
+}
+
+export function isRootSsrRouteReexport(content: string): boolean {
+  return SSR_ROOT_ROUTE_REEXPORT.test(content.trim());
+}
+
+export function checkSsrRootRoute(scaffoldDirs: string[]): Violation[] {
+  const violations: Violation[] = [];
+  for (const dir of scaffoldDirs) {
+    const label = relative(REPO_ROOT, dir);
+    const content = readIfExists(join(dir, SSR_ROOT_ROUTE_REL));
+    if (content === undefined) {
+      violations.push({
+        rule: "ssr-root-route",
+        template: label,
+        severity: "fail",
+        message: `${label}/${SSR_ROOT_ROUTE_REL} is missing, so the app 404s at its root when mounted at /<app-id>.`,
+      });
+    } else if (!isRootSsrRouteReexport(content)) {
+      violations.push({
+        rule: "ssr-root-route",
+        template: label,
+        severity: "fail",
+        message: `${label}/${SSR_ROOT_ROUTE_REL} must only re-export the catch-all: export { default } from "./[...page].get";`,
       });
     }
   }
@@ -356,12 +389,14 @@ export function runAllChecks(
   templates: string[],
   devPorts: Record<string, number>,
 ): Violation[] {
+  const scaffoldDirs = listScaffoldSourceDirs(templates);
   return [
     ...checkByteSyncedFiles(templates),
     ...checkPackageScripts(templates),
     ...checkTsconfigExtends(templates),
     ...checkAuthMiddleware(templates),
-    ...checkSsrRouteHandler(templates),
+    ...checkSsrRouteHandler(scaffoldDirs),
+    ...checkSsrRootRoute(scaffoldDirs),
     ...checkClaudeMdSymlink(templates),
     ...checkAgentsMdPlaceholders(templates),
     ...checkVitePortMatch(templates, devPorts),

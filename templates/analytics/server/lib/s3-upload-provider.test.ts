@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveSecretDetailed = vi.fn();
+const mockSsrfSafeFetch = vi.fn();
+const mockIsBlockedExtensionUrlWithDns = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
   resolveSecretDetailed: (...args: any[]) => mockResolveSecretDetailed(...args),
+}));
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
+    mockIsBlockedExtensionUrlWithDns(...args),
+  ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
 import { s3FileUploadProvider } from "./s3-upload-provider.js";
@@ -13,7 +20,10 @@ describe("s3FileUploadProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.unstubAllGlobals();
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(false);
+    mockSsrfSafeFetch.mockImplementation(
+      async () => new Response(null, { status: 200 }),
+    );
     process.env = { ...originalEnv };
     for (const key of [
       "S3_BUCKET",
@@ -64,11 +74,7 @@ describe("s3FileUploadProvider", () => {
     expect(s3FileUploadProvider.isConfigured()).toBe(true);
   });
 
-  it("stores replay objects under the replays/ key prefix", async () => {
-    process.env.S3_BUCKET = "replays";
-    process.env.S3_ACCESS_KEY_ID = "access";
-    process.env.S3_SECRET_ACCESS_KEY = "secret";
-    process.env.S3_ENDPOINT = "https://s3.example.com";
+  function resolveFromEnv() {
     mockResolveSecretDetailed.mockImplementation(async (key: string) => {
       const value = process.env[key] ?? null;
       return {
@@ -77,27 +83,158 @@ describe("s3FileUploadProvider", () => {
         ...(value ? { source: "env" } : {}),
       };
     });
+  }
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+  function resolveFromSettings(values: Record<string, string>) {
+    mockResolveSecretDetailed.mockImplementation(async (key: string) => {
+      const value = values[key] ?? null;
+      return {
+        value,
+        lookupFailed: false,
+        ...(value ? { source: "workspace", scopeId: "org-1" } : {}),
+      };
+    });
+  }
 
-    try {
-      const result = await s3FileUploadProvider.upload({
-        data: new Uint8Array([1, 2, 3]),
-        filename: "session.json",
-        mimeType: "application/json",
-      });
+  const upload = () =>
+    s3FileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "session.json",
+      mimeType: "application/json",
+    });
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const requestedUrl = String(fetchMock.mock.calls[0]?.[0]);
-      expect(requestedUrl).toContain("/replays/");
-      expect(result.url).toContain("/replays/");
-      expect(result.provider).toBe("s3");
-    } finally {
-      vi.unstubAllGlobals();
-    }
+  it("stores replay objects under the replays/ key prefix", async () => {
+    process.env.S3_BUCKET = "replays";
+    process.env.S3_ACCESS_KEY_ID = "access";
+    process.env.S3_SECRET_ACCESS_KEY = "secret";
+    process.env.S3_ENDPOINT = "https://s3.example.com";
+    resolveFromEnv();
+
+    const result = await upload();
+
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+    const replayUrl =
+      /^https:\/\/s3\.example\.com\/replays\/replays\/\d+-[a-z0-9]+\.json$/;
+    expect(String(mockSsrfSafeFetch.mock.calls[0]?.[0])).toMatch(replayUrl);
+    expect(result.url).toMatch(replayUrl);
+    expect(result.provider).toBe("s3");
+  });
+
+  it("keeps an endpoint's base path in the request and the returned URL", async () => {
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://proj.storage.supabase.co/storage/v1/s3/",
+    });
+
+    const result = await upload();
+
+    const [url, init] = mockSsrfSafeFetch.mock.calls[0] ?? [];
+    expect(String(url)).toMatch(
+      /^https:\/\/proj\.storage\.supabase\.co\/storage\/v1\/s3\/files\/replays\/\d+-[a-z0-9]+\.json$/,
+    );
+    expect(init.headers.Authorization).toContain("AWS4-HMAC-SHA256");
+    expect(result.url).toBe(String(url));
+  });
+
+  it("returns the public URL when one is set", async () => {
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://proj.storage.supabase.co/storage/v1/s3",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media/",
+    });
+
+    await expect(upload()).resolves.toMatchObject({
+      url: expect.stringMatching(
+        /^https:\/\/cdn\.example\.com\/media\/replays\/\d+-[a-z0-9]+\.json$/,
+      ),
+    });
+  });
+
+  it("reports the endpoint's error", async () => {
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    });
+    mockSsrfSafeFetch.mockImplementation(
+      async () =>
+        new Response("<Code>SignatureDoesNotMatch</Code>", { status: 403 }),
+    );
+
+    await expect(upload()).rejects.toThrow(
+      "S3 PutObject failed (403): <Code>SignatureDoesNotMatch</Code>",
+    );
+  });
+
+  it("refuses a plain-HTTP endpoint saved in settings", async () => {
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "http://s3.example.com",
+    });
+
+    await expect(upload()).rejects.toThrow(
+      "Storage endpoints saved in settings must use HTTPS",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a private-address endpoint saved in settings", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://10.0.0.12:9000",
+    });
+
+    await expect(upload()).rejects.toThrow(
+      "SSRF blocked: refusing to fetch private/internal S3 endpoint",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows the deployment's own env endpoint on localhost", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    process.env.S3_BUCKET = "files";
+    process.env.S3_ACCESS_KEY_ID = "access";
+    process.env.S3_SECRET_ACCESS_KEY = "secret";
+    process.env.S3_ENDPOINT = "http://127.0.0.1:9000";
+    resolveFromEnv();
+
+    await upload();
+
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("http://127.0.0.1:9000/files/replays/"),
+      expect.objectContaining({ method: "PUT" }),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://127.0.0.1:9000"],
+      }),
+    );
+  });
+
+  it("refuses a workspace that reuses the env endpoint with its own keys", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    process.env.S3_ENDPOINT = "http://127.0.0.1:9000";
+    process.env.S3_ACCESS_KEY_ID = "deployment-access";
+    process.env.S3_SECRET_ACCESS_KEY = "deployment-secret";
+    resolveFromSettings({
+      S3_BUCKET: "files",
+      S3_ACCESS_KEY_ID: "workspace-access",
+      S3_SECRET_ACCESS_KEY: "workspace-secret",
+      S3_ENDPOINT: "http://127.0.0.1:9000",
+    });
+
+    await expect(upload()).rejects.toThrow(
+      "Storage endpoints saved in settings must use HTTPS",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it.each(["S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const)(
@@ -139,8 +276,6 @@ describe("s3FileUploadProvider", () => {
         async (key: string) =>
           values[key] ?? { value: null, lookupFailed: false },
       );
-      const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock);
 
       await expect(
         s3FileUploadProvider.upload({
@@ -151,7 +286,7 @@ describe("s3FileUploadProvider", () => {
       ).rejects.toThrow(
         new RegExp(`${mismatchedKey}.*user-controlled endpoint`, "i"),
       );
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
     },
   );
 });
