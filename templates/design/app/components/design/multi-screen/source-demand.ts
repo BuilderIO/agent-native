@@ -1,11 +1,13 @@
 import { OVERVIEW_LIVE_SCREEN_BUDGET } from "./culling";
 
+type ScreenIds = ReadonlySet<string>;
+
 export function selectSourceDemand(
   frames: readonly { id: string; width: number }[],
-  liveIds: ReadonlySet<string>,
-  protectedIds: ReadonlySet<string>,
+  liveIds: ScreenIds,
+  protectedIds: ScreenIds,
   zoom: number,
-  requiredIds: ReadonlySet<string> = new Set(),
+  requiredIds: ScreenIds = new Set(),
 ): string[] {
   const protectedCandidates = [...protectedIds]
     .filter((id) => !requiredIds.has(id))
@@ -20,5 +22,5 @@ export function selectSourceDemand(
     )
     .slice(0, OVERVIEW_LIVE_SCREEN_BUDGET)
     .map((frame) => frame.id);
-  return [...protectedSet, ...candidates].sort();
+  return [...protectedSet, ...candidates];
 }

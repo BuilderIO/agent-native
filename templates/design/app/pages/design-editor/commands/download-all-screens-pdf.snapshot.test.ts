@@ -250,11 +250,13 @@ describe("runDownloadAllScreensPdf snapshot fallback", () => {
         iframe.dataset.designSourceType = "inline";
         document.body.append(iframe);
         iframe.srcdoc = '<meta data-agent-native-preview-revision="1:a">';
-        iframe.contentDocument!.head.innerHTML =
-          '<meta data-agent-native-preview-revision="1:a">';
-        iframe.contentDocument!.body.innerHTML = `<main>Hydrated ${id}</main>`;
-        Object.defineProperty(iframe.contentDocument!, "images", { value: [] });
-        Object.assign(iframe.contentWindow!, {
+        const doc = iframe.contentDocument;
+        const view = iframe.contentWindow;
+        if (!doc || !view) throw new Error("Test iframe is unavailable");
+        doc.head.innerHTML = '<meta data-agent-native-preview-revision="1:a">';
+        doc.body.innerHTML = `<main>Hydrated ${id}</main>`;
+        Object.defineProperty(doc, "images", { value: [] });
+        Object.assign(view, {
           __agentNativeContentSizeReport: true,
         });
       }, 0);
@@ -283,11 +285,13 @@ describe("runDownloadAllScreensPdf snapshot fallback", () => {
       iframe.setAttribute("data-screen-iframe-id", id);
       iframe.dataset.designSourceType = "inline";
       document.body.append(iframe);
-      const doc = iframe.contentDocument!;
+      const doc = iframe.contentDocument;
+      const view = iframe.contentWindow;
+      if (!doc || !view) throw new Error("Test iframe is unavailable");
       Object.defineProperty(doc, "images", { value: [] });
       doc.head.innerHTML = '<meta data-agent-native-preview-revision="1:a">';
       doc.body.innerHTML = "<main>Stale</main>";
-      Object.assign(iframe.contentWindow!, {
+      Object.assign(view, {
         __agentNativeContentSizeReport: true,
       });
       Object.defineProperty(iframe, "srcdoc", {

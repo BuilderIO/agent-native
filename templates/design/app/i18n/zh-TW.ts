@@ -474,6 +474,7 @@ export default {
   common: {
     loading: "載入中...",
     genericError: "出了點問題",
+    linkedSourceSizeLimit: "此連結元件編輯超過了來源大小限制。",
   },
   editPanel: {
     repeatAffectsAll: "影響全部 {{count}} 個副本",

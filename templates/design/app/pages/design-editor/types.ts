@@ -73,13 +73,14 @@ export interface DesignFileMetadata {
   id: string;
   filename: string;
   fileType: string;
+  contentBytes?: number | null;
   createdAt: string | null;
   updatedAt: string;
 }
 
 export interface DesignFile extends DesignFileMetadata {
   content: string;
-  sourceState?: "unloaded" | "loading" | "ready" | "error";
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
 }
 
 export type DesignAccessRole =

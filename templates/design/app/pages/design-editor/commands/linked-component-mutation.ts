@@ -603,7 +603,7 @@ export function createLinkedComponentMutationQueue(
       throw new Error(
         "No HTML source files are available for this linked component.",
       );
-    const releaseSources = await args.prepareSources?.(fileIds);
+    let releaseSources: (() => void) | undefined;
     try {
       const currentFileIds = [...new Set(args.fileIds())].sort();
       if (
@@ -622,6 +622,14 @@ export function createLinkedComponentMutationQueue(
         await Promise.all(
           fileIds.map((fileId) => args.fileSaveChainsRef.current[fileId]),
         );
+      }
+      releaseSources = await args.prepareSources?.(fileIds);
+      const preparedFileIds = [...new Set(args.fileIds())].sort();
+      if (
+        preparedFileIds.length !== fileIds.length ||
+        preparedFileIds.some((id, index) => id !== fileIds[index])
+      ) {
+        throw new Error(args.sourceSetChangedMessage);
       }
       const gates = acquireSaveGates(fileIds, args.fileSaveChainsRef);
       try {

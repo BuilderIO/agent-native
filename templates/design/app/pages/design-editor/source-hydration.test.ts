@@ -1,6 +1,14 @@
+// @vitest-environment happy-dom
+
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+const callAction = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
+
 import { SourceHydration } from "./source-hydration";
+import { useDesignSourceHydration } from "./use-design-source-hydration";
 
 describe("SourceHydration", () => {
   it("loads only requested files and distinguishes empty content from an error", async () => {
@@ -42,17 +50,89 @@ describe("SourceHydration", () => {
     await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(1);
     loader.sync([{ id: "a", updatedAt: "2" }]);
+    const settled = vi.fn();
+    void first.then(settled);
     finish({ content: "old", updatedAt: "1" });
-    await Promise.all([first, second]);
-    await Promise.resolve();
-    expect(read).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(settled).not.toHaveBeenCalled();
     finish({ content: "new", updatedAt: "2" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.all([first, second]);
     expect(loader.get("a")).toEqual({
       status: "ready",
       content: "new",
       updatedAt: "2",
     });
+  });
+  it("waits for the current version when queued metadata changes", async () => {
+    const finishes = new Map<
+      string,
+      (file: { content: string; updatedAt: string }) => void
+    >();
+    const read = vi.fn(
+      (id: string) =>
+        new Promise<{ content: string; updatedAt: string }>((resolve) =>
+          finishes.set(id, resolve),
+        ),
+    );
+    const loader = new SourceHydration(read, () => {}, 1);
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "b", updatedAt: "1" },
+    ]);
+    const a = loader.request("a");
+    const b = loader.request("b");
+    const settled = vi.fn();
+    void b.then(settled);
+    await vi.waitFor(() => expect(finishes.has("a")).toBe(true));
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "b", updatedAt: "2" },
+    ]);
+    finishes.get("a")?.({ content: "a", updatedAt: "1" });
+    await vi.waitFor(() => expect(finishes.has("b")).toBe(true));
+    expect(settled).not.toHaveBeenCalled();
+    finishes.get("b")?.({ content: "current", updatedAt: "2" });
+    await Promise.all([a, b]);
+    expect(loader.get("b")).toEqual({
+      status: "ready",
+      content: "current",
+      updatedAt: "2",
+    });
+    expect(read.mock.calls.map(([id]) => id)).toEqual(["a", "b"]);
+  });
+
+  it("settles queued leases on disposal without restarting superseded reads", async () => {
+    let finish:
+      | ((file: { content: string; updatedAt: string }) => void)
+      | undefined;
+    const read = vi.fn(
+      () =>
+        new Promise<{ content: string; updatedAt: string }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const loader = new SourceHydration(read, () => {}, 1);
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "b", updatedAt: "1" },
+    ]);
+    const a = loader.request("a");
+    const release = loader.lease("b");
+    const b = loader.request("b");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "b", updatedAt: "2" },
+    ]);
+    loader.dispose();
+    await b;
+    expect(loader.get("b").status).not.toBe("ready");
+    release();
+    finish?.({ content: "late", updatedAt: "1" });
+    await a;
+    expect(read).toHaveBeenCalledOnce();
+    await loader.request("b");
+    expect(read).toHaveBeenCalledOnce();
   });
   it("bounds concurrent reads and releases queued demand", async () => {
     const releases: Array<() => void> = [];
@@ -85,14 +165,14 @@ describe("SourceHydration", () => {
     expect(peak).toBe(2);
     expect(loader.get("4").status).toBe("ready");
   });
-  it("does not read a queued source removed or changed before its turn", async () => {
+  it("does not read a removed source and loads the current queued version", async () => {
     let finish!: () => void;
     const read = vi.fn(async (id: string) => {
       if (id === "a")
         await new Promise<void>((resolve) => {
           finish = resolve;
         });
-      return { content: id, updatedAt: "1" };
+      return { content: id, updatedAt: id === "c" ? "2" : "1" };
     });
     const changed = vi.fn();
     const loader = new SourceHydration(read, changed, 1);
@@ -108,9 +188,13 @@ describe("SourceHydration", () => {
     changed.mockClear();
     finish();
     await Promise.all([first, removed, updated]);
-    expect(read.mock.calls.map(([id]) => id)).toEqual(["a"]);
+    expect(read.mock.calls.map(([id]) => id)).toEqual(["a", "c"]);
     expect(loader.get("b").status).toBe("unloaded");
-    expect(loader.get("c").status).toBe("unloaded");
+    expect(loader.get("c")).toEqual({
+      status: "ready",
+      content: "c",
+      updatedAt: "2",
+    });
     expect(changed).toHaveBeenCalled();
   });
   it("evicts least-recent clean source while keeping pinned source", async () => {
@@ -224,4 +308,56 @@ describe("SourceHydration", () => {
     loader.sync([{ id: "a", updatedAt: "2" }]);
     expect(changed).toHaveBeenCalledOnce();
   });
+});
+
+it("rejects a queued source lease when its editor unmounts", async () => {
+  const files = ["a", "b", "c", "d", "target"].map((id) => ({
+    id,
+    filename: `${id}.html`,
+    updatedAt: "1",
+  }));
+  const demands: string[] = [];
+  const empty = new Set<string>();
+  const releases: Array<() => void> = [];
+  callAction.mockImplementation(
+    (_name, args) =>
+      new Promise((resolve) =>
+        releases.push(() =>
+          resolve({
+            files: [
+              { id: args.fileId, content: "<main></main>", updatedAt: "1" },
+            ],
+          }),
+        ),
+      ),
+  );
+  let current: ReturnType<typeof useDesignSourceHydration> | undefined;
+  function Harness() {
+    current = useDesignSourceHydration("design", files, demands, empty, empty);
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Harness));
+  });
+  const hydration = current;
+  if (!hydration?.loader) throw new Error("Source loader did not mount");
+  const active = files
+    .slice(0, 4)
+    .map((file) => hydration.loader?.request(file.id));
+  let lease: Promise<() => void> | undefined;
+  await act(async () => {
+    lease = hydration.leaseHydratedSource("target");
+  });
+  const outcome = expect(lease).rejects.toThrow(
+    "Screen source could not be loaded",
+  );
+  await act(async () => {
+    root.unmount();
+  });
+  await outcome;
+  expect(callAction).toHaveBeenCalledTimes(4);
+  releases.forEach((release) => release());
+  await Promise.all(active);
 });

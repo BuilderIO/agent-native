@@ -334,6 +334,7 @@ export default {
   common: {
     loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
+    linkedSourceSizeLimit: "يتجاوز تعديل المكوّن المرتبط حد حجم المصدر.",
   },
   editPanel: {
     colorInputLabel: "لون",

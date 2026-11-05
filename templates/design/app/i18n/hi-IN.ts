@@ -334,6 +334,8 @@ export default {
   common: {
     loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
+    linkedSourceSizeLimit:
+      "यह लिंक किए गए घटक का संपादन स्रोत आकार सीमा से अधिक है।",
   },
   editPanel: {
     colorInputLabel: "रंग",

@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "読み込み中...",
     genericError: "何か問題が発生しました",
+    linkedSourceSizeLimit:
+      "このリンクされたコンポーネントの編集はソースのサイズ制限を超えています。",
   },
   editPanel: {
     colorInputLabel: "色",

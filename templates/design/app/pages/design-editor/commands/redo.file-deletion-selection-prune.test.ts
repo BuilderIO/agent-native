@@ -150,7 +150,9 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     ydoc: null,
   };
   sourceRead.get = () =>
-    (args.queryClient.getQueryData() as { files: unknown[] }) ?? { files: [] };
+    (args.queryClient.getQueryData() as { files: unknown[] } | undefined) ?? {
+      files: [],
+    };
   return args;
 }
 

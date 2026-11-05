@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import {
+  createSourceDependencyIndex,
   scheduleSourceDependencies,
   sourceDependencyIds,
 } from "./source-dependencies";
@@ -132,16 +133,26 @@ export function useDesignSourceHydration(
     [loader],
   );
 
+  const dependencyIndex = useMemo(
+    () => createSourceDependencyIndex(files),
+    [files],
+  );
   const dependencies = useMemo(
     () =>
       loader
-        ? scheduleSourceDependencies(files, demandedIds, (id) => loader.get(id))
+        ? scheduleSourceDependencies(
+            files,
+            demandedIds,
+            (id) => loader.get(id),
+            128,
+            dependencyIndex,
+          )
         : {
             ids: [...demandedIds],
             statusByRoot: new Map(),
             idsByRoot: new Map(),
           },
-    [demandedIds, files, loader, revision],
+    [demandedIds, files, loader, revision, dependencyIndex],
   );
   useEffect(() => {
     loader?.setPinned(new Set([...pinnedIds, ...dependencies.ids]));
@@ -188,8 +199,11 @@ export function useDesignSourceHydration(
       };
       try {
         for (;;) {
-          const graph = sourceDependencyIds(files, [root], (id) =>
-            loader.get(id),
+          const graph = sourceDependencyIds(
+            files,
+            [root],
+            (id) => loader.get(id),
+            dependencyIndex,
           );
           if (graph.overflow || graph.failed)
             throw new Error("Screen dependencies could not be loaded");
@@ -214,7 +228,7 @@ export function useDesignSourceHydration(
         throw error;
       }
     },
-    [awaitCommittedSources, files, loader],
+    [awaitCommittedSources, dependencyIndex, files, loader],
   );
 
   return {

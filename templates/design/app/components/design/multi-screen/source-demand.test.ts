@@ -33,5 +33,6 @@ describe("source demand", () => {
     expect(demand.length).toBeLessThanOrEqual(34);
     expect(demand).toContain("screen-7184");
     expect(demand).toContain("screen-7183");
+    expect(demand.slice(0, 2)).toEqual(["screen-7184", "screen-7183"]);
   });
 });

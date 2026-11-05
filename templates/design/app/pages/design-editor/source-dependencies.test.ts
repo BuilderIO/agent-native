@@ -3,12 +3,38 @@ import { describe, expect, it } from "vitest";
 import { inlineDesignStylesheets } from "@/components/design/design-canvas/linked-stylesheets";
 
 import {
+  createSourceDependencyIndex,
   scheduleSourceDependencies,
   sourceDependencyIds,
 } from "./source-dependencies";
 import type { SourceHydrationState } from "./source-hydration";
 
 describe("source dependencies", () => {
+  it("reuses a metadata index across root graphs", () => {
+    let reads = 0;
+    const files = [
+      {
+        id: "a",
+        get filename() {
+          reads++;
+          return "a.html";
+        },
+      },
+      {
+        id: "b",
+        get filename() {
+          reads++;
+          return "b.html";
+        },
+      },
+    ];
+    const index = createSourceDependencyIndex(files);
+    const initialReads = reads;
+    const get = (): SourceHydrationState => ({ status: "unloaded" });
+    scheduleSourceDependencies(files, ["a", "b"], get, 128, index);
+    sourceDependencyIds(files, ["a"], get, index);
+    expect(reads).toBe(initialReads);
+  });
   it("hydrates referenced styles and recursive modules without an unrelated screen", () => {
     const files = [
       { id: "screen", filename: "index.html" },
@@ -111,7 +137,15 @@ describe("source dependencies", () => {
     );
     expect(result.ids).toContain("a-css");
     expect(result.ids).not.toContain("b-css");
-    expect(result.statusByRoot.get("b")).toBe("loading");
+    expect(result.statusByRoot.get("b")).toBe("deferred");
+    const reprioritized = scheduleSourceDependencies(
+      files,
+      ["b", "a"],
+      (id) => states.get(id) ?? { status: "unloaded" },
+      3,
+    );
+    expect(reprioritized.ids).toContain("b-css");
+    expect(reprioritized.statusByRoot.get("b")).toBe("loading");
   });
   it("schedules a priority graph that fits its budget before unrelated roots", () => {
     const files = [
@@ -136,6 +170,6 @@ describe("source dependencies", () => {
     );
     expect(result.ids).toEqual(["active", "one", "two"]);
     expect(result.statusByRoot.get("active")).toBe("loading");
-    expect(result.statusByRoot.get("other")).toBe("loading");
+    expect(result.statusByRoot.get("other")).toBe("deferred");
   });
 });

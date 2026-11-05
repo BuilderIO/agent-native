@@ -161,8 +161,8 @@ describe("linked component mutation queue", () => {
     const fixture = queueArgs({
       prepareSources: async () => release,
       canProject: () => false,
-      waitForHostWrites: async () => {
-        throw new Error("host unavailable");
+      getSourceBaseContent: () => {
+        throw new Error("source unavailable");
       },
     });
     const queue = createLinkedComponentMutationQueue(fixture.args);
@@ -171,7 +171,7 @@ describe("linked component mutation queue", () => {
         kind: "textContent",
         value: "updated",
       }),
-    ).rejects.toThrow("host unavailable");
+    ).rejects.toThrow("source unavailable");
     expect(release).toHaveBeenCalledOnce();
   });
   it("projects a mixed linked and plain target batch with the server transform", () => {

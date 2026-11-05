@@ -1,3 +1,5 @@
+export const SOURCE_HYDRATION_MAX_BYTES = 16 * 1024 * 1024;
+
 export type SourceHydrationState =
   | { status: "unloaded" }
   | { status: "loading" }
@@ -38,7 +40,7 @@ export class SourceHydration {
     private readonly read: SourceHydrationRead,
     private readonly changed: () => void,
     private readonly concurrency = 4,
-    private readonly maxBytes = 16 * 1024 * 1024,
+    private readonly maxBytes = SOURCE_HYDRATION_MAX_BYTES,
   ) {}
 
   sync(files: readonly SourceHydrationFile[]): void {
@@ -150,12 +152,24 @@ export class SourceHydration {
     );
     this.changed();
     const promise = new Promise<void>((resolve) => {
+      const complete = () => {
+        this.pending.delete(id);
+        if (!this.disposed) this.changed();
+        this.pump();
+        if (
+          !this.disposed &&
+          this.versions.has(id) &&
+          this.versions.get(id) !== version
+        ) {
+          void this.request(id).then(resolve);
+        } else {
+          resolve();
+        }
+      };
       this.queue.push({
         start: () => {
           if (this.versions.get(id) !== version) {
-            this.pending.delete(id);
-            if (!this.disposed) this.changed();
-            resolve();
+            complete();
             return;
           }
           this.active++;
@@ -204,21 +218,10 @@ export class SourceHydration {
             )
             .finally(() => {
               this.active--;
-              this.pending.delete(id);
-              if (!this.disposed) {
-                this.changed();
-                if (
-                  this.versions.has(id) &&
-                  this.versions.get(id) !== version
-                ) {
-                  void this.request(id);
-                }
-              }
-              this.pump();
-              resolve();
+              complete();
             });
         },
-        cancel: resolve,
+        cancel: complete,
       });
       this.pump();
     });

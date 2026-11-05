@@ -123,7 +123,7 @@ export async function reconcileCreatedFile({
     candidates.find(
       (file) => !beforeIds.has(file.id) && matchesCreatedFile(file, expected),
     );
-  const cachedFile = fromCurrent(cached ?? files);
+  const cachedFile = fromCurrent(cached ?? []) ?? fromCurrent(files);
   if (cachedFile) return cachedFile;
 
   const metadata = await readDesignMetadata(designId);
@@ -157,7 +157,8 @@ export async function isPersistedFilePresent({
   try {
     const refreshed = await readDesignMetadata(designId);
     return refreshed.some((file) => file.id === fileId);
-  } catch {
+  } catch (error) {
+    console.error("Unable to verify recovered file presence", error);
     return undefined;
   }
 }

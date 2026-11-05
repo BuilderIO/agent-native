@@ -5,16 +5,25 @@ export interface SourceDependencyFile {
   filename: string;
 }
 
+export function createSourceDependencyIndex(
+  files: readonly SourceDependencyFile[],
+) {
+  return {
+    byId: new Map(files.map((file) => [file.id, file])),
+    byPath: new Map(
+      files.map((file) => [file.filename.replace(/^\/+/, ""), file.id]),
+    ),
+  };
+}
+
 /** Resolve references to existing project files without treating navigation links as dependencies. */
 export function sourceDependencyIds(
   files: readonly SourceDependencyFile[],
   roots: readonly string[],
   get: (id: string) => SourceHydrationState,
+  index = createSourceDependencyIndex(files),
 ): { ids: string[]; overflow: boolean; failed: boolean } {
-  const byId = new Map(files.map((file) => [file.id, file]));
-  const byPath = new Map(
-    files.map((file) => [file.filename.replace(/^\/+/, ""), file.id]),
-  );
+  const { byId, byPath } = index;
   const found = new Set(roots);
   let failed = false;
   const queue = [...roots];
@@ -82,14 +91,19 @@ export function scheduleSourceDependencies(
   roots: readonly string[],
   get: (id: string) => SourceHydrationState,
   budget = 128,
+  index = createSourceDependencyIndex(files),
 ) {
   const ids = new Set<string>();
-  const statusByRoot = new Map<string, "ready" | "loading" | "error">();
+  const statusByRoot = new Map<
+    string,
+    "ready" | "loading" | "deferred" | "error"
+  >();
   const idsByRoot = new Map<string, string[]>();
   for (const root of roots) {
-    const graph = sourceDependencyIds(files, [root], get);
+    const graph = sourceDependencyIds(files, [root], get, index);
     const additional = graph.ids.filter((id) => !ids.has(id));
-    if (!graph.overflow && ids.size + additional.length <= budget) {
+    const admitted = !graph.overflow && ids.size + additional.length <= budget;
+    if (admitted) {
       additional.forEach((id) => ids.add(id));
     } else if (ids.size < budget) {
       ids.add(root);
@@ -101,7 +115,13 @@ export function scheduleSourceDependencies(
     });
     statusByRoot.set(
       root,
-      graph.overflow || graph.failed ? "error" : loading ? "loading" : "ready",
+      graph.overflow || graph.failed
+        ? "error"
+        : !loading
+          ? "ready"
+          : admitted
+            ? "loading"
+            : "deferred",
     );
   }
   return { ids: [...ids], statusByRoot, idsByRoot };

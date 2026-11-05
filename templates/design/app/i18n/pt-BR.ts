@@ -343,6 +343,8 @@ export default {
   common: {
     loading: "Carregando...",
     genericError: "Algo deu errado",
+    linkedSourceSizeLimit:
+      "Esta edição do componente vinculado excede o limite de tamanho das fontes.",
   },
   editPanel: {
     colorInputLabel: "cor",

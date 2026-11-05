@@ -179,6 +179,7 @@ export function useEditorFilesAndSaving({
     sourceMetadata,
     sourceLoader,
     sourceRevision,
+    dependencyStatusByRoot,
     pendingNodeRewriteStateVersion,
     canShareDesign,
     canEditDesign,
@@ -1298,10 +1299,20 @@ export function useEditorFilesAndSaving({
       return {
         ...metadata,
         content: "",
-        sourceState: state?.status ?? ("unloaded" as const),
+        sourceState:
+          dependencyStatusByRoot.get(metadata.id) === "deferred"
+            ? ("deferred" as const)
+            : (state?.status ?? ("unloaded" as const)),
       };
     });
-  }, [files, shellMode, sourceMetadata, sourceLoader, sourceRevision]);
+  }, [
+    files,
+    shellMode,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    dependencyStatusByRoot,
+  ]);
   const overviewScreens = useMemo(() => {
     const next = reuseUnchangedOverviewScreens(
       overviewScreensRef.current,

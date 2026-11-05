@@ -776,12 +776,22 @@ export function useEditorGenerationAndAccess({
     )?.id;
     return [
       ...new Set(
-        [board, activeFileId ?? first, ...visibleSourceIds].filter(
-          (value): value is string => Boolean(value),
-        ),
+        [
+          overviewSelectedScreenIds.length === 1
+            ? overviewSelectedScreenIds[0]
+            : undefined,
+          activeFileId ?? first,
+          board,
+          ...visibleSourceIds,
+        ].filter((value): value is string => Boolean(value)),
       ),
     ];
-  }, [activeFileId, sourceMetadata, visibleSourceIds]);
+  }, [
+    activeFileId,
+    overviewSelectedScreenIds,
+    sourceMetadata,
+    visibleSourceIds,
+  ]);
   const dirtySourceIds = useMemo(
     () => new Set(pendingLocalFileContentsRef.current.keys()),
     [pendingLocalFileContentsRevision],
@@ -1761,6 +1771,7 @@ export function useEditorGenerationAndAccess({
     sourceLoader,
     sourceRevision,
     retrySources,
+    dependencyStatusByRoot,
     leaseHydratedSource,
     awaitCommittedSources,
     onSourceDemandChange,

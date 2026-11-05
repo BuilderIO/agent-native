@@ -268,6 +268,8 @@ export default {
   common: {
     loading: "Loading...",
     genericError: "Something went wrong",
+    linkedSourceSizeLimit:
+      "This linked component edit exceeds the source size limit.",
   },
   editPanel: {
     colorInputLabel: "color",

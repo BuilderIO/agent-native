@@ -36,7 +36,7 @@ export interface ScreenFile {
   id: string;
   filename: string;
   content: string;
-  sourceState?: "unloaded" | "loading" | "ready" | "error";
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   source?: string;
   sourceType?: string;
   lod?: string;

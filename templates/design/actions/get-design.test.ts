@@ -469,6 +469,9 @@ describe("get-design", () => {
       id: "designFiles.id",
       filename: "designFiles.filename",
       fileType: "designFiles.fileType",
+      contentBytes: expect.objectContaining({
+        strings: ["octet_length(", ")"],
+      }),
       createdAt: "designFiles.createdAt",
       updatedAt: "designFiles.updatedAt",
     });

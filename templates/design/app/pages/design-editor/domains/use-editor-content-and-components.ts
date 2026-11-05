@@ -115,6 +115,7 @@ import {
 } from "../motion-state";
 import { projectRelativeSourcePath } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
+import { SOURCE_HYDRATION_MAX_BYTES } from "../source-hydration";
 import {
   resolveSourceBaseForPublication,
   prepareCanonicalSourceContent,
@@ -139,6 +140,8 @@ type LinkedComponentQueueRuntime = Omit<
   LinkedComponentMutationQueueArgs,
   "fileSaveChainsRef" | "pendingFileSavesRef"
 >;
+
+class LinkedSourceSizeLimitError extends Error {}
 
 export function useEditorContentAndComponents({
   editorCore,
@@ -1624,24 +1627,73 @@ export function useEditorContentAndComponents({
         },
         prepareSources: async (fileIds) => {
           if (!sourceLoader) throw new Error(t("common.genericError"));
-          const releases = fileIds.map((fileId) => sourceLoader.lease(fileId));
+          const metadata = await callAction<{
+            files: Array<{ id: string; contentBytes?: number | null }>;
+          }>(
+            "get-design",
+            { id, includeFileContent: false },
+            { method: "GET" },
+          );
+          const sizes = new Map(
+            metadata.files.map((file) => [file.id, file.contentBytes]),
+          );
+          const encoder = new TextEncoder();
+          let estimatedBytes = 0;
+          for (const fileId of fileIds) {
+            const size = sizes.get(fileId);
+            if (
+              typeof size !== "number" ||
+              !Number.isSafeInteger(size) ||
+              size < 0
+            )
+              throw new Error(t("common.genericError"));
+            const pending = pendingLocalFileContentsRef.current.get(fileId);
+            const state = sourceLoader.get(fileId);
+            const known =
+              pending?.content ??
+              (state.status === "ready" ? state.content : undefined);
+            estimatedBytes += Math.max(
+              size,
+              known === undefined ? 0 : encoder.encode(known).byteLength,
+            );
+          }
+          if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
+            throw new LinkedSourceSizeLimitError(
+              t("common.linkedSourceSizeLimit"),
+            );
+          const releases: Array<() => void> = [];
           const release = () => releases.forEach((dispose) => dispose());
           try {
-            await Promise.all(
-              fileIds.map((fileId) => sourceLoader.request(fileId)),
-            );
+            let actualBytes = 0;
             for (const fileId of fileIds) {
+              releases.push(sourceLoader.lease(fileId));
+              await sourceLoader.request(fileId);
               const state = sourceLoader.get(fileId);
               if (state.status !== "ready" || state.refreshError)
                 throw new Error(t("common.genericError"));
+              const pending = pendingLocalFileContentsRef.current.get(fileId);
+              actualBytes += encoder.encode(
+                pending?.content ?? state.content,
+              ).byteLength;
+              if (actualBytes > SOURCE_HYDRATION_MAX_BYTES)
+                throw new LinkedSourceSizeLimitError(
+                  t("common.linkedSourceSizeLimit"),
+                );
             }
             await awaitCommittedSources(fileIds);
             return release;
           } catch (error) {
             release();
-            throw Object.assign(new Error(t("common.genericError")), {
-              cause: error,
-            });
+            throw Object.assign(
+              new Error(
+                error instanceof LinkedSourceSizeLimitError
+                  ? error.message
+                  : t("common.genericError"),
+              ),
+              {
+                cause: error,
+              },
+            );
           }
         },
         getContent: getUnprojectedScreenContent,

@@ -336,6 +336,8 @@ export default {
   common: {
     loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
+    linkedSourceSizeLimit:
+      "이 연결된 구성 요소 편집은 소스 크기 제한을 초과합니다.",
   },
   editPanel: {
     colorInputLabel: "색상",

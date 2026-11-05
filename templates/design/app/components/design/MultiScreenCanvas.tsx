@@ -11898,9 +11898,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         protectedLiveScreenIds,
         canvasZoom / 100,
         new Set(
-          [activeId, interactScreenId, exportPreviewScreenId].filter(
-            (id): id is string => Boolean(id),
-          ),
+          [
+            selectedIdSet.size === 1 ? [...selectedIdSet][0] : undefined,
+            activeId,
+            interactScreenId,
+            exportPreviewScreenId,
+          ].filter((id): id is string => Boolean(id)),
         ),
       ).join("\u0000"),
     [
@@ -11911,6 +11914,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       interactScreenId,
       protectedLiveScreenIds,
       screenCullTierById,
+      selectedIdSet,
     ],
   );
   useEffect(() => {
@@ -15098,6 +15102,16 @@ const Screen = memo(function Screen({
                     {t("designEditor.tryAgain")}
                   </button>
                 </div>
+              </div>
+            ) : screen.sourceState === "deferred" ? (
+              <div
+                data-screen-placeholder
+                aria-hidden="true"
+                className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+              >
+                <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                  {display}
+                </span>
               </div>
             ) : (
               <div

@@ -10,7 +10,7 @@ export interface OverviewScreen {
   id: string;
   filename: string;
   content: string;
-  sourceState?: "unloaded" | "loading" | "ready" | "error";
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   updatedAt: string;
   sourceType?: string;
   source?: string;
