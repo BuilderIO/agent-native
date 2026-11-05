@@ -130,6 +130,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "マーケティング",
   "onboarding.roleSales": "営業",
   "onboarding.roleOps": "オペレーション",
+  "onboarding.roleCreator": "コンテンツクリエイター",
+  "onboarding.roleStudent": "学生",
+  "onboarding.roleEducator": "教育関係者",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",
@@ -3409,6 +3412,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ワークスペースからアプリを削除",
   "chatFirst.showMore": "さらに表示",
   "chatFirst.showLess": "表示を減らす",
+  "chatFirst.showMoreCount": "さらに {{count}} 件表示",
   "chatFirst.appOrderUnavailable":
     "このデバイスではアプリの並び順を保存できませんでした。",
   "chatFirst.openSideSurfaces": "サイドパネルを開く",

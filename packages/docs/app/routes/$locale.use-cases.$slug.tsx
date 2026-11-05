@@ -1,14 +1,14 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
-import { USE_CASES_BASE } from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { movedUseCaseSlug } from "../components/campaign/use-case-redirects";
+import { USE_CASES_BASE } from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import {
   docsLocaleFromSegment,
   sitePathForLocale,
 } from "../components/docs-locale";
-import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
+import { movedUseCaseSlug } from "../components/site-content/use-case-redirects";
+import { redirectLocalizedSiteContent } from "./localized-site-content-redirect";
 import { loader as englishLoader, pageDataFor } from "./use-cases.$slug";
 
 export { default, meta } from "./use-cases.$slug";
@@ -25,13 +25,13 @@ export function loader(args: LoaderFunctionArgs) {
       redirect(sitePathForLocale(`${USE_CASES_BASE}/${moved}/`, locale), 301),
     );
   }
-  const entry = loadCampaignContent().useCases.find(
+  const entry = loadSiteContent().useCases.find(
     (item) => item.slug === params.slug,
   );
   if (!entry) return englishLoader(args);
   const translation = locale ? entry.translations[locale] : undefined;
   if (translation) return pageDataFor(entry, translation);
-  return redirectLocalizedCampaign(
+  return redirectLocalizedSiteContent(
     request,
     params.locale,
     `${USE_CASES_BASE}/${params.slug}/`,

@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { pnpmCommand, stopProcessTree } from "./lib/pnpm-command.ts";
+
 type Environment = NodeJS.ProcessEnv;
 
 const args = process.argv.slice(2);
@@ -50,10 +52,12 @@ if (dryRun) {
   process.exit(0);
 }
 
-const child = spawn(command[0], command.slice(1), {
+const pnpm = pnpmCommand(command.slice(1));
+const child = spawn(pnpm.command, pnpm.args, {
   cwd: process.cwd(),
   env: childEnv,
   stdio: "inherit",
+  shell: pnpm.shell,
 });
 
 let finished = false;
@@ -78,7 +82,7 @@ child.on("exit", (code, signal) => {
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => child.kill(signal));
+  process.on(signal, () => stopProcessTree(child, signal));
 }
 
 function assignments(values: string[]): Environment {
