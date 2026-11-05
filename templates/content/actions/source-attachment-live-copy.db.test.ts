@@ -52,6 +52,18 @@ async function fixture(
   const databaseId = `${key}-collection`;
   const documentId = `${key}-row`;
   const sourceId = `${key}-source`;
+  const blobReference = JSON.stringify({
+    kind: "agent-native.builder-private-payload",
+    version: 1,
+    binding: { ownerEmail: OWNER, sourceId },
+    sha256: "synthetic-payload-digest",
+    handle: {
+      id: `${key}-payload`,
+      provider: "synthetic",
+      opaque: true,
+      encrypted: true,
+    },
+  });
   const db = getDb();
   await db.insert(schema.documents).values([
     {
@@ -135,10 +147,44 @@ async function fixture(
     database: required(database),
     source: firstRow(sources) ?? null,
     sourceId,
+    blobReference,
     documentId,
     key,
     mode,
   };
+}
+
+async function seedExecutionPayload(seed: Awaited<ReturnType<typeof fixture>>) {
+  const { BUILDER_EXECUTION_PAYLOAD_BLOB_KEY } =
+    await import("./_builder-cms-blob-custody.js");
+  await getDb()
+    .insert(schema.contentDatabaseSourceExecutions)
+    .values({
+      id: `${seed.key}-execution`,
+      ownerEmail: OWNER,
+      sourceId: seed.sourceId,
+      changeSetId: `${seed.key}-change`,
+      adapter: "builder-cms",
+      pushMode: "manual",
+      state: "succeeded",
+      idempotencyKey: `${seed.key}-execution-key`,
+      summary: "Retained execution payload",
+      payloadJson: JSON.stringify({
+        [BUILDER_EXECUTION_PAYLOAD_BLOB_KEY]: seed.blobReference,
+      }),
+    });
+  await getDb()
+    .insert(schema.contentDatabaseSourceChangeReviews)
+    .values({
+      id: `${seed.key}-review`,
+      ownerEmail: OWNER,
+      sourceId: seed.sourceId,
+      changeSetId: `${seed.key}-change`,
+      reviewerEmail: OWNER,
+      decision: "approve",
+      stateFrom: "pending",
+      stateTo: "approved",
+    });
 }
 
 async function snapshot(seed: Awaited<ReturnType<typeof fixture>>) {
@@ -151,6 +197,9 @@ async function snapshot(seed: Awaited<ReturnType<typeof fixture>>) {
     fields,
     changes,
     hydration,
+    executions,
+    reviews,
+    cleanup,
   ] = await Promise.all([
     db
       .select()
@@ -184,6 +233,27 @@ async function snapshot(seed: Awaited<ReturnType<typeof fixture>>) {
       .where(
         eq(schema.contentDatabaseBodyHydrationQueue.sourceId, seed.sourceId),
       ),
+    db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seed.sourceId),
+      ),
+    db
+      .select()
+      .from(schema.contentDatabaseSourceChangeReviews)
+      .where(
+        eq(schema.contentDatabaseSourceChangeReviews.sourceId, seed.sourceId),
+      ),
+    db
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup)
+      .where(
+        eq(
+          schema.contentDatabaseBuilderBlobCleanup.blobReference,
+          seed.blobReference,
+        ),
+      ),
   ]);
   return {
     documents,
@@ -193,6 +263,9 @@ async function snapshot(seed: Awaited<ReturnType<typeof fixture>>) {
     fields,
     changes,
     hydration,
+    executions,
+    reviews,
+    cleanup,
   };
 }
 
@@ -274,6 +347,7 @@ it("refuses a removed source without clearing its retained records", async () =>
 
 it("rolls source cleanup back when replacement metadata cannot commit", async () => {
   const seed = await fixture("replace", false);
+  await seedExecutionPayload(seed);
   const before = await snapshot(seed);
   const db = getDb();
   await db.execute(
@@ -299,5 +373,52 @@ it("rolls source cleanup back when replacement metadata cannot commit", async ()
       ),
     );
     await db.execute(sql.raw("DROP FUNCTION refuse_source_replacement()"));
+  }
+});
+
+it("returns the replacement after payload cleanup is durably queued", async () => {
+  const seed = await fixture("replace", false);
+  await seedExecutionPayload(seed);
+  const before = await snapshot(seed);
+  const db = getDb();
+  await db.execute(
+    sql.raw(
+      `CREATE FUNCTION refuse_post_commit_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS (SELECT 1 FROM content_database_sources WHERE id = (NEW.blob_reference::jsonb #>> '{binding,sourceId}') AND source_name = 'Replacement') THEN RAISE EXCEPTION 'synthetic post-commit cleanup refusal'; END IF; RETURN NEW; END $$`,
+    ),
+  );
+  await db.execute(
+    sql.raw(
+      `CREATE TRIGGER refuse_post_commit_cleanup BEFORE INSERT ON content_database_builder_blob_cleanup FOR EACH ROW EXECUTE FUNCTION refuse_post_commit_cleanup()`,
+    ),
+  );
+  try {
+    await expect(attach(seed)).resolves.toBe(seed.sourceId);
+    const state = await snapshot(seed);
+    expect(state.sources).toMatchObject([
+      {
+        id: seed.sourceId,
+        sourceName: "Replacement",
+        sourceTable: "replacement",
+      },
+    ]);
+    expect(state.documents).toEqual(before.documents);
+    expect(state.executions).toEqual([]);
+    expect(state.reviews).toEqual([]);
+    expect(state.changes).toEqual([]);
+    expect(state.fields).toEqual([]);
+    expect(state.hydration).toEqual([]);
+    expect(state.cleanup).toEqual([
+      expect.objectContaining({
+        blobReference: seed.blobReference,
+        attemptCount: 0,
+      }),
+    ]);
+  } finally {
+    await db.execute(
+      sql.raw(
+        "DROP TRIGGER refuse_post_commit_cleanup ON content_database_builder_blob_cleanup",
+      ),
+    );
+    await db.execute(sql.raw("DROP FUNCTION refuse_post_commit_cleanup()"));
   }
 });
