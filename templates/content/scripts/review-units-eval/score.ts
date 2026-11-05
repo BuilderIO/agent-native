@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
+
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
 import {
   sentenceUnits,
   unitGaps,
+  unitPairRequest,
   unitPairs,
   unitsFromAnswers,
+  type UnitPair,
 } from "../../shared/suggestion-units.js";
 
 export type EvalCase = {
@@ -33,6 +37,13 @@ export const piecesOf = ({ before, after }: EvalCase) =>
     start: 0,
   });
 
+/** Identifies what the model reads for an edit, to tie its answers to that text. */
+export const pairsDigest = (pairs: readonly UnitPair[]) =>
+  createHash("sha256")
+    .update(JSON.stringify(unitPairRequest(pairs).input))
+    .digest("hex")
+    .slice(0, 16);
+
 function scoreUnits(
   name: string,
   groups: readonly number[][],
@@ -55,6 +66,7 @@ function scoreUnits(
 export function scoreEvalSet(
   cases: readonly EvalCase[],
   answers: Readonly<Record<string, readonly number[]>>,
+  pairDigests: Readonly<Record<string, string>>,
 ) {
   const sentences: EvalScore = {
     brokenEdits: [],
@@ -68,8 +80,13 @@ export function scoreEvalSet(
     const baseline = sentenceUnits(operations);
     const pairs = unitPairs(operations, gaps);
     const probabilities = answers[item.name] ?? [];
-    // Answers go with pairs by position, so a different count means they were
-    // recorded for other pairs, and a score from them would mean nothing.
+    // Answers go with pairs by position, so if the pairs changed they answer
+    // other questions, and a score from them would mean nothing.
+    if (
+      (pairs.length ? pairsDigest(pairs) : undefined) !== pairDigests[item.name]
+    ) {
+      throw new Error(`${item.name}: answers were recorded for other pairs`);
+    }
     if (probabilities.length !== pairs.length) {
       throw new Error(
         `${item.name}: ${probabilities.length} answers for ${pairs.length} pairs`,

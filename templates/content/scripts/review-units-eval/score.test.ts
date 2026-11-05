@@ -13,6 +13,7 @@ const recorded = read<{
   instructionsAtIndexZero: string;
   answers: Record<string, number[]>;
   repeats: Record<string, number[]>[];
+  pairDigests: Record<string, string>;
 }>("./answers.json");
 const heldOut = cases.filter(({ dev }) => !dev);
 
@@ -29,7 +30,11 @@ describe("the review unit eval", () => {
   });
 
   it("breaks text less than sentence units and keeps more fixes apart", () => {
-    const { sentences, model } = scoreEvalSet(heldOut, recorded.answers);
+    const { sentences, model } = scoreEvalSet(
+      heldOut,
+      recorded.answers,
+      recorded.pairDigests,
+    );
     expect(model.brokenEdits.length).toBeLessThanOrEqual(
       sentences.brokenEdits.length,
     );
@@ -38,10 +43,11 @@ describe("the review unit eval", () => {
 
   it("holds on every repeated run, since a model's answers vary", () => {
     for (const repeat of recorded.repeats) {
-      const { sentences, model } = scoreEvalSet(heldOut, {
-        ...recorded.answers,
-        ...repeat,
-      });
+      const { sentences, model } = scoreEvalSet(
+        heldOut,
+        { ...recorded.answers, ...repeat },
+        recorded.pairDigests,
+      );
       expect(model.brokenEdits.length).toBeLessThanOrEqual(
         sentences.brokenEdits.length,
       );
@@ -55,9 +61,29 @@ describe("the review unit eval", () => {
     );
     if (!item) throw new Error("Expected an edit with recorded answers");
     const answers = recorded.answers[item.name] ?? [];
-    expect(() => scoreEvalSet([item], {})).toThrow(item.name);
+    expect(() => scoreEvalSet([item], {}, recorded.pairDigests)).toThrow(
+      item.name,
+    );
     expect(() =>
-      scoreEvalSet([item], { [item.name]: [...answers, 0.5] }),
+      scoreEvalSet(
+        [item],
+        { [item.name]: [...answers, 0.5] },
+        recorded.pairDigests,
+      ),
     ).toThrow(item.name);
+    // The same number of pairs, but the model would read different text.
+    expect(() =>
+      scoreEvalSet(
+        [
+          {
+            ...item,
+            before: `${item.before} More text.`,
+            after: `${item.after} More text.`,
+          },
+        ],
+        recorded.answers,
+        recorded.pairDigests,
+      ),
+    ).toThrow(`${item.name}: answers were recorded for other pairs`);
   });
 });
