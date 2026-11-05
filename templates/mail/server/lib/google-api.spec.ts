@@ -100,6 +100,7 @@ import {
   GmailQuotaCooldownError,
   createOAuth2Client,
   gmailBatchGetMessages,
+  gmailBatchGetThreads,
   estimateRequestCost,
   gmailListHistory,
   gmailWatch,
@@ -564,6 +565,65 @@ describe("googleFetch quota handling", () => {
     await expect(rejection).rejects.toThrow(/about 61s/);
   });
 
+  it("preserves the status of a malformed 503 thread batch part", async () => {
+    const boundary = "batch_test";
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/http",
+      "Content-ID: <response-part-0>",
+      "",
+      "HTTP/1.1 503 Service Unavailable",
+      "Content-Type: text/plain",
+      "",
+      "upstream unavailable",
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": `multipart/mixed; boundary=${boundary}` },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await gmailBatchGetThreads(
+      "quota-token-b",
+      ["thread-1"],
+      "metadata",
+    );
+
+    expect(result).toEqual([
+      {
+        id: "thread-1",
+        data: null,
+        error: expect.stringMatching(/^Failed to parse JSON:/),
+        status: 503,
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the status of an outer Gmail batch 503", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("upstream unavailable", {
+        status: 503,
+        statusText: "Service Unavailable",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await gmailBatchGetThreads(
+      "quota-token-b",
+      ["thread-1"],
+      "metadata",
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {
     const boundary = "batch_test";
     const body = [
@@ -596,6 +656,42 @@ describe("googleFetch quota handling", () => {
       gmailBatchGetMessages("quota-token-b", ["msg-2"], "metadata"),
     ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a 403 rateLimitExceeded batch part with no quota wording as a cooldown", async () => {
+    const boundary = "batch_test";
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/http",
+      "Content-ID: <response-part-0>",
+      "",
+      "HTTP/1.1 403 Forbidden",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        error: {
+          message: "Too many concurrent requests for user",
+          errors: [{ reason: "rateLimitExceeded" }],
+        },
+      }),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: {
+            "content-type": `multipart/mixed; boundary=${boundary}`,
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      gmailBatchGetMessages("quota-token-b", ["msg-1"], "metadata"),
+    ).rejects.toThrow(/briefly busy/);
   });
 
   it("splits large Gmail batches by quota cost instead of sending one burst", async () => {
