@@ -9,6 +9,7 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
+import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
 import {
   commentMentionKey,
   findCommentMentions,
@@ -375,7 +376,7 @@ export const CommentComposer = forwardRef<
     onEscape?.();
   };
 
-  const [focused, setFocused] = useState(false);
+  const { focused, focusWithinProps } = useFocusWithinThroughPress(wrapperRef);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
   // The Escape that closes the model menu; it must not cancel the draft too.
@@ -694,12 +695,7 @@ export const CommentComposer = forwardRef<
         aiDraft && connectedModels.length > 1 ? "" : undefined
       }
       className={cn("relative min-w-0", className)}
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (next && wrapperRef.current?.contains(next)) return;
-        setFocused(false);
-      }}
+      {...focusWithinProps}
       onClickCapture={(event) => {
         if (!aiDraft || connectedModels.length < 2) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
