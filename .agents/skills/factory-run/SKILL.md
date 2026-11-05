@@ -522,7 +522,8 @@ Fixed 2 · needs a person 1 · not picked 12 · sources unavailable: Sentry
 - [Short title](link): reason
 ```
 
-Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
+Include the oncall mention only when "Needs a person" has an item; otherwise
+omit the whole section. Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
 "Fixed on a branch" with Builder branch links. For an `events` run, start with
 `## Triggered by`: one bullet per event, linked to what started it. Every
 report gets its own one-line bullet linked to its permalink or issue URL.
