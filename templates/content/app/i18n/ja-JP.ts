@@ -1791,6 +1791,28 @@ const overrides = {
     discardEditDescription: "コメントは元のまま残ります。",
     discard: "破棄",
     keepEditing: "編集を続ける",
+    deleteComment: "コメントを削除",
+    deleteThread: "スレッドを削除",
+    deleteCommentQuestion: "コメントを削除しますか？",
+    deleteCommentDescription:
+      "全員に対して削除され、元に戻すことはできません。",
+    deleteThreadQuestion: "スレッドを削除しますか？",
+    deleteThreadDescription:
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。",
+    deleteThreadAiChangeDescription:
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。AI によるページの変更は残りますが、スレッドから元に戻すことはできなくなります。",
+    delete: "削除",
+    deleting: "削除中…",
+    deleteRefusedReplied:
+      "他の人が返信しているため、このスレッドを削除できるのは編集者だけです。",
+    deleteRefusedNotion:
+      "このコメントは Notion と同期されています。Notion で削除してください。",
+    deleteRefusedAiWorking:
+      "AI がこのスレッドで作業中です。スレッドを削除する前に停止してください。",
+    deleteRefusedAiSuggestion:
+      "このスレッドの AI の提案が確認待ちです。スレッドを削除する前に、提案を承認または却下してください。",
+    deleteRefusedBusy:
+      "このスレッドは現在変更中です。少し待ってからもう一度削除してください。",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

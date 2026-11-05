@@ -1751,6 +1751,26 @@ const overrides = {
     discardEditDescription: "आपकी टिप्पणी पहले जैसी रहेगी।",
     discard: "छोड़ें",
     keepEditing: "संपादन जारी रखें",
+    deleteComment: "टिप्पणी हटाएँ",
+    deleteThread: "थ्रेड हटाएँ",
+    deleteCommentQuestion: "टिप्पणी हटाएँ?",
+    deleteCommentDescription:
+      "यह सभी के लिए हट जाएगी, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadQuestion: "थ्रेड हटाएँ?",
+    deleteThreadDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadAiChangeDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता। AI का पेज में किया गया बदलाव बना रहेगा, लेकिन आप उसे थ्रेड से पूर्ववत नहीं कर पाएँगे।",
+    delete: "हटाएँ",
+    deleting: "हटाया जा रहा है…",
+    deleteRefusedReplied:
+      "किसी और ने जवाब दिया है, इसलिए यह थ्रेड केवल संपादक हटा सकता है।",
+    deleteRefusedNotion: "यह टिप्पणी Notion से सिंक है। इसे Notion में हटाएँ।",
+    deleteRefusedAiWorking: "AI इस थ्रेड पर काम कर रहा है। थ्रेड हटाने से पहले उसे रोकें।",
+    deleteRefusedAiSuggestion:
+      "इस थ्रेड में AI का सुझाव समीक्षा के लिए बाकी है। थ्रेड हटाने से पहले उसे स्वीकार या अस्वीकार करें।",
+    deleteRefusedBusy:
+      "यह थ्रेड अभी बदला जा रहा है। थोड़ी देर में इसे फिर से हटाने की कोशिश करें।",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",
