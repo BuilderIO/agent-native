@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { scrubPageUrl } from "@shared/page-url";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -62,6 +63,8 @@ export function usePatchFormFields() {
       void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
+      // The field save merges and retries these; they aren't failures yet.
+      if (isSaveConflict(err)) return;
       const message =
         err instanceof Error && err.message
           ? err.message.replace(/^Action patch-form-fields failed:\s*/, "")

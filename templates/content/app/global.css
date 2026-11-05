@@ -639,10 +639,11 @@
   content: counter(content-list-counter, lower-roman) ".";
 }
 
-.content-editor ul:not(.content-task-list) > li > ul,
-.content-editor ul:not(.content-task-list) > li > ol,
-.content-editor ol > li > ul,
-.content-editor ol > li > ol {
+/* Every block in an item goes in the text column, not only nested lists. A
+   second paragraph or a code block left to auto-placement lands under the
+   marker, and the marker's auto track widens to fit it, squeezing the text. */
+.content-editor ul:not(.content-task-list) > li > *,
+.content-editor ol > li > * {
   grid-column: 2;
 }
 
@@ -1292,6 +1293,46 @@
 
 .content-toggle__content > :first-child {
   margin-top: 0;
+}
+
+/* A titled Toggle's title is the first block of its content, beside the
+   chevron, and a closed Toggle hides the blocks after it. */
+.content-toggle--titled {
+  position: relative;
+  padding-left: calc(1rem + 0.5em);
+}
+
+.content-toggle--titled > .content-toggle__chevron {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.content-toggle__title {
+  font-weight: 500;
+}
+
+.content-toggle--titled:not(.content-toggle--open)
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > :not(.content-toggle__title) {
+  display: none;
+}
+
+.content-editor .content-toggle__title.is-empty::before,
+.content-toggle--title-empty
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > .content-toggle__title::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
 }
 
 div[data-notion-callout] {
@@ -2145,10 +2186,13 @@ audio.media-block__content {
   background: hsl(0 0% 0% / 0.68);
 }
 
+/* The toolkit's dialog overlay sits at z-index 270, so the lightbox goes where
+   the toolkit puts a dialog's content, above it. Under it, the overlay dims
+   the media and takes its clicks. */
 .media-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 251;
+  z-index: 280;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2758,6 +2802,11 @@ audio.media-block__content {
   background: hsl(var(--suggestion) / 0.12);
   box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
   color: hsl(var(--suggestion));
+}
+
+/* A line break has no ink of its own to highlight. */
+.content-editor .suggestion-line-break::before {
+  content: "↵";
 }
 
 .content-editor .suggestion-insert[data-suggestion-widget],

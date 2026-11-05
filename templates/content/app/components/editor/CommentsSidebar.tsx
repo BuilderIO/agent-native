@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
@@ -89,7 +90,9 @@ import {
   useCommentDraftContext,
   useCommentPanelSession,
   type CommentDraft,
+  type CommentDraftRevision,
   type MentionEntry,
+  type UncertainSubmission,
 } from "./comment-drafts";
 import type { CommentAiSelection } from "./CommentAiRecipient";
 import {
@@ -177,7 +180,11 @@ import {
   suggestionSourceThreadId,
   suggestionsByThread,
 } from "./thread-suggestions";
-import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
+import {
+  ThreadSuggestionBody,
+  ThreadSuggestionPlaceholder,
+  ThreadSuggestionRow,
+} from "./ThreadSuggestion";
 
 /** Where a thread card is shown; each surface shares the same rows. */
 export type CommentSurface = "rail" | "popover" | "panel";
@@ -230,10 +237,35 @@ function isAmbiguousCommentCreateError(error: unknown) {
     timedOut === true ||
     (typeof status === "number"
       ? status < 400 || status === 408 || status >= 500
-      : /^Action (?:add-comment|reply-review-comment) failed:/.test(
+      : /^Action (?:add-comment|add-clip-comment|reply-review-comment) failed:/.test(
           error.message,
         ) || error.name === "AbortError")
   );
+}
+
+/**
+ * The operation id a draft handed back after an uncertain failure keeps, when
+ * the request about to be sent is that same one.
+ */
+function retryOperationId(
+  draft: CommentDraftRevision | undefined,
+  payload: string,
+): string | undefined {
+  return draft?.retry?.payload === payload
+    ? draft.retry.operationId
+    : undefined;
+}
+
+/**
+ * What a failed send leaves to retry with. A retry's refusal says nothing about
+ * the try it repeats, which may have saved, so its key stays however it fails.
+ */
+function uncertainAfterFailure(
+  error: unknown,
+  retried: boolean,
+  submission: UncertainSubmission,
+): UncertainSubmission | null {
+  return retried || isAmbiguousCommentCreateError(error) ? submission : null;
 }
 
 /** The session's name for the signed-in person's own entries, if it has one. */
@@ -259,6 +291,8 @@ function cssEscape(value: string) {
 export type CommentThreadPosition = {
   documentTop: number;
   layoutTop: number | null;
+  /** Measured past the highlight's start, which is drawn nowhere for now. */
+  partial?: true;
 };
 
 function anchorPosition(
@@ -281,7 +315,10 @@ function anchorPosition(
 /**
  * Where a thread's highlight is. `fieldId` names the Blocks field tab whose
  * editor holds it; null or omitted is the page body. A highlight in a tab
- * that isn't open has no position.
+ * that isn't open has no position. While an accepted edit settles its
+ * original text is hidden, and with it the highlight's start: the rest of the
+ * highlight is a partial position, and a highlight drawn nowhere is
+ * "unrendered", since it would measure at the top of the page.
  */
 export function findThreadPosition(
   threadId: string,
@@ -292,7 +329,7 @@ export function findThreadPosition(
     | "data-comment-thread"
     | "data-suggestion-id" = "data-comment-thread",
   fieldId: string | null = null,
-): CommentThreadPosition | null {
+): CommentThreadPosition | "unrendered" | null {
   if (!scrollContainer) return null;
   const fieldEditor =
     fieldId === null ? null : blockFieldEditor(scrollContainer, fieldId);
@@ -301,18 +338,23 @@ export function findThreadPosition(
     (!fieldEditor || inHiddenBlockFieldPanel(fieldEditor))
   )
     return null;
-  const marked = (fieldEditor ?? scrollContainer).querySelector(
-    anchorAttribute === "data-comment-thread"
-      ? commentThreadMarkSelector(threadId)
-      : `${fieldEditor ? "" : ".ProseMirror "}[${anchorAttribute}="${cssEscape(threadId)}"]`,
-  ) as HTMLElement | null;
-  if (marked && !inHiddenBlockFieldPanel(marked)) {
-    return anchorPosition(
-      marked.getBoundingClientRect().top,
+  const marks = [
+    ...(fieldEditor ?? scrollContainer).querySelectorAll<HTMLElement>(
+      anchorAttribute === "data-comment-thread"
+        ? commentThreadMarkSelector(threadId)
+        : `${fieldEditor ? "" : ".ProseMirror "}[${anchorAttribute}="${cssEscape(threadId)}"]`,
+    ),
+  ].filter((mark) => !inHiddenBlockFieldPanel(mark));
+  const drawn = marks.find((mark) => mark.getClientRects().length > 0);
+  if (drawn) {
+    const position = anchorPosition(
+      drawn.getBoundingClientRect().top,
       scrollContainer,
       layoutContainer,
     );
+    return drawn === marks[0] ? position : { ...position, partial: true };
   }
+  if (marks.length) return "unrendered";
 
   if (!quotedText) return null;
   const pm = fieldEditor ?? primaryBlockFieldEditor(scrollContainer);
@@ -324,8 +366,11 @@ export function findThreadPosition(
   );
   const searchStr = quotedText.slice(0, 40);
   let node: Node | null;
+  let found = false;
   while ((node = walker.nextNode())) {
     if (node.textContent && node.textContent.includes(searchStr)) {
+      found = true;
+      if (!node.parentElement?.getClientRects().length) continue;
       const range = window.document.createRange();
       range.selectNode(node);
       return anchorPosition(
@@ -335,7 +380,7 @@ export function findThreadPosition(
       );
     }
   }
-  return null;
+  return found ? "unrendered" : null;
 }
 
 // The elements a page's text blocks render as.
@@ -392,6 +437,23 @@ function measureThreadQuotes(
   return quotes;
 }
 
+/** The edits the thread's AI requests made that the page is still loading. */
+function loadingThreadSuggestionIds(
+  requests: readonly CommentAiRequest[],
+  threadId: string,
+  awaitedSuggestionIds: ReadonlySet<string>,
+) {
+  return requests.flatMap((request) => {
+    const suggestionId = request.result?.suggestionId;
+    return request.threadId === threadId &&
+      request.status === "suggested" &&
+      suggestionId &&
+      awaitedSuggestionIds.has(suggestionId)
+      ? [suggestionId]
+      : [];
+  });
+}
+
 /** Whether a thread's tab is on the page but not open. */
 function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   return a.size === b.size && [...b].every((threadId) => a.has(threadId));
@@ -445,6 +507,7 @@ type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
 
 const NO_THREADS: CommentThread[] = [];
 const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_SUGGESTION_IDS: ReadonlySet<string> = new Set();
 const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
@@ -826,9 +889,6 @@ export function useCommentReplyDrafts(
     end?: number;
     direction?: "forward" | "backward" | "none";
   } | null>(null);
-  const replyRetries = useRef(
-    new Map<string, { payload: string; operationId: string }>(),
-  );
   const setOpenReply = useCallback(
     (
       threadId: string | null,
@@ -902,25 +962,24 @@ export function useCommentReplyDrafts(
         },
       );
     },
-    restoreSubmittedDraft: (threadId: string, operationId: string) =>
+    restoreSubmittedDraft: (
+      threadId: string,
+      operationId: string,
+      retry?: UncertainSubmission | null,
+    ) =>
       draftStore.restoreSubmittedDraft(
         `reply:${documentId}:${threadId}`,
         operationId,
+        retry,
       ),
     finishSubmission: draftStore.finishSubmission,
     isSubmitting: (threadId: string) =>
       draftStore.isSubmittingDraft(`reply:${documentId}:${threadId}`),
-    retryOperationId: (threadId: string, payload: string) => {
-      const retry = replyRetries.current.get(threadId);
-      return retry?.payload === payload ? retry.operationId : undefined;
-    },
-    rememberRetry: (threadId: string, payload: string, operationId: string) =>
-      replyRetries.current.set(threadId, { payload, operationId }),
-    clearRetry: (threadId: string, operationId: string) => {
-      if (replyRetries.current.get(threadId)?.operationId === operationId) {
-        replyRetries.current.delete(threadId);
-      }
-    },
+    retryOperationId: (threadId: string, payload: string) =>
+      retryOperationId(
+        draftStore.drafts.get(`reply:${documentId}:${threadId}`),
+        payload,
+      ),
   };
 }
 
@@ -1082,6 +1141,11 @@ interface CommentsSidebarOptions {
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   suggestions?: ResourceSuggestion[];
+  /** Suggestions an agent's request names that the Page has not loaded yet. */
+  awaitedSuggestionIds?: ReadonlySet<string>;
+  /** Awaited suggestions whose last read failed. */
+  unreadableSuggestionIds?: ReadonlySet<string>;
+  onRetrySuggestionRead?: () => void;
   draftSuggestions?: DraftSuggestion[];
   onMaterializeDraft?: (
     suggestion: DraftSuggestion,
@@ -1176,6 +1240,9 @@ export function CommentsSidebar({
   alignToAnchors = true,
   forceVisible = false,
   suggestions = NO_SUGGESTIONS,
+  awaitedSuggestionIds = NO_SUGGESTION_IDS,
+  unreadableSuggestionIds = NO_SUGGESTION_IDS,
+  onRetrySuggestionRead,
   draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
   onDecideDraftSuggestion,
@@ -2067,8 +2134,22 @@ export function CommentsSidebar({
     )
       return null;
     const id = pendingComment.id;
-    const clientOperationId = crypto.randomUUID();
     const clip = pendingComment.clip;
+    // Only a Clip comment comes back as a draft after a failure that may
+    // have saved it; posting it unchanged is a repeat Clips answers once.
+    const clipPayload = clip
+      ? JSON.stringify({
+          documentId,
+          recordingId: clip.recordingId,
+          videoTimestampMs: clip.videoTimestampMs,
+          content: pendingText.trim(),
+        })
+      : null;
+    const retryId =
+      clipPayload !== null
+        ? retryOperationId(pendingDraft.draft, clipPayload)
+        : undefined;
+    const clientOperationId = retryId ?? crypto.randomUUID();
     pendingDraft.beginSubmission(clientOperationId);
     onPendingChange(id, () => ({ submitting: true }));
     setPendingHandoff({ id, operationId: clientOperationId });
@@ -2125,11 +2206,17 @@ export function CommentsSidebar({
       const isCurrentPendingComment = pendingCommentRef.current?.id === id;
       // A text comment Content may have saved stays as a card it reconciles;
       // a Clip comment has no such card, so its text comes back on any failure.
-      if (
-        (clip || !isAmbiguousCommentCreateError(error)) &&
-        isCurrentPendingComment
-      ) {
-        pendingDraft.restoreSubmittedDraft(clientOperationId);
+      const ambiguous = isAmbiguousCommentCreateError(error);
+      if ((clip || !ambiguous) && isCurrentPendingComment) {
+        pendingDraft.restoreSubmittedDraft(
+          clientOperationId,
+          clipPayload !== null
+            ? uncertainAfterFailure(error, retryId !== undefined, {
+                payload: clipPayload,
+                operationId: clientOperationId,
+              })
+            : null,
+        );
         setPendingHandoff(null);
       }
       pendingDraft.finishSubmission(clientOperationId);
@@ -2244,15 +2331,19 @@ export function CommentsSidebar({
       return null;
     const thread = threads?.find((t) => t.threadId === threadId);
     if (!thread || thread.resolved || !threadCanComment(thread)) return null;
+    // What the request sends, and only that: a retry of the same request must
+    // match it, and a Clip reply carries no mentions.
     const payload = JSON.stringify({
       documentId,
       threadId,
       parentId: thread.comments[0]?.id,
       content: replyText.trim(),
-      mentions: mentionsJsonFor(replyText, replyMentions, agent),
+      ...(thread.clip
+        ? {}
+        : { mentions: mentionsJsonFor(replyText, replyMentions, agent) }),
     });
-    const clientOperationId =
-      replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
+    const retryId = replyDrafts.retryOperationId(threadId, payload);
+    const clientOperationId = retryId ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
       const created = thread.clip
@@ -2270,16 +2361,17 @@ export function CommentsSidebar({
             parentId: thread.comments[0]?.id,
             mentions: mentionsJsonFor(replyText, replyMentions, agent),
           });
-      replyDrafts.clearRetry(threadId, clientOperationId);
       if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
       return { id: created.id, operationId: clientOperationId };
     } catch (error) {
-      replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
-      if (isAmbiguousCommentCreateError(error)) {
-        replyDrafts.rememberRetry(threadId, payload, clientOperationId);
-      } else {
-        replyDrafts.clearRetry(threadId, clientOperationId);
-      }
+      replyDrafts.restoreSubmittedDraft(
+        threadId,
+        clientOperationId,
+        uncertainAfterFailure(error, retryId !== undefined, {
+          payload,
+          operationId: clientOperationId,
+        }),
+      );
       replyDrafts.finishSubmission(clientOperationId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
@@ -2447,6 +2539,7 @@ export function CommentsSidebar({
       highlightsReturningRef.current = false;
     }
     const positions = new Map<string, CommentThreadPosition>();
+    const held: string[] = [];
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
@@ -2459,8 +2552,11 @@ export function CommentsSidebar({
         "suggestion" in thread ? "data-suggestion-id" : "data-comment-thread",
         fieldId,
       );
-      if (position) positions.set(thread.threadId, position);
-      else if (threadTabHidden(container, fieldId))
+      if (position === "unrendered") held.push(thread.threadId);
+      else if (position) {
+        positions.set(thread.threadId, position);
+        if (position.partial) held.push(thread.threadId);
+      } else if (threadTabHidden(container, fieldId))
         hiddenTabIds.add(thread.threadId);
     }
     const quotes = measureThreadQuotes(container, openThreads);
@@ -2473,6 +2569,11 @@ export function CommentsSidebar({
       sameThreadIds(prev, lookedFor) ? prev : lookedFor,
     );
     setThreadPositions((prev) => {
+      // A highlight not drawn from its start keeps the card where it last was.
+      for (const threadId of held) {
+        const last = prev.get(threadId);
+        if (last) positions.set(threadId, last);
+      }
       if (
         prev.size === positions.size &&
         [...positions].every(([key, value]) => {
@@ -2628,6 +2729,81 @@ export function CommentsSidebar({
       setReplyingThreadId(null);
     }
   }, [onSelectedThreadChange, selectedThreadId, selectableThreads]);
+
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const suggestionBusy = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return (
+      decidingSuggestion(suggestion.id) ||
+      Boolean(
+        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
+      )
+    );
+  };
+
+  // Accept and resolve resolves only once its accepts land: a thread resolved
+  // first would send its still-pending edits out to cards of their own. While
+  // a decision is in flight its edits already show the status it asked for,
+  // so only a finished decision tells whether the accept landed.
+  const [resolveOnAccept, setResolveOnAccept] = useState<
+    ReadonlyMap<string, readonly string[]>
+  >(() => new Map());
+  const settledResolveOnAccept = [...resolveOnAccept]
+    .filter(([, requested]) =>
+      suggestions.every(
+        (suggestion) =>
+          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
+      ),
+    )
+    .map(([threadId]) => threadId)
+    .join(" ");
+  // No hook may follow the empty-sidebar return, and the resolve handler is
+  // defined below it, so it reaches this effect through a ref.
+  const resolveAcceptedRef = useRef<((thread: CommentThread) => void) | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!settledResolveOnAccept) return;
+    const settled = settledResolveOnAccept.split(" ");
+    setResolveOnAccept((current) => {
+      const next = new Map(current);
+      for (const threadId of settled) next.delete(threadId);
+      return next;
+    });
+    for (const threadId of settled) {
+      const thread = threads.find((item) => item.threadId === threadId);
+      const requested = resolveOnAccept.get(threadId) ?? [];
+      // A failed or refused accept leaves an edit pending, and an edit can
+      // also end rejected or withdrawn; the thread then stays open. So does
+      // an edit its AI made while the accept was in flight, loaded or still
+      // loading.
+      const undecided =
+        (threadSuggestions.get(threadId) ?? []).some(
+          (suggestion) => suggestion.status === "pending",
+        ) ||
+        Boolean(
+          commentAi &&
+          loadingThreadSuggestionIds(
+            commentAi.requests,
+            threadId,
+            awaitedSuggestionIds,
+          ).length > 0,
+        );
+      if (
+        thread &&
+        !thread.resolved &&
+        requested.every((id) =>
+          suggestions.some(
+            (suggestion) =>
+              suggestion.id === id && suggestion.status === "accepted",
+          ),
+        ) &&
+        !undecided
+      )
+        resolveAcceptedRef.current?.(thread);
+    }
+  }, [settledResolveOnAccept]);
 
   const hasContent =
     presentation === "history"
@@ -2864,21 +3040,10 @@ export function CommentsSidebar({
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
   };
+  resolveAcceptedRef.current = handleResolve;
 
   const handleReopen = (thread: CommentThread) => {
     void changeResolution(thread, false);
-  };
-
-  // Accepting moves the source thread's quote, which a revision still in
-  // flight would read as changed feedback and abandon.
-  const suggestionBusy = (suggestion: ResourceSuggestion) => {
-    const threadId = suggestionSourceThreadId(suggestion);
-    return (
-      decidingSuggestion(suggestion.id) ||
-      Boolean(
-        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
-      )
-    );
   };
 
   const renderFoldedStack = (
@@ -2946,8 +3111,29 @@ export function CommentsSidebar({
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
+    const loadingSuggestionIds = commentAi
+      ? loadingThreadSuggestionIds(
+          commentAi.requests,
+          thread.threadId,
+          awaitedSuggestionIds,
+        )
+      : [];
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
+      const pendingMembers = suggestions.filter(
+        (suggestion) =>
+          members.some((member) => member.id === suggestion.id) &&
+          suggestion.status === "pending",
+      );
+      // Resolving takes the thread's other pending edits out of it, so only
+      // the last group with any left offers to resolve, and none while an
+      // edit is still loading.
+      const pendingElsewhere =
+        loadingSuggestionIds.length > 0 ||
+        embedded.some(
+          (suggestion) =>
+            suggestion.status === "pending" && !members.includes(suggestion),
+        );
       return {
         suggestions: members,
         canDecide: canDecideSuggestions,
@@ -2969,6 +3155,30 @@ export function CommentsSidebar({
                       suggestion.status === "pending",
                   ),
                 )
+            : undefined,
+        onAcceptAndResolve:
+          !thread.resolved && threadCanResolve(thread) && !pendingElsewhere
+            ? () => {
+                const requested =
+                  proposalId && onDecideSuggestionProposal
+                    ? suggestions.filter(
+                        (suggestion) =>
+                          suggestion.proposalId === proposalId &&
+                          suggestion.status === "pending",
+                      )
+                    : pendingMembers;
+                setResolveOnAccept((current) =>
+                  new Map(current).set(
+                    thread.threadId,
+                    requested.map(({ id }) => id),
+                  ),
+                );
+                if (proposalId && onDecideSuggestionProposal)
+                  onDecideSuggestionProposal(proposalId, "accepted", requested);
+                else
+                  for (const member of requested)
+                    onDecideSuggestion?.(member, "accepted");
+              }
             : undefined,
       };
     };
@@ -3201,9 +3411,24 @@ export function CommentsSidebar({
                   continuation={continuation}
                 />
               ) : null}
+              {/* Any request's edit still loading holds the thread open, so the
+                  thread shows it loading and, once a read fails, a retry. */}
+              {loadingSuggestionIds.some(
+                (id) => !embedded.some((suggestion) => suggestion.id === id),
+              ) ? (
+                <ThreadSuggestionPlaceholder
+                  onRetry={
+                    loadingSuggestionIds.some((id) =>
+                      unreadableSuggestionIds.has(id),
+                    )
+                      ? onRetrySuggestionRead
+                      : undefined
+                  }
+                />
+              ) : null}
               {!aiRequest ||
               !commentAi ||
-              (showsRequestSuggestion && !continuation) ? null : (
+              (aiRequest.status === "suggested" && !continuation) ? null : (
                 <CommentAiRequestStatus
                   request={aiRequest}
                   continuation={continuation}
@@ -4363,10 +4588,6 @@ function SuggestionThreadView({
     includeResolved: true,
   });
   const reply = useReplyReviewComment();
-  const uncertainReply = useRef<{
-    payload: string;
-    operationId: string;
-  } | null>(null);
   const expanded = expandRequested;
   const { text: draft, mentions } = replyDrafts.get(suggestion.threadId);
   const root = comments.data?.comments.find(
@@ -4498,10 +4719,11 @@ function SuggestionThreadView({
             body: draft.trim(),
             mentions: replyMentions,
           });
-          const clientOperationId =
-            uncertainReply.current?.payload === payload
-              ? uncertainReply.current.operationId
-              : crypto.randomUUID();
+          const retryId = replyDrafts.retryOperationId(
+            suggestion.threadId,
+            payload,
+          );
+          const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
           reply.mutate(
             {
@@ -4513,16 +4735,14 @@ function SuggestionThreadView({
               mentions: replyMentions,
             },
             {
-              onSuccess: () => {
-                uncertainReply.current = null;
-              },
               onError: (error) => {
-                uncertainReply.current = isAmbiguousCommentCreateError(error)
-                  ? { payload, operationId: clientOperationId }
-                  : null;
                 replyDrafts.restoreSubmittedDraft(
                   suggestion.threadId,
                   clientOperationId,
+                  uncertainAfterFailure(error, retryId !== undefined, {
+                    payload,
+                    operationId: clientOperationId,
+                  }),
                 );
               },
               onSettled: () => {

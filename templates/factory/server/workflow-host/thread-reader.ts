@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import { isUnreadableSecret } from "../lib/unreadable-secret.js";
 import type {
   Clock,
   ThreadReader,
@@ -293,7 +294,8 @@ export function createThreadReader(options: ThreadReaderOptions): ThreadReader {
         return failure(
           access ? "credential_missing" : "provider_error",
           `Could not look up ${email} in Slack to tell whether they replied: ${clip(text, MAX_ERROR_TEXT_CHARS)}`,
-          !access,
+          // A saved token this deployment cannot read stays unread however often it is asked.
+          !access && !isUnreadableSecret(error),
         );
       }
       if (member.found) ids.add(member.id);

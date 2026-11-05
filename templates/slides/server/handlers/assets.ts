@@ -6,7 +6,8 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { parseBase64DataUrl } from "@agent-native/core/shared";
-import { and, desc, eq, isNull, notLike, or } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import {
   assertBodySize,
   defineEventHandler,
@@ -24,9 +25,12 @@ import {
   listOrphanedVideoAssetCleanups,
   recordOrphanedVideoAssetCleanup,
 } from "../lib/chunked-upload-session.js";
+import { hasLiveDeckShareLinkReferencing } from "../lib/deck-share-links.js";
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
+  assertDeckEditableForUpload,
+  withSlidesRequestContext,
 } from "./request-auth-context.js";
 
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
@@ -125,6 +129,7 @@ export interface ListedUploadedAsset {
   id: string;
   url: string;
   filename: string;
+  type: string;
   size: number;
   createdAt: string;
 }
@@ -152,6 +157,29 @@ async function requireSession(
     return { session: null, error: "Unauthorized" };
   }
   return { session: auth.context as AuthedSlidesSession, error: null };
+}
+
+// Kept outside the upload try blocks: their catch maps any error without a status to
+// 400, which would report a failed permission lookup as a malformed upload.
+async function deckUploadRefusal(
+  event: Parameters<typeof withSlidesRequestContext>[0],
+  session: AuthedSlidesSession,
+  parts: Awaited<ReturnType<typeof readBoundedMultipartFormData>>,
+): Promise<{ error: string } | null> {
+  try {
+    await assertDeckEditableForUpload(
+      event,
+      session,
+      new TextDecoder().decode(
+        parts?.find((part) => part.name === "deckId")?.data,
+      ),
+    );
+    return null;
+  } catch (error) {
+    if ((error as { statusCode?: number }).statusCode !== 403) throw error;
+    setResponseStatus(event, 403);
+    return { error: (error as Error).message };
+  }
 }
 
 function isImageAssetExtension(ext: string): boolean {
@@ -2041,6 +2069,9 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
     return { error: "Video too large (max 50 MB)" };
   }
 
+  const refusal = await deckUploadRefusal(event, session, parts);
+  if (refusal) return refusal;
+
   try {
     return await uploadVideoAsset({
       email: session.email,
@@ -2185,6 +2216,9 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: "File too large (max 10 MB)" };
   }
 
+  const refusal = await deckUploadRefusal(event, session, parts);
+  if (refusal) return refusal;
+
   try {
     return await uploadImageAsset({
       email: session.email,
@@ -2213,6 +2247,7 @@ export const listAssets = defineEventHandler(async (event) => {
       id: schema.uploadedAssets.id,
       url: schema.uploadedAssets.url,
       filename: schema.uploadedAssets.filename,
+      type: schema.uploadedAssets.type,
       size: schema.uploadedAssets.size,
       createdAt: schema.uploadedAssets.createdAt,
     })
@@ -2221,7 +2256,6 @@ export const listAssets = defineEventHandler(async (event) => {
       and(
         eq(schema.uploadedAssets.ownerEmail, session.email),
         imageAssetWorkspaceScope(session.orgId),
-        notLike(schema.uploadedAssets.type, "video/%"),
       ),
     )
     .orderBy(desc(schema.uploadedAssets.createdAt));
@@ -2238,15 +2272,98 @@ export const deleteAsset = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Asset id is required" };
   }
+  let assetId: string;
+  try {
+    assetId = decodeURIComponent(id);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Asset id is malformed" };
+  }
   const db = getDb();
+  const rows = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      provider: schema.uploadedAssets.provider,
+      providerObjectId: schema.uploadedAssets.providerObjectId,
+      ownerEmail: schema.uploadedAssets.ownerEmail,
+      orgId: schema.uploadedAssets.orgId,
+    })
+    .from(schema.uploadedAssets)
+    .where(eq(schema.uploadedAssets.id, assetId))
+    .limit(1);
+  const asset = rows.at(0);
+  if (!asset) {
+    setResponseStatus(event, 404);
+    return { error: "Asset not found" };
+  }
+  const inActiveWorkspace = !asset.orgId || asset.orgId === session.orgId;
+  if (asset.ownerEmail !== session.email || !inActiveWorkspace) {
+    setResponseStatus(event, 403);
+    return { error: "Asset belongs to another user" };
+  }
+
+  const requestContext = {
+    userEmail: session.email,
+    ...(session.orgId ? { orgId: session.orgId } : {}),
+  };
+  // Deleting the file would break every deck that still shows it, so the caller
+  // must remove it from those decks first.
+  const referencingDecks = await runWithRequestContext(requestContext, () =>
+    db
+      .select({ id: schema.decks.id })
+      .from(schema.decks)
+      .where(
+        and(
+          accessFilter(schema.decks, schema.deckShares, undefined, "viewer", {
+            includePublic: true,
+          }),
+          sql`strpos(${schema.decks.data}, ${asset.url}) > 0`,
+        ),
+      )
+      .limit(1),
+  );
+  if (
+    referencingDecks.length > 0 ||
+    (await hasLiveDeckShareLinkReferencing(asset.url))
+  ) {
+    setResponseStatus(event, 409);
+    return {
+      error: "This asset is used in a deck. Remove it from the deck first.",
+    };
+  }
+
+  // A null provider means the upload never recorded where the file lives, so the
+  // library entry is removed and the caller is told the file itself remains.
+  const provider = asset.provider;
+  let storageDeleted = false;
+  if (provider) {
+    // Credentials resolve from the asset's own scope: legacy assets without an
+    // org live in user-scoped storage, not the active workspace's bucket.
+    const storageContext = {
+      userEmail: session.email,
+      ...(asset.orgId ? { orgId: asset.orgId } : {}),
+    };
+    storageDeleted = await runWithRequestContext(storageContext, () =>
+      deleteUploadedFile(provider, {
+        ...(asset.providerObjectId ? { id: asset.providerObjectId } : {}),
+        url: asset.url,
+      }),
+    );
+    if (!storageDeleted) {
+      setResponseStatus(event, 502);
+      return { error: "Could not delete the stored file" };
+    }
+  }
+
   await db
     .delete(schema.uploadedAssets)
     .where(
       and(
-        eq(schema.uploadedAssets.id, decodeURIComponent(id)),
+        eq(schema.uploadedAssets.id, assetId),
         eq(schema.uploadedAssets.ownerEmail, session.email),
         imageAssetWorkspaceScope(session.orgId),
       ),
     );
-  return { success: true };
+  return { success: true, storageDeleted };
 });

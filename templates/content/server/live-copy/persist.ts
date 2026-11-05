@@ -7,8 +7,10 @@ import type { DbExec } from "@agent-native/core/db";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
+  BlocksFieldRevisionConflictError,
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
+  readBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import {
@@ -185,6 +187,17 @@ function scopeChanged(message: string): never {
     errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED",
     statusCode: 409,
   });
+}
+
+function requirePrimaryBlocksField(locked: LockedPage, propertyId: string) {
+  const field = locked.blocksFields.find(
+    (field) => field.propertyId === propertyId,
+  );
+  if (!field)
+    scopeChanged(
+      "Primary Blocks membership changed before the operation completed.",
+    );
+  return field;
 }
 
 /**
@@ -487,6 +500,10 @@ async function writeBody(args: {
   const { db, documentId, text, cause } = args;
   const { page, blocksFields, lockedDatabaseIds, lockedMembershipIds } =
     args.locked;
+  const expected = cause?.expectedBlocksFieldRevision;
+  const identity = cause?.blocksFieldIdentity;
+  if (expected) requirePrimaryBlocksField(args.locked, expected.propertyId);
+  if (identity) requirePrimaryBlocksField(args.locked, identity.propertyId);
   const changed = text !== page.content;
   if (changed) {
     await assertMembershipsLocked(db, documentId, lockedMembershipIds);
@@ -527,7 +544,6 @@ async function writeBody(args: {
       after: text,
       now: updatedAt,
     });
-    const expected = cause?.expectedBlocksFieldRevision;
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
@@ -538,6 +554,12 @@ async function writeBody(args: {
         markdown: text,
         ...(expected?.propertyId === field.propertyId
           ? { expectedRevision: expected.revision }
+          : {}),
+        ...(identity?.propertyId === field.propertyId
+          ? {
+              preferredIdsByPath: identity.preferredIdsByPath,
+              rejectCrossFieldIdRemapping: identity.rejectCrossFieldIdRemapping,
+            }
           : {}),
         now: updatedAt,
       });
@@ -740,6 +762,7 @@ export async function persistContentLiveCopy(
     return { derived: false, reason };
   }
   assertEditablePage(locked.page);
+  await cause?.beforeWrite?.(tx);
   await writeBody({
     tx,
     db,
@@ -779,6 +802,40 @@ export async function persistUnchangedContentBodyEdit(
     );
   }
   assertEditablePage(locked.page);
+  await cause.beforeWrite?.(tx);
+  const expected = cause.expectedBlocksFieldRevision;
+  if (expected) {
+    requirePrimaryBlocksField(locked, expected.propertyId);
+    const { revision } = await readBlocksFieldIdentity({
+      db,
+      documentId,
+      propertyId: expected.propertyId,
+      markdown: locked.page.content,
+    });
+    if (revision !== expected.revision) {
+      throw new BlocksFieldRevisionConflictError(
+        `Blocks field revision conflict: expected ${expected.revision}, current ${revision}`,
+      );
+    }
+  }
+  const identity = cause.blocksFieldIdentity;
+  if (identity) {
+    const field = requirePrimaryBlocksField(locked, identity.propertyId);
+    await persistBlocksFieldIdentity({
+      db,
+      ownerEmail: field.ownerEmail,
+      documentId,
+      propertyId: field.propertyId,
+      previousMarkdown: locked.page.content,
+      markdown: locked.page.content,
+      ...(expected?.propertyId === field.propertyId
+        ? { expectedRevision: expected.revision }
+        : {}),
+      preferredIdsByPath: identity.preferredIdsByPath,
+      rejectCrossFieldIdRemapping: identity.rejectCrossFieldIdRemapping,
+      now: new Date().toISOString(),
+    });
+  }
   if (cause.intent) {
     await recordBodyIntent(db, documentId, locked.page, cause.intent, {
       after: locked.page.content,

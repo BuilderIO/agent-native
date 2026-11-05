@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 
 import {
   AgentAvatar,
-  agentDisplayName,
   commentAiModelLabel,
   modelDisplayName,
 } from "./agent-identity";
@@ -1070,7 +1069,6 @@ function requestStatusLabel(
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
   if (request.status === "needs-review") return t("comments.aiNeedsReview");
-  if (request.status === "suggested") return t("comments.aiSuggestionReady");
   if (request.status === "resolved")
     return request.result?.undone
       ? t("comments.aiChangeUndone")
@@ -1352,10 +1350,8 @@ export function CommentAiConversation({
             }}
             name={
               <>
-                <span className="sr-only">
-                  {agentDisplayName(request.model)}:{" "}
-                </span>
-                <span aria-hidden>{agentDisplayName(request.model)}</span>
+                <span className="sr-only">{modelLabel}: </span>
+                <span aria-hidden>{modelLabel}</span>
               </>
             }
             badge={

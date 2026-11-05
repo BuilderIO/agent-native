@@ -666,6 +666,15 @@ const messages = {
     desktopHint:
       "Um Notizen zu starten, öffnen Sie Clips Desktop über die Menüleiste und wählen Sie Start Meeting Notes, oder klicken Sie auf Start notes, wenn die Erinnerung erscheint. Clips erfasst Mikrofon und Systemaudio und schreibt das Transkript hier.",
     getDesktopApp: "Holen Sie sich die Desktop-App",
+    earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
+    earlierAudioAdded_other:
+      "{{count}} Minuten von vor deinem Start hinzugefügt",
+    earlierAudioUnreadable:
+      "Dieses Transkript konnte nicht auf früheren Ton geprüft werden",
+    removeEarlierAudioTitle: "Früheren Ton entfernen?",
+    removeEarlierAudioDescription:
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung, Aufgaben und Clip-Beschreibung werden neu erstellt, auch wenn Sie die Beschreibung selbst geschrieben haben. Ein generierter Titel wird ebenfalls neu erstellt, ein von Ihnen gewählter bleibt erhalten. Vorhandene Kapitel werden ebenfalls gelöscht.",
+    couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",
     attendee_one: "{{count}}-Teilnehmer",
@@ -1563,6 +1572,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Hört zu…",
     noTranscript: "Noch kein Transkript.",
+    unreadable: "Dieses Transkript konnte nicht gelesen werden.",
     liveTranscriptDescription:
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",

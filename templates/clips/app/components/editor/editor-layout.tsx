@@ -8,7 +8,9 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type { SavedRecord } from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
@@ -94,6 +96,7 @@ import {
   type EditsJson,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
+import { saveNewestTrims, trimSaveFailureMessage } from "@/lib/trim-save";
 import { cn } from "@/lib/utils";
 import {
   extractFilmstripThumbnails,
@@ -839,6 +842,31 @@ export function EditorLayout({
   ]);
 
   const setTrims = useActionMutation("set-recording-trims");
+  const savedTrimsRef = useRef<SavedRecord<TrimRange[]>>({
+    value: [],
+    revision: null,
+  });
+  // A refetch that lands mid-save is skipped here, so saveStatus brings the
+  // sync back once the last save finishes.
+  useEffect(() => {
+    if (!recording || editSaveLedgerRef.current.pending > 0) return;
+    savedTrimsRef.current = {
+      value: edits.trims,
+      revision: recording.trimsRevision ?? null,
+    };
+  }, [edits.trims, recording, saveStatus]);
+  const localTrimsRef = useRef<TrimRange[] | null>(null);
+  const commitEditsRef = useRef<
+    (next: EditsJson, options?: { record?: boolean }) => Promise<boolean>
+  >(async () => false);
+  const trimConflict = useSaveConflictPrompt<TrimRange[]>({
+    record: "clip_trims",
+    onRestore: (restoreOnto) =>
+      void commitEditsRef.current({
+        ...edits,
+        trims: restoreOnto(edits.trims),
+      }),
+  });
   const beginEditSave = useCallback((kind: EditSaveKind) => {
     const generation = beginEditorSave(editSaveLedgerRef.current, kind);
     setSaveStatus("saving");
@@ -883,18 +911,36 @@ export function EditorLayout({
       const historyEntry = record ? snapshotOf(savedEdits) : null;
       if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
+      localTrimsRef.current = next.trims;
       const saveGeneration = beginEditSave("trims");
       let succeeded = false;
       try {
         await enqueueRecordingEditorSave(recordingId, "trims", async () => {
-          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          await saveNewestTrims({
+            saved: savedTrimsRef,
+            local: localTrimsRef,
+            resolveOverlap: trimConflict.resolveOverlap,
+            save: async ({ value, revision }) => {
+              const saved = await setTrims.mutateAsync({
+                recordingId,
+                trims: value,
+                expectedRevision: revision ?? undefined,
+              });
+              return { value: saved.editsJson.trims, revision: saved.revision };
+            },
+          });
+          setPendingTrims(localTrimsRef.current);
           await playerDataQuery.refetch();
         });
         succeeded = true;
         return true;
       } catch (err: any) {
         if (historyEntry) discardHistory(historyEntry);
-        toast.error(err?.message ?? t("editorLayout.editFailed"));
+        const message = trimSaveFailureMessage(
+          err,
+          t("editorLayout.editFailed"),
+        );
+        if (message) toast.error(message);
         return false;
       } finally {
         finishEditSave("trims", saveGeneration, succeeded);
@@ -902,6 +948,7 @@ export function EditorLayout({
           isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
         ) {
           setPendingTrims(null);
+          localTrimsRef.current = null;
         }
       }
     },
@@ -916,8 +963,10 @@ export function EditorLayout({
       savedEdits,
       setTrims,
       t,
+      trimConflict.resolveOverlap,
     ],
   );
+  commitEditsRef.current = commitEdits;
 
   const setOverlays = useActionMutation("set-recording-overlays");
   const burnRedactions = useActionMutation("burn-recording-redactions");
@@ -1951,6 +2000,7 @@ export function EditorLayout({
         ) : null}
       </div>
 
+      {trimConflict.prompt}
       <ThumbnailPicker
         open={thumbOpen}
         onOpenChange={setThumbOpen}
