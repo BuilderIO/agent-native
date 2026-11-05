@@ -122,7 +122,7 @@ afterEach(async () => {
   await client.close();
 });
 
-function captureStatements(): string[] {
+function captureStatements(failOn?: RegExp): string[] {
   const statements: string[] = [];
   // Allowance queries run on the PGlite transaction handle, so wrap that.
   type Transaction = { query: (...args: unknown[]) => unknown };
@@ -136,6 +136,8 @@ function captureStatements(): string[] {
       const originalQuery = tx.query.bind(tx);
       tx.query = (text, ...rest) => {
         statements.push(String(text));
+        if (failOn?.test(String(text)))
+          return Promise.reject(new Error("statement timeout"));
         return originalQuery(text, ...rest);
       };
       return callback(tx);
@@ -798,9 +800,11 @@ describe("hosted clip allowance", () => {
       recordingId: "events-1",
       deletedBytes: 30,
     });
-    expect(tracked("clips_hosted_media_deleted")[0]?.[1]).toMatchObject({
+    expect(tracked("clips_hosted_media_deleted")[0]?.[1]).toEqual({
+      app_name: "clips",
+      template_name: "clips",
+      recordingId: "events-1",
       freedBytes: 30,
-      retainedBytes: 40,
     });
 
     await reserve({
@@ -814,15 +818,16 @@ describe("hosted clip allowance", () => {
       userId: "user-2",
       reason: "abandon",
     });
-    expect(tracked("clips_hosted_released")[0]?.[1]).toMatchObject({
+    expect(tracked("clips_hosted_released")[0]?.[1]).toEqual({
+      app_name: "clips",
+      template_name: "clips",
       recordingId: "events-2",
       reason: "abandon",
       releasedBytes: 100,
-      retainedBytes: 40,
     });
   });
 
-  it("tracks reaper releases with the configured cap and ratio", async () => {
+  it("tracks reaper releases without a retained level", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     setHostedConfig({ globalRetainedByteCap: 1_000 });
     await reserve({ recordingId: "reaped" });
@@ -835,12 +840,13 @@ describe("hosted clip allowance", () => {
     });
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_hosted_released",
-      expect.objectContaining({
+      {
+        app_name: "clips",
+        template_name: "clips",
+        recordingId: "reaped",
         reason: "orphan_reaped",
-        retainedBytes: 0,
-        globalRetainedByteCap: 1_000,
-        ratio: 0,
-      }),
+        releasedBytes: 100,
+      },
       { authUserId: "user-1" },
     );
   });
@@ -1083,9 +1089,65 @@ describe("hosted clip allowance", () => {
     expect(sums().length).toBeGreaterThan(0);
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_hosted_released",
-      expect.objectContaining({ retainedBytes: 140, ratio: 0.14 }),
+      expect.not.objectContaining({ retainedBytes: expect.anything() }),
       { authUserId: "user-4" },
     );
+  });
+
+  it("runs no retained-byte SUM for release, subtract or an adjust decrease even with a cap", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const capped = policy({ globalRetainedByteCap: 1_000 });
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    await reserve({ recordingId: "cap-consumed", policy: capped });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "cap-consumed",
+      userId: "user-1",
+      actualBytes: 80,
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "cap-released",
+      policy: capped,
+    });
+
+    const statements = captureStatements();
+    await allowance.adjustHostedClipRetainedBytes({
+      recordingId: "cap-consumed",
+      userId: "user-1",
+      retainedBytes: 60,
+      now: NOW,
+    });
+    await allowance.subtractHostedClipRetainedBytes({
+      recordingId: "cap-consumed",
+      deletedBytes: 10,
+      now: NOW,
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "cap-released",
+      userId: "user-2",
+      reason: "abort",
+    });
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.filter((text) => /sum\(/i.test(text))).toHaveLength(0);
+  });
+
+  it("commits a release even when the retained-byte SUM would fail", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    await reserve({
+      recordingId: "sum-fails",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    captureStatements(/sum\(/i);
+    await expect(
+      allowance.releaseHostedClipAllowance({
+        recordingId: "sum-fails",
+        userId: "user-1",
+        reason: "abort",
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReleased: false });
   });
 
   it("tracks a threshold crossing when a retry reservation crosses the alert level", async () => {

@@ -512,16 +512,12 @@ async function readRetainedBytes(
   return readActiveByteTotal(db);
 }
 
-async function hostedReleasedEvent(
-  tx: HostedClipAllowanceTransaction,
-  input: {
-    recordingId: string;
-    userId: string;
-    reason: HostedClipReleaseReason;
-    releasedBytes: number;
-    globalRetainedByteCap: number | undefined;
-  },
-): Promise<HostedClipEvent> {
+function hostedReleasedEvent(input: {
+  recordingId: string;
+  userId: string;
+  reason: HostedClipReleaseReason;
+  releasedBytes: number;
+}): HostedClipEvent {
   return {
     name: "clips_hosted_released",
     userId: input.userId,
@@ -529,10 +525,6 @@ async function hostedReleasedEvent(
       recordingId: input.recordingId,
       reason: input.reason,
       releasedBytes: input.releasedBytes,
-      ...hostedLevel(
-        await readRetainedBytes(tx, input.globalRetainedByteCap),
-        input.globalRetainedByteCap,
-      ),
     },
   };
 }
@@ -1057,12 +1049,15 @@ export async function adjustHostedClipRetainedBytes(input: {
         "Only a consumed hosted recording allowance can have retained bytes adjusted.",
       );
     }
-    const retainedBytes = await readRetainedBytes(tx, globalRetainedByteCap);
+    const increasing = input.retainedBytes > current.quotaBytes;
+    const retainedBytes = increasing
+      ? await readRetainedBytes(tx, globalRetainedByteCap)
+      : undefined;
     const nextTotal =
       retainedBytes === undefined
         ? undefined
         : retainedBytes - current.quotaBytes + input.retainedBytes;
-    if (input.retainedBytes > current.quotaBytes) {
+    if (increasing) {
       if (
         globalRetainedByteCap !== undefined &&
         nextTotal !== undefined &&
@@ -1098,7 +1093,6 @@ export async function adjustHostedClipRetainedBytes(input: {
         props: {
           recordingId: input.recordingId,
           freedBytes: current.quotaBytes - input.retainedBytes,
-          ...hostedLevel(nextTotal, globalRetainedByteCap),
         },
       });
     }
@@ -1227,7 +1221,6 @@ export async function subtractHostedClipRetainedBytes(input: {
   assertByteCount(input.deletedBytes, "deleted byte count");
   const updatedAt = (input.now ?? new Date()).toISOString();
 
-  const { globalRetainedByteCap } = hostedStorageConfig();
   return withAllowanceLock(async (tx, events) => {
     const [current] = await tx
       .select()
@@ -1254,10 +1247,6 @@ export async function subtractHostedClipRetainedBytes(input: {
       props: {
         recordingId: input.recordingId,
         freedBytes: current.quotaBytes - quotaBytes,
-        ...hostedLevel(
-          await readRetainedBytes(tx, globalRetainedByteCap),
-          globalRetainedByteCap,
-        ),
       },
     });
     return { adjusted: true, quotaBytes };
@@ -1277,7 +1266,6 @@ export async function releaseHostedClipAllowance(input: {
   const now = input.now ?? new Date();
   const updatedAt = now.toISOString();
 
-  const { globalRetainedByteCap } = hostedStorageConfig();
   return withAllowanceLock(async (tx, events) => {
     const current = await findOwnedAllowance(
       tx,
@@ -1310,8 +1298,7 @@ export async function releaseHostedClipAllowance(input: {
       );
     }
     events.push(
-      await hostedReleasedEvent(tx, {
-        globalRetainedByteCap,
+      hostedReleasedEvent({
         recordingId: input.recordingId,
         userId: input.userId,
         reason: input.reason,
@@ -1353,7 +1340,6 @@ export async function releaseOrphanedHostedClipAllowance(input: {
 }): Promise<boolean> {
   const createdBefore = input.createdBefore.toISOString();
   const updatedAt = (input.now ?? new Date()).toISOString();
-  const { globalRetainedByteCap } = hostedStorageConfig();
   return withAllowanceLock(async (tx, events) => {
     const [current] = await tx
       .select()
@@ -1408,8 +1394,7 @@ export async function releaseOrphanedHostedClipAllowance(input: {
       .returning({ recordingId: allowanceTable.recordingId });
     if (!released.length) return false;
     events.push(
-      await hostedReleasedEvent(tx, {
-        globalRetainedByteCap,
+      hostedReleasedEvent({
         recordingId: input.recordingId,
         userId: input.userId,
         reason: "orphan_reaped",
@@ -1434,7 +1419,6 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
   const ownerEmail = input.ownerEmail.trim();
   if (!ownerEmail) return false;
 
-  const { globalRetainedByteCap } = hostedStorageConfig();
   return withAllowanceLock(async (tx, events) => {
     const [row] = await tx
       .select({
@@ -1503,8 +1487,7 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
       .returning({ recordingId: allowanceTable.recordingId });
     if (!allowance) return false;
     events.push(
-      await hostedReleasedEvent(tx, {
-        globalRetainedByteCap,
+      hostedReleasedEvent({
         recordingId: input.recordingId,
         userId: row.allowanceUserId,
         reason: "failed_cleanup",
