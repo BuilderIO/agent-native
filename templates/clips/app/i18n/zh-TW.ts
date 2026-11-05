@@ -598,6 +598,13 @@ const messages = {
     desktopHint:
       "若要開始筆記，請從選單列開啟 Clips Desktop 並選擇 Start Meeting Notes，或在提醒出現時按 Start notes。Clips 會擷取麥克風和系統音訊，並在這裡寫入逐字稿。",
     getDesktopApp: "取得桌面應用程式",
+    earlierAudioAdded_one: "已新增開始前的 {{count}} 分鐘",
+    earlierAudioAdded_other: "已新增開始前的 {{count}} 分鐘",
+    earlierAudioUnreadable: "無法檢查此逐字稿是否包含開始前的音訊",
+    removeEarlierAudioTitle: "移除開始前的音訊嗎？",
+    removeEarlierAudioDescription:
+      "這會將其從逐字稿中移除，並重新產生摘要、待辦事項和片段描述，即使描述是你自己寫的也一樣。自動產生的標題也會重新產生；你選擇的標題會保留。章節也會被刪除。",
+    couldNotRemoveEarlierAudio: "無法移除開始前的音訊",
     generateNotesFailed: "無法產生摘要。請再試一次。",
     attendee_one: "{{count}} 與會者",
     attendee_other: "{{count}} 與會者",
@@ -1442,6 +1449,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆聽…",
     noTranscript: "還沒有轉錄。",
+    unreadable: "無法讀取此逐字稿。",
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
