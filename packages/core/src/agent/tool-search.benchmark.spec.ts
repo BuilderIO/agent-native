@@ -14,8 +14,8 @@ import {
 // drops a score below its floor made tool-search worse at finding real tools.
 // Before BM25F, hints and the vocabulary changes: R@5 0.727 (held out 0.882),
 // MRR 0.546.
-const MIN_RECALL_AT_5 = { all: 0.96, heldOut: 0.88 };
-const MIN_MRR = 0.87;
+const MIN_RECALL_AT_5 = { all: 0.962, heldOut: 0.882 };
+const MIN_MRR = 0.871;
 
 const LOAD_TIMEOUT_MS = 180_000;
 

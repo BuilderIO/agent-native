@@ -380,7 +380,7 @@ function searchOnce(
       candidate,
       prior:
         (isFrameworkMcpTool(entry) ? FRAMEWORK_TOOL_PRIOR : 1) *
-        (negatesDestruction && entry.mcpAnnotations?.destructiveHint === true
+        (negatesDestruction && isDestructiveTool(name, entry)
           ? NEGATED_DESTRUCTIVE_PRIOR
           : 1),
       fields: searchDocumentFields({
@@ -736,8 +736,35 @@ type RankableTool = {
 // so on similar text the app's actions rank first. Exact names still win.
 const FRAMEWORK_TOOL_PRIOR = 0.8;
 // "Do not delete this email" must not rank delete tools as if it asked to
-// delete. Only an action's own declared `destructiveHint` counts.
+// delete.
 const NEGATED_DESTRUCTIVE_PRIOR = 0.5;
+
+// A declared `destructiveHint` decides. Without annotations, a name that leads
+// with a destructive verb (`delete-event`, `trash-email`) is the signal, since
+// most delete actions declare none.
+function isDestructiveTool(name: string, entry: ActionEntry): boolean {
+  if (entry.mcpAnnotations) return entry.mcpAnnotations.destructiveHint;
+  const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name)[0];
+  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+}
+
+// Nouns that app UIs name things with, which stripping "-ing" would fold into
+// an unrelated verb: "heading" is not "head". "Setting" is also the verb, so
+// only the plural "settings" stays a noun. "Meetings" and "bookings" are left
+// to stem: they should meet "meet" and "book". Declared before the stemmed
+// sets below, which call `stem` as the module loads.
+const ING_NOUNS: ReadonlySet<string> = new Set([
+  "heading",
+  "padding",
+  "string",
+  "morning",
+  "evening",
+]);
+const PLURAL_ING_NOUNS: ReadonlySet<string> = new Set([
+  "setting",
+  "recording",
+  "mapping",
+]);
 
 const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never"]);
 const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
@@ -762,15 +789,21 @@ function parseQuery(query: string): {
   tokens: string[];
   negatesDestruction: boolean;
 } {
-  const words = query
-    .replace(/\bcan['’]t\b/giu, "can not")
-    .replace(/\bwon['’]t\b/giu, "will not")
-    .replace(/n['’]t\b/giu, " not")
-    .split(/[^A-Za-z0-9]+/);
+  const words =
+    query
+      .replace(/\bcan['’]t\b/giu, "can not")
+      .replace(/\bwon['’]t\b/giu, "will not")
+      .replace(/n['’]t\b/giu, " not")
+      .match(/[A-Za-z0-9]+|[.,;:!?]/gu) ?? [];
   const tokens: string[] = [];
   let negateNext = false;
   let negatesDestruction = false;
   for (const word of words) {
+    // "No, delete it": a negation never reaches past punctuation.
+    if (/^[.,;:!?]$/u.test(word)) {
+      negateNext = false;
+      continue;
+    }
     if (NEGATIONS.has(word.toLowerCase())) {
       negateNext = true;
       continue;
@@ -1007,6 +1040,12 @@ function stem(term: string): string {
     !/(ss|us|is)$/.test(stemmed)
   ) {
     stemmed = stemmed.slice(0, -1);
+  }
+  if (
+    ING_NOUNS.has(stemmed) ||
+    (stemmed !== term && PLURAL_ING_NOUNS.has(stemmed))
+  ) {
+    return stemmed;
   }
   if (stemmed.length > 5 && stemmed.endsWith("ing")) {
     stemmed = undoubleFinalConsonant(stemmed.slice(0, -3));

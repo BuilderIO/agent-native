@@ -960,8 +960,37 @@ describe("tool-search ranking", () => {
       "archive-email",
       "delete-email",
     ]);
-    // Negating something else leaves the word searchable.
+    // Negating something else leaves the word searchable, and a negation
+    // never reaches past punctuation.
     expect(names("delete the email, not the inbox")[0]).toBe("delete-email");
+    expect(names("No, delete that email")[0]).toBe("delete-email");
+  });
+
+  it("treats an unannotated tool named for a destructive verb as destructive", () => {
+    const registry = {
+      "trash-email": action("Trash an email."),
+      "star-email": action("Star an email, trash-free."),
+    };
+    const names = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(names("trash this email")[0]).toBe("trash-email");
+    expect(names("never trash this email")).toEqual([
+      "star-email",
+      "trash-email",
+    ]);
+  });
+
+  it("keeps 'settings' apart from the verb 'set'", () => {
+    const registry = {
+      "set-theme": action("Set the theme."),
+      "get-mail-settings": action("Read mail settings."),
+    };
+    const rank = (query: string) =>
+      searchToolRegistry(registry, { query }).results.map((r) => r.name);
+
+    expect(rank("settings")).toEqual(["get-mail-settings"]);
+    expect(rank("set")).toEqual(["set-theme"]);
   });
 
   it("drops a stray letter from an apostrophe but keeps single digits", () => {
