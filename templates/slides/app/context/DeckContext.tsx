@@ -7770,17 +7770,33 @@ export function DeckProvider({
       pendingCreateIdsRef.current.add(newId);
       noteLocalCreate(newId);
 
-      const duplicatePromise = callAction<DuplicateDeckActionResult>(
-        "duplicate-deck",
-        {
+      const sendDuplicate = () =>
+        callAction<DuplicateDeckActionResult>("duplicate-deck", {
           deckId: sourceDeckId,
           newId,
           title,
           ...(optimistic.slides.length > 0
             ? { slideIds: optimistic.slides.map((s) => s.id) }
             : {}),
-        },
-      ).then((created) => {
+        });
+      // A source that is still a local create is not on the server yet; sending now copies nothing and 404s.
+      const sourceNotOnServer =
+        pendingCreatePromisesRef.current.has(sourceDeckId) ||
+        deferredCreateDecksRef.current.has(sourceDeckId);
+      const duplicateRequest = sourceNotOnServer
+        ? ensureDeckPersisted(sourceDeckId).then((persistence) => {
+            if (scopeGeneration !== deckScopeGenerationRef.current) {
+              throw new Error("Duplicate cancelled by workspace change");
+            }
+            if (!persistence.persisted) {
+              throw "error" in persistence
+                ? persistence.error
+                : new Error("Duplicate source deck was not found");
+            }
+            return sendDuplicate();
+          })
+        : sendDuplicate();
+      const duplicatePromise = duplicateRequest.then((created) => {
         rememberDeckServerRevision(newId, created);
       });
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
@@ -7826,7 +7842,13 @@ export function DeckProvider({
       });
       return { status: "created", deck: optimistic };
     },
-    [decks, noteLocalCreate, setDecksLocal, undoControllerForDeck],
+    [
+      decks,
+      ensureDeckPersisted,
+      noteLocalCreate,
+      setDecksLocal,
+      undoControllerForDeck,
+    ],
   );
 
   const deleteDeck = useCallback(
