@@ -441,10 +441,10 @@ describe("defineAction", () => {
     expect(loaded(["inbox rule"])).toEqual(["inbox rule"]);
     expect(loaded(undefined)).toBeUndefined();
     expect(() => loaded(["inbox rule", 7])).toThrow(
-      /Action "manage-rules" searchHints/,
+      /Action "manage-rules": searchHints/,
     );
     expect(() => loaded("inbox rule")).toThrow(
-      /Action "manage-rules" searchHints/,
+      /Action "manage-rules": searchHints/,
     );
   });
 

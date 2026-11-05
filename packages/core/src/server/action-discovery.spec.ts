@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isActionDefinitionError } from "../action.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -53,6 +54,44 @@ describe("action discovery", () => {
       await expect(registry.hello.run({})).resolves.toEqual({
         message: "Hello from TS",
       });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "fails discovery on malformed searchHints but still skips a module that cannot import",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "cli-script.ts"),
+        'throw new Error("CLI scripts run at import");\n',
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "manage-rules.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+          '  searchHints: ["inbox rule", 7],',
+          "  run: async () => ({}),",
+          "};",
+          "",
+        ].join("\n"),
+      );
+
+      await expect(autoDiscoverActions(actionsDir)).rejects.toSatisfy(
+        (error) =>
+          isActionDefinitionError(error) &&
+          error.actionName === "manage-rules" &&
+          /Action "manage-rules": searchHints/.test(error.message),
+      );
+
+      fs.rmSync(path.join(actionsDir, "manage-rules.ts"));
+      const registry = await autoDiscoverActions(actionsDir);
+      expect(registry).not.toHaveProperty("cli-script");
+      expect(registry).not.toHaveProperty("manage-rules");
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

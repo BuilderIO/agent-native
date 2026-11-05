@@ -1,6 +1,10 @@
 import nodePath from "node:path";
 
 import "../authorization/check-action.js";
+import {
+  isActionDefinitionError,
+  namedActionDefinitionError,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
@@ -208,6 +212,11 @@ async function loadActionsIntoRegistry(
         registry[name] = wrapDefaultExport(name, mod.default);
       }
     } catch (err) {
+      // A module that imports but defines its action wrongly is a bug in the
+      // action, not a CLI script: fail the load instead of skipping it.
+      if (isActionDefinitionError(err)) {
+        throw namedActionDefinitionError(err, name);
+      }
       const msg =
         err instanceof Error ? (err.stack ?? err.message) : String(err);
       console.warn(
@@ -268,6 +277,7 @@ export async function autoDiscoverActions(
   try {
     await loadActionsIntoRegistry(actionsDir, registry, false);
   } catch (err: any) {
+    if (isActionDefinitionError(err)) throw err;
     console.warn(
       `[autoDiscoverActions] Could not read actions directory: ${actionsDir} — ${err?.message}`,
     );

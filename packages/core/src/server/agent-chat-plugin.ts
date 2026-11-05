@@ -52,6 +52,7 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
+import { ActionDefinitionError, isActionDefinitionError } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -331,9 +332,8 @@ import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
-  actionDefinition,
   discoveredActionMcpAnnotations,
-  filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 import {
   getH3App,
@@ -1796,7 +1796,8 @@ export function createAgentChatPlugin(
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
           templateScriptsAll = await autoDiscoverActions("auto");
-        } catch {
+        } catch (error) {
+          if (isActionDefinitionError(error)) throw error;
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
       }
@@ -1898,6 +1899,7 @@ export function createAgentChatPlugin(
         // Auto-discover template action files and register as bash-based tools.
         // This ensures templates without a custom agent-chat plugin (e.g., analytics)
         // still have their domain actions available as tools.
+        const definitionErrors: ActionDefinitionError[] = [];
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
@@ -1914,16 +1916,21 @@ export function createAgentChatPlugin(
               // run function (not a shell wrapper). This makes HTTP endpoints
               // work correctly. Only fall back to shell wrapper if the import
               // fails (e.g., CLI-style scripts that throw at top level).
+              // A definition error is rethrown below, past the catch that
+              // skips unreadable discovery, so it fails the load instead.
               try {
-                const mod = await import(/* @vite-ignore */ filePath);
-                const def = actionDefinition(mod);
-                if (def) {
-                  discoveredActionsAll[name] = filesystemActionEntry(def);
+                const entry = await importDevActionEntry(filePath, name);
+                if (entry) {
+                  discoveredActionsAll[name] = entry;
                   continue;
                 }
-              } catch {
-                // Fall through to shell wrapper for CLI-style scripts
-                // (and .ts files Node can't parse natively).
+              } catch (error) {
+                if (isActionDefinitionError(error)) {
+                  definitionErrors.push(error);
+                  continue;
+                }
+                // Anything else falls through to the shell wrapper, as an
+                // unimportable CLI script does.
               }
 
               // Static-parse the source for `http`, `agentTool: false`,
@@ -2033,6 +2040,11 @@ export function createAgentChatPlugin(
               `[agent-chat] Auto-discovered ${Object.keys(discoveredActionsAll).length} action(s): ${Object.keys(discoveredActionsAll).join(", ")}`,
             );
         } catch {}
+        if (definitionErrors.length > 0) {
+          throw new ActionDefinitionError(
+            definitionErrors.map((error) => error.message).join("\n"),
+          );
+        }
       }
 
       // Agent-facing views of the discovered actions: actions that opted out of

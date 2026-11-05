@@ -1,5 +1,10 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { ACTION_EXECUTION_KEY, validateSearchHints } from "../action.js";
+import {
+  ACTION_EXECUTION_KEY,
+  isActionDefinitionError,
+  namedActionDefinitionError,
+  validateSearchHints,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { carryFrameworkMcpTool } from "../mcp/framework-tools.js";
 
@@ -91,10 +96,7 @@ export function preserveActionFlags(
   }
   // Not dropped like the flags above: a malformed list would silently leave
   // the action harder to find, so loading it fails instead.
-  const searchHints = validateSearchHints(
-    entry.searchHints,
-    actionName ? `Action "${actionName}" searchHints` : "searchHints",
-  );
+  const searchHints = validateSearchHints(entry.searchHints, actionName);
   if (searchHints) out.searchHints = searchHints;
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
@@ -215,8 +217,11 @@ export function actionDefinition(
  * real `run` plus the same flags a built registry keeps, and conservative MCP
  * annotations when the module declares no valid ones.
  */
-export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
-  const flags = preserveActionFlags(def);
+export function filesystemActionEntry(
+  def: Record<string, any>,
+  actionName?: string,
+): ActionEntry {
+  const flags = preserveActionFlags(def, actionName);
   const out: ActionEntry = {
     tool: def.tool,
     run: def.run,
@@ -233,4 +238,28 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
   carryFrameworkMcpTool(def as ActionEntry, out);
   carryExecutionKey(def, out);
   return out;
+}
+
+/**
+ * The real entry for a dev action file, or `null` when the file should run as
+ * a CLI-script wrapper: it does not import (top-level CLI code, syntax Node
+ * cannot parse) or defines no action. A file that imports but defines its
+ * action wrongly throws an `ActionDefinitionError` naming it instead, so an
+ * invalid definition never silently changes how the action runs.
+ */
+export async function importDevActionEntry(
+  filePath: string,
+  actionName: string,
+): Promise<ActionEntry | null> {
+  let mod: Record<string, unknown>;
+  try {
+    mod = await import(/* @vite-ignore */ filePath);
+  } catch (error) {
+    if (isActionDefinitionError(error)) {
+      throw namedActionDefinitionError(error, actionName);
+    }
+    return null;
+  }
+  const def = actionDefinition(mod);
+  return def ? filesystemActionEntry(def, actionName) : null;
 }

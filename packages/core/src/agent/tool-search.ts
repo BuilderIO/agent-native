@@ -754,6 +754,14 @@ const PROTECTED_TERMS: ReadonlyMap<string, string> = new Map([
 ]);
 
 const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never"]);
+const CLAUSE_WORDS: ReadonlySet<string> = new Set([
+  "and",
+  "but",
+  "or",
+  "then",
+  "instead",
+  "so",
+]);
 const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
   [
     "delete",
@@ -821,29 +829,32 @@ function parseQuery(query: string): ParsedQuery {
       .match(/[A-Za-z0-9]+|[.,;:!?]/gu) ?? [];
   const tokens: string[] = [];
   const negatedVerbs = new Set<string>();
-  let negateNext = false;
+  let negating = false;
   for (const word of words) {
-    // "No, delete it": a negation never reaches past punctuation.
-    if (/^[.,;:!?]$/u.test(word)) {
-      negateNext = false;
+    // A negation reaches past modifiers ("don't really delete") to the first
+    // destructive verb, but never past punctuation ("No, delete it") or into
+    // the next clause ("don't archive it and delete the draft").
+    if (/^[.,;:!?]$/u.test(word) || CLAUSE_WORDS.has(word.toLowerCase())) {
+      negating = false;
       continue;
     }
     if (NEGATIONS.has(word.toLowerCase())) {
-      negateNext = true;
+      negating = true;
       continue;
     }
     const terms = searchTerms(word);
-    if (terms.length === 0) continue;
-    const negated = negateNext
+    const negated = negating
       ? terms.filter((term) => DESTRUCTIVE_VERBS.has(term))
       : [];
-    negateNext = false;
+    if (negated.length > 0) negating = false;
     for (const verb of negated) negatedVerbs.add(verb);
     tokens.push(...terms.filter((term) => !negated.includes(term)));
   }
   const unique = [...new Set(tokens)];
   return {
-    tokens: unique,
+    // "Don't delete it" still finds the delete tools, ranked down, so the
+    // agent never reads a negated request as a missing capability.
+    tokens: unique.length > 0 ? unique : [...negatedVerbs],
     negatedVerbs,
     requestsDestruction: unique.some((term) => DESTRUCTIVE_VERBS.has(term)),
   };
@@ -1072,8 +1083,13 @@ function stem(term: string): string {
   ) {
     stemmed = stemmed.slice(0, -1);
   }
-  if (stemmed.length > 5 && stemmed.endsWith("ing")) {
+  if (/^[aeiou][^aeiouy](?:ing|ed)$/u.test(stemmed)) {
+    // "using" and "used" lost the "e" of "use", as "owing" did of "owe".
+    stemmed = `${stemmed.slice(0, 2)}e`;
+  } else if (stemmed.length > 5 && stemmed.endsWith("ing")) {
     stemmed = undoubleFinalConsonant(stemmed.slice(0, -3));
+  } else if (stemmed.length > 4 && stemmed.endsWith("ied")) {
+    stemmed = `${stemmed.slice(0, -3)}y`;
   } else if (stemmed.length > 4 && stemmed.endsWith("ed")) {
     stemmed = undoubleFinalConsonant(stemmed.slice(0, -2));
   }
@@ -1086,9 +1102,11 @@ function stem(term: string): string {
 // "running" and "stopped" double the consonant before the suffix, so their
 // stems must drop it to meet "run" and "stop". Base words that end in a double
 // letter ("fill", "dress", "buzz", "stuff") keep it, as do stems that would
-// shrink to two letters ("adding" stays "add").
+// shrink to two letters ("adding" stays "add"). A long "-ell" stem is the
+// British doubling of "cancelled" and "labelled"; "spell" and "sell" are short.
 function undoubleFinalConsonant(stemmed: string): string {
-  return stemmed.length >= 4 && /([bcdgkmnprt])\1$/.test(stemmed)
+  return (stemmed.length >= 4 && /([bcdgkmnprt])\1$/.test(stemmed)) ||
+    (stemmed.length >= 6 && stemmed.endsWith("ell"))
     ? stemmed.slice(0, -1)
     : stemmed;
 }

@@ -1311,10 +1311,51 @@ export interface ActionDefinition<TInput, TReturn> {
 const MAX_SEARCH_HINTS = 12;
 const MAX_SEARCH_HINT_CHARS = 60;
 
-/** Throws, naming `label`, unless `value` is absent or a valid hint list. */
+/**
+ * An action's own definition is invalid. Loaders never skip such an action or
+ * fall back to wrapping it as a CLI script: the app fails to load, naming the
+ * action, until the definition is fixed.
+ */
+export class ActionDefinitionError extends TypeError {
+  readonly actionDefinitionError = true;
+  readonly actionName?: string;
+
+  constructor(message: string, actionName?: string) {
+    super(actionName ? `Action "${actionName}": ${message}` : message);
+    this.name = "ActionDefinitionError";
+    this.actionName = actionName;
+  }
+}
+
+export function isActionDefinitionError(
+  error: unknown,
+): error is ActionDefinitionError {
+  return (
+    error instanceof ActionDefinitionError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionDefinitionError?: unknown }).actionDefinitionError ===
+        true)
+  );
+}
+
+/**
+ * The same error naming `actionName`, for a loader that knows the name the
+ * definition itself could not report.
+ */
+export function namedActionDefinitionError(
+  error: ActionDefinitionError,
+  actionName: string,
+): ActionDefinitionError {
+  return error.actionName
+    ? error
+    : new ActionDefinitionError(error.message, actionName);
+}
+
+/** Throws unless `value` is absent or a valid hint list. */
 export function validateSearchHints(
   value: unknown,
-  label = "searchHints",
+  actionName?: string,
 ): readonly string[] | undefined {
   if (value === undefined) return undefined;
   if (
@@ -1327,8 +1368,9 @@ export function validateSearchHints(
         hint.length > MAX_SEARCH_HINT_CHARS,
     )
   ) {
-    throw new TypeError(
-      `${label} must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+    throw new ActionDefinitionError(
+      `searchHints must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+      actionName,
     );
   }
   return Object.freeze([...value]);

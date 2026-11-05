@@ -968,6 +968,16 @@ describe("tool-search ranking", () => {
       "archive-email",
       "delete-email",
     ]);
+    // The negation reaches past a modifier, but not into the next clause.
+    expect(names("don't really delete this email")).toEqual([
+      "archive-email",
+      "delete-email",
+    ]);
+    expect(names("don't archive it and delete the email")[0]).toBe(
+      "delete-email",
+    );
+    // A request that is only a negated verb still finds the tool.
+    expect(names("don't delete it")).toEqual(["delete-email"]);
   });
 
   it("demotes only the tools for the verb the request negates", () => {

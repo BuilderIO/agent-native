@@ -377,4 +377,32 @@ export const TOOL_SEARCH_BENCHMARK_CASES: readonly BenchmarkCase[] = [
     prompt: "make a public status page for our services",
     expected: [["save-status-page"]],
   },
+
+  // Inflected verbs from review: each needs its form to meet the base verb.
+  {
+    template: "slides",
+    prompt: "this deck needs to be copied",
+    expected: [["duplicate-deck"]],
+  },
+  {
+    template: "content",
+    prompt: "show me when this page was last modified",
+    expected: [
+      [
+        "get-document-activity",
+        "list-document-history",
+        "list-document-versions",
+      ],
+    ],
+  },
+  {
+    template: "mail",
+    prompt: "the email I scheduled should be cancelled",
+    expected: [["cancel-scheduled-email"]],
+  },
+  {
+    template: "analytics",
+    prompt: "which dashboards is the team using",
+    expected: [["list-dashboard-usage-stats"]],
+  },
 ];
