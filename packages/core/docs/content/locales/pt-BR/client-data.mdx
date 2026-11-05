@@ -308,6 +308,57 @@ await callAction(
 
 Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é limitada por um tempo limite de 60 segundos, e os tempos limite surgem como erros em vez de tentar novamente silenciosamente. `useActionQuery()` também cancela solicitações substituídas automaticamente, usando o abort signal do React Query.
 
+### Falhas de gravação {#write-failures}
+
+Quando um salvamento iniciado pelo usuário falha, o app mostra um toast compartilhado em vez de nada. `useActionMutation()` faz isso automaticamente. Um `mutate()` que falha mostra o toast, a menos que um `onError` trate a falha, seja nas opções do hook ou na chamada de `mutate()`. Um `mutateAsync()` que falha mostra o toast somente quando a rejeição fica sem tratamento, por exemplo um `await` sem `try/catch` acima dele. Um `catch` que lança um novo `Error` no lugar do original não é reportado.
+
+A opção `errorNotification` muda esse padrão:
+
+| Valor             | Comportamento                                                                                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (padrão) | Mostra o toast somente quando nada mais trata a falha.                                                                                                      |
+| `"shared"`        | Mostra o toast em toda falha, mesmo ao lado do seu próprio `onError`. Use quando o handler apenas reverte ou registra logs.                                 |
+| `"caller"`        | Nunca mostra o toast. Use em salvamentos em segundo plano, em uma falha que você ignora de propósito ou em um lugar que renderiza o erro por conta própria. |
+
+`errorLabel` substitui o título do toast pelo seu próprio texto, já traduzido. No exemplo abaixo, uma atribuição que falha mostra esse título em vez do genérico.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+Um salvamento automático que tenta de novo na próxima alteração não deve interromper o usuário, então ele desativa essa opção.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+Uma gravação que não é um `useActionMutation()`, como um `fetch` para um upload ou um `catch` que engole um erro, comunica a falha com `reportWriteFailure()`. O erro de um `fetch` puro não traz status, então o toast mostra seu rótulo ou o título genérico. Um `useMutation()` puro entra nesse fluxo ao passar `meta: surfaceMutationError(label)`, que aceita o mesmo rótulo opcional.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+O texto do toast depende da falha. Um `401` e uma requisição cancelada não mostram nada, porque a verificação de sessão já trata o `401`. Estar offline, um timeout e um `403` mostram cada um uma mensagem curta e traduzida abaixo do título. Um `5xx` mostra apenas o título, porque o servidor oculta o próprio texto de erro. Quando uma action recusa com um erro `4xx` tipado vindo de `fail()`, o toast mostra a mensagem que a action escreveu; veja [Falhar uma action](/docs/actions-defining#failing). Um `403` nunca mostra texto do servidor.
+
+`AppProviders` monta o componente que escuta essas falhas, `WriteFailureToaster`, sempre que a prop `toaster` não for `null`. Um app que não usa `AppProviders`, ou que passa `toaster={null}`, renderiza `<WriteFailureToaster />` de `@agent-native/toolkit/app/shared` dentro do seu `QueryClientProvider` e ao lado do seu próprio `Toaster`. Sem ele, nenhum toast é exibido.
+
 ## useDbSync {#usedbsync}
 
 <Signature
