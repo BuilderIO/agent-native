@@ -125,13 +125,25 @@ describe("resolveNotionSetupTarget", () => {
     window.fetch = originalFetch;
   });
 
+  it("does not start setup while the connection status is unknown", async () => {
+    const fetchMock = vi.fn();
+    window.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(resolveNotionSetupTarget(undefined)).resolves.toEqual({
+      kind: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("starts Notion OAuth when only the MCP server is connected", async () => {
     window.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ url: "https://api.notion.com/v1/oauth/authorize" }),
     }) as unknown as typeof fetch;
 
-    await expect(resolveNotionSetupTarget({})).resolves.toEqual({
+    await expect(
+      resolveNotionSetupTarget({ connected: false }),
+    ).resolves.toEqual({
       kind: "oauth",
       url: "https://api.notion.com/v1/oauth/authorize",
     });
@@ -139,7 +151,10 @@ describe("resolveNotionSetupTarget", () => {
 
   it("falls back to settings when OAuth credentials are missing", async () => {
     await expect(
-      resolveNotionSetupTarget({ error: "missing_credentials" }),
+      resolveNotionSetupTarget({
+        connected: false,
+        error: "missing_credentials",
+      }),
     ).resolves.toEqual({ kind: "settings" });
   });
 });

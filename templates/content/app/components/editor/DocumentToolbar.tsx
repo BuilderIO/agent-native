@@ -1036,7 +1036,12 @@ export function DocumentToolbar({
     `notion-auto-sync:${documentId}`,
     false,
   );
-  const { data: connection } = useNotionConnection();
+  const {
+    data: connection,
+    status: connectionStatus,
+    isError: connectionFailed,
+    refetch: refetchConnection,
+  } = useNotionConnection();
   // The sync status loads after the page settles, or as soon as the page
   // actions open, since the Notion item there depends on it.
   const [pageActionsOpened, setPageActionsOpened] = useState(false);
@@ -1120,20 +1125,22 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
-  // Until a status read succeeds the toolbar can't tell a linked page from
-  // an unlinked one, so the Notion item waits instead of offering a link. A
+  // Until the connection and sync reads succeed the toolbar can't tell a
+  // linked page from an unlinked one, so it waits instead of offering setup or a link. A
   // failed read counts as waiting too, even with an earlier answer cached:
   // linking a page that's already linked pulls Notion over local edits. So
   // does an old answer cached by an earlier visit (see
   // isDocumentSyncStatusCurrent).
   const notionStatusPending =
-    isConnected &&
     notionStatusApplies &&
-    !isDocumentSyncStatusCurrent({
-      status: syncStatusState,
-      isFetchedAfterMount: syncStatusReadSinceMount,
-      dataUpdatedAt: syncStatusAnsweredAt,
-    });
+    (connectionStatus !== "success" ||
+      typeof connection?.connected !== "boolean" ||
+      (isConnected &&
+        !isDocumentSyncStatusCurrent({
+          status: syncStatusState,
+          isFetchedAfterMount: syncStatusReadSinceMount,
+          dataUpdatedAt: syncStatusAnsweredAt,
+        })));
   const notionStatusChecking = notionStatusPending && syncStatusFetching;
   // A read that fails while the Notion popover is open closes it, so its link
   // form can't act on the stale answer (and it doesn't reopen on a retry).
@@ -1499,7 +1506,13 @@ export function DocumentToolbar({
   const handleSetup = async () => {
     setOpen(false);
     try {
-      const target = await resolveNotionSetupTarget(connection);
+      const target = await resolveNotionSetupTarget(
+        connectionStatus === "success" ? connection : undefined,
+      );
+      if (target.kind === "unavailable") {
+        toast.error(t("empty.genericError"));
+        return;
+      }
       if (target.kind === "oauth") {
         window.location.href = target.url;
         return;
@@ -1880,6 +1893,7 @@ export function DocumentToolbar({
               if (nextOpen) {
                 setPageActionsOpened(true);
                 // Reopening the menu retries a status read that failed.
+                if (connectionFailed) void refetchConnection();
                 if (syncStatusFailed) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
@@ -2512,6 +2526,16 @@ export function DocumentToolbar({
                       )}
                     </PopoverContent>
                   </Popover>
+                ) : null}
+                {notionStatusApplies && connectionFailed ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void refetchConnection();
+                    }}
+                  >
+                    {t("database.retry")}
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuGroup>
               {canDelete && onDelete ? (

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   startupSettled: false,
   fetchUrls: [] as string[],
   answerStatus: null as null | ((body: unknown, status?: number) => void),
+  connectionResponse: null as null | Promise<{ body: unknown; status: number }>,
+  answerConnection: null as null | ((body: unknown, status?: number) => void),
 }));
 
 vi.mock("@agent-native/toolkit/clipboard", () => ({
@@ -142,6 +144,8 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     mocks.startupSettled = false;
     mocks.fetchUrls.length = 0;
     mocks.answerStatus = null;
+    mocks.connectionResponse = null;
+    mocks.answerConnection = null;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
@@ -154,20 +158,33 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
           for (const { action } of requests) {
             mocks.fetchUrls.push(`/_agent-native/actions/${action}`);
           }
-          return json({
-            results: requests.map(({ action }) => ({
-              status: 200,
-              body:
-                action === "connect-notion-status"
-                  ? { connected: true }
-                  : action === "search-notion-pages"
-                    ? { results: [] }
-                    : {},
-            })),
-          });
+          const results = await Promise.all(
+            requests.map(async ({ action }) => {
+              if (
+                action === "connect-notion-status" &&
+                mocks.connectionResponse
+              ) {
+                return mocks.connectionResponse;
+              }
+              return {
+                status: 200,
+                body:
+                  action === "connect-notion-status"
+                    ? { connected: true }
+                    : action === "search-notion-pages"
+                      ? { results: [] }
+                      : {},
+              };
+            }),
+          );
+          return json({ results });
         }
         mocks.fetchUrls.push(href);
         if (href.includes("connect-notion-status")) {
+          if (mocks.connectionResponse) {
+            const response = await mocks.connectionResponse;
+            return json(response.body, response.status);
+          }
           return json({ connected: true });
         }
         if (href.includes("search-notion-pages")) {
@@ -194,6 +211,78 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     queryClient.clear();
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("blocks setup while connection status is unresolved or failed, and recovers on retry", async () => {
+    mocks.connectionResponse = new Promise((resolve) => {
+      mocks.answerConnection = (body, status = 200) =>
+        resolve({ body, status });
+    });
+    await renderToolbar();
+    await openPageActions();
+    expect(notionItem()?.disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.setUpNotion",
+    );
+
+    await act(async () =>
+      mocks.answerConnection?.({ error: "unavailable" }, 500),
+    );
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(true));
+    expect(
+      mocks.fetchUrls.some((url) => url.includes("/api/notion/auth-url")),
+    ).toBe(false);
+
+    mocks.connectionResponse = Promise.resolve({
+      body: { connected: false },
+      status: 200,
+    });
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("database.retry"),
+    );
+    const retry = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent.trim() === "database.retry");
+    await act(async () => retry?.click());
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
+    expect(notionItem()?.textContent.trim()).toBe(
+      "editor.toolbar.connectNotion",
+    );
+    await act(async () => notionItem()?.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("editor.toolbar.setUpNotion"),
+    );
+  });
+
+  it("closes setup when a connection refetch fails despite a cached disconnected answer", async () => {
+    mocks.connectionResponse = Promise.resolve({
+      body: { connected: false },
+      status: 200,
+    });
+    await renderToolbar();
+    await openPageActions();
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
+    await act(async () => notionItem()?.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("editor.toolbar.setUpNotion"),
+    );
+
+    mocks.connectionResponse = Promise.resolve({
+      body: { error: "unavailable" },
+      status: 500,
+    });
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: ["action", "connect-notion-status"],
+      });
+    });
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(true));
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.setUpNotion",
+    );
+    expect(
+      mocks.fetchUrls.some((url) => url.includes("/api/notion/auth-url")),
+    ).toBe(false);
   });
 
   it("asks for the status when the page actions open, and offers no link form until it answers", async () => {
