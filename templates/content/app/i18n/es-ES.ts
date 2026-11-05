@@ -2094,7 +2094,8 @@ const overrides = {
       "La IA está trabajando en este hilo. Detenla antes de eliminar el hilo.",
     deleteRefusedAiSuggestion:
       "La sugerencia de la IA en este hilo está pendiente de revisión. Acéptala o recházala antes de eliminar el hilo.",
-    deleteRefusedBusy: "Este hilo se está modificando ahora mismo. Vuelve a intentar eliminarlo en un momento.",
+    deleteRefusedBusy:
+      "Este hilo se está modificando ahora mismo. Vuelve a intentar eliminarlo en un momento.",
     submit: "Comentar",
     askAi: "Preguntar a la IA",
     aiBadge: "IA",

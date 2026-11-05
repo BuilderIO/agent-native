@@ -1858,7 +1858,8 @@ const overrides = {
       "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
     deleteRefusedAiSuggestion:
       "La suggestion de l'IA dans ce fil attend votre examen. Acceptez-la ou refusez-la avant de supprimer le fil.",
-    deleteRefusedBusy: "Ce fil est en cours de modification. Réessayez de le supprimer dans un instant.",
+    deleteRefusedBusy:
+      "Ce fil est en cours de modification. Réessayez de le supprimer dans un instant.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

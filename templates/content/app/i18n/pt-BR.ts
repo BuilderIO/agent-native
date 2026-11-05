@@ -1845,7 +1845,8 @@ const overrides = {
       "A IA está trabalhando nesta conversa. Pare-a antes de excluir a conversa.",
     deleteRefusedAiSuggestion:
       "A sugestão da IA nesta conversa está aguardando revisão. Aceite-a ou rejeite-a antes de excluir a conversa.",
-    deleteRefusedBusy: "Esta conversa está sendo alterada agora. Tente excluí-la novamente em instantes.",
+    deleteRefusedBusy:
+      "Esta conversa está sendo alterada agora. Tente excluí-la novamente em instantes.",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",
