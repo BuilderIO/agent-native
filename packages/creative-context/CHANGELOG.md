@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.64
 
 ### Patch Changes
@@ -638,11 +644,5 @@
 ### Patch Changes
 
 - 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
-
-## 0.5.11
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

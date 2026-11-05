@@ -1,3 +1,10 @@
+## 0.15.1
+
+### Patch Changes
+
+- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
 ## 0.15.0
 
 ### Minor Changes
