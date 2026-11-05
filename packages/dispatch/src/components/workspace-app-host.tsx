@@ -811,7 +811,7 @@ export function WorkspaceAppKeepAlive({
           >
             <WorkspaceAppHost
               appId={appId}
-              {...(pathByAppId[appId] !== undefined
+              {...(Object.hasOwn(pathByAppId, appId)
                 ? { initialPath: pathByAppId[appId] }
                 : {})}
               {...(active && onChildRouteChange ? { onChildRouteChange } : {})}
