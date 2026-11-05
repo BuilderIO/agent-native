@@ -13,6 +13,7 @@ import {
   readBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
+import { lockDatabaseMemberships } from "../../actions/_database-membership-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -33,6 +34,7 @@ import {
   type DocumentHistoryCause,
 } from "../lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../lib/document-updated-at.js";
+import { firstRow } from "../lib/first-row.js";
 import {
   isLinkedToLocalFile,
   liveBodyWriterFlagsOn,
@@ -179,7 +181,6 @@ export interface LockedPage {
   page: PageRow;
   blocksFields: BlocksFields;
   lockedDatabaseIds: ReadonlySet<string>;
-  lockedMembershipIds: ReadonlySet<string>;
 }
 
 function scopeChanged(message: string): never {
@@ -202,7 +203,7 @@ function requirePrimaryBlocksField(locked: LockedPage, propertyId: string) {
 
 /**
  * Locks a page for a body write in Content's row-lock order: the collection
- * it backs, the inline collections it owns and the cause's `lockCollections`,
+ * it backs, those containing it, the inline collections it owns and the cause's `lockCollections`,
  * in one id-ordered pass; then its memberships; then the page row. Core
  * takes `_collab_docs` after all of them. Undefined when the page does not
  * exist.
@@ -218,13 +219,21 @@ async function lockPageForBodyWrite(
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId));
   if (!owner) return undefined;
+  const memberships = await pageMemberships(db, documentId);
+  const requiredCollections = [
+    ...new Set([...lockCollections, ...memberships.values()]),
+  ];
+  const collectionColumns = {
+    id: schema.contentDatabases.id,
+    documentId: schema.contentDatabases.documentId,
+    ownerDocumentId: schema.contentDatabases.ownerDocumentId,
+    ownerEmail: schema.contentDatabases.ownerEmail,
+    deletedAt: schema.contentDatabases.deletedAt,
+  };
   const databases = await db
-    .select({
-      id: schema.contentDatabases.id,
-      documentId: schema.contentDatabases.documentId,
-    })
+    .select(collectionColumns)
     .from(schema.contentDatabases)
-    .innerJoin(
+    .leftJoin(
       schema.documents,
       eq(schema.documents.id, schema.contentDatabases.documentId),
     )
@@ -239,27 +248,54 @@ async function lockPageForBodyWrite(
           eq(schema.contentDatabases.ownerEmail, owner.ownerEmail),
           isNull(schema.contentDatabases.deletedAt),
         ),
-        lockCollections.length > 0
-          ? inArray(schema.contentDatabases.id, [...lockCollections])
+        requiredCollections.length > 0
+          ? inArray(schema.contentDatabases.id, requiredCollections)
           : undefined,
       ),
     )
-    .orderBy(sql`${schema.contentDatabases.id} COLLATE "C"`)
-    .for("update", { of: schema.contentDatabases });
+    .orderBy(sql`${schema.contentDatabases.id} COLLATE "C"`);
   if (databases.filter((row) => row.documentId === documentId).length > 1) {
     scopeChanged(
       "The document's backing collection changed. Read the document again and retry.",
     );
   }
-  if (lockCollections.some((id) => !databases.some((row) => row.id === id))) {
+  if (
+    requiredCollections.some((id) => !databases.some((row) => row.id === id))
+  ) {
     scopeChanged(
       "The document's collection changed while it saved. Read the document again and retry.",
     );
   }
-  // Read before the lock, so a membership added in between is refused later
-  // rather than written without its lock.
-  const memberships = await pageMembershipIds(db, documentId);
-  const blocksFields = await lockPrimaryBlocksFields(db, documentId);
+  for (const database of databases) {
+    const changesCollection =
+      lockCollections.includes(database.id) ||
+      database.documentId === documentId ||
+      database.ownerDocumentId === documentId;
+    // Membership-only saves can share this policy lock; collection mutations still conflict.
+    const locked = firstRow(
+      await db
+        .select(collectionColumns)
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, database.id))
+        .for(changesCollection ? "update" : "share"),
+    );
+    if (
+      !locked ||
+      locked.documentId !== database.documentId ||
+      locked.ownerDocumentId !== database.ownerDocumentId ||
+      locked.ownerEmail !== database.ownerEmail ||
+      locked.deletedAt !== database.deletedAt
+    ) {
+      scopeChanged(
+        "The document's collection changed while it saved. Read the document again and retry.",
+      );
+    }
+  }
+  await lockDatabaseMemberships(db, [...memberships.keys()]);
+  await assertMembershipsLocked(db, documentId, memberships);
+  const blocksFields = await lockPrimaryBlocksFields(db, documentId, {
+    heldMembershipIds: new Set(memberships.keys()),
+  });
   // guard:allow-unscoped — locks the page row whose owner was read above, for a write already authorized.
   const [page] = await db
     .select(pageColumns)
@@ -272,40 +308,47 @@ async function lockPageForBodyWrite(
       `Page ${documentId} changed owner while its body was being written. Read it again and retry.`,
     );
   }
+  await assertMembershipsLocked(db, documentId, memberships);
   return {
     page: page as PageRow,
     blocksFields,
     lockedDatabaseIds: new Set(databases.map((row) => row.id)),
-    lockedMembershipIds: new Set(memberships),
   };
 }
 
-async function pageMembershipIds(
+async function pageMemberships(
   db: ContentDb,
   documentId: string,
-): Promise<string[]> {
+): Promise<Map<string, string>> {
   // guard:allow-unscoped — lists the memberships of a page whose write was already authorized.
   const rows = await db
-    .select({ id: schema.contentDatabaseItems.id })
+    .select({
+      id: schema.contentDatabaseItems.id,
+      databaseId: schema.contentDatabaseItems.databaseId,
+    })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.documentId, documentId));
-  return rows.map((row) => row.id);
+  return new Map(rows.map((row) => [row.id, row.databaseId]));
 }
 
 /**
- * The blocks-field write covers the memberships locked before the page. One
- * added since would get no write, and locking it now would take it after the
- * page, against an edit or restore that locks memberships first.
+ * Membership locks protect existing rows. A new row, or a collection changed
+ * before those locks, must not add a collection lock after the page lock.
  */
 async function assertMembershipsLocked(
   db: ContentDb,
   documentId: string,
-  lockedMembershipIds: ReadonlySet<string>,
+  lockedMemberships: ReadonlyMap<string, string>,
 ): Promise<void> {
-  const current = await pageMembershipIds(db, documentId);
-  if (current.some((id) => !lockedMembershipIds.has(id))) {
+  const current = await pageMemberships(db, documentId);
+  if (
+    current.size !== lockedMemberships.size ||
+    [...current].some(
+      ([id, databaseId]) => lockedMemberships.get(id) !== databaseId,
+    )
+  ) {
     scopeChanged(
-      "The document was added to a collection while it saved. Read the document again and retry.",
+      "The document's collection changed while it saved. Read the document again and retry.",
     );
   }
 }
@@ -498,16 +541,12 @@ async function writeBody(args: {
   rebaselinesAnchors?: true;
 }): Promise<PersistedContentBodyCommit> {
   const { db, documentId, text, cause } = args;
-  const { page, blocksFields, lockedDatabaseIds, lockedMembershipIds } =
-    args.locked;
+  const { page, blocksFields, lockedDatabaseIds } = args.locked;
   const expected = cause?.expectedBlocksFieldRevision;
   const identity = cause?.blocksFieldIdentity;
   if (expected) requirePrimaryBlocksField(args.locked, expected.propertyId);
   if (identity) requirePrimaryBlocksField(args.locked, identity.propertyId);
   const changed = text !== page.content;
-  if (changed) {
-    await assertMembershipsLocked(db, documentId, lockedMembershipIds);
-  }
   const bodyRevision = page.bodyRevision + (changed ? 1 : 0);
   const updatedAt = changed
     ? nextDocumentUpdatedAt(page.updatedAt)
