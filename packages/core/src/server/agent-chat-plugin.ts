@@ -9398,6 +9398,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
             deferReceipt(receipt.threadId);
+            scheduleFollowUpDrain(receipt.threadId);
             break;
           }
           let claimId: string | undefined;
