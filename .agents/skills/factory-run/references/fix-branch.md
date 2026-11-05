@@ -44,8 +44,8 @@ reported failure, or change anything beyond fixing it.
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
    has this fix, end with `OUTCOME: already-fixed <sha>`; if an open
-   PR from a person does, don't send yours: end with `OUTCOME: blocked`
-   naming it; if an open factory PR does, still send yours and name it in your
+   PR from a person does, don't send yours: end with
+   `OUTCOME: already-fixed <that PR's url>`; if an open factory PR does, still send yours and name it in your
    reply, so the factory run can pick one under `factory-run`'s "Duplicate and
    competing PRs".
 5. **Live mode:** send one ready pull request (never a draft) for this branch
@@ -73,7 +73,7 @@ reported failure, or change anything beyond fixing it.
    If you could not reproduce or fix it, end with:
 
    ```text
-   OUTCOME: could-not-reproduce | already-fixed <sha> | blocked | not-code
+   OUTCOME: could-not-reproduce | already-fixed <sha or PR url> | blocked | not-code
    ROOT CAUSE: <as above>
    WHY: <one sentence>
    ```
