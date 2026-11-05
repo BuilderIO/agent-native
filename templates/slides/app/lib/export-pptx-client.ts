@@ -2205,9 +2205,8 @@ export async function buildDeckPptxBlob(
   let blankShapes = 0;
 
   try {
-    for (let i = 0; i < slides.length; i++) {
+    for (const [i, exportSlide] of slides.entries()) {
       throwIfExportAborted(signal);
-      const exportSlide = slides[i];
       const source = findSlideExportSource(
         exportSlide.id,
         i,

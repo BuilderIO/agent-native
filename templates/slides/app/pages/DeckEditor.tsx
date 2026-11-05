@@ -1372,7 +1372,7 @@ export default function DeckEditor() {
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
   const deckExportAnalytics = {
-    deckId: id,
+    ...(id ? { deckId: id } : {}),
     ...(typeof generationContext?.generationAttemptId === "string"
       ? { generationAttemptId: generationContext.generationAttemptId }
       : {}),

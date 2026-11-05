@@ -212,6 +212,7 @@ describe("exportDeckAsPptx", () => {
     const [editorCanvas, stageCanvas] = document.querySelectorAll<HTMLElement>(
       '[data-slide-canvas="slide-1"]',
     );
+    if (!editorCanvas || !stageCanvas) throw new Error("test canvases missing");
     Object.defineProperty(editorCanvas, "offsetWidth", { value: 1200 });
     Object.defineProperty(stageCanvas, "offsetWidth", { value: 960 });
     const diagram = stageCanvas.querySelector<HTMLElement>(
@@ -226,7 +227,7 @@ describe("exportDeckAsPptx", () => {
     await exportDeckAsPptx("Diagram Deck", [{ id: "slide-1" }], "16:9");
 
     const [[target]] = mocks.exportToPptx.mock.calls[0] as [HTMLElement[]];
-    expect(target.textContent).toContain("Diagram ready");
+    expect(target?.textContent).toContain("Diagram ready");
   });
 
   it("replaces inline SVGs before passing DOM to the native exporter", async () => {

@@ -13,8 +13,8 @@ export function PdfExportStage({
   designSystem,
 }: {
   slides: Slide[];
-  aspectRatio?: AspectRatio;
-  designSystem?: DesignSystemData;
+  aspectRatio?: AspectRatio | undefined;
+  designSystem?: DesignSystemData | undefined;
 }) {
   const dims = getAspectRatioDims(aspectRatio);
 
