@@ -113,6 +113,20 @@ function watchThePage(page: Page) {
 
 /** Accepts the one suggestion, and returns what the page did until it settled. */
 async function acceptAndWatch(page: Page, id: string, typed: string) {
+  // A save back within a frame would leave no time to watch, so each one waits
+  // long enough for many frames to see the page while it saves.
+  let held = 0;
+  await page.route(
+    (url) =>
+      url.pathname.startsWith(
+        "/_agent-native/actions/decide-resource-suggestion",
+      ),
+    async (route) => {
+      held += 1;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.continue();
+    },
+  );
   const watch = await watchThePage(page);
   await acceptButton(page).click();
   await expect
@@ -125,6 +139,7 @@ async function acceptAndWatch(page: Page, id: string, typed: string) {
   await expect(
     page.locator(`${ACTIVE_EDITOR} [data-suggestion-id]`),
   ).toHaveCount(0, { timeout: 30_000 });
+  expect(held, "saves held while watching").toBeGreaterThan(0);
   return watch.jsonValue();
 }
 
