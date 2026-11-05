@@ -166,11 +166,16 @@ export async function delegateImageGenerationToAssets(
   const requestedTarget = resolveAssetsUrlOverride() || ASSETS_AGENT_TARGET;
 
   let targetUrl: string;
+  let allowedPrivateOrigins: string[];
   try {
     const resolved = await resolveAgentInvocationTarget(requestedTarget, {
       selfAppId: SELF_APP_ID,
     });
     targetUrl = resolved.url;
+    // Only the operator-set override URL may reach a private origin; a
+    // discovered agent URL can be user-registered.
+    allowedPrivateOrigins =
+      resolved.kind === "url" ? [new URL(resolved.url).origin] : [];
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
@@ -186,6 +191,7 @@ export async function delegateImageGenerationToAssets(
     const tokens = await buildCallerTokens(targetUrl, auth);
     const client = new A2AClient(targetUrl, tokens[0], {
       fallbackApiKeys: tokens.slice(1),
+      allowedPrivateOrigins,
     });
 
     const task = await client.sendAndWait(

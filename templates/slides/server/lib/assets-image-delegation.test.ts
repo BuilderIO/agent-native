@@ -30,11 +30,15 @@ vi.mock("@agent-native/core/a2a", () => ({
   canonicalA2AAudience: (url: string) => url.replace(/\/+$/, ""),
   getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
   resolveA2ACallerAuth: resolveA2ACallerAuthMock,
-  resolveAgentInvocationTarget: vi.fn(async () => ({
-    kind: "discovered",
-    name: "Assets",
-    url: "https://assets.example.com",
-  })),
+  resolveAgentInvocationTarget: vi.fn(async (target: string) =>
+    target.startsWith("http")
+      ? { kind: "url", name: target, url: target }
+      : {
+          kind: "discovered",
+          name: "Assets",
+          url: "https://assets.example.com",
+        },
+  ),
   signA2AToken: signA2ATokenMock,
   signA2AOrganizationToken: signA2AOrganizationTokenMock,
 }));
@@ -65,6 +69,33 @@ describe("delegateImageGenerationToAssets", () => {
     A2AClientMock.mockClear();
     signA2AOrganizationTokenMock.mockClear();
     signA2ATokenMock.mockClear();
+  });
+
+  it("trusts only the configured Assets URL origin as a private origin", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    vi.stubEnv("IMAGES_A2A_URL", "http://localhost:8100/_agent-native/a2a");
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(A2AClientMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://localhost:8100"],
+      }),
+    );
+  });
+
+  it("does not trust a discovered Assets URL as a private origin", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    await delegateImageGenerationToAssets({ prompt: "a hero" });
+    expect(A2AClientMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ allowedPrivateOrigins: [] }),
+    );
   });
 
   it("reports a completed run as delegated", async () => {
@@ -182,6 +213,7 @@ describe("delegateImageGenerationToAssets", () => {
             "org-fallback-key",
             "static-override",
           ],
+          allowedPrivateOrigins: [],
         },
       );
     } finally {
@@ -222,6 +254,7 @@ describe("delegateImageGenerationToAssets", () => {
             "resolved-key",
             "org-fallback-key",
           ],
+          allowedPrivateOrigins: [],
         },
       );
     } finally {
@@ -251,7 +284,7 @@ describe("delegateImageGenerationToAssets", () => {
       expect(A2AClientMock).toHaveBeenCalledWith(
         "https://assets.example.com",
         undefined,
-        { fallbackApiKeys: [] },
+        { fallbackApiKeys: [], allowedPrivateOrigins: [] },
       );
     } finally {
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
