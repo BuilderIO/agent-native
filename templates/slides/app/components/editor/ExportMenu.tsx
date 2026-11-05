@@ -206,7 +206,7 @@ export function ExportStatusDialog({
 function ExportActionItems({
   hasSlides,
   googleSlidesAvailable,
-  googleConnected,
+  googleDisconnectable,
   onExportHtml,
   onExportPdf,
   onExportPptx,
@@ -216,7 +216,7 @@ function ExportActionItems({
 }: {
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
-  googleConnected: boolean;
+  googleDisconnectable: boolean;
   onExportHtml: () => void;
   onExportPdf?: () => void;
   onExportPptx: () => void;
@@ -266,7 +266,7 @@ function ExportActionItems({
           ) : null}
         </DropdownMenuItem>
       )}
-      {onDisconnectGoogle && googleConnected && (
+      {onDisconnectGoogle && googleDisconnectable && (
         <DropdownMenuItem
           onClick={onDisconnectGoogle}
           className="cursor-pointer"
@@ -312,7 +312,7 @@ export function ExportSubmenu({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
-          googleConnected={googleSlidesExport.connected}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
             showPdf ? () => void exportMenuRef.current?.exportPdf() : undefined
@@ -376,7 +376,7 @@ export function ExportDropdown({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
-          googleConnected={googleSlidesExport.connected}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           downloadLabels
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
@@ -659,13 +659,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const handleDisconnectGoogle = async () => {
       try {
         await disconnectGoogleDocs(queryClient);
-      } catch (err) {
+      } catch {
         updateExportStatus({
           state: "error",
-          message:
-            err instanceof Error
-              ? err.message
-              : t("editorExport.googleDisconnectFailed"),
+          message: t("editorExport.googleDisconnectFailed"),
         });
       }
     };
@@ -694,7 +691,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <ExportActionItems
         hasSlides={hasSlides}
         googleSlidesAvailable={googleSlidesExport.available}
-        googleConnected={googleSlidesExport.connected}
+        googleDisconnectable={googleSlidesExport.disconnectable}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={onExportPdf ? () => void handleExportPdf() : undefined}
         onExportPptx={() => void handleExportPptx()}

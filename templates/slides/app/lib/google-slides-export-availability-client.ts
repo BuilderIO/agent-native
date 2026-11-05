@@ -6,7 +6,7 @@ export type GoogleSlidesExportAvailability =
   | { available: false; reason: "not-configured" | "oauth-rejected" };
 
 export type GoogleSlidesExportState = GoogleSlidesExportAvailability & {
-  connected: boolean;
+  disconnectable: boolean;
 };
 
 export const GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY = [
@@ -18,11 +18,11 @@ const STALE_MS = 30_000;
 
 const UNKNOWN_STATE: GoogleSlidesExportState = {
   available: true,
-  connected: false,
+  disconnectable: false,
 };
 
 type StatusBody = {
-  connected?: boolean;
+  disconnectable?: boolean;
   googleSlidesExport?: GoogleSlidesExportAvailability;
 };
 
@@ -46,12 +46,12 @@ async function load(): Promise<GoogleSlidesExportState> {
   );
   const result = await readStatusBody(response);
   if ("unreadable" in result) return UNKNOWN_STATE;
-  const connected = result.body?.connected === true;
+  const disconnectable = result.body?.disconnectable === true;
   const reported = result.body?.googleSlidesExport;
   if (!reported || typeof reported.available !== "boolean") {
-    return { available: true, connected };
+    return { available: true, disconnectable };
   }
-  return { ...reported, connected };
+  return { ...reported, disconnectable };
 }
 
 const availabilityQuery = {
@@ -84,10 +84,13 @@ export async function disconnectGoogleDocs(
     ),
     { method: "POST", credentials: "same-origin" },
   );
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
   const body = (await response.json()) as { ok?: boolean; error?: string };
-  if (!response.ok || body.error || body.ok !== true) {
+  if (body.error || body.ok !== true) {
     throw new Error(
-      body.error ?? `Request failed with status ${response.status}`,
+      body.error ?? "Google Drive did not confirm the disconnect.",
     );
   }
   invalidateGoogleSlidesExportAvailability(queryClient);

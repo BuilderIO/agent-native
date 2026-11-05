@@ -41,6 +41,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.openInGoogleSlides": "Export to Google Slides",
         "editorExport.googleSlidesUnavailable": "Unavailable",
         "editorExport.disconnectGoogle": "Disconnect Google",
+        "editorExport.googleDisconnectFailed":
+          "Could not disconnect Google Drive.",
         "editorExport.googleSlidesUnavailableHint":
           "Google Slides export is unavailable right now.",
         "editorExport.exportFailed": "Export failed",
@@ -286,7 +288,7 @@ describe("<ExportMenu> Google Slides availability", () => {
       String(input).includes("/google-docs/disconnect")
         ? statusResponse({ ok: true })
         : statusResponse({
-            connected: true,
+            disconnectable: true,
             googleSlidesExport: { available: true },
           }),
     );
@@ -313,7 +315,7 @@ describe("<ExportMenu> Google Slides availability", () => {
       String(input).includes("/google-docs/disconnect")
         ? statusResponse({ error: "Google refused the request" })
         : statusResponse({
-            connected: true,
+            disconnectable: true,
             googleSlidesExport: { available: true },
           }),
     ) as typeof fetch;
@@ -325,6 +327,27 @@ describe("<ExportMenu> Google Slides availability", () => {
       await screen.findByRole("menuitem", { name: "Disconnect Google" }),
     );
 
-    expect(await screen.findByText("Google refused the request")).toBeTruthy();
+    expect(
+      await screen.findByText("Could not disconnect Google Drive."),
+    ).toBeTruthy();
+  });
+
+  it("hides Disconnect when the only account is the workspace's shared one", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      statusResponse({
+        connected: true,
+        disconnectable: false,
+        googleSlidesExport: { available: true },
+      }),
+    ) as typeof fetch;
+
+    renderMenu();
+    openExportMenu();
+
+    await googleSlidesItem();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("menuitem", { name: "Disconnect Google" }),
+    ).toBeNull();
   });
 });
