@@ -59,6 +59,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
@@ -618,7 +619,9 @@ export function ComponentSection({
     }
   }, [activeContent, designId, fileId, nodeId]);
 
-  const openSourceMutation = useActionMutation("open-component-source");
+  const openSourceMutation = useActionMutation("open-component-source", {
+    meta: SURFACE_MUTATION_ERROR,
+  });
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");
