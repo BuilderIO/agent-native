@@ -564,6 +564,7 @@ describe("syncA2ASecretHandler", () => {
         if (mode === "self-and-sibling" || mode === "basepath-self-and-sibling")
           expect(mockDiscoverAgents).toHaveBeenCalledWith("sender", {
             workspaceAppsManifest: expect.any(Array),
+            requireResolvableWorkspaceUrls: true,
           });
         if (mode === "unregistered") {
           expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
@@ -860,6 +861,7 @@ describe("syncA2ASecretHandler", () => {
     });
     expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
       workspaceAppsManifest: expect.any(Array),
+      requireResolvableWorkspaceUrls: true,
     });
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
@@ -882,6 +884,21 @@ describe("syncA2ASecretHandler", () => {
     mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
     await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
       "Invalid workspace apps environment manifest",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unresolved workspace recipient before sending", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue(null as any);
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "unresolved-peer", name: "Unresolved", path: "/unresolved-peer" },
+    ]);
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+    await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
+      "Invalid workspace app URL: unresolved-peer",
     );
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
@@ -949,6 +966,7 @@ describe("syncA2ASecretHandler", () => {
       });
       expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
         workspaceAppsManifest: null,
+        requireResolvableWorkspaceUrls: true,
       });
     } finally {
       resetAppConfigForTests();
@@ -1012,6 +1030,7 @@ describe("syncA2ASecretHandler", () => {
     await syncA2ASecretHandler({} as any);
     expect(mockDiscoverAgents).toHaveBeenCalledWith("calendar", {
       workspaceAppsManifest: null,
+      requireResolvableWorkspaceUrls: true,
     });
   });
 

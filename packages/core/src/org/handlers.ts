@@ -2214,7 +2214,10 @@ export const syncA2ASecretHandler = defineEventHandler(
       (matchingMounts.length === 1 ? matchingMounts[0]?.id : undefined) ??
       (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
     const [discoveredAgents, builtins] = await Promise.all([
-      discoverAgents(selfAppId, { workspaceAppsManifest: workspaceApps }),
+      discoverAgents(selfAppId, {
+        workspaceAppsManifest: workspaceApps,
+        requireResolvableWorkspaceUrls: true,
+      }),
       Promise.resolve(getBuiltinAgentsForSeeding()),
     ]);
     const registeredBuiltins = new Map(

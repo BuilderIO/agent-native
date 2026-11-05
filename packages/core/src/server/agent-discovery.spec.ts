@@ -2110,6 +2110,42 @@ describe("agent discovery", () => {
     });
   });
 
+  it("skips non-app workspace directories but rejects invalid package files", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      const appsDir = path.join(workspaceRoot, "apps");
+      fs.mkdirSync(path.join(appsDir, "notes"), { recursive: true });
+      fs.mkdirSync(path.join(appsDir, "healthy"));
+      fs.writeFileSync(
+        path.join(appsDir, "healthy", "package.json"),
+        JSON.stringify({ name: "healthy" }),
+      );
+      await expect(loadWorkspaceAppsManifest(true)).resolves.toEqual([
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      fs.writeFileSync(
+        path.join(appsDir, "notes", "package.json"),
+        "{bad json",
+      );
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow(
+        "Invalid workspace package: notes",
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-discovery-workspace-"),
