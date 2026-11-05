@@ -1139,8 +1139,12 @@ function debuggerAttach(tabId: number): Promise<void> {
 }
 
 function debuggerDetach(tabId: number): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.debugger.detach({ tabId }, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach({ tabId }, () => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve();
+    });
   });
 }
 
@@ -2437,10 +2441,31 @@ async function attachSession(session: CaptureSession): Promise<void> {
       )
         await detachDebugTab(session, tabId);
     } catch (err) {
-      session.attachError = `Could not check tab ${tabId}'s window: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
+      if (err instanceof TargetWindowLookupError) {
+        session.attachError = `Could not check tab ${tabId}'s window: ${err.message}`;
+      } else {
+        console.warn(
+          "[clips-bg] could not check recent tab's window",
+          tabId,
+          err,
+        );
+      }
+      if (session.debugTabs.has(tabId)) {
+        await detachDebugTab(session, tabId).catch((detachError) => {
+          console.warn(
+            "[clips-bg] could not detach recent tab",
+            tabId,
+            detachError,
+          );
+        });
+      }
     }
+  }
+}
+
+class TargetWindowLookupError extends Error {
+  constructor(readonly original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
   }
 }
 
@@ -2449,10 +2474,12 @@ async function inTargetWindow(
   session: CaptureSession,
   tabId: number,
 ): Promise<boolean> {
-  const [target, tab] = await Promise.all([
-    chrome.tabs.get(session.targetTabId),
-    chrome.tabs.get(tabId),
-  ]);
+  const target = await chrome.tabs
+    .get(session.targetTabId)
+    .catch((err: unknown) => {
+      throw new TargetWindowLookupError(err);
+    });
+  const tab = await chrome.tabs.get(tabId);
   return tab.windowId === target.windowId;
 }
 
@@ -3364,8 +3391,20 @@ chrome.tabs.onAttached.addListener(() => {
     if (!session) return;
     for (const tabId of [...session.debugTabs.keys()]) {
       if (tabId === session.targetTabId) continue;
-      if (!(await inTargetWindow(session, tabId))) {
-        await detachDebugTab(session, tabId);
+      let eligible = false;
+      try {
+        eligible = await inTargetWindow(session, tabId);
+      } catch (err) {
+        console.warn(
+          "[clips-bg] could not check moved tab's window",
+          tabId,
+          err,
+        );
+      }
+      if (!eligible) {
+        await detachDebugTab(session, tabId).catch((err) => {
+          console.warn("[clips-bg] could not detach moved tab", tabId, err);
+        });
       }
     }
   })().catch((err) => {
@@ -3432,10 +3471,22 @@ async function followRecordingTab(
   }
   // Attach first, so a refused tab never costs an attached tab its slot.
   if (!(await attachDebugTab(session, tabId))) return;
-  if (
-    recordingDiagnosticsSession() !== session ||
-    !(await inTargetWindow(session, tabId))
-  ) {
+  let eligible: boolean;
+  try {
+    eligible =
+      recordingDiagnosticsSession() === session &&
+      (await inTargetWindow(session, tabId));
+  } catch (err) {
+    await detachDebugTab(session, tabId).catch((detachError) => {
+      console.warn(
+        "[clips-bg] could not detach followed tab",
+        tabId,
+        detachError,
+      );
+    });
+    throw err;
+  }
+  if (!eligible) {
     await detachDebugTab(session, tabId);
     return;
   }
@@ -3475,8 +3526,12 @@ chrome.tabs.onActivated.addListener((info) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   queueTabActivation(async () => {
-    const [activeTab] = await chrome.tabs.query({ active: true, windowId });
-    const activeTabId = activeTab?.id;
+    const activeTabs: Array<chrome.tabs.Tab | undefined> =
+      await chrome.tabs.query({
+        active: true,
+        windowId,
+      });
+    const activeTabId = activeTabs[0]?.id;
     if (typeof activeTabId === "number") {
       await noteTabActivated(activeTabId, windowId);
     }
