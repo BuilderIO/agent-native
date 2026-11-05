@@ -535,6 +535,7 @@ const messages = {
   share: {
     createFailed: "No se pudo crear el enlace para compartir",
     snapshotLinks: "Enlaces de instantánea",
+    snapshotLinksLoadFailed: "No se pudieron cargar los enlaces de instantánea",
     revokeLink: "Revocar",
     revokeFailed: "No se pudo revocar el enlace para compartir",
     title: "Compartir presentación",

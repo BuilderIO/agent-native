@@ -497,6 +497,7 @@ const messages = {
   share: {
     createFailed: "无法创建共享链接",
     snapshotLinks: "快照链接",
+    snapshotLinksLoadFailed: "无法加载快照链接",
     revokeLink: "撤销",
     revokeFailed: "无法撤销共享链接",
     title: "共享演示文稿",

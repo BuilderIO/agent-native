@@ -518,6 +518,7 @@ const messages = {
   share: {
     createFailed: "Failed to create share link",
     snapshotLinks: "Snapshot links",
+    snapshotLinksLoadFailed: "Couldn't load snapshot links",
     revokeLink: "Revoke",
     revokeFailed: "Could not revoke share link",
     title: "Share Presentation",
