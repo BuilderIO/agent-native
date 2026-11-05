@@ -61,13 +61,13 @@ body { font-size: 14px; }
 .pair { display: flex; align-items: center; gap: 24px; }
 /* Three fixed dots light up in turn, left to right, as if data were carried from the source to Design. */
 .relay { display: flex; gap: 8px; flex: none; }
-.relay i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted-foreground); opacity: .35; animation: relay 1.8s ease-in-out infinite; }
+.relay i { width: 6px; height: 6px; border-radius: 50%; background: var(--relay-off, var(--color-muted-foreground)); opacity: .35; animation: relay 1.8s ease-in-out infinite; }
 .relay i:nth-child(2) { animation-delay: .3s; }
 .relay i:nth-child(3) { animation-delay: .6s; }
 .running .relay i { animation-duration: .9s; }
 .running .relay i:nth-child(2) { animation-delay: .15s; }
 .running .relay i:nth-child(3) { animation-delay: .3s; }
-@keyframes relay { 0%, 45%, 100% { background: var(--color-muted-foreground); opacity: .35; } 15% { background: color-mix(in oklab, var(--imp-blue), var(--imp-a)); opacity: 1; } }
+@keyframes relay { 0%, 45%, 100% { background: var(--relay-off, var(--color-muted-foreground)); opacity: .35; } 15% { background: color-mix(in oklab, var(--imp-blue), var(--imp-a)); opacity: 1; } }
 /* The picker's sources drift toward the mark and shrink into it, two lanes at one speed so they never bunch. */
 .belt { position: absolute; inset: 0; pointer-events: none; }
 .belt .bi { position: absolute; left: 0; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; display: grid; place-items: center; color: var(--color-foreground); will-change: transform, opacity; }
@@ -188,6 +188,13 @@ a.b { color: inherit; text-decoration: none; }
 .orb .lg.w { width: 22px; height: 22px; }
 .core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 72px; height: 72px; margin: -36px 0 0 -36px; display: grid; place-items: center; border-radius: 22px; color: #fff; background: radial-gradient(circle at 50% 40%, rgb(255 255 255 / 10%), transparent 70%); }
 .core .an { width: 52px; height: 30px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--imp-a) 70%, transparent)) drop-shadow(0 0 32px color-mix(in srgb, var(--imp-b) 40%, transparent)); }
+/* The Figma announcement: Figma's layer kinds orbit a Figma to Design pair at the center. The pair's size
+   keeps the inner ring's orbs at least 9px clear of its tiles (3px on the card); grow it and they clip. */
+.orb svg.i { width: 18px; height: 18px; stroke-width: 1.5; }
+.core.pair { width: auto; height: auto; margin: 0; transform: translate(-50%, -50%); border-radius: 0; background: none; gap: 16px; display: flex; align-items: center; --relay-off: rgb(255 255 255 / 55%); }
+.gtile { width: 52px; height: 52px; flex: none; border-radius: 14px; display: grid; place-items: center; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 16%); box-shadow: 0 6px 16px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 255 255 / 8%); }
+.gtile .lg { width: 24px; height: 24px; }
+.gtile .an { width: 28px; height: 17px; }
 .pause { position: absolute; right: 12px; bottom: 12px; z-index: 80; width: 28px; height: 28px; border-radius: calc(var(--radius) - 2px); display: grid; place-items: center; color: #fff; background: rgb(255 255 255 / 18%); backdrop-filter: blur(8px); }
 .pause:hover { background: rgb(255 255 255 / 28%); }
 .pause svg.i { width: 12px; height: 12px; }
@@ -218,6 +225,7 @@ a.b { color: inherit; text-decoration: none; }
   <span class="name">Design import</span><span class="ver">Prototype</span>
   <span class="grow"></span>
   <button class="chip" id="ann-btn">Announcement</button>
+  <button class="chip" id="fig-btn" aria-pressed="false" title="Switch the sidebar card and the announcement to Figma import only">Figma only</button>
   <button class="chip" id="fail-btn" aria-pressed="false" title="Imports stop with an error on the second step">Import fails</button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
@@ -371,13 +379,26 @@ function viewProgress() {
   const err = j.failed ? `<div class="after"><p class="warn" role="alert">${ic("alert-triangle")}<span>${esc(j.error)}</span></p></div>` : "";
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
-// The sidebar card and the dialog share their title and button.
-const ANN = { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", cta: "Import project" };
+// The sidebar card and the dialog share their title and button. The Figma variant announces Figma import
+// alone (a .fig upload with page picking, and paste from Figma, both shipped in Design), and its button
+// goes straight to the Figma upload instead of the picker.
+const ANNS = {
+  all: { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", lead: "Bring a project from another tool into Agent‑Native Design.", cta: "Import project", act: "import-now", proto: "import",
+    checks: ["Move a project from Lovable, v0, Bolt, Replit, and more", "Import a Figma file or a GitHub repository", "Keep building your project as an agentic app"] },
+  figma: { title: "Import from Figma", desc: "Bring your Figma designs in and keep building.", lead: "Bring your Figma designs into Agent‑Native Design.", cta: "Import Figma file", act: "import-figma", proto: "import-figma",
+    checks: ["Upload a .fig file and pick the pages you want", "Copy frames in Figma and paste them onto your canvas", "Keep building your designs as an agentic app"] },
+};
+let annKind = "all";
+const RINGS = '<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg>';
 function viewAnnouncement() {
-  return `<div class="hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
-  <div class="imb"><h2 id="imd-title">${ANN.title}</h2><p class="lead">Bring a project from another tool into Agent‑Native Design.</p>
-  <ul class="checks"><li><i>${ic("check")}</i>Move a project from Lovable, v0, Bolt, Replit, and more</li><li><i>${ic("check")}</i>Import a Figma file or a GitHub repository</li><li><i>${ic("check")}</i>Keep building your project as an agentic app</li></ul>
-  <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="import-now">${ANN.cta}</button></div></div>`;
+  const a = ANNS[annKind];
+  const core = annKind === "figma"
+    ? `<div class="core pair" aria-hidden="true"><span class="gtile">${logo("figma")}</span><span class="relay"><i></i><i></i><i></i></span><span class="gtile">${MARK}</span></div>`
+    : `<div class="core" aria-hidden="true">${MARK}</div>`;
+  return `<div class="hero">${NEBULA}${RINGS}<div class="orbit" id="orbit" aria-hidden="true"></div>${core}<button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>
+  <div class="imb"><h2 id="imd-title">${a.title}</h2><p class="lead">${a.lead}</p>
+  <ul class="checks">${a.checks.map((c) => `<li><i>${ic("check")}</i>${c}</li>`).join("")}</ul>
+  <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="${a.act}">${a.cta}</button></div></div>`;
 }
 
 /* ───────── render ───────── */
@@ -429,8 +450,8 @@ function render({ focus = true, animate = true } = {}) {
   if (S.view !== "picker" && S.src === "other" || S.job?.src === "other") startCycle(); else stopCycle();
 }
 const key = () => S.view === "progress" ? `progress:${S.job?.id}:${S.job?.step >= S.job?.phases.length ? "done" : S.job?.failed ? "fail" : "run"}` : `${S.view}:${S.src}:${S.from}:${!!S.file}`;
-function open(view) {
-  Object.assign(S, { open: true, view, src: null, from: null, file: null, err: "", value: "" });
+function open(view, patch = {}) {
+  Object.assign(S, { open: true, view, src: null, from: null, file: null, err: "", value: "" }, patch);
   // A running import reopens on its progress; a finished or stopped one starts over at the picker.
   if (S.job && (S.job.failed || S.job.step >= S.job.phases.length)) S.job = null;
   if (view !== "announcement" && S.job) { S.view = "progress"; S.src = S.job.src; }
@@ -517,6 +538,7 @@ root.addEventListener("click", (e) => {
   if (act === "close") close();
   else if (act === "back") back();
   else if (act === "import-now") go("picker");
+  else if (act === "import-figma") go("upload", { src: "figma", from: null, file: null });
   else if (act === "learn") toast("Opens the import guide in the Design docs");
   else if (act === "copy") copyText(SRC.manus.prompt, "Prompt copied");
   else if (act === "to-upload") go("upload", { from: S.src, src: "upload", file: null });
@@ -582,6 +604,13 @@ const ORBITS = [
   { rx: 240, ry: 104, phase: 0, ids: ["github", "v0", "webflow", "replit", "wix", "framer"] },
   { rx: 154, ry: 70, phase: Math.PI / 6, ids: ["lovable", "figma", "bolt", "squarespace", "base44", "manus"] },
 ];
+// The Figma announcement keeps both rings' geometry and counts, so its spacing holds, and swaps the logos
+// for the kinds of layers a Figma file brings over.
+const FIG_ORBITS = ORBITS.map((o, i) => ({ ...o, ids: i === 0
+  ? ["i:frame", "i:typography", "i:components", "i:photo", "i:palette", "i:layout-grid"]
+  : ["i:vector-bezier", "i:layout-distribute-horizontal", "i:section", "i:shadow", "i:pointer", "i:box-model-2"] }));
+const orbitsFor = (kind) => kind === "figma" ? FIG_ORBITS : ORBITS;
+const orbGlyph = (id) => id.startsWith("i:") ? ic(id.slice(2)) : logo(id, "", true);
 function slotAngle(o, i, t) { return (i / o.ids.length) * TAU + (t / ORBIT_PERIOD) * TAU + o.phase; }
 function heroGeo() {
   const hero = $(".hero");
@@ -591,7 +620,7 @@ let orbitRaf = 0, orbitT = 0, orbitLast = 0, paused = matchMedia("(prefers-reduc
 function startOrbit() {
   const el = $("#orbit");
   if (!el || el.childElementCount) return;
-  el.innerHTML = ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("");
+  el.innerHTML = orbitsFor(annKind).flatMap((o, oi) => o.ids.map((id, i) => `<span class="orb" data-o="${oi}" data-i="${i}">${orbGlyph(id)}</span>`)).join("");
   syncPause();
   orbitLast = performance.now();
   const frame = (now) => {
@@ -691,6 +720,7 @@ function syncDashTheme() { dash.contentWindow?.postMessage({ protoTheme: themeNo
 addEventListener("message", (e) => {
   if (e.source !== dash.contentWindow) return;
   if (e.data?.proto === "import") open("picker");
+  else if (e.data?.proto === "import-figma") open("upload", { src: "figma" });
   else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
 });
@@ -705,6 +735,17 @@ const CARD_CSS = `${NEBULA_CSS}
 .an-hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 16%); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .an-orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 18%); }
 .an-orb svg { width: 20px; height: 20px; fill: currentColor; }
+.an-orb svg.i { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.an-pair { position: absolute; left: 50%; top: 50%; z-index: 50; display: flex; align-items: center; gap: 6px; transform: translate(-50%, -50%); }
+.an-pair .gt { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: #fff; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 18%); box-shadow: 0 3px 8px rgb(0 0 0 / 40%); }
+.an-pair .gt svg { width: 10px; height: 10px; display: block; }
+.an-pair .gt svg.an { width: 12px; height: 7px; fill: currentColor; }
+.an-pair .dots { display: flex; gap: 2px; }
+.an-pair .dots i { width: 3px; height: 3px; border-radius: 50%; background: rgb(255 255 255 / 55%); opacity: .4; animation: an-relay 1.8s ease-in-out infinite; }
+.an-pair .dots i:nth-child(2) { animation-delay: .3s; }
+.an-pair .dots i:nth-child(3) { animation-delay: .6s; }
+@keyframes an-relay { 0%, 45%, 100% { opacity: .4; background: rgb(255 255 255 / 55%); } 15% { opacity: 1; background: var(--c-blue-500); } }
+@media (prefers-reduced-motion: reduce) { .an-pair .dots i { animation: none; } }
 .an-core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 26px; height: 16px; margin: -8px 0 0 -13px; color: #fff; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c-blue-500) 70%, transparent)); }
 .an-core svg { width: 26px; height: 16px; display: block; }
 .an-open:hover .an-hero { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%); }
@@ -714,27 +755,34 @@ const CARD_CSS = `${NEBULA_CSS}
 .an-cta { margin: 8px 0 4px 8px; height: 24px; font-size: 13px; line-height: 16px; font-weight: 500; color: hsl(var(--foreground)); border-radius: 4px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color .15s; cursor: pointer; }
 .an-cta:hover { text-decoration-color: currentColor; }
 .an-cta:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring)); }`;
-const CARD_HTML = `<div class="an-card"><button type="button" class="an-open" data-proto="announce"><span class="an-hero">${NEBULA}<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg><span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span><span class="an-text"><span class="an-title">${ANN.title}</span><span class="an-desc">${ANN.desc}</span></span></button><button type="button" class="an-cta" data-proto="import">${ANN.cta}</button></div>`;
+function cardHTML(kind) {
+  const a = ANNS[kind];
+  const core = kind === "figma"
+    ? `<span class="an-pair" aria-hidden="true"><span class="gt">${logo("figma")}</span><span class="dots"><i></i><i></i><i></i></span><span class="gt">${MARK}</span></span>`
+    : `<span class="an-core" aria-hidden="true">${MARK}</span>`;
+  return `<div class="an-card"><button type="button" class="an-open" data-proto="announce"><span class="an-hero">${NEBULA}${RINGS}<span class="an-orbit" aria-hidden="true">${orbitsFor(kind).flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${orbGlyph(id)}</span>`)).join("")}</span>${core}</span><span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
+}
 // Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
 const ORBITS = ${JSON.stringify(ORBITS)}, ORBIT_PERIOD = ${ORBIT_PERIOD}, TAU = Math.PI * 2;
 ${slotAngle.toString()}
 addEventListener("click", (e) => {
+  if (e.target.closest('[data-proto="import-figma"]')) { e.preventDefault(); parent.postMessage({ proto: "import-figma" }, "*"); return; }
   if (e.target.closest('[data-proto="import"]')) { e.preventDefault(); parent.postMessage({ proto: "import" }, "*"); return; }
   if (e.target.closest('[data-proto="announce"]')) { e.preventDefault(); parent.postMessage({ proto: "announce" }, "*"); return; }
   if (e.target.closest("a[href], button[type=submit]")) e.preventDefault();
 });
 addEventListener("submit", (e) => e.preventDefault());
 addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
-addEventListener("message", (e) => { const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
+addEventListener("message", (e) => { if (e.data && e.data.protoCard && slot) { slot.innerHTML = e.data.protoCard; if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
 const slot = document.querySelector('section[aria-label="Getting started"]');
-if (slot) { slot.setAttribute("aria-label", "What's new"); slot.innerHTML = ${JSON.stringify(CARD_HTML)}; }
+if (slot) { slot.setAttribute("aria-label", "What's new"); slot.innerHTML = ${JSON.stringify(cardHTML("all"))}; }
 // The card's galaxy: the dialog's orbit, scaled to the card as a whole so its spacing holds.
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let t0 = performance.now();
 function frame(now) {
   const hero = document.querySelector(".an-hero");
-  if (!hero) return;
+  if (!hero) { if (!still) requestAnimationFrame(frame); return; }
   const k = Math.min(hero.clientWidth / 560, hero.clientHeight / 288), cx = hero.clientWidth / 2, cy = hero.clientHeight / 2, t = still ? 0 : (now - t0) / 1000;
   for (const el of hero.querySelectorAll(".an-orb")) {
     const o = ORBITS[+el.dataset.o], a = slotAngle(o, +el.dataset.i, t), depth = Math.sin(a), s = (.82 + .3 * (depth + 1) / 2) * k;
@@ -755,6 +803,14 @@ new MutationObserver(syncDashTheme).observe(document.documentElement, { attribut
 function toggleTheme() { document.documentElement.dataset.theme = themeNow() === "dark" ? "light" : "dark"; }
 $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
+function syncCard() { dash.contentWindow?.postMessage({ protoCard: cardHTML(annKind) }, "*"); }
+dash.addEventListener("load", () => { if (annKind !== "all") syncCard(); });
+$("#fig-btn").addEventListener("click", (e) => {
+  annKind = annKind === "figma" ? "all" : "figma";
+  e.currentTarget.setAttribute("aria-pressed", String(annKind === "figma"));
+  syncCard();
+  if (S.open && S.view === "announcement") { stopOrbit(); render({ animate: false }); }
+});
 $("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
 kitChangesInit($("#changes-btn"));
 addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); if (S.view === "picker") placeBelt(); });
