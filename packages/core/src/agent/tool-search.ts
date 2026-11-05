@@ -75,20 +75,20 @@ export function createToolSearchEntry(
   return frameworkMcpTool({
     tool: {
       description:
-        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. When no listed name clearly fits, search for the task itself. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Search ranks by words, not intent, so a request not to delete still finds delete tools: before calling a result marked `destructive`, confirm the user asked for that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              'The task in a few plain words, such as "edit auto-archive rules" or "move a meeting", or an exact tool name. The user\'s own words work: matching covers plurals, common synonyms, and words each tool lists as search hints. A targeted search adds matches allowed in the current mode, with their full schemas, to the next model step. Omit for a bounded alphabetical inventory.',
+              'The task in a few plain words ("edit auto-archive rules") or an exact tool name; the user\'s own words work. Omit for a bounded alphabetical inventory.',
           },
           queries: {
             type: "array",
             items: { type: "string" },
             maxItems: MAX_QUERIES,
-            description: `Up to ${MAX_QUERIES} searches run together, one per step of a multi-step task; all matches load on the next step.`,
+            description: `Up to ${MAX_QUERIES} searches run together, one per task step; all matches load on the next step.`,
           },
           names: {
             type: "array",
