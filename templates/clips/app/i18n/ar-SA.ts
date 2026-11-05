@@ -623,6 +623,18 @@ const messages = {
     desktopHint:
       "لبدء الملاحظات، افتح Clips Desktop من شريط القوائم واختر Start Meeting Notes، أو انقر على Start notes عند ظهور التذكير. يلتقط Clips الميكروفون وصوت النظام ويكتب النص هنا.",
     getDesktopApp: "احصل على تطبيق سطح المكتب",
+    earlierAudioAdded_zero: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_one: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_two: "تمت إضافة {{count}} دقيقتين من قبل أن تبدأ",
+    earlierAudioAdded_few: "تمت إضافة {{count}} دقائق من قبل أن تبدأ",
+    earlierAudioAdded_many: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_other: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioUnreadable:
+      "تعذّر التحقق مما إذا كان هذا النص المكتوب يتضمن صوتًا سابقًا",
+    removeEarlierAudioTitle: "هل تريد إزالة الصوت السابق؟",
+    removeEarlierAudioDescription:
+      "سيؤدي هذا إلى حذفه من النص المكتوب وإعادة إنشاء الملخص وعناصر الإجراءات ووصف المقطع، حتى إذا كنت قد كتبت هذا الوصف بنفسك. وسيُعاد إنشاء العنوان المُنشأ تلقائيًا أيضًا، أما العنوان الذي اخترته فيبقى كما هو. كما ستُحذف أي فصول.",
+    couldNotRemoveEarlierAudio: "تعذرت إزالة الصوت السابق",
     generateNotesFailed: "تعذر إنشاء الملخص. حاول ثانية.",
     attendee_one: "الحضور {{count}}",
     attendee_other: "الحضور {{count}}",
@@ -1514,6 +1526,7 @@ const messages = {
   transcriptBubbles: {
     listening: "يستمع…",
     noTranscript: "لا يوجد نص بعد.",
+    unreadable: "تعذّرت قراءة هذا النص المكتوب.",
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
