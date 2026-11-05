@@ -3152,8 +3152,7 @@ export function CommentsSidebar({
         suggestions: members,
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
-        conflict: (suggestion: ResourceSuggestion) =>
-          isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id),
+        conflict: isUnplaceable,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3163,12 +3162,7 @@ export function CommentsSidebar({
           decision: SuggestionDecision,
         ) => {
           if (proposalId)
-            void onDecideSuggestionProposal?.(
-              proposalId,
-              decision,
-              unit.filter(({ status }) => status === "pending"),
-              true,
-            );
+            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
         },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
@@ -3595,8 +3589,12 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(
-        (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+      // Accept all decides the whole proposal, even what a filter is hiding.
+      acceptDisabled={suggestions.some(
+        (suggestion) =>
+          suggestion.proposalId === proposalId &&
+          suggestion.status === "pending" &&
+          (isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id)),
       )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>

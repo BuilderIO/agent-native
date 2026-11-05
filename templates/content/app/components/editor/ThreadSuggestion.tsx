@@ -19,6 +19,7 @@ import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import {
+  piecesOfStaleUnits,
   reviewUnitOperations,
   reviewUnits,
   suggestionLineExcerpt,
@@ -226,6 +227,9 @@ export function ThreadSuggestionBody({
       : null;
   const summary = first.proposalSummary || first.summary;
   const units = reviewUnits(suggestions);
+  const staleUnitPieces = piecesOfStaleUnits(suggestions);
+  const cantAccept = (suggestion: ResourceSuggestion) =>
+    conflict(suggestion) || staleUnitPieces.has(suggestion.id);
   const edits = units.map((unit) => (
     <ThreadSuggestionEdit
       key={unit.leader.id}
@@ -233,10 +237,13 @@ export function ThreadSuggestionBody({
       operations={reviewUnitOperations(unit)}
       canDecide={canDecide}
       busy={unit.members.some(busy)}
-      conflict={unit.members.some(conflict)}
+      conflict={unit.members.some(cantAccept)}
       onDecide={(decision) =>
         unit.members.length > 1
-          ? onDecideUnit(unit.members, decision)
+          ? onDecideUnit(
+              unit.members.filter(({ status }) => status === "pending"),
+              decision,
+            )
           : onDecide(unit.leader, decision)
       }
       showStatus={!sharedStatus}
@@ -258,7 +265,7 @@ export function ThreadSuggestionBody({
           expanded={expanded}
           onExpandedChange={setExpanded}
           deciding={pending.some(busy)}
-          acceptDisabled={pending.some(conflict)}
+          acceptDisabled={pending.some(cantAccept)}
           canDecide={canDecide && !!onDecideRemaining}
           onDecide={(decision) => onDecideRemaining?.(decision)}
           onAcceptAndResolve={onAcceptAndResolve}
@@ -275,7 +282,7 @@ export function ThreadSuggestionBody({
             <div className="flex justify-end">
               <button
                 type="button"
-                disabled={pending.some(busy) || pending.some(conflict)}
+                disabled={pending.some(busy) || pending.some(cantAccept)}
                 onClick={onAcceptAndResolve}
                 className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
                 data-suggestion-accept-resolve
