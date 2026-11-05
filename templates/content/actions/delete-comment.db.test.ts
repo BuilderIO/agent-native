@@ -239,31 +239,35 @@ it("refuses a thread whose AI suggestion waits for review", async () => {
       ctxFor(owner),
     ),
   );
-  const suggestionId = crypto.randomUUID();
   const now = new Date().toISOString();
-  await getDbExec().execute({
-    sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, author_email, actor_kind, base_revision, summary, owner_email, created_at, updated_at, metadata_json) VALUES (?, 'document', ?, 'content.document-markdown', 1, ?, ?, 'agent', 'base', 'Tighten the intro', ?, ?, ?, ?)",
-    args: [
-      suggestionId,
-      documentId,
-      `suggestion-${suggestionId}`,
-      commenter,
-      owner,
-      now,
-      now,
-      JSON.stringify({
-        sourceThreadId: root.id,
-        commentAiRequestId: "request",
-      }),
-    ],
+  const suggest = (id: string, metadata: Record<string, string>) =>
+    getDbExec().execute({
+      sql: "INSERT INTO agent_review_suggestions (id, resource_type, resource_id, adapter_kind, adapter_version, thread_id, author_email, actor_kind, base_revision, summary, owner_email, created_at, updated_at, metadata_json) VALUES (?, 'document', ?, 'content.document-markdown', 1, ?, ?, 'agent', 'base', 'Tighten the intro', ?, ?, ?, ?)",
+      args: [
+        id,
+        documentId,
+        `suggestion-${id}`,
+        commenter,
+        owner,
+        now,
+        now,
+        JSON.stringify(metadata),
+      ],
+    });
+  const fromAi = crypto.randomUUID();
+  await suggest(fromAi, {
+    sourceThreadId: root.id,
+    commentAiRequestId: "request",
   });
+  // Anyone can name a thread; without a request it isn't the thread's.
+  await suggest(crypto.randomUUID(), { sourceThreadId: root.id });
 
   await expect(remove(commenter, root.id)).rejects.toThrow(/suggestion/);
   expect(await commentIds(root.id)).toEqual([root.id]);
 
   await getDbExec().execute({
     sql: "UPDATE agent_review_suggestions SET status = 'rejected' WHERE id = ?",
-    args: [suggestionId],
+    args: [fromAi],
   });
   await remove(commenter, root.id);
   expect(await commentIds(root.id)).toEqual([]);

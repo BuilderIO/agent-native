@@ -24,10 +24,13 @@ async function hasPendingAiSuggestion(
     { resourceType: "document", resourceId: documentId, statuses: ["pending"] },
     ctx,
   );
+  // Only one bound to an Ask AI request counts, as in the sidebar: creating
+  // it checks the request's thread, while anyone can write sourceThreadId.
   return suggestions.some(
     (suggestion) =>
       suggestion.adapterKind === CONTENT_DOCUMENT_SUGGESTION_ADAPTER &&
-      suggestion.metadata?.sourceThreadId === threadId,
+      suggestion.metadata?.sourceThreadId === threadId &&
+      typeof suggestion.metadata.commentAiRequestId === "string",
   );
 }
 
