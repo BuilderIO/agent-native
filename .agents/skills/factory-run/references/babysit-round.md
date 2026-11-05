@@ -11,7 +11,8 @@ never ask a question or wait for an answer.
 Builder's default prompt says you may not commit, merge, or check out, and
 that the user syncs with a button. In a factory round there is no user to
 press it, so this round overrides those defaults: run `git commit`,
-`git merge origin/main`, and `scripts/fix-proof.ts` yourself. Nothing blocks
+`git merge origin/main`, the Worktrees tool, and `scripts/fix-proof.ts`
+yourself. Nothing blocks
 them. Never report "commits are unavailable", "read-only", or "a person must
 sync main" without running the command and quoting its error.
 
@@ -48,17 +49,41 @@ sync main" without running the command and quoting its error.
    instead of patching around it, or stop and report blocked. If main or
    another PR already has this fix, don't park: name that PR in your reply;
    the factory run settles it under `factory-run`'s "Duplicate and competing PRs".
-8. Commit each fix with `git commit` before proving it: `fix-proof.ts` needs
-   a clean tree and a fix commit. Run
-   `node scripts/fix-proof.ts --fix <sha> -- <check>`; its temporary file
-   checkout is allowed and restores HEAD. Update the PR body's proof line
-   with `gh pr edit`. A test-only PR needs no proof. Don't push: when your turn ends Builder commits
-   anything left and the factory pushes, never force-pushing.
+8. Make and prove each source fix in a worktree; see "Fix-proof in a
+   worktree" below. A test-only PR needs no proof. Don't push: when your
+   turn ends Builder commits anything left and the factory pushes, never
+   force-pushing.
 9. Reply once per item you handled, in its own thread (inline comments:
    reply to that comment; reviews and conversation comments: one PR comment),
    saying what you changed or why not. End every comment you post with the
    prompt's marker line, exactly, so the factory recognizes its own replies.
-10. Never merge, approve, close, or mark the PR ready or draft. Never request
+10. Never merge, approve, close, or mark the PR ready or draft (a Worktrees
+    `merge` into the PR branch is fine). Never request
     reviewers or resolve threads.
+
+## Fix-proof in a worktree
+
+The factory authorizes a throwaway worktree from Builder's Worktrees tool
+for each fix and its proof. Use the tool, never raw `git worktree` or
+`git checkout`. `fix-proof.ts` puts files back to the base inside the
+worktree only; it never touches the PR's checkout. CI re-runs every proof
+as `--fix <sha>`, so the fix must be one real commit on the PR, which
+`merge` gives you.
+
+1. Leave the PR's checkout clean: `merge` refuses a dirty one.
+2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run
+   `pnpm install --frozen-lockfile --prefer-offline` (about a minute).
+3. Make the fix and its test in the worktree.
+4. Worktrees `merge` it. That commits the fix and fast-forwards the PR
+   branch onto that commit.
+5. `merge` leaves the original active, so `activate` the worktree again,
+   then run `node scripts/fix-proof.ts --fix HEAD -- <check>` there.
+   If it is not proven, fix the test or the code, `merge` again, and re-run
+   with the new HEAD.
+6. Copy the `fix-proof: proven ...` line into the PR body under its report
+   with `gh pr edit`. For a fix an earlier round already committed, skip
+   steps 3 and 4 and prove `--fix <its sha>`.
+7. Worktrees `activate` `original`, then `remove` the worktree. It is
+   merged and clean, so removal is expected and loses nothing.
 
 End your reply with the OUTCOME line the prompt asks for.
