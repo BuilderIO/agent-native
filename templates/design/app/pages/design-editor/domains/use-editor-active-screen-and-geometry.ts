@@ -49,6 +49,7 @@ import {
   stripRejectedRestoreClaimAssignments,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -459,6 +460,7 @@ export function useEditorActiveScreenAndGeometry({
     canEditDesign,
   });
   const saveDesignDataAsync = useActionMutation("update-design", {
+    meta: MUTATION_ERROR_HANDLED,
     skipActionQueryInvalidation: true,
   }).mutateAsync;
   const persistActiveBreakpoint = useCallback(

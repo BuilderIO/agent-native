@@ -48,6 +48,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  MUTATION_ERROR_HANDLED,
+  reportDesignWriteFailure,
+} from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import {
@@ -812,8 +816,12 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
   const queryClient = useQueryClient();
   const tokensQueryKey = ["action", "index-design-tokens", { designId }];
-  const applyMutation = useActionMutation("apply-design-token-edit");
-  const importMutation = useActionMutation("import-design-tokens");
+  const applyMutation = useActionMutation("apply-design-token-edit", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const importMutation = useActionMutation("import-design-tokens", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
 
   const designIdRef = useRef(designId);
   designIdRef.current = designId;
@@ -878,10 +886,17 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
   const commitTokenColor = async (cssVar: string, value: string) => {
     const requestDesignId = designId;
-    const result = (await applyMutation.mutateAsync({
-      designId,
-      edits: [{ cssVar, value }],
-    })) as { resolvedCssVars?: Record<string, string> };
+    let result: { resolvedCssVars?: Record<string, string> };
+    try {
+      result = (await applyMutation.mutateAsync({
+        designId,
+        edits: [{ cssVar, value }],
+      })) as { resolvedCssVars?: Record<string, string> };
+    } catch (error) {
+      reportDesignWriteFailure(error);
+      // Rethrow so TokenColorPicker still resets its preview and logs.
+      throw error;
+    }
     if (designIdRef.current !== requestDesignId) return;
     await refetch();
     if (result?.resolvedCssVars && onTokensApplied) {
@@ -897,7 +912,9 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     const cssVar = editingKey;
     const value = editDraft.trim();
     cancelEdit();
-    applyTokenEdit(cssVar, value);
+    applyTokenEdit(cssVar, value, {
+      onError: (error) => reportDesignWriteFailure(error),
+    });
   };
 
   const startTokenDraft = (type: MenuTokenType) => {

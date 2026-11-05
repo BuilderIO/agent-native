@@ -32,6 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 import { DesignTemplateGrid } from "./DesignTemplateGrid";
 import { TemplatePreview } from "./TemplatePreview";
@@ -86,8 +87,12 @@ export function DesignTemplateLibrary({
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const create = useActionMutation("create-design-from-template");
-  const remove = useActionMutation("delete-design-template");
+  const create = useActionMutation("create-design-from-template", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const remove = useActionMutation("delete-design-template", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const pending = useRef(false);
   const retryIds = useRef(new Map<string, { key: string; id: string }>());

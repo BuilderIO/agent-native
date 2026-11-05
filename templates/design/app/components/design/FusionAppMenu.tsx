@@ -29,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 const EDITS_REFETCH_INTERVAL_MS = 10000;
 const DEPLOY_POLL_INTERVAL_MS = 6000;
@@ -66,8 +67,12 @@ export function FusionAppMenu({
   deployedUrl,
 }: FusionAppMenuProps) {
   const applyEditsMutation = useActionMutation("apply-builder-edits");
-  const pushMutation = useActionMutation("push-builder-app");
-  const deployMutation = useActionMutation("deploy-builder-app");
+  const pushMutation = useActionMutation("push-builder-app", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const deployMutation = useActionMutation("deploy-builder-app", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [deployPending, setDeployPending] = useState(false);
   const [liveDeployUrl, setLiveDeployUrl] = useState<string | undefined>();
 

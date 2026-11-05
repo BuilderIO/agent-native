@@ -140,6 +140,7 @@ import {
   designPromptReferenceTypes,
   trackDesignPromptSubmitted,
 } from "@/lib/design-funnel-tracking";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -377,15 +378,22 @@ export default function Index() {
     includePreview: "true",
     includeSavedPreview: "false",
   });
-  const createMutation = useActionMutation("create-design");
+  const createMutation = useActionMutation("create-design", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
+    { meta: MUTATION_ERROR_HANDLED },
   );
-  const createFusionAppMutation = useActionMutation("create-builder-app");
+  const createFusionAppMutation = useActionMutation("create-builder-app", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
-  const generateTitleMutation = useActionMutation("generate-design-title");
+  const generateTitleMutation = useActionMutation("generate-design-title", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,

@@ -55,6 +55,10 @@ import {
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
+  MUTATION_ERROR_HANDLED,
+  reportDesignWriteFailure,
+} from "@/lib/design-write-failure";
+import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
   hasFreshPendingGeneration,
@@ -739,7 +743,7 @@ export function useEditorGenerationAndAccess({
   const requestDesignAccessMutation = useActionMutation<
     RequestDesignAccessResult,
     { designId: string }
-  >("request-design-access");
+  >("request-design-access", { meta: MUTATION_ERROR_HANDLED });
   const [designAccessRequestSent, setDesignAccessRequestSent] = useState(false);
 
   useEffect(() => {
@@ -1303,6 +1307,7 @@ export function useEditorGenerationAndAccess({
   }, [designDataReady, id, hasPendingGeneration, markGenerationStale]);
 
   const updateFileMutation = useActionMutation("update-file", {
+    meta: MUTATION_ERROR_HANDLED,
     skipActionQueryInvalidation: true,
     onSuccess: () => {
       void queryClient.invalidateQueries({
@@ -1313,33 +1318,60 @@ export function useEditorGenerationAndAccess({
       });
     },
   });
-  const renameScreenMutation = useActionMutation("rename-screen");
-  const updateScreenSourceMutation = useActionMutation("update-screen-source");
+  const renameScreenMutation = useActionMutation("rename-screen", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const updateScreenSourceMutation = useActionMutation("update-screen-source", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const createFileMutation = useActionMutation("create-file", {
+    meta: MUTATION_ERROR_HANDLED,
     skipActionQueryInvalidation: true,
   });
   const createFileAsync = createFileMutation.mutateAsync;
-  const deleteFileMutation = useActionMutation("delete-file");
-  const updateDesignMutation = useActionMutation("update-design");
+  const deleteFileMutation = useActionMutation("delete-file", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const updateDesignMutation = useActionMutation("update-design", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const updateDesignAsync = updateDesignMutation.mutateAsync;
-  const applyTweaksMutation = useActionMutation("apply-tweaks");
+  const applyTweaksMutation = useActionMutation("apply-tweaks", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const applyTweaksAsync = applyTweaksMutation.mutateAsync;
-  const duplicateDesignMutation = useActionMutation("duplicate-design");
+  const duplicateDesignMutation = useActionMutation("duplicate-design", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const saveDesignAsTemplateMutation = useActionMutation(
     "save-design-as-template",
+    { meta: MUTATION_ERROR_HANDLED },
   );
-  const exportHtmlMutation = useActionMutation("export-html");
-  const exportZipMutation = useActionMutation("export-zip");
-  const applyMotionEditMutation = useActionMutation("apply-motion-edit");
+  const exportHtmlMutation = useActionMutation("export-html", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const exportZipMutation = useActionMutation("export-zip", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const applyMotionEditMutation = useActionMutation("apply-motion-edit", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const applyMotionEdit = applyMotionEditMutation.mutate;
   const removeMotionTimelineMutation = useActionMutation(
     "remove-motion-timeline",
+    { meta: MUTATION_ERROR_HANDLED },
   );
   const removeMotionTimeline = removeMotionTimelineMutation.mutate;
   const motionAutosavePending = applyMotionEditMutation.isPending;
-  const addBreakpointMutation = useActionMutation("add-breakpoint");
-  const removeBreakpointMutation = useActionMutation("remove-breakpoint");
-  const updateBreakpointMutation = useActionMutation("update-breakpoint");
+  const addBreakpointMutation = useActionMutation("add-breakpoint", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const removeBreakpointMutation = useActionMutation("remove-breakpoint", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const updateBreakpointMutation = useActionMutation("update-breakpoint", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
   );
@@ -1360,17 +1392,23 @@ export function useEditorGenerationAndAccess({
 
   const openComponentSourceMutation = useActionMutation(
     "open-component-source",
+    { meta: MUTATION_ERROR_HANDLED },
   );
-  const goToMainComponentMutation = useActionMutation("go-to-main-component");
+  const goToMainComponentMutation = useActionMutation("go-to-main-component", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const detachComponentInstanceMutation = useActionMutation(
     "detach-component-instance",
+    { meta: MUTATION_ERROR_HANDLED },
   );
 
   const migrateBoardObjectsMutation = useActionMutation(
     "migrate-board-objects-to-file",
   );
 
-  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [publishWaitlistPopoverOpen, setPublishWaitlistPopoverOpen] =
     useState(false);
   const [publishWaitlistPopoverView, setPublishWaitlistPopoverView] = useState<
@@ -1392,7 +1430,8 @@ export function useEditorGenerationAndAccess({
         return { ...old, designSystemId };
       });
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

@@ -25,6 +25,7 @@ import {
   importFormatsAccept,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import {
   claimFigImportToast,
   discardPendingDesignImports,
@@ -40,7 +41,9 @@ export function HomeImportButton() {
   const t = useT();
   const formatters = useFormatters();
   const navigate = useNavigate();
-  const create = useActionMutation("create-design");
+  const create = useActionMutation("create-design", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);

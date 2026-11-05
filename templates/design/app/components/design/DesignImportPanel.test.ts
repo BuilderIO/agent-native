@@ -16,7 +16,7 @@ describe("DesignImportPanel", () => {
     expect(urlIndex).toBeGreaterThanOrEqual(0);
     expect(urlIndex).toBeLessThan(pasteIndex);
     expect(source).toContain(
-      'const importFigmaFrame = useActionMutation("import-figma-frame")',
+      'const importFigmaFrame = useActionMutation("import-figma-frame", {',
     );
     expect(source).toContain("parseFigmaFileKey(normalizedUrl)");
     expect(source).toContain("figmaUrl: normalizedUrl");

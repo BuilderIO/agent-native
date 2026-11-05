@@ -58,6 +58,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import type { ElementInfo } from "./types";
@@ -522,9 +523,15 @@ export function AssetLibraryPanel({
   const nativeAssets = useActionQuery<DesignNativeAssetsResponse>(
     "list-design-native-assets",
   );
-  const insertNativeAsset = useActionMutation("insert-design-native-asset");
-  const insertAsset = useActionMutation("insert-asset");
-  const insertFigmaAsset = useActionMutation("insert-figma-library-asset");
+  const insertNativeAsset = useActionMutation("insert-design-native-asset", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const insertAsset = useActionMutation("insert-asset", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const insertFigmaAsset = useActionMutation("insert-figma-library-asset", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const figmaAssets = useActionQuery<FigmaLibraryResponse>(
     "list-figma-library-assets",
     figmaRequest

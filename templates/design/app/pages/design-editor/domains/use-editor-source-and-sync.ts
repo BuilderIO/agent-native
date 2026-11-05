@@ -40,6 +40,7 @@ import {
   DESIGN_IMPORT_FORMATS,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 import {
   collectCodeLayerAncestors,
@@ -1325,7 +1326,9 @@ export function useEditorSourceAndSync({
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const applyTemplate = useActionMutation("create-design-from-template");
+  const applyTemplate = useActionMutation("create-design-from-template", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
       if (!id || applyingTemplateId) return;

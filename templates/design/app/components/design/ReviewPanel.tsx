@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import {
@@ -127,7 +128,9 @@ function FindingRow({
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(finding.detail ?? finding.wcag);
 
-  const applyFix = useActionMutation("apply-a11y-fix");
+  const applyFix = useActionMutation("apply-a11y-fix", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [fixStatus, setFixStatus] = useState<FixStatus>("idle");
 
   const lastFindingRef = useRef(finding);

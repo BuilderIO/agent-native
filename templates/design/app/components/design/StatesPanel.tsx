@@ -30,6 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -202,8 +203,12 @@ export function StatesPanel({
     states: DesignStateRow[];
   }>("list-design-states", { designId });
 
-  const createState = useActionMutation("create-design-state");
-  const deleteState = useActionMutation("delete-design-state");
+  const createState = useActionMutation("create-design-state", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const deleteState = useActionMutation("delete-design-state", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
 
   const states = data?.states ?? [];
 

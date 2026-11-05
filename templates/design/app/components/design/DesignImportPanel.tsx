@@ -54,6 +54,7 @@ import {
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
 } from "@/lib/design-import";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import type {
   FigClientImportProgress,
   PreparedFigImport,
@@ -121,8 +122,12 @@ export const DesignImportPanel = forwardRef<
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileUploadStatus = useFileUploadStatus();
-  const importSource = useActionMutation("import-design-source");
-  const importFigmaFrame = useActionMutation("import-figma-frame");
+  const importSource = useActionMutation("import-design-source", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
+  const importFigmaFrame = useActionMutation("import-figma-frame", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileReadRef = useRef(0);

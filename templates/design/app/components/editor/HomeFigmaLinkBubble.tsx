@@ -14,6 +14,7 @@ import {
   importResultNotification,
   type ImportResult,
 } from "@/lib/design-import";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import type { FigmaLink } from "@/lib/figma-url";
 
@@ -23,7 +24,9 @@ export function HomeFigmaLinkBubble({ link }: { link: FigmaLink }) {
   const t = useT();
   const formatters = useFormatters();
   const navigate = useNavigate();
-  const importFrame = useActionMutation("import-figma-frame");
+  const importFrame = useActionMutation("import-figma-frame", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const pending = useRef(false);

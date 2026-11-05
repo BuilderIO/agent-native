@@ -16,6 +16,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 import { SectionIconButton } from "../edit-panel/inspector-controls";
 import {
@@ -108,7 +109,9 @@ export function useSavedGlslFill(context: ShaderEditorContext | undefined) {
 
 export function useRemoveSavedGlslShader(context: ShaderEditorContext) {
   const t = useT();
-  const applyEdit = useActionMutation("apply-source-edit");
+  const applyEdit = useActionMutation("apply-source-edit", {
+    meta: MUTATION_ERROR_HANDLED,
+  });
   const [busy, setBusy] = useState(false);
   const remove = async (mode: "fill" | "effect"): Promise<boolean> => {
     if (!context.nodeId || !context.fileId) return false;
