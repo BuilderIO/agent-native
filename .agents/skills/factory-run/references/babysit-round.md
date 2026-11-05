@@ -64,11 +64,13 @@ sync main" without running the command and quoting its error.
 ## Fix-proof in a worktree
 
 The factory authorizes a throwaway worktree from Builder's Worktrees tool
-for each fix and its proof. Use the tool, never raw `git worktree` or
-`git checkout`. `fix-proof.ts` puts files back to the base inside the
-worktree only; it never touches the PR's checkout. CI re-runs every proof
-as `--fix <sha>`, so the fix must be one real commit on the PR, which
-`merge` gives you.
+for each fix and its proof. Use the tool; don't type `git worktree` or
+`git checkout` yourself. Running `node scripts/fix-proof.ts` in the
+worktree is the sanctioned proof step, not a raw checkout: it writes files
+with fs and never runs `git checkout` or `git rm`, so always run it, and
+quote its output if it fails. It never touches the PR's checkout. CI
+re-runs every proof as `--fix <sha>`, so the fix must be one real commit
+on the PR, which `merge` gives you.
 
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
 2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run

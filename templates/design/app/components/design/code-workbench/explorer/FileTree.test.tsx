@@ -56,6 +56,8 @@ vi.mock("./file-icons", () => ({
   FolderIcon: () => null,
 }));
 
+import { DESIGN_WRITE_FAILED_EVENT } from "@/lib/design-write-failure";
+
 import { FileTree } from "./FileTree";
 
 let root: Root | null = null;
@@ -69,11 +71,22 @@ const fileNode = {
   entry: { path: "index.html" },
 };
 
-function mount(providerKey: string, deleteFile: ReturnType<typeof vi.fn>) {
+function mount(
+  providerKey: string,
+  deleteFile: ReturnType<typeof vi.fn>,
+  options: {
+    renameFile?: ReturnType<typeof vi.fn>;
+    onRequestLocalWriteConsent?: (
+      connectionId: string,
+      retry: () => void,
+    ) => void;
+  } = {},
+) {
   mocks.useWorkbench.mockReturnValue({
     api: {
       deleteFile,
       openFile: vi.fn(),
+      renameFile: options.renameFile ?? vi.fn(),
     },
   });
   container = document.createElement("div");
@@ -87,7 +100,7 @@ function mount(providerKey: string, deleteFile: ReturnType<typeof vi.fn>) {
         capabilities={{
           write: true,
           create: false,
-          rename: false,
+          rename: options.renameFile !== undefined,
           delete: true,
         }}
         nodes={[fileNode]}
@@ -96,8 +109,39 @@ function mount(providerKey: string, deleteFile: ReturnType<typeof vi.fn>) {
         focusToken={0}
         registerRef={() => {}}
         onRefresh={() => {}}
+        onRequestLocalWriteConsent={options.onRequestLocalWriteConsent}
       />,
     );
+  });
+}
+
+// Rename is started from the context menu, then committed with Enter after
+// the draft is changed through the input's native value setter, so React's
+// onChange fires exactly as it does for typing.
+async function commitRenameTo(name: string) {
+  const host = container;
+  if (!host) throw new Error("FileTree is not mounted");
+  const renameItem = Array.from(host.querySelectorAll("button")).find(
+    (button) => button.textContent === "Rename…",
+  );
+  if (!renameItem) throw new Error("Rename item is missing");
+  await act(async () => renameItem.click());
+  const input = host.querySelector("input");
+  if (!input) throw new Error("Rename input did not open");
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  if (!setValue) throw new Error("The input value setter is missing");
+  await act(async () => {
+    setValue.call(input, name);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -154,5 +198,52 @@ describe("FileTree deletion confirmation", () => {
       "localhost:connection-1",
       "index.html",
     );
+  });
+
+  it("reports a failed rename as a design write failure", async () => {
+    const renameFile = vi.fn().mockRejectedValue(new Error("disk full"));
+    mount("inline:design-1", vi.fn(), { renameFile });
+    const reported = vi.fn();
+    window.addEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
+
+    try {
+      await commitRenameTo("renamed.html");
+
+      expect(renameFile).toHaveBeenCalledWith(
+        "inline:design-1",
+        "index.html",
+        "renamed.html",
+      );
+      expect(reported).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
+    }
+  });
+
+  it("hands a localhost consent error to the consent flow instead of reporting it", async () => {
+    const consentError = Object.assign(new Error("consent required"), {
+      name: "LocalWriteConsentRequiredError",
+    });
+    const renameFile = vi.fn().mockRejectedValue(consentError);
+    const onRequestLocalWriteConsent = vi.fn();
+    mount("localhost:connection-1", vi.fn(), {
+      renameFile,
+      onRequestLocalWriteConsent,
+    });
+    const reported = vi.fn();
+    window.addEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
+
+    try {
+      await commitRenameTo("renamed.html");
+
+      expect(renameFile).toHaveBeenCalledOnce();
+      expect(onRequestLocalWriteConsent).toHaveBeenCalledWith(
+        "connection-1",
+        expect.any(Function),
+      );
+      expect(reported).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
+    }
   });
 });

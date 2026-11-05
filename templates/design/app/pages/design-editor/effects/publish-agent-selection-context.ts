@@ -12,6 +12,7 @@ import type { RefObject } from "react";
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
@@ -349,6 +350,7 @@ export function runPublishAgentSelectionContext({
     const keepalive =
       new TextEncoder().encode(pending.key).length * keys.length <=
       KEEPALIVE_ACTION_MAX_BYTES;
+    let failure: DesignSelectionPublishError | undefined;
     void Promise.all(
       keys.map((key) =>
         setClientAppState(key, pending.value, {
@@ -357,7 +359,8 @@ export function runPublishAgentSelectionContext({
         }).then(
           () => true,
           (cause: unknown) => {
-            console.error(new DesignSelectionPublishError(key, cause));
+            failure = new DesignSelectionPublishError(key, cause);
+            console.error(failure);
             return false;
           },
         ),
@@ -371,13 +374,15 @@ export function runPublishAgentSelectionContext({
       }
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
-      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
-      if (
-        delay === undefined ||
-        persistedSelectionWriteTimerRef.current !== null
-      ) {
+      if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
+        reportDesignWriteFailure(
+          failure,
+          "designEditor.selectionPublishFailed",
+        );
         return;
       }
+      if (persistedSelectionWriteTimerRef.current !== null) return;
+      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
       persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
         persistedSelectionWriteTimerRef.current = null;
         writePersistedSelection(pending, attempt + 1);
