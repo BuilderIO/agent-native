@@ -93,7 +93,6 @@ export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
   builderExecutionPayloadReference,
   isBuilderPrivatePayloadBoundToSource,
-  cleanupBuilderPrivatePayload,
   enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -7512,21 +7511,18 @@ type SourceChangeSetDeletion = {
 
 async function deleteSourceChangeSetRecords(args: SourceChangeSetDeletion) {
   if (args.changeSetIds && args.changeSetIds.length === 0) return;
-  const references = await getDb().transaction((tx) =>
+  await getDb().transaction((tx) =>
     deleteSourceChangeSetRecordsInTransaction(
       tx as unknown as ReturnType<typeof getDb>,
       args,
     ),
   );
-  await cleanupDeletedSourcePayloads(references);
 }
 
 async function deleteSourceChangeSetRecordsInTransaction(
   tx: ReturnType<typeof getDb>,
   args: SourceChangeSetDeletion,
 ) {
-  const references = new Set<string>();
-
   const executionWhere = args.changeSetIds
     ? and(
         eq(schema.contentDatabaseSourceExecutions.sourceId, args.sourceId),
@@ -7558,7 +7554,7 @@ async function deleteSourceChangeSetRecordsInTransaction(
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId)),
   );
-  if (!source) return references;
+  if (!source) return;
   await lockContentDatabaseMutation(tx, source.databaseId);
   await assertNoActiveBuilderSourceExecutions(
     tx,
@@ -7583,22 +7579,11 @@ async function deleteSourceChangeSetRecordsInTransaction(
         row.sourceId,
       )
     ) {
-      references.add(reference);
       await enqueueBuilderPrivatePayloadCleanup(tx, reference);
     }
   }
   await tx.delete(schema.contentDatabaseSourceChangeReviews).where(reviewWhere);
   await tx.delete(schema.contentDatabaseSourceChangeSets).where(changeSetWhere);
-  return references;
-}
-
-async function cleanupDeletedSourcePayloads(references: ReadonlySet<string>) {
-  for (const reference of references) {
-    await cleanupBuilderPrivatePayload(
-      reference,
-      "deleted source execution payload",
-    );
-  }
 }
 
 async function pruneDuplicateOpenSourceChangeSets(sourceId: string) {
@@ -8688,7 +8673,7 @@ export async function replaceSourceMetadata(args: {
 }) {
   const db = getDb();
   const sourceId = args.source?.id ?? crypto.randomUUID();
-  const references = await db.transaction(async (transaction) => {
+  await db.transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
     await lockContentDatabaseMutation(tx, args.database.id);
     await assertUnswitchedCollectionRows(tx, args.database.id, {
@@ -8708,13 +8693,10 @@ export async function replaceSourceMetadata(args: {
         statusCode: 409,
       });
     }
-    const deletedPayloads = args.source
-      ? await deleteSourceChangeSetRecordsInTransaction(tx, {
-          sourceId: args.source.id,
-        })
-      : new Set<string>();
-
     if (args.source) {
+      await deleteSourceChangeSetRecordsInTransaction(tx, {
+        sourceId: args.source.id,
+      });
       await tx
         .delete(schema.contentDatabaseBodyHydrationQueue)
         .where(
@@ -8770,9 +8752,7 @@ export async function replaceSourceMetadata(args: {
         updatedAt: args.now,
       });
     }
-    return deletedPayloads;
   });
-  await cleanupDeletedSourcePayloads(references);
 
   return sourceId;
 }
