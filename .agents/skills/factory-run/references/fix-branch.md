@@ -37,14 +37,19 @@ reported failure, or change anything beyond fixing it.
    improves the error message is still worth shipping, but call it that.
 
 3. Follow `review-latest-feedback`'s "Fix as many as you can" rules:
-   reproduce first, check history, prove the fix with `scripts/fix-proof.ts`,
-   keep it small, and get a second opinion before publishing. Add a changeset
-   when AGENTS.md says the touched package needs one.
-4. Commit everything; the tree must be clean.
+   reproduce first, check history, prove the fix with `scripts/fix-proof.ts`
+   (a test-only change, such as a flaky-test fix, needs no proof), keep it
+   small, and get a second opinion before publishing. Add a changeset when
+   AGENTS.md says the touched package needs one.
+4. Commit everything; the tree must be clean. Before sending a PR, search
+   `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
+   has this fix, end with `OUTCOME: already-fixed <sha>`; if an open one does,
+   still send yours and name it in your reply, so the factory run can pick one
+   under `factory-run`'s "Duplicate and competing PRs".
 5. **Live mode:** send one ready pull request (never a draft) for this branch
    with Builder's pull request tool, titled "<app>: <what the fix does>". Then
    set its body with `gh pr edit <url> --body-file <file>`: what changed, why,
-   how it was verified (the proof line), a `### Root cause` section (your
+   how it was verified (the proof line, or that it's test-only), a `### Root cause` section (your
    ROOT CAUSE line and its evidence, no user data), then a `## Reports`
    section with one bullet per report link. No agent labels,
    `Co-Authored-By`, mentions, or reviewers. If `gh pr edit` fails, say so in
@@ -58,7 +63,7 @@ reported failure, or change anything beyond fixing it.
    ```text
    BRANCH: <output of git branch --show-current>
    PR: <the PR URL, or none>
-   PROOF: <the fix-proof line, or "visual: <before> <after>">
+   PROOF: <the fix-proof line, "visual: <before> <after>", or "fix-proof: test-only">
    ROOT CAUSE: confirmed | likely | unconfirmed - <one sentence, naming the evidence or what you couldn't check>
    CHANGE: <one plain sentence about what the reporter will notice>
    ```

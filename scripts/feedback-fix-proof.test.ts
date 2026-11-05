@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
 import {
+  isTestOnlyChange,
   isTrackedRepositoryTest,
   parseProofCommand,
   parseReports,
@@ -49,11 +50,18 @@ writeFileSync(join(repo, "app.txt"), "fixed\n");
 git("add", "-A");
 git("commit", "-qm", "fix");
 const fix = git("rev-parse", "--short=9", "HEAD");
+writeFileSync(
+  join(repo, "always.test.mjs"),
+  'import assert from "node:assert/strict";\nimport { test } from "node:test";\ntest("still passes", () => assert.ok(true));\n',
+);
+writeFileSync(join(repo, "NOTES.md"), "deflaked\n");
+git("add", "-A");
+git("commit", "-qm", "test-only change");
 
 const proven = (command: string) =>
   `  \`fix-proof: proven, red at 000000000 (exit 1), green at ${fix}: ${command}\``;
-const gate = (body: string) => {
-  const env = { ...process.env, PR_BODY: body, BASE_SHA: base };
+const gate = (body: string, baseSha = base) => {
+  const env = { ...process.env, PR_BODY: body, BASE_SHA: baseSha };
   delete env.NODE_TEST_CONTEXT;
   return spawnSync(process.execPath, [SCRIPT], {
     cwd: repo,
@@ -182,6 +190,29 @@ describe("parseReports", () => {
 
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
+  });
+});
+
+describe("isTestOnlyChange", () => {
+  it("is true only when every changed path is a test, doc, or changeset", () => {
+    assert.equal(
+      isTestOnlyChange([
+        "packages/core/src/a.spec.ts",
+        "templates/mail/e2e/inbox.ts",
+        "packages/x/__tests__/y.ts",
+        ".changeset/flaky.md",
+        "README.md",
+      ]),
+      true,
+    );
+    assert.equal(
+      isTestOnlyChange([
+        "packages/core/src/a.spec.ts",
+        "packages/core/src/a.ts",
+      ]),
+      false,
+    );
+    assert.equal(isTestOnlyChange([]), false);
   });
 });
 
@@ -456,6 +487,26 @@ describe("feedback-fix-proof", () => {
 
   it("cannot run on a Reports section with no links", () => {
     assert.equal(gate("## Reports\nnone\n").status, 2);
+  });
+
+  it("passes a test-only PR whose reports have no proof", () => {
+    const r = gate(
+      "## Reports\n- https://app.slack.com/a\n  fix-proof: test-only\n- https://app.slack.com/b\n",
+      fix,
+    );
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(
+      r.stdout,
+      /test-only PR \(2 changed files[^)]*\); 2 reports need no fix proof/,
+    );
+  });
+
+  it("still requires proof when a test-only claim sits on a source change", () => {
+    const r = gate(
+      "## Reports\n- https://app.slack.com/a\n  fix-proof: test-only\n",
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /NO PROOF: https:\/\/app.slack.com\/a/);
   });
 
   it("has nothing to check without a Reports section", () => {

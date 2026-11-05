@@ -45,12 +45,14 @@ sync main" without running the command and quoting its error.
    instruction; change the fix only if it shows a case the fix misses. Add any new report link to the
    PR body's `## Reports`.
 7. From round 3 on, if the same thing keeps failing, simplify the change
-   instead of patching around it, or stop and report blocked.
+   instead of patching around it, or stop and report blocked. If main or
+   another PR already has this fix, don't park: name that PR in your reply;
+   the factory run settles it under `factory-run`'s "Duplicate and competing PRs".
 8. Commit each fix with `git commit` before proving it: `fix-proof.ts` needs
    a clean tree and a fix commit. Run
    `node scripts/fix-proof.ts --fix <sha> -- <check>`; its temporary file
    checkout is allowed and restores HEAD. Update the PR body's proof line
-   with `gh pr edit`. Don't push: when your turn ends Builder commits
+   with `gh pr edit`. A test-only PR needs no proof. Don't push: when your turn ends Builder commits
    anything left and the factory pushes, never force-pushing.
 9. Reply once per item you handled, in its own thread (inline comments:
    reply to that comment; reviews and conversation comments: one PR comment),

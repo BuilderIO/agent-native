@@ -62,7 +62,8 @@ Deliberate differences from `review-latest-feedback`, in both modes:
 
 ## Never (both modes)
 
-- Merge, enable auto-merge, or close a PR; label an issue; close an issue
+- Merge, enable auto-merge, or close a PR, except closing the factory's own
+  PR under "Duplicate and competing PRs"; label an issue; close an issue
   except a fixed one after its PR merged (the close-out); assign anyone to a
   PR or issue.
 - Approve a PR any way except `factory-github approve` (never `gh pr review`,
@@ -298,7 +299,36 @@ With it `off`, in every live sweep, check each report's `prUrl` with
 `white_check_mark` with no second reply; for a GitHub issue, comment a
 one-line thank-you linking the PR and `gh issue close <url>`; set `triage`
 `already-fixed`; `factory-digest report "<key>" --force`. A closed, unmerged
-PR goes under "Needs a person" in the recap.
+PR goes under "Needs a person" in the recap, unless the factory closed it
+under "Duplicate and competing PRs".
+
+### Duplicate and competing PRs
+
+The factory's own PRs are the ones recorded as a report's `prUrl`. Before
+replying on a report, and in every live sweep for each open one, check its PR
+against merged and open PRs for the same problem (`factory-state active`,
+`gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
+reason to park a report or make it `needs-person`: settle them and move on.
+
+- **Superseded.** A merged PR already has the same fix (three docs-baseline
+  PRs after #8676 merged that change): close the factory PR with
+  `gh pr close <prUrl> --comment "Superseded by #<n>."`, set `triage`
+  `already-fixed`, and post one line saying it was superseded in the report's
+  thread (`factory-slack reply "<key>" --again`), or with `factory-digest post`
+  when the report has no thread.
+- **Competing factory PRs.** Two or more factory PRs or approaches fix the
+  same report (#8706 and #8714 for one clipping report): compare correctness,
+  scope, and tests, keep the best, and close the rest with a comment pointing
+  to it ("Closing in favor of #<n>, which …"). Point every covered report's
+  `prUrl` at the survivor; the watcher keeps babysitting it.
+- **A human's PR fixes the same thing.** Prefer it, and never close, push to,
+  or take it over. If your approach is genuinely better, comment once on their
+  PR describing the alternative with a link to yours, and leave the choice to
+  them. Otherwise close your own PR pointing to theirs and note their PR in
+  the report's thread.
+
+Never close a PR the factory didn't open. In dry mode, record what you would
+close and say in `note`.
 
 ## Mentions
 
@@ -374,7 +404,8 @@ mode only a real approval sets `triage` `approved`; a dry or rehearsal
   and set `triage` `approved`. It refuses forks, non-members, unverifiable
   membership, drafts, and a moved head; re-review instead of working around
   it. When a gate applies: `needs-person`, with the gate in the note. Don't
-  comment on internal PRs.
+  comment on internal PRs, except the one alternative-approach comment under
+  "Duplicate and competing PRs".
 - **One approval per PR.** Approvals here survive new pushes, so a member PR
   that already has a standing approval (the factory's or a BuilderIO
   member's, not dismissed or followed by a changes request) gets no new

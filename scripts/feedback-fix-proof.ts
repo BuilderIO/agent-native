@@ -12,6 +12,11 @@
 // Visual-only evidence is not machine proof. A passing run names each report
 // that still needs a human to inspect its before/after screenshots before merge.
 //
+// A PR whose diff touches only TEST_PATH files (a flaky-test fix) has no
+// source change to revert, so no proof can exist; it passes without one.
+// The decision comes from the diff, so a `fix-proof: test-only` line under
+// a report is for readers only.
+//
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
 //
@@ -21,12 +26,20 @@
 // Each proof's fix commit must be on this branch and not on its base
 // (BASE_SHA, or the merge-base with origin/main).
 //
-// Exit 0: every report proven. Exit 1: a report has no proof, or a proof
-// did not hold on re-run. Exit 2: could not run.
+// Exit 0: every report proven, or the PR is test-only. Exit 1: a report has
+// no proof, or a proof did not hold on re-run. Exit 2: could not run.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Imported by fix-proof.ts; this file has no top-level side effects.
+export const TEST_PATH =
+  /(^|\/)(__tests__|e2e|tests?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|\.md$|^\.changeset\//;
+
+export function isTestOnlyChange(paths: string[]): boolean {
+  return paths.length > 0 && paths.every((path) => TEST_PATH.test(path));
+}
 
 export type Report = {
   link: string;
@@ -238,6 +251,36 @@ function main() {
     process.exit(2);
   }
 
+  const base =
+    process.env.BASE_SHA ||
+    spawnSync("git", ["merge-base", "HEAD", "origin/main"], {
+      encoding: "utf8",
+    }).stdout.trim();
+  if (!base) {
+    console.error(
+      "feedback-fix-proof: could not run: set BASE_SHA or fetch origin/main",
+    );
+    process.exit(2);
+  }
+  const diff = spawnSync(
+    "git",
+    ["diff", "--name-only", "--no-renames", base, "HEAD"],
+    { encoding: "utf8", maxBuffer: 64 << 20 },
+  );
+  if (diff.status !== 0) {
+    console.error(
+      `feedback-fix-proof: could not run: git diff ${base} HEAD: ${diff.stderr.trim()}`,
+    );
+    process.exit(2);
+  }
+  const changed = diff.stdout.split("\n").filter(Boolean);
+  if (isTestOnlyChange(changed)) {
+    console.log(
+      `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests, docs, or changesets); ${reports.length} reports need no fix proof`,
+    );
+    return;
+  }
+
   const missing = reports.filter((r) => r.proven.length === 0 && !r.visual);
   const visualOnly = reports.filter(
     (r): r is VisualReport => r.proven.length === 0 && r.visual !== null,
@@ -253,17 +296,6 @@ function main() {
     );
   }
 
-  const base =
-    process.env.BASE_SHA ||
-    spawnSync("git", ["merge-base", "HEAD", "origin/main"], {
-      encoding: "utf8",
-    }).stdout.trim();
-  if (!base) {
-    console.error(
-      "feedback-fix-proof: could not run: set BASE_SHA or fetch origin/main",
-    );
-    process.exit(2);
-  }
   const isAncestor = (a: string, b: string) =>
     spawnSync("git", ["merge-base", "--is-ancestor", a, b]).status === 0;
 
