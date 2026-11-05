@@ -3,7 +3,7 @@ import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots } from "@tabler/icons-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -183,6 +183,18 @@ export function CommentEntry({
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
   const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  // Set once a delete lands: where focus goes when the row goes.
+  const focusAfterDeleteRef = useRef<HTMLElement | null>(null);
+  useEffect(
+    () => () => {
+      const target = focusAfterDeleteRef.current;
+      // Focus was in the row or its dialog, so it fell to the page with them.
+      const fell =
+        !document.activeElement || document.activeElement === document.body;
+      if (target?.isConnected && fell) target.focus();
+    },
+    [],
+  );
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
@@ -228,14 +240,10 @@ export function CommentEntry({
     const nextFocus = focusAfterDelete(menuRef.current, deletesThread);
     try {
       await remove.mutateAsync({ id: comment.id, documentId });
-      setConfirmingDelete(false);
       // The dialog hands focus back to this row's menu, which the delete
-      // took away with the row.
-      requestAnimationFrame(() => {
-        if (!menuRef.current?.isConnected && nextFocus?.isConnected) {
-          nextFocus.focus();
-        }
-      });
+      // takes away with the row.
+      focusAfterDeleteRef.current = nextFocus;
+      setConfirmingDelete(false);
     } catch (error) {
       const reason =
         DELETE_REFUSALS[

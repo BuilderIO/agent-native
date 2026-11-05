@@ -585,28 +585,28 @@ it("moves focus to what is left once a delete takes the row away", async () => {
         </div>,
       ),
     );
-  const nextFrame = () =>
-    act(
-      () =>
-        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-    );
+  // Confirming focuses the dialog's button, as a real click would.
+  const confirm = async () => {
+    [...container.querySelectorAll("button")]
+      .find((node) => node.textContent === "comments.delete")
+      ?.focus();
+    await click("comments.delete");
+  };
   const card = (id: string) =>
     container.querySelector(`[data-thread-card="${id}"]`);
 
   // A deleted reply leaves its thread, which takes focus.
   await renderCards(reply, true);
   await click("comments.deleteComment");
-  await click("comments.delete");
+  await confirm();
   await renderCards(reply, false);
-  await nextFrame();
   expect(document.activeElement).toBe(card("comment-1"));
 
   // A deleted thread hands focus to the next thread.
   await renderCards(comment, true);
   await click("comments.deleteThread");
-  await click("comments.delete");
+  await confirm();
   await renderCards(comment, false);
-  await nextFrame();
   expect(document.activeElement).toBe(card("comment-2"));
 });
 
