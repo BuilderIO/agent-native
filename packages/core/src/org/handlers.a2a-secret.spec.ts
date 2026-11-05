@@ -207,6 +207,7 @@ describe("setA2AMemberDelegationHandler", () => {
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "sender");
     mockGetOrgSetting.mockResolvedValue(null);
     mockGetBuiltinAgentsForSeeding.mockReturnValue([
       { id: "builtin-app", url: "https://builtin.example.test" },
@@ -259,6 +260,12 @@ describe("syncA2ASecretHandler", () => {
 
   it.each([
     "success",
+    "localhost-success",
+    "localhost-redirect",
+    "localhost-unconfigured",
+    "localhost-other-port",
+    "localhost-other-scheme",
+    "self-and-sibling",
     "wrong-previous-secret",
     "redirect",
     "unconfigured",
@@ -273,6 +280,7 @@ describe("syncA2ASecretHandler", () => {
       let receiverSecret = "fake-previous-secret";
       const received: Array<{
         url?: string;
+        host?: string;
         authorization?: string;
         body: string;
       }> = [];
@@ -281,10 +289,19 @@ describe("syncA2ASecretHandler", () => {
         for await (const chunk of request) body += chunk;
         received.push({
           url: request.url,
+          host: request.headers.host,
           authorization: request.headers.authorization,
           body,
         });
-        if (mode === "redirect" && received.length === 1) {
+        if (request.url?.startsWith("/sender/")) {
+          response.writeHead(401);
+          response.end("sender already rotated");
+          return;
+        }
+        if (
+          (mode === "redirect" || mode === "localhost-redirect") &&
+          received.length === 1
+        ) {
           response.writeHead(307, { location: "/redirected" });
           response.end();
           return;
@@ -308,16 +325,22 @@ describe("syncA2ASecretHandler", () => {
         server.listen(0, "127.0.0.1", resolve);
       });
       try {
-        const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        const origin = `http://${mode === "localhost-success" || mode === "localhost-redirect" || mode === "localhost-unconfigured" || mode === "localhost-other-port" || mode === "localhost-other-scheme" ? "localhost" : "127.0.0.1"}:${(server.address() as AddressInfo).port}`;
         vi.stubEnv(
           "WORKSPACE_GATEWAY_URL",
           mode === "unconfigured"
             ? "http://127.0.0.1:1"
-            : mode === "localhost-configured"
-              ? origin.replace("127.0.0.1", "localhost")
-              : mode === "abbreviated-ip-configured"
-                ? origin.replace("127.0.0.1", "127.1")
-                : origin,
+            : mode === "localhost-other-port"
+              ? "http://localhost:1"
+              : mode === "localhost-other-scheme"
+                ? origin.replace("http:", "https:")
+                : mode === "localhost-unconfigured"
+                  ? origin.replace("localhost", "127.0.0.1")
+                  : mode === "localhost-configured"
+                    ? origin.replace("127.0.0.1", "localhost")
+                    : mode === "abbreviated-ip-configured"
+                      ? origin.replace("127.0.0.1", "127.1")
+                      : origin,
         );
         vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
         resetAppConfigForTests();
@@ -350,7 +373,14 @@ describe("syncA2ASecretHandler", () => {
           signA2AOrganizationToken,
         );
         mockResolveAppRuntimeUrl.mockReturnValue(origin);
-        if (mode === "success" || mode === "wrong-previous-secret") {
+        if (
+          [
+            "success",
+            "localhost-success",
+            "self-and-sibling",
+            "wrong-previous-secret",
+          ].includes(mode)
+        ) {
           vi.stubEnv("APP_URL", `${origin}/sibling`);
         }
         mockReadBody.mockImplementation(
@@ -385,11 +415,18 @@ describe("syncA2ASecretHandler", () => {
         );
         mockLoadWorkspaceAppsManifest.mockResolvedValue([
           { id: "sibling", path: "/sibling" },
+          ...(mode === "self-and-sibling"
+            ? [{ id: "sender", path: "/sender" }]
+            : []),
         ]);
+        if (mode === "self-and-sibling") {
+          vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "sender");
+          vi.stubEnv("AGENT_NATIVE_APP_ID", "sibling");
+        }
         mockGetBuiltinAgentsForSeeding.mockReturnValue([
           { id: "sibling", url: `${origin}/sibling` },
         ]);
-        mockDiscoverAgents.mockResolvedValue([
+        const agents = [
           {
             id: mode === "unregistered" ? "unregistered" : "sibling",
             name: "Sibling",
@@ -398,14 +435,55 @@ describe("syncA2ASecretHandler", () => {
             color: "#000000",
             source: mode === "builtin" ? "builtin" : "workspace",
           },
-        ]);
+          ...(mode === "self-and-sibling"
+            ? [
+                {
+                  id: "sender",
+                  name: "Sender",
+                  description: "",
+                  url: `${origin}/sender`,
+                  color: "#000000",
+                  source: "workspace",
+                },
+              ]
+            : []),
+        ];
+        if (mode === "self-and-sibling") {
+          vi.stubEnv(
+            "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+            JSON.stringify([
+              { id: "sender", name: "Sender", path: "/sender" },
+              { id: "sibling", name: "Sibling", path: "/sibling" },
+            ]),
+          );
+          const discovery = await vi.importActual<
+            typeof import("../server/agent-discovery.js")
+          >("../server/agent-discovery.js");
+          mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+        } else {
+          mockDiscoverAgents.mockResolvedValue(agents);
+        }
 
-        const result = await syncA2ASecretHandler({} as any);
+        const event =
+          mode === "self-and-sibling"
+            ? {
+                url: new URL(
+                  `${origin}/sibling/_agent-native/org/a2a-secret/sync`,
+                ),
+                _headers: { host: new URL(origin).host },
+              }
+            : {};
+        const result = await syncA2ASecretHandler(event as any);
+        if (mode === "self-and-sibling")
+          expect(mockDiscoverAgents).toHaveBeenCalledWith("sender");
         if (mode === "unregistered") {
           expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
           expect(received).toEqual([]);
         } else if (
           mode === "unconfigured" ||
+          mode === "localhost-unconfigured" ||
+          mode === "localhost-other-port" ||
+          mode === "localhost-other-scheme" ||
           mode === "localhost-configured" ||
           mode === "abbreviated-ip-configured" ||
           mode === "builtin"
@@ -433,11 +511,11 @@ describe("syncA2ASecretHandler", () => {
           expect(received).toHaveLength(1);
           expect(receiverSecret).toBe("fake-previous-secret");
         } else {
-          if (mode === "success")
+          if (mode !== "redirect" && mode !== "localhost-redirect")
             expect(result.results[0].error).toBeUndefined();
           expect(received).toHaveLength(1);
           expect(result).toMatchObject(
-            mode === "success"
+            mode !== "redirect" && mode !== "localhost-redirect"
               ? { total: 1, succeeded: 1, failed: 0 }
               : {
                   total: 1,
@@ -449,6 +527,7 @@ describe("syncA2ASecretHandler", () => {
           expect(received[0].url).toBe(
             "/sibling/_agent-native/org/a2a-secret/receive",
           );
+          expect(received[0].host).toBe(new URL(origin).host);
           expect(JSON.parse(received[0].body)).toEqual({
             secret: "fake-new-secret",
             orgDomain: "example.test",
@@ -462,7 +541,9 @@ describe("syncA2ASecretHandler", () => {
           );
           expect(payload.org_domain).toBe("example.test");
           expect(receiverSecret).toBe(
-            mode === "redirect" ? "fake-previous-secret" : senderSecret,
+            mode === "redirect" || mode === "localhost-redirect"
+              ? "fake-previous-secret"
+              : senderSecret,
           );
           await expect(
             jose.jwtVerify(token, new TextEncoder().encode("fake-new-secret")),
@@ -512,7 +593,7 @@ describe("syncA2ASecretHandler", () => {
     );
   });
 
-  it.each(["http://169.254.169.254", "http://localhost:43219"])(
+  it.each(["http://169.254.169.254"])(
     "blocks a configured private gateway %s without sending a request",
     async (origin) => {
       vi.stubEnv("WORKSPACE_GATEWAY_URL", origin);
@@ -549,52 +630,118 @@ describe("syncA2ASecretHandler", () => {
     },
   );
 
-  it("blocks a configured hostname that rebinds to a private address at connect time", async () => {
-    let requests = 0;
-    const server = createServer((_request, response) => {
-      requests++;
-      response.end("unexpected");
+  it.each([
+    ["rebind.example.test", "127.0.0.1"],
+    ["localhost", "10.0.0.1"],
+    ["localhost", "93.184.216.34"],
+  ])(
+    "blocks configured %s when DNS returns hostile address %s",
+    async (hostname, hostileAddress) => {
+      let requests = 0;
+      const server = createServer((_request, response) => {
+        requests++;
+        response.end("unexpected");
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const preflightLookup = vi
+        .fn()
+        .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+      const connectLookup = vi.fn(
+        (
+          _hostname: string,
+          _options: unknown,
+          callback: (
+            error: NodeJS.ErrnoException | null,
+            addresses: { address: string; family: number }[],
+          ) => void,
+        ) =>
+          callback(
+            null,
+            hostname === "localhost"
+              ? [
+                  { address: "127.0.0.1", family: 4 },
+                  { address: hostileAddress, family: 4 },
+                ]
+              : [{ address: hostileAddress, family: 4 }],
+          ),
+      );
+      vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+      vi.doMock("node:dns", () => ({ lookup: connectLookup }));
+      vi.resetModules();
+      try {
+        const origin = `http://${hostname}:${(server.address() as AddressInfo).port}`;
+        vi.stubEnv("WORKSPACE_GATEWAY_URL", origin);
+        vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
+        resetAppConfigForTests();
+        vi.unstubAllGlobals();
+        const { ssrfSafeFetch } = await vi.importActual<
+          typeof import("../extensions/url-safety.js")
+        >("../extensions/url-safety.js");
+        let transportError: unknown;
+        mockSsrfSafeFetch.mockImplementation(
+          async (...args: Parameters<typeof ssrfSafeFetch>) => {
+            try {
+              return await ssrfSafeFetch(...args);
+            } catch (error) {
+              transportError = error;
+              throw error;
+            }
+          },
+        );
+        mockResolveAppRuntimeUrl.mockReturnValue(origin);
+        mockLoadWorkspaceAppsManifest.mockResolvedValue([
+          { id: "sibling", path: "/sibling" },
+        ]);
+        mockDiscoverAgents.mockResolvedValue([
+          {
+            id: "sibling",
+            name: "Sibling",
+            url: `${origin}/sibling`,
+            source: "workspace",
+          },
+        ]);
+
+        const result = await syncA2ASecretHandler({} as any);
+        expect(result).toMatchObject({ total: 1, succeeded: 0, failed: 1 });
+        expect(transportError).toMatchObject({
+          cause: { code: "EAI_BLOCKED" },
+        });
+        if (hostname !== "localhost")
+          expect(preflightLookup).toHaveBeenCalled();
+        expect(connectLookup).toHaveBeenCalled();
+        expect(requests).toBe(0);
+      } finally {
+        vi.doUnmock("node:dns/promises");
+        vi.doUnmock("node:dns");
+        vi.resetModules();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+        resetAppConfigForTests();
+      }
+    },
+  );
+
+  it("fails closed for configured localhost when the dispatcher is unavailable", async () => {
+    vi.doMock("node:dns", () => {
+      throw new Error("DNS unavailable");
     });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const preflightLookup = vi
-      .fn()
-      .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
-    const connectLookup = vi.fn(
-      (
-        _hostname: string,
-        _options: unknown,
-        callback: (
-          error: NodeJS.ErrnoException | null,
-          addresses: { address: string; family: number }[],
-        ) => void,
-      ) => callback(null, [{ address: "127.0.0.1", family: 4 }]),
-    );
-    vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
-    vi.doMock("node:dns", () => ({ lookup: connectLookup }));
     vi.resetModules();
     try {
-      const origin = `http://rebind.example.test:${(server.address() as AddressInfo).port}`;
+      const origin = "http://localhost:43219";
       vi.stubEnv("WORKSPACE_GATEWAY_URL", origin);
       vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
       resetAppConfigForTests();
-      vi.unstubAllGlobals();
       const { ssrfSafeFetch } = await vi.importActual<
         typeof import("../extensions/url-safety.js")
       >("../extensions/url-safety.js");
-      let transportError: unknown;
-      mockSsrfSafeFetch.mockImplementation(
-        async (...args: Parameters<typeof ssrfSafeFetch>) => {
-          try {
-            return await ssrfSafeFetch(...args);
-          } catch (error) {
-            transportError = error;
-            throw error;
-          }
-        },
-      );
+      mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+      mockFetch
+        .mockReset()
+        .mockRejectedValue(new Error("unexpected network request"));
       mockResolveAppRuntimeUrl.mockReturnValue(origin);
       mockLoadWorkspaceAppsManifest.mockResolvedValue([
         { id: "sibling", path: "/sibling" },
@@ -607,22 +754,40 @@ describe("syncA2ASecretHandler", () => {
           source: "workspace",
         },
       ]);
-
       const result = await syncA2ASecretHandler({} as any);
-      expect(result).toMatchObject({ total: 1, succeeded: 0, failed: 1 });
-      expect(transportError).toMatchObject({ cause: { code: "EAI_BLOCKED" } });
-      expect(preflightLookup).toHaveBeenCalled();
-      expect(connectLookup).toHaveBeenCalled();
-      expect(requests).toBe(0);
+      expect(result).toMatchObject({
+        total: 1,
+        failed: 1,
+        results: [
+          { error: expect.stringContaining("dispatcher could not be loaded") },
+        ],
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
     } finally {
-      vi.doUnmock("node:dns/promises");
       vi.doUnmock("node:dns");
       vi.resetModules();
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
       resetAppConfigForTests();
     }
+  });
+
+  it("fails closed when no server-side app identity is available", async () => {
+    for (const key of [
+      "AGENT_NATIVE_WORKSPACE_APP_ID",
+      "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
+      "AGENT_NATIVE_APP_ID",
+      "APP_ID",
+      "AGENT_APP",
+      "npm_package_name",
+    ])
+      vi.stubEnv(key, undefined);
+    resetAppConfigForTests();
+    await expect(
+      syncA2ASecretHandler({
+        url: new URL("https://remote.example.test/"),
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockDiscoverAgents).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {

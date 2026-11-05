@@ -2193,8 +2193,16 @@ export const syncA2ASecretHandler = defineEventHandler(
 
     // Only first-party built-ins and apps mounted on this deployment may receive
     // the organization secret. A workspace manifest can contain external URLs.
+    const app = getAppConfig().app;
+    const selfAppId = app.workspaceId ?? app.id ?? app.slug;
+    if (!selfAppId) {
+      throw createError({
+        statusCode: 503,
+        message: "Cannot sync A2A secrets without a configured app identity",
+      });
+    }
     const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
-      discoverAgents(),
+      discoverAgents(selfAppId),
       Promise.resolve(getBuiltinAgentsForSeeding()),
       loadWorkspaceAppsManifest(),
     ]);
@@ -2270,24 +2278,25 @@ export const syncA2ASecretHandler = defineEventHandler(
           );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
-          const recipientOrigin = new URL(agent.url).origin;
-          // The shared SSRF helper treats localhost aliases as equivalent; only
-          // literal IPs avoid trusting a hostname that can rebind at connect time.
-          const loopbackLiteral =
-            /^https?:\/\/(?:127\.0\.0\.1|\[::1\])(?=[:/?#]|$)/i;
-          const allowedPrivateOrigins =
+          const recipient = new URL(agent.url);
+          const recipientOrigin = recipient.origin;
+          const loopbackHost =
+            /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?=[:/?#]|$)/i;
+          const configuredLoopback =
             agent.source === "workspace" &&
-            loopbackLiteral.test(agent.url) &&
-            workspacePrivateOrigins().some((configured) => {
-              try {
-                return (
-                  loopbackLiteral.test(configured) &&
-                  new URL(configured).origin === recipientOrigin
-                );
-              } catch {
-                return false;
-              }
-            })
+            loopbackHost.test(agent.url) &&
+            workspacePrivateOrigins().some(
+              (configured) =>
+                loopbackHost.test(configured) &&
+                URL.canParse(configured) &&
+                new URL(configured).origin === recipientOrigin,
+            );
+          const allowedLocalhostOrigin =
+            configuredLoopback && recipient.hostname === "localhost"
+              ? recipientOrigin
+              : undefined;
+          const allowedPrivateOrigins =
+            configuredLoopback && !allowedLocalhostOrigin
               ? [recipientOrigin]
               : [];
           const res = await ssrfSafeFetch(
@@ -2305,6 +2314,7 @@ export const syncA2ASecretHandler = defineEventHandler(
               maxRedirects: 0,
               followRedirects: false,
               allowedPrivateOrigins,
+              ...(allowedLocalhostOrigin ? { allowedLocalhostOrigin } : {}),
             },
           );
 

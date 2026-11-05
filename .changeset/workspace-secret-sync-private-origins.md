@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Allow organization A2A secret sync to configured loopback IP workspace gateways without following redirects.
+Allow organization A2A secret sync to configured loopback workspace gateways without following redirects or syncing to the sender.
