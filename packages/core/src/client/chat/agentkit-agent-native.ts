@@ -2284,6 +2284,7 @@ function queuedMessageFileParts(
     if (!attachment.data) continue;
     const matchIndex = unmatchedStored.findIndex(
       (part) =>
+        !part.url &&
         part.name === attachment.name &&
         part.mediaType === attachment.contentType,
     );

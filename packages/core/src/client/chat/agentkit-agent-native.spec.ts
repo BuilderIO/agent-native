@@ -11284,6 +11284,28 @@ describe("withQueuedMessageHistory inline attachments", () => {
     ]);
   });
 
+  it.each([false, true])(
+    "keeps a distinct inline image when its same-named URL-backed image is %s in the request",
+    (includeUrlInRequest) => {
+      const url = "https://storage.example.test/image.jpg";
+      const [message] = withQueuedMessageHistory([], {
+        id: "q",
+        text: "t",
+        attachments: [
+          { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+        ],
+        requestAttachments: [
+          inline("image.jpg"),
+          ...(includeUrlInRequest ? [{ ...inline("image.jpg"), url }] : []),
+        ],
+      } as never);
+      expect(message.parts.filter((part) => part.type === "file")).toEqual([
+        { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+        omitted("image.jpg"),
+      ]);
+    },
+  );
+
   it("merges into an existing message by URL, or by name when URL-less", () => {
     const url = "https://storage.example.test/one.jpg";
     const existing = {
