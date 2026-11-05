@@ -254,4 +254,10 @@ describe("readTrafficCounts", () => {
   it("refuses a result that isn't one row", () => {
     expect(() => readTrafficCounts([])).toThrow("did not return one row");
   });
+
+  it("refuses a result missing a count, rather than reading it as zero", () => {
+    expect(() =>
+      readTrafficCounts([{ production_events: 1, beta_events: 1 }]),
+    ).toThrow("unreadable unknown_events");
+  });
 });

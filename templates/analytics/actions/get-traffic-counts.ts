@@ -23,7 +23,9 @@ export default defineAction({
       .min(1)
       .max(30)
       .optional()
-      .describe(`How many days back to count. Defaults to ${DEFAULT_DAYS}.`),
+      .describe(
+        `How many calendar days to count, today included. Defaults to ${DEFAULT_DAYS}.`,
+      ),
   }),
   outputSchema: z.object({
     days: z.number(),
@@ -41,7 +43,7 @@ export default defineAction({
         statusCode: 401,
       });
     }
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1_000)
+    const since = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1_000)
       .toISOString()
       .slice(0, 10);
     const result = await queryFirstPartyAnalytics(

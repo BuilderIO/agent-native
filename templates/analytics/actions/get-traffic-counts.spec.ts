@@ -38,6 +38,28 @@ describe("get-traffic-counts", () => {
     );
   });
 
+  it("counts today and the days before it, and no more", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-07T15:00:00.000Z") });
+    try {
+      mocks.queryFirstPartyAnalytics.mockResolvedValue({
+        rows: [{ production_events: 0, beta_events: 0, unknown_events: 0 }],
+        schema: [],
+      });
+
+      await getTrafficCounts.run({ days: 7 });
+      expect(mocks.queryFirstPartyAnalytics.mock.lastCall?.[0]).toContain(
+        "event_date >= '2026-11-01'",
+      );
+
+      await getTrafficCounts.run({ days: 1 });
+      expect(mocks.queryFirstPartyAnalytics.mock.lastCall?.[0]).toContain(
+        "event_date >= '2026-11-07'",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails rather than reporting no unknown traffic when a count can't be read", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: [{ production_events: 1, beta_events: 1, unknown_events: "?" }],

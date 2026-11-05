@@ -134,10 +134,11 @@ export function readTrafficCounts(rows: Array<Record<string, unknown>>): {
 } {
   const row = rows.length === 1 ? rows[0] : undefined;
   if (!row) throw new Error("Traffic counts did not return one row");
-  // SUM over no rows is null, which is a real zero. Anything else unreadable
-  // isn't, so it fails rather than showing as no unknown traffic.
+  // SUM over no rows is null, which is a real zero. Anything else unreadable,
+  // a missing field included, fails rather than showing as no unknown traffic.
   const read = (name: string) => {
-    const value = Number(row[name] ?? 0);
+    const raw = row[name];
+    const value = raw === null ? 0 : Number(raw);
     if (!Number.isFinite(value)) {
       throw new Error(`Traffic counts returned an unreadable ${name}`);
     }
