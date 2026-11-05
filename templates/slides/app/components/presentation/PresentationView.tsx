@@ -504,12 +504,13 @@ export default function PresentationView({
       "slide",
       String(toRawIndex(navRef.current.targetIndex) + 1),
     );
-    window.open(
+    const presenterWindow = window.open(
       url.toString(),
       presenterWindowName(deckId),
       PRESENTER_WINDOW_FEATURES,
     );
-  }, [deckId, toRawIndex]);
+    if (!presenterWindow) toast.error(t("editorToolbar.presenterViewBlocked"));
+  }, [deckId, t, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -543,6 +544,8 @@ export default function PresentationView({
           break;
         case "s":
         case "S":
+          // Shared routes ignore `presenter=1` and show the audience view, so S must leave the key unclaimed there.
+          if (isSharedRef.current) break;
           e.preventDefault();
           openPresenterWindow();
           break;
@@ -850,14 +853,16 @@ export default function PresentationView({
                 )}
               </button>
             )}
-            <button
-              onClick={openPresenterWindow}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
-              aria-label={t("presentation.presenterView")}
-              title={t("presentation.presenterView")}
-            >
-              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-            </button>
+            {!isShared && (
+              <button
+                onClick={openPresenterWindow}
+                className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+                aria-label={t("presentation.presenterView")}
+                title={t("presentation.presenterView")}
+              >
+                <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+              </button>
+            )}
             <button
               onClick={exit}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
