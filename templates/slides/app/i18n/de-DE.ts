@@ -124,6 +124,10 @@ const messages = {
     noAssetsYet: "Noch keine Assets.",
     assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
     assetDeleteFailed: "Asset konnte nicht gelöscht werden",
+    assetLoadFailed: "Assets konnten nicht geladen werden",
+    assetSelectNoChange:
+      "Dieses Bild konnte auf diese Folie nicht angewendet werden",
+    retry: "Erneut versuchen",
     assetDeleteInUse:
       "Dieses Asset wird in einer Präsentation verwendet. Entferne es zuerst aus der Präsentation",
     assetDeleteStorageRemains:

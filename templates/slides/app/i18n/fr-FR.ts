@@ -123,6 +123,10 @@ const messages = {
     noAssetsYet: "Aucun asset pour le moment.",
     assetUploadFailed: "Certains envois ont échoué",
     assetDeleteFailed: "Échec de la suppression de l'asset",
+    assetLoadFailed: "Impossible de charger les assets",
+    assetSelectNoChange:
+      "Cette image n'a pas pu être appliquée à cette diapositive",
+    retry: "Réessayer",
     assetDeleteInUse:
       "Cet asset est utilisé dans une présentation. Retirez-le d'abord de la présentation",
     assetDeleteStorageRemains:

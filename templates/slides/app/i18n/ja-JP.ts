@@ -123,6 +123,9 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetLoadFailed: "アセットを読み込めませんでした",
+    assetSelectNoChange: "この画像をこのスライドに適用できませんでした",
+    retry: "再試行",
     assetDeleteInUse:
       "このアセットはデッキで使用されています。先にデッキから削除してください",
     assetDeleteStorageRemains:
