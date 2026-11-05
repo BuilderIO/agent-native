@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "crypto";
 
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
+import { retainRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SourceGenerationResult } from "../../shared/source-generation.js";
@@ -1307,6 +1308,15 @@ export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
+  // Acquire the lease before a panel can stop awaiting this query. Finalization
+  // may otherwise begin after its request has already closed the pool.
+  return retainRequestDbPoolScope(runQueryWithDateRetry(sql, options));
+}
+
+async function runQueryWithDateRetry(
+  sql: string,
+  options: RunQueryOptions,
+): Promise<QueryResult> {
   try {
     return await runQueryAttempt(sql, options, false);
   } catch (error) {
@@ -1642,6 +1652,14 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
             })),
           }
         : {}),
+    };
+
+    // Cache the original job identity without implying a new billable job or
+    // claiming that deferred finalization has already persisted its metadata.
+    result.usageAccounting = {
+      projectId: usage.projectId,
+      jobId: usage.jobId,
+      status: usageStarted ? "pending" : "unavailable",
     };
 
     if (cacheFence) {

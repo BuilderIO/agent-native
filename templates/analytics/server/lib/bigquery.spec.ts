@@ -1,3 +1,7 @@
+import {
+  getOrCreateRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BigQueryJobUsage } from "./bigquery-usage";
@@ -333,6 +337,71 @@ describe("runQuery cancellation", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("retains query pools when a panel stops awaiting the warehouse job", async () => {
+    let releaseToken!: (token: string) => void;
+    let tokenStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      tokenStarted = resolve;
+    });
+    getBigQueryAccessToken.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseToken = resolve;
+          tokenStarted();
+        }),
+    );
+    const ended = vi.fn(async () => {});
+    let query!: ReturnType<typeof runQuery>;
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("outliving-query", () => ({ end: ended }));
+      query = runQuery("SELECT 1 AS outliving_request");
+      await started;
+      // Model a panel timeout returning while its uncancelled query still runs.
+    });
+    expect(ended).not.toHaveBeenCalled();
+    vi.stubGlobal(
+      "fetch",
+      mockQueryJobs(
+        jsonResponse({ jobComplete: true, schema: { fields: [] }, rows: [] }),
+      ),
+    );
+    finalizeUsage.mockImplementationOnce(async (usage) => {
+      getOrCreateRequestDbPool("outliving-query", () => {
+        throw new Error("Pool lost before finalization");
+      });
+      return {
+        projectId: usage.projectId,
+        jobId: usage.jobId,
+        status: "recorded",
+        usageStatus: usage.usageStatus,
+      };
+    });
+    releaseToken("test-token");
+    await expect(query).resolves.toMatchObject({
+      usageAccounting: { status: "recorded" },
+    });
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the original job receipt in real cache reads without resubmission", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({ jobComplete: true, schema: { fields: [] }, rows: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await runQuery("SELECT 1 AS cached_usage_receipt");
+    const cached = await runQuery("SELECT 1 AS cached_usage_receipt");
+    expect(cached).toMatchObject({
+      cached: true,
+      usageAccounting: {
+        jobId: first.usageAccounting?.jobId,
+        status: "pending",
+      },
+    });
+    expect(persistUsage).toHaveBeenCalledTimes(1);
+    expect(finalizeUsage).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
