@@ -198,6 +198,180 @@ describe("durable execution step replay", () => {
       reason: "action_settled",
     });
   });
+  it("retains settlement when recovering a missing tool result from its durable step", async () => {
+    const actionRun = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      return { id: "deck-1" };
+    });
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const firstEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall()], []], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => firstEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    durableStep.priorEvents = firstEvents.filter(
+      (event) => event.type === "tool_start",
+    );
+    const { loadPriorTurnToolCallJournal } =
+      await import("./engine/tool-call-journal-seed.js");
+    const journal = await loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+      { recoverCompletedExecutionSteps: true },
+    );
+    expect(journal.status).toBe("read");
+    if (journal.status !== "read") throw new Error(journal.error);
+    expect(journal.events).toContainEqual(
+      expect.objectContaining({ type: "tool_done", actionSettled: true }),
+    );
+    const recoveredEvents: AgentChatEvent[] = [];
+    const seen: string[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("new-id")], []], seen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => recoveredEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveLength(2);
+    expect(recoveredEvents.at(-1)).toEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    const step = durableStep.completedSteps[0];
+    if (!step) throw new Error("Expected completed step");
+    const resumeSeen: string[] = [];
+    const resumeEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Continued.")]], resumeSeen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "step-1",
+                name: "create-deck",
+                input: {},
+                executionStepId: step.stepId,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "step-1",
+                toolName: "create-deck",
+                toolInput: "{}",
+                content: "Deck saved",
+                executionStepId: step.stepId,
+              },
+            ],
+          },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => resumeEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(resumeSeen).toHaveLength(1);
+    expect(resumeEvents.at(-1)).toEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    const steeredSeen: string[] = [];
+    const steeredEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[], [text("Continued.")]], steeredSeen),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "step-1",
+                name: "create-deck",
+                input: {},
+                executionStepId: step.stepId,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "step-1",
+                toolName: "create-deck",
+                toolInput: "{}",
+                content: "Deck saved",
+                executionStepId: step.stepId,
+              },
+              { type: "text", text: "Also change the title" },
+            ],
+          },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => steeredEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(steeredSeen).toHaveLength(2);
+    expect(steeredEvents).toContainEqual({ type: "text", text: "Continued." });
+    expect(steeredEvents).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+  });
+
   it("keeps failed reads counted when a cached result is reconstructed from durable steps", async () => {
     const events: AgentChatEvent[] = [];
     const actionRun = vi.fn(async ({ id }: { id: string }) => {

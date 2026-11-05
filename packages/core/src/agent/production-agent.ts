@@ -36,7 +36,11 @@ import {
   actionChangeResource,
   classifyActionCall,
 } from "../action-call-classification.js";
-import { runOutsideActionInvocation, vouchedOutcome } from "../action-frame.js";
+import {
+  actionExecutionStorage,
+  runOutsideActionInvocation,
+  vouchedOutcome,
+} from "../action-frame.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -4568,6 +4572,7 @@ interface DurableExecutionStepOutcome {
   completedSideEffect: boolean;
   replayTruncated?: boolean;
   actionSettled?: true;
+  hasAgentWarnings?: true;
   artifacts?: ArtifactReceipt[];
   receipt?: WriteReceipt;
   mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
@@ -4613,6 +4618,7 @@ function serializeDurableExecutionStepOutcome(
     replayTruncated: true,
     replayOmittedFields: omittedFields,
     ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(outcome.hasAgentWarnings ? { hasAgentWarnings: true as const } : {}),
     ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
   };
   let serialized: string;
@@ -7686,6 +7692,7 @@ export async function runAgentLoop(opts: {
   let model = normalizeModelForEngine(engine, opts.model);
   let settlementCandidate = false;
   let settledEmptyFinal = false;
+  let turnHasActionWarnings = false;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -8002,6 +8009,14 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  turnHasActionWarnings =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        (event.hasAgentWarnings === true ||
+          event.result.includes("<agent-warning ")),
+    );
   const journalHistory = messages.slice(
     findCurrentTurnStartForContinuation(messages),
   );
@@ -8077,6 +8092,53 @@ export async function runAgentLoop(opts: {
   };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
+  if (
+    (internalContinuationTurn ||
+      opts.recoverCompletedExecutionSteps === true) &&
+    toolCallJournal &&
+    toolCallJournal.interrupted.length === 0
+  ) {
+    const lastMessage = journalHistory.at(-1);
+    const previousMessage = journalHistory.at(-2);
+    const pairs = matchToolCallResultsInHistory(journalHistory);
+    const calls =
+      previousMessage?.role === "assistant"
+        ? previousMessage.content.filter((part) => part.type === "tool-call")
+        : [];
+    if (
+      lastMessage?.role === "user" &&
+      lastMessage.content.length > 0 &&
+      calls.length === lastMessage.content.length &&
+      lastMessage.content.every((part) => {
+        if (
+          part.type !== "tool-result" ||
+          part.isError ||
+          part.outcome === "unknown" ||
+          part.approvalPause ||
+          !part.executionStepId
+        )
+          return false;
+        const pair = pairs.find((match) => match.result === part);
+        const entries = toolCallJournal.completed.filter(
+          (entry) =>
+            entry.executionStepId === part.executionStepId &&
+            entry.tool === part.toolName,
+        );
+        return (
+          pair !== undefined &&
+          calls.includes(pair.call) &&
+          entries.length === 1 &&
+          entries[0]?.actionSettled === true &&
+          !entries[0].isError
+        );
+      }) &&
+      !toolResultHistory.some((result) => result.isError) &&
+      !turnHasActionWarnings &&
+      !writeReceiptGuard(turnReceipts(), false)
+    ) {
+      settlementCandidate = true;
+    }
+  }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
     (journalRead.code === "private_history_unrecoverable" ||
@@ -10343,6 +10405,7 @@ export async function runAgentLoop(opts: {
           );
         }
         const isError = outcome.isError === true;
+        if (outcome.hasAgentWarnings === true) turnHasActionWarnings = true;
         const completedSideEffect = outcome.completedSideEffect === true;
         const artifacts = Array.isArray(outcome.artifacts)
           ? outcome.artifacts.filter(isArtifactReceipt)
@@ -10373,8 +10436,16 @@ export async function runAgentLoop(opts: {
           ...(errorCode ? { errorCode } : {}),
           completedSideEffect,
           replayed: true,
+          ...(outcome.hasAgentWarnings === true
+            ? { hasAgentWarnings: true as const }
+            : {}),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(receipt ? { receipt } : {}),
+          ...(outcome.isError === false &&
+          outcome.actionSettled === true &&
+          outcome.replayTruncated !== true
+            ? { actionSettled: true as const }
+            : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(chatUI ? { chatUI } : {}),
           ...(chatUI && outcome.chatUIResult !== undefined
@@ -10524,6 +10595,10 @@ export async function runAgentLoop(opts: {
             result,
             ...(replayedFailure ? { isError: true } : {}),
             ...(journaled.errorCode ? { errorCode: journaled.errorCode } : {}),
+            ...(journaled.receipt ? { receipt: journaled.receipt } : {}),
+            ...(!replayedFailure && journaled.actionSettled
+              ? { actionSettled: true as const }
+              : {}),
             completedSideEffect: true,
             replayed: true,
             ...(journaled.artifacts?.length
@@ -10544,9 +10619,11 @@ export async function runAgentLoop(opts: {
             result,
             replayedFailure,
             journaled.artifacts,
-            undefined,
+            journaled.receipt,
             false,
           );
+          if (!replayedFailure && journaled.actionSettled)
+            settledToolCalls.add(originalToolCall);
           if (!replayedFailure) {
             noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           }
@@ -10956,7 +11033,13 @@ export async function runAgentLoop(opts: {
             const actionContext = {
               send,
               settle: () => {
-                requestedSettlement = true;
+                if (
+                  actionExecutionOutcome.evidence &&
+                  actionExecutionStorage?.getStore()?.frame ===
+                    actionExecutionOutcome.evidence
+                ) {
+                  requestedSettlement = true;
+                }
               },
               userEmail: actionUserEmail ?? undefined,
               orgId: actionOrgId,
@@ -11400,8 +11483,22 @@ export async function runAgentLoop(opts: {
 
         const agentWarnings = drainAgentWarnings();
         if (agentWarnings.length > 0) {
+          turnHasActionWarnings = true;
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
+        const actionSettled =
+          !isError &&
+          !toolResultLost &&
+          !signal.aborted &&
+          settlementOnReturn &&
+          !requiresNextAction &&
+          callEffect !== "unknown" &&
+          !toolCallTruncatedByOutputCap &&
+          agentWarnings.length === 0 &&
+          !writeReceiptGuard(
+            receipt ? [{ tool: toolCall.name, ...receipt }] : [],
+            false,
+          );
 
         const resolvedChatUI = actionChatUIForResult(
           toolCall.name,
@@ -11469,13 +11566,11 @@ export async function runAgentLoop(opts: {
                   ? { errorCode: toolErrorCode }
                   : {}),
                 completedSideEffect: callEffect === "committed",
-                ...(!isPrivateCall() &&
-                !isError &&
-                !toolResultLost &&
-                !signal.aborted &&
-                settlementOnReturn &&
-                !requiresNextAction
+                ...(!isPrivateCall() && actionSettled
                   ? { actionSettled: true as const }
+                  : {}),
+                ...(agentWarnings.length > 0
+                  ? { hasAgentWarnings: true as const }
                   : {}),
                 ...(isPrivateCall() ? {} : { artifacts: toolArtifacts }),
                 ...(!isPrivateCall() && receipt ? { receipt } : {}),
@@ -11524,17 +11619,14 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
           ...(receipt ? { receipt } : {}),
+          ...(actionSettled ? { actionSettled: true as const } : {}),
+          ...(agentWarnings.length > 0
+            ? { hasAgentWarnings: true as const }
+            : {}),
         });
         toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
-        if (
-          !isError &&
-          !toolResultLost &&
-          !signal.aborted &&
-          settlementOnReturn &&
-          !requiresNextAction &&
-          callEffect !== "unknown"
-        ) {
+        if (actionSettled) {
           settledToolCalls.add(originalToolCall);
         }
         if (isError) {
@@ -11754,9 +11846,11 @@ export async function runAgentLoop(opts: {
         await deliverSteeredMessagesAtToolBoundary(toolResultParts);
       settlementCandidate =
         delivered === 0 &&
+        !toolCallTruncatedByOutputCap &&
         followUpResults.length === 0 &&
         toolCallParts.length > 0 &&
         toolCallParts.every((call) => settledToolCalls.has(call)) &&
+        !turnHasActionWarnings &&
         !toolResultHistory.some((result) => result.isError);
     }
     if (requestedActionStop) {

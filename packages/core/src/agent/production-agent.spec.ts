@@ -22500,6 +22500,9 @@ describe("runAgentLoop", () => {
 
   it.each([
     "throws after settling",
+    "nested action settles then throws",
+    "critical warning",
+    "truncated tool round",
     "failed receipt",
     "unverified receipt",
     "next action required",
@@ -22510,8 +22513,29 @@ describe("runAgentLoop", () => {
     "parallel unmarked action with reused id",
   ])("does not accept settlement for %s", async (scenario) => {
     let streamCalls = 0;
+    const nested = defineAction({
+      description: "Nested write",
+      schema: z.object({}),
+      run: async (_input, ctx) => {
+        ctx?.settle?.();
+        throw new Error("nested failure");
+      },
+    });
     const save = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      if (scenario === "nested action settles then throws") {
+        try {
+          await nested.run({}, ctx);
+        } catch {
+          return { saved: false };
+        }
+      }
       ctx?.settle?.();
+      if (scenario === "critical warning")
+        warnAgent({
+          severity: "critical",
+          code: "risk",
+          message: "Check the saved state.",
+        });
       if (scenario === "throws after settling") throw new Error("save failed");
       if (scenario === "failed receipt") {
         return {
@@ -22567,7 +22591,11 @@ describe("runAgentLoop", () => {
                 : []),
             ],
           };
-          yield { type: "stop", reason: "tool_use" };
+          yield {
+            type: "stop",
+            reason:
+              scenario === "truncated tool round" ? "max_tokens" : "tool_use",
+          };
         } else if (streamCalls === 2) {
           yield {
             type: "stop",
@@ -22595,24 +22623,28 @@ describe("runAgentLoop", () => {
       },
     };
     const events: AgentChatEvent[] = [];
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: actionsToEngineTools(actions),
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions,
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      ...(scenario === "final response guard"
-        ? {
-            finalResponseGuard: ({
-              text,
-            }: AgentLoopFinalResponseGuardContext) =>
-              text ? null : "Please finish the response.",
-          }
-        : {}),
-    });
+    await runWithRequestContext(
+      { userEmail: "agent@example.test", run: {} },
+      () =>
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: actionsToEngineTools(actions),
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+          ...(scenario === "final response guard"
+            ? {
+                finalResponseGuard: ({
+                  text,
+                }: AgentLoopFinalResponseGuardContext) =>
+                  text ? null : "Please finish the response.",
+              }
+            : {}),
+        }),
+    );
     expect(save).toHaveBeenCalledTimes(1);
     if (parallel) expect(other).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBeGreaterThanOrEqual(3);
