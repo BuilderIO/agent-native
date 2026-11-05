@@ -3591,20 +3591,23 @@ function SqlDashboardPageContent({
       ) : null}
     </DashboardReportCaptureSurface>
   );
+  const dashboardPage = (
+    <DashboardAnnotationsProvider
+      dashboardId={loadedDashboardId}
+      annotations={dashboard.annotations}
+      dataNoteActions={
+        reportScreenshot ? undefined : annotationEditing.dataNoteActions
+      }
+    >
+      {content}
+      {annotationEditing.dialogs}
+    </DashboardAnnotationsProvider>
+  );
   return (
     <TrafficEnvironmentContext.Provider
       value={dashboardTrafficEnvironment(vars)}
     >
-      <DashboardAnnotationsProvider
-        dashboardId={loadedDashboardId}
-        annotations={dashboard.annotations}
-        dataNoteActions={
-          reportScreenshot ? undefined : annotationEditing.dataNoteActions
-        }
-      >
-        {content}
-        {annotationEditing.dialogs}
-      </DashboardAnnotationsProvider>
+      {dashboardPage}
     </TrafficEnvironmentContext.Provider>
   );
 }

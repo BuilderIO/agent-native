@@ -1484,7 +1484,7 @@ export function scopedAnalyticsSql(
       string,
       FirstPartyAnalyticsEventSourceProjection
     >;
-    trafficEnvironment?: TrafficEnvironment;
+    trafficEnvironment?: TrafficEnvironment | undefined;
   } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];

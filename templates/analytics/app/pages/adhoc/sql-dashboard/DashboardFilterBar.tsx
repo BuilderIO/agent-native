@@ -174,14 +174,18 @@ interface DashboardFilterBarProps {
   // While a cached list refetches it can still hold a deleted view, so Reset is
   // disabled rather than put that view's id back in the URL.
   viewsRefreshing?: boolean;
-  onSaveView?: (
-    name: string,
-    filters: Record<string, string>,
-    isDefault: boolean,
-  ) => void | Promise<void>;
+  onSaveView?:
+    | ((
+        name: string,
+        filters: Record<string, string>,
+        isDefault: boolean,
+      ) => void | Promise<void>)
+    | undefined;
   // Passed only in edit mode: a preset changes the dashboard for everyone who
   // can see it, so view mode never offers to add, rename or delete one.
-  onEditPreset?: (filterId: string, edit: FilterPresetEdit) => void;
+  onEditPreset?:
+    | ((filterId: string, edit: FilterPresetEdit) => void)
+    | undefined;
   shared?: boolean;
 }
 
