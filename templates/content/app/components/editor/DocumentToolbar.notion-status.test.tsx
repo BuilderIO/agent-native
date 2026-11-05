@@ -229,8 +229,10 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     await openPageActions();
     expect(statusRequests()).toEqual([]);
     expect(notionItem()?.disabled).toBe(true);
-    expect(notionItem()?.getAttribute("aria-busy")).toBe("true");
-    expect(notionItem()?.querySelector(".animate-spin")).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(notionItem()?.getAttribute("aria-busy")).toBe("true");
+      expect(notionItem()?.querySelector(".animate-spin")).not.toBeNull();
+    });
     expect(document.body.textContent).not.toContain(
       "editor.toolbar.setUpNotion",
     );
