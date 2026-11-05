@@ -30,6 +30,11 @@ function labelsFor(...roots: unknown[]) {
   return labels;
 }
 
+const toastAdd = (parentId: number, id: number) => ({
+  parentId,
+  node: element(id, "li", { "data-sonner-toast": "" }),
+});
+
 describe("createReplayNodeLabels", () => {
   it("names a control from its text, wherever the text sits inside it", () => {
     const labels = labelsFor(
@@ -229,14 +234,75 @@ describe("createReplayNodeLabels", () => {
     });
 
     expect(labels.describe(2)).toBeNull();
-    // A mutation's adds are read before its attribute changes.
-    expect(labels.describe(3)).toBeNull();
+    expect(labels.describe(3)).toBe('button "Save"');
+  });
+
+  it("treats text as typed when its parent becomes an editor in the same mutation", () => {
+    const labels = labelsFor(
+      element(2, "button"),
+      element(3, "ol"),
+      element(4, "div"),
+    );
     labels.observe({
       type: 3,
-      timestamp: 4,
-      data: { source: 0, adds: [{ parentId: 3, node: text(6, "Save") }] },
+      timestamp: 2,
+      data: { source: 0, adds: [toastAdd(3, 5)] },
     });
-    expect(labels.describe(3)).toBe('button "Save"');
+
+    const shown = labels.observe({
+      type: 3,
+      timestamp: 3,
+      data: {
+        source: 0,
+        attributes: [
+          { id: 2, attributes: { contenteditable: "true" } },
+          { id: 5, attributes: { contenteditable: "true" } },
+          { id: 4, attributes: { contenteditable: "true" } },
+        ],
+        adds: [
+          { parentId: 2, node: text(6, "my password") },
+          { parentId: 5, node: text(7, "my password") },
+          { parentId: 4, node: text(8, "The agent hit an error") },
+        ],
+      },
+    });
+
+    expect(labels.describe(2)).toBeNull();
+    expect(labels.describe(5)).toBeNull();
+    expect(shown).toEqual([]);
+  });
+
+  it("stops at a parent chain that loops, and counts its text as typed", () => {
+    const labels = labelsFor(element(2, "div"));
+
+    const shown = labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        adds: [
+          { parentId: 3, node: element(3, "button") },
+          { parentId: 3, node: text(4, "my password") },
+          { parentId: 6, node: element(5, "button") },
+          { parentId: 5, node: element(6, "div") },
+          { parentId: 6, node: text(7, "The agent hit an error") },
+        ],
+      },
+    });
+
+    expect(labels.describe(3)).toBeNull();
+    expect(labels.describe(5)).toBeNull();
+    expect(shown).toEqual([]);
+  });
+
+  it("still reads text under a deep, ordinary page", () => {
+    let page = element(100, "button", {}, [text(101, "Send")]);
+    for (let id = 99; id >= 3; id -= 1) {
+      page = element(id, "div", {}, [page]);
+    }
+    const labels = labelsFor(page);
+
+    expect(labels.describe(100)).toBe('button "Send"');
   });
 
   it("never reports what was typed as an agent error's message", () => {

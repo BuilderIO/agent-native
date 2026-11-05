@@ -6,6 +6,9 @@ const NODE_TEXT = 3;
 
 const MAX_LABEL_CHARS = 80;
 const MAX_ANCESTORS_CHECKED = 6;
+// Far deeper than a real page. A replay's parent ids come from its uploader, so
+// they can loop, and text we can't place counts as typed.
+const MAX_EDITOR_ANCESTORS_CHECKED = 256;
 const MAX_SHOWN_ERROR_CHARS = 500;
 const TOAST_TEXT_JOINER = " — ";
 // Recordings from before the recorder marked failed runs show only this copy.
@@ -145,12 +148,13 @@ export function createReplayNodeLabels() {
   function holdsReadableText(parentId: unknown): boolean {
     let cursor = typeof parentId === "number" ? nodes.get(parentId) : undefined;
     if (!cursor || UNREADABLE_TEXT_TAGS.has(cursor.tag)) return false;
-    while (cursor) {
+    for (let depth = 0; depth < MAX_EDITOR_ANCESTORS_CHECKED; depth += 1) {
       if (cursor.editable) return false;
       cursor =
         cursor.parentId === null ? undefined : nodes.get(cursor.parentId);
+      if (!cursor) return true;
     }
-    return true;
+    return false;
   }
 
   /** A control's text names it, wherever in the control the text sits. */
@@ -234,6 +238,17 @@ export function createReplayNodeLabels() {
     }
   }
 
+  function changeEditability(changes: unknown[]): void {
+    for (const change of changes) {
+      const { id, attributes } = record(change);
+      const node = typeof id === "number" ? nodes.get(id) : undefined;
+      const changed = record(attributes);
+      if (node && "contenteditable" in changed) {
+        node.editable = isEditableAttribute(changed.contenteditable);
+      }
+    }
+  }
+
   function errorsShownBy(data: Record<string, unknown>): ReplayShownError[] {
     const adds = Array.isArray(data.adds) ? data.adds.map(record) : [];
     const changes = Array.isArray(data.attributes)
@@ -268,11 +283,6 @@ export function createReplayNodeLabels() {
       if (text) texts.push({ parentId, text });
     }
     for (const { id, attributes } of changes) {
-      const node = typeof id === "number" ? nodes.get(id) : undefined;
-      const changed = record(attributes);
-      if (node && "contenteditable" in changed) {
-        node.editable = isEditableAttribute(changed.contenteditable);
-      }
       if (
         typeof id === "number" &&
         nodes.get(id)?.toast &&
@@ -327,6 +337,8 @@ export function createReplayNodeLabels() {
       ) {
         return [];
       }
+      // Before the adds: text arriving as its parent becomes an editor is typed.
+      if (Array.isArray(data.attributes)) changeEditability(data.attributes);
       if (Array.isArray(data.adds)) {
         for (const add of data.adds) {
           const { node, parentId } = record(add);
