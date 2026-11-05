@@ -3,6 +3,20 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-03
+
+### Improved
+
+- Opening Gmail messages is faster.
+- Opening Gmail threads is faster.
+
+## 2026-11-02
+
+### Fixed
+
+- Draft edits from another tab or the agent no longer overwrite each other. If you both change the same field, you choose which version to keep and can get the other one back.
+- Show an agent's draft as an editable card in chat again, next to the conversation it answers. Send and Delete open the draft in Mail.
+
 ## 2026-10-30
 
 ### Fixed

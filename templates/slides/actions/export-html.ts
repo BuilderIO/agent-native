@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  noteExternalWrite,
+} from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
@@ -719,6 +723,7 @@ export default defineAction({
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);
+      noteExternalWrite("local-disk");
       fs.mkdirSync(exportDir, { recursive: true });
       filePath = path.join(exportDir, filename);
       fs.writeFileSync(filePath, html);

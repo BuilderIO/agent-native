@@ -139,13 +139,13 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, `external-result-contract`,
+`no-bare-error-in-actions`, `no-unobserved-writes`, `external-result-contract`,
 `no-source-reading-tests`, `no-oracle-loosening`,
 `no-raw-sql-interpolation`, `action-output-schema`,
 `strict-lint`, and `compiler-strictness` check only lines this branch added,
 so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma, and every opt-out is a decision a reviewer should see.
+opt-out pragma; every opt-out is a decision a reviewer should see.
 `no-new-legacy-mcp-hints`, `no-new-escape-hatches`, and `compiler-strictness`
 have none: the MCP `destructiveHint` baseline, each file's count of `any`,
 `!`, and suppression comments, and the list of tsconfig strictness opt-outs

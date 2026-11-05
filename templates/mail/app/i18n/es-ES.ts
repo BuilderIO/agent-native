@@ -797,12 +797,12 @@ const messages = {
     draftCard: {
       loadFailed: "No se pudo cargar este borrador.",
       notFoundTitle: "No se encontró el borrador",
+      goneTitle: "Este borrador se envió o se eliminó.",
       threadUnavailable:
         "No se pudieron cargar los mensajes anteriores de esta conversación.",
-      threadLookupFailed:
-        "No se encontró la conversación a la que pertenece esta respuesta, así que aún no se puede enviar.",
       earlierMessages: "Mensajes anteriores ({{count}})",
-      deleted: "Borrador eliminado.",
+      sendInMail: "Enviar en Mail",
+      openBlocked: "Tu navegador bloqueó la pestaña nueva.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
