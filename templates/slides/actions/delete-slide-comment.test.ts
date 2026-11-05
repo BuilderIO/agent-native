@@ -51,6 +51,7 @@ function matches(row: Row, cond: any): boolean {
 vi.mock("../server/db/index.js", () => {
   const col = (name: string) => `slideComments.${name}`;
   const schema = {
+    decks: { id: "decks.id" },
     slideComments: {
       id: col("id"),
       deckId: col("deckId"),
@@ -64,8 +65,10 @@ vi.mock("../server/db/index.js", () => {
 
   const db = {
     select: (projection?: Record<string, unknown>) => ({
-      from: () => ({
+      from: (table?: unknown) => ({
         where: (cond: any) => {
+          if (table === schema.decks)
+            return { for: async () => [{ id: "deck-1" }] };
           const matched = state.rows.filter((r) => matches(r, cond));
           const project = (row: Row) => {
             if (!projection) return row;
@@ -253,6 +256,16 @@ describe("delete-slide-comment", () => {
       run({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
     ).rejects.toThrow("Ask the user");
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
+  });
+
+  it("lets an agent delete another person's reply once the user approved the call", async () => {
+    const result = await deleteAction.run({ id: "c-1", deckId: "deck-1" }, {
+      caller: "tool",
+      approvedToolCallKey: "key-1",
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
   });
 
   it("requires editor access to delete someone else's comment", async () => {

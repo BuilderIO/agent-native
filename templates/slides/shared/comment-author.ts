@@ -8,3 +8,11 @@ export function commentAuthorKind(
     ? "person"
     : "agent";
 }
+
+// The agent runs as the signed-in user, so its reactions need their own key or the user's toggle would remove them.
+export function commentActorKey(
+  caller: string | undefined,
+  email: string,
+): string {
+  return commentAuthorKind(caller) === "agent" ? `agent:${email}` : email;
+}

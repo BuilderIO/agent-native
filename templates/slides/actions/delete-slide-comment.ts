@@ -118,6 +118,12 @@ export default defineAction({
     }
 
     const removedIds = await db.transaction(async (tx) => {
+      // Reply insertion locks the deck row first; take it too so a reply can't land between this selection and the delete.
+      await tx
+        .select({ id: schema.decks.id })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, comment.deckId))
+        .for("update");
       const threadRows = await tx
         .select({
           id: schema.slideComments.id,
@@ -144,9 +150,10 @@ export default defineAction({
         });
       }
       const removed = removedRows(threadRows, comment);
-      // The approval was for the thread as it was before this lock; a reply that landed since needs asking again.
+      // Without an approval covering this call, other people's rows must not be deleted by the agent.
       if (
         commentAuthorKind(ctx?.caller) === "agent" &&
+        !ctx?.approvedToolCallKey &&
         removed.some((row) => isOtherPerson(row.authorEmail, userEmail))
       ) {
         fail(
