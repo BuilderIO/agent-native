@@ -1707,6 +1707,19 @@ export function hasFailedDeckSave(deckId: string): boolean {
   );
 }
 
+/** Calls `listener` once, the first time this deck reaches a failed save state. */
+export function onDeckSaveFailed(
+  deckId: string,
+  listener: () => void,
+): () => void {
+  const unsubscribe = subscribeSaveState(() => {
+    if (!hasFailedDeckSave(deckId)) return;
+    unsubscribe();
+    listener();
+  });
+  return unsubscribe;
+}
+
 export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
   if (!hasFailedDeckSave(deckId)) return undefined;
   return (

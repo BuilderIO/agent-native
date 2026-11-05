@@ -62,6 +62,7 @@ import {
   markSlideEditingActive,
   mergeServerAddedSlides,
   mergeServerSlideUpdate,
+  onDeckSaveFailed,
   pendingWriteSlideIds,
   useDeckContentConflicts,
   useDecks,
@@ -2171,6 +2172,48 @@ describe("DeckContext deck creation persistence", () => {
     ]);
     expect(hasFailedDeckSave(deckId)).toBe(false);
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("notifies once when a slide delete ends in a terminal revision conflict", async () => {
+    const deckId = "terminal-delete-revision-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch({
+      revisionConflicts: { deckId, count: 100 },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: deckId,
+      title: "Terminal delete conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "", layout: "title" },
+        { id: "slide-4", content: "Remote", notes: "", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const onFailed = vi.fn();
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlides(deckId, ["slide-1"]);
+    });
+    onDeckSaveFailed(deckId, onFailed);
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+    expect(getDeckSaveError(deckId)).toMatchObject({
+      errorCode: "deck_revision_conflict",
+    });
+    expect(onFailed).toHaveBeenCalledTimes(1);
   });
 
   it("retries a mixed content and metadata patch across an unrelated revision conflict", async () => {
