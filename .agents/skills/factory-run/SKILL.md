@@ -127,12 +127,16 @@ with the factory runner's `deploy/SETUP.md`.
   Analytics errors, chat-run health (`node scripts/chat-health.mjs --hours 72`),
   deploys, and the alert channels (see Alerts). Use its 5-day window, unless
   the message has `windowStart`: then collect only reports created or updated
-  since then. Only when `$FACTORY_PR_REVIEW` is `on`, also run Pull requests
-  and Community issues below. Also handle the message's `events`.
+  since then. Always run Refactor findings below; only when
+  `$FACTORY_PR_REVIEW` is `on`, also run Pull requests and Community issues.
+  Also handle the message's `events`.
 - `events`: handle only the listed items. Read each Slack thread in full. An
   event whose `channel` is in `$FACTORY_SLACK_ALERT_CHANNELS` is an alert (see
   Alerts); `kind` `mention` is someone asking the factory directly (see
   Mentions); `kind` `pr` is a human PR with new activity (see Pull requests).
+  A GitHub `issue` event for an open issue labeled `refactor-findings` is a
+  refactor work order (see Refactor findings); a closed one is never work,
+  closing as not planned is how a finding is cancelled.
 - `pr-batch`: a rehearsal of PR review on `limit` PRs (see PR batch).
 - `worker-report`: a fix branch stopped; go to step 5.
 - `continue`: read `reason`, check `factory-state show`, and carry on.
@@ -443,11 +447,61 @@ GitHub or Slack: no approvals, comments, reactions, digest, or recap.
    disagreed with what a person already did.
 4. `factory-state run finish --summary "pr-batch: <counts>; evidence in pr-batch/<runId>.md"`.
 
+## Refactor findings
+
+The nightly `identify-fragile-systems` run files each systemic problem it
+finds as a GitHub issue labeled `refactor-findings`, with a refactor plan in
+the body (see `github-refactor-findings`). The factory implements every one.
+They arrive as `issue` events when filed or updated; in a sweep, also list
+them with
+`gh issue list --state open --limit 500 --label refactor-findings --json number,url,title,author,updatedAt`
+to catch any an event missed. Handle them here, never as feedback reports.
+
+- **Trust.** Only the label marks a work order, and only accounts with
+  triage access can add labels, so the label is trusted. The issue's author
+  must be a BuilderIO member (`factory-github membership`) or
+  `$FACTORY_GITHUB_BOT_LOGIN`, so nobody outside can rewrite the plan after
+  it's labeled. Other GitHub App accounts are not trusted. Otherwise
+  `needs-person` "refactor issue from an outside author" and leave it.
+- **Approved.** An issue still labeled `needs-member-approval` came from a
+  bug report, so its plan holds outside text no member has reviewed:
+  `needs-person` "bug-derived plan awaiting member approval" and leave it.
+  A member removes the label to approve.
+- **Ready.** The body has a `<!-- fragility-plan:start` block. Without one
+  it is still being filed or was opened by hand: `needs-person` "no plan in
+  the issue". Never write a plan yourself.
+- **One per issue, no endorsement.** Each issue is its own fix group, keyed
+  by its URL, `source` `github`, title "Refactor #<n>: <title>". These are
+  internal plans, not feature requests, so they don't need Steve's
+  endorsement, and they aren't capped beyond the daily spawn cap. Still check
+  work in flight (step 3): an open factory PR or running branch for the same
+  issue means skip it.
+- **Start the branch** like any fix (step 4), but name it
+  `refactor <slug>` and use this prompt:
+
+  ```text
+  Implement this agent-native refactor plan as a factory refactor branch, in <live | dry> mode.
+  Read and follow the refactor-branch instructions first:
+  git fetch origin main && git show origin/main:.agents/skills/factory-run/references/refactor-branch.md
+
+  Issue: <issue url>
+  ```
+
+- **Close the loop** (step 5): record the result like any fix. In live
+  mode, comment once on the issue with the PR link
+  (`gh issue comment <url> --body-file …`); `OUTCOME: already-fixed` or
+  `blocked` gets one comment with the evidence and `needs-person`. Never
+  close the issue yourself: the PR's `Closes #<n>` and the watcher's merge
+  close-out do that, and a completed close is what later nights read as
+  "fixed". People stop a plan by closing the issue as not planned.
+- Refactor issues go in the recap's "In review" or "Needs a person" like
+  any report.
+
 ## Community issues
 
 In a sweep with `$FACTORY_PR_REVIEW` on, also find open issues from people
 outside BuilderIO with no reply yet from a member or the bot
-(`gh issue list --state open --limit 500 --search "sort:created-asc" --json number,author,comments,createdAt`, then
+(`gh issue list --state open --limit 500 --search "sort:created-asc -label:refactor-findings" --json number,author,comments,createdAt`, then
 `factory-github membership`). Handle the oldest 10 per sweep as GitHub issue
 reports through normal triage. Replies say what happens next and who does it,
 never internal process.
