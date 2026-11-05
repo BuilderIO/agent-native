@@ -133,7 +133,6 @@ export function renderOverviewCanvas({
   } = editorGenerationAndAccess;
   const {
     overviewScreens,
-    files,
     pendingNodeRewriteScreenIds,
     displayedCanvasFrameGeometryById,
     optimisticFrameGeometryById,

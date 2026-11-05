@@ -119,7 +119,6 @@ import {
   resolveSourceBaseForPublication,
   prepareCanonicalSourceContent,
 } from "../source-publication";
-import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorCore } from "./use-editor-core";
