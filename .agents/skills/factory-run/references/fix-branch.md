@@ -64,6 +64,10 @@ reported failure, or change anything beyond fixing it.
 
 6. End with exactly these lines:
 
+   Write these lines as plain text in your own final reply: not inside a
+   plan (ExitPlanMode), a sub-agent's prompt, or a file. The factory reads
+   only your reply text.
+
    ```text
    BRANCH: <output of git branch --show-current>
    PR: <the PR URL, or none>
