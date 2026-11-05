@@ -561,7 +561,7 @@ export function publishAgentChatContextItems(
       options?.updatedAt === undefined ||
       next.updatedAt === agentChatContextState.updatedAt
     ) {
-      if (options?.persist === true) {
+      if (options?.persist !== false) {
         persistAgentChatContextState(agentChatContextState);
       }
       return agentChatContextState;

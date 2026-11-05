@@ -34,6 +34,8 @@ afterEach(() => {
 });
 
 it("does not loop when an effect republishes identical context", async () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetch);
   const items = [{ key: "selection", title: "Selection", context: "A" }];
   const initial = publishAgentChatContextItems(items, {
     updatedAt: 10,
@@ -47,7 +49,7 @@ it("does not loop when an effect republishes identical context", async () => {
     useEffect(() => {
       effect();
       if (effect.mock.calls.length < 8) {
-        publishAgentChatContextItems(items, { persist: false });
+        publishAgentChatContextItems(items);
       }
     }, [state.items, state.updatedAt]);
     return <div>{state.updatedAt}</div>;
@@ -55,6 +57,7 @@ it("does not loop when an effect republishes identical context", async () => {
 
   await act(async () => root.render(<RepublishProbe />));
   expect(effect).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledOnce();
   expect(container.textContent).toBe("10");
   expect(getAgentChatContextState()).toBe(initial);
 });
