@@ -71,22 +71,30 @@ describe("delegateImageGenerationToAssets", () => {
     signA2ATokenMock.mockClear();
   });
 
-  it("trusts only the configured Assets URL origin as a private origin", async () => {
-    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
-    vi.stubEnv("IMAGES_A2A_URL", "http://localhost:8100/_agent-native/a2a");
-    try {
-      await delegateImageGenerationToAssets({ prompt: "a hero" });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-    expect(A2AClientMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.anything(),
-      expect.objectContaining({
-        allowedPrivateOrigins: ["http://localhost:8100"],
-      }),
-    );
-  });
+  it.each([
+    ["http://localhost:8100/_agent-native/a2a", ["http://localhost:8100"]],
+    ["http://127.0.0.1:8100/_agent-native/a2a", ["http://127.0.0.1:8100"]],
+    ["http://[::1]:8100/_agent-native/a2a", ["http://[::1]:8100"]],
+    ["http://10.0.0.5:8100/_agent-native/a2a", ["http://10.0.0.5:8100"]],
+    ["https://assets.example.com/_agent-native/a2a", []],
+    ["https://8.8.8.8/_agent-native/a2a", []],
+  ])(
+    "trusts the configured Assets URL %s as private only for a loopback or private IP host",
+    async (override, expected) => {
+      sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+      vi.stubEnv("IMAGES_A2A_URL", override);
+      try {
+        await delegateImageGenerationToAssets({ prompt: "a hero" });
+      } finally {
+        vi.unstubAllEnvs();
+      }
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.anything(),
+        expect.objectContaining({ allowedPrivateOrigins: expected }),
+      );
+    },
+  );
 
   it("does not trust a discovered Assets URL as a private origin", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
