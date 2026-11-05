@@ -271,7 +271,7 @@ async function lockPageForBodyWrite(
       lockCollections.includes(database.id) ||
       database.documentId === documentId ||
       database.ownerDocumentId === documentId;
-    // Membership-only collections must fence policy writes without serializing independent page saves.
+    // Membership-only saves can share this policy lock; collection mutations still conflict.
     const locked = firstRow(
       await db
         .select(collectionColumns)
