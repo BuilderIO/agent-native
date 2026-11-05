@@ -129,7 +129,6 @@ export function GoogleDriveConnectionCta({
 
   const configured = status?.configured === true;
   const retry = () => {
-    setLoading(true);
     void refreshStatus();
   };
 

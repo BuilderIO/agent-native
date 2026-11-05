@@ -326,7 +326,7 @@ export const disconnectGoogleDocsHandler = defineEventHandler(
     }
 
     try {
-      await disconnectGoogleDocs(owner);
+      await withSlidesRequestContext(event, () => disconnectGoogleDocs(owner));
       return { ok: true };
     } catch (error) {
       setResponseStatus(event, 500);

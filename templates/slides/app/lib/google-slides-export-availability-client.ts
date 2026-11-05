@@ -44,6 +44,9 @@ async function load(): Promise<GoogleSlidesExportState> {
     ),
     { credentials: "same-origin" },
   );
+  if (!response.ok) {
+    throw new Error(`Google Slides status check failed (${response.status}).`);
+  }
   const result = await readStatusBody(response);
   if ("unreadable" in result) return UNKNOWN_STATE;
   const disconnectable = result.body?.disconnectable === true;
