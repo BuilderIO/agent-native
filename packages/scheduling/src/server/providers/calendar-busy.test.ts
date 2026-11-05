@@ -229,6 +229,30 @@ describe("Office 365 getBusy concurrency", () => {
     ).rejects.toThrow("Graph 500");
   });
 
+  it("stops the remaining calendar reads once one fails", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      if (url.includes("calendar-broken")) {
+        return new Response("boom", { status: 500 });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return new Response(JSON.stringify(calendarViewFor(url)), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const ids = [
+      "calendar-broken",
+      ...Array.from({ length: 5 }, (_, index) => `calendar-${index}`),
+    ];
+
+    await expect(outlookBusy(ids)).rejects.toThrow("Graph 500");
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
   it("treats a Graph 429 as a retryable throttle with its Retry-After", async () => {
     respondWithStatus(429, "throttled", { "retry-after": "12" });
     const config = providerConfig();
@@ -340,13 +364,54 @@ describe("Office 365 getBusy", () => {
     );
   });
 
-  it("throws a credential-invalid error and marks the credential on 403", async () => {
-    respondWithStatus(403);
+  it.each([
+    [401, "denied"],
+    [
+      403,
+      JSON.stringify({
+        error: { code: "InvalidAuthenticationToken", message: "Expired" },
+      }),
+    ],
+  ])(
+    "throws a credential-invalid error and marks the credential on a %s token error",
+    async (status, body) => {
+      respondWithStatus(status, body);
+      const config = providerConfig();
+
+      await expect(
+        outlookBusy([OUTLOOK_CALENDAR_ID], config),
+      ).rejects.toBeInstanceOf(CalendarCredentialInvalidError);
+      expect(config.markInvalid).toHaveBeenCalledWith("credential-example");
+    },
+  );
+
+  it("fails only the lookup, not the credential, when one calendar is denied", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("calendar-shared")
+          ? new Response(
+              JSON.stringify({
+                error: { code: "ErrorAccessDenied", message: "Denied" },
+              }),
+              { status: 403 },
+            )
+          : new Response(JSON.stringify({ value: [] }), { status: 200 }),
+      ),
+    );
     const config = providerConfig();
 
-    await expect(
-      outlookBusy([OUTLOOK_CALENDAR_ID], config),
-    ).rejects.toBeInstanceOf(CalendarCredentialInvalidError);
-    expect(config.markInvalid).toHaveBeenCalledWith("credential-example");
+    const error = await outlookBusy(
+      ["calendar-own", "calendar-shared"],
+      config,
+    ).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(CalendarCredentialInvalidError);
+    expect((error as Error).message).toContain("Graph 403");
+    expect(config.markInvalid).not.toHaveBeenCalled();
   });
 });

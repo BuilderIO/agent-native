@@ -452,6 +452,59 @@ describe("aggregateBusy", () => {
       ],
       retryAfterSeconds: 45,
     });
+    // A 429 with details.retryAfterSeconds is what the action route turns
+    // into a Retry-After header.
+    expect((error as CalendarAvailabilityUnavailableError).statusCode).toBe(
+      429,
+    );
+  });
+
+  it("stays a 503 when a throttled calendar fails alongside another failure", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled-mixed",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError("Rate limited", 45);
+        }),
+      ),
+    );
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-broken-mixed",
+        vi.fn(async () => {
+          throw new Error("Provider outage");
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-throttled-mixed",
+          type: "availability-throttled-mixed",
+        },
+        { id: "credential-broken-mixed", type: "availability-broken-mixed" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled-mixed",
+          externalId: "calendar-throttled-mixed",
+        },
+        {
+          credentialId: "credential-broken-mixed",
+          externalId: "calendar-broken-mixed",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).statusCode).toBe(
+      503,
+    );
   });
 
   it("reports credential_invalid when the provider rejects the credential on this lookup", async () => {

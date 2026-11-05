@@ -20,6 +20,21 @@ export interface Office365ProviderConfig {
 
 const SCOPES = ["offline_access", "Calendars.ReadWrite", "User.Read"];
 const MAX_CALENDAR_VIEW_CONCURRENCY = 4;
+const GRAPH_TOKEN_ERROR_CODES = new Set([
+  "InvalidAuthenticationToken",
+  "AuthenticationError",
+]);
+
+function graphErrorCode(body: string): string {
+  try {
+    const code = (JSON.parse(body) as { error?: { code?: unknown } }).error
+      ?.code;
+    return typeof code === "string" ? code : "";
+    // coercion-ok: a non-JSON error body has no Graph error code, so it is not a token error
+  } catch {
+    return "";
+  }
+}
 
 export function createOffice365Provider(
   config: Office365ProviderConfig,
@@ -51,14 +66,21 @@ export function createOffice365Provider(
         parseRetryAfterSeconds(res.headers.get("retry-after")),
       );
     }
-    if (res.status === 401 || res.status === 403) {
-      await config.markInvalid?.(credentialId);
-      throw new CalendarCredentialInvalidError(
-        `Office 365 credential invalid (${res.status})`,
-      );
-    }
     if (!res.ok) {
-      throw new Error(`Graph ${res.status}: ${await res.text()}`);
+      const body = await res.text();
+      // A 403 is usually about one resource (a shared calendar this account
+      // can't read), not the token; only token errors invalidate the credential.
+      if (
+        res.status === 401 ||
+        (res.status === 403 &&
+          GRAPH_TOKEN_ERROR_CODES.has(graphErrorCode(body)))
+      ) {
+        await config.markInvalid?.(credentialId);
+        throw new CalendarCredentialInvalidError(
+          `Office 365 credential invalid (${res.status})`,
+        );
+      }
+      throw new Error(`Graph ${res.status}: ${body}`);
     }
     if (res.status === 204) return undefined as unknown as T;
     return (await res.json()) as T;
@@ -138,6 +160,8 @@ export function createOffice365Provider(
     // does not accept (it takes SMTP addresses), so read each calendar's
     // calendarView. Times come back in UTC without an offset.
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
+      // One unreadable calendar fails the whole lookup, so stop the rest.
+      const stop = new AbortController();
       async function readCalendar(calendarId: string): Promise<BusyInterval[]> {
         const out: BusyInterval[] = [];
         const params = new URLSearchParams({
@@ -157,7 +181,7 @@ export function createOffice365Provider(
               isCancelled?: boolean;
             }[];
             "@odata.nextLink"?: string;
-          } = await graph(credentialId, path);
+          } = await graph(credentialId, path, { signal: stop.signal });
           if (!Array.isArray(page.value)) {
             throw new Error(
               `Graph calendarView returned no events list for ${calendarId}`,
@@ -183,7 +207,13 @@ export function createOffice365Provider(
       }));
       async function worker(): Promise<void> {
         for (let item = queue.shift(); item; item = queue.shift()) {
-          perCalendar[item.index] = await readCalendar(item.calendarId);
+          try {
+            perCalendar[item.index] = await readCalendar(item.calendarId);
+          } catch (error) {
+            queue.length = 0;
+            stop.abort();
+            throw error;
+          }
         }
       }
       const workerCount = Math.min(

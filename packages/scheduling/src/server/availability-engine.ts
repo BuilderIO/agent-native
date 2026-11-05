@@ -64,7 +64,9 @@ export class CalendarAvailabilityUnavailableError extends ActionContractError {
       `Couldn't check ${labels.join(", ")}, so availability can't be confirmed. Try again shortly.`,
       {
         errorCode: "calendar_availability_unavailable",
-        statusCode: 503,
+        // The action route sends Retry-After from details only on a 429, so
+        // a lookup that failed purely on provider throttling uses 429.
+        statusCode: retryAfters.length === failures.length ? 429 : 503,
         details: {
           calendars: failures.map((f) => ({
             provider: f.provider,
