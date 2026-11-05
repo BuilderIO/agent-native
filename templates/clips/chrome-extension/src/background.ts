@@ -2405,14 +2405,15 @@ async function attachSession(session: CaptureSession): Promise<void> {
   try {
     const targetWindowId = (await chrome.tabs.get(session.targetTabId))
       .windowId;
+    const windowTabs = await chrome.tabs.query({ windowId: targetWindowId });
+    const windowTabIds = new Set(windowTabs.map((tab) => tab.id));
     wanted = pickDebugTabIds({
       targetTabId: session.targetTabId,
       targetWindowId,
-      // Stored windowIds can be stale; every candidate is re-checked live.
-      activations: (await readTabActivations()).map((tab) => ({
-        ...tab,
-        windowId: targetWindowId,
-      })),
+      // Stored windowIds can be stale; resolve membership before applying the cap.
+      activations: (await readTabActivations())
+        .filter((tab) => windowTabIds.has(tab.tabId))
+        .map((tab) => ({ ...tab, windowId: targetWindowId })),
       nowMs: nowMs(),
     });
   } catch (err) {
@@ -3474,8 +3475,8 @@ chrome.tabs.onActivated.addListener((info) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   queueTabActivation(async () => {
-    const tabs = await chrome.tabs.query({ active: true, windowId });
-    const activeTabId = tabs.length > 0 ? tabs[0].id : undefined;
+    const [activeTab] = await chrome.tabs.query({ active: true, windowId });
+    const activeTabId = activeTab?.id;
     if (typeof activeTabId === "number") {
       await noteTabActivated(activeTabId, windowId);
     }
