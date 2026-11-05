@@ -11,6 +11,7 @@ import {
 import {
   ActionContractError,
   isActionContractError,
+  noteExternalWrite,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getAppConfig } from "@agent-native/core/app-config";
@@ -55,7 +56,7 @@ import {
   parseAgentProfileMetadata,
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccessMany } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -95,7 +96,6 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
-const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -1889,33 +1889,17 @@ async function filterWorkspaceAppsByAccess(
     candidates.push(app);
   }
 
-  for (
-    let start = 0;
-    start < candidates.length;
-    start += WORKSPACE_APP_ACCESS_CONCURRENCY
-  ) {
-    const batch = candidates.slice(
-      start,
-      start + WORKSPACE_APP_ACCESS_CONCURRENCY,
-    );
-    const decisions = await Promise.all(
-      batch.map(async (app) => {
-        try {
-          const access = await resolveAccess(
-            "workspace-app",
-            app.id,
-            { userEmail, orgId },
-            { skipResourceBody: true },
-          );
-          return { app, allowed: Boolean(access) };
-        } catch (error) {
-          console.warn("[dispatch] workspace app access lookup failed", error);
-          return { app, allowed: false };
-        }
-      }),
-    );
-    for (const decision of decisions) {
-      if (decision.allowed) visibleIds.add(decision.app.id);
+  if (candidates.length > 0) {
+    try {
+      const access = await resolveAccessMany(
+        "workspace-app",
+        candidates.map((app) => app.id),
+        { userEmail, ...(orgId ? { orgId } : {}) },
+        { skipResourceBody: true },
+      );
+      for (const id of access.keys()) visibleIds.add(id);
+    } catch (error) {
+      console.warn("[dispatch] workspace app access lookup failed", error);
     }
   }
 
@@ -2829,6 +2813,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2845,6 +2830,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2885,6 +2871,7 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
+    noteExternalWrite("child-process");
     // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
     // shell. The app id is validated and the template comes from an allowlist,
     // so one joined command line is safe there.

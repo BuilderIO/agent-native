@@ -3550,6 +3550,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "إزالة التطبيق من مساحة العمل",
   "chatFirst.showMore": "عرض المزيد",
   "chatFirst.showLess": "عرض أقل",
+  "chatFirst.showMoreCount": "عرض {{count}} أخرى",
   "chatFirst.appOrderUnavailable": "تعذّر حفظ ترتيب التطبيقات على هذا الجهاز.",
   "chatFirst.openSideSurfaces": "فتح اللوحات الجانبية",
   "chatFirst.sideSurfaces": "اللوحات الجانبية",

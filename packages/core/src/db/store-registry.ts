@@ -13,6 +13,7 @@
  * kept only for that.
  */
 
+import { withoutWriteObservation } from "../action-frame.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { getDbExec, type DbExec } from "./client.js";
 import {
@@ -203,7 +204,17 @@ export function migrationChecksum(migration: StoreMigration): string | null {
   );
 }
 
-async function runMigration(
+/**
+ * Schema setup is idempotent infrastructure the first action to touch a store
+ * happens to run, so it never counts as that action's write, nor does the
+ * ledger row recording it. A data migration writes rows, so it does.
+ */
+function runMigration(migration: StoreMigration, exec: DbExec): Promise<void> {
+  const run = () => executeMigration(migration, exec);
+  return migration.kind === "data" ? run() : withoutWriteObservation(run);
+}
+
+async function executeMigration(
   migration: StoreMigration,
   exec: DbExec,
 ): Promise<void> {
@@ -249,7 +260,9 @@ async function applyPending(
 ): Promise<void> {
   const state = ledgerStateFor(exec);
   if (!state.present) {
-    const preparing = (state.preparing ??= prepareLedger(exec).finally(() => {
+    const preparing = (state.preparing ??= withoutWriteObservation(() =>
+      prepareLedger(exec),
+    ).finally(() => {
       if (state.preparing === preparing) state.preparing = undefined;
     }));
     await preparing;
@@ -337,8 +350,21 @@ async function tolerateRefusedDatabase(
  * Records entries in a `runMigrations` list's own bookkeeping as that runner
  * would after applying them: each by name when named, and the highest version
  * only when it advances `MAX(version)`, the one value that gates unnamed ones.
+ *
+ * raw-sql-ok: `table` names a list a store declares, never request input; this
+ * wrapper only keeps the bookkeeping from counting as the running action's write.
  */
-async function recordLegacyMigrationEntries(
+function recordLegacyMigrationEntries(
+  exec: DbExec,
+  table: string,
+  entries: ReadonlyArray<{ version: number; name?: string }>,
+): Promise<void> {
+  return withoutWriteObservation(() =>
+    insertLegacyMigrationEntries(exec, table, entries),
+  );
+}
+
+async function insertLegacyMigrationEntries(
   exec: DbExec,
   table: string,
   entries: ReadonlyArray<{ version: number; name?: string }>,
@@ -373,7 +399,18 @@ async function recordLegacyMigrationEntries(
   }
 }
 
-async function recordMigration(
+function recordMigration(
+  exec: DbExec,
+  store: StoreDefinition,
+  migration: StoreMigration,
+  source: "step" | "legacy",
+): Promise<void> {
+  return withoutWriteObservation(() =>
+    insertMigrationRow(exec, store, migration, source),
+  );
+}
+
+async function insertMigrationRow(
   exec: DbExec,
   store: StoreDefinition,
   migration: StoreMigration,

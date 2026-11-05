@@ -16,13 +16,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // gate's rebind on B's answer does, so the cells need both.
 
 const SESSION_PATH = "/_agent-native/auth/session";
-const PAGE_READ_URL = "/_agent-native/actions/get-document";
+const PAGE_READ_URL = "/_agent-native/actions/get-page-open-read";
 const INVALIDATION_KEY = "agent-native:session-invalidated";
 const TRANSPORT_CHANGED_EVENT = "agent-native:fetch-transport-changed";
 
 const server = vi.hoisted(() => ({
   // The account the browser's cookies name when a request goes out.
   account: "a",
+  // Whether the page is a collection's, whose read brings its table's first
+  // reads along.
+  collectionPage: false,
   // A fetch that sends B's embed token and no cookies, like the MCP host's
   // embed runtime.
   bearerFetch: null as typeof fetch | null,
@@ -44,6 +47,38 @@ function sentAs(fetcher: unknown): string {
   return server.account;
 }
 
+const tableQuery = {
+  search: "",
+  filters: [],
+  sorts: [],
+  filterMode: "and" as const,
+};
+const rowsParams = { documentId: "doc-1", limit: 100, tableQuery };
+
+// The page as an account reads it, with its collection's parts when it has
+// one.
+function pageReadFor(account: string, includePreviewDraft = true) {
+  const page = { id: "doc-1", title: `${account}'s page`, canEdit: true };
+  const owner = `${account}'s collection`;
+  return {
+    document: includePreviewDraft
+      ? {
+          ...page,
+          previewDraft: { editable: true, draft: `${account}'s draft` },
+        }
+      : page,
+    ...(server.collectionPage
+      ? {
+          collection: {
+            database: { owner, items: [], properties: [] },
+            personalView: { databaseId: "db-1", overrides: null, owner },
+            rows: { tableQuery, page: { owner, items: [] } },
+          },
+        }
+      : {}),
+  };
+}
+
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   isOpenAiMcpAppHost: () => false,
 }));
@@ -60,16 +95,18 @@ vi.mock("@agent-native/core/client/hooks", () => {
     if (name === "get-preview-document-draft") {
       return Promise.resolve({ editable: true, draft: `${account}'s draft` });
     }
-    if (name !== "get-document") return Promise.resolve(null);
-    const page = { id: params.id, title: `${account}'s page`, canEdit: true };
-    return Promise.resolve(
-      params.includePreviewDraft
-        ? {
-            ...page,
-            previewDraft: { editable: true, draft: `${account}'s draft` },
-          }
-        : page,
-    );
+    if (name === "get-page-open-read") {
+      return Promise.resolve(
+        pageReadFor(account, params.includePreviewDraft === true),
+      );
+    }
+    if (name === "get-document") {
+      return Promise.resolve(pageReadFor(account, false).document);
+    }
+    if (name === "query-content-database-items") {
+      return Promise.resolve({ owner: `${account}'s collection`, items: [] });
+    }
+    return Promise.resolve(null);
   };
   return {
     callAction,
@@ -110,14 +147,7 @@ function answer(url: string, account: string): Promise<Response> {
     );
   }
   if (url.includes(PAGE_READ_URL)) {
-    return Promise.resolve(
-      json({
-        id: "doc-1",
-        title: `${account}'s page`,
-        canEdit: true,
-        previewDraft: { editable: true, draft: `${account}'s draft` },
-      }),
-    );
+    return Promise.resolve(json(pageReadFor(account)));
   }
   return Promise.resolve(json({}));
 }
@@ -125,7 +155,11 @@ function answer(url: string, account: string): Promise<Response> {
 const cookieFetch = (input: RequestInfo | URL) =>
   answer(String(input instanceof Request ? input.url : input), server.account);
 
-type ReadKind = "head read" | "app read" | "home-page prefetch";
+type ReadKind =
+  | "head read"
+  | "app read"
+  | "home-page prefetch"
+  | "collection seed";
 type Switch =
   | "before the app code loads"
   | "while the session read is out"
@@ -153,6 +187,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     server.account = "a";
+    server.collectionPage = false;
     server.holdSessionAnswers = false;
     server.heldSessionAnswers = [];
     window.history.replaceState(null, "", "/page/doc-1");
@@ -212,6 +247,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     vi.resetModules();
 
     // The document head, with A's cookies.
+    server.collectionPage = kind === "collection seed";
     server.holdSessionAnswers = change === "while the session read is out";
     for (const script of headScripts) new Function(script)();
     await tick();
@@ -224,6 +260,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
       await import("@agent-native/core/client/action-query-cache");
     const { RequireSession } = await import("@agent-native/toolkit/app/auth");
     const { QueryClientProvider } = await import("@tanstack/react-query");
+    const { useActionQuery } = await import("@agent-native/core/client/hooks");
     const {
       startPageOpenDocumentReads,
       usePageOpenDocument,
@@ -242,6 +279,20 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     queryClient = client;
     const shown: Shown[] = [];
     const sessions: Array<string | undefined> = [];
+    // The collection's table takes what is in the cache for as long as it
+    // stays there, so a seed of A's that was kept would show.
+    const table: Array<{ account: string | undefined; rows: unknown }> = [];
+    function Table() {
+      const { session } = useSession();
+      const rows = useActionQuery("query-content-database-items", rowsParams, {
+        staleTime: Infinity,
+      });
+      table.push({
+        account: session?.userId,
+        rows: (rows.data as { owner?: unknown } | undefined)?.owner,
+      });
+      return null;
+    }
     function Page() {
       const { session } = useSession();
       const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
@@ -252,7 +303,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
         draft: (drafts.data as { draft?: unknown } | undefined)?.draft,
         fetched: !query.isError && fetchedForThisOpen,
       });
-      return null;
+      return kind === "collection seed" ? <Table /> : null;
     }
     // On a routine reread the page opens only once the session is A's, while
     // the reread is out. Kept outside the tree, which the cache gate remounts
@@ -363,18 +414,29 @@ describe("a page-open read sent as A is never used once the session is B's", () 
       });
     }
 
-    await vi.waitFor(() =>
+    await vi.waitFor(() => {
       expect(shown[shown.length - 1]).toEqual({
         account: "b",
         title: "b's page",
         draft: "b's draft",
         fetched: true,
-      }),
-    );
-    return { shown, client };
+      });
+      if (kind === "collection seed") {
+        expect(table[table.length - 1]).toEqual({
+          account: "b",
+          rows: "b's collection",
+        });
+      }
+    });
+    return { shown, table, client };
   }
 
-  const kinds: ReadKind[] = ["head read", "app read", "home-page prefetch"];
+  const kinds: ReadKind[] = [
+    "head read",
+    "app read",
+    "home-page prefetch",
+    "collection seed",
+  ];
   const changes: Switch[] = [
     "before the app code loads",
     "while the session read is out",
@@ -388,11 +450,14 @@ describe("a page-open read sent as A is never used once the session is B's", () 
   );
 
   it.each(cells)("%s, switching %s", async (kind, change) => {
-    const { shown, client } = await openPage(kind, change);
+    const { shown, table, client } = await openPage(kind, change);
 
     // Under B's session, nothing A's is shown.
     for (const entry of shown.filter((each) => each.account === "b")) {
       expect(`${entry.title} ${String(entry.draft)}`).not.toContain("a's");
+    }
+    for (const entry of table.filter((each) => each.account === "b")) {
+      expect(String(entry.rows)).not.toContain("a's");
     }
     // A's page never counts as the page this open fetched under B, nor B's
     // under A.

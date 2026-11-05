@@ -102,6 +102,18 @@ export interface ShareableResourceRegistration {
       orgId?: string;
     },
   ) => boolean | Promise<boolean>;
+  /**
+   * Resources that return the same key get the same `canManageAccess` answer
+   * for the same viewer, so `resolveAccessMany` asks once per key. Return
+   * `undefined` for a resource whose answer depends on more than the key.
+   */
+  canManageAccessKey?: (
+    resource: { orgId?: string | null },
+    ctx: {
+      userEmail?: string;
+      orgId?: string;
+    },
+  ) => string | undefined;
   resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;
