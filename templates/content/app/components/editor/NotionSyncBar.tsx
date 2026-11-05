@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   invalidateDocumentQueries,
+  isDocumentSyncStatusCurrent,
   useDisconnectNotion,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -35,8 +36,22 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus, isLoading: syncLoading } =
-    useDocumentSyncStatus(documentId);
+  const {
+    data: syncStatus,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
+    isLoading: syncLoading,
+  } = useDocumentSyncStatus(documentId);
+  // The last answer counts only while it's current: the page may have been
+  // linked since an old cached answer or a failed refetch.
+  const knownStatus = isDocumentSyncStatusCurrent({
+    status: syncStatusState,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    dataUpdatedAt: syncStatusAnsweredAt,
+  })
+    ? syncStatus
+    : undefined;
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -172,7 +187,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             <span className="text-sm font-medium text-foreground">
               {t("editor.toolbar.notionSync")}
             </span>
-            {syncStatus?.state === "conflict" && (
+            {knownStatus?.state === "conflict" && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                 <IconAlertTriangle size={12} />
                 {t("editor.toolbar.conflict")}
@@ -182,16 +197,20 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           <p className="mt-0.5 text-xs text-muted-foreground">
             {!connection?.connected
               ? t("editor.toolbar.connectNotionWorkspaceToLink")
-              : syncStatus?.pageId
-                ? syncStatus.lastSyncedAt
-                  ? t("editor.toolbar.linkedToPageLastSynced", {
-                      pageId: syncStatus.pageId,
-                      date: new Date(syncStatus.lastSyncedAt).toLocaleString(),
-                    })
-                  : t("editor.toolbar.linkedToPage", {
-                      pageId: syncStatus.pageId,
-                    })
-                : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
+              : !knownStatus
+                ? null
+                : knownStatus.pageId
+                  ? knownStatus.lastSyncedAt
+                    ? t("editor.toolbar.linkedToPageLastSynced", {
+                        pageId: knownStatus.pageId,
+                        date: new Date(
+                          knownStatus.lastSyncedAt,
+                        ).toLocaleString(),
+                      })
+                    : t("editor.toolbar.linkedToPage", {
+                        pageId: knownStatus.pageId,
+                      })
+                  : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
           </p>
           {syncStatus?.lastError && (
             <p className="mt-1 text-xs text-destructive">
@@ -218,7 +237,11 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           </Button>
         ) : (
           <>
-            {!syncStatus?.pageId ? (
+            {/* Without a successful status read the bar can't tell a linked
+                page from an unlinked one, and linking a linked page pulls
+                Notion over local edits, so it offers no link form until a
+                read succeeds. */}
+            {!knownStatus ? null : !knownStatus.pageId ? (
               <>
                 <Input
                   size="sm"
@@ -239,9 +262,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
               </>
             ) : (
               <>
-                {syncStatus.pageUrl && (
+                {knownStatus.pageUrl && (
                   <a
-                    href={syncStatus.pageUrl}
+                    href={knownStatus.pageUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
@@ -291,7 +314,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
         )}
       </div>
 
-      {syncStatus?.hasConflict && (
+      {/* Both choices overwrite one side, so they follow the current answer
+          only: a conflict cached by an earlier visit may have cleared. */}
+      {knownStatus?.hasConflict && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
           <p className="mr-auto text-xs text-amber-800 dark:text-amber-200">
             {t("editor.toolbar.localAndNotionChanged")}

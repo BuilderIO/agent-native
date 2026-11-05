@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-03
+
+### Fixed
+
+- Find a time now counts events from all your connected Google accounts as busy time.
+
 ## 2026-10-29
 
 ### Improved

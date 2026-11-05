@@ -3,6 +3,10 @@ import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
 
+import {
+  UnreadableSecretError,
+  isUnreadableSecret,
+} from "../lib/unreadable-secret.js";
 import { noteCredentialSource } from "../lib/workflow-run-observer.js";
 import type { CredentialSource } from "../tripwire/types.js";
 
@@ -147,6 +151,10 @@ async function readVaultSecret(
       return secret?.value?.trim() || undefined;
     } catch (error) {
       if (isMissingTableError(error)) return undefined;
+      // Saved but undecryptable never heals; retrying it would end as a vault outage.
+      if (isUnreadableSecret(error)) {
+        throw new UnreadableSecretError(key, error);
+      }
       lastError = error;
       if (attempt < attempts - 1) {
         await new Promise((resolve) =>
@@ -180,6 +188,25 @@ export async function resolveConnectorSecret(
 }
 
 async function resolveConnectorSecretWithSource(
+  key: string,
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions,
+): Promise<{ value: string; source: ConnectorSecretSource } | undefined> {
+  try {
+    return await findConnectorSecret(key, ownerEmail, options);
+  } catch (error) {
+    // Core's own decrypt error names no key, and the connection and legacy reads raise it too.
+    if (
+      isUnreadableSecret(error) &&
+      !(error instanceof UnreadableSecretError)
+    ) {
+      throw new UnreadableSecretError(key, error);
+    }
+    throw error;
+  }
+}
+
+async function findConnectorSecret(
   key: string,
   ownerEmail: string,
   options: ResolveConnectorSecretOptions,
@@ -280,22 +307,46 @@ export function connectorKeysForSource(
   return ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"];
 }
 
-/** Where the first of `keys` that resolves came from. Never returns the secret value. */
-async function connectorSecretSource(
+/** What looking for a connector's credential found. Never carries a secret value. */
+export type ConnectorReading =
+  | { state: "present"; source: ConnectorSecretSource }
+  | { state: "absent" }
+  /** Saved, but this deployment cannot decrypt it: not absent, and no wait heals it. */
+  | { state: "unreadable"; keys: readonly string[] };
+
+const ABSENT: ConnectorReading = { state: "absent" };
+
+/** What the first of `keys` that resolves is. A key that cannot be decrypted ends the search, as it ends a read. */
+async function connectorReading(
   keys: string | readonly string[],
   ownerEmail: string,
   options: ResolveConnectorSecretOptions,
-): Promise<ConnectorSecretSource | undefined> {
+): Promise<ConnectorReading> {
   const list = typeof keys === "string" ? [keys] : keys;
   for (const key of list) {
-    const found = await resolveConnectorSecretWithSource(
-      key,
-      ownerEmail,
-      options,
-    );
-    if (found) return found.source;
+    try {
+      const found = await resolveConnectorSecretWithSource(
+        key,
+        ownerEmail,
+        options,
+      );
+      if (found) return { state: "present", source: found.source };
+    } catch (error) {
+      if (error instanceof UnreadableSecretError) {
+        return { state: "unreadable", keys: error.keys };
+      }
+      throw error;
+    }
   }
-  return undefined;
+  return ABSENT;
+}
+
+/** Whether the credential is there, for a caller that has no way to show a third answer: an unreadable one fails loudly. */
+function presentOrThrow(reading: ConnectorReading): boolean {
+  if (reading.state === "unreadable") {
+    throw new UnreadableSecretError(reading.keys);
+  }
+  return reading.state === "present";
 }
 
 /** Presence only — never return the secret value to callers. */
@@ -304,51 +355,50 @@ export async function hasConnectorSecret(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
 ): Promise<boolean> {
-  return (await connectorSecretSource(keys, ownerEmail, options)) !== undefined;
+  return presentOrThrow(await connectorReading(keys, ownerEmail, options));
 }
 
-async function gitHubConnectorSource(
+async function gitHubConnectorReading(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions,
-): Promise<ConnectorSecretSource | undefined> {
-  const token = await connectorSecretSource(
-    "GITHUB_TOKEN",
-    ownerEmail,
-    options,
-  );
-  if (token) return token;
+): Promise<ConnectorReading> {
+  const token = await connectorReading("GITHUB_TOKEN", ownerEmail, options);
+  if (token.state !== "absent") return token;
   const appKeys = await Promise.all(
-    GITHUB_APP_KEYS.map((key) =>
-      connectorSecretSource(key, ownerEmail, options),
-    ),
+    GITHUB_APP_KEYS.map((key) => connectorReading(key, ownerEmail, options)),
   );
-  if (appKeys.some((source) => source === undefined)) return undefined;
-  return appKeys.includes("local-env") ? "local-env" : "workspace";
+  const unreadable = appKeys.flatMap((reading) =>
+    reading.state === "unreadable" ? reading.keys : [],
+  );
+  if (unreadable.length > 0) return { state: "unreadable", keys: unreadable };
+  if (appKeys.some((reading) => reading.state === "absent")) return ABSENT;
+  return {
+    state: "present",
+    source: appKeys.some(
+      (reading) =>
+        reading.state === "present" && reading.source === "local-env",
+    )
+      ? "local-env"
+      : "workspace",
+  };
 }
 
-async function hasGitHubConnectorSecret(
-  ownerEmail: string,
-  options: ResolveConnectorSecretOptions,
-): Promise<boolean> {
-  return (await gitHubConnectorSource(ownerEmail, options)) !== undefined;
-}
-
-/** Where each Factory connector's credential comes from, `undefined` when it has none. */
+/** What each Factory connector's credential is: where it comes from, absent, or saved and unreadable. */
 export async function resolveFactoryConnectorSources(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
 ): Promise<{
-  slack: ConnectorSecretSource | undefined;
-  slackSecondary: ConnectorSecretSource | undefined;
-  github: ConnectorSecretSource | undefined;
-  sentry: ConnectorSecretSource | undefined;
+  slack: ConnectorReading;
+  slackSecondary: ConnectorReading;
+  github: ConnectorReading;
+  sentry: ConnectorReading;
 }> {
   const readinessOptions = { ...options, recordUsage: false };
   const [slack, slackSecondary, github, sentry] = await Promise.all([
-    connectorSecretSource("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
-    connectorSecretSource("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
-    gitHubConnectorSource(ownerEmail, readinessOptions),
-    connectorSecretSource(
+    connectorReading("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
+    connectorReading("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
+    gitHubConnectorReading(ownerEmail, readinessOptions),
+    connectorReading(
       ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
       ownerEmail,
       readinessOptions,
@@ -357,6 +407,7 @@ export async function resolveFactoryConnectorSources(
   return { slack, slackSecondary, github, sentry };
 }
 
+/** Yes or no for each connector; a connector that is saved but unreadable fails the whole read, since a boolean would call it absent. */
 export async function resolveFactoryConnectorReadiness(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
@@ -366,12 +417,18 @@ export async function resolveFactoryConnectorReadiness(
   github: boolean;
   sentry: boolean;
 }> {
-  const sources = await resolveFactoryConnectorSources(ownerEmail, options);
+  const readings = await resolveFactoryConnectorSources(ownerEmail, options);
+  const unreadable = Object.values(readings).flatMap((reading) =>
+    reading.state === "unreadable" ? reading.keys : [],
+  );
+  if (unreadable.length > 0) {
+    throw new UnreadableSecretError([...new Set(unreadable)]);
+  }
   return {
-    slack: sources.slack !== undefined,
-    slackSecondary: sources.slackSecondary !== undefined,
-    github: sources.github !== undefined,
-    sentry: sources.sentry !== undefined,
+    slack: readings.slack.state === "present",
+    slackSecondary: readings.slackSecondary.state === "present",
+    github: readings.github.state === "present",
+    sentry: readings.sentry.state === "present",
   };
 }
 
@@ -386,14 +443,15 @@ export async function assertFactoryConnectorReady(
   const verb = options.verb ?? "creating";
   const label =
     source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
-  const ready =
+  const ready = presentOrThrow(
     source === "github"
-      ? await hasGitHubConnectorSecret(ownerEmail, options)
-      : await hasConnectorSecret(
+      ? await gitHubConnectorReading(ownerEmail, options)
+      : await connectorReading(
           connectorKeysForSource(source, options.slackWorkspace),
           ownerEmail,
           options,
-        );
+        ),
+  );
   if (!ready) {
     throw new Error(
       `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,

@@ -123,6 +123,10 @@ const messages = {
     noAssetsYet: "Aucun asset pour le moment.",
     assetUploadFailed: "Certains envois ont échoué",
     assetDeleteFailed: "Échec de la suppression de l'asset",
+    assetDeleteInUse:
+      "Cet asset est utilisé dans une présentation. Retirez-le d'abord de la présentation",
+    assetDeleteStorageRemains:
+      "Retiré de la bibliothèque, mais le fichier stocké n'a pas pu être supprimé",
     contentMarkdown: "Contenu (Markdown)",
     speakerNotes: "Notes du présentateur",
     speakerNotesForSlide:
@@ -304,6 +308,7 @@ const messages = {
       "Commencez à écrire ou générez rapidement des notes du présentateur avec l'agent",
   },
   editorToolbar: {
+    saving: "Enregistrement...",
     layoutTitle: "Titre",
     layoutSection: "Séparateur de section",
     layoutContent: "Contenu",
@@ -879,6 +884,10 @@ const messages = {
       "Le deck a été rétabli à l'instantané sélectionné.",
     restoreFailed: "Échec de la restauration",
     restoreFailedDescription: "Impossible de restaurer cette version du deck.",
+    alreadyAtVersion: "Déjà à cette version",
+    restoreReloadFailed: "Impossible d'actualiser le deck",
+    restoreReloadFailedDescription:
+      "Recharge la page pour voir la version actuelle de ce deck.",
     backToSavedVersions: "Retour à l'historique",
     savedVersions: "Historique",
     description:

@@ -503,11 +503,17 @@ describe("Recent action persistence", () => {
     rowsOnce([{ id: "page", title: "New database", icon: null }]);
     rowsOnce([{ id: "db", documentId: "page", viewConfigJson: "{}" }]);
     const target = { documentId: "page", databaseId: "db", viewId: "default" };
-    expect(await recordVisit.run(target, alice)).toEqual({ recorded: true });
+    const result = await recordVisit.run(target, alice);
+    // It answers with the visit time it stored, which the client orders by.
+    expect(result).toEqual({
+      recorded: true,
+      visitedAt: expect.any(String),
+      accountKey: JSON.stringify([alice.userEmail, null]),
+    });
     expect(
       stored.get(settingId(alice.userEmail, contentRecentSettingKey())),
     ).toMatchObject({
-      entries: [{ target }],
+      entries: [{ target, visitedAt: result.visitedAt }],
     });
   });
 

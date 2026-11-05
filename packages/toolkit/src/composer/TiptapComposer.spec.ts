@@ -42,6 +42,7 @@ import {
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
   mentionItemMatchesQuery,
+  mentionItemsForQuery,
   modelProviderGroupLabel,
   resolveContextChipBackspaceAction,
   shouldRenderModelSelector,
@@ -5601,6 +5602,37 @@ describe("mentionItemMatchesQuery", () => {
     expect(mentionItemMatchesQuery(sonnet, "Claude S")).toBe(true);
     expect(mentionItemMatchesQuery(sonnet, "anthropic")).toBe(true);
     expect(mentionItemMatchesQuery(sonnet, "opus")).toBe(false);
+  });
+});
+
+describe("mentionItemsForQuery", () => {
+  const person = {
+    id: "member:sam@gmail.example",
+    label: "Sam Lee",
+    description: "sam@gmail.example",
+    source: "content",
+    refType: "content-comment-member",
+  };
+  const agent = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet", "AI"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("keeps the given order when nothing is named exactly", () => {
+    expect(mentionItemsForQuery([person, agent], "")).toEqual([person, agent]);
+    expect(mentionItemsForQuery([person, agent], "s")).toEqual([person, agent]);
+  });
+
+  it("puts the item a whole name or alias names ahead of partial matches", () => {
+    expect(mentionItemsForQuery([person, agent], "ai")).toEqual([
+      agent,
+      person,
+    ]);
+    expect(mentionItemsForQuery([person, agent], "Sam Lee")).toEqual([person]);
   });
 });
 

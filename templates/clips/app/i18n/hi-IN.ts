@@ -624,6 +624,13 @@ const messages = {
     desktopHint:
       "नोट्स शुरू करने के लिए, मेनू बार से Clips Desktop खोलें और Start Meeting Notes चुनें, या रिमाइंडर आने पर Start notes पर क्लिक करें। Clips माइक्रोफ़ोन और सिस्टम ऑडियो कैप्चर करके यहां ट्रांसक्रिप्ट लिखता है।",
     getDesktopApp: "डेस्कटॉप ऐप प्राप्त करें",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    earlierAudioUnreadable: "इस ट्रांसक्रिप्ट में पहले के ऑडियो की जाँच नहीं हो सकी",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएँ?",
+    removeEarlierAudioDescription:
+      "इससे यह ट्रांसक्रिप्ट से हट जाएगा और सारांश, एक्शन आइटम और क्लिप का विवरण फिर से बनेंगे, भले ही वह विवरण आपने खुद लिखा हो। जनरेट किया गया शीर्षक भी फिर से बनेगा; आपका चुना हुआ शीर्षक बना रहेगा। सभी अध्याय भी हटा दिए जाएँगे।",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो नहीं हटाया जा सका",
     generateNotesFailed: "सारांश जनरेट नहीं किया जा सका. पुनः प्रयास करें।",
     attendee_one: "{{count}} सहभागी",
     attendee_other: "{{count}} उपस्थितगण",
@@ -778,7 +785,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आपका टूल इमेज नहीं लौटा सकता या इन लिंक को नहीं खोल सकता, तो बताएं कि यह आपके टूल की सीमा है; यह Clips की त्रुटि नहीं है।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आप फ़्रेम URL को इमेज के रूप में नहीं खोल सकते, तो उपलब्ध होने पर इसी संदर्भ URL की रिकॉर्डिंग ID के साथ Clips का get-recording-frames टूल कॉल करें। यदि उपलब्ध नहीं है, तो उपयोगकर्ता को बताएं कि {{connectUrl}} पर Clips को कनेक्ट करने से आप फ़्रेम देख सकेंगे।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -1491,6 +1498,7 @@ const messages = {
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
+    unreadable: "यह ट्रांसक्रिप्ट पढ़ी नहीं जा सकी।",
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",

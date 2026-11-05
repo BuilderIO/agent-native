@@ -705,6 +705,26 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(order).toEqual(["flush", "fetch"]));
   });
 
+  it("commits the open inline draft before the HTML export reads the deck", async () => {
+    const order: string[] = [];
+    const flushInlineEdit = vi.fn(() => {
+      order.push("inline");
+    });
+    flushDeckSaveMock.mockImplementation(async () => {
+      order.push("flush");
+    });
+    globalThis.fetch = vi.fn(async () => {
+      order.push("fetch");
+      return new Response(new Blob(["<html></html>"]), { status: 200 });
+    }) as typeof fetch;
+
+    renderMenu({ flushInlineEdit });
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Download as HTML"));
+
+    await waitFor(() => expect(order).toEqual(["inline", "flush", "fetch"]));
+  });
+
   it("reports a failed save instead of exporting stale HTML", async () => {
     flushDeckSaveMock.mockRejectedValue(new Error("network down"));
 

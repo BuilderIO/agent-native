@@ -37,6 +37,7 @@ import {
   reserveHostedClipAllowance,
   type HostedClipAllowanceDenialReason,
   type HostedClipAllowancePolicy,
+  type HostedClipReleaseReason,
 } from "./hosted-clip-allowance.js";
 import { HOSTED_CLIP_DISPOSABLE_EMAIL_DOMAINS } from "./hosted-clip-disposable-domains.js";
 import { ownerEmailMatches } from "./recordings.js";
@@ -160,12 +161,16 @@ async function readEmailVerified(
     | { email?: unknown; email_verified?: unknown }
     | undefined;
   if (!row || typeof row.email !== "string") {
-    throw new Error("Authenticated Clips user could not be verified.");
+    fail("Authenticated Clips user could not be verified.", {
+      errorCode: "hosted_identity_unverifiable",
+      statusCode: 500,
+    });
   }
   if (row.email.trim().toLowerCase() !== email.trim().toLowerCase()) {
-    throw new Error(
-      "Authenticated Clips user email does not match the session.",
-    );
+    fail("Authenticated Clips user email does not match the session.", {
+      errorCode: "hosted_identity_mismatch",
+      statusCode: 500,
+    });
   }
   return row.email_verified === true;
 }
@@ -466,14 +471,11 @@ export async function consumeHostedClipRecording(input: {
   ownerEmail?: string | null;
   actualBytes: number;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return consumeHostedClipAllowance({
     recordingId: input.recordingId,
     userId,
     actualBytes: input.actualBytes,
-    globalRetainedByteCap: config.globalRetainedByteCap,
-    retainedByteAlertRatio: config.retainedByteAlertRatio,
   });
 }
 
@@ -483,14 +485,11 @@ export async function adjustHostedClipRecordingBytes(input: {
   ownerEmail?: string | null;
   retainedBytes: number;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return adjustHostedClipRetainedBytes({
     recordingId: input.recordingId,
     userId,
     retainedBytes: input.retainedBytes,
-    globalRetainedByteCap: config.globalRetainedByteCap,
-    retainedByteAlertRatio: config.retainedByteAlertRatio,
   });
 }
 
@@ -512,14 +511,11 @@ export async function addHostedClipRecordingBytes(input: {
   ownerEmail?: string | null;
   additionalBytes: number;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return addHostedClipRetainedBytesWithinCap({
     recordingId: input.recordingId,
     userId,
     additionalBytes: input.additionalBytes,
-    globalRetainedByteCap: config.globalRetainedByteCap,
-    retainedByteAlertRatio: config.retainedByteAlertRatio,
   });
 }
 
@@ -530,14 +526,11 @@ export async function accountHostedClipAdditionalRecordingBytes(input: {
   ownerEmail?: string | null;
   additionalBytes: number;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return accountHostedClipAdditionalBytes({
     recordingId: input.recordingId,
     userId,
     additionalBytes: input.additionalBytes,
-    alertGlobalRetainedByteCap: config.globalRetainedByteCap,
-    retainedByteAlertRatio: config.retainedByteAlertRatio,
   });
 }
 
@@ -548,14 +541,11 @@ export async function accountHostedClipRecordingBytes(input: {
   ownerEmail?: string | null;
   retainedBytes: number;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return adjustHostedClipRetainedBytes({
     recordingId: input.recordingId,
     userId,
     retainedBytes: input.retainedBytes,
-    globalRetainedByteCap: config.globalRetainedByteCap,
-    retainedByteAlertRatio: config.retainedByteAlertRatio,
   });
 }
 
@@ -563,11 +553,13 @@ export async function releaseHostedClipRecording(input: {
   recordingId: string;
   userId?: string | null;
   ownerEmail?: string | null;
+  reason: HostedClipReleaseReason;
 }) {
   const userId = await resolveAllowanceUserId(input);
   return releaseHostedClipAllowance({
     recordingId: input.recordingId,
     userId,
+    reason: input.reason,
   });
 }
 
@@ -576,15 +568,11 @@ export async function reacquireHostedClipRecordingForRetry(input: {
   userId?: string | null;
   ownerEmail: string;
 }) {
-  const config = getAppConfig().clips.hostedStorage;
   const userId = await resolveAllowanceUserId(input);
   return reacquireHostedClipAllowanceForRetry({
     recordingId: input.recordingId,
     userId,
     ownerEmail: input.ownerEmail,
-    reservationBytes: config.maxClipBytes,
-    perIdentityClipLimit: config.perIdentityClipLimit,
-    globalRetainedByteCap: config.globalRetainedByteCap,
   });
 }
 

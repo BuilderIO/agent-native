@@ -178,6 +178,10 @@ For delete actions use `"admin"` (or fold in `"owner"` to require the real owner
 
 `authorize` is a different axis, not an alternative: it gates whether the caller may run the operation at all, while `assertAccess` scopes which row they may touch. A write action restricted to some teammates needs both — `authorize: appAccess.requireAny(...)` on the action, `assertAccess` inside `run`.
 
+## Check many resources at once
+
+Never call `resolveAccess` in a loop over a list: each call runs several queries, so a page that checks every row pays that per row. When rows come from somewhere `accessFilter` cannot reach (a manifest, a gateway response), use `resolveAccessMany("deck", ids, ctx, { skipResourceBody: true })`. It returns a `Map` of the ids the viewer can open, makes the same decision as `resolveAccess`, and reads rows, shares, org membership, and group membership once. Give a registration that uses `canManageAccess` a `canManageAccessKey` (for example `resource.orgId`) so the manager check is asked once per key, not once per row.
+
 ## Create actions must set owner
 
 When inserting a new row, fill `ownerEmail` and `orgId` from the request context:
@@ -264,7 +268,7 @@ The framework auto-mounts these actions in every template — no per-template bo
 | `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
-| `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |
+| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`         | Change to `private` / `org` / `public`. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
 
 Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks
