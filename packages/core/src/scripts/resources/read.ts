@@ -65,8 +65,9 @@ async function requireSkillLabAccess(
   }
 }
 
-// Stays under the agent loop's 50,000-char tool-result cap so a page is never cut off silently.
 export const RESOURCE_READ_PAGE_CHARS = 40_000;
+
+export class ResourceReadResultLimitError extends Error {}
 
 function parseRangeArg(
   name: "offset" | "length",
@@ -99,6 +100,7 @@ async function writeResource(
   owner: string,
   orgId: string | null,
   range: { offset: number | undefined; length: number | undefined },
+  maxResultChars: number,
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
   const { content } = resource;
@@ -107,7 +109,11 @@ async function writeResource(
     range.length ?? RESOURCE_READ_PAGE_CHARS,
     RESOURCE_READ_PAGE_CHARS,
   );
-  if (offset === 0 && content.length <= length) {
+  if (
+    offset === 0 &&
+    content.length <= length &&
+    content.length <= maxResultChars
+  ) {
     process.stdout.write(content);
     return;
   }
@@ -125,19 +131,50 @@ async function writeResource(
   if (isInsideSurrogatePair(content, end)) {
     end += end - offset === 1 ? 1 : -1;
   }
-  const status =
-    end < content.length
-      ? `partial - read again with offset=${end} for the rest`
-      : "end of resource";
-  process.stdout.write(
-    `[chars ${offset}-${end} of ${content.length}; ${status}]\n` +
-      content.slice(offset, end),
-  );
+  const header = (pageEnd: number) => {
+    const status =
+      pageEnd < content.length
+        ? `partial - read again with offset=${pageEnd} for the rest`
+        : "end of resource";
+    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}]\n`;
+  };
+  if (header(end).length + end - offset > maxResultChars) {
+    let low = offset + 1;
+    let high = Math.min(end, content.length - 1);
+    let fittingEnd = offset;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (header(mid).length + mid - offset <= maxResultChars) {
+        fittingEnd = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    end = fittingEnd;
+    if (isInsideSurrogatePair(content, end)) end--;
+    if (end === offset) {
+      throw new ResourceReadResultLimitError(
+        "Resource read result limit is too small for a page header and one character.",
+      );
+    }
+  }
+  process.stdout.write(header(end) + content.slice(offset, end));
 }
 
 export default async function resourceReadScript(
   args: string[],
+  options: { maxResultChars?: number } = {},
 ): Promise<void> {
+  const maxResultChars = options.maxResultChars ?? Infinity;
+  if (
+    maxResultChars !== Infinity &&
+    (!Number.isSafeInteger(maxResultChars) || maxResultChars < 0)
+  ) {
+    throw new ResourceReadResultLimitError(
+      "Invalid resource read result limit.",
+    );
+  }
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
@@ -185,7 +222,14 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId, range);
+    await writeResource(
+      resource,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -203,7 +247,14 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId, range);
+    await writeResource(
+      resource,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -215,6 +266,7 @@ Options:
       owner,
       getRequestOrgId() ?? null,
       range,
+      maxResultChars,
     );
     return;
   }
@@ -234,7 +286,14 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(shared, resourcePath, owner, orgId, range);
+    await writeResource(
+      shared,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -242,7 +301,14 @@ Options:
     orgId,
   });
   if (workspace) {
-    await writeResource(workspace, resourcePath, owner, orgId, range);
+    await writeResource(
+      workspace,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 

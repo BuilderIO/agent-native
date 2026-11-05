@@ -21,6 +21,7 @@ vi.mock("../../server/agents-bundle.js", () => ({
     mocks.getEnabledSkillLabsForUser(...args),
 }));
 
+import { createResourceScriptEntries } from "../../server/agent-chat/script-entries.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import resourceReadScript from "./read.js";
 
@@ -38,6 +39,94 @@ function addResource(resource: {
 }): void {
   resources.set(`${resource.owner}:${resource.path}`, resource);
 }
+
+describe("resource action paging", () => {
+  const path = "notes/paged.txt";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resources.clear();
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, resourcePath: string) =>
+        resources.get(`${resourceOwner}:${resourcePath}`) ?? null,
+    );
+  });
+
+  it.each([40_000, 20_000, 128, 90])(
+    "reconstructs Unicode within a %i-character action cap",
+    async (cap) => {
+      const content =
+        cap >= 20_000
+          ? "a".repeat(19_930) + "😀b".repeat(8_000) + "end"
+          : "😀a".repeat(180) + "end";
+      addResource({ owner, path, content });
+      const action = (await createResourceScriptEntries()).resources;
+      expect(action).toBeDefined();
+      let offset = 0;
+      let rebuilt = "";
+      for (let i = 0; i < content.length; i++) {
+        const out = await runWithRequestContext({ userEmail: owner }, () =>
+          action.run(
+            {
+              action: "read",
+              path,
+              scope: "personal",
+              offset: String(offset),
+              maxResultChars: "100000",
+            },
+            { caller: "tool", maxResultChars: cap },
+          ),
+        );
+        expect(out.length).toBeLessThanOrEqual(cap);
+        expect(Buffer.from(out, "utf8").toString("utf8")).toBe(out);
+        const match = out.match(
+          /^\[chars (\d+)-(\d+) of (\d+); (?:partial - read again with offset=(\d+) for the rest|end of resource)\]\n/,
+        );
+        expect(match).not.toBeNull();
+        if (!match) throw new Error(`Missing page header: ${out}`);
+        const end = Number(match[2]);
+        expect(Number(match[1])).toBe(offset);
+        expect(Number(match[3])).toBe(content.length);
+        const body = out.slice(match[0].length);
+        expect(body).toBe(content.slice(offset, end));
+        expect(end).toBeGreaterThan(offset);
+        rebuilt += body;
+        if (match[4] === undefined) {
+          expect(end).toBe(content.length);
+          break;
+        }
+        expect(Number(match[4])).toBe(end);
+        offset = end;
+      }
+      expect(rebuilt).toBe(content);
+    },
+  );
+
+  it("fails rather than splitting a codepoint or returning a misleading header", async () => {
+    addResource({ owner, path, content: "😀more" });
+    const action = (await createResourceScriptEntries()).resources;
+    const header =
+      "[chars 0-2 of 6; partial - read again with offset=2 for the rest]\n";
+    for (const cap of [2, header.length + 1]) {
+      await expect(
+        runWithRequestContext({ userEmail: owner }, () =>
+          action.run(
+            { action: "read", path, scope: "personal", length: "1" },
+            { caller: "tool", maxResultChars: cap },
+          ),
+        ),
+      ).rejects.toThrow(/result.*(cap|limit)/i);
+    }
+    expect(
+      await runWithRequestContext({ userEmail: owner }, () =>
+        action.run(
+          { action: "read", path, scope: "personal", length: "1" },
+          { caller: "tool", maxResultChars: header.length + 2 },
+        ),
+      ),
+    ).toBe(header + "😀");
+  });
+});
 
 describe("resource-read Lab gating", () => {
   beforeEach(() => {
