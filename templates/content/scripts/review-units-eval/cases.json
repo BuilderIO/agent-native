@@ -18,14 +18,14 @@
     "dev": true,
     "before": "Our launch plan is ready, but the vendor still has to confirm which plan includes the retry hooks we would use.",
     "after": "The launch plan is ready. We still need the vendor to confirm that its standard plan includes retries.",
-    "groups": [[0], [1, 2, 3], [4], [5]]
+    "groups": [[0]]
   },
   {
     "name": "budget-rewrite",
     "dev": true,
     "before": "The team met on Tuesday and agreed that the budget should stay at sixty dollars for now.",
     "after": "On Tuesday the team agreed to keep the budget at $60 until the review.",
-    "groups": [[0, 1], [2, 3], [4]]
+    "groups": [[0]]
   },
   {
     "name": "agreement-dogs",
@@ -107,7 +107,7 @@
     "name": "fix-estimates",
     "before": "The quick fix took an hour, and the full fix will take a week.",
     "after": "The temporary fix took two hours, and the permanent fix will take a month.",
-    "groups": [[0], [1, 2], [3], [4]]
+    "groups": [[0]]
   },
   {
     "name": "trim-and-article",
@@ -161,7 +161,7 @@
     "name": "passive-to-active",
     "before": "The bug was fixed by the platform team on Wednesday.",
     "after": "The platform team fixed the bug on Wednesday.",
-    "groups": [[0, 1]]
+    "groups": [[0]]
   },
   {
     "name": "move-clause",
