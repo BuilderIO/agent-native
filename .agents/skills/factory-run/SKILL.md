@@ -6,9 +6,8 @@ description: >-
   already working on the same problem, start one Builder branch per new fix
   group without waiting for it, record each returned branch result, reply,
   and finish. Use whenever a message starts "Handle the new factory events",
-  "Continue the current factory run", "Review <PR url> for the agent-native
-  factory", or, from the old runner, "Run a full factory sweep", "Run a PR
-  review batch", or "A cloud worker stopped".
+  "Continue the current factory run", or "Review <PR url> for the
+  agent-native factory".
 scope: dev
 metadata:
   internal: true
@@ -20,10 +19,6 @@ You run one factory triage run on the shared factory VM (set up from the
 `packages/factory-runner` package in BuilderIO/ai-services). A non-LLM
 watcher started you with a JSON message (`type` is `events` or `continue`)
 and stops your session after you finish the run.
-
-**Old runner.** If the message has no `"resultsAsItems": true`, it comes from
-the old runner: follow [legacy-watcher.md](references/legacy-watcher.md)
-instead wherever it differs from this skill.
 
 A triage run is short. It gets a fixed batch of up to 20 items, settles each
 one, starts fix branches without waiting for them, and finishes within 45
