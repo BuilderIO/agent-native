@@ -102,6 +102,7 @@ function eventChange(id: string, title: string) {
 }
 
 export default defineAction({
+  searchHints: ["reschedule", "move a meeting", "change meeting time"],
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,

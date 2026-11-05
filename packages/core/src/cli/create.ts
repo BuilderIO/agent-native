@@ -650,7 +650,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "later with `pnpm exec agent-native add-app`. Chat is the UI on-ramp",
       "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",

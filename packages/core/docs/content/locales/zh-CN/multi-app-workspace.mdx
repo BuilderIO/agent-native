@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 从工作区内的任何位置：
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI 再次显示模板选择器，其中已过滤掉您已安装的应用程序。选择一个或多个，它们就会被搭建在 `apps/` 下。非交互式变体：
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 任何第一方模板都可以用作工作区应用程序 - CLI 在模板上运行一个小型 **workspacify** 转换，将共享包添加为 dep 并解析 `workspace:*` 引用。无需维护并行的“工作空间应用程序”脚手架。
@@ -295,6 +295,10 @@ my-company-platform/
 ## 共享凭据 {#shared-credentials}
 
 默认情况下，同一工作区中的应用程序指向同一 `DATABASE_URL`，因此框架凭证存储可以使凭证可供每个应用程序使用，而无需每个应用程序配置。直接使用 `@agent-native/core/credentials`，或者如果您的工作区需要更严格的命名约定，则在 `packages/shared` 中添加瘦助手。
+
+## `/` 的默认应用 {#default-app}
+
+当工作区包含 `dispatch` 应用时，`/` 会打开 Dispatch，否则打开第一个应用。设置 `WORKSPACE_DEFAULT_APP=<app-id>` 可打开其他应用。`agent-native dev` 和工作区部署都会先从进程环境读取，再从工作区根目录的 `.env` 读取；与任何应用都不匹配的值会被忽略。部署在构建时读取该变量，因此请在执行构建的地方设置。Dispatch 保留自己的 `/dispatch` 重定向，`deployment.workspace.rootPage: "directory"` 仍会显示应用列表。
 
 ## 共享设计令牌 {#design-tokens}
 

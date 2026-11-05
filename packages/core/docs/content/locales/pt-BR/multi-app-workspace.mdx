@@ -118,13 +118,13 @@ Todo aplicativo já sabe como fazer login, compartilhar o mesmo banco de dados e
 De qualquer lugar dentro da área de trabalho:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 O CLI mostra o seletor de modelos novamente com os aplicativos que você já instalou filtrados. Escolha um ou mais e eles serão estruturados em `apps/`. Variante não interativa:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Qualquer modelo primário funciona como um aplicativo de espaço de trabalho — o CLI executa uma pequena transformação **workspacify** no modelo que adiciona o pacote compartilhado como uma dependência e resolve referências `workspace:*`. Nenhuma estrutura paralela de "aplicativo de espaço de trabalho" para manter.
@@ -295,6 +295,10 @@ Alguns fluxos de integração já reconhecem o espaço de trabalho:
 ## Credenciais compartilhadas {#shared-credentials}
 
 Os aplicativos no mesmo espaço de trabalho apontam para o mesmo `DATABASE_URL` por padrão, portanto, o armazenamento de credenciais da estrutura pode disponibilizar uma credencial para cada aplicativo sem configuração por aplicativo. Use `@agent-native/core/credentials` diretamente ou adicione um auxiliar fino em `packages/shared` se seu espaço de trabalho desejar uma convenção de nomenclatura mais rígida.
+
+## App padrão em `/` {#default-app}
+
+`/` abre o Dispatch quando o workspace tem um app `dispatch`, e caso contrário o primeiro app. Defina `WORKSPACE_DEFAULT_APP=<app-id>` para abrir outro app. `agent-native dev` e os deploys do workspace leem a variável primeiro do ambiente do processo e depois do `.env` na raiz do workspace; um valor que não corresponde a nenhum app é ignorado. Os deploys leem a variável em tempo de build, então defina-a onde você faz o build. O Dispatch mantém o próprio redirecionamento `/dispatch`, e `deployment.workspace.rootPage: "directory"` continua mostrando a lista de apps.
 
 ## Tokens de design compartilhados {#design-tokens}
 
