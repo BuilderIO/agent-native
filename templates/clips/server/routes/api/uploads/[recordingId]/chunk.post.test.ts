@@ -3134,6 +3134,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "upload_failed",
     });
     expect(mockRelayChunk).not.toHaveBeenCalled();
   });
