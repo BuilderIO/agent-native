@@ -59,7 +59,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
@@ -150,7 +149,9 @@ function MakeItRealCard({
     },
   });
 
-  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app", {
+    errorNotification: "caller",
+  });
 
   if (isLoading || !data) {
     return (
@@ -619,9 +620,7 @@ export function ComponentSection({
     }
   }, [activeContent, designId, fileId, nodeId]);
 
-  const openSourceMutation = useActionMutation("open-component-source", {
-    meta: SURFACE_MUTATION_ERROR,
-  });
+  const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");

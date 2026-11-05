@@ -59,7 +59,6 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
-import { DesignWriteFailureToasts } from "@/components/design/DesignWriteFailureToasts";
 import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
@@ -464,7 +463,6 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <DesignWriteFailureToasts />
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />

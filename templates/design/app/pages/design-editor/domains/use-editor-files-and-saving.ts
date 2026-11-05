@@ -6,6 +6,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/hooks";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   parseCreativeContexts,
@@ -45,7 +46,6 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 
 import type {
   LiveScreenSnapshot,
@@ -841,7 +841,7 @@ export function useEditorFilesAndSaving({
 
     updateDesignMutation.mutate({ id, title: next } as any, {
       onError: (error) => {
-        reportDesignWriteFailure(error);
+        reportWriteFailure(error);
         queryClient.setQueryData(designQueryKey, previousDesign);
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);

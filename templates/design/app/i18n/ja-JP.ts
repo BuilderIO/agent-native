@@ -1048,9 +1048,6 @@ export default {
     },
   },
   designEditor: {
-    writeFailed: "変更を保存できませんでした。",
-    selectionPublishFailed:
-      "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:

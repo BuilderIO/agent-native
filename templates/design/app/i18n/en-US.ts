@@ -967,9 +967,6 @@ export default {
     },
   },
   designEditor: {
-    writeFailed: "Couldn't save that change.",
-    selectionPublishFailed:
-      "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
       title: "Live collaboration",
       description:

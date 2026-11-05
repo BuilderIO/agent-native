@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   DEFAULT_LAYOUT_GRID,
   normalizeLayoutGridSize,
@@ -7,7 +8,6 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import {
   applyDesignDataOperations,
   type DesignDataOperation,
@@ -56,7 +56,7 @@ export function runSetLayoutGrid(
     { id, dataOperations: [operation] } as never,
     {
       onError: (error) => {
-        reportDesignWriteFailure(error);
+        reportWriteFailure(error);
       },
       onSettled: () => {
         void queryClient.invalidateQueries({
