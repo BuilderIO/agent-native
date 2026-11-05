@@ -263,8 +263,9 @@ export class GitHubIssues implements Tracker {
 
   async attachPlan(key: string, file: string, planName: string): Promise<void> {
     const body = this.issue(key).body ?? "";
-    this.setBody(key, withPlan(body, readFileSync(file, "utf8"), planName));
-    // Replacing the plan with a bug-derived one re-opens the approval gate.
+    const next = withPlan(body, readFileSync(file, "utf8"), planName);
+    // The gate goes up before the bug-derived plan is visible, so a failed
+    // label request leaves the old plan in place and the retry repeats both.
     if (readPlan(file).meta.trigger === "bug")
       gh(
         [
@@ -274,6 +275,7 @@ export class GitHubIssues implements Tracker {
         ],
         { labels: [APPROVAL_LABEL] },
       );
+    this.setBody(key, next);
   }
 
   async ensureRecurrenceLink(key: string, recurrenceOf: string): Promise<void> {
@@ -354,10 +356,12 @@ function withPlan(body: string, plan: string, planName: string): string {
     planName.length -
     // The finding-state block is added after the plan and grows with sightings.
     5_000;
-  const fitted =
-    plan.length > room
-      ? `${plan.slice(0, Math.max(0, room))}\n\n…(plan truncated to fit the issue body)`
-      : plan;
+  // A cut plan would still look complete to the factory, so refuse it.
+  if (plan.length > room)
+    throw new ScriptError(
+      `plan ${planName} is ${plan.length} characters; the issue body has room for ${Math.max(0, room)}`,
+    );
+  const fitted = plan;
   const section = [
     `<!-- fragility-plan:start name="${planName}" -->`,
     "## Plan",
