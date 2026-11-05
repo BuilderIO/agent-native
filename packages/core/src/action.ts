@@ -1318,7 +1318,7 @@ const MAX_SEARCH_HINT_CHARS = 60;
  */
 export class ActionDefinitionError extends TypeError {
   readonly actionDefinitionError = true;
-  readonly actionName?: string;
+  readonly actionName: string | undefined;
 
   constructor(message: string, actionName?: string) {
     super(actionName ? `Action "${actionName}": ${message}` : message);

@@ -217,11 +217,8 @@ export function actionDefinition(
  * real `run` plus the same flags a built registry keeps, and conservative MCP
  * annotations when the module declares no valid ones.
  */
-export function filesystemActionEntry(
-  def: Record<string, any>,
-  actionName?: string,
-): ActionEntry {
-  const flags = preserveActionFlags(def, actionName);
+export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
+  const flags = preserveActionFlags(def);
   const out: ActionEntry = {
     tool: def.tool,
     run: def.run,
@@ -251,15 +248,13 @@ export async function importDevActionEntry(
   filePath: string,
   actionName: string,
 ): Promise<ActionEntry | null> {
-  let mod: Record<string, unknown>;
   try {
-    mod = await import(/* @vite-ignore */ filePath);
+    const def = actionDefinition(await import(/* @vite-ignore */ filePath));
+    return def ? filesystemActionEntry(def) : null;
   } catch (error) {
     if (isActionDefinitionError(error)) {
       throw namedActionDefinitionError(error, actionName);
     }
     return null;
   }
-  const def = actionDefinition(mod);
-  return def ? filesystemActionEntry(def, actionName) : null;
 }
