@@ -432,7 +432,7 @@ describe("page open document reads", () => {
     expect(server.calls).toEqual(
       expect.arrayContaining([
         {
-          name: "get-document",
+          name: "get-page-open-read",
           params: expect.objectContaining({
             id: "row-1",
             databaseId: "database",
@@ -445,7 +445,7 @@ describe("page open document reads", () => {
         },
       ]),
     );
-    expect(reads("get-document")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
   });
 
   it("leaves a row's comments and suggestions to the switch when reading ahead", async () => {
@@ -462,7 +462,7 @@ describe("page open document reads", () => {
 
     await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(reads("get-document")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
     expect(reads("list-comments")).toBe(0);
     expect(reads("list-resource-suggestions")).toBe(0);
 
@@ -470,7 +470,7 @@ describe("page open document reads", () => {
 
     await vi.waitFor(() => expect(reads("list-comments")).toBe(1));
     expect(reads("list-resource-suggestions")).toBe(1);
-    expect(reads("get-document")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
   });
 
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {

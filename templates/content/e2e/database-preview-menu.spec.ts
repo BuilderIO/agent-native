@@ -4,6 +4,7 @@ import {
   type APIResponse,
   type Locator,
   type Page,
+  type Request,
 } from "@playwright/test";
 
 import { postAction, presentUiCapability } from "./helpers";
@@ -960,6 +961,25 @@ test("a preview's page doesn't wait for the row's slow Property read", async ({
   }
 });
 
+// Whether the page has no action write out and none finished in the last 750 ms.
+function trackActionWrites(page: Page): () => boolean {
+  let writesOut = 0;
+  let lastChange = Date.now();
+  const count = (request: Request, by: number) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/_agent-native/actions/")
+    ) {
+      writesOut += by;
+      lastChange = Date.now();
+    }
+  };
+  page.on("request", (request) => count(request, 1));
+  page.on("requestfinished", (request) => count(request, -1));
+  page.on("requestfailed", (request) => count(request, -1));
+  return () => writesOut === 0 && Date.now() - lastChange > 750;
+}
+
 test("a row's reads start when the pointer rests on it, and the switch uses them", async ({
   page,
 }) => {
@@ -977,12 +997,16 @@ test("a row's reads start when the pointer rests on it, and the switch uses them
       if (url.searchParams.get("id") === rowC.documentId) reads += 1;
       await route.fallback();
     });
+    const writesSettled = trackActionWrites(page);
     await page.goto(`/page/${fixture.databaseDocumentId}`, {
       waitUntil: "domcontentloaded",
     });
     const preview = await openPreview(page, rowA.title);
     await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
     expect(reads).toBe(0);
+    // A write that lands while a page read is out spoils the read, so the
+    // writes an opening panel sends finish before the pointer rests.
+    await expect.poll(writesSettled, { timeout: 30_000 }).toBe(true);
 
     const rowCTitle = page.getByRole("button", {
       name: `Open ${rowC.title} preview`,
