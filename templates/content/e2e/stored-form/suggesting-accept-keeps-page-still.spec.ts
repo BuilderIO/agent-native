@@ -101,9 +101,8 @@ function watchThePage(page: Page) {
     const seen = { moved: 0, syncingLine: false };
     const look = () => {
       seen.moved = Math.max(seen.moved, Math.abs(top() - start));
-      seen.syncingLine ||= !!document.body.textContent?.includes(
-        "still syncing",
-      );
+      seen.syncingLine ||=
+        !!document.body.textContent?.includes("still syncing");
       requestAnimationFrame(look);
     };
     look();
