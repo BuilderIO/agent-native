@@ -159,7 +159,7 @@ export function GoogleDriveConnectionCta({
         )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
-      {!status && !loading && (
+      {!status && (
         <Button
           type="button"
           variant="outline"

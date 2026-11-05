@@ -49,8 +49,8 @@ async function load(): Promise<GoogleSlidesExportState> {
   }
   const result = await readStatusBody(response);
   if ("unreadable" in result) return UNKNOWN_STATE;
-  const disconnectable = result.body?.disconnectable === true;
-  const reported = result.body?.googleSlidesExport;
+  const disconnectable = result.body.disconnectable === true;
+  const reported = result.body.googleSlidesExport;
   if (!reported || typeof reported.available !== "boolean") {
     return { available: true, disconnectable };
   }
