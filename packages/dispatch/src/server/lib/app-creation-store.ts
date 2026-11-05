@@ -278,9 +278,9 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
-interface WorkspaceAppDiscovery {
-  apps: WorkspaceAppSummary[];
-}
+type WorkspaceAppDiscovery =
+  | { kind: "apps"; apps: WorkspaceAppSummary[] }
+  | { kind: "domainless" };
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
@@ -2086,7 +2086,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     // The hosted registry is keyed by organization domain, so an org that has
     // none (a new Builder-connected account) has no hosted workspace to read.
     // A failed domain lookup still throws above.
-    if (requestContext.orgId && !orgDomain) return null;
+    if (requestContext.orgId && !orgDomain) return { kind: "domainless" };
     if (requestContext.orgId) {
       try {
         orgSecret =
@@ -2192,7 +2192,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
     }
-    return { apps };
+    return { kind: "apps" as const, apps };
   };
 
   try {
@@ -2572,13 +2572,14 @@ async function listWorkspaceAppsWithPrincipal(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     gatewayDenial = error;
   }
-  if (gatewayApps) {
+  if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
   if (gatewayDenial && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
-  const unverified = gatewayDenial !== null;
+  const unverified =
+    gatewayDenial !== null || gatewayApps?.kind === "domainless";
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
