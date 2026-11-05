@@ -1,3 +1,9 @@
+## 0.171.3
+
+### Patch Changes
+
+- 2292fac: Allow shared loading spinners to provide localized accessible labels.
+
 ## 0.171.2
 
 ### Patch Changes

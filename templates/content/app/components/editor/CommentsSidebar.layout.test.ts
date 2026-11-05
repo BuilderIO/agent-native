@@ -207,6 +207,41 @@ describe("comments sidebar layout", () => {
     });
   });
 
+  it("measures a highlight from its start, and flags the rest as partial", () => {
+    document.body.innerHTML =
+      '<div id="scroll"><div data-document-scroll-content><span id="hidden" data-comment-thread="thread-1">old</span><span id="shown" data-comment-thread="thread-1">new</span></div></div><div id="rail"></div>';
+    const scroll = document.getElementById("scroll") as HTMLElement;
+    const content = scroll.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement;
+    const rail = document.getElementById("rail") as HTMLElement;
+    const hidden = document.getElementById("hidden") as HTMLElement;
+    const shown = document.getElementById("shown") as HTMLElement;
+    const nowhere = () => [] as unknown as DOMRectList;
+    content.getBoundingClientRect = () => rect(40) as DOMRect;
+    rail.getBoundingClientRect = () => rect(80) as DOMRect;
+    hidden.getBoundingClientRect = () => rect(0) as DOMRect;
+    hidden.getClientRects = nowhere;
+    shown.getBoundingClientRect = () => rect(156) as DOMRect;
+
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: 116,
+      layoutTop: 76,
+      partial: true,
+    });
+    hidden.getClientRects = () => [rect(0)] as unknown as DOMRectList;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: -40,
+      layoutTop: -80,
+    });
+    hidden.getClientRects = nowhere;
+    // While an accepted edit settles, all of its text can be hidden at once.
+    shown.getClientRects = nowhere;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toBe(
+      "unrendered",
+    );
+  });
+
   it("reads a quote across blocks with a space where its highlight crosses", () => {
     document.body.innerHTML =
       '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
