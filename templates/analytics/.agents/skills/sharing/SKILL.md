@@ -28,8 +28,8 @@ change the app's visibility or manage its share grants.
 ### Three visibility levels
 
 - **`private`** — owner + explicit share grants only. Default.
-- **`org`** — owner + explicit grants + anyone in the same org (read-only).
-- **`public`** — owner + explicit grants + **anyone with the link** (read-only). Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
+- **`org`** — owner + explicit grants + anyone in the same org. Members can view by default; `set-resource-visibility` with `role` lets them comment or edit. That role is stored as the share grant to the resource's own org, so it is removed when the resource leaves `org`.
+- **`public`** — owner + explicit grants + **anyone with the link**. They can view by default; `set-resource-visibility` with `role: "commenter"` lets signed-in people with the link comment (never edit). That role is a share row for the `link` principal, which is never listed or shared as a person, and it is removed when the resource leaves `public`. Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
 
 Visibility is coarse. Explicit share grants are fine-grained (per user, reusable
 organization group, or per org).
@@ -229,7 +229,11 @@ All app share popovers use one single-panel surface, top to bottom:
    Roles read "Can view", "Can comment", "Can edit", "Can manage access";
    Remove access lives in each row's role menu.
 3. General access: Only people invited / Anyone at <org> / Anyone with the
-   link.
+   link. Anyone at <org> has a role picker (Can view / Can comment / Can
+   edit) and Anyone with the link has one (Can view / Can comment); the
+   grants behind them are not listed under People. Changes save at once;
+   only a type registered with `confirmOrgVisibility: true` (chats) asks
+   before going from private to the organization.
 4. A footer with Copy link (`shareUrl`) and a Send to menu.
 
 Rules:
@@ -264,7 +268,7 @@ The framework auto-mounts these actions in every template — no per-template bo
 | `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
-| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`         | Change to `private` / `org` / `public`. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
+| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`, `role?` | Change to `private` / `org` / `public`. With `org`, `role` (`viewer` / `commenter` / `editor`) sets what members can do; with `public`, `role` (`viewer` / `commenter`) sets what signed-in people with the link can do. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
 
 Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks

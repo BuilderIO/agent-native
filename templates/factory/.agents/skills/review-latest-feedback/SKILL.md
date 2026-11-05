@@ -291,9 +291,10 @@ do not claim new roots.
   back to `main` and pass with them. A check that passes without your fix
   doesn't test the bug: write one that does. Tests that read source text
   never count. For a purely visual fix, before and after screenshots are
-  evidence for a person to inspect, not automated proof. Before merging, a
-  human must open both images and confirm they show the reported change. Put
-  the evidence under the report in the PR's `Reports` section.
+  evidence, not automated proof: before merging, a human must open both and
+  confirm they show the reported change. Put the evidence under the report in
+  the PR's `Reports` section. A test-only change (test files, optional
+  `.changeset/`) needs only `fix-proof: test-only`.
 - **Two misses, then stop guessing.** If two attempts don't turn the check
   green, stop editing and capture the real failure first (stack, logs, the
   reporter's actual data). If that doesn't settle it within about 30
