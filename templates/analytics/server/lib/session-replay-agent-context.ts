@@ -769,7 +769,7 @@ function buildReplayKeyMoments(
     kind: ReplayStep["kind"],
     label: string,
   ) => {
-    const last: (typeof steps)[number] | undefined = steps[steps.length - 1];
+    const last = steps.length > 0 ? steps[steps.length - 1] : undefined;
     if (
       last?.kind === kind &&
       last.label === label &&
