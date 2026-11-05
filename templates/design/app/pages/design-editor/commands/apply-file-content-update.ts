@@ -100,6 +100,10 @@ export interface ApplyFileContentUpdateArgs {
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
   ) => void;
+  primeAcceptedSource: (
+    fileId: string,
+    source: { content: string; updatedAt: string },
+  ) => void;
   overviewIsSynced: boolean;
   overviewPresenceFileId: string | null;
   overviewYdoc: Y.Doc | null;
@@ -122,6 +126,7 @@ export function runApplyFileContentUpdate(
     getScreenContent,
     id,
     markPendingLocalFileContent,
+    primeAcceptedSource,
     overviewIsSynced,
     overviewPresenceFileId,
     overviewYdoc,
@@ -218,12 +223,20 @@ export function runApplyFileContentUpdate(
       after: acceptedContent,
     });
   }
-  markPendingLocalFileContent(
-    fileId,
-    acceptedContent,
-    options.updatedAt ?? previousFile.updatedAt,
-    identityMigrationSourceContent,
-  );
+  if (options.updatedAt && !needsIdentityMigration) {
+    primeAcceptedSource(fileId, {
+      content: acceptedContent,
+      updatedAt: options.updatedAt,
+    });
+    clearPendingLocalFileContent(fileId);
+  } else {
+    markPendingLocalFileContent(
+      fileId,
+      acceptedContent,
+      options.updatedAt ?? previousFile.updatedAt,
+      identityMigrationSourceContent,
+    );
+  }
   queryClient.setQueryData(
     designMetadataQueryKey(id),
     (old: Record<string, unknown> | undefined) => {

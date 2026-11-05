@@ -1465,6 +1465,8 @@ export function useEditorContentAndComponents({
           lastLocalContentRef,
           latestActiveContentRef,
           markPendingLocalFileContent,
+          primeAcceptedSource: (fileId, source) =>
+            sourceLoader?.prime(fileId, source),
           queryClient,
           queueFileContentSave,
           recordContentHistoryEntry,
@@ -1505,6 +1507,7 @@ export function useEditorContentAndComponents({
       id,
       isSynced,
       markPendingLocalFileContent,
+      sourceLoader,
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
@@ -1560,6 +1563,8 @@ export function useEditorContentAndComponents({
           getScreenContent,
           id,
           markPendingLocalFileContent,
+          primeAcceptedSource: (fileId, source) =>
+            sourceLoader?.prime(fileId, source),
           overviewIsSynced,
           overviewPresenceFileId,
           overviewYdoc,
@@ -1596,6 +1601,7 @@ export function useEditorContentAndComponents({
       files,
       id,
       markPendingLocalFileContent,
+      sourceLoader,
       overviewIsSynced,
       overviewPresenceFileId,
       overviewYdoc,

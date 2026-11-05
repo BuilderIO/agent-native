@@ -171,6 +171,8 @@ export function useEditorEditCommands({
     canEditLiveScreens,
     rawServerFilesByIdRef,
     historyFilesRef,
+    sourceLoader,
+    awaitCommittedSources,
     pendingLocalFileContentsRef,
     markPendingLocalFileContent,
     createFileMutation,
@@ -639,9 +641,6 @@ export function useEditorEditCommands({
           overviewScreenIds.has(id) &&
           explicitOverviewScreenSelectionRef.current.includes(id),
       );
-      const explicitlySelectedFiles = selectedFiles.filter((file) =>
-        explicitlySelectedIds.includes(file.id),
-      );
       if (
         !explicitScreenDeletion &&
         explicitlySelectedIds.length === 0 &&
@@ -658,38 +657,69 @@ export function useEditorEditCommands({
         explicitlySelectedIds.length > 0
           ? explicitlySelectedIds
           : selectedIds.filter((id) => overviewScreenIds.has(id));
-      if (
-        intendedIds.some((id) => !selectedFiles.some((file) => file.id === id))
-      ) {
-        toast.error(t("common.genericError"));
+      if (!intendedIds.length) return false;
+      const explicitScreenIds = explicitScreenDeletion
+        ? intendedIds
+        : explicitlySelectedIds;
+      const selectionRevisionAtStart = selectionRevisionRef.current;
+      const deleteScreens = (filesToDelete: DesignFile[]) => {
+        explicitOverviewScreenSelectionRef.current = [];
+        void performDeleteFiles(filesToDelete, {
+          recordDeletionHistory: true,
+          onMutationSettled: (deletedFiles) => {
+            if (selectionRevisionRef.current !== selectionRevisionAtStart)
+              return;
+            const deletedIds = new Set(deletedFiles.map((file) => file.id));
+            explicitOverviewScreenSelectionRef.current =
+              explicitScreenIds.filter((fileId) => !deletedIds.has(fileId));
+          },
+        });
+      };
+      const unloadedIds = intendedIds.filter(
+        (id) => !selectedFiles.some((file) => file.id === id),
+      );
+      if (!unloadedIds.length) {
+        deleteScreens(
+          selectedFiles.filter((file) => intendedIds.includes(file.id)),
+        );
         return false;
       }
-      const filesToDelete =
-        explicitlySelectedIds.length > 0
-          ? explicitlySelectedFiles
-          : selectedFiles;
-      if (!filesToDelete.length) return false;
-
-      const explicitScreenIds = explicitScreenDeletion
-        ? filesToDelete.map((file) => file.id)
-        : explicitlySelectedFiles.map((file) => file.id);
-      const selectionRevisionAtStart = selectionRevisionRef.current;
-      explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(filesToDelete, {
-        recordDeletionHistory: true,
-        onMutationSettled: (deletedFiles) => {
+      // Undo restores a deleted screen from its source, so load it first.
+      if (!sourceLoader) {
+        toast.error(t("designEditor.sourceLoadFailed"));
+        return false;
+      }
+      const releases = unloadedIds.map((id) => sourceLoader.lease(id));
+      void Promise.all(unloadedIds.map((id) => sourceLoader.request(id)))
+        .then(() => {
+          for (const id of unloadedIds) {
+            const state = sourceLoader.get(id);
+            if (state.status !== "ready" || state.refreshError)
+              throw new Error("Screen source could not be loaded");
+          }
+          return awaitCommittedSources(unloadedIds);
+        })
+        .then(() => {
           if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
-          const deletedIds = new Set(deletedFiles.map((file) => file.id));
-          explicitOverviewScreenSelectionRef.current = explicitScreenIds.filter(
-            (fileId) => !deletedIds.has(fileId),
+          const loaded = historyFilesRef.current.filter((file) =>
+            intendedIds.includes(file.id),
           );
-        },
-      });
+          if (loaded.length !== intendedIds.length)
+            throw new Error("Screen source could not be loaded");
+          deleteScreens(loaded);
+        })
+        .catch(() => toast.error(t("designEditor.sourceLoadFailed")))
+        .finally(() => {
+          for (const release of releases) release();
+        });
       return false;
     },
     [
+      awaitCommittedSources,
       canEditDesign,
       files,
+      historyFilesRef,
+      sourceLoader,
       performDeleteFiles,
       handleDeleteSelection,
       overviewScreens,

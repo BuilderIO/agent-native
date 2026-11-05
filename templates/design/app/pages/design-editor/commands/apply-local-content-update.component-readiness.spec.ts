@@ -90,6 +90,7 @@ describe("component details source readiness", () => {
       isSynced: false,
       lastLocalContentRef: { current: originalFile.content ?? "" },
       latestActiveContentRef: { current: originalFile.content ?? "" },
+      primeAcceptedSource: () => {},
       markPendingLocalFileContent,
       queryClient,
       queueFileContentSave: (fileId, content) => {

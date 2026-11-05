@@ -214,6 +214,7 @@ function readOnlyWriterArgs(
     files: [activeFile],
     getScreenContent: () => activeFile.content ?? "",
     id: "design",
+    primeAcceptedSource: () => {},
     markPendingLocalFileContent: vi.fn(),
     overviewIsSynced: false,
     overviewPresenceFileId: null,

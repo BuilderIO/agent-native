@@ -24,7 +24,7 @@ import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
 } from "@agent-native/creative-context/types";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -106,6 +106,11 @@ function designDeepLink(
     },
   });
 }
+
+// PostgreSQL trim and [:space:] do not match String.prototype.trim, so the
+// class lists exactly the characters trim removes.
+const NON_WHITESPACE_SOURCE_PATTERN =
+  "[^\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]";
 
 function isRenderableDesignFile(file: {
   fileType?: string | null;
@@ -822,31 +827,18 @@ const generateDesignAction = defineAction({
 
     let hasRenderableFile = files.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
-      // PostgreSQL trim does not share JavaScript's Unicode whitespace semantics.
-      let afterId: string | undefined;
-      while (!hasRenderableFile) {
-        const candidates = await db
-          .select({
-            id: schema.designFiles.id,
-            fileType: schema.designFiles.fileType,
-            content: schema.designFiles.content,
-          })
-          .from(schema.designFiles)
-          .where(
-            and(
-              eq(schema.designFiles.designId, designId),
-              inArray(schema.designFiles.fileType, ["html", "jsx"]),
-              afterId === undefined
-                ? undefined
-                : gt(schema.designFiles.id, afterId),
-            ),
-          )
-          .orderBy(schema.designFiles.id)
-          .limit(16);
-        hasRenderableFile = candidates.some(isRenderableDesignFile);
-        if (candidates.length < 16) break;
-        afterId = candidates[candidates.length - 1]?.id;
-      }
+      const renderable = await db
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.fileType, ["html", "jsx"]),
+            sql`${schema.designFiles.content} ~ ${NON_WHITESPACE_SOURCE_PATTERN}`,
+          ),
+        )
+        .limit(1);
+      hasRenderableFile = renderable.length > 0;
     }
     if (!hasRenderableFile) {
       throw new NoWriteError(

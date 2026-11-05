@@ -104,6 +104,7 @@ import {
   designSaveErrorMessage,
   reportDesignSaveFailure,
 } from "../save-failure";
+import { SOURCE_HYDRATION_MAX_BYTES } from "../source-hydration";
 import {
   designFileCodeLayerSource,
   forgetPreparedSourcesExcept,
@@ -180,6 +181,7 @@ export function useEditorFilesAndSaving({
     sourceLoader,
     sourceRevision,
     dependencyStatusByRoot,
+    awaitCommittedSources,
     pendingNodeRewriteStateVersion,
     canShareDesign,
     canEditDesign,
@@ -941,23 +943,51 @@ export function useEditorFilesAndSaving({
       }),
     [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
   );
-  const getComponentExpectedFiles = useCallback(() => {
-    const readyIds = new Set(files.map((file) => file.id));
-    if (
-      !shellMode &&
-      sourceMetadata.some(
-        (file) => file.fileType === "html" && !readyIds.has(file.id),
-      )
-    ) {
-      throw new Error(t("common.genericError"));
+  const getComponentExpectedFiles = useCallback(async () => {
+    const hashes = (list: readonly (typeof files)[number][]) =>
+      list
+        .filter((file) => file.fileType === "html")
+        .map((file) => ({
+          fileId: file.id,
+          versionHash: sourceContentHash(file.content),
+        }));
+    if (shellMode) return hashes(files);
+    if (!sourceLoader) throw new Error(t("common.genericError"));
+    const htmlFiles = sourceMetadata.filter((file) => file.fileType === "html");
+    const estimatedBytes = htmlFiles.reduce(
+      (total, file) => total + (file.contentBytes ?? 0),
+      0,
+    );
+    if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
+      throw new Error(t("common.linkedSourceSizeLimit"));
+    const ids = htmlFiles.map((file) => file.id);
+    const releases = ids.map((fileId) => sourceLoader.lease(fileId));
+    try {
+      await Promise.all(ids.map((fileId) => sourceLoader.request(fileId)));
+      for (const fileId of ids) {
+        const state = sourceLoader.get(fileId);
+        if (state.status !== "ready" || state.refreshError)
+          throw new Error(t("common.genericError"));
+      }
+      await awaitCommittedSources(ids);
+      const current = historyFilesRef.current.filter((file) =>
+        ids.includes(file.id),
+      );
+      if (current.length !== ids.length)
+        throw new Error(t("common.genericError"));
+      return hashes(current);
+    } finally {
+      for (const release of releases) release();
     }
-    return files
-      .filter((file) => file.fileType === "html")
-      .map((file) => ({
-        fileId: file.id,
-        versionHash: sourceContentHash(file.content),
-      }));
-  }, [files, shellMode, sourceMetadata, t]);
+  }, [
+    awaitCommittedSources,
+    files,
+    historyFilesRef,
+    shellMode,
+    sourceLoader,
+    sourceMetadata,
+    t,
+  ]);
   historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(

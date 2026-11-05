@@ -183,6 +183,7 @@ export function useEditorCanvasAndScreens({
     rawServerFilesByIdRef,
     historyFilesRef,
     pendingLocalFileContentsRef,
+    sourceLoader,
     createFileMutation,
     createFileAsync,
     deleteFileMutation,
@@ -399,8 +400,12 @@ export function useEditorCanvasAndScreens({
           };
         },
       );
+      sourceLoader?.prime(args.fileId, {
+        content: optimisticFile.content,
+        updatedAt: optimisticFile.updatedAt,
+      });
     },
-    [id, queryClient],
+    [id, queryClient, sourceLoader],
   );
 
   const focusCreatedScreen = useCallback(

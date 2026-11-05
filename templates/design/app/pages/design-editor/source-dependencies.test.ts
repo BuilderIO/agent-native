@@ -147,7 +147,7 @@ describe("source dependencies", () => {
     expect(reprioritized.ids).toContain("b-css");
     expect(reprioritized.statusByRoot.get("b")).toBe("loading");
   });
-  it("schedules a priority graph that fits its budget before unrelated roots", () => {
+  it("schedules a priority graph that fits its budget, still loading every root", () => {
     const files = [
       { id: "active", filename: "index.html" },
       { id: "one", filename: "one.css" },
@@ -168,8 +168,34 @@ describe("source dependencies", () => {
       get,
       3,
     );
-    expect(result.ids).toEqual(["active", "one", "two"]);
+    expect(result.ids).toEqual(["active", "one", "two", "other"]);
     expect(result.statusByRoot.get("active")).toBe("loading");
+    expect(result.statusByRoot.get("other")).toBe("loading");
+  });
+  it("defers only the dependencies of a loaded root once the budget is full", () => {
+    const files = [
+      { id: "active", filename: "index.html" },
+      { id: "one", filename: "one.css" },
+      { id: "other", filename: "other.html" },
+      { id: "theme", filename: "theme.css" },
+    ];
+    const content = new Map([
+      ["active", '<link href="one.css">'],
+      ["other", '<link href="theme.css">'],
+    ]);
+    const get = (id: string): SourceHydrationState => {
+      const source = content.get(id);
+      return source === undefined
+        ? { status: "unloaded" }
+        : { status: "ready", content: source, updatedAt: "1" };
+    };
+    const result = scheduleSourceDependencies(
+      files,
+      ["active", "other"],
+      get,
+      2,
+    );
+    expect(result.ids).toEqual(["active", "one", "other"]);
     expect(result.statusByRoot.get("other")).toBe("deferred");
   });
 });

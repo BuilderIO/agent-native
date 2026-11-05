@@ -102,6 +102,7 @@ import {
   applyMcpDirectoryWidgetWritePolicy,
 } from "../mcp-widget-write-capabilities";
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
+import { eagerSourceIds } from "../source-hydration";
 import {
   type DesignData,
   type DesignFile,
@@ -783,6 +784,7 @@ export function useEditorGenerationAndAccess({
           activeFileId ?? first,
           board,
           ...visibleSourceIds,
+          ...eagerSourceIds(sourceMetadata),
         ].filter((value): value is string => Boolean(value)),
       ),
     ];

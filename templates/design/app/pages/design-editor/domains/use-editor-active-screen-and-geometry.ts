@@ -501,8 +501,8 @@ export function useEditorActiveScreenAndGeometry({
 
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
-    const boardFile = files.find((file) => file.id === boardFileId);
-    return typeof boardFile?.content === "string" ? boardFile.content : "";
+    // A board whose source has not loaded is unknown, not empty.
+    return files.find((file) => file.id === boardFileId)?.content;
   }, [boardFileId, files]);
 
   useEffect(() => {

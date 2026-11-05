@@ -213,6 +213,9 @@ function loadOptimisticCreatedFileInsertion(
   historyFilesRef: { current: Array<{ id: string; content: string }> } = {
     current: [],
   },
+  sourceLoader: {
+    prime: (id: string, file: { content: string; updatedAt: string }) => void;
+  } = { prime: () => {} },
 ) {
   const source = readDesignEditorSource();
   const start = source.indexOf(
@@ -234,6 +237,7 @@ function loadOptimisticCreatedFileInsertion(
     "insertAtFileOrderIndex",
     "historyFilesRef",
     "designMetadataQueryKey",
+    "sourceLoader",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
   return create(
@@ -244,6 +248,7 @@ function loadOptimisticCreatedFileInsertion(
     insertAtFileOrderIndex,
     historyFilesRef,
     (id: string) => ["action", "get-design", { id, includeFileContent: false }],
+    sourceLoader,
   ) as (args: {
     fileId: string;
     filename: string;
@@ -795,9 +800,11 @@ describe("create-file: node-id annotation", () => {
     });
     const historyFilesRef: { current: Array<{ id: string; content: string }> } =
       { current: [] };
+    const sourceLoader = { prime: vi.fn() };
     const insertOptimistically = loadOptimisticCreatedFileInsertion(
       queryClient,
       historyFilesRef,
+      sourceLoader,
     );
 
     try {
@@ -815,6 +822,10 @@ describe("create-file: node-id annotation", () => {
       expect(
         historyFilesRef.current.find((file) => file.id === result.id)?.content,
       ).toBe(persisted.content);
+      expect(sourceLoader.prime).toHaveBeenCalledWith(
+        result.id,
+        expect.objectContaining({ content: persisted.content }),
+      );
       expect(mocks.seedFromText).toHaveBeenCalledWith(
         result.id,
         persisted.content,

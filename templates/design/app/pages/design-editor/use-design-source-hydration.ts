@@ -209,9 +209,10 @@ export function useDesignSourceHydration(
             throw new Error("Screen dependencies could not be loaded");
           for (const id of graph.ids)
             if (!leases.has(id)) leases.set(id, loader.lease(id));
-          const pending = graph.ids.filter(
-            (id) => loader.get(id).status !== "ready",
-          );
+          const pending = graph.ids.filter((id) => {
+            const state = loader.get(id);
+            return state.status !== "ready" || state.refreshing === true;
+          });
           if (pending.length === 0) {
             await awaitCommittedSources(graph.ids);
             return release;

@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 const callAction = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
 
-import { SourceHydration } from "./source-hydration";
+import { eagerSourceIds, SourceHydration } from "./source-hydration";
 import { useDesignSourceHydration } from "./use-design-source-hydration";
 
 describe("SourceHydration", () => {
@@ -307,6 +307,97 @@ describe("SourceHydration", () => {
     expect(changed).toHaveBeenCalledOnce();
     loader.sync([{ id: "a", updatedAt: "2" }]);
     expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a held source visible while its new version loads", async () => {
+    let finish!: (value: { content: string; updatedAt: string }) => void;
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "old", updatedAt: "1" })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const loader = new SourceHydration(read, () => {});
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    loader.setPinned(new Set(["a"]));
+    await loader.request("a");
+    loader.sync([{ id: "a", updatedAt: "2" }]);
+    expect(loader.get("a")).toMatchObject({
+      status: "ready",
+      content: "old",
+      refreshing: true,
+    });
+    const refreshed = loader.request("a");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(loader.get("a")).toMatchObject({ content: "old" });
+    finish({ content: "new", updatedAt: "2" });
+    await refreshed;
+    expect(loader.get("a")).toEqual({
+      status: "ready",
+      content: "new",
+      updatedAt: "2",
+    });
+  });
+
+  it("drops a stale source once nothing holds it", async () => {
+    const loader = new SourceHydration(
+      async () => ({ content: "old", updatedAt: "1" }),
+      () => {},
+    );
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    loader.setPinned(new Set(["a"]));
+    await loader.request("a");
+    loader.sync([{ id: "a", updatedAt: "2" }]);
+    loader.setPinned(new Set());
+    expect(loader.get("a").status).toBe("unloaded");
+  });
+
+  it("serves a primed source before metadata lists it, without reading", async () => {
+    const read = vi.fn();
+    const loader = new SourceHydration(read, () => {});
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    loader.prime("created", { content: "<main></main>", updatedAt: "5" });
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    expect(loader.get("created")).toEqual({
+      status: "ready",
+      content: "<main></main>",
+      updatedAt: "5",
+    });
+    loader.sync([
+      { id: "a", updatedAt: "1" },
+      { id: "created", updatedAt: "5" },
+    ]);
+    await loader.request("created");
+    expect(read).not.toHaveBeenCalled();
+    loader.sync([{ id: "a", updatedAt: "1" }]);
+    expect(loader.get("created").status).toBe("unloaded");
+  });
+});
+
+describe("eagerSourceIds", () => {
+  it("loads a small design whole and a large or unsized one on demand", () => {
+    const small = [
+      { id: "a", contentBytes: 1024 },
+      { id: "b", contentBytes: 2048 },
+    ];
+    expect(eagerSourceIds(small)).toEqual(["a", "b"]);
+    expect(
+      eagerSourceIds([...small, { id: "c", contentBytes: 8 * 1024 * 1024 }]),
+    ).toEqual([]);
+    expect(eagerSourceIds([...small, { id: "c", contentBytes: null }])).toEqual(
+      [],
+    );
+    expect(
+      eagerSourceIds(
+        Array.from({ length: 65 }, (_, i) => ({
+          id: String(i),
+          contentBytes: 1,
+        })),
+      ),
+    ).toEqual([]);
   });
 });
 

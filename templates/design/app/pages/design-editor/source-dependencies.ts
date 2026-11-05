@@ -103,23 +103,21 @@ export function scheduleSourceDependencies(
     const graph = sourceDependencyIds(files, [root], get, index);
     const additional = graph.ids.filter((id) => !ids.has(id));
     const admitted = !graph.overflow && ids.size + additional.length <= budget;
-    if (admitted) {
-      additional.forEach((id) => ids.add(id));
-    } else if (ids.size < budget) {
-      ids.add(root);
-    }
+    // A demanded root always loads; only its dependencies wait for budget.
+    if (admitted) additional.forEach((id) => ids.add(id));
+    else ids.add(root);
     idsByRoot.set(root, graph.ids);
-    const loading = graph.ids.some((id) => {
+    const isLoading = (id: string) => {
       const state = get(id);
       return state.status === "unloaded" || state.status === "loading";
-    });
+    };
     statusByRoot.set(
       root,
       graph.overflow || graph.failed
         ? "error"
-        : !loading
+        : !graph.ids.some(isLoading)
           ? "ready"
-          : admitted
+          : admitted || isLoading(root)
             ? "loading"
             : "deferred",
     );

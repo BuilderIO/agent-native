@@ -55,6 +55,10 @@ export interface ApplyLocalContentUpdateArgs {
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
   ) => void;
+  primeAcceptedSource: (
+    fileId: string,
+    source: { content: string; updatedAt: string },
+  ) => void;
   queryClient: QueryClient;
   queueFileContentSave: (
     fileId: string,
@@ -113,6 +117,7 @@ export function runApplyLocalContentUpdate(
     lastLocalContentRef,
     latestActiveContentRef,
     markPendingLocalFileContent,
+    primeAcceptedSource,
     queryClient,
     queueFileContentSave,
     recordContentHistoryEntry,
@@ -261,12 +266,20 @@ export function runApplyLocalContentUpdate(
       selectionBefore: options.selectionBefore,
     });
   }
-  markPendingLocalFileContent(
-    activeFile.id,
-    nextContent,
-    options.updatedAt ?? activeFile.updatedAt,
-    identityMigrationSourceContent,
-  );
+  if (options.updatedAt && !needsIdentityMigration) {
+    primeAcceptedSource(activeFile.id, {
+      content: nextContent,
+      updatedAt: options.updatedAt,
+    });
+    clearPendingLocalFileContent(activeFile.id);
+  } else {
+    markPendingLocalFileContent(
+      activeFile.id,
+      nextContent,
+      options.updatedAt ?? activeFile.updatedAt,
+      identityMigrationSourceContent,
+    );
+  }
   setCollabContent(nextContent);
   setCollabContentFileId(activeFile.id);
   collabContentRef.current = nextContent;

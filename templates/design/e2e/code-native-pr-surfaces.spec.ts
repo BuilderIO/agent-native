@@ -541,7 +541,8 @@ test("adding an opacity track saves one managed motion style for that button and
     const request = await addOpacityTrack(page);
     await app.settled();
 
-    expect(request.postDataJSON().includeContent).toBe(false);
+    // The editor publishes the exact saved source, not a local rebuild.
+    expect(request.postDataJSON().includeContent).toBe(true);
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
       expectedAlphaOpacityCss(),
     ]);

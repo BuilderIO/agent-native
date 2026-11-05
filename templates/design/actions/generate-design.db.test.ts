@@ -188,15 +188,16 @@ describe("generation sibling source transport", () => {
       run("styles.css", "body { color: red }", "css"),
     ).rejects.toMatchObject({ noWrite: true });
     expect(state.checkpoint).not.toHaveBeenCalled();
-    expect(observed.map((rows) => rows.length)).toEqual([18, 16, 2]);
+    expect(observed.map((rows) => rows.length)).toEqual([18, 0]);
   });
-  it("accepts CSS-only output once a later readiness page has nonblank JSX", async () => {
+  it("accepts CSS-only output when one existing JSX file is nonblank, without reading bodies", async () => {
     for (let index = 0; index < 17; index++)
       await insert(String(index).padStart(2, "0"), "\u00a0\ufeff");
     await insert("zz", "<main>Existing JSX</main>", "jsx");
     await expect(run("styles.css", "body { color: red }", "css")).rejects.toBe(
       checkpoint,
     );
-    expect(observed.map((rows) => rows.length)).toEqual([18, 16, 2]);
+    expect(observed).toHaveLength(2);
+    expect(observed[1]).toEqual([{ id: "zz" }]);
   });
 });
