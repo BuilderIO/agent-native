@@ -243,6 +243,7 @@
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
     "./client/i18n": "./dist/client/i18n.js",
+    "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
     "./embedding/agent": "./dist/embedding/agent.js",
     "./embedding/bridge": "./dist/embedding/bridge.js",

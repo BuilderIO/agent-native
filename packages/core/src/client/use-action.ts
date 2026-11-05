@@ -7,10 +7,13 @@ import {
 import type {
   Query,
   QueryClient,
-  UseQueryOptions,
+  UseMutateAsyncFunction,
+  UseMutateFunction,
   UseMutationOptions,
+  UseMutationResult,
+  UseQueryOptions,
 } from "@tanstack/react-query";
-import { useContext } from "react";
+import { useCallback, useContext, useRef } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -74,6 +77,7 @@ import {
   onSessionIdentityPublished,
 } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
+import { reportWriteFailure } from "./write-failure-event.js";
 
 export { actionErrorCode };
 
@@ -83,7 +87,8 @@ function actionPrefix(): string {
 
 const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
 
-function isActionTimeout(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isActionTimeout(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -128,7 +133,8 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
   return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
 }
 
-function isNetworkLevelFailure(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isNetworkLevelFailure(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error as { status?: unknown }).status === undefined &&
@@ -1122,7 +1128,8 @@ export function callActionBlob<TName extends ActionName = ActionName>(
   });
 }
 
-function isAbortError(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isAbortError(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -1661,6 +1668,62 @@ function actionQueryInvalidation(resources: readonly string[] | undefined) {
   };
 }
 
+/**
+ * How a failed `useActionMutation` reaches the shared write-failure toast.
+ * `mutate` toasts unless an `onError` handles it. `mutateAsync` toasts only
+ * when its rejection ends up unhandled (an `await` with no `catch` anywhere up
+ * the chain, a dropped promise); a caller that wraps the error in a new `Error`
+ * is not reported. `"shared"` toasts every failure even beside the caller's own
+ * handling, `"caller"` never toasts.
+ */
+export type ActionMutationErrorNotification = "auto" | "shared" | "caller";
+
+// A rejection that nobody handled arrives at `unhandledrejection` on whichever
+// promise ended the chain (`await p` with no catch ends it on the async
+// function's promise, not on `p`), but with the same error object. So the
+// error object is the key, not the promise.
+let unhandledMutationErrors = new WeakMap<object, string | undefined>();
+let unhandledMutationBackstop: ((event: PromiseRejectionEvent) => void) | null =
+  null;
+
+function reportUnhandledMutationError(event: PromiseRejectionEvent): void {
+  const reason: unknown = event.reason;
+  if (typeof reason !== "object" || reason === null) return;
+  if (!unhandledMutationErrors.has(reason)) return;
+  const label = unhandledMutationErrors.get(reason);
+  unhandledMutationErrors.delete(reason);
+  reportWriteFailure(reason, { label });
+}
+
+function trackUnhandledMutationError(
+  error: unknown,
+  label: string | undefined,
+): void {
+  if (typeof window === "undefined") return;
+  if (typeof error !== "object" || error === null) return;
+  unhandledMutationErrors.set(error, label);
+  if (unhandledMutationBackstop) return;
+  unhandledMutationBackstop = reportUnhandledMutationError;
+  window.addEventListener("unhandledrejection", unhandledMutationBackstop);
+}
+
+/** @internal exported for tests */
+export function resetUnhandledMutationBackstopForTests(): void {
+  if (unhandledMutationBackstop && typeof window !== "undefined") {
+    window.removeEventListener("unhandledrejection", unhandledMutationBackstop);
+  }
+  unhandledMutationBackstop = null;
+  unhandledMutationErrors = new WeakMap();
+}
+
+function shouldReportWriteFailure(
+  mode: ActionMutationErrorNotification,
+  handled: boolean,
+): boolean {
+  if (mode === "caller") return false;
+  return mode === "shared" || !handled;
+}
+
 export function useActionMutation<
   TData = undefined,
   TVariables = undefined,
@@ -1689,8 +1752,23 @@ export function useActionMutation<
             ? ActionParams<TName>
             : TVariables,
         ) => Record<string, string> | undefined);
+    /**
+     * Whether a failed write shows the shared failure toast. Default `"auto"`:
+     * `mutate` toasts unless an `onError` (hook-level or per-call) handles it;
+     * `mutateAsync` toasts only when the rejection ends up unhandled (a caller
+     * that wraps the error in a new `Error` is not reported). Use `"shared"`
+     * when your `onError` or `catch` only rolls back or logs, `"caller"` for
+     * background saves and deliberate silent swallows.
+     */
+    errorNotification?: ActionMutationErrorNotification;
+    /** Already-translated toast title, for example `t("design.renameFailed")`. */
+    errorLabel?: string;
   },
-) {
+): UseMutationResult<
+  TData extends undefined ? ActionResult<TName> : TData,
+  Error,
+  TVariables extends undefined ? ActionParams<TName> : TVariables
+> {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
@@ -1700,6 +1778,8 @@ export function useActionMutation<
     timeoutMs,
     uiOnly,
     headers,
+    errorNotification = "auto",
+    errorLabel,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -1707,7 +1787,7 @@ export function useActionMutation<
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
 
-  return useMutation<D, Error, V>({
+  const mutation = useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: async (params) => {
       let markerFailed = false;
@@ -1746,4 +1826,64 @@ export function useActionMutation<
       return (onSuccess as Function)?.(...args);
     },
   });
+
+  // The wrappers outlive renders and the component, so a failure that lands
+  // after unmount still reports. They read this ref instead of closing over
+  // options, which keeps their identity stable.
+  const reporting = useRef({
+    errorNotification,
+    errorLabel,
+    hookHandled: false,
+  });
+  reporting.current = {
+    errorNotification,
+    errorLabel,
+    hookHandled: typeof restOptions.onError === "function",
+  };
+  const attemptAsync = mutation.mutateAsync;
+
+  const mutate = useCallback<UseMutateFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      attemptAsync(variables, mutateOptions).catch((error: unknown) => {
+        const { errorNotification, errorLabel, hookHandled } =
+          reporting.current;
+        const handled = hookHandled || mutateOptions?.onError !== undefined;
+        if (shouldReportWriteFailure(errorNotification, handled)) {
+          reportWriteFailure(error, { label: errorLabel });
+        }
+      });
+    },
+    [attemptAsync],
+  );
+
+  const mutateAsync = useCallback<UseMutateAsyncFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const attempt = attemptAsync(variables, mutateOptions);
+      const { errorNotification, errorLabel, hookHandled } = reporting.current;
+      // Only reports; the caller still receives the rejection.
+      if (errorNotification === "shared") {
+        attempt.catch((error: unknown) =>
+          reportWriteFailure(error, { label: errorLabel }),
+        );
+        return attempt;
+      }
+      if (
+        errorNotification === "auto" &&
+        !hookHandled &&
+        mutateOptions?.onError === undefined
+      ) {
+        return attempt.then(
+          (data) => data,
+          (error: unknown) => {
+            trackUnhandledMutationError(error, errorLabel);
+            throw error;
+          },
+        );
+      }
+      return attempt;
+    },
+    [attemptAsync],
+  );
+
+  return { ...mutation, mutate, mutateAsync };
 }
