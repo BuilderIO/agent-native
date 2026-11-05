@@ -549,7 +549,7 @@ export async function runLoomImportJob({
           await releaseHostedClipRecording({
             recordingId,
             ownerEmail,
-            reason: "create_failed",
+            reason: "loom_embed_fallback",
           });
         }
       }

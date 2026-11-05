@@ -292,6 +292,7 @@ export type HostedClipReleaseReason =
   | "abort"
   | "abandon"
   | "create_failed"
+  | "loom_embed_fallback"
   | "upload_failed"
   | "finalize_failed"
   | "cleanup"
@@ -328,13 +329,13 @@ function emitHostedClipEvents(events: HostedClipEvent[]): void {
         : console.info;
     log(`[clips-hosted] ${event.name}`, {
       ...event.props,
-      userId: event.userId,
+      authUserId: event.userId,
     });
     try {
       track(
         event.name,
         { app_name: "clips", template_name: "clips", ...event.props },
-        event.userId ? { userId: event.userId } : undefined,
+        event.userId ? { authUserId: event.userId } : undefined,
       );
     } catch (error) {
       // coercion-ok: analytics is best-effort and must never fail a user path; the failure is logged.
@@ -568,8 +569,16 @@ async function reservationDenialReason(input: {
   ipPrefix: string | null;
   policy: HostedClipAllowancePolicy;
   now: Date;
-}): Promise<HostedClipAllowanceDenialReason | null> {
+}): Promise<{
+  reason: HostedClipAllowanceDenialReason | null;
+  retainedBytes: number | undefined;
+}> {
   const { tx, identityKey, userId, ipPrefix, policy, now } = input;
+  let retainedBytes: number | undefined;
+  const denied = (reason: HostedClipAllowanceDenialReason) => ({
+    reason,
+    retainedBytes,
+  });
   const day = createdDuringUtcDay(now);
 
   if (ipPrefix && policy.ipPrefixDailyGrantCap !== undefined) {
@@ -602,7 +611,7 @@ async function reservationDenialReason(input: {
         assertAggregate(prefixCount?.value, "IP prefix daily count") >=
         policy.ipPrefixDailyGrantCap
       ) {
-        return "ip_velocity";
+        return denied("ip_velocity");
       }
     }
   }
@@ -610,13 +619,14 @@ async function reservationDenialReason(input: {
   if (policy.globalDailyClipCap !== undefined) {
     // A created reservation spends one global grant even if its upload is later released.
     const dailyCount = await countRows(tx, day);
-    if (dailyCount >= policy.globalDailyClipCap) return "global_daily_cap";
+    if (dailyCount >= policy.globalDailyClipCap)
+      return denied("global_daily_cap");
   }
 
   if (policy.globalRetainedByteCap !== undefined) {
-    const retainedBytes = await readActiveByteTotal(tx);
+    retainedBytes = await readActiveByteTotal(tx);
     if (retainedBytes + policy.reservationBytes > policy.globalRetainedByteCap)
-      return "global_storage_cap";
+      return denied("global_storage_cap");
   }
 
   const identityRows = await countRows(
@@ -626,7 +636,9 @@ async function reservationDenialReason(input: {
       inArray(allowanceTable.status, ["reserved", "consumed"]),
     ),
   );
-  return identityRows >= policy.perIdentityClipLimit ? "exhausted" : null;
+  return identityRows >= policy.perIdentityClipLimit
+    ? denied("exhausted")
+    : { reason: null, retainedBytes };
 }
 
 export async function reserveHostedClipAllowance(input: {
@@ -692,19 +704,20 @@ export async function reserveHostedClipAllowance(input: {
       // Fail open: the per-prefix cap cannot apply to a request with no usable client IP.
       console.warn("[clips-hosted] ip_prefix_unavailable", {
         recordingId: input.recordingId,
-        userId,
+        authUserId: userId,
         reason: "ip_prefix_daily_grant_cap_not_applied",
       });
     }
 
-    const denialReason = await reservationDenialReason({
-      tx,
-      identityKey: emailKey,
-      userId,
-      ipPrefix: input.ipPrefix || null,
-      policy: input.policy,
-      now,
-    });
+    const { reason: denialReason, retainedBytes: retainedBytesBefore } =
+      await reservationDenialReason({
+        tx,
+        identityKey: emailKey,
+        userId,
+        ipPrefix: input.ipPrefix || null,
+        policy: input.policy,
+        now,
+      });
     if (denialReason) {
       events.push(
         hostedDeniedEvent(input.recordingId, userId, denialReason, "reserve"),
@@ -712,10 +725,6 @@ export async function reserveHostedClipAllowance(input: {
       return { ok: false, reason: denialReason };
     }
 
-    const retainedBytesBefore = await readRetainedBytes(
-      tx,
-      input.policy.globalRetainedByteCap,
-    );
     const [allowance] = await tx
       .insert(allowanceTable)
       .values({
@@ -1622,14 +1631,16 @@ export async function getHostedClipAllowanceSnapshot(input: {
       denialReason = "disposable";
     else if (!input.policy.enabled) denialReason = "disabled";
     else
-      denialReason = await reservationDenialReason({
-        tx,
-        identityKey,
-        userId,
-        ipPrefix: input.ipPrefix || null,
-        policy: input.policy,
-        now: input.now ?? new Date(),
-      });
+      denialReason = (
+        await reservationDenialReason({
+          tx,
+          identityKey,
+          userId,
+          ipPrefix: input.ipPrefix || null,
+          policy: input.policy,
+          now: input.now ?? new Date(),
+        })
+      ).reason;
 
     return {
       identityKey,

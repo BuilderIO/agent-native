@@ -122,6 +122,27 @@ afterEach(async () => {
   await client.close();
 });
 
+function captureStatements(): string[] {
+  const statements: string[] = [];
+  // Allowance queries run on the PGlite transaction handle, so wrap that.
+  type Transaction = { query: (...args: unknown[]) => unknown };
+  const originalTransaction = client.transaction.bind(client) as (
+    callback: (tx: Transaction) => Promise<unknown>,
+  ) => Promise<unknown>;
+  vi.spyOn(client, "transaction").mockImplementation(((
+    callback: (tx: Transaction) => Promise<unknown>,
+  ) =>
+    originalTransaction((tx) => {
+      const originalQuery = tx.query.bind(tx);
+      tx.query = (text, ...rest) => {
+        statements.push(String(text));
+        return originalQuery(text, ...rest);
+      };
+      return callback(tx);
+    })) as typeof client.transaction);
+  return statements;
+}
+
 describe("hosted clip allowance", () => {
   it("canonicalizes only Gmail aliases and buckets strict IP literals", () => {
     expect(
@@ -713,7 +734,10 @@ describe("hosted clip allowance", () => {
     });
     expect(warn).toHaveBeenCalledWith(
       "[clips-hosted] clips_hosted_retained_bytes_threshold",
-      expect.objectContaining({ recordingId: "threshold-2", userId: "user-2" }),
+      expect.objectContaining({
+        recordingId: "threshold-2",
+        authUserId: "user-2",
+      }),
     );
     vi.restoreAllMocks();
   });
@@ -737,7 +761,7 @@ describe("hosted clip allowance", () => {
         globalRetainedByteCap: 1_000,
         ratio: 0.1,
       }),
-      { userId: "user-1" },
+      { authUserId: "user-1" },
     ]);
 
     await allowance.consumeHostedClipAllowance({
@@ -817,7 +841,7 @@ describe("hosted clip allowance", () => {
         globalRetainedByteCap: 1_000,
         ratio: 0,
       }),
-      { userId: "user-1" },
+      { authUserId: "user-1" },
     );
   });
 
@@ -831,7 +855,7 @@ describe("hosted clip allowance", () => {
         denyReason: "unverified",
         stage: "reserve",
       }),
-      { userId: "user-1" },
+      { authUserId: "user-1" },
     );
   });
 
@@ -854,7 +878,7 @@ describe("hosted clip allowance", () => {
         denyReason: "global_storage_cap",
         stage: "consume",
       }),
-      { userId: "user-1" },
+      { authUserId: "user-1" },
     );
   });
 
@@ -927,25 +951,24 @@ describe("hosted clip allowance", () => {
     expect(mockTrack).toHaveBeenCalled();
   });
 
+  it("reads the retained-byte SUM once per capped reserve and reuses it for the level", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const statements = captureStatements();
+    await reserve({
+      recordingId: "capped-once",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    expect(statements.filter((text) => /sum\(/i.test(text))).toHaveLength(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_reserved",
+      expect.objectContaining({ globalRetainedByteCap: 1_000 }),
+      { authUserId: "user-1" },
+    );
+  });
+
   it("runs no retained-byte SUM and reports no level while no cap is configured", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const statements: string[] = [];
-    // Allowance queries run on the PGlite transaction handle, so wrap that.
-    type Transaction = { query: (...args: unknown[]) => unknown };
-    const originalTransaction = client.transaction.bind(client) as (
-      callback: (tx: Transaction) => Promise<unknown>,
-    ) => Promise<unknown>;
-    vi.spyOn(client, "transaction").mockImplementation(((
-      callback: (tx: Transaction) => Promise<unknown>,
-    ) =>
-      originalTransaction((tx) => {
-        const originalQuery = tx.query.bind(tx);
-        tx.query = (text, ...rest) => {
-          statements.push(String(text));
-          return originalQuery(text, ...rest);
-        };
-        return callback(tx);
-      })) as typeof client.transaction);
+    const statements = captureStatements();
     const sums = () => statements.filter((text) => /sum\(/i.test(text));
 
     await reserve({ recordingId: "uncapped" });
@@ -1061,7 +1084,7 @@ describe("hosted clip allowance", () => {
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_hosted_released",
       expect.objectContaining({ retainedBytes: 140, ratio: 0.14 }),
-      { userId: "user-4" },
+      { authUserId: "user-4" },
     );
   });
 
@@ -1136,7 +1159,7 @@ describe("hosted clip allowance", () => {
         denyReason: "global_storage_cap",
         stage: "adjust",
       }),
-      { userId: "user-1" },
+      { authUserId: "user-1" },
     );
   });
 
@@ -1220,7 +1243,7 @@ describe("hosted clip allowance", () => {
     expect(result).toMatchObject({ ok: true });
     expect(warn).toHaveBeenCalledWith(
       "[clips-hosted] ip_prefix_unavailable",
-      expect.objectContaining({ recordingId: "no-ip", userId: "user-1" }),
+      expect.objectContaining({ recordingId: "no-ip", authUserId: "user-1" }),
     );
   });
 
