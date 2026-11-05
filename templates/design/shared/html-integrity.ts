@@ -351,14 +351,12 @@ function childrenOf(node: Parse5Node): Parse5Node[] {
   ];
 }
 
-function parseDocument(
-  source: string,
-  scriptingEnabled = true,
-): ParsedDocument {
+function parseDocument(source: string): ParsedDocument {
   const errors: ParserError[] = [];
   const document = parse(source, {
     sourceCodeLocationInfo: true,
-    scriptingEnabled,
+    // Validate fallback markup too; otherwise parse5 treats noscript as raw text.
+    scriptingEnabled: false,
     onParseError: (error) => errors.push(error),
   });
 
@@ -390,11 +388,7 @@ function parseDocument(
         });
       }
       if (elementAt?.endTag) matchedEndTags.add(elementAt.endTag.startOffset);
-      if (
-        (RAW_TEXT_TAGS.has(node.tagName) ||
-          (scriptingEnabled && node.tagName === "noscript")) &&
-        elementAt?.startTag
-      ) {
+      if (RAW_TEXT_TAGS.has(node.tagName) && elementAt?.startTag) {
         rawTextBodies.push({
           start: elementAt.startTag.endOffset,
           end: elementAt.endTag?.startOffset ?? elementAt.endOffset,
@@ -572,36 +566,15 @@ const END_TAG_PATTERN = /<\s*\/\s*([a-zA-Z][a-zA-Z0-9:-]*)\s*>/g;
 function collectOrphanEndTags(
   parsed: ParsedDocument,
   locate: Locator,
-  onlyWithin?: SourceRange[],
 ): DesignHtmlIntegrityIssueDetail[] {
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
-  const matchedEndTags = onlyWithin
-    ? new Set(
-        parsed.elements.flatMap((element) => {
-          const location = locationOf(element);
-          const start = location?.startTag?.startOffset;
-          const end = location?.endTag?.startOffset;
-          if (start === undefined || end === undefined) return [];
-          return onlyWithin.some(
-            (range) =>
-              start >= range.start &&
-              start < range.end &&
-              end >= range.start &&
-              end < range.end,
-          )
-            ? [end]
-            : [];
-        }),
-      )
-    : parsed.matchedEndTags;
   END_TAG_PATTERN.lastIndex = 0;
   let match = END_TAG_PATTERN.exec(parsed.source);
   while (match) {
     const offset = match.index;
     const tag = match[1]!.toLowerCase();
     if (
-      (!onlyWithin || fallsInside(offset, onlyWithin)) &&
-      !matchedEndTags.has(offset) &&
+      !parsed.matchedEndTags.has(offset) &&
       !OPTIONAL_CLOSE_TAGS.has(tag) &&
       !VOID_TAGS.has(tag) &&
       !fallsInside(offset, parsed.rawTextBodies) &&
@@ -958,6 +931,11 @@ function collectStyleBodyIssues(
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
   for (const element of parsed.elements) {
     if (element.tagName !== "style") continue;
+    let ancestor = parsed.parents.get(element);
+    while (ancestor && ancestor.tagName !== "noscript") {
+      ancestor = parsed.parents.get(ancestor);
+    }
+    if (ancestor) continue;
     const type = attributeOf(element, "type")?.trim().toLowerCase();
     if (type && type !== "text/css" && type !== "text/tailwindcss") continue;
     const body = element.childNodes.find((node) => node.nodeName === "#text");
@@ -1005,27 +983,9 @@ function collectStructuralIssues(
   const truncation = collectParseErrorIssues(parsed, locate);
   if (truncation.length > 0) return truncation;
 
-  const fallbackRanges = parsed.elements
-    .flatMap((element) => {
-      const location = locationOf(element);
-      return element.tagName === "noscript" && location?.startTag
-        ? [
-            {
-              start: location.startTag.endOffset,
-              end: location.endTag?.startOffset ?? location.endOffset,
-            },
-          ]
-        : [];
-    })
-    .sort((a, b) => a.start - b.start);
-  const fallbackOrphans = fallbackRanges.length
-    ? collectOrphanEndTags(parseDocument(value, false), locate, fallbackRanges)
-    : [];
-
   return [
     ...collectUnclosedElements(parsed, locate),
     ...collectOrphanEndTags(parsed, locate),
-    ...fallbackOrphans,
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
     ...collectStyleBodyIssues(parsed, locate),

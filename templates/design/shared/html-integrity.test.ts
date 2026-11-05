@@ -414,6 +414,18 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("preserves fallback CSS tolerance without accepting invalid active CSS", () => {
+    const css = ".fallback &gt; .content { visibility: visible; }";
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        `<main><noscript><style>${css}</style></noscript></main>`,
+      ),
+    ).toEqual({ valid: true });
+    expect(
+      inspectDesignHtmlDocumentIntegrity(`<style>${css}</style><main></main>`),
+    ).toMatchObject({ valid: false, issue: "style-invalid" });
+  });
+
   it("rejects an orphan closing tag in a noscript fallback", () => {
     const content = "<main><noscript>fallback</div></noscript></main>";
     expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
@@ -424,11 +436,30 @@ describe("Design HTML integrity", () => {
   });
 
   it("rejects a fallback closing tag that only matches an outer element", () => {
-    const content = "<div><noscript></div></noscript></div>";
+    const result = inspectDesignHtmlDocumentIntegrity(
+      "<div><noscript></div></noscript></div>",
+    );
+    expect(result.valid).toBe(false);
+    expect(result.detail).toContainEqual(
+      expect.objectContaining({ issue: "close-tag-orphaned", tag: "div" }),
+    );
+  });
+
+  it.each([
+    [
+      "unclosed fallback element",
+      "<main><noscript><div>unfinished</noscript></main>",
+      "element-unclosed",
+    ],
+    [
+      "unterminated fallback attribute",
+      '<main><noscript><a href="x</noscript></main>',
+      "attribute-unterminated",
+    ],
+  ])("rejects %s", (_label, content, issue) => {
     expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
       valid: false,
-      issue: "close-tag-orphaned",
-      detail: [{ tag: "div" }],
+      issue,
     });
   });
 
