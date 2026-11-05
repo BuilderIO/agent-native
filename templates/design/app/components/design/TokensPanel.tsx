@@ -48,10 +48,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  MUTATION_ERROR_HANDLED,
-  reportDesignWriteFailure,
-} from "@/lib/design-write-failure";
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import {
@@ -816,12 +813,8 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
   const queryClient = useQueryClient();
   const tokensQueryKey = ["action", "index-design-tokens", { designId }];
-  const applyMutation = useActionMutation("apply-design-token-edit", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
-  const importMutation = useActionMutation("import-design-tokens", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const applyMutation = useActionMutation("apply-design-token-edit");
+  const importMutation = useActionMutation("import-design-tokens");
 
   const designIdRef = useRef(designId);
   designIdRef.current = designId;

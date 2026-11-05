@@ -24,7 +24,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCore } from "../domains/use-editor-core";
@@ -86,9 +85,7 @@ function ProjectTitleControl({
   const { skipPendingEditNavigationBlockRef, openImportFilePicker } =
     editorSourceAndSync;
   const navigate = useNavigate();
-  const deleteDesignMutation = useActionMutation("delete-design", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const deleteDesignMutation = useActionMutation("delete-design");
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const suppressFileMenuReturnFocusRef = useRef(false);
 

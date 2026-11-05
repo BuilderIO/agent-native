@@ -45,7 +45,6 @@ import {
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 
 import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 
@@ -206,13 +205,11 @@ function DesignSystemSetupContent() {
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
   }>("list-design-systems");
-  const updateSystemMutation = useActionMutation("update-design-system", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const updateSystemMutation = useActionMutation("update-design-system");
   const indexSystemMutation = useActionMutation<
     BuilderIndexResult,
     BuilderIndexInput
-  >("index-design-system-with-builder", { meta: MUTATION_ERROR_HANDLED });
+  >("index-design-system-with-builder");
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];

@@ -140,7 +140,7 @@ import {
   designPromptReferenceTypes,
   trackDesignPromptSubmitted,
 } from "@/lib/design-funnel-tracking";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -378,22 +378,21 @@ export default function Index() {
     includePreview: "true",
     includeSavedPreview: "false",
   });
-  const createMutation = useActionMutation("create-design", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
-    { meta: MUTATION_ERROR_HANDLED },
   );
-  const createFusionAppMutation = useActionMutation("create-builder-app", {
-    meta: MUTATION_ERROR_HANDLED,
+  const createFusionAppMutation = useActionMutation("create-builder-app");
+  const deleteMutation = useActionMutation("delete-design", {
+    meta: SURFACE_MUTATION_ERROR,
   });
-  const deleteMutation = useActionMutation("delete-design");
-  const duplicateMutation = useActionMutation("duplicate-design");
-  const updateMutation = useActionMutation("update-design");
-  const generateTitleMutation = useActionMutation("generate-design-title", {
-    meta: MUTATION_ERROR_HANDLED,
+  const duplicateMutation = useActionMutation("duplicate-design", {
+    meta: SURFACE_MUTATION_ERROR,
   });
+  const updateMutation = useActionMutation("update-design", {
+    meta: SURFACE_MUTATION_ERROR,
+  });
+  const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,

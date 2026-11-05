@@ -36,7 +36,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 type ViewportChoice = "desktop" | "mobile";
@@ -169,9 +168,7 @@ export function AddLocalhostScreenDialog({
     !showCustomPathOption &&
     (availableConnections.length === 0 || Boolean(selectedConnection));
 
-  const addScreensMutation = useActionMutation("add-localhost-screens", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const addScreensMutation = useActionMutation("add-localhost-screens");
 
   const handleAdd = (path: string) => {
     if (

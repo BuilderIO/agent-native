@@ -37,7 +37,7 @@ export function DesignWriteFailureToasts() {
     };
     const unsubscribe = queryClient.getMutationCache().subscribe((event) => {
       if (event.type !== "updated" || event.action.type !== "error") return;
-      if (event.mutation.meta?.errorHandled) return;
+      if (!event.mutation.meta?.surfaceError) return;
       show(event.action.error, DESIGN_WRITE_FAILED_KEY);
     });
     const onReported = (event: Event) => {

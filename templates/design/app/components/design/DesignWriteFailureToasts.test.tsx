@@ -10,8 +10,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  MUTATION_ERROR_HANDLED,
   reportDesignWriteFailure,
+  SURFACE_MUTATION_ERROR,
 } from "@/lib/design-write-failure";
 
 import { DesignWriteFailureToasts } from "./DesignWriteFailureToasts";
@@ -115,6 +115,7 @@ describe("DesignWriteFailureToasts", () => {
     mount(
       <SaveButton
         mutationFn={() => Promise.reject(new Error("network down"))}
+        meta={SURFACE_MUTATION_ERROR}
       />,
     );
 
@@ -132,7 +133,12 @@ describe("DesignWriteFailureToasts", () => {
       status: 409,
       actionMessage: "That name is taken",
     });
-    mount(<SaveButton mutationFn={() => Promise.reject(error)} />);
+    mount(
+      <SaveButton
+        mutationFn={() => Promise.reject(error)}
+        meta={SURFACE_MUTATION_ERROR}
+      />,
+    );
 
     await saveAndSettle();
 
@@ -148,7 +154,12 @@ describe("DesignWriteFailureToasts", () => {
       status: 500,
       actionMessage: "Internal server error",
     });
-    mount(<SaveButton mutationFn={() => Promise.reject(error)} />);
+    mount(
+      <SaveButton
+        mutationFn={() => Promise.reject(error)}
+        meta={SURFACE_MUTATION_ERROR}
+      />,
+    );
 
     await saveAndSettle();
 
@@ -158,11 +169,10 @@ describe("DesignWriteFailureToasts", () => {
     );
   });
 
-  it("stays quiet for a mutation whose call site handles its own error", async () => {
+  it("stays quiet for a mutation that did not opt in", async () => {
     mount(
       <SaveButton
         mutationFn={() => Promise.reject(new Error("network down"))}
-        meta={MUTATION_ERROR_HANDLED}
       />,
     );
 
@@ -193,7 +203,9 @@ describe("DesignWriteFailureToasts", () => {
     const pending = new Promise((_, fail) => {
       reject = fail;
     });
-    mount(<SaveButton mutationFn={() => pending} />);
+    mount(
+      <SaveButton mutationFn={() => pending} meta={SURFACE_MUTATION_ERROR} />,
+    );
     act(() => {
       saveButton().click();
     });

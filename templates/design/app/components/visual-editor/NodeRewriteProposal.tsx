@@ -41,7 +41,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import {
   formatNodeRepromptSubmission,
   NODE_REPROMPT_PREVIEW_FAILED_EVENT,
@@ -208,9 +207,7 @@ export function NodeRewriteProposal({
 }: NodeRewriteProposalProps) {
   const t = useT();
   const appStateVersion = useChangeVersion("app-state");
-  const resolveMutation = useActionMutation("resolve-node-rewrite", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const resolveMutation = useActionMutation("resolve-node-rewrite");
   const [proposal, setProposal] = useState<NodeRewriteProposal | null>(null);
   const proposalRef = useRef(proposal);
   proposalRef.current = proposal;

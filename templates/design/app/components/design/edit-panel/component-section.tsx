@@ -59,7 +59,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
@@ -150,9 +150,7 @@ function MakeItRealCard({
     },
   });
 
-  const migrateMutation = useActionMutation("migrate-inline-design-to-app", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
   if (isLoading || !data) {
     return (
@@ -621,16 +619,12 @@ export function ComponentSection({
     }
   }, [activeContent, designId, fileId, nodeId]);
 
-  const openSourceMutation = useActionMutation("open-component-source");
-  const applyPropMutation = useActionMutation("apply-component-prop-edit", {
-    meta: MUTATION_ERROR_HANDLED,
+  const openSourceMutation = useActionMutation("open-component-source", {
+    meta: SURFACE_MUTATION_ERROR,
   });
-  const detachMutation = useActionMutation("detach-component-instance", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
-  const swapMutation = useActionMutation("swap-component-instance", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const applyPropMutation = useActionMutation("apply-component-prop-edit");
+  const detachMutation = useActionMutation("detach-component-instance");
+  const swapMutation = useActionMutation("swap-component-instance");
 
   const [swapPickerOpen, setSwapPickerOpen] = useState(false);
   const [swapQuery, setSwapQuery] = useState("");

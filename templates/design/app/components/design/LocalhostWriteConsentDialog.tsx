@@ -37,7 +37,6 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
 import {
   LOCALHOST_CONSENT_RETURN_PARAM,
   localhostConsentRequestDisposition,
@@ -406,7 +405,6 @@ export function useLocalhostWriteConsent({
   );
   const clearRequestAsync = useActionMutation(
     "clear-localhost-write-consent-request",
-    { meta: MUTATION_ERROR_HANDLED },
   ).mutateAsync;
   const refetchRequest = requestQuery.refetch;
 

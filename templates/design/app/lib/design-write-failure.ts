@@ -8,11 +8,11 @@ export interface DesignWriteFailureDetail {
 }
 
 /**
- * Spread into `useActionMutation` options when the call site already shows the
- * user its own failure. Without it, `DesignWriteFailureToasts` toasts every
- * failed mutation, so a handled one would show twice.
+ * Pass as `meta` to a user-initiated `useActionMutation` whose call site shows
+ * nothing when it fails. Opt-in, because core and toolkit mutations share this
+ * query client and show their own errors; never set it on a background poll.
  */
-export const MUTATION_ERROR_HANDLED = { errorHandled: true } as const;
+export const SURFACE_MUTATION_ERROR = { surfaceError: true } as const;
 
 /**
  * For writes that are not mutations (effects, stores): they have no translator

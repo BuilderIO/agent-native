@@ -84,7 +84,7 @@ import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
@@ -182,18 +182,15 @@ export default function DesignSystems() {
     designSystems: DesignSystem[];
   }>("list-design-systems");
 
-  const setDefaultMutation = useActionMutation("set-default-design-system");
-  const deleteMutation = useActionMutation("delete-design-system", {
-    meta: MUTATION_ERROR_HANDLED,
+  const setDefaultMutation = useActionMutation("set-default-design-system", {
+    meta: SURFACE_MUTATION_ERROR,
   });
-  const updateMutation = useActionMutation("update-design-system", {
-    meta: MUTATION_ERROR_HANDLED,
-  });
+  const deleteMutation = useActionMutation("delete-design-system");
+  const updateMutation = useActionMutation("update-design-system");
   const refreshBuilderSystemMutation = useActionMutation<
     BuilderRefreshResult,
     { id: string }
   >("refresh-design-system-with-builder", {
-    meta: MUTATION_ERROR_HANDLED,
     skipActionQueryInvalidation: true,
   });
   const refreshBuilderSystemRef = useRef(

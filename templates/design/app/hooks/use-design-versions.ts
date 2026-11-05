@@ -3,8 +3,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 
-import { MUTATION_ERROR_HANDLED } from "@/lib/design-write-failure";
-
 export interface DesignVersionChatContext {
   threadId?: string;
   runId?: string;
@@ -92,5 +90,5 @@ export function useRestoreDesignVersion() {
   return useActionMutation<
     RestoreDesignVersionResult,
     { designId: string; versionId: string }
-  >("restore-design-version", { meta: MUTATION_ERROR_HANDLED });
+  >("restore-design-version");
 }
