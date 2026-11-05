@@ -319,6 +319,43 @@ describe("AgentJobsTab organization automations", () => {
     );
   });
 
+  it("keeps editing controls but hides Run now when operation is unavailable", () => {
+    const existing = jobMocks.useAutomations.getMockImplementation();
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = existing!(scope);
+      return {
+        ...result,
+        data: result.data.map((automation: { capabilities: object }) => ({
+          ...automation,
+          capabilities: { ...automation.capabilities, canOperate: false },
+        })),
+      };
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+    const row = Array.from(container.querySelectorAll("article")).find(
+      (article) => article.textContent?.includes("new lead alert"),
+    );
+    expect(row?.querySelector('[role="switch"]')).not.toBeNull();
+    const trigger = row?.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="menu"]',
+    );
+    expect(trigger).toBeDefined();
+    act(() => {
+      trigger!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const items = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).map((item) => item.textContent?.trim());
+    expect(items).toContain("Edit");
+    expect(items).toContain("Delete");
+    expect(items).not.toContain("Run now");
+  });
+
   it("routes organization event updates through the organization mutation", () => {
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);

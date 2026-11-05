@@ -196,9 +196,12 @@ export async function queueAutomationRunNow(
         access.resource.owner,
       )
     ) {
+      const ownerAppId = meta.appId?.trim();
       throw Object.assign(
         new Error(
-          `This automation belongs to the "${meta.appId?.trim() || "another"}" app. Run it from that app.`,
+          ownerAppId
+            ? `This automation belongs to the "${ownerAppId}" app. Run it from that app.`
+            : "This automation has no app owner and cannot be run.",
         ),
         { statusCode: 403 },
       );
