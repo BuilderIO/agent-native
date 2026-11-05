@@ -827,11 +827,17 @@ export default function PresentationView({
             {!isShared && (
               <button
                 onClick={openPresenterWindow}
-                className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+                className={
+                  "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer" // guard:allow-raw-color - fixed black presentation surface
+                }
                 aria-label={t("presentation.presenterView")}
                 title={t("presentation.presenterView")}
               >
-                <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+                <IconNotes
+                  className={
+                    "w-5 h-5 sm:w-4 sm:h-4 text-white" // guard:allow-raw-color - fixed black presentation surface
+                  }
+                />
               </button>
             )}
             <button
