@@ -2262,6 +2262,13 @@ export const syncA2ASecretHandler = defineEventHandler(
       const registeredPath = registeredWorkspacePaths.get(agent.id);
       return Boolean(registeredPath && matchesPath(agent.url, registeredPath));
     });
+    if (!selfAppId && agents.some((agent) => agent.source === "workspace")) {
+      throw createError({
+        statusCode: 503,
+        message:
+          "Cannot sync workspace A2A secrets without a workspace app ID or a unique configured app base path",
+      });
+    }
 
     const results: Array<{
       id: string;
