@@ -316,27 +316,46 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
     deletedMediaPending:
-      "録画を削除しました。メディアファイルはまだ削除中です。",
+      "Clips から動画を削除しました。削除の確認を実行中です。",
     deletedMediaBlocked:
-      "録画を削除しましたが、メディアファイルを削除できませんでした。",
+      "Clips から動画を削除しました。ファイルの削除を確認できませんでした。",
     deletedMediaRetained:
       "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
     clipsDeletedMediaPending:
-      "削除した録画：{{count}} 件。メディアファイルはまだ削除中です。",
+      "Clips から削除した動画：{{count}} 件。削除の確認を実行中です。",
     clipsDeletedMediaBlocked:
-      "削除した録画：{{count}} 件。メディアファイルを削除できませんでした。",
+      "Clips から削除した動画：{{count}} 件。ファイルの削除を確認できませんでした。",
     clipsDeletedMediaRetained:
       "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    deletedMediaFinalizing:
+      "Clips から動画を削除しました。ストレージ使用量の更新を再試行する必要があります。",
+    clipsDeletedMediaFinalizing:
+      "Clips から削除した動画：{{count}} 件。ストレージ使用量の更新を再試行する必要があります。",
+    mediaCleanupFinalizing: "ストレージ使用量の更新を再試行する必要があります",
+    mediaCleanupFinalizingHelp:
+      "ファイル削除の確認は終わりましたが、この動画がまだストレージ上限に算入されている可能性があります。使用量の更新を再試行して、ストレージ合計を更新してください。",
     mediaCleanupListLabel: "メディアの削除",
-    mediaCleanupPending: "削除した録画のメディアファイルを削除しています",
-    mediaCleanupBlocked: "削除した録画のメディアファイルを削除できませんでした",
+    mediaCleanupPending: "削除の確認を実行中",
+    mediaCleanupPendingHelp:
+      "Clips はバックグラウンドで確認を続けます。このページを離れて、ゴミ箱で更新を確認できます。",
+    mediaCleanupBlocked: "動画ファイルの削除を確認できませんでした",
+    mediaCleanupBlockedHelp:
+      "保存された動画ファイルが残っている可能性があります。「削除を再試行」で再度試行します。このページを離れて、ゴミ箱で結果を確認できます。",
     mediaCleanupReconnect:
       "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
     mediaCleanupRetained:
       "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
+    mediaCleanupHelp: "詳細",
+    mediaCleanupRetryFiles: "削除を再試行",
+    mediaCleanupRetryingFiles: "動画ファイルの削除を再試行しています",
+    mediaCleanupRetryUsage: "使用量の更新を再試行",
+    mediaCleanupRetryingUsage: "ストレージ使用量の更新を再試行しています",
     mediaCleanupRemoved: "メディアファイルを削除しました",
-    mediaCleanupStillBlocked: "メディアファイルをまだ削除できません",
-    mediaCleanupRetryFailed: "メディアの削除を再試行できませんでした",
+    mediaCleanupUsageUpdated: "ストレージ使用量を更新しました",
+    mediaCleanupStillBlocked: "動画ファイルの削除をまだ確認できません",
+    mediaCleanupStillFinalizing: "ストレージ使用量の更新はまだ再試行が必要です",
+    mediaCleanupRetryFailed:
+      "再試行を開始できませんでした。もう一度お試しください。",
     mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },
   recordingRoute: {
@@ -627,6 +646,14 @@ const messages = {
     desktopHint:
       "メモを開始するには、メニューバーから Clips Desktop を開いて Start Meeting Notes を選ぶか、リマインダーが表示されたら Start notes をクリックします。Clips はマイクとシステム音声を取り込み、ここに文字起こしを書き込みます。",
     getDesktopApp: "デスクトップアプリを入手",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    earlierAudioUnreadable:
+      "この文字起こしに開始前の音声が含まれているか確認できませんでした",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか?",
+    removeEarlierAudioDescription:
+      "文字起こしから削除し、要約、アクションアイテム、クリップの説明を作り直します。説明をご自身で書いた場合も作り直されます。自動生成タイトルも作り直されますが、ご自身で選んだタイトルはそのまま残ります。チャプターも削除されます。",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",
     attendee_one: "{{count}} 出席者",
@@ -1513,6 +1540,7 @@ const messages = {
   transcriptBubbles: {
     listening: "聞き取り中…",
     noTranscript: "文字起こしはまだありません。",
+    unreadable: "この文字起こしを読み込めませんでした。",
     liveTranscriptDescription:
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",

@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-02
+
+### Fixed
+
+- Agent edits to slide comment text no longer get silently dropped when the comment is also resolved or reopened.
+
 ## 2026-10-30
 
 ### Fixed

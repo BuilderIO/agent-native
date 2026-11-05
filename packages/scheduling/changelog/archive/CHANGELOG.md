@@ -1,3 +1,11 @@
+## 0.1.27
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+- Updated dependencies [079e19a]
+  - @agent-native/toolkit@0.5.1
+
 ## 0.1.26
 
 ### Patch Changes

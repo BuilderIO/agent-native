@@ -7,7 +7,11 @@ import {
 } from "../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "./content-editor-structural-schema.js";
 import { nfmToDoc } from "./nfm.js";
-import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
+import {
+  changedRegion,
+  resolveMarkdownSuggestionRange,
+  resolveOutsideChange,
+} from "./suggestion-rebase.js";
 
 // Placing and checking one Markdown suggestion. The server adapter and the
 // live-copy accept task both use these, so they must stay free of database
@@ -101,6 +105,12 @@ export function applyMarkdownSuggestionOperation(
   return `${currentMarkdown.slice(0, placed.from)}${placed.changedText}${currentMarkdown.slice(placed.to)}`;
 }
 
+/**
+ * An accepted suggestion's range of the shared before-text, and the text it
+ * wrote there when known.
+ */
+export type AcceptedSiblingRange = MarkdownRange & { text?: string };
+
 export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   operation: T,
   ranges: MarkdownRange[],
@@ -112,20 +122,112 @@ export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   )) {
     const last = merged[merged.length - 1];
     if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
-    else merged.push({ ...range });
+    else merged.push({ from: range.from, to: range.to });
   }
   return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
 }
 
 /**
- * The suggestion placed on `currentMarkdown`, retrying with the ranges of
- * accepted suggestions saved from the same text when the context it was
- * anchored to has since been rewritten by one of them.
+ * The suggestion's range of its before-text as the accepted siblings left it,
+ * with that text; null when a sibling's text is unknown or it overlaps the
+ * suggestion or another sibling.
+ */
+export function rebaseOntoAcceptedSiblings(
+  operation: MarkdownSuggestionOperationLike,
+  accepted: AcceptedSiblingRange[],
+): (MarkdownRange & { text: string }) | null {
+  if (!accepted.length || operation.anchor == null) return null;
+  const before = markdownPayload(operation.before, "before");
+  const after = markdownPayload(operation.after, "after");
+  if (
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string"
+  )
+    return null;
+  const anchor = operationAnchor(operation);
+  if (
+    anchor.from < 0 ||
+    anchor.to < anchor.from ||
+    anchor.to > before.markdown.length ||
+    before.markdown.slice(anchor.from, anchor.to) !== before.changedText ||
+    `${before.markdown.slice(0, anchor.from)}${after.changedText}${before.markdown.slice(anchor.to)}` !==
+      after.markdown
+  )
+    return null;
+  let text = "";
+  let cursor = 0;
+  let inserted = -1;
+  let shift = 0;
+  for (const range of [...accepted].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    if (
+      typeof range.text !== "string" ||
+      range.from < cursor ||
+      range.to < range.from ||
+      range.to > before.markdown.length ||
+      // Two insertions at one place don't say which comes first.
+      (range.from === range.to && range.from === inserted)
+    )
+      return null;
+    const earlier = range.to <= anchor.from;
+    const later = range.from >= anchor.to;
+    // Overlapping the suggestion, or an insertion where it inserts too.
+    if (earlier === later) return null;
+    if (earlier) shift += range.text.length - (range.to - range.from);
+    if (range.from === range.to) inserted = range.from;
+    text += before.markdown.slice(cursor, range.from) + range.text;
+    cursor = range.to;
+  }
+  text += before.markdown.slice(cursor);
+  const from = anchor.from + shift;
+  return { text, from, to: from + before.changedText.length };
+}
+
+/**
+ * Where the suggestion lands on `currentMarkdown`, read from its before-text
+ * as the accepted siblings left it. An edit split into pieces anchors each
+ * piece only to the gaps between them, often a single space, so once
+ * siblings on both sides of a piece have changed the Page, the gaps alone can
+ * match in many places. Only where the Page still reads as that text up to
+ * the piece, or from it on: context read from a rebuilt text can be unique
+ * there and still repeat on the Page, so finding it once proves nothing.
+ */
+export function placeOnAcceptedSiblings(
+  currentMarkdown: string,
+  operation: MarkdownSuggestionOperationLike,
+  accepted: AcceptedSiblingRange[],
+): MarkdownRange | null {
+  const rebased = rebaseOntoAcceptedSiblings(operation, accepted);
+  if (!rebased) return null;
+  const { text, from, to } = rebased;
+  const range = resolveOutsideChange(text, currentMarkdown, rebased);
+  if (!range || currentMarkdown === text) return range;
+  // The Page agrees with the rebuilt text from the piece to where they part,
+  // or from where they agree again through the piece. If that stretch, from
+  // the piece's edge nearest the change, occurs anywhere else in either text,
+  // an edit there could have slid another copy into the piece's place: the
+  // piece deleted along with the text between, or a copy typed beside it.
+  const change = changedRegion(text, currentMarkdown);
+  const stretch =
+    to <= change.from
+      ? text.slice(from === to ? from : to - 1, change.from)
+      : text.slice(change.to, from === to ? to : from + 1);
+  const once = (within: string) =>
+    within.indexOf(stretch) === within.lastIndexOf(stretch);
+  return once(text) && once(currentMarkdown) ? range : null;
+}
+
+/**
+ * The suggestion placed on `currentMarkdown`, retrying with the accepted
+ * suggestions saved from the same text when the context it was anchored to
+ * has since been rewritten by one of them: first on the text they wrote, then
+ * with their ranges alone.
  */
 export function applyMarkdownSuggestionWithSiblings(
   currentMarkdown: string,
   operation: MarkdownSuggestionOperationLike,
-  acceptedSiblingRanges: MarkdownRange[],
+  acceptedSiblingRanges: AcceptedSiblingRange[],
 ): string | null {
   const direct = applyMarkdownSuggestionOperation(currentMarkdown, operation);
   // Saved as a whole before and after, it applies only to that before-state.
@@ -135,6 +237,14 @@ export function applyMarkdownSuggestionWithSiblings(
     operation.anchor == null
   )
     return direct;
+  const placed = placeOnAcceptedSiblings(
+    currentMarkdown,
+    operation,
+    acceptedSiblingRanges,
+  );
+  const { changedText } = markdownPayload(operation.after, "after");
+  if (placed && typeof changedText === "string")
+    return `${currentMarkdown.slice(0, placed.from)}${changedText}${currentMarkdown.slice(placed.to)}`;
   return applyMarkdownSuggestionOperation(
     currentMarkdown,
     withSiblingRanges(operation, acceptedSiblingRanges),

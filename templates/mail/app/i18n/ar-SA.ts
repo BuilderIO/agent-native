@@ -765,11 +765,11 @@ const messages = {
     draftCard: {
       loadFailed: "تعذّر تحميل هذه المسودة.",
       notFoundTitle: "لم يتم العثور على المسودة",
+      goneTitle: "تم إرسال هذه المسودة أو حذفها.",
       threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
-      threadLookupFailed:
-        "تعذّر العثور على المحادثة التي ينتمي إليها هذا الرد، لذا لا يمكن إرساله بعد.",
       earlierMessages: "الرسائل السابقة ({{count}})",
-      deleted: "تم حذف المسودة.",
+      sendInMail: "إرسال في Mail",
+      openBlocked: "حظر متصفحك علامة التبويب الجديدة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

@@ -319,31 +319,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
     deletedMediaPending:
-      "Grabación eliminada. Sus archivos multimedia aún se están eliminando.",
+      "Vídeo eliminado de Clips. Se están realizando las comprobaciones de eliminación.",
     deletedMediaBlocked:
-      "Grabación eliminada, pero no se pudieron eliminar sus archivos multimedia.",
+      "Vídeo eliminado de Clips. No se pudo confirmar la eliminación de los archivos.",
     deletedMediaRetained:
       "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
     clipsDeletedMediaPending:
-      "Grabaciones eliminadas: {{count}}. Los archivos multimedia aún se están eliminando.",
+      "Vídeos eliminados de Clips: {{count}}. Se están realizando las comprobaciones de eliminación.",
     clipsDeletedMediaBlocked:
-      "Grabaciones eliminadas: {{count}}. No se pudieron eliminar los archivos multimedia.",
+      "Vídeos eliminados de Clips: {{count}}. No se pudo confirmar la eliminación de los archivos.",
     clipsDeletedMediaRetained:
       "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    deletedMediaFinalizing:
+      "Vídeo eliminado de Clips. Hay que reintentar la actualización del uso de almacenamiento.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos eliminados de Clips: {{count}}. Hay que reintentar la actualización del uso de almacenamiento.",
+    mediaCleanupFinalizing:
+      "Hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupFinalizingHelp:
+      "Las comprobaciones de eliminación de archivos terminaron, pero este vídeo podría seguir contando para tu límite de almacenamiento. Reintenta la actualización del uso para actualizar tu total de almacenamiento.",
     mediaCleanupListLabel: "Eliminación de archivos multimedia",
-    mediaCleanupPending:
-      "Eliminando archivos multimedia de grabaciones eliminadas",
+    mediaCleanupPending: "Comprobaciones de eliminación en curso",
+    mediaCleanupPendingHelp:
+      "Clips sigue comprobándolo en segundo plano. Puedes salir de esta página y consultar las actualizaciones en la Papelera.",
     mediaCleanupBlocked:
-      "No se pudieron eliminar los archivos multimedia de grabaciones eliminadas",
+      "No se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Los archivos de vídeo almacenados podrían seguir existiendo. Reintentar la eliminación inicia otro intento. Puedes salir de esta página y consultar el resultado en la Papelera.",
     mediaCleanupReconnect:
       "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
     mediaCleanupRetained:
       "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
+    mediaCleanupHelp: "Más información",
+    mediaCleanupRetryFiles: "Reintentar eliminación",
+    mediaCleanupRetryingFiles:
+      "Reintentando la eliminación de los archivos de vídeo",
+    mediaCleanupRetryUsage: "Reintentar actualización de uso",
+    mediaCleanupRetryingUsage:
+      "Reintentando la actualización del uso de almacenamiento",
     mediaCleanupRemoved: "Archivos multimedia eliminados",
+    mediaCleanupUsageUpdated: "Uso de almacenamiento actualizado",
     mediaCleanupStillBlocked:
-      "Todavía no se pudieron eliminar los archivos multimedia",
+      "Todavía no se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "Todavía hay que reintentar la actualización del uso de almacenamiento",
     mediaCleanupRetryFailed:
-      "No se pudo reintentar la eliminación de archivos multimedia",
+      "No se pudo iniciar el reintento. Vuelve a intentarlo.",
     mediaCleanupLoadFailed:
       "No se pudo cargar el estado de eliminación de archivos multimedia",
   },
@@ -639,6 +660,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abre Clips Desktop desde la barra de menús y elige Start Meeting Notes, o haz clic en Start notes cuando aparezca el recordatorio. Clips captura micrófono y audio del sistema, y escribe la transcripción aquí.",
     getDesktopApp: "Obtener aplicación de escritorio",
+    earlierAudioAdded_one:
+      "Se añadió {{count}} minuto de antes de que empezaras",
+    earlierAudioAdded_other:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioAdded_many:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioUnreadable:
+      "No se pudo comprobar si esta transcripción incluye audio anterior",
+    removeEarlierAudioTitle: "¿Quitar el audio anterior?",
+    removeEarlierAudioDescription:
+      "Se quitará de la transcripción y se volverán a generar el resumen, las tareas y la descripción del clip, aunque hayas escrito tú esa descripción. También se regenerará un título generado automáticamente; el que hayas elegido se conserva. También se eliminarán los capítulos.",
+    couldNotRemoveEarlierAudio: "No se pudo quitar el audio anterior",
     generateNotesFailed: "No se pudo generar el resumen. Intentar otra vez.",
     attendee_one: "asistente {{count}}",
     attendee_other: "asistentes {{count}}",
@@ -1535,6 +1568,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Escuchando…",
     noTranscript: "Aún no hay transcripción.",
+    unreadable: "No se pudo leer esta transcripción.",
     liveTranscriptDescription:
       "La transcripción en vivo aparecerá aquí cuando empiecen las notas.",
     me: "Yo",

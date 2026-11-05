@@ -319,30 +319,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
     deletedMediaPending:
-      "Gravação excluída. Os arquivos de mídia ainda estão sendo removidos.",
+      "Vídeo removido do Clips. As verificações de exclusão estão em andamento.",
     deletedMediaBlocked:
-      "Gravação excluída, mas não foi possível remover os arquivos de mídia.",
+      "Vídeo removido do Clips. Não foi possível confirmar a exclusão dos arquivos.",
     deletedMediaRetained:
       "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
     clipsDeletedMediaPending:
-      "Gravações excluídas: {{count}}. Os arquivos de mídia ainda estão sendo removidos.",
+      "Vídeos removidos do Clips: {{count}}. As verificações de exclusão estão em andamento.",
     clipsDeletedMediaBlocked:
-      "Gravações excluídas: {{count}}. Não foi possível remover os arquivos de mídia.",
+      "Vídeos removidos do Clips: {{count}}. Não foi possível confirmar a exclusão dos arquivos.",
     clipsDeletedMediaRetained:
       "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    deletedMediaFinalizing:
+      "Vídeo removido do Clips. A atualização do uso de armazenamento precisa ser repetida.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos removidos do Clips: {{count}}. A atualização do uso de armazenamento precisa ser repetida.",
+    mediaCleanupFinalizing:
+      "A atualização do uso de armazenamento precisa ser repetida",
+    mediaCleanupFinalizingHelp:
+      "As verificações de remoção dos arquivos terminaram, mas este vídeo ainda pode contar para seu limite de armazenamento. Tente atualizar o uso novamente para atualizar seu total de armazenamento.",
     mediaCleanupListLabel: "Remoção de mídia",
-    mediaCleanupPending: "Removendo arquivos de mídia de gravações excluídas",
+    mediaCleanupPending: "Verificações de exclusão em andamento",
+    mediaCleanupPendingHelp:
+      "O Clips continua verificando em segundo plano. Você pode sair desta página e conferir as atualizações na Lixeira.",
     mediaCleanupBlocked:
-      "Não foi possível remover os arquivos de mídia de gravações excluídas",
+      "Não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Os arquivos de vídeo armazenados ainda podem existir. Tentar remover novamente inicia outra tentativa. Você pode sair desta página e conferir o resultado na Lixeira.",
     mediaCleanupReconnect:
       "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
     mediaCleanupRetained:
       "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
+    mediaCleanupHelp: "Mais informações",
+    mediaCleanupRetryFiles: "Tentar remover novamente",
+    mediaCleanupRetryingFiles:
+      "Tentando excluir os arquivos de vídeo novamente",
+    mediaCleanupRetryUsage: "Tentar atualizar o uso novamente",
+    mediaCleanupRetryingUsage:
+      "Tentando atualizar o uso de armazenamento novamente",
     mediaCleanupRemoved: "Arquivos de mídia removidos",
+    mediaCleanupUsageUpdated: "Uso de armazenamento atualizado",
     mediaCleanupStillBlocked:
-      "Ainda não foi possível remover os arquivos de mídia",
+      "Ainda não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "A atualização do uso de armazenamento ainda precisa ser repetida",
     mediaCleanupRetryFailed:
-      "Não foi possível tentar remover a mídia novamente",
+      "Não foi possível iniciar a nova tentativa. Tente novamente.",
     mediaCleanupLoadFailed:
       "Não foi possível carregar o status da remoção de mídia",
   },
@@ -633,6 +655,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abra o Clips Desktop na barra de menus e escolha Start Meeting Notes, ou clique em Start notes quando o lembrete aparecer. O Clips captura o microfone e o áudio do sistema e escreve a transcrição aqui.",
     getDesktopApp: "Obtenha o aplicativo para desktop",
+    earlierAudioAdded_one:
+      "{{count}} minuto de antes de você começar foi adicionado",
+    earlierAudioAdded_other:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioAdded_many:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioUnreadable:
+      "Não foi possível verificar se esta transcrição inclui áudio anterior",
+    removeEarlierAudioTitle: "Remover o áudio anterior?",
+    removeEarlierAudioDescription:
+      "Ele será retirado da transcrição, e o resumo, os itens de ação e a descrição do clipe serão recriados, mesmo que você tenha escrito essa descrição. Um título gerado também será recriado; o que você escolheu permanece. Os capítulos também serão excluídos.",
+    couldNotRemoveEarlierAudio: "Não foi possível remover o áudio anterior",
     generateNotesFailed: "Não foi possível gerar o resumo. Tente novamente.",
     attendee_one: "participante {{count}}",
     attendee_other: "participantes {{count}}",
@@ -1529,6 +1563,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Ouvindo…",
     noTranscript: "Ainda não há transcrição.",
+    unreadable: "Não foi possível ler esta transcrição.",
     liveTranscriptDescription:
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",

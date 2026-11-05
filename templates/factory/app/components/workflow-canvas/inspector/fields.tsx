@@ -377,6 +377,8 @@ export function TemplateInput({
   context,
   invalid,
   multiline,
+  placeholder,
+  ariaLabel,
 }: {
   id?: string;
   value: string;
@@ -384,6 +386,10 @@ export function TemplateInput({
   context: FormContext;
   invalid?: boolean;
   multiline?: boolean;
+  /** Shown while the single-line box is empty. */
+  placeholder?: string;
+  /** For a box with no visible label of its own, such as a cell in a row. */
+  ariaLabel?: string;
 }) {
   const problem = checkTemplateText(value, context.expression);
   const mapTarget = useMapTarget("template", value, onChange);
@@ -402,6 +408,8 @@ export function TemplateInput({
           <TextInput
             id={id}
             value={value}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
             invalid={invalid || problem !== null}
             onChange={onChange}
             {...mapTarget}

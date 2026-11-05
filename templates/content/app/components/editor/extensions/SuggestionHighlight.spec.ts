@@ -976,6 +976,90 @@ describe("SuggestionHighlight", () => {
         }
       });
 
+      // The spot ProseMirror hands the browser for a caret at this position.
+      // Chrome types before the line break when the widget comes after it.
+      function caretFollowsWidget(view: EditorView, position: number) {
+        const { node, offset } = view.domAtPos(position, -1);
+        const before = node.childNodes[offset - 1];
+        return (
+          before instanceof HTMLElement &&
+          before.classList.contains("suggestion-inline-widget")
+        );
+      }
+
+      it.each<[string, Partial<SuggestionHighlightSpec>]>([
+        ["a new line", { kind: "insert", insertedText: "\n" }],
+        ["an insertion", { kind: "insert", insertedText: "y = 2\n" }],
+        [
+          "an accepted line",
+          { kind: "insert", insertedText: "y = 2\n", settling: true },
+        ],
+        ["a deletion", { kind: "delete", deletedText: "y = 2\n" }],
+      ])(
+        "keeps the caret after %s at the start of a code line",
+        (_label, spec) => {
+          const { view } = mounted(
+            [code("x = 1\nz = 3"), prose("After.")],
+            [
+              {
+                suggestionId: "line-start",
+                from: 7,
+                to: 7,
+                kind: "insert",
+                ...spec,
+              },
+            ],
+          );
+          try {
+            expect(caretFollowsWidget(view, 7)).toBe(true);
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+
+      it("keeps the caret before a widget inside a code line", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "mid-line",
+              kind: "insert",
+              from: 8,
+              to: 8,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 8)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it("moves a widget when the line break before it goes away", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "line-start",
+              kind: "insert",
+              from: 7,
+              to: 7,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 7)).toBe(true);
+          view.dispatch(view.state.tr.insertText("-", 6, 7));
+          expect(caretFollowsWidget(view, 7)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
       it.each(["```", "~~~", "$$"])(
         "keeps the lines of a new %s block out of block widgets",
         (fence) => {
@@ -2141,6 +2225,29 @@ describe("drafts while the author types", () => {
     expect(struckText(editorState)).toEqual(["azdy"]);
     expect(specsOf(editorState)).toHaveLength(1);
   });
+
+  it.each([
+    { label: "more line breaks", insert: "\n", at: 3, to: 3, lineBreak: true },
+    { label: "text after it", insert: "x", at: 3, to: 3, lineBreak: false },
+    { label: "text over it", insert: "x", at: 2, to: 3, lineBreak: false },
+  ])(
+    "shows a draft line break's arrow only while it holds no ink: $label",
+    ({ insert, at, to, lineBreak }) => {
+      const editorState = drafting("a\nb", [
+        {
+          suggestionId: "draft-4",
+          kind: "mark",
+          from: 2,
+          to: 3,
+          editableText: true,
+          draft: true,
+          lineBreak: true,
+        },
+      ]);
+      const next = editorState.apply(editorState.tr.insertText(insert, at, to));
+      expect(specsOf(next)).toMatchObject([{ lineBreak }]);
+    },
+  );
 
   it("turns a draft deletion into a replacement when the author types there", () => {
     const deletion: SuggestionHighlightSpec = {

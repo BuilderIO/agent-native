@@ -19,12 +19,14 @@ import { createVisualEditorExtensions } from "./VisualEditor";
 
 const PARAGRAPH = "Paragraph block for the block menu.";
 
-function collabEditor() {
+function collabEditor(
+  markdown = `${PARAGRAPH}
+
+### Heading three`,
+) {
   const seed = new Editor({
     extensions: createVisualEditorExtensions(),
-    content: nfmToDoc(`${PARAGRAPH}
-
-### Heading three`),
+    content: nfmToDoc(markdown),
   });
   const ydoc = new Y.Doc();
   Y.applyUpdate(
@@ -57,14 +59,14 @@ function headingBlock(editor: Editor) {
 }
 
 /** Renders the slash menu beside a collaborative editor. */
-async function mountSlashMenu() {
+async function mountSlashMenu(markdown?: string) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const editor = collabEditor();
+  const editor = collabEditor(markdown);
   await act(async () => {
     root.render(
       <MemoryRouter>
@@ -239,6 +241,43 @@ describe("slash command undo", () => {
       undo(editor);
       expect(firstBlock(editor)).toBe(`paragraph: Intro ${PARAGRAPH}`);
       expect(lastBlock(editor)).toBe("paragraph: ");
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("slash menu in a Toggle's title", () => {
+  it("stays closed in the title and opens in the body", async () => {
+    const { container, editor, unmount } = await mountSlashMenu(
+      [
+        '<details markdown="1">',
+        "<summary>Plan</summary>",
+        "\tBody",
+        "</details>",
+      ].join("\n"),
+    );
+    try {
+      typeAt(editor, 2, "/heading 3");
+      await act(async () => Promise.resolve());
+      expect(container.querySelector(".slash-command-menu")).toBeNull();
+
+      // Enter runs a command whose name was typed even with the menu closed.
+      await pressEnter();
+      expect(editor.state.doc.firstChild?.firstChild?.toJSON()).toEqual({
+        type: "notionToggleSummary",
+        content: [{ type: "text", text: "/heading 3Plan" }],
+      });
+
+      let bodyStart = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (bodyStart < 0 && node.type.name === "paragraph") {
+          bodyStart = pos + 1;
+        }
+      });
+      typeAt(editor, bodyStart, "/heading 3");
+      await act(async () => Promise.resolve());
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
     } finally {
       await unmount();
     }

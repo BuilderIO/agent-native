@@ -321,31 +321,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
     clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
     deletedMediaPending:
-      "Enregistrement supprimé. Ses fichiers multimédias sont encore en cours de suppression.",
+      "Vidéo retirée de Clips. Vérifications de suppression en cours.",
     deletedMediaBlocked:
-      "Enregistrement supprimé, mais ses fichiers multimédias n’ont pas pu être supprimés.",
+      "Vidéo retirée de Clips. Impossible de confirmer la suppression des fichiers.",
     deletedMediaRetained:
       "Enregistrement supprimé. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
     clipsDeletedMediaPending:
-      "Enregistrements supprimés : {{count}}. Les fichiers multimédias sont encore en cours de suppression.",
+      "Vidéos retirées de Clips : {{count}}. Vérifications de suppression en cours.",
     clipsDeletedMediaBlocked:
-      "Enregistrements supprimés : {{count}}. Les fichiers multimédias n’ont pas pu être supprimés.",
+      "Vidéos retirées de Clips : {{count}}. Impossible de confirmer la suppression des fichiers.",
     clipsDeletedMediaRetained:
       "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    deletedMediaFinalizing:
+      "Vidéo retirée de Clips. La mise à jour de l’utilisation du stockage doit être relancée.",
+    clipsDeletedMediaFinalizing:
+      "Vidéos retirées de Clips : {{count}}. La mise à jour de l’utilisation du stockage doit être relancée.",
+    mediaCleanupFinalizing:
+      "La mise à jour de l’utilisation du stockage doit être relancée",
+    mediaCleanupFinalizingHelp:
+      "Les vérifications de suppression des fichiers sont terminées, mais cette vidéo peut encore compter dans votre limite de stockage. Réessayez la mise à jour de l’utilisation pour actualiser votre total de stockage.",
     mediaCleanupListLabel: "Suppression des fichiers multimédias",
-    mediaCleanupPending:
-      "Suppression des fichiers multimédias des enregistrements supprimés",
+    mediaCleanupPending: "Vérifications de suppression en cours",
+    mediaCleanupPendingHelp:
+      "Clips poursuit les vérifications en arrière-plan. Vous pouvez quitter cette page et consulter les mises à jour dans la corbeille.",
     mediaCleanupBlocked:
-      "Les fichiers multimédias des enregistrements supprimés n’ont pas pu être supprimés",
+      "Impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupBlockedHelp:
+      "Les fichiers vidéo stockés peuvent encore exister. Réessayer la suppression lance une nouvelle tentative. Vous pouvez quitter cette page et consulter le résultat dans la corbeille.",
     mediaCleanupReconnect:
       "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
     mediaCleanupRetained:
       "Les fichiers multimédias partagés des enregistrements supprimés sont conservés tant que d’autres enregistrements les utilisent",
+    mediaCleanupHelp: "Plus d’informations",
+    mediaCleanupRetryFiles: "Relancer la suppression",
+    mediaCleanupRetryingFiles:
+      "Nouvelle tentative de suppression des fichiers vidéo",
+    mediaCleanupRetryUsage: "Relancer la mise à jour de l’utilisation",
+    mediaCleanupRetryingUsage:
+      "Nouvelle tentative de mise à jour de l’utilisation du stockage",
     mediaCleanupRemoved: "Fichiers multimédias supprimés",
+    mediaCleanupUsageUpdated: "Utilisation du stockage mise à jour",
     mediaCleanupStillBlocked:
-      "Les fichiers multimédias n’ont toujours pas pu être supprimés",
+      "Toujours impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupStillFinalizing:
+      "La mise à jour de l’utilisation du stockage doit toujours être relancée",
     mediaCleanupRetryFailed:
-      "Impossible de relancer la suppression des fichiers multimédias",
+      "Impossible de lancer la nouvelle tentative. Réessayez.",
     mediaCleanupLoadFailed:
       "Impossible de charger l’état de suppression des fichiers multimédias",
   },
@@ -639,6 +660,17 @@ const messages = {
     desktopHint:
       "Pour démarrer les notes, ouvrez Clips Desktop dans la barre de menus et choisissez Start Meeting Notes, ou cliquez sur Start notes lorsque le rappel apparaît. Clips capture le micro et l'audio système, puis écrit la transcription ici.",
     getDesktopApp: "Obtenir l'application de bureau",
+    earlierAudioAdded_one: "{{count}} minute ajoutée d'avant votre démarrage",
+    earlierAudioAdded_other:
+      "{{count}} minutes ajoutées d'avant votre démarrage",
+    earlierAudioAdded_many:
+      "{{count}} minutes ajoutées d'avant votre démarrage",
+    earlierAudioUnreadable:
+      "Impossible de vérifier si cette transcription contient de l'audio antérieur",
+    removeEarlierAudioTitle: "Supprimer l'audio antérieur ?",
+    removeEarlierAudioDescription:
+      "Il sera retiré de la transcription, et le résumé, les actions et la description du clip seront recréés, même si vous avez rédigé cette description vous-même. Un titre généré sera aussi recréé ; celui que vous avez choisi est conservé. Les chapitres éventuels seront aussi supprimés.",
+    couldNotRemoveEarlierAudio: "Impossible de supprimer l'audio antérieur",
     generateNotesFailed: "Impossible de générer le résumé. Essayer à nouveau.",
     attendee_one: "participant {{count}}",
     attendee_other: "participants {{count}}",
@@ -1539,6 +1571,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Écoute…",
     noTranscript: "Aucune transcription pour le moment.",
+    unreadable: "Impossible de lire cette transcription.",
     liveTranscriptDescription:
       "La transcription en direct apparaîtra ici lorsque les notes commenceront.",
     me: "Moi",

@@ -323,31 +323,51 @@ const messages = {
       "{{count}} Clips konnten nicht wiederhergestellt werden",
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
-    deletedMediaPending:
-      "Aufnahme gelöscht. Die Mediendateien werden noch entfernt.",
+    deletedMediaPending: "Video aus Clips entfernt. Löschprüfungen laufen.",
     deletedMediaBlocked:
-      "Aufnahme gelöscht, aber die Mediendateien konnten nicht entfernt werden.",
+      "Video aus Clips entfernt. Löschung der Dateien konnte nicht bestätigt werden.",
     deletedMediaRetained:
       "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
     clipsDeletedMediaPending:
-      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien werden noch entfernt.",
+      "Aus Clips entfernte Videos: {{count}}. Löschprüfungen laufen.",
     clipsDeletedMediaBlocked:
-      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien konnten nicht entfernt werden.",
+      "Aus Clips entfernte Videos: {{count}}. Löschung der Dateien konnte nicht bestätigt werden.",
     clipsDeletedMediaRetained:
       "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    deletedMediaFinalizing:
+      "Video aus Clips entfernt. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    clipsDeletedMediaFinalizing:
+      "Aus Clips entfernte Videos: {{count}}. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    mediaCleanupFinalizing:
+      "Aktualisierung der Speichernutzung muss wiederholt werden",
+    mediaCleanupFinalizingHelp:
+      "Die Prüfungen zur Dateientfernung sind abgeschlossen, aber dieses Video kann noch auf dein Speicherlimit angerechnet werden. Versuche die Aktualisierung der Nutzung erneut, um deinen Speicherstand zu aktualisieren.",
     mediaCleanupListLabel: "Entfernen von Mediendateien",
-    mediaCleanupPending: "Mediendateien gelöschter Aufnahmen werden entfernt",
+    mediaCleanupPending: "Löschprüfungen laufen",
+    mediaCleanupPendingHelp:
+      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen und im Papierkorb nach Updates sehen.",
     mediaCleanupBlocked:
-      "Mediendateien gelöschter Aufnahmen konnten nicht entfernt werden",
+      "Löschung der Videodateien konnte nicht bestätigt werden",
+    mediaCleanupBlockedHelp:
+      "Gespeicherte Videodateien können noch vorhanden sein. Entfernung erneut versuchen startet einen weiteren Versuch. Du kannst diese Seite verlassen und das Ergebnis im Papierkorb prüfen.",
     mediaCleanupReconnect:
       "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
     mediaCleanupRetained:
       "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
+    mediaCleanupHelp: "Weitere Informationen",
+    mediaCleanupRetryFiles: "Entfernen wiederholen",
+    mediaCleanupRetryingFiles: "Löschung der Videodateien wird erneut versucht",
+    mediaCleanupRetryUsage: "Nutzung erneut aktualisieren",
+    mediaCleanupRetryingUsage:
+      "Aktualisierung der Speichernutzung wird erneut versucht",
     mediaCleanupRemoved: "Mediendateien entfernt",
+    mediaCleanupUsageUpdated: "Speichernutzung aktualisiert",
     mediaCleanupStillBlocked:
-      "Mediendateien konnten weiterhin nicht entfernt werden",
+      "Löschung der Videodateien konnte weiterhin nicht bestätigt werden",
+    mediaCleanupStillFinalizing:
+      "Aktualisierung der Speichernutzung muss weiterhin wiederholt werden",
     mediaCleanupRetryFailed:
-      "Mediendateien konnten nicht erneut entfernt werden",
+      "Erneuter Versuch konnte nicht gestartet werden. Versuche es noch einmal.",
     mediaCleanupLoadFailed:
       "Status der Medienentfernung konnte nicht geladen werden",
   },
@@ -646,6 +666,15 @@ const messages = {
     desktopHint:
       "Um Notizen zu starten, öffnen Sie Clips Desktop über die Menüleiste und wählen Sie Start Meeting Notes, oder klicken Sie auf Start notes, wenn die Erinnerung erscheint. Clips erfasst Mikrofon und Systemaudio und schreibt das Transkript hier.",
     getDesktopApp: "Holen Sie sich die Desktop-App",
+    earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
+    earlierAudioAdded_other:
+      "{{count}} Minuten von vor deinem Start hinzugefügt",
+    earlierAudioUnreadable:
+      "Dieses Transkript konnte nicht auf früheren Ton geprüft werden",
+    removeEarlierAudioTitle: "Früheren Ton entfernen?",
+    removeEarlierAudioDescription:
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung, Aufgaben und Clip-Beschreibung werden neu erstellt, auch wenn Sie die Beschreibung selbst geschrieben haben. Ein generierter Titel wird ebenfalls neu erstellt, ein von Ihnen gewählter bleibt erhalten. Vorhandene Kapitel werden ebenfalls gelöscht.",
+    couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",
     attendee_one: "{{count}}-Teilnehmer",
@@ -1543,6 +1572,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Hört zu…",
     noTranscript: "Noch kein Transkript.",
+    unreadable: "Dieses Transkript konnte nicht gelesen werden.",
     liveTranscriptDescription:
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",

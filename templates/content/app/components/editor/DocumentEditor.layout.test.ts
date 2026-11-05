@@ -195,6 +195,7 @@ describe("document editor layout", () => {
       contentChanged: false,
       editorSessionId: "editor-session",
       editGeneration: 4,
+      confirmedEditGeneration: 0,
       isLinkedLocalSource: false,
       isLocalFile: false,
     };
@@ -206,6 +207,12 @@ describe("document editor layout", () => {
     expect(
       shouldAttestUnchangedEditorSave({ ...base, editGeneration: 0 }),
     ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, confirmedEditGeneration: 4 }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, confirmedEditGeneration: 3 }),
+    ).toBe(true);
     expect(
       shouldAttestUnchangedEditorSave({ ...base, contentChanged: true }),
     ).toBe(false);
