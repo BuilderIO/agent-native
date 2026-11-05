@@ -757,7 +757,7 @@ async function getLegacyCookieSession(
     for (const candidate of sessionTokenLookupCandidates(value)) {
       email =
         (await getSessionEmail(candidate)) ??
-        (await emailFromBetterAuthSessionToken(candidate));
+        (await emailFromActiveBetterAuthSessionToken(candidate));
       if (email) {
         resolvedToken = candidate;
         break;

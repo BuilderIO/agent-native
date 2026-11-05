@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   defineAppConfig,
   resetAppConfigForTests,
@@ -10699,6 +10700,88 @@ describe("server/auth", () => {
           ),
         ).resolves.toBeNull();
       });
+    });
+
+    it("accepts only active Better Auth tokens as framework cookies or bearers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const database = await createTestPglite();
+      try {
+        await database.exec(`
+          CREATE TABLE sessions (token TEXT PRIMARY KEY, email TEXT, created_at BIGINT NOT NULL);
+          CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT, email_verified BOOLEAN);
+          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL);
+          INSERT INTO "user" VALUES ('user-1', 'session@example.com', TRUE);
+          INSERT INTO "session" VALUES
+            ('active-token', 'user-1', NOW() + INTERVAL '1 hour'),
+            ('expired-token', 'user-1', NOW() - INTERVAL '1 hour');
+        `);
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: async (
+              input: string | { sql: string; args?: unknown[] },
+            ) => {
+              const { sql, args } =
+                typeof input === "string" ? { sql: input, args: [] } : input;
+              const ledger = storeLedgerResult(sql);
+              if (ledger) return ledger;
+              const result = await database.query(sql, args);
+              return {
+                rows: result.rows,
+                rowsAffected: result.affectedRows ?? 0,
+              };
+            },
+          }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => ({
+            api: { getSession: async () => null },
+          }),
+          getBetterAuthSync: () => null,
+        }));
+        vi.doMock("./legacy-auth-migration.js", () => ({
+          resolveCanonicalUserForLegacySession: async () => null,
+        }));
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: async () => null,
+        }));
+
+        const { COOKIE_NAME, getBrowserCookieSession, getSession } =
+          await import("./auth.js");
+        const cookie = (token: string) =>
+          createMockEvent({ headers: { cookie: `${COOKIE_NAME}=${token}` } });
+        const bearer = (token: string) =>
+          createMockEvent({ headers: { authorization: `Bearer ${token}` } });
+
+        await expect(getSession(bearer("active-token"))).resolves.toMatchObject(
+          {
+            email: "session@example.com",
+          },
+        );
+        await expect(getSession(bearer("expired-token"))).resolves.toBeNull();
+        await expect(getSession(cookie("active-token"))).resolves.toMatchObject(
+          {
+            email: "session@example.com",
+          },
+        );
+        await expect(
+          getBrowserCookieSession(cookie("active-token")),
+        ).resolves.toMatchObject({
+          email: "session@example.com",
+        });
+        await expect(getSession(cookie("expired-token"))).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(cookie("expired-token")),
+        ).resolves.toBeNull();
+      } finally {
+        await database.close();
+      }
     });
 
     it("resolves bearer legacy sessions with canonical verification state", async () => {
