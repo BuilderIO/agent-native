@@ -11,6 +11,8 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import { ACTIVE_COMMENT_AI_STATUSES } from "../shared/comment-ai.js";
 
+const ACTIVE_AI_STATUSES = new Set<string>(ACTIVE_COMMENT_AI_STATUSES);
+
 /**
  * Whether an Ask AI suggestion made in this thread still waits for review.
  * Reviewing it needs the thread and its request, which a thread delete removes.
@@ -145,21 +147,25 @@ export default defineAction({
           errorCode: "comment_synced_with_notion",
         });
       }
+      let requestIds: string[] = [];
       if (deletesThread) {
-        const activeAi = await tx
-          .select({ id: schema.commentAiRequests.id })
+        // Each Ask AI request keeps a copy of the thread. Locked, as resuming
+        // one locks it, so a resume either commits first and shows as active
+        // here, or waits and then finds its request gone.
+        const requests = await tx
+          .select({
+            id: schema.commentAiRequests.id,
+            status: schema.commentAiRequests.status,
+          })
           .from(schema.commentAiRequests)
           .where(
             and(
               eq(schema.commentAiRequests.documentId, documentId),
               eq(schema.commentAiRequests.threadId, threadId),
-              inArray(schema.commentAiRequests.status, [
-                ...ACTIVE_COMMENT_AI_STATUSES,
-              ]),
             ),
           )
-          .limit(1);
-        if (activeAi.length) {
+          .for("update");
+        if (requests.some(({ status }) => ACTIVE_AI_STATUSES.has(status))) {
           fail("Stop the AI working on this thread before deleting it", {
             statusCode: 409,
             errorCode: "comment_ai_already_active",
@@ -170,6 +176,7 @@ export default defineAction({
         if (await hasPendingAiSuggestion(documentId, threadId, ctx)) {
           refusePendingAiSuggestion();
         }
+        requestIds = requests.map(({ id }) => id);
       }
       const ids = targets.map(({ id }) => id);
       if (!ids.length) return ids;
@@ -189,27 +196,13 @@ export default defineAction({
             inArray(schema.documentCommentReactions.commentId, ids),
           ),
         );
-      if (deletesThread) {
-        // Each Ask AI request keeps a copy of the thread; none is active.
-        const requestIds = (
-          await tx
-            .select({ id: schema.commentAiRequests.id })
-            .from(schema.commentAiRequests)
-            .where(
-              and(
-                eq(schema.commentAiRequests.documentId, documentId),
-                eq(schema.commentAiRequests.threadId, threadId),
-              ),
-            )
-        ).map(({ id }) => id);
-        if (requestIds.length) {
-          await tx
-            .delete(schema.commentAiAttempts)
-            .where(inArray(schema.commentAiAttempts.requestId, requestIds));
-          await tx
-            .delete(schema.commentAiRequests)
-            .where(inArray(schema.commentAiRequests.id, requestIds));
-        }
+      if (requestIds.length) {
+        await tx
+          .delete(schema.commentAiAttempts)
+          .where(inArray(schema.commentAiAttempts.requestId, requestIds));
+        await tx
+          .delete(schema.commentAiRequests)
+          .where(inArray(schema.commentAiRequests.id, requestIds));
       }
       return ids;
     });
