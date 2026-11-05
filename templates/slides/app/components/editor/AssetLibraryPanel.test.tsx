@@ -102,7 +102,7 @@ describe("<AssetLibraryPanel>", () => {
       />,
     );
     const tile = await screen.findByAltText("a1.png");
-    fireEvent.click(tile.closest("button")!);
+    fireEvent.click(tile);
     expect(onSelectAsset).toHaveBeenCalledWith(asset.url);
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(toast.error).toHaveBeenCalledWith("raw.assetSelectNoChange");
@@ -121,7 +121,7 @@ describe("<AssetLibraryPanel>", () => {
       />,
     );
     const tile = await screen.findByAltText("a1.png");
-    fireEvent.click(tile.closest("button")!);
+    fireEvent.click(tile);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
