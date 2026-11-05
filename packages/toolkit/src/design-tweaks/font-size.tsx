@@ -347,7 +347,8 @@ export function FontSizeField({
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       step(
-        (event.key === "ArrowUp" ? 1 : -1) * getScrubStepFromEvent(event, 1),
+        (event.key === "ArrowUp" ? 1 : -1) *
+          getScrubStepFromEvent({ altKey: false, shiftKey: event.shiftKey }, 1),
       );
       event.currentTarget.select();
       return;

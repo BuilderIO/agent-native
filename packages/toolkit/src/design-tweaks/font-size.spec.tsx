@@ -192,7 +192,9 @@ describe("FontSizeField", () => {
     fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
     expect(input.value).toBe("20");
     fireEvent.keyDown(input, { key: "ArrowUp", altKey: true });
-    expect(input.value).toBe("20.1");
+    expect(input.value).toBe("21");
+    fireEvent.keyDown(input, { key: "ArrowUp", altKey: true, shiftKey: true });
+    expect(input.value).toBe("31");
   });
 
   it("commits every arrow step while the parent value is delayed", () => {
