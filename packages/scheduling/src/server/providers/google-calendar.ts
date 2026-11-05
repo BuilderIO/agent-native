@@ -134,12 +134,14 @@ export function createGoogleCalendarProvider(
 
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
       const resp = await apiCall<{
-        calendars: Record<
-          string,
-          {
-            busy?: { start: string; end: string }[];
-            errors?: { domain?: string; reason?: string }[];
-          }
+        calendars?: Partial<
+          Record<
+            string,
+            {
+              busy?: { start: string; end: string }[];
+              errors?: { domain?: string; reason?: string }[];
+            }
+          >
         >;
       }>(credentialId, "https://www.googleapis.com/calendar/v3/freeBusy", {
         method: "POST",

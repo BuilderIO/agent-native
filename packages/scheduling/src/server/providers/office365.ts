@@ -115,8 +115,8 @@ export function createOffice365Provider(
     },
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
       const resp = await graph<{
-        value: {
-          scheduleId: string;
+        value?: {
+          scheduleId?: string;
           scheduleItems?: {
             start: { dateTime: string };
             end: { dateTime: string };
@@ -148,7 +148,7 @@ export function createOffice365Provider(
           throw new Error(`Graph getSchedule failed for ${id}: ${reason}`);
         }
       }
-      for (const entry of resp.value) {
+      for (const entry of resp.value ?? []) {
         for (const item of entry.scheduleItems ?? []) {
           if (item.status === "free") continue;
           out.push({
