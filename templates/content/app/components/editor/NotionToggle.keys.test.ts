@@ -808,7 +808,7 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
       press_(editor);
 
       const [made] = editor.getJSON().content;
-      expect(made?.content?.slice(1)).toEqual([paragraph("Body")]);
+      expect(made.content?.slice(1)).toEqual([paragraph("Body")]);
       expect(editor.state.doc.textContent).toContain("After");
     }
   });
