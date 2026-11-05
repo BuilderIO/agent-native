@@ -333,13 +333,15 @@ export async function autoDiscoverActions(
     if (ws && ws.actionsDir) {
       await loadActionsIntoRegistry(ws.actionsDir, registry, true);
     }
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
   try {
     await mergeCoreSharingActions(registry);
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // Ignore — templates without sharing still work.
   }
 

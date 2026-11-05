@@ -124,6 +124,66 @@ describe("action discovery", () => {
   );
 
   it(
+    "fails discovery on a bad definition in workspace-core or the core actions",
+    async () => {
+      const appActions = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      const workspaceActions = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-workspace-actions-"),
+      );
+      tmpDirs.push(appActions, workspaceActions);
+      fs.writeFileSync(
+        path.join(workspaceActions, "shared-rules.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+          '  searchHints: "inbox rule",',
+          "  run: async () => ({}),",
+          "};",
+          "",
+        ].join("\n"),
+      );
+      const rejectsNamed = async (actionName: string) => {
+        const discovery = await import("./action-discovery.js");
+        await expect(
+          discovery.autoDiscoverActions(appActions),
+        ).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) && error.actionName === actionName,
+        );
+      };
+
+      try {
+        vi.resetModules();
+        vi.doMock("../deploy/workspace-core.js", () => ({
+          getWorkspaceCoreExports: async () => ({
+            actionsDir: workspaceActions,
+          }),
+        }));
+        await rejectsNamed("shared-rules");
+
+        vi.doUnmock("../deploy/workspace-core.js");
+        vi.resetModules();
+        vi.doMock("../sharing/actions/share-resource.js", () => ({
+          get default() {
+            throw Object.assign(new TypeError("searchHints must be valid."), {
+              name: "ActionDefinitionError",
+              actionDefinitionError: true,
+            });
+          },
+        }));
+        await rejectsNamed("share-resource");
+      } finally {
+        vi.doUnmock("../deploy/workspace-core.js");
+        vi.doUnmock("../sharing/actions/share-resource.js");
+        vi.resetModules();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
     "fails on malformed searchHints in the generated registry a bundle falls back to",
     async () => {
       const root = fs.mkdtempSync(
