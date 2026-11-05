@@ -19,32 +19,26 @@ import {
 
 import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import {
+  createAgentFrameMediaSource,
+  loadAgentFrame,
+} from "../../lib/agent-frame-load.js";
+import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
-import {
-  clampAgentFrameAtMs,
-  loadStoredAgentFrame,
-} from "../../lib/agent-frame-store.js";
+import { clampAgentFrameAtMs } from "../../lib/agent-frame-store.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
-  loadRecordingMediaFile,
   loadScreenshotImage,
   queryString,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
-import {
-  extractJpegFrameFromFile,
-  probeMediaDurationMsFromFile,
-  VideoFrameExtractionError,
-} from "../../lib/video-frame.js";
-
 const MAX_CACHED_FRAMES = 64;
 const MAX_CACHED_FRAME_BYTES = 2 * 1024 * 1024;
 
@@ -162,64 +156,6 @@ function redirectToResolvedFrame(
   });
 }
 
-async function extractFrameWithStaleDurationRecovery({
-  mediaPath,
-  atMs,
-  lastVisibleSourceMs,
-}: {
-  mediaPath: string;
-  atMs: number;
-  lastVisibleSourceMs: (sourceMs: number) => number | null;
-}): Promise<{ frame: Uint8Array; atMs: number }> {
-  try {
-    return {
-      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
-      atMs,
-    };
-  } catch (error) {
-    if (
-      !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
-      atMs <= 0
-    ) {
-      throw error;
-    }
-
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
-    if (actualDurationMs === null || actualDurationMs > atMs + 1) {
-      throw error;
-    }
-
-    const candidates = [
-      Math.max(0, actualDurationMs - 1),
-      Math.max(0, actualDurationMs - 1000),
-      0,
-    ]
-      .map(lastVisibleSourceMs)
-      .filter(
-        (candidate, index, values): candidate is number =>
-          candidate !== null && values.indexOf(candidate) === index,
-      );
-    for (const candidate of candidates) {
-      if (candidate === atMs) continue;
-      try {
-        return {
-          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
-          atMs: candidate,
-        };
-      } catch (candidateError) {
-        if (
-          !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
-        ) {
-          throw candidateError;
-        }
-      }
-    }
-    throw error;
-  }
-}
-
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const accessResult = await loadAgentFrameAccess(event);
@@ -280,63 +216,28 @@ export default defineEventHandler(async (event: H3Event) => {
     return cached;
   }
 
-  const lookup = await loadStoredAgentFrame(recording, atMs);
-  if ("frame" in lookup) {
-    await persistDefaultThumbnailIfMissing(
-      access,
-      requestedMs,
-      lookup.frame,
-      storedMimeType,
-    );
+  const media = createAgentFrameMediaSource(recording);
+  try {
+    const loaded = await loadAgentFrame(recording, atMs, {
+      media,
+      onFrame: (frame, mimeType) =>
+        persistDefaultThumbnailIfMissing(access, requestedMs, frame, mimeType),
+    });
+    if (loaded.moved) {
+      return redirectToResolvedFrame(
+        event,
+        access,
+        timeline.fromSourceMs(loaded.atMs),
+      );
+    }
     applyFrameHeaders(event);
-    const buffer = Buffer.from(lookup.frame);
+    const buffer = Buffer.from(loaded.frame);
     if (cacheable) setCachedFrame(key, buffer);
     return buffer;
-  }
-  const { claim } = lookup;
-
-  try {
-    const media = await loadRecordingMediaFile(recording);
-    try {
-      const resolved = await extractFrameWithStaleDurationRecovery({
-        mediaPath: media.path,
-        atMs,
-        lastVisibleSourceMs: timeline.lastVisibleSourceMs,
-      });
-
-      await persistDefaultThumbnailIfMissing(
-        access,
-        requestedMs,
-        resolved.frame,
-        media.mimeType,
-      );
-
-      if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(
-          event,
-          access,
-          timeline.fromSourceMs(resolved.atMs),
-        );
-      }
-
-      await claim?.fill(
-        (frameAtMs) =>
-          extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
-        { atMs, frame: resolved.frame },
-      );
-      applyFrameHeaders(event);
-      const buffer = Buffer.from(resolved.frame);
-      if (cacheable) setCachedFrame(key, buffer);
-      return buffer;
-    } finally {
-      await media.cleanup().catch(() => {});
-    }
   } catch (err) {
     const status = frameFailureStatus(err);
     return sendFrameJson(event, status, describeFrameFailure(err, status));
   } finally {
-    // Whatever ended the request, requests waiting on this clip's frames must
-    // not wait on it any longer.
-    await claim?.release();
+    await media.cleanup();
   }
 });
