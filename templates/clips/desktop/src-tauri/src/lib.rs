@@ -6,6 +6,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod dictation_duck;
 mod echo_guard;
 mod eventkit;
 mod logfile;
@@ -603,6 +604,7 @@ pub fn run() {
                 }
             }
             if let tauri::RunEvent::Exit = _event {
+                dictation_duck::restore_now();
                 whisper_speech::shutdown(_app_handle);
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
