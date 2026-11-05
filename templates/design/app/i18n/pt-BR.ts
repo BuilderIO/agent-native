@@ -1046,6 +1046,9 @@ export default {
     },
   },
   designEditor: {
+    writeFailed: "Não foi possível salvar essa alteração.",
+    selectionPublishFailed:
+      "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
     liveCollaboration: {
       title: "Colaboração ao vivo",
       description:

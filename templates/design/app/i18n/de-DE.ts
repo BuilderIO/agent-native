@@ -1053,6 +1053,9 @@ export default {
     },
   },
   designEditor: {
+    writeFailed: "Die Änderung konnte nicht gespeichert werden.",
+    selectionPublishFailed:
+      "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
       title: "Live-Zusammenarbeit",
       description:

@@ -1977,6 +1977,7 @@ describe("A2AClient", () => {
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     process.env.A2A_SECRET = "global-a2a-secret";
     const calls: Array<{ method: string; token: string }> = [];
     vi.stubGlobal(
