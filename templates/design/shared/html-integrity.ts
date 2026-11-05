@@ -934,17 +934,6 @@ function collectStyleBodyIssues(
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
   for (const element of parsed.elements) {
     if (element.tagName !== "style") continue;
-    let ancestor = parsed.parents.get(element);
-    while (
-      ancestor &&
-      !(
-        ancestor.tagName === "noscript" &&
-        ancestor.namespaceURI === HTML_NAMESPACE
-      )
-    ) {
-      ancestor = parsed.parents.get(ancestor);
-    }
-    if (ancestor) continue;
     const type = attributeOf(element, "type")?.trim().toLowerCase();
     if (type && type !== "text/css" && type !== "text/tailwindcss") continue;
     const body = element.childNodes.find((node) => node.nodeName === "#text");
@@ -973,18 +962,15 @@ function collectStructuralIssues(
   value: string,
   parsed = parseDocument(value),
 ): DesignHtmlIntegrityIssueDetail[] {
-  // Validate fallback markup without treating it as active runtime content.
-  if (
-    parsed.elements.some(
-      (element) =>
-        element.tagName === "noscript" &&
-        element.namespaceURI === HTML_NAMESPACE,
-    )
-  ) {
-    parsed = parseDocument(value, false);
-  }
+  // Parse fallback markup for structure, while keeping runtime checks active-only.
+  const structural = parsed.elements.some(
+    (element) =>
+      element.tagName === "noscript" && element.namespaceURI === HTML_NAMESPACE,
+  )
+    ? parseDocument(value, false)
+    : parsed;
   const locate = createLocator(value);
-  const unterminated = findUnterminatedTag(parsed);
+  const unterminated = findUnterminatedTag(structural);
   if (unterminated) {
     return [
       {
@@ -999,12 +985,12 @@ function collectStructuralIssues(
       },
     ];
   }
-  const truncation = collectParseErrorIssues(parsed, locate);
+  const truncation = collectParseErrorIssues(structural, locate);
   if (truncation.length > 0) return truncation;
 
   return [
-    ...collectUnclosedElements(parsed, locate),
-    ...collectOrphanEndTags(parsed, locate),
+    ...collectUnclosedElements(structural, locate),
+    ...collectOrphanEndTags(structural, locate),
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
     ...collectStyleBodyIssues(parsed, locate),

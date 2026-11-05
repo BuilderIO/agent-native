@@ -435,6 +435,16 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("does not validate inert fallback scripts as active code", () => {
+    const content = "<main><noscript><script>if (</script></noscript></main>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+    expect(
+      inspectDesignHtmlDocumentIntegrity("<main><script>if (</script></main>"),
+    ).toMatchObject({ valid: false, issue: "script-invalid" });
+  });
+
   it("does not count a noscript style as an active cloak rule", () => {
     const content =
       '<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><noscript><style>[x-cloak]{display:none}</style></noscript><div x-cloak>Hidden</div></body></html>';
