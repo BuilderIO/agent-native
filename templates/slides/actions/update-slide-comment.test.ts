@@ -192,6 +192,61 @@ describe("update-slide-comment", () => {
     expect(state.rows[1].resolved).toBe(false);
   });
 
+  it("updates content and leaves the thread resolved state alone when resolved is unchanged", async () => {
+    const result = await run({
+      id: "c-1",
+      deckId: "deck-1",
+      content: "Edited with resolved sent",
+      resolved: false,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(state.rows[0].content).toBe("Edited with resolved sent");
+    expect(state.rows[0].resolved).toBe(false);
+    expect(state.rows[1].resolved).toBe(false);
+  });
+
+  it("updates content and resolves the whole thread when resolved changes", async () => {
+    const result = await run({
+      id: "c-1",
+      deckId: "deck-1",
+      content: "Edited and resolved",
+      resolved: true,
+    });
+
+    expect(result).toEqual({ ok: true, resolved: true });
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
+    expect(state.rows[0].content).toBe("Edited and resolved");
+    expect(state.rows[0].resolved).toBe(true);
+    expect(state.rows[1].resolved).toBe(true);
+  });
+
+  it("author editing own text with unchanged resolved does not need editor access", async () => {
+    const result = await run({
+      id: "c-1",
+      deckId: "deck-1",
+      content: "Still my text",
+      resolved: false,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
+    expect(mockAssertAccess).not.toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "editor",
+    );
+    expect(state.rows[0].content).toBe("Still my text");
+  });
+
   it("rejects reopening when the caller has viewer access", async () => {
     mockGetUserEmail.mockReturnValue("outsider@example.com");
     mockAssertAccess.mockImplementation(
@@ -267,7 +322,7 @@ describe("update-slide-comment", () => {
     ).toBe(false);
   });
 
-  it("rejects combined content and resolution updates", async () => {
+  it("accepts content and resolution in one update", () => {
     expect(
       (action as any).schema.safeParse({
         id: "c-1",
@@ -275,19 +330,6 @@ describe("update-slide-comment", () => {
         content: "Changed",
         resolved: true,
       }).success,
-    ).toBe(false);
-
-    await expect(
-      run({
-        id: "c-1",
-        deckId: "deck-1",
-        content: "Changed",
-        resolved: true,
-      }),
-    ).rejects.toThrow("not both");
-    expect(state.rows[0]).toMatchObject({
-      content: "Original text",
-      resolved: false,
-    });
+    ).toBe(true);
   });
 });

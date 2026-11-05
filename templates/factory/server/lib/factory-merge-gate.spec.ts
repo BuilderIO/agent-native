@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GitHubRequestError } from "../triage/github-client.js";
 import { createCapturingTripwireSink } from "../tripwire/testing.js";
 import type { TripwireSink } from "../tripwire/types.js";
+import recordedGate from "../workflow/stories/02-builder-to-merge/fixtures/provider.json";
 import {
   MERGE_GATE_LIMITS,
   evaluateMergeGate,
@@ -10,9 +11,12 @@ import {
 } from "./factory-merge-gate.js";
 import {
   approvedReview,
+  changedSourceFile,
+  changedTestFile,
   fakeGitHub,
   observedAt,
   pullRequestSummary,
+  verifiedBody,
 } from "./factory-pull-request.fixture.js";
 import type { GitHubClient } from "./factory-pull-request.js";
 
@@ -271,6 +275,53 @@ describe("evaluateMergeGate", () => {
     );
   });
 
+  describe("checks on a real pull request", () => {
+    const checksOf = (...groups: [string, string, number][]) =>
+      fakeGitHub({
+        getPullRequestChecks: vi.fn().mockResolvedValue({
+          checks: groups.flatMap(([name, state, count]) =>
+            Array.from({ length: count }, (_, index) => ({
+              name: `${name} ${index}`,
+              state,
+              observedAt,
+            })),
+          ),
+          checksCoverage: "complete",
+        }),
+      });
+
+    it("does not refuse for checks when passed ones sit beside 33 skipped ones", async () => {
+      const result = await gate(
+        checksOf(["job", "passed", 34], ["skipped job", "informational", 33]),
+      );
+
+      expect(codes(result)).not.toContain("checks_not_green");
+    });
+
+    it("refuses when every check was skipped, and says nothing passed", async () => {
+      const result = await gate(checksOf(["skipped job", "informational", 33]));
+
+      expect(codes(result)).toContain("checks_not_green");
+      expect(result.reasons[0]?.message).toContain("none passed");
+    });
+
+    it("refuses on cancelled checks and names them, not the skipped ones", async () => {
+      const result = await gate(
+        checksOf(
+          ["job", "passed", 34],
+          ["skipped job", "informational", 33],
+          ["cancelled job", "cancelled", 2],
+        ),
+      );
+
+      const reason = result.reasons.find(
+        (found) => found.code === "checks_not_green",
+      );
+      expect(reason?.message).toContain("cancelled job 0 (cancelled)");
+      expect(reason?.message).not.toContain("skipped job");
+    });
+  });
+
   it("refuses while a review thread is unresolved, and counts it", async () => {
     const github = fakeGitHub({
       listPullRequestReviewThreads: vi.fn().mockResolvedValue({
@@ -385,13 +436,11 @@ describe("evaluateMergeGate", () => {
         ),
     });
     const atLimit = fakeGitHub({
-      getPullRequestSummary: vi.fn().mockResolvedValue(
-        pullRequestSummary({
-          additions: 1_000,
-          deletions: 500,
-          changedFiles: 1,
-        }),
-      ),
+      getPullRequestSummary: vi
+        .fn()
+        .mockResolvedValue(
+          pullRequestSummary({ additions: 1_000, deletions: 500 }),
+        ),
     });
 
     expect(codes(await gate(manyFiles))).toEqual(["diff_too_large"]);
@@ -409,7 +458,9 @@ describe("evaluateMergeGate", () => {
     ["a payment path", "templates/forms/server/lib/payments.ts"],
   ])("refuses %s as never-automate", async (_label, file) => {
     const github = fakeGitHub({
-      listPullRequestChangedFiles: vi.fn().mockResolvedValue([file]),
+      listPullRequestChangedFiles: vi
+        .fn()
+        .mockResolvedValue([file, changedTestFile]),
     });
 
     const result = await gate(github);
@@ -425,12 +476,15 @@ describe("evaluateMergeGate", () => {
     const publishable = fakeGitHub({
       listPullRequestChangedFiles: vi
         .fn()
-        .mockResolvedValue(["packages/pinpoint/src/index.ts"]),
+        .mockResolvedValue(["packages/pinpoint/src/index.ts", changedTestFile]),
     });
     const owned = fakeGitHub({
       listPullRequestChangedFiles: vi
         .fn()
-        .mockResolvedValue(["templates/clips/app/components/Player.tsx"]),
+        .mockResolvedValue([
+          "templates/clips/app/components/Player.tsx",
+          changedTestFile,
+        ]),
     });
 
     expect(codes(await gate(publishable))).toEqual(["publishable_package"]);
@@ -729,6 +783,295 @@ describe("the approving review", () => {
   });
 });
 
+/** An otherwise clean pull request whose description and changed files are the test's to set. */
+function proposing(
+  input: {
+    body?: string | null;
+    files?: readonly string[];
+    summary?: Record<string, unknown>;
+  } = {},
+) {
+  const files = input.files ?? [changedSourceFile, changedTestFile];
+  return fakeGitHub({
+    getPullRequestSummary: vi.fn().mockResolvedValue(
+      pullRequestSummary({
+        body: input.body === undefined ? verifiedBody : input.body,
+        changedFiles: files.length,
+        ...input.summary,
+      }),
+    ),
+    listPullRequestChangedFiles: vi.fn().mockResolvedValue([...files]),
+  });
+}
+
+describe("the regression test rule", () => {
+  it("refuses a code change with no test change, naming the code and nothing of the description", async () => {
+    const result = await gate(
+      proposing({
+        files: [changedSourceFile],
+        body: `${verifiedBody}\n\nPLANTED-BODY-TEXT`,
+      }),
+    );
+
+    expect(codes(result)).toEqual(["no_regression_test"]);
+    expect(result.eligible).toBe(false);
+    expect(result.reasons[0]?.message).toBe(
+      `The pull request changes code (${changedSourceFile}) but changes no test file; a regression test that fails without the change is required.`,
+    );
+    expect(result.reasons[0]?.message).not.toContain("PLANTED");
+  });
+
+  it("names at most five code files and counts the rest", async () => {
+    const files = Array.from(
+      { length: 7 },
+      (_, index) => `templates/forms/app/part-${index}.ts`,
+    );
+
+    const result = await gate(proposing({ files }));
+
+    expect(codes(result)).toEqual(["no_regression_test"]);
+    expect(result.reasons[0]?.message).toContain("part-4.ts and 2 more");
+    expect(result.reasons[0]?.message).not.toContain("part-5.ts");
+  });
+
+  it.each([
+    "templates/forms/app/FormList.spec.ts",
+    "templates/forms/app/FormList.test.tsx",
+    "templates/forms/scripts/check.spec.js",
+    "templates/forms/__tests__/helpers.ts",
+    "templates/forms/e2e/editor.ts",
+    "templates/forms/tests/links.ts",
+  ])("is met by a changed test at %s", async (testPath) => {
+    const result = await gate(
+      proposing({ files: [changedSourceFile, testPath] }),
+    );
+
+    expect(codes(result)).toEqual([]);
+    expect(result.eligible).toBe(true);
+  });
+
+  it("does not ask a test-only change for another test", async () => {
+    const result = await gate(proposing({ files: [changedTestFile] }));
+
+    expect(codes(result)).toEqual([]);
+  });
+
+  it("is not asked of a pull request that is only docs and a changeset", async () => {
+    const result = await gate(
+      proposing({ files: ["docs/guide.md", ".changeset/docs-fix.md"] }),
+    );
+
+    expect(codes(result)).toEqual([]);
+    expect(result.eligible).toBe(true);
+  });
+
+  it.each([
+    ["a package manifest", ["templates/forms/package.json"]],
+    [
+      "a manifest and its lockfile",
+      ["templates/forms/package.json", "pnpm-lock.yaml"],
+    ],
+    ["a TypeScript config", ["templates/forms/tsconfig.json"]],
+    ["a tool config", ["templates/forms/vite.config.ts"]],
+  ])(
+    "is not asked of %s, which the security rule already holds",
+    async (_label, files) => {
+      const result = await gate(proposing({ files }));
+
+      expect(codes(result)).toEqual(["security"]);
+    },
+  );
+
+  it("is still asked when docs or a manifest sit beside code", async () => {
+    const withDocs = await gate(
+      proposing({ files: ["docs/guide.md", changedSourceFile] }),
+    );
+    const withManifest = await gate(
+      proposing({
+        files: ["templates/forms/package.json", changedSourceFile],
+      }),
+    );
+
+    expect(codes(withDocs)).toEqual(["no_regression_test"]);
+    expect(withDocs.reasons[0]?.message).toContain(changedSourceFile);
+    expect(withDocs.reasons[0]?.message).not.toContain("guide.md");
+    expect(codes(withManifest)).toEqual(["security", "no_regression_test"]);
+    expect(withManifest.reasons[1]?.message).not.toContain("package.json");
+  });
+
+  it("adds no second reason when the changed files could not be read", async () => {
+    const result = await gate(
+      proposing({
+        files: [changedSourceFile],
+        summary: { changedFiles: 3 },
+      }),
+    );
+
+    expect(codes(result)).toEqual(["changed_files_unreadable"]);
+  });
+
+  it("adds nothing for a diff too large to read, whose files are never listed", async () => {
+    const github = proposing({
+      files: [changedSourceFile],
+      summary: { changedFiles: MERGE_GATE_LIMITS.maxChangedFiles + 1 },
+    });
+
+    expect(codes(await gate(github))).toEqual(["diff_too_large"]);
+    expect(github.listPullRequestChangedFiles).not.toHaveBeenCalled();
+  });
+
+  it("is reported beside the rules the pull request already broke, never in place of them", async () => {
+    const result = await gate(
+      proposing({
+        files: ["packages/pinpoint/src/index.ts"],
+      }),
+    );
+
+    expect(codes(result)).toEqual([
+      "publishable_package",
+      "no_regression_test",
+    ]);
+  });
+});
+
+describe("the verification evidence rule", () => {
+  it.each([
+    ["no description", null],
+    ["an empty description", ""],
+    ["a description with no Verified heading", "Fixes the sorting of forms."],
+    ["a Verified heading with nothing under it", "### Verified"],
+    [
+      "a Verified heading with a few words under it",
+      "### Verified\n\nlooks ok",
+    ],
+    [
+      "a Verified heading that runs into the footer",
+      "### Verified\n\n---\n\nTo clone this PR locally use the GitHub CLI.",
+    ],
+    [
+      "a Verified heading only inside a code fence",
+      "```\n### Verified\nRan the form list spec and it passed.\n```",
+    ],
+  ])("refuses %s", async (_label, body) => {
+    const result = await gate(proposing({ body }));
+
+    expect(codes(result)).toEqual(["no_verification_evidence"]);
+    expect(result.eligible).toBe(false);
+    expect(result.reasons[0]?.message).toBe(
+      "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked.",
+    );
+  });
+
+  it.each([
+    [
+      "text",
+      "### Verified\n\nRan the form list spec and it passed with the change.",
+    ],
+    [
+      "a screenshot alone",
+      '### Verified\n\n<img src="https://cdn.example.test/after.webp" alt="" />',
+    ],
+    [
+      "a recording link alone",
+      "### Verified\n\nhttps://cdn.example.test/run.mp4",
+    ],
+    [
+      "Builder's own block",
+      "Summary\n\n<!-- FUSION_SCREENSHOTS_START -->\n### Verified\n\n[Watch](https://www.builder.io/app/timelines/abc)\n\n<!-- FUSION_SCREENSHOTS_END -->",
+    ],
+  ])("accepts %s under the heading", async (_label, body) => {
+    const result = await gate(proposing({ body }));
+
+    expect(codes(result)).toEqual([]);
+    expect(result.eligible).toBe(true);
+  });
+
+  it("says in the words story 2's recording shows the triage owner", async () => {
+    const result = await gate(proposing({ body: null }));
+    const recorded = recordedGate["factory.mergeGate"].evidenceMissing.output;
+
+    expect(result.reasons.map((reason) => reason.message)).toEqual(
+      recorded.reasons,
+    );
+    expect(codes(result)).toEqual(recorded.reasonCodes);
+  });
+
+  it("is asked of a docs-only pull request and a dependency upgrade too", async () => {
+    const docs = ["docs/guide.md", ".changeset/docs-fix.md"];
+    const upgrade = ["templates/forms/package.json"];
+
+    expect(codes(await gate(proposing({ files: docs, body: null })))).toEqual([
+      "no_verification_evidence",
+    ]);
+    expect((await gate(proposing({ files: docs }))).eligible).toBe(true);
+    // The security rule holds a manifest on its own; the missing evidence is named beside it.
+    expect(
+      codes(await gate(proposing({ files: upgrade, body: null }))),
+    ).toEqual(["security", "no_verification_evidence"]);
+  });
+
+  it("needs only the description, so it is reported when the files are unreadable or too many", async () => {
+    const unreadable = proposing({
+      body: null,
+      files: [changedSourceFile],
+      summary: { changedFiles: 3 },
+    });
+    const tooMany = proposing({
+      body: null,
+      summary: { changedFiles: MERGE_GATE_LIMITS.maxChangedFiles + 1 },
+    });
+
+    expect(codes(await gate(unreadable))).toEqual([
+      "changed_files_unreadable",
+      "no_verification_evidence",
+    ]);
+    expect(codes(await gate(tooMany))).toEqual([
+      "diff_too_large",
+      "no_verification_evidence",
+    ]);
+  });
+
+  it("says nothing of the description's text in its reason", async () => {
+    const result = await gate(
+      proposing({ body: "PLANTED-BODY-TEXT with no heading at all." }),
+    );
+
+    expect(codes(result)).toEqual(["no_verification_evidence"]);
+    expect(JSON.stringify(result)).not.toContain("PLANTED");
+  });
+
+  it("judges only a pull request that is open, so a closed or merged one keeps its single reason", async () => {
+    const closed = proposing({ body: null, summary: { state: "closed" } });
+    const merged = proposing({
+      body: null,
+      summary: { state: "closed", merged: true },
+    });
+
+    expect(codes(await gate(closed))).toEqual(["pull_request_closed"]);
+    expect(codes(await gate(merged))).toEqual(["already_merged"]);
+  });
+
+  it("never clears a pull request another rule refuses, and follows the test rule when both apply", async () => {
+    const byPerson = await gate(
+      proposing({ body: null, summary: { userLogin: "octocat" } }),
+    );
+    const both = await gate(
+      proposing({ body: null, files: [changedSourceFile] }),
+    );
+
+    expect(codes(byPerson)).toEqual([
+      "author_not_builder",
+      "no_verification_evidence",
+    ]);
+    expect(codes(both)).toEqual([
+      "no_regression_test",
+      "no_verification_evidence",
+    ]);
+    expect(byPerson.eligible).toBe(false);
+    expect(both.eligible).toBe(false);
+  });
+});
+
 describe("merge_gate_snapshot tripwire", () => {
   const TOKEN = "ghp_FAKE0000aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const EMAIL = "pat@example.com";
@@ -737,7 +1080,7 @@ describe("merge_gate_snapshot tripwire", () => {
   it("records one snapshot of what the gate judged, never the text or the full SHA", async () => {
     const pullRequest = pullRequestSummary({
       title: `Tighten form sorting for ${EMAIL} ${TOKEN}`,
-      body: "Sorts by name. Ask the reviewer.",
+      body: "Sorts by name. Ask the reviewer.\n\n### Verified\n\nRan the planted sorting spec twice.",
       headSha: FULL_SHA,
     });
     const passing = () =>
@@ -767,10 +1110,39 @@ describe("merge_gate_snapshot tripwire", () => {
       FULL_SHA,
       "Tighten form sorting",
       "Sorts by name",
+      "planted sorting spec",
       "Please check",
     ]) {
       expect(raw).not.toContain(text);
     }
+    expect(events).toHaveLength(1);
+    expect(events[0]?.details).toMatchObject({
+      eligible: true,
+      clauses: "",
+      verificationPresent: true,
+      verificationHasMedia: false,
+    });
+  });
+
+  it("records that the description had no evidence, as a flag and a clause name and nothing of its text", async () => {
+    const { sink, events } = createCapturingTripwireSink();
+    const github = fakeGitHub({
+      getPullRequestSummary: vi.fn().mockResolvedValue(
+        pullRequestSummary({
+          body: "Planted text. ### Verified is not a heading here.",
+        }),
+      ),
+    });
+
+    await gate(github, { tripwire: sink });
+
+    expect(events[0]?.details).toMatchObject({
+      eligible: false,
+      clauses: "no_verification_evidence",
+      verificationPresent: false,
+      verificationHasMedia: false,
+    });
+    expect(JSON.stringify(events)).not.toContain("Planted text");
   });
 });
 

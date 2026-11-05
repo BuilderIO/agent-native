@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import {
   uploadFile,
   getActiveFileUploadProvider,
@@ -107,6 +108,7 @@ export async function putObject(input: {
     );
   }
   const localPath = path.join(LOCAL_ROOT, input.key);
+  noteExternalWrite("local-disk");
   await fs.mkdir(path.dirname(localPath), { recursive: true });
   await fs.writeFile(localPath, input.body);
   return { key: `${LOCAL_PREFIX}${input.key}` };

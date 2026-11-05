@@ -2,8 +2,13 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
+import { fetchTransport } from "../client/fetch-transport.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -143,7 +148,7 @@ describe("embedApp", () => {
     expect(html).not.toContain("document.head.prepend(base)");
     expect(html).toContain("resolveTransplantAppDocumentSource");
     expect(html).toContain('"X-Agent-Native-Embed-Transplant": "1"');
-    expect(html).toContain('Accept: "application/json"');
+    expect(html).toContain('Accept: "text/html"');
     expect(html).toContain("const data = await response.json()");
     expect(html).toContain('typeof data.location === "string"');
     expect(html).toContain("moduleCodeToClassicAsync");
@@ -472,7 +477,9 @@ describe("embedApp", () => {
       pathname: "/deck/reports",
       search: "",
     };
+    const announced: string[] = [];
     const windowObject: Record<string, unknown> = {
+      dispatchEvent: (event: Event) => announced.push(event.type),
       location: locationObject,
       history: {
         state: null,
@@ -541,9 +548,65 @@ describe("embedApp", () => {
       },
     });
 
+    // The app reads its session again over the runtime's fetch.
+    expect(announced).toEqual([FETCH_TRANSPORT_CHANGED_EVENT]);
     const installedFetch = windowObject.fetch as (
-      input: string,
+      input: string | Request,
+      init?: RequestInit,
     ) => Promise<Response>;
+    // On the target's mount its reads are signed: a transport of their own.
+    const signedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(typeof signedTransport).toBe("object");
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "draft-1" }),
+      }),
+    );
+    const requestWrite = forwarded.pop();
+    expect(requestWrite?.input).toBe(
+      "https://app.example/deck/_agent-native/actions/save",
+    );
+    expect(requestWrite?.init?.method).toBe("POST");
+    expect(requestWrite?.init?.body).toBeInstanceOf(ArrayBuffer);
+    expect(
+      new TextDecoder().decode(requestWrite?.init?.body as ArrayBuffer),
+    ).toBe('{"id":"draft-1"}');
+    expect(new Headers(requestWrite?.init?.headers).get("Authorization")).toBe(
+      "Bearer deck-token",
+    );
+
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/read"),
+    );
+    const requestRead = forwarded.pop();
+    expect(requestRead?.init?.method).toBe("GET");
+    expect(requestRead?.init).not.toHaveProperty("body");
+
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/read", {
+        cache: "no-store",
+        integrity: "sha256-abc",
+        referrerPolicy: "no-referrer",
+      }),
+    );
+    expect(forwarded.pop()?.init).toMatchObject({
+      cache: "no-store",
+      integrity: "sha256-abc",
+      referrerPolicy: "no-referrer",
+    });
+
+    const spent = new Request(
+      "https://host.example/deck/_agent-native/actions/save",
+      { method: "POST", body: "old" },
+    );
+    await spent.text();
+    await installedFetch(spent, { body: "new" });
+    const replaced = forwarded.pop();
+    expect(replaced?.init?.method).toBe("POST");
+    expect(replaced?.init?.body).toBe("new");
+
     await installedFetch("/deck/_agent-native/actions/action");
     const sameMountHeaders = new Headers(forwarded[0]?.init?.headers);
     expect(sameMountHeaders.get("Authorization")).toBe("Bearer deck-token");
@@ -614,6 +677,107 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    // Off the target's mount its reads go out unsigned, still without
+    // cookies: neither the signed transport nor the page's.
+    const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(unsignedTransport).not.toBe(signedTransport);
+    expect(unsignedTransport).not.toBe(fetch);
+    expect(typeof unsignedTransport).toBe("object");
+
+    locationObject.pathname = "/deck/reports";
+    locationObject.href = "https://host.example/deck/reports";
+    expect(fetchTransport(installedFetch as typeof fetch)).toBe(
+      signedTransport,
+    );
+  });
+
+  it("tells a blocked tab from an opened one", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource.html;
+    const source = html.match(
+      /    function openBlankTab\(url\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+    const open = vi.fn();
+    const openBlankTab = new Function(
+      "window",
+      `${source} return openBlankTab;`,
+    )({ open }) as (url: string) => boolean;
+
+    const tab = { opener: {} };
+    open.mockReturnValueOnce(tab);
+    expect(openBlankTab("https://app.example/x")).toBe(true);
+    expect(tab.opener).toBeNull();
+    expect(open).toHaveBeenCalledWith("https://app.example/x", "_blank");
+
+    open.mockReturnValueOnce(null);
+    expect(openBlankTab("https://app.example/x")).toBe(false);
+  });
+
+  it("renews a session in place through the host, within its attempts", async () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource.html;
+    const source = html.match(
+      /    async function renewTransplantedEmbedSession\(\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+    expect(html).toContain(
+      `window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =`,
+    );
+
+    const makeRenew = (
+      args: Record<string, unknown>,
+      data: Record<string, unknown> | Error,
+    ) => {
+      const callTool = vi.fn(async () => {
+        if (data instanceof Error) throw data;
+        return data;
+      });
+      const argsFor = vi.fn((..._params: unknown[]) => args);
+      const renew = new Function(
+        "embedSessionArgsFor",
+        "callEmbedSessionTool",
+        "parseToolResult",
+        `let embedSessionRefreshAttempts = 0;
+         const maxEmbedSessionRefreshAttempts = 2;
+         const openStartUrl = "/start";
+         const openUrl = "/open";
+         const activeEmbedSessionTicket = "ticket";
+         ${source}
+         return renewTransplantedEmbedSession;`,
+      )(argsFor, callTool, (value: unknown) => value) as () => Promise<boolean>;
+      return { renew, callTool, argsFor };
+    };
+
+    const scoped = { sourceTicket: "ticket", renewInPlace: true };
+    const renewed = makeRenew(scoped, { renewed: true });
+    await expect(renewed.renew()).resolves.toBe(true);
+    await expect(renewed.renew()).resolves.toBe(true);
+    await expect(renewed.renew()).resolves.toBe(true);
+    expect(renewed.callTool).toHaveBeenCalledTimes(3);
+    expect(renewed.callTool).toHaveBeenCalledWith(scoped);
+    // It renews the session in use, not the one the tool result first opened.
+    expect(renewed.argsFor).toHaveBeenCalledWith("/start", true, "ticket");
+
+    const refused = makeRenew(scoped, { renewed: false });
+    await expect(refused.renew()).resolves.toBe(false);
+    await expect(refused.renew()).resolves.toBe(false);
+    await expect(refused.renew()).resolves.toBe(false);
+    expect(refused.callTool).toHaveBeenCalledTimes(2);
+
+    const failed = makeRenew(scoped, new Error("host refused"));
+    await expect(failed.renew()).resolves.toBe(false);
+
+    const unscoped = makeRenew({ url: "/open" }, { renewed: true });
+    await expect(unscoped.renew()).resolves.toBe(false);
+    expect(unscoped.callTool).not.toHaveBeenCalled();
   });
 
   it("prefers canonical metadata when legacy open-link fields conflict", () => {

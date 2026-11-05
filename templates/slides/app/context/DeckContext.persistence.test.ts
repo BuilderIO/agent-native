@@ -135,7 +135,6 @@ function setupFetch(options?: {
   };
   staleContentConflicts?: boolean;
   staleContentFailures?: { deckId: string; count: number };
-  getDeckFailures?: { deckId: string; count: number };
   missingDeckStatus?: number;
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
@@ -173,7 +172,6 @@ function setupFetch(options?: {
   >();
   const patchAttempts = new Map<string, number>();
   const revisionConflictRevisions = new Map<string, string[]>();
-  const getDeckAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
   const cloneDeck = (deck: Deck | null): Deck | null =>
     deck ? (JSON.parse(JSON.stringify(deck)) as Deck) : null;
@@ -461,18 +459,6 @@ function setupFetch(options?: {
         return Promise.reject(new Error("get-deck unavailable"));
       }
       if (accessibleDeck) {
-        const attempts = (getDeckAttempts.get(deckId) ?? 0) + 1;
-        getDeckAttempts.set(deckId, attempts);
-        if (
-          deckId === options?.getDeckFailures?.deckId &&
-          attempts <= options.getDeckFailures.count
-        ) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ error: "Temporary read failure" }), {
-              status: 500,
-            }),
-          );
-        }
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
           const deferredDeck = cloneDeck(accessibleDeck)!;
@@ -502,6 +488,28 @@ function setupFetch(options?: {
           new Response(JSON.stringify({ error: "Deck not found" }), {
             status: 404,
           }),
+        );
+      }
+      const operations = Array.isArray(body.operations)
+        ? (body.operations as { op?: unknown; slideId?: unknown }[])
+        : [];
+      const missingSlideId = operations.find(
+        (operation) =>
+          operation.op === "patch-slide" &&
+          !(accessibleDeck?.slides ?? []).some(
+            (slide) => slide.id === operation.slideId,
+          ),
+      )?.slideId;
+      if (typeof missingSlideId === "string") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: `Cannot patch missing slide(s): ${missingSlideId}. These slides are not in this deck; no slides were changed.`,
+              errorCode: "slide_not_found",
+              details: { slideIds: [missingSlideId] },
+            }),
+            { status: 404 },
+          ),
         );
       }
       if (
@@ -2234,6 +2242,63 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
+  it("drops a queued edit to a slide deleted on the server instead of blocking saves", async () => {
+    const deckId = "deleted-slide-queued-edit-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const keptSlide = {
+      id: "slide-1",
+      content: "One",
+      notes: "",
+      layout: "title" as const,
+    };
+    const deletedSlide = {
+      id: "slide-2",
+      content: "Two",
+      notes: "",
+      layout: "content" as const,
+    };
+    const deck = {
+      id: deckId,
+      title: "Deleted slide deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [keptSlide, deletedSlide],
+    };
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    setAccessibleDeck({
+      ...deck,
+      updatedAt: "2026-05-12T00:00:01.000Z",
+      slides: [keptSlide],
+    });
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-2",
+        { content: "Local edit" },
+        { persistence: "immediate" },
+      );
+    });
+
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(1);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
   it.each([
     ["keep-mine", "Local notes", "Local notes"],
     ["use-latest", "Peer notes", "Peer notes"],
@@ -2680,6 +2745,60 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(1);
     expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeConflict);
+  });
+
+  it("reverts a slide the server refuses for a reveal and keeps the refusal visible", async () => {
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchStatus: 400,
+      patchResponse: {
+        error:
+          "Cannot save animations for slide slide-1: step 1 (reveal-first) now lands on a different element in the final HTML.",
+        errorCode: "slide_animation_retargeted",
+        details: {
+          reason: "retargeted",
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-first",
+        },
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "reveal-refused-deck",
+      title: "Reveal refused deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Edited one" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id).catch(() => {});
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe("One");
+    expect(getDeckSaveError(initial.id)).toMatchObject({
+      status: 400,
+      errorCode: "slide_animation_retargeted",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
   });
 
   it("fails fast on validation errors without exposing a redundant retry", async () => {
@@ -5350,30 +5469,30 @@ describe("DeckContext deck creation persistence", () => {
     const deckId = "resolve-latest-pending-fields-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     let safeWriteStartedWithFailedSave = false;
-    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
-      staleContentConflicts: true,
-      getDeckFailures: { deckId, count: 2 },
-      patchResponse: (body: Record<string, unknown>) => {
-        const operations = Array.isArray(body.operations)
-          ? body.operations
-          : [];
-        if (
-          operations.some(
-            (operation: unknown) =>
-              !!operation &&
-              typeof operation === "object" &&
-              "fields" in operation &&
-              !!operation.fields &&
-              typeof operation.fields === "object" &&
-              "notes" in operation.fields &&
-              operation.fields.notes === "Pending local notes",
-          )
-        ) {
-          safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
-        }
-        return { ok: true };
-      },
-    });
+    const { fetchMock, setAccessibleDeck, getPatchAttempts, failNextGetDeck } =
+      setupFetch({
+        staleContentConflicts: true,
+        patchResponse: (body: Record<string, unknown>) => {
+          const operations = Array.isArray(body.operations)
+            ? body.operations
+            : [];
+          if (
+            operations.some(
+              (operation: unknown) =>
+                !!operation &&
+                typeof operation === "object" &&
+                "fields" in operation &&
+                !!operation.fields &&
+                typeof operation.fields === "object" &&
+                "notes" in operation.fields &&
+                operation.fields.notes === "Pending local notes",
+            )
+          ) {
+            safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
+          }
+          return { ok: true };
+        },
+      });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -5407,6 +5526,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
 
+    failNextGetDeck(2);
     act(() => {
       result.current.updateSlide(
         deckId,

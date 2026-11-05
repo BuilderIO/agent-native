@@ -1,9 +1,19 @@
+import {
+  APP_STATE_BATCH_ROUTE_HEADER,
+  APP_STATE_SEQ_HEADER,
+  APP_STATE_WRITER_HEADER,
+  TAB_SCOPED_APP_STATE_KEYS,
+} from "../shared/app-state-routes.js";
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import {
   getBrowserTabId,
   isBrowserTabIdForCurrentDocument,
 } from "./browser-tab-id.js";
+import {
+  availableKeepaliveBytes,
+  reserveKeepaliveBytes,
+} from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
@@ -49,14 +59,40 @@ function requestSourceHeader(requestSource?: string): Record<string, string> {
   };
 }
 
+// This page load's writes are numbered in the order they're made, so the
+// server can skip one that lands after a newer write to its row (see
+// AppStateWriteOrder in the store). The tab id outlives a reload and the count
+// doesn't, so the writer is a fresh id per page load.
+const pageWriter = `page-${Date.now().toString(36)}-${Math.random()
+  .toString(36)
+  .slice(2, 12)}`;
+let lastWriteSeq = 0;
+
+function nextWriteSeq(): number {
+  lastWriteSeq += 1;
+  return lastWriteSeq;
+}
+
+function writerHeader(): Record<string, string> {
+  return { [APP_STATE_WRITER_HEADER]: pageWriter };
+}
+
+function writeOrderHeaders(seq: number): Record<string, string> {
+  return { ...writerHeader(), [APP_STATE_SEQ_HEADER]: String(seq) };
+}
+
 function browserTabHeaders(): Record<string, string> | undefined {
   return typeof window === "undefined"
     ? undefined
     : { "X-Agent-Native-Browser-Tab": getBrowserTabId() };
 }
 
+// Identifies the server row a key reaches, so writes and reads through
+// `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  return `${typeof window === "undefined" ? "" : getBrowserTabId()}:${key}`;
+  if (typeof window === "undefined") return `:${key}`;
+  const tab = getBrowserTabId();
+  return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
 }
 
 export function isClientAppStateMutationPending(key: string): boolean {
@@ -69,6 +105,8 @@ function runClientAppStateMutation<T>(
 ): Promise<T> {
   const id = requestKey(key);
   const previous = pendingMutations.get(id);
+  // A later write must not fold into one queued before this mutation.
+  queuedReplacements.delete(id);
   mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
   const mutation = (async () => {
     if (previous) await previous;
@@ -83,6 +121,467 @@ function runClientAppStateMutation<T>(
   pending = mutation.then(clearPending, clearPending);
   pendingMutations.set(id, pending);
   return mutation;
+}
+
+// Compare-and-sets and writes with an abort signal keep their own requests.
+// A write queued behind one never goes ahead of it when the page hides (see
+// flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
+// write may yet be aborted. Counts these per key until they settle.
+const unsettledBarriers = new Map<string, number>();
+
+function runBarrierMutation<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const id = requestKey(key);
+  unsettledBarriers.set(id, (unsettledBarriers.get(id) ?? 0) + 1);
+  const mutation = runClientAppStateMutation(key, operation);
+  const settle = () => {
+    const left = (unsettledBarriers.get(id) ?? 1) - 1;
+    if (left > 0) unsettledBarriers.set(id, left);
+    else unsettledBarriers.delete(id);
+  };
+  mutation.then(settle, settle);
+  return mutation;
+}
+
+interface Replacement {
+  method: "PUT" | "DELETE";
+  body?: string | undefined;
+  requestSource?: string | undefined;
+  keepalive?: boolean | undefined;
+}
+
+interface QueuedReplacement {
+  key: string;
+  replacement: Replacement;
+  started: boolean;
+  sent: boolean;
+  /** Whether the request on the wire actually carries keepalive. */
+  sentKeepalive: boolean;
+  /** This write's number in the page's order, given when it's made. */
+  seq: number;
+  pending?: Promise<void> | undefined;
+  result: Promise<unknown>;
+  running?: Promise<unknown>;
+  settle?: {
+    resolve: (value: unknown) => void;
+    reject: (error: unknown) => void;
+  };
+}
+
+// Screens rewrite the same key in bursts (a collection view settles its
+// navigation state a dozen times as it loads) and several keys at once (a
+// page switch writes navigation, selection and editor state together).
+// Writes that start in the same tick go out as one request, and each key
+// sends at most the write in flight and one more: a write made while another
+// waits replaces the waiting one's value, and every caller gets the result of
+// the latest. The server still ends on the latest value, as soon as the
+// earlier write lands.
+const queuedReplacements = new Map<string, QueuedReplacement>();
+const inFlightReplacements = new Map<string, QueuedReplacement>();
+let unsentReplacements: QueuedReplacement[] = [];
+let replacementFlushTimer: ReturnType<typeof setTimeout> | undefined;
+// Set once a server shows it has no batch route; every write then takes its
+// own route again until the page reloads.
+let batchWritesUnsupported = false;
+// Set once the batch route has answered this page. Until then, writes sent as
+// the page hides take their own routes: falling back from a server without
+// the batch route needs the page to live on and send them again.
+let batchRouteConfirmed = false;
+
+// Keepalive requests from this module (writes, deletes and compare-and-sets)
+// hold their bytes of the page's keepalive allowance until they finish. They
+// share it with action calls and leave room for a document save (see
+// keepalive-budget), and a request that doesn't fit goes without keepalive
+// rather than fail.
+const MAX_BATCH_WRITES = 100;
+
+function encodedLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function claimKeepalive(body: string | undefined): (() => void) | undefined {
+  return reserveKeepaliveBytes("app-state", encodedLength(body ?? ""));
+}
+
+/**
+ * The keepalive part of a request's init: omitted when the caller didn't ask,
+ * and false when the budget has no room for this body.
+ */
+function keepaliveRequest(
+  wanted: boolean | undefined,
+  body: string | undefined,
+): { init: { keepalive?: boolean }; release: () => void } {
+  const none = () => {};
+  if (wanted === undefined) return { init: {}, release: none };
+  const release = wanted ? claimKeepalive(body) : undefined;
+  return release
+    ? { init: { keepalive: true }, release }
+    : { init: { keepalive: false }, release: none };
+}
+
+function sameReplacement(a: Replacement, b: Replacement): boolean {
+  return (
+    a.method === b.method &&
+    a.body === b.body &&
+    a.requestSource === b.requestSource
+  );
+}
+
+function mergeReplacement(
+  id: string,
+  target: QueuedReplacement,
+  replacement: Replacement,
+): Promise<unknown> {
+  target.replacement = {
+    ...replacement,
+    keepalive: replacement.keepalive || target.replacement.keepalive,
+  };
+  mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
+  return target.result;
+}
+
+function replaceClientAppState(
+  key: string,
+  replacement: Replacement,
+): Promise<unknown> {
+  appStateUrl(key);
+  const id = requestKey(key);
+  const queued = queuedReplacements.get(id);
+  if (queued) return mergeReplacement(id, queued, replacement);
+  const inFlight = inFlightReplacements.get(id);
+  if (inFlight && inFlight.pending === pendingMutations.get(id)) {
+    // Not sent yet: it can still carry this value instead.
+    if (!inFlight.sent) return mergeReplacement(id, inFlight, replacement);
+    // The request on the wire already writes this, and nothing follows it,
+    // as long as it also survives the page when this caller needs that.
+    if (
+      sameReplacement(inFlight.replacement, replacement) &&
+      (inFlight.sentKeepalive || !wantsKeepalive(replacement))
+    ) {
+      return inFlight.result;
+    }
+  }
+  const entry = {
+    key,
+    replacement,
+    started: false,
+    sent: false,
+    sentKeepalive: false,
+    seq: nextWriteSeq(),
+  } as QueuedReplacement;
+  entry.result = runClientAppStateMutation(key, () => startReplacement(entry));
+  entry.pending = pendingMutations.get(id);
+  if (!entry.started) queuedReplacements.set(id, entry);
+  return entry.result;
+}
+
+// Hands an entry to the next flush. Runs when the key's earlier write settles,
+// or sooner when the page is unloading (see flushOnPageHide).
+function startReplacement(entry: QueuedReplacement): Promise<unknown> {
+  if (entry.running) return entry.running;
+  const id = requestKey(entry.key);
+  entry.started = true;
+  if (queuedReplacements.get(id) === entry) queuedReplacements.delete(id);
+  inFlightReplacements.set(id, entry);
+  entry.running = new Promise<unknown>((resolve, reject) => {
+    entry.settle = { resolve, reject };
+    unsentReplacements.push(entry);
+    watchPageHide();
+    // A hidden page may never run the timer, so the write goes now.
+    if (pageIsHiding()) flushReplacements();
+    else replacementFlushTimer ??= setTimeout(flushReplacements, 0);
+  }).finally(() => {
+    if (inFlightReplacements.get(id) === entry) {
+      inFlightReplacements.delete(id);
+    }
+  });
+  return entry.running;
+}
+
+// Once the page starts hiding, a write may not get another chance to go out,
+// so waiting writes go at once and every write sent from then on asks for
+// keepalive (within the budget). That covers writes that pagehide handlers
+// make before or after this one, and writes made while the tab is hidden.
+let pageHidden = false;
+let pageHideWatched = false;
+
+function pageIsHiding(): boolean {
+  return (
+    pageHidden ||
+    (typeof document !== "undefined" && document.visibilityState === "hidden")
+  );
+}
+
+function wantsKeepalive(replacement: Replacement): boolean {
+  return replacement.keepalive === true || pageIsHiding();
+}
+
+function watchPageHide(): void {
+  if (
+    pageHideWatched ||
+    typeof window === "undefined" ||
+    typeof window.addEventListener !== "function" ||
+    typeof document === "undefined"
+  ) {
+    return;
+  }
+  pageHideWatched = true;
+  window.addEventListener("pagehide", flushOnPageHide);
+  window.addEventListener("pageshow", () => {
+    pageHidden = false;
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushReplacements();
+  });
+}
+
+function flushOnPageHide(): void {
+  pageHidden = true;
+  // A keepalive write or delete still waiting for an earlier write to its key
+  // would never start once the page is gone, so it goes now, alongside that
+  // write. It's numbered after the earlier one, so the server skips the
+  // earlier one if it lands last. The server keeps no record of a delete,
+  // though, so an earlier write landing after one brings the row back.
+  // Nothing goes ahead of a compare-and-set or a signalled write.
+  for (const entry of [...queuedReplacements.values()]) {
+    if (unsettledBarriers.has(requestKey(entry.key))) continue;
+    if (entry.replacement.keepalive) {
+      // Its caller hears how it went through entry.result, once the earlier
+      // write settles.
+      startReplacement(entry).catch(() => {});
+    }
+  }
+  flushReplacements();
+}
+
+function flushReplacements(): void {
+  if (replacementFlushTimer !== undefined) clearTimeout(replacementFlushTimer);
+  replacementFlushTimer = undefined;
+  const entries = unsentReplacements;
+  unsentReplacements = [];
+  for (const entry of entries) entry.sent = true;
+  const plain = entries.filter((entry) => !wantsKeepalive(entry.replacement));
+  for (let i = 0; i < plain.length; i += MAX_BATCH_WRITES) {
+    sendChunk(plain.slice(i, i + MAX_BATCH_WRITES), false);
+  }
+  // Keepalive writes are packed into requests that each fit what is left of
+  // the budget, so one large write can't take the others' keepalive away.
+  let chunk: QueuedReplacement[] = [];
+  let chunkBytes = BATCH_BODY_OVERHEAD;
+  for (const entry of entries) {
+    if (!wantsKeepalive(entry.replacement)) continue;
+    // Each item after the first adds a comma.
+    const bytes = encodedLength(batchItem(entry));
+    if (
+      chunk.length > 0 &&
+      (chunk.length >= MAX_BATCH_WRITES ||
+        chunkBytes + 1 + bytes > availableKeepaliveBytes("app-state"))
+    ) {
+      sendChunk(chunk, true);
+      chunk = [];
+      chunkBytes = BATCH_BODY_OVERHEAD;
+    }
+    chunkBytes += chunk.length > 0 ? 1 + bytes : bytes;
+    chunk.push(entry);
+  }
+  if (chunk.length > 0) sendChunk(chunk, true);
+}
+
+function sendChunk(chunk: QueuedReplacement[], keepalive: boolean): void {
+  if (
+    chunk.length === 1 ||
+    batchWritesUnsupported ||
+    (pageIsHiding() && !batchRouteConfirmed)
+  ) {
+    for (const entry of chunk) sendEach(entry, keepalive);
+  } else {
+    void sendBatch(chunk, keepalive);
+  }
+}
+
+function sendEach(entry: QueuedReplacement, keepalive: boolean): void {
+  void sendReplacement(entry, keepalive).then(
+    entry.settle?.resolve,
+    entry.settle?.reject,
+  );
+}
+
+type BatchWriteResult =
+  | { ok: true; value: unknown }
+  | { ok: false; status: number; error: string };
+
+const BATCH_BODY_OVERHEAD = encodedLength(`{"writes":[]}`);
+
+function batchItem({
+  key,
+  seq,
+  replacement: { method, body, requestSource },
+}: QueuedReplacement): string {
+  const source = requestSourceHeader(requestSource)["X-Request-Source"];
+  return `{"key":${JSON.stringify(key)}${
+    method === "DELETE" ? `,"delete":true` : `,"value":${body}`
+  }${source ? `,"requestSource":${JSON.stringify(source)}` : ""},"seq":${seq}}`;
+}
+
+async function sendBatch(
+  entries: QueuedReplacement[],
+  wantKeepalive: boolean,
+): Promise<void> {
+  const body = `{"writes":[${entries.map(batchItem).join(",")}]}`;
+  const operation = `Write application state [${entries
+    .map(({ key }) => key)
+    .join(", ")}]`;
+  const keepalive = keepaliveRequest(wantKeepalive || undefined, body);
+  for (const entry of entries)
+    entry.sentKeepalive = keepalive.init.keepalive === true;
+  let response: Response;
+  try {
+    response = await fetch(
+      agentNativePath("/_agent-native/application-state"),
+      {
+        method: "POST",
+        headers: { ...buildHeaders(), ...writerHeader() },
+        body,
+        ...keepalive.init,
+      },
+    );
+  } catch (error) {
+    for (const entry of entries) entry.settle?.reject(error);
+    return;
+  } finally {
+    keepalive.release();
+  }
+  // From here the route may have written: an answer that can't be read or
+  // doesn't make sense is an error for every caller, never a reason to send
+  // the writes again over whatever has changed since.
+  if (responseHeader(response, APP_STATE_BATCH_ROUTE_HEADER) === "1") {
+    batchRouteConfirmed = true;
+  }
+  let results: BatchWriteResult[];
+  try {
+    if (batchRouteAbsent(response)) {
+      batchWritesUnsupported = true;
+      void response.body?.cancel().catch(() => {});
+      for (const entry of entries) sendEach(entry, wantKeepalive);
+      return;
+    }
+    results = response.ok
+      ? parseBatchResults(await response.text(), entries.length, operation)
+      : await parseAppStateResponse<never>(response, operation);
+  } catch (error) {
+    for (const entry of entries) entry.settle?.reject(error);
+    return;
+  }
+  entries.forEach((entry, index) => {
+    const result = results[index] as BatchWriteResult;
+    if (result.ok) {
+      entry.settle?.resolve(result.value ?? null);
+      return;
+    }
+    const error = new Error(
+      `${entry.replacement.method === "PUT" ? "Write" : "Delete"} application state "${entry.key}" failed: ${result.error}`,
+    );
+    (error as { status?: number }).status = result.status;
+    entry.settle?.reject(error);
+  });
+}
+
+// A server without the batch route never runs it, so nothing was written:
+// it answers 404 or 405, or hands the POST to the app's pages, which answer
+// with HTML. The route marks its own answers and always answers JSON.
+function batchRouteAbsent(response: Response): boolean {
+  if (responseHeader(response, APP_STATE_BATCH_ROUTE_HEADER) === "1") {
+    return false;
+  }
+  if (response.status === 404 || response.status === 405) return true;
+  const type = responseHeader(response, "content-type") ?? "";
+  return response.ok && !/\bjson\b/i.test(type);
+}
+
+function responseHeader(response: Response, name: string): string | null {
+  try {
+    return response.headers.get(name);
+  } catch {
+    // coercion-ok: a response stand-in without headers (some test doubles)
+    // reads as one that doesn't carry the header.
+    return null;
+  }
+}
+
+function parseBatchResults(
+  raw: string,
+  count: number,
+  operation: string,
+): BatchWriteResult[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+  const results = (parsed as { results?: unknown } | null)?.results;
+  if (
+    Array.isArray(results) &&
+    results.length === count &&
+    results.every(isBatchWriteResult)
+  ) {
+    return results;
+  }
+  throw new Error(
+    `${operation} returned an unexpected payload: ${raw.slice(0, 200)}`,
+  );
+}
+
+function isBatchWriteResult(value: unknown): value is BatchWriteResult {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Record<string, unknown>;
+  return (
+    result.ok === true ||
+    (result.ok === false &&
+      typeof result.status === "number" &&
+      typeof result.error === "string")
+  );
+}
+
+async function sendReplacement(
+  entry: QueuedReplacement,
+  wantKeepalive: boolean,
+): Promise<unknown> {
+  const { key } = entry;
+  const { method, body, requestSource, keepalive: asked } = entry.replacement;
+  const order = writeOrderHeaders(entry.seq);
+  const keepalive = keepaliveRequest(
+    wantKeepalive ? true : asked === undefined ? undefined : false,
+    body,
+  );
+  entry.sentKeepalive = keepalive.init.keepalive === true;
+  let response: Response;
+  try {
+    response = await fetch(appStateUrl(key), {
+      method,
+      headers:
+        method === "PUT"
+          ? { ...buildHeaders(requestSource), ...order }
+          : {
+              "X-Agent-Native-CSRF": "1",
+              ...(browserTabHeaders() ?? {}),
+              ...requestSourceHeader(requestSource),
+              ...order,
+            },
+      ...(body === undefined ? {} : { body }),
+      ...keepalive.init,
+    });
+  } finally {
+    keepalive.release();
+  }
+  return parseAppStateResponse<unknown>(
+    response,
+    method === "PUT"
+      ? `Write application state "${key}"`
+      : `Delete application state "${key}"`,
+  );
 }
 
 async function parseAppStateResponse<T>(
@@ -288,19 +787,38 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
-  const write = runClientAppStateMutation(key, async () => {
-    const response = await fetch(appStateUrl(key), {
-      method: "PUT",
-      headers: buildHeaders(options.requestSource),
-      body: jsonBody(value),
-      keepalive: options.keepalive,
-      signal: options.signal,
-    });
-    return parseAppStateResponse<T>(
-      response,
-      `Write application state "${key}"`,
-    );
-  });
+  // Numbered now, in the order it was made, like a queued write.
+  const seq = options.signal ? nextWriteSeq() : 0;
+  const write = options.signal
+    ? runBarrierMutation(key, async () => {
+        const body = jsonBody(value);
+        const keepalive = keepaliveRequest(options.keepalive, body);
+        let response: Response;
+        try {
+          response = await fetch(appStateUrl(key), {
+            method: "PUT",
+            headers: {
+              ...buildHeaders(options.requestSource),
+              ...writeOrderHeaders(seq),
+            },
+            body,
+            ...keepalive.init,
+            signal: options.signal ?? null,
+          });
+        } finally {
+          keepalive.release();
+        }
+        return parseAppStateResponse<T>(
+          response,
+          `Write application state "${key}"`,
+        );
+      })
+    : (replaceClientAppState(key, {
+        method: "PUT",
+        body: jsonBody(value),
+        requestSource: options.requestSource,
+        keepalive: options.keepalive,
+      }) as Promise<T>);
   recordStateWrite(key, value, write, options.signal);
   return write;
 }
@@ -312,14 +830,21 @@ export async function compareAndSetClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  return runClientAppStateMutation(key, async () => {
-    const response = await fetch(appStateUrl(key), {
-      method: "PATCH",
-      headers: buildHeaders(options.requestSource),
-      body: jsonBody({ expected, next }),
-      keepalive: options.keepalive,
-      signal: options.signal,
-    });
+  return runBarrierMutation(key, async () => {
+    const body = jsonBody({ expected, next });
+    const keepalive = keepaliveRequest(options.keepalive, body);
+    let response: Response;
+    try {
+      response = await fetch(appStateUrl(key), {
+        method: "PATCH",
+        headers: buildHeaders(options.requestSource),
+        body,
+        ...keepalive.init,
+        signal: options.signal ?? null,
+      });
+    } finally {
+      keepalive.release();
+    }
     const result = await parseAppStateResponse<{ changed?: unknown }>(
       response,
       `Compare application state \"${key}\"`,
@@ -338,22 +863,36 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
-  const deletion = runClientAppStateMutation(key, async () => {
-    const response = await fetch(appStateUrl(key), {
-      method: "DELETE",
-      headers: {
-        "X-Agent-Native-CSRF": "1",
-        ...(browserTabHeaders() ?? {}),
-        ...requestSourceHeader(options.requestSource),
-      },
-      keepalive: options.keepalive,
-      signal: options.signal,
-    });
-    return parseAppStateResponse<unknown>(
-      response,
-      `Delete application state "${key}"`,
-    );
-  });
+  const seq = options.signal ? nextWriteSeq() : 0;
+  const deletion = options.signal
+    ? runBarrierMutation(key, async () => {
+        const keepalive = keepaliveRequest(options.keepalive, undefined);
+        let response: Response;
+        try {
+          response = await fetch(appStateUrl(key), {
+            method: "DELETE",
+            headers: {
+              "X-Agent-Native-CSRF": "1",
+              ...(browserTabHeaders() ?? {}),
+              ...requestSourceHeader(options.requestSource),
+              ...writeOrderHeaders(seq),
+            },
+            ...keepalive.init,
+            signal: options.signal ?? null,
+          });
+        } finally {
+          keepalive.release();
+        }
+        return parseAppStateResponse<unknown>(
+          response,
+          `Delete application state "${key}"`,
+        );
+      })
+    : replaceClientAppState(key, {
+        method: "DELETE",
+        requestSource: options.requestSource,
+        keepalive: options.keepalive,
+      });
   recordStateWrite(key, undefined, deletion, options.signal);
   await deletion;
 }

@@ -35,7 +35,10 @@ import {
   approvalKeyForPrivateHistory,
 } from "./approval-key.js";
 import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isRejectedRequestErrorCode,
+} from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
   stringifyToolUseInputForGateway,
@@ -250,8 +253,7 @@ function isInternalContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
