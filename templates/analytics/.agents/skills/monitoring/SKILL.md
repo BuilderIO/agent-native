@@ -77,6 +77,12 @@ selection to the `monitoring` application-state key.
 - Agent lookup: call `list-error-issues` first, then `get-error-issue` for
   stack, occurrence, and replay detail. These are separate from the external
   Sentry action and do not require a Sentry credential.
+- `environment` on `list-error-issues` (`production` or `beta`; omit for all)
+  finds issues with a stored occurrence in that traffic: the occurrence's URL
+  host decides, then its environment when it has no host, and with neither it
+  counts as production. `eventCount` and `usersAffected` stay across all
+  environments. Occurrences are sampled and capped per issue, so one rare beta
+  occurrence of a noisy issue can be gone.
 - See `docs/error-capture.md`.
 
 ## Session Replay ↔ Errors

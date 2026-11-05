@@ -29,8 +29,13 @@ import {
 import { unionAll } from "drizzle-orm/pg-core";
 
 import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
+import type { TrafficEnvironment } from "../../shared/traffic-environment";
 import { getDb, schema } from "../db/index.js";
 import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
+import {
+  trafficEnvironmentCondition,
+  urlHostSql,
+} from "./traffic-environment.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 export type IssueStatus = "unresolved" | "resolved" | "ignored";
@@ -1401,6 +1406,8 @@ export interface ListErrorIssuesFilters {
   app?: string;
   sessionRecordingId?: string;
   userId?: string;
+  /** Issues with an occurrence in this traffic. Omitted means all. */
+  environment?: TrafficEnvironment;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
   /**
@@ -1876,7 +1883,7 @@ export async function listErrorIssues(
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
   const sessionRecordingId = filters.sessionRecordingId?.trim();
   const userId = filters.userId?.trim();
-  if (sessionRecordingId || userId) {
+  if (sessionRecordingId || userId || filters.environment) {
     const occurrenceConditions: any[] = [
       eq(schema.errorEvents.issueId, schema.errorIssues.id),
       eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
@@ -1906,6 +1913,14 @@ export async function listErrorIssues(
           eq(schema.errorEvents.userId, userId),
           eq(schema.errorEvents.userKey, userId),
         ),
+      );
+    }
+    if (filters.environment) {
+      occurrenceConditions.push(
+        trafficEnvironmentCondition(filters.environment, {
+          host: urlHostSql(schema.errorEvents.url),
+          property: schema.errorEvents.environment,
+        }),
       );
     }
     conditions.push(

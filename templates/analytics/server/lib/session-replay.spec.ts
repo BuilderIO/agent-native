@@ -425,6 +425,7 @@ describe("session replay list page", () => {
         hideEmpty: true,
         hasNetworkErrors: true,
         visitorType: "internal",
+        environment: "beta",
         sort: "longest",
         offset: 100,
         limit: 50,
@@ -442,6 +443,9 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[1])).not.toContain("clips");
     expect(conditionText(conditions[2])).toContain("clips");
     expect(conditionText(orders[1])).toContain("nulls last");
+    // The app menu counts within the traffic on screen.
+    expect(conditionText(conditions[0])).toContain("hostname");
+    expect(conditionText(conditions[1])).toContain("hostname");
   });
 
   it("filters by exact observed sessions while retaining replay and access scope", async () => {
@@ -558,6 +562,37 @@ describe("session replay list page", () => {
     expect(where).toContain("org_id");
     expect(where).toContain("chunk_count");
     expect(where).toContain("event_count");
+  });
+
+  it("filters the simple list by traffic", async () => {
+    const conditions: unknown[] = [];
+    const query = {
+      orderBy: () => query,
+      groupBy: () => query,
+      limit: () => query,
+      offset: async () => [],
+      then: (resolve: (value: unknown[]) => void) =>
+        Promise.resolve([]).then(resolve),
+    };
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((condition: unknown) => {
+            conditions.push(condition);
+            return query;
+          }),
+        })),
+      })),
+    });
+
+    await expect(
+      listSessionRecordings(
+        { userEmail: "viewer@example.test", orgId: "org_1" },
+        { environment: "beta" },
+      ),
+    ).resolves.toEqual([]);
+
+    expect(conditionText(conditions)).toContain("hostname");
   });
 
   it("filters the simple list by the legacy pointer before associations migrate", async () => {

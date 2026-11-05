@@ -846,6 +846,64 @@ describe("ingestException", () => {
     expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
   });
 
+  it("finds an issue by the traffic it occurred in and keeps its counts merged", async () => {
+    const betaUrl = "https://beta.slides.example.com/deck";
+    const productionUrl = "https://slides.example.com/deck";
+    const otherFailure = (message: string, environment: string | null) =>
+      baseRaw({
+        type: "RangeError",
+        message,
+        environment,
+        rawStack: `RangeError: ${message}\n    at ${message.replaceAll(" ", "")} (https://app.example.com/assets/${message.replaceAll(" ", "")}.js:1:1)`,
+      });
+
+    const onBoth = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: productionUrl }),
+    );
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: betaUrl, timestamp: "2026-07-08T12:01:00.000Z" }),
+    );
+    const onBeta = await ingestException(
+      SCOPE,
+      otherFailure("beta failure", "production"),
+      derivedFor({ url: betaUrl }),
+    );
+    const noHostMarkedBeta = await ingestException(
+      SCOPE,
+      otherFailure("marked failure", "beta"),
+      derivedFor({ url: null }),
+    );
+    const noHost = await ingestException(
+      SCOPE,
+      otherFailure("unmarked failure", null),
+      derivedFor({ url: null }),
+    );
+    const viewer = { userEmail: SCOPE.ownerEmail, orgId: null };
+
+    const beta = await listErrorIssues(viewer, { environment: "beta" });
+    const production = await listErrorIssues(viewer, {
+      environment: "production",
+    });
+    const all = await listErrorIssues(viewer);
+
+    expect(beta.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, onBeta.issueId, noHostMarkedBeta.issueId].sort(),
+    );
+    expect(production.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, noHost.issueId].sort(),
+    );
+    expect(all).toHaveLength(4);
+    for (const issues of [beta, production, all]) {
+      expect(
+        issues.find((issue) => issue.id === onBoth.issueId)?.eventCount,
+      ).toBe(2);
+    }
+  });
+
   it("does not match an occurrence outside its issue owner scope", async () => {
     const tim = await ingestException(SCOPE, baseRaw(), derivedFor());
     const db = drizzle(client, { schema }) as any;
