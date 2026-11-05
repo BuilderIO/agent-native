@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ActionChange } from "../../action-ui.js";
@@ -12,7 +12,6 @@ import {
   ForbiddenError,
   resolveRegisteredAccessContext,
 } from "../access.js";
-import { grantResourceAccess } from "../grant.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -21,7 +20,6 @@ import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
   LINK_ROLES,
-  linkShareId,
   type ShareRole,
 } from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
@@ -130,7 +128,17 @@ interface GeneralAccessGrantChange {
   before: GrantRow | null;
   /** null removes the grant, leaving the visibility's viewer role. */
   role: ShareRole | null;
+  /** Marks this call's write, so its rollback touches no newer one. */
+  stamp: string;
   written: boolean;
+}
+
+/** One row per resource and principal, so concurrent writes upsert it. */
+function generalAccessShareId(
+  principalType: GeneralAccessPrincipal,
+  resourceId: string,
+): string {
+  return `${principalType}:${resourceId}`;
 }
 
 interface PreparedChange {
@@ -259,7 +267,9 @@ export default defineAction({
         update,
         visibilityChanged,
         resourceChanged:
-          visibilityChanged || update.orgId !== undefined || grants.length > 0,
+          visibilityChanged ||
+          update.orgId !== undefined ||
+          grants.some((grant) => grant.role !== null || grant.before !== null),
         grants,
       };
     };
@@ -316,6 +326,7 @@ export default defineAction({
           }
         }
       }
+      const stamp = new Date().toISOString();
       const changes: GeneralAccessGrantChange[] = [];
       for (const target of wanted) {
         const before = await readGrant(
@@ -324,94 +335,113 @@ export default defineAction({
           target.principalType,
           target.principalId,
         );
-        if ((before?.role ?? null) === target.role) continue;
-        changes.push({ ...target, before, written: false });
+        // A removal still runs with nothing read here: a grant another
+        // request writes before this call's own write must go too.
+        if (target.role !== null && before?.role === target.role) continue;
+        changes.push({ ...target, before, stamp, written: false });
       }
       return changes;
     };
+
+    const grantRows = (
+      change: PreparedChange,
+      grant: GeneralAccessGrantChange,
+    ) =>
+      and(
+        eq(reg.sharesTable.resourceId, change.resourceId),
+        eq(reg.sharesTable.principalType, grant.principalType),
+        eq(reg.sharesTable.principalId, grant.principalId),
+      );
 
     const writeGrant = async (
       change: PreparedChange,
       grant: GeneralAccessGrantChange,
     ) => {
-      if (grant.role && grant.principalType === "org") {
-        await grantResourceAccess({
-          resourceType: args.resourceType,
+      if (!grant.role) {
+        await db.delete(reg.sharesTable).where(grantRows(change, grant));
+        grant.written = true;
+        return;
+      }
+      const resource = {
+        ...change.access.resource,
+        ...change.update,
+        visibility: args.visibility,
+      };
+      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      const id = generalAccessShareId(grant.principalType, change.resourceId);
+      await db
+        .insert(reg.sharesTable)
+        .values({
+          id,
           resourceId: change.resourceId,
-          principalType: "org",
+          principalType: grant.principalType,
           principalId: grant.principalId,
           role: grant.role,
-        });
-      } else if (grant.role) {
-        await reg.assertSharingChange?.({
-          resource: change.access.resource,
-          change: { kind: "grant" },
-        });
-        // One row per resource, keyed by its id, so concurrent writes upsert
-        // the same row instead of each inserting one.
-        await db
-          .insert(reg.sharesTable)
-          .values({
-            id: linkShareId(change.resourceId),
-            resourceId: change.resourceId,
-            principalType: grant.principalType,
-            principalId: grant.principalId,
+          createdBy: rawAccess.userEmail ?? "",
+          createdAt: grant.stamp,
+        })
+        .onConflictDoUpdate({
+          target: reg.sharesTable.id,
+          set: {
             role: grant.role,
             createdBy: rawAccess.userEmail ?? "",
-            createdAt: new Date().toISOString(),
-          })
-          .onConflictDoUpdate({
-            target: reg.sharesTable.id,
-            set: { role: grant.role },
-          });
-        grant.written = true;
-        // The check above runs before the write, so a change that commits in
-        // between is missed by it; a refusal here is undone by the rollback.
-        await reg.assertSharingChange?.({
-          resource: change.access.resource,
-          change: { kind: "grant" },
+            createdAt: grant.stamp,
+          },
         });
-        return;
-      } else if (grant.before) {
+      grant.written = true;
+      // A grant to the same principal made another way would sit beside this
+      // one, and the stronger of the two would keep counting.
+      await db
+        .delete(reg.sharesTable)
+        .where(and(grantRows(change, grant), ne(reg.sharesTable.id, id)));
+      // The checks before the write miss a change that commits in between; a
+      // refusal or a newer visibility here is undone by the rollback.
+      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      const [current] = await db
+        .select({ visibility: reg.resourceTable.visibility })
+        .from(reg.resourceTable)
+        .where(eq(reg.resourceTable.id, change.resourceId));
+      if (current?.visibility !== args.visibility) {
         await db
           .delete(reg.sharesTable)
           .where(
             and(
-              eq(reg.sharesTable.resourceId, change.resourceId),
-              eq(reg.sharesTable.principalType, grant.principalType),
-              eq(reg.sharesTable.principalId, grant.principalId),
+              eq(reg.sharesTable.id, id),
+              eq(reg.sharesTable.createdAt, grant.stamp),
             ),
           );
+        fail(
+          `${reg.displayName} ${change.resourceId} changed visibility while its role was being saved. Try again.`,
+          { errorCode: "visibility_conflict", statusCode: 409 },
+        );
       }
-      grant.written = true;
     };
 
-    // Puts back each grant this call replaced, unless another request has
-    // changed it since.
+    // Puts back each grant this call replaced. A row this call wrote goes
+    // only while it is still this call's, so a newer request's is kept.
     const restoreGrants = async (change: PreparedChange) => {
       for (const grant of [...change.grants].reverse()) {
         if (!grant.written) continue;
-        const ownRow = and(
-          eq(reg.sharesTable.resourceId, change.resourceId),
-          eq(reg.sharesTable.principalType, grant.principalType),
-          eq(reg.sharesTable.principalId, grant.principalId),
-        );
-        if (!grant.role) {
-          if (grant.before) {
-            await db
-              .insert(reg.sharesTable)
-              .values(grant.before)
-              .onConflictDoNothing();
-          }
-        } else if (grant.before) {
-          await db
-            .update(reg.sharesTable)
-            .set({ role: grant.before.role })
-            .where(and(ownRow, eq(reg.sharesTable.role, grant.role)));
-        } else {
-          await db
+        if (grant.role) {
+          const removed = await db
             .delete(reg.sharesTable)
-            .where(and(ownRow, eq(reg.sharesTable.role, grant.role)));
+            .where(
+              and(
+                eq(
+                  reg.sharesTable.id,
+                  generalAccessShareId(grant.principalType, change.resourceId),
+                ),
+                eq(reg.sharesTable.createdAt, grant.stamp),
+              ),
+            )
+            .returning({ id: reg.sharesTable.id });
+          if (!removed.length) continue;
+        }
+        if (grant.before) {
+          await db
+            .insert(reg.sharesTable)
+            .values(grant.before)
+            .onConflictDoNothing();
         }
       }
     };

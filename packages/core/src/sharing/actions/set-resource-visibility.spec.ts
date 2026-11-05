@@ -1303,6 +1303,94 @@ describe("set-resource-visibility link role", () => {
     expect(await grants()).toEqual([]);
   });
 
+  it("removes its role when another request made the resource private meanwhile", async () => {
+    let grantChecks = 0;
+    register({
+      assertSharingChange: async ({ change }) => {
+        if (change.kind === "grant" && ++grantChecks === 2) {
+          await db
+            .update(docs)
+            .set({ visibility: "private" })
+            .where(eq(docs.id, "doc-flip"));
+        }
+      },
+    });
+    await insertDoc({ id: "doc-flip", visibility: "org" });
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-flip",
+          visibility: "org",
+          role: "editor",
+        }),
+      ),
+    ).rejects.toThrow("changed visibility while its role was being saved");
+
+    expect(await visibilities()).toEqual({ "doc-flip": "private" });
+    expect(await grants()).toEqual([]);
+  });
+
+  it("folds an earlier organization grant into the one it writes", async () => {
+    await insertDoc({ id: "doc-fold", visibility: "org" });
+    await db.insert(docShares).values({
+      id: "share-org-fold",
+      resourceId: "doc-fold",
+      principalType: "org",
+      principalId: orgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    } as never);
+
+    await as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-fold",
+        visibility: "org",
+        role: "commenter",
+      }),
+    );
+
+    expect(await grants()).toEqual([
+      { principalType: "org", role: "commenter" },
+    ]);
+  });
+
+  it("keeps a newer request's link role when a rollback runs", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-later") {
+          // Another request saves the same role on the first resource.
+          await db
+            .update(docShares)
+            .set({ createdAt: "2999-01-01T00:00:00.000Z" })
+            .where(eq(docShares.resourceId, "doc-earlier"));
+          throw new Error("write failed");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-earlier", visibility: "public" });
+    await insertDoc({ id: "doc-later", visibility: "public" });
+
+    await expect(
+      as({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run({
+          resourceType,
+          resourceIds: ["doc-earlier", "doc-later"],
+          visibility: "public",
+          role: "commenter",
+        }),
+      ),
+    ).rejects.toThrow("write failed");
+
+    expect(await grants()).toEqual([
+      { principalType: "link", role: "commenter" },
+    ]);
+  });
+
   it("lists the link role apart from the people with access", async () => {
     await insertDoc({ id: "doc-listed" });
     await setPublic("doc-listed", "commenter");

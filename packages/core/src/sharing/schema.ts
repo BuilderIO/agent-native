@@ -67,11 +67,6 @@ export const LINK_PRINCIPAL_ID = "anyone";
 export const LINK_ROLES = ["viewer", "commenter"] as const;
 export type LinkRole = (typeof LINK_ROLES)[number];
 
-/** The link principal's share row id; a resource has at most one. */
-export function linkShareId(resourceId: string): string {
-  return `${LINK_PRINCIPAL_TYPE}:${resourceId}`;
-}
-
 export const ROLE_RANK: Record<ShareRole | "owner", number> = {
   viewer: 1,
   commenter: 2,
