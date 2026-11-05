@@ -5662,6 +5662,86 @@ describe("voice composer insertion", () => {
 });
 
 describe("TiptapComposer editor updates", () => {
+  it.each(["draft scope switch", "insertText"])(
+    "reports an identical inline reference after a silent clear via %s",
+    async (clearMethod) => {
+      const onReferencesChange = vi.fn();
+      const onTextChange = vi.fn();
+      const focusRef = React.createRef<TiptapComposerHandle>();
+      const reference = {
+        label: "Document",
+        refType: "file",
+        refId: "one",
+      };
+
+      function Harness({ scope }: { scope: string }) {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              focusRef,
+              draftScope: scope,
+              onReferencesChange,
+              onTextChange,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              voiceEnabled: false,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness, { scope: "scope-a" }));
+      });
+      await act(async () => focusRef.current?.insertReference(reference));
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      onReferencesChange.mockClear();
+      onTextChange.mockClear();
+
+      if (clearMethod === "draft scope switch") {
+        await act(async () => {
+          root.render(React.createElement(Harness, { scope: "scope-b" }));
+        });
+        expect(onTextChange).toHaveBeenLastCalledWith("");
+      } else {
+        const execCommand = Object.getOwnPropertyDescriptor(
+          document,
+          "execCommand",
+        );
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: vi.fn(() => false),
+        });
+        try {
+          await act(async () => focusRef.current?.insertText("Replacement"));
+        } finally {
+          if (execCommand)
+            Object.defineProperty(document, "execCommand", execCommand);
+          else Reflect.deleteProperty(document, "execCommand");
+        }
+        expect(onTextChange).toHaveBeenLastCalledWith("Replacement");
+      }
+      expect(focusRef.current?.getDraftSnapshot?.().referenceKeys).toEqual([]);
+      const afterClear = [...onReferencesChange.mock.calls];
+      await act(async () => focusRef.current?.insertReference(reference));
+
+      expect(afterClear).toEqual([[[]]]);
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+      await act(async () => focusRef.current?.setSelection(1));
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("settles plain text updates and reports inline reference changes", async () => {
     const onTextChange = vi.fn();
     const onReferencesChange = vi.fn();

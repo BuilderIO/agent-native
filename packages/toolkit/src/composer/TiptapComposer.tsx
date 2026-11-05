@@ -3696,15 +3696,22 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      // An unconditional bump re-renders on every update, so a DOM mutation
-      // per render (ProseMirror observer -> update) loops past React's depth cap.
+      scheduleComposerDraftPersist(ed);
+    },
+    onTransaction: ({ editor: ed, transaction, appendedTransactions }) => {
+      if (
+        !transaction.docChanged &&
+        !appendedTransactions.some((appended) => appended.docChanged)
+      ) {
+        return;
+      }
+      // An unconditional bump can loop through React node views and the
+      // ProseMirror DOM observer, even when references have not changed.
       const referenceSignature = composerReferenceSignature(ed.state.doc);
       if (referenceSignature !== editorReferenceSignatureRef.current) {
         editorReferenceSignatureRef.current = referenceSignature;
         setReferenceRevision((revision) => revision + 1);
       }
-
-      scheduleComposerDraftPersist(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to, anchor, head } = ed.state.selection;
