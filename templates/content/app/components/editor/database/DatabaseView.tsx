@@ -359,6 +359,12 @@ import {
   DATABASE_VIEW_TABS_ROW_CLASS_NAME,
   DatabaseViewSkeleton,
 } from "./DatabaseViewSkeleton";
+import {
+  databaseFilterChipToReopen,
+  databaseFilterEncodeSelectedValues,
+  databaseFilterSelectedValues,
+  foldDatabaseFilterChips,
+} from "./filter-chips";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
@@ -378,6 +384,7 @@ import {
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
+import type { DatabaseRowView } from "./row-view-layout";
 import { scopedDatabaseRowTitleUpdateRequest } from "./scoped-row-write";
 import { DatabaseTimelineView } from "./TimelineView";
 import {
@@ -2049,6 +2056,7 @@ function DatabaseTable({
           item.document.id,
           databaseId,
           document.id,
+          activeView.id,
         );
         const link = threadId
           ? `${path}&comment=${encodeURIComponent(threadId)}`
@@ -2114,7 +2122,12 @@ function DatabaseTable({
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     void navigate(
-      databaseItemPagePath(item.document.id, databaseId, document.id),
+      databaseItemPagePath(
+        item.document.id,
+        databaseId,
+        document.id,
+        activeView.id,
+      ),
     );
   }
 
@@ -3365,14 +3378,22 @@ function DatabaseTable({
               open={toolbarFilterOpen}
               onOpenChange={setToolbarFilterOpen}
               onAddFilter={(key, label) => {
-                setActiveFilters([
-                  ...filters,
-                  createDatabaseFilterForField(key, label, orderedProperties),
-                ]);
+                const reopenIndex = databaseFilterChipToReopen(
+                  filters,
+                  key,
+                  filterMode,
+                  orderedProperties,
+                );
+                if (reopenIndex === null) {
+                  setActiveFilters([
+                    ...filters,
+                    createDatabaseFilterForField(key, label, orderedProperties),
+                  ]);
+                }
                 setInlineFilterControlsOpen(true);
                 constraintMenus.set({
                   addFilter: false,
-                  filterIndex: filters.length,
+                  filterIndex: reopenIndex ?? filters.length,
                 });
                 setToolbarFilterOpen(false);
               }}
@@ -3957,6 +3978,7 @@ function DatabaseTable({
 
       <DatabaseItemPreviewSheet
         item={previewItem}
+        rowView={activeView}
         transitionPending={previewTransitionPending}
         onSessionChange={handlePreviewSessionChange}
         previousItem={previousPreviewItem}
@@ -4239,8 +4261,10 @@ export function databaseItemPagePath(
   documentId: string,
   databaseId: string,
   databaseDocumentId: string,
+  fromViewId?: string,
 ) {
   const search = new URLSearchParams({ databaseId, databaseDocumentId });
+  if (fromViewId) search.set("fromViewId", fromViewId);
   return `/page/${documentId}?${search.toString()}`;
 }
 
@@ -5278,6 +5302,7 @@ export function databaseItemPreviewPosition(
 
 function DatabaseItemPreviewSheet({
   item,
+  rowView,
   previousItem,
   nextItem,
   position,
@@ -5293,6 +5318,7 @@ function DatabaseItemPreviewSheet({
   commentIntent,
 }: {
   item: ContentDatabaseItem | null;
+  rowView: DatabaseRowView;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5338,6 +5364,7 @@ function DatabaseItemPreviewSheet({
             key={`${item.databaseId}:${item.id}:${item.document.id}`}
             item={item}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
@@ -5372,6 +5399,7 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 
 function DatabaseItemPreview({
   item,
+  rowView,
   previousItem,
   nextItem,
   position,
@@ -5386,6 +5414,7 @@ function DatabaseItemPreview({
   commentIntent,
 }: {
   item: ContentDatabaseItem;
+  rowView: DatabaseRowView;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5578,6 +5607,7 @@ function DatabaseItemPreview({
             documentId={item.document.id}
             databaseId={item.databaseId}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
@@ -6982,7 +7012,18 @@ export function DatabaseActiveConstraintsBar({
           properties={properties}
           open={openFilterIndex === index}
           showUnsavedIndicator={hasPersonalQueryChanges}
-          onOpenChange={(open) => onFilterOpenIndexChange(open ? index : null)}
+          onOpenChange={(open) => {
+            onFilterOpenIndexChange(open ? index : null);
+            if (open) return;
+            // A closed chip that says the same as another on its property,
+            // such as a second "is not" under All, folds into that one.
+            const folded = foldDatabaseFilterChips(
+              filters,
+              filterMode,
+              properties,
+            );
+            if (folded !== filters) onFiltersChange(folded);
+          }}
           onFiltersChange={onFiltersChange}
           onRemove={() => onRemoveFilter(index)}
         />
@@ -6993,12 +7034,20 @@ export function DatabaseActiveConstraintsBar({
         properties={properties}
         onOpenChange={onAddFilterOpenChange}
         onAddFilter={(key, label) => {
-          onFiltersChange([
-            ...filters,
-            createDatabaseFilterForField(key, label, properties),
-          ]);
+          const reopenIndex = databaseFilterChipToReopen(
+            filters,
+            key,
+            filterMode,
+            properties,
+          );
+          if (reopenIndex === null) {
+            onFiltersChange([
+              ...filters,
+              createDatabaseFilterForField(key, label, properties),
+            ]);
+          }
           onAddFilterOpenChange(false);
-          onFilterOpenIndexChange(filters.length);
+          onFilterOpenIndexChange(reopenIndex ?? filters.length);
         }}
         onAddAdvancedFilter={(key, label) => {
           onFiltersChange([
@@ -19234,39 +19283,11 @@ function databaseFilterValueLabel(
   return values[0] || dbText("filterChooseOption");
 }
 
-function databaseFilterSelectedValues(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [trimmed];
-    return [
-      ...new Set(
-        parsed
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      ),
-    ];
-  } catch {
-    return [trimmed];
-  }
-}
-
 function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   const normalizedStart = start.trim();
   const normalizedEnd = end.trim();
   if (!normalizedStart && !normalizedEnd) return "";
   return JSON.stringify([normalizedStart, normalizedEnd]);
-}
-
-function databaseFilterEncodeSelectedValues(values: string[]) {
-  const normalized = [
-    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
-  ];
-  if (normalized.length === 0) return "";
-  if (normalized.length === 1) return normalized[0];
-  return JSON.stringify(normalized);
 }
 
 function databaseFilterOptionIsSelected(

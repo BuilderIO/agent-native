@@ -1132,6 +1132,12 @@ describe("controlled composer context", () => {
       chip: true,
     },
     {
+      name: "an empty host model list with no loading signal",
+      configured: false,
+      props: { showMissingApiKeySetup: false, availableModels: [] },
+      chip: true,
+    },
+    {
       name: "a connected provider",
       configured: true,
       props: {},

@@ -116,3 +116,15 @@ describe("EditorLayout storage preflight", () => {
     );
   });
 });
+
+describe("EditorLayout trim saves", () => {
+  it("syncs the saved trims again once a save finishes", () => {
+    const source = readSource();
+    const sync = source
+      .split("savedTrimsRef.current = {")[1]
+      ?.split("const localTrimsRef")[0];
+
+    expect(sync).toContain("revision: recording.trimsRevision ?? null");
+    expect(sync).toContain("}, [edits.trims, recording, saveStatus]);");
+  });
+});

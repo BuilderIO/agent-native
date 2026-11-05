@@ -468,6 +468,10 @@ describe("AgentKitChat", () => {
     expect(styles.replace(/\s+/g, " ")).toContain(
       "grid-template-rows: minmax(var(--agentkit-chat-header-reserve, 0px), 1fr) auto 1rem auto minmax(0, 1fr);",
     );
+    // A centered empty state taller than the panel scrolls instead of clipping.
+    expect(styles).toMatch(
+      /\.agentkit-chat\[data-empty="true"\]\[data-empty-composer-placement="center"\] \{\s*overflow-y: auto;/,
+    );
 
     const toolbarRule = styles.match(
       /\.agentkit-chat-toolbar :where\(button, \[role="button"\]\) \{([^}]*)\}/,
