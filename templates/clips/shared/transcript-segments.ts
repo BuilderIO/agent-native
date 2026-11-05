@@ -4,6 +4,8 @@ export interface TranscriptSegment {
   text: string;
   source?: "mic" | "system";
   speaker?: string | null;
+  /** Audio recovered from before the user started recording. */
+  recovered?: true;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -11,7 +13,7 @@ const MIN_WORDS_BEFORE_PUNCTUATION_BREAK = 3;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_CAPTION_MS = 900;
 
-function parseSegmentsArray(raw: string | null | undefined) {
+export function parseSegmentsArray(raw: string | null | undefined) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw ?? "");
@@ -63,6 +65,7 @@ export function parseTranscriptSegments(
             : undefined,
         speaker:
           typeof segment?.speaker === "string" ? segment.speaker : undefined,
+        ...(segment?.recovered === true ? { recovered: true as const } : {}),
       }))
       .filter(
         (segment) =>
@@ -223,6 +226,7 @@ function splitTimedSegmentIntoCaptions(
       text: chunk,
       source: segment.source,
       speaker: segment.speaker,
+      ...(segment.recovered ? { recovered: true as const } : {}),
     };
     cursorMs = endMs;
     return next;

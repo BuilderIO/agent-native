@@ -38,6 +38,21 @@ describe("filesystemActionEntry", () => {
     expect(keyOf({ ...entry })).toBe(keyOf(action));
   });
 
+  it("keeps an action's word that its empty lists erase nothing", () => {
+    const action = defineAction({
+      description: "Generate a design",
+      schema: z.object({ devices: z.array(z.string()).optional() }),
+      emptyListsEraseNothing: true,
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).emptyListsEraseNothing).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ generate: { default: action } }).generate
+        ?.emptyListsEraseNothing,
+    ).toBe(true);
+  });
+
   it("keeps the schema and gates a built registry keeps", () => {
     const action = defineAction({
       description: "Send a message",

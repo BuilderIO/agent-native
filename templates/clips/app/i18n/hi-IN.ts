@@ -624,6 +624,13 @@ const messages = {
     desktopHint:
       "नोट्स शुरू करने के लिए, मेनू बार से Clips Desktop खोलें और Start Meeting Notes चुनें, या रिमाइंडर आने पर Start notes पर क्लिक करें। Clips माइक्रोफ़ोन और सिस्टम ऑडियो कैप्चर करके यहां ट्रांसक्रिप्ट लिखता है।",
     getDesktopApp: "डेस्कटॉप ऐप प्राप्त करें",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    earlierAudioUnreadable: "इस ट्रांसक्रिप्ट में पहले के ऑडियो की जाँच नहीं हो सकी",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएँ?",
+    removeEarlierAudioDescription:
+      "इससे यह ट्रांसक्रिप्ट से हट जाएगा और सारांश, एक्शन आइटम और क्लिप का विवरण फिर से बनेंगे, भले ही वह विवरण आपने खुद लिखा हो। जनरेट किया गया शीर्षक भी फिर से बनेगा; आपका चुना हुआ शीर्षक बना रहेगा। सभी अध्याय भी हटा दिए जाएँगे।",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो नहीं हटाया जा सका",
     generateNotesFailed: "सारांश जनरेट नहीं किया जा सका. पुनः प्रयास करें।",
     attendee_one: "{{count}} सहभागी",
     attendee_other: "{{count}} उपस्थितगण",
@@ -1491,6 +1498,7 @@ const messages = {
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
+    unreadable: "यह ट्रांसक्रिप्ट पढ़ी नहीं जा सकी।",
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",

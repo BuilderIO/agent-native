@@ -1,7 +1,9 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
+import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import os from "os";
 import path from "path";
 
@@ -24,6 +26,7 @@ import {
   _fixWebManifestName,
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
+  _extractSparseTag,
   _extractTarball,
   _mergeWorkspaceYamlListItems,
   _mergeWorkspaceYamlSections,
@@ -43,6 +46,7 @@ import {
   _validateCommunityArchive,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
+import { GitHttpUnavailableError } from "./git-http.js";
 import { createAgentSymlink } from "./setup-agents.js";
 import { resolveTarExecutable } from "./tar-command.js";
 
@@ -1034,6 +1038,368 @@ describe("template archive downloads", () => {
   });
 });
 
+describe("sparse first-party tag fetches", () => {
+  const tag = "@agent-native/core@1.2.3";
+  const noRetries = { retryDelaysMs: [] };
+
+  function git(cwd: string, ...args: string[]): string {
+    return gitWithInput(cwd, args);
+  }
+
+  function gitWithInput(cwd: string, args: string[], input?: string) {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      input,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_CONFIG_NOSYSTEM: "1",
+      },
+    });
+  }
+
+  function write(root: string, relativePath: string, contents: string) {
+    fs.mkdirSync(path.dirname(path.join(root, relativePath)), {
+      recursive: true,
+    });
+    fs.writeFileSync(path.join(root, relativePath), contents);
+  }
+
+  // Staged straight into the index so the fixture needs no filesystem
+  // symlink support, which Windows runners lack.
+  function stageSymlink(repo: string, linkPath: string, target: string) {
+    const oid = gitWithInput(
+      repo,
+      ["hash-object", "-w", "--stdin"],
+      target,
+    ).trim();
+    git(
+      repo,
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `120000,${oid},${linkPath}`,
+    );
+  }
+
+  function createTaggedRepo(): string {
+    const repo = path.join(tmpDir, "remote");
+    write(repo, ".agents/skills/actions/SKILL.md", "actions\n");
+    write(repo, "templates/clips/AGENTS.md", "agents\n");
+    write(repo, "templates/clips/app/root.tsx", "export {};\n");
+    write(repo, "templates/clips/bin/dev.sh", "#!/bin/sh\n");
+    write(repo, "templates/layer/CLAUDE.md", "layer instructions\n");
+    write(repo, "templates/layer/template-layer.json", "{}\n");
+    fs.mkdirSync(path.join(repo, "templates/other"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, "templates/other/large.bin"),
+      randomBytes(2 * 1024 * 1024),
+    );
+    git(repo, "init", "--quiet");
+    git(repo, "config", "uploadpack.allowFilter", "true");
+    git(repo, "add", "-A");
+    git(repo, "update-index", "--chmod=+x", "templates/clips/bin/dev.sh");
+    stageSymlink(
+      repo,
+      "templates/clips/.agents/skills/actions",
+      "../../../../.agents/skills/actions",
+    );
+    stageSymlink(repo, "templates/clips/.claude/skills", "../.agents/skills");
+    stageSymlink(repo, "templates/clips/CLAUDE.md", "AGENTS.md");
+    git(
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--quiet",
+      "-m",
+      "fixture",
+    );
+    git(repo, "tag", tag);
+    return repo;
+  }
+
+  interface GitServer {
+    url: string;
+    requests: string[];
+    sent: { bytes: number };
+    close(): Promise<void>;
+  }
+
+  // Serves `repo` over smart HTTP through git's own CGI backend, answering
+  // the first `failures` requests with a 503.
+  async function serveRepo(repo: string, failures = 0): Promise<GitServer> {
+    const requests: string[] = [];
+    const sent = { bytes: 0 };
+    let remainingFailures = failures;
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        const body = Buffer.concat(chunks);
+        const url = new URL(request.url ?? "/", "http://127.0.0.1");
+        requests.push(
+          `${request.method} ${url.pathname}\n${body.toString("latin1")}`,
+        );
+        if (remainingFailures > 0) {
+          remainingFailures -= 1;
+          response.writeHead(503).end();
+          return;
+        }
+        const output = execFileSync("git", ["http-backend"], {
+          input: body,
+          maxBuffer: 64 * 1024 * 1024,
+          env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: os.devNull,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_HTTP_EXPORT_ALL: "1",
+            GIT_PROJECT_ROOT: path.dirname(repo),
+            GIT_PROTOCOL: String(request.headers["git-protocol"] ?? ""),
+            CONTENT_LENGTH: String(body.length),
+            CONTENT_TYPE: request.headers["content-type"] ?? "",
+            PATH_INFO: url.pathname,
+            QUERY_STRING: url.search.slice(1),
+            REMOTE_ADDR: "127.0.0.1",
+            REQUEST_METHOD: request.method ?? "GET",
+          },
+        });
+        const headerEnd = output.indexOf("\r\n\r\n");
+        const headers = output
+          .subarray(0, headerEnd)
+          .toString("latin1")
+          .split("\r\n")
+          .map((line) => {
+            const separator = line.indexOf(":");
+            return [line.slice(0, separator), line.slice(separator + 1).trim()];
+          });
+        const status = headers.find(([name]) => name === "Status")?.[1];
+        response.writeHead(
+          status ? Number.parseInt(status, 10) : 200,
+          Object.fromEntries(headers.filter(([name]) => name !== "Status")),
+        );
+        sent.bytes += output.length - headerEnd - 4;
+        response.end(output.subarray(headerEnd + 4));
+      });
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Git test server did not get a TCP address.");
+    }
+    return {
+      url: `http://127.0.0.1:${address.port}/${path.basename(repo)}`,
+      requests,
+      sent,
+      close: async () => {
+        server.closeAllConnections();
+        server.close();
+        await once(server, "close");
+      },
+    };
+  }
+
+  function snapshot(root: string): Record<string, string> {
+    const files: Record<string, string> = {};
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        const relative = path.relative(root, full).split(path.sep).join("/");
+        if (entry.isSymbolicLink()) {
+          files[relative] = `link -> ${fs.readlinkSync(full)}`;
+        } else if (entry.isDirectory()) {
+          files[`${relative}/`] = "dir";
+          walk(full);
+        } else {
+          const executable = fs.statSync(full).mode & 0o111 ? "x" : "-";
+          files[relative] = `${executable} ${fs.readFileSync(full, "utf8")}`;
+        }
+      }
+    };
+    walk(root);
+    return files;
+  }
+
+  it.each([
+    {
+      subdir: "templates/clips",
+      expected: {
+        ".agents/": "dir",
+        ".agents/skills/": "dir",
+        ".agents/skills/actions/": "dir",
+        ".agents/skills/actions/SKILL.md": "- actions\n",
+        ".claude/": "dir",
+        ".claude/skills/": "dir",
+        ".claude/skills/actions/": "dir",
+        ".claude/skills/actions/SKILL.md": "- actions\n",
+        "AGENTS.md": "- agents\n",
+        "CLAUDE.md": "- agents\n",
+        "app/": "dir",
+        "app/root.tsx": "- export {};\n",
+        "bin/": "dir",
+        "bin/dev.sh": "x #!/bin/sh\n",
+      },
+    },
+    {
+      subdir: "templates/layer",
+      expected: { "template-layer.json": "- {}\n" },
+    },
+  ])(
+    "writes $subdir with links copied and agent files left out",
+    async ({ subdir, expected }) => {
+      const server = await serveRepo(createTaggedRepo());
+      const sparse = path.join(tmpDir, "sparse");
+      try {
+        await _extractSparseTag(server.url, tag, subdir, sparse, noRetries);
+      } finally {
+        await server.close();
+      }
+
+      expect(snapshot(path.join(sparse, subdir))).toEqual(expected);
+    },
+  );
+
+  it("fetches only the template and the paths its links point at", async () => {
+    const repo = createTaggedRepo();
+    const server = await serveRepo(repo);
+    try {
+      await _extractSparseTag(
+        server.url,
+        tag,
+        "templates/clips",
+        path.join(tmpDir, "sparse"),
+        noRetries,
+      );
+    } finally {
+      await server.close();
+    }
+
+    const want = (repoPath: string) =>
+      `want ${git(repo, "rev-parse", `${tag}:${repoPath}`).trim()}`;
+    expect(server.requests.join("\n")).toContain(
+      want(".agents/skills/actions/SKILL.md"),
+    );
+    // large.bin is 2 MB of incompressible bytes.
+    expect(server.sent.bytes).toBeLessThan(256 * 1024);
+  });
+
+  it("rejects a tag the remote does not have", async () => {
+    const server = await serveRepo(createTaggedRepo());
+    try {
+      for (const missing of [
+        "@agent-native/core@9.9.9",
+        "@agent-native/core@1.2",
+      ]) {
+        await expect(
+          _extractSparseTag(
+            server.url,
+            missing,
+            "templates/clips",
+            path.join(tmpDir, "sparse"),
+            noRetries,
+          ),
+        ).rejects.toThrow(`Tag "${missing}" not found`);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("waits out a remote that is briefly unavailable", async () => {
+    const server = await serveRepo(createTaggedRepo(), 2);
+    const notices: string[] = [];
+    const sparse = path.join(tmpDir, "sparse");
+    try {
+      await _extractSparseTag(server.url, tag, "templates/layer", sparse, {
+        retryDelaysMs: [0, 0],
+        onRetry: (notice) => notices.push(notice),
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(
+      fs.readFileSync(
+        path.join(sparse, "templates/layer/template-layer.json"),
+        "utf8",
+      ),
+    ).toBe("{}\n");
+    expect(notices).toEqual([
+      expect.stringContaining("HTTP 503"),
+      expect.stringContaining("HTTP 503"),
+    ]);
+  });
+
+  it("gives up on a remote that stays unavailable", async () => {
+    const server = await serveRepo(createTaggedRepo(), Infinity);
+    try {
+      await expect(
+        _extractSparseTag(
+          server.url,
+          tag,
+          "templates/layer",
+          path.join(tmpDir, "sparse"),
+          { retryDelaysMs: [0, 0] },
+        ),
+      ).rejects.toThrow(GitHttpUnavailableError);
+    } finally {
+      await server.close();
+    }
+
+    expect(server.requests).toHaveLength(3);
+  });
+
+  it("does not retry a request the remote refuses", async () => {
+    const server = await serveRepo(createTaggedRepo());
+    try {
+      await expect(
+        _extractSparseTag(
+          `${server.url}-missing`,
+          tag,
+          "templates/layer",
+          path.join(tmpDir, "sparse"),
+          { retryDelaysMs: [0, 0] },
+        ),
+      ).rejects.toThrow("HTTP 404");
+    } finally {
+      await server.close();
+    }
+
+    expect(server.requests).toHaveLength(1);
+  });
+
+  it("gives up quickly on a server that never answers", async () => {
+    const sockets = new Set<Socket>();
+    const server = createTcpServer((socket) => sockets.add(socket));
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Silent test server did not get a TCP address.");
+    }
+    try {
+      await expect(
+        _extractSparseTag(
+          `http://127.0.0.1:${address.port}/remote`,
+          tag,
+          "templates/layer",
+          path.join(tmpDir, "sparse"),
+          { retryDelaysMs: [0], responseTimeoutMs: 100 },
+        ),
+      ).rejects.toThrow("after 2 attempts (no response within 0.1s)");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      await once(server, "close");
+    }
+  });
+});
+
 describe("community template selections", () => {
   it("limits total logical file sizes in GNU and BSD tar listings", () => {
     expect(() =>
@@ -1169,10 +1535,9 @@ describe("community template selections", () => {
     ]);
   });
 
-  it("adds exact archive symlink exclusions without dropping regular skill files", () => {
+  it("adds exact archive symlink exclusions", () => {
     expect(
       _tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out", {
-        skipAgentSymlinks: true,
         additionalExcludes: [
           "repo/templates/clips/.agents/skills/a2a-protocol",
         ],
@@ -1181,10 +1546,6 @@ describe("community template selections", () => {
       "xzf",
       "/tmp/archive.tar.gz",
       "--strip-components=1",
-      "--exclude",
-      "*/CLAUDE.md",
-      "--exclude",
-      "*/.claude/skills",
       "--exclude",
       "repo/templates/clips/.agents/skills/a2a-protocol",
       "-C",
@@ -1200,11 +1561,11 @@ describe("community template selections", () => {
 
     _materializeArchiveSymlinks(extracted, [
       {
-        archivePath: "repo/templates/clips/.agents/skills/actions",
+        path: "templates/clips/.agents/skills/actions",
         target: "../../../../.agents/skills/actions",
       },
       {
-        archivePath: "repo/templates/clips/.claude/skills",
+        path: "templates/clips/.claude/skills",
         target: "../.agents/skills",
       },
     ]);
@@ -1239,8 +1600,28 @@ describe("community template selections", () => {
     ).toBe("actions\n");
   });
 
+  it.each([".", "..", "../.."])(
+    "rejects an archive symlink to %s, a folder that contains it",
+    (target) => {
+      const extracted = path.join(tmpDir, "extracted");
+      fs.mkdirSync(path.join(extracted, "app", "src"), { recursive: true });
+      fs.writeFileSync(path.join(extracted, "app", "src", "index.ts"), "x\n");
+
+      expect(() =>
+        _materializeArchiveSymlinks(extracted, [
+          { path: "app/src/link", target },
+        ]),
+      ).toThrow(
+        'Archive symlink "app/src/link" points at a folder that contains it.',
+      );
+      expect(fs.existsSync(path.join(extracted, "app", "src", "link"))).toBe(
+        false,
+      );
+    },
+  );
+
   it.skipIf(process.platform === "win32")(
-    "extracts first-party archives without preserving Windows-incompatible symlinks",
+    "extracts archives without preserving Windows-incompatible symlinks",
     () => {
       const archiveRoot = path.join(tmpDir, "archive-root");
       const repoRoot = path.join(archiveRoot, "repo");
@@ -1272,7 +1653,9 @@ describe("community template selections", () => {
 
       const extracted = path.join(tmpDir, "extracted");
       fs.mkdirSync(extracted);
-      _extractTarball(archivePath, extracted, { skipAgentSymlinks: true });
+      _extractTarball(archivePath, extracted, {
+        untrustedCommunityArchive: true,
+      });
 
       expect(
         fs.readFileSync(

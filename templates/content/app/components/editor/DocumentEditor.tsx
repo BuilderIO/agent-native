@@ -52,7 +52,10 @@ import {
   LIVE_BODY_SHADOW_FLAG,
 } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
-import { markdownSuggestionOperations } from "@shared/suggestion-diff";
+import {
+  joinRewrittenParagraphs,
+  markdownSuggestionOperations,
+} from "@shared/suggestion-diff";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -159,6 +162,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
+import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -328,6 +332,7 @@ import {
   threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
+import { useReviewMarginSlide } from "./review-margin-slide";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   enqueueSuggestionDecision,
@@ -374,6 +379,7 @@ import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
   createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
+  drawnSuggestionPresentationOperations,
   hydrateSuggestionPresentationTransitions,
   preciseSuggestionPresentationOperations,
   retainCommittedSuggestionPresentationTransitions,
@@ -385,6 +391,7 @@ import {
 } from "./suggestions/presentation-rebase";
 import {
   refreshedProposalMembers,
+  reviewedAsOne,
   reviewedInThread,
   reviewUnits,
   suggestionSourceThreadId,
@@ -872,22 +879,25 @@ export function suggestionPresentations(
   if (suggestion.operations.length !== 1) return original ? [original] : [];
   const saved = suggestion.operations[0]!;
   if (saved.kind !== "replace_text") return original ? [original] : [];
-  const operations = preciseSuggestionPresentationOperations(saved);
-  if (!operations) return original ? [original] : [];
-  const precise = operations.map((operation) =>
-    suggestionPresentation(
-      { ...suggestion, operations: [operation] },
-      currentMarkdown,
-      transition,
-      observedTransition,
-      draftTransition,
-    ),
-  );
-  return precise.every((presentation) => presentation !== null)
-    ? (precise as VisualEditorSuggestion[])
-    : original
-      ? [original]
-      : [];
+  // A paragraph drawn whole can't place over an accepted edit to a word it
+  // keeps, though its word pieces still can.
+  const drawn = drawnSuggestionPresentationOperations(saved);
+  const precise = preciseSuggestionPresentationOperations(saved);
+  for (const operations of drawn === precise ? [drawn] : [drawn, precise]) {
+    if (!operations) continue;
+    const presentations = operations.map((operation) =>
+      suggestionPresentation(
+        { ...suggestion, operations: [operation] },
+        currentMarkdown,
+        transition,
+        observedTransition,
+        draftTransition,
+      ),
+    );
+    if (presentations.every((presentation) => presentation !== null))
+      return presentations as VisualEditorSuggestion[];
+  }
+  return original ? [original] : [];
 }
 
 export function documentEditorSuggestionPresentations(args: {
@@ -1180,9 +1190,10 @@ export function preciseDraftSuggestionPresentations(
     return null;
 
   try {
-    const operations = markdownSuggestionOperations(
+    // Drawn as a saved suggestion is, so a draft keeps its shape on saving.
+    const operations = joinRewrittenParagraphs(
       before.markdown,
-      after.markdown,
+      markdownSuggestionOperations(before.markdown, after.markdown),
     );
     if (operations.length === 0) return null;
     const presentations: VisualEditorSuggestion[] = [];
@@ -3294,20 +3305,12 @@ function PageEditorSessionBody({
     setAdditionalBlockContents({});
   }, [documentId]);
 
-  useEffect(() => {
-    if (host !== "page") return;
-    const nextTitle = `${normalizeDocumentTitle(
-      localTitle,
-      t("sidebar.untitled"),
-    )} — Content`;
-    const previousTitle = window.document.title;
-    window.document.title = nextTitle;
-    return () => {
-      if (window.document.title === nextTitle) {
-        window.document.title = previousTitle;
-      }
-    };
-  }, [host, localTitle, t]);
+  usePageTabTitle(
+    host === "page"
+      ? `${normalizeDocumentTitle(localTitle, t("sidebar.untitled"))} — Content`
+      : null,
+    documentFresh,
+  );
 
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
@@ -8237,6 +8240,78 @@ function PageEditorSessionBody({
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // A request turns suggested on its own poll, often before the suggestion it
+  // names is in this Page's list. Read the list again then; until that read
+  // lands, its thread holds a placeholder rather than an empty status.
+  const missingRequestSuggestionIds = useMemo(() => {
+    const loaded = new Set(
+      (suggestionsQuery.data?.suggestions ?? []).map((item) => item.id),
+    );
+    return commentAi.requests
+      .flatMap((request) =>
+        request.status === "suggested" && request.result?.suggestionId
+          ? [request.result.suggestionId]
+          : [],
+      )
+      .filter((id) => !loaded.has(id))
+      .sort()
+      .join(" ");
+  }, [commentAi.requests, suggestionsQuery.data?.suggestions]);
+  // A read that failed says nothing about whether the suggestion exists, so
+  // its thread offers a retry instead of dropping the placeholder.
+  const [suggestionReads, setSuggestionReads] = useState<
+    ReadonlyMap<string, "read" | "failed">
+  >(() => new Map());
+  const [suggestionReadAttempt, setSuggestionReadAttempt] = useState(0);
+  const refetchSuggestions = suggestionsQuery.refetch;
+  useEffect(() => {
+    if (!missingRequestSuggestionIds) return;
+    let current = true;
+    const settle = (outcome: "read" | "failed") => {
+      if (!current) return;
+      setSuggestionReads(
+        (reads) =>
+          new Map([
+            ...reads,
+            ...missingRequestSuggestionIds
+              .split(" ")
+              .map((id) => [id, outcome] as const),
+          ]),
+      );
+    };
+    refetchSuggestions().then(
+      (result) => settle(result.isError ? "failed" : "read"),
+      () => settle("failed"),
+    );
+    return () => {
+      current = false;
+    };
+  }, [missingRequestSuggestionIds, refetchSuggestions, suggestionReadAttempt]);
+  const awaitedSuggestionIds = useMemo(
+    () =>
+      new Set(
+        missingRequestSuggestionIds
+          .split(" ")
+          .filter((id) => id && suggestionReads.get(id) !== "read"),
+      ),
+    [missingRequestSuggestionIds, suggestionReads],
+  );
+  const unreadableSuggestionIds = useMemo(
+    () =>
+      new Set(
+        [...awaitedSuggestionIds].filter(
+          (id) => suggestionReads.get(id) === "failed",
+        ),
+      ),
+    [awaitedSuggestionIds, suggestionReads],
+  );
+  const retrySuggestionRead = useCallback(() => {
+    setSuggestionReads(
+      (reads) =>
+        new Map([...reads].filter(([, outcome]) => outcome !== "failed")),
+    );
+    setSuggestionReadAttempt((attempt) => attempt + 1);
+  }, []);
   // Accepting moves the source thread's quote, which a revision still in
   // flight would read as changed feedback and abandon.
   const commentAiWorkingOnSource = (suggestion: ResourceSuggestion) => {
@@ -8380,6 +8455,16 @@ function PageEditorSessionBody({
     hasInlineCommentSpace,
     isDatabasePage: Boolean(document.database),
   });
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    {
+      scroller: scrollContainerRef,
+      content: scrollContentRef,
+      column: pageColumnRef,
+    },
+    reserveInlineReviewSpace,
+  );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
     if (
@@ -9489,9 +9574,10 @@ function PageEditorSessionBody({
         suggestionDecisionView(pageId)?.failed(entry, error);
         const unplaceable = isSuggestionStaleActionError(error);
         const accepting = entry.decision === "accepted";
+        const asOne = single || reviewedAsOne(entry.members);
         toast.error(
           t(
-            single
+            asOne
               ? accepting
                 ? "editor.suggestionAcceptFailed"
                 : "editor.suggestionRejectFailed"
@@ -9502,10 +9588,10 @@ function PageEditorSessionBody({
           {
             description: t(
               unplaceable
-                ? single
+                ? asOne
                   ? "editor.suggestionUnplaceable"
                   : "editor.proposalUnplaceable"
-                : single
+                : asOne
                   ? "editor.suggestionDecisionReverted"
                   : "editor.proposalDecisionReverted",
             ),
@@ -9807,6 +9893,9 @@ function PageEditorSessionBody({
           ? sidebarSuggestions
           : NO_SUGGESTIONS
       }
+      awaitedSuggestionIds={awaitedSuggestionIds}
+      unreadableSuggestionIds={unreadableSuggestionIds}
+      onRetrySuggestionRead={retrySuggestionRead}
       draftSuggestions={
         presentation === "history" || blockFieldComments.railShowsSuggestions
           ? draftSuggestions
@@ -10003,7 +10092,9 @@ function PageEditorSessionBody({
             t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
             {
               description: unplaceable
-                ? t("editor.proposalUnplaceable")
+                ? reviewedAsOne(members)
+                  ? t("editor.suggestionUnplaceable")
+                  : t("editor.proposalUnplaceable")
                 : (actionErrorMessage(error) ?? t("empty.genericError")),
             },
           );
@@ -10424,6 +10515,7 @@ function PageEditorSessionBody({
             onWheelCapture={cancelPaddingScrollRestore}
           >
             <div
+              ref={scrollContentRef}
               className={cn(
                 "relative flex min-h-full w-full min-w-0",
                 showDesktopInfoPanel ? "justify-center" : "flex-col",
@@ -10431,6 +10523,7 @@ function PageEditorSessionBody({
               data-document-scroll-content
             >
               <div
+                ref={pageColumnRef}
                 className={cn(
                   "min-w-0",
                   showDesktopInfoPanel ? "flex-1" : "w-full",

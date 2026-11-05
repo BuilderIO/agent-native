@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
+import { registerAgentContextAgentFilter } from "../server/agent-context-agents.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
@@ -117,7 +118,10 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Analytics (analytics)");
     expect(output).toContain("Product analytics, funnels, and session replay.");
     expect(output).toContain("query-events");
-    expect(discoverAgentsWithDirectoryStatus).toHaveBeenCalledWith("coach");
+    expect(discoverAgentsWithDirectoryStatus).toHaveBeenCalledWith(
+      "coach",
+      undefined,
+    );
   });
 
   it("separates direct reads from capabilities that require message delegation", async () => {
@@ -212,6 +216,27 @@ describe("describe-workspace-apps", () => {
 
     expect(output).toContain("Analytics (analytics)");
     expect(output).not.toContain("App 0 (app-0)");
+  });
+
+  it("lists only the peers the app's agent-context filter keeps", async () => {
+    discoverAgents.mockResolvedValue([
+      agent(),
+      agent({ id: "mail", name: "Mail", description: "Send email." }),
+    ]);
+    const unregister = registerAgentContextAgentFilter("coach", (agents) =>
+      agents.filter((peer) => peer.id !== "mail"),
+    );
+    try {
+      const output = await run({}, undefined, "coach");
+      expect(output).toContain("1 other app reachable from this one");
+
+      const missing = await run({ app: "nope" }, undefined, "coach");
+      expect(missing).toBe(
+        'Error: no workspace app "nope". Available: analytics',
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("reports when a supplied query matches no workspace apps", async () => {

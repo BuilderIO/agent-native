@@ -26,6 +26,11 @@ import { ReplaceStep } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
+import {
+  commentHighlightEmphasis,
+  commentHighlightKey,
+  type CommentHighlightState,
+} from "./CommentHighlight";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -43,6 +48,11 @@ export interface SuggestionHighlightSpec {
   deletedText?: string;
   insertedPresentation?: SuggestionPresentationContext;
   deletedPresentation?: SuggestionPresentationContext;
+  /**
+   * Where the links in a replacement's original text point. The reader sees
+   * those links on the Page, so the suggested text does not spell them out.
+   */
+  replacedLinks?: readonly string[];
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
@@ -52,6 +62,8 @@ export interface SuggestionHighlightSpec {
   draft?: boolean;
   /** Decided together with the active suggestion, so it lights up with it. */
   inActiveUnit?: boolean;
+  /** A marked range of only line breaks, which shows a "↵" as it has no ink. */
+  lineBreak?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -90,6 +102,13 @@ function clampPosition(position: number, size: number): number {
   return Math.max(0, Math.min(position, size));
 }
 
+// Chrome has no caret spot between a line break and an uneditable element, so
+// typing there lands before the break, on the line above. A widget at the start
+// of a code line goes before the caret, which keeps typing on its own line.
+function widgetSide(doc: ProseMirrorNode, position: number): -1 | 1 {
+  return doc.resolve(position).nodeBefore?.text?.endsWith("\n") ? -1 : 1;
+}
+
 function classes(base: string, active: boolean): string {
   return active ? `${base} suggestion-highlight--active` : base;
 }
@@ -97,7 +116,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
-  showLinkDestination: boolean,
+  showLinkDestination: (url: string) => boolean,
 ): void {
   if (node.type === "lineBreak") {
     parent.append(document.createElement("br"));
@@ -130,7 +149,7 @@ function appendPresentationNode(
     appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link" && showLinkDestination) {
+  if (node.type === "link" && showLinkDestination(node.url)) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -139,7 +158,7 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
-  showLinkDestination = true,
+  showLinkDestination: (url: string) => boolean = () => true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
@@ -178,25 +197,74 @@ function insertionClass(spec: SuggestionHighlightSpec) {
   } suggestion-proposed-text`;
 }
 
+interface SettlingCommentHighlight {
+  threadId: string;
+  className: string;
+}
+
+// An accepted edit's original text is hidden while it settles, and with it
+// any comment highlight on that text; its new text carries the highlight until
+// the saved Page highlights it again. Like overlapping highlights on text, one
+// highlight stands for every thread there, naming the one its card is open for.
+function settlingCommentHighlight(
+  comments: CommentHighlightState | undefined,
+  spec: SuggestionHighlightSpec,
+): SettlingCommentHighlight | null {
+  if (!comments) return null;
+  const threadIds = comments.specs
+    .filter(
+      (comment) =>
+        !comment.blockId && comment.to > spec.from && spec.to > comment.from,
+    )
+    .map((comment) => comment.threadId);
+  const threadId =
+    threadIds.find(
+      (id) => id === comments.activeId || id === comments.hoveredId,
+    ) ?? threadIds.find(Boolean);
+  if (!threadId) return null;
+  return {
+    threadId,
+    className: `comment-highlight${commentHighlightEmphasis(
+      threadIds,
+      comments.activeId,
+      comments.hoveredId,
+    )}`,
+  };
+}
+
+function settlingWidget(
+  spec: SuggestionHighlightSpec,
+  comment: SettlingCommentHighlight | null,
+) {
+  return () => {
+    const widget = document.createElement("span");
+    widget.className = "suggestion-settling-text suggestion-inline-widget";
+    widget.setAttribute("data-suggestion-widget", "true");
+    let parent = widget;
+    if (comment) {
+      parent = document.createElement("span");
+      parent.className = comment.className;
+      parent.setAttribute("data-comment-thread", comment.threadId);
+      widget.append(parent);
+    }
+    appendSuggestionText(
+      parent,
+      spec.insertedText ?? "",
+      spec.insertedPresentation,
+      () => false,
+    );
+    return widget;
+  };
+}
+
 function insertionWidget(
   spec: SuggestionHighlightSpec,
   active: boolean,
   part?: { text: string; context?: SuggestionPresentationContext },
   position?: number,
 ) {
-  return () => {
+  return (view: EditorView) => {
     const widget = document.createElement("span");
-    if (spec.settling) {
-      widget.className = "suggestion-settling-text suggestion-inline-widget";
-      widget.setAttribute("data-suggestion-widget", "true");
-      appendSuggestionText(
-        widget,
-        spec.insertedText ?? "",
-        spec.insertedPresentation,
-        false,
-      );
-      return widget;
-    }
     widget.className = classes(
       `${insertionClass(spec)} suggestion-inline-widget`,
       active,
@@ -206,6 +274,7 @@ function insertionWidget(
       widget,
       part ? part.text : (spec.insertedText ?? ""),
       part ? part.context : spec.insertedPresentation,
+      (url) => !spec.replacedLinks?.includes(url),
     );
     return widget;
   };
@@ -399,7 +468,11 @@ function lineWidget(
         node.type !== "indent" &&
         (node.type !== "block" || node.value === "¶")
       )
-        appendPresentationNode(block, node, true);
+        appendPresentationNode(
+          block,
+          node,
+          (url) => !spec.replacedLinks?.includes(url),
+        );
     let content: HTMLElement = block;
     if (quote) {
       content = document.createElement("blockquote");
@@ -670,6 +743,7 @@ function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
   activeId: string | null,
+  comments?: CommentHighlightState,
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
@@ -722,24 +796,26 @@ function buildDecorations(
         );
       }
       if (spec.kind !== "delete") {
+        const comment = settlingCommentHighlight(comments, spec);
+        const position = clampPosition(range ? range.to : spec.from, size);
+        const side = widgetSide(doc, position);
         decorations.push(
-          Decoration.widget(
-            clampPosition(range ? range.to : spec.from, size),
-            insertionWidget(spec, false),
-            {
-              key: JSON.stringify([
-                spec.suggestionId,
-                "settling",
-                range?.from ?? spec.from,
-                range?.to ?? spec.from,
-                spec.insertedText,
-                spec.insertedPresentation?.from,
-                spec.insertedPresentation?.to,
-              ]),
-              marks: [],
-              side: 1,
-            },
-          ),
+          Decoration.widget(position, settlingWidget(spec, comment), {
+            key: JSON.stringify([
+              spec.suggestionId,
+              "settling",
+              range?.from ?? spec.from,
+              range?.to ?? spec.from,
+              spec.insertedText,
+              spec.insertedPresentation?.from,
+              spec.insertedPresentation?.to,
+              comment?.threadId,
+              comment?.className,
+              side,
+            ]),
+            marks: [],
+            side,
+          }),
         );
       }
       continue;
@@ -760,7 +836,10 @@ function buildDecorations(
       decorations.push(
         Decoration.inline(range.from, range.to, {
           ...attrs,
-          class: classes("suggestion-change suggestion-proposed-text", active),
+          class: classes(
+            `suggestion-change suggestion-proposed-text${spec.lineBreak ? " suggestion-line-break" : ""}`,
+            active,
+          ),
         }),
       );
     }
@@ -781,25 +860,28 @@ function buildDecorations(
         size,
       );
       if (lineParts) decorations.push(...lineParts);
-      else
+      else {
+        const side = widgetSide(doc, anchor);
         decorations.push(
           Decoration.widget(
             anchor,
             insertionWidget(spec, active, undefined, anchor),
             {
               // ProseMirror reuses a widget's element while its key holds, so
-              // the key covers everything the element shows.
+              // the key covers everything the element shows and where it sits.
               key: `${spec.suggestionId}:inserted:${anchor}:${JSON.stringify([
                 spec.insertedText,
                 active,
                 !!spec.editableBoundary,
+                side,
               ])}`,
               marks: [],
-              side: 1,
+              side,
               ...attrs,
             },
           ),
         );
+      }
     }
     const deletedLines =
       spec.deletedText &&
@@ -809,24 +891,23 @@ function buildDecorations(
       lineDecorations(doc, spec, active, deletedLines, true, attrs);
     if (deletedLineParts) decorations.push(...deletedLineParts);
     else if (spec.deletedText) {
+      const position = clampPosition(spec.from, size);
+      const side = widgetSide(doc, position);
       decorations.push(
-        Decoration.widget(
-          clampPosition(spec.from, size),
-          deletionWidget(spec, active),
-          {
-            key: JSON.stringify([
-              spec.suggestionId,
-              "deleted",
-              clampPosition(spec.from, size),
-              spec.deletedText,
-              active,
-              !!spec.editableBoundary,
-            ]),
-            marks: [],
-            side: 1,
-            ...attrs,
-          },
-        ),
+        Decoration.widget(position, deletionWidget(spec, active), {
+          key: JSON.stringify([
+            spec.suggestionId,
+            "deleted",
+            position,
+            spec.deletedText,
+            active,
+            !!spec.editableBoundary,
+            side,
+          ]),
+          marks: [],
+          side,
+          ...attrs,
+        }),
       );
     }
   }
@@ -1053,14 +1134,28 @@ function typedDraftSpecs(
     // Typing at either edge of a draft is part of it.
     const from = tr.mapping.map(spec.from, -1);
     const to = tr.mapping.map(spec.to, 1);
-    return spec.kind === "delete" && to > from
-      ? { ...spec, from, to, kind: "mark" as const, editableText: true }
+    if (spec.kind === "delete" && to > from)
+      return { ...spec, from, to, kind: "mark" as const, editableText: true };
+    return spec.lineBreak
+      ? {
+          ...spec,
+          from,
+          to,
+          lineBreak: /^\n+$/.test(tr.doc.textBetween(from, to)),
+        }
       : { ...spec, from, to };
   });
   return typed ? [...mapped, typed] : mapped;
 }
 
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
+  // A settling edit's new text carries the comment highlight, so its widgets
+  // follow the comment state, which changes without a transaction of ours.
+  let settlingDecorations: {
+    value: SuggestionHighlightState;
+    comments: CommentHighlightState | undefined;
+    decorations: DecorationSet;
+  } | null = null;
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
     state: {
@@ -1132,7 +1227,25 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
       ),
     props: {
       decorations(state) {
-        return suggestionHighlightKey.getState(state)?.decorations ?? null;
+        const value = suggestionHighlightKey.getState(state);
+        if (!value?.specs.some((spec) => spec.settling))
+          return value?.decorations ?? null;
+        const comments = commentHighlightKey.getState(state);
+        if (
+          settlingDecorations?.value !== value ||
+          settlingDecorations.comments !== comments
+        )
+          settlingDecorations = {
+            value,
+            comments,
+            decorations: buildDecorations(
+              state.doc,
+              value.specs,
+              value.activeId,
+              comments,
+            ),
+          };
+        return settlingDecorations.decorations;
       },
     },
   });

@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const context = vi.hoisted(() => ({
-  navigation: { view: "library", recordingId: "rec-test" },
+  navigation: {
+    view: "library",
+    recordingId: "rec-test",
+    meetingId: undefined as string | undefined,
+  },
+  meeting: null as Record<string, unknown> | null,
+  meetingSegmentsJson: "[]",
   recording: null as Record<string, unknown> | null,
   email: "viewer@example.com",
   role: null as "owner" | "editor" | null,
@@ -45,6 +51,13 @@ const mockMeetingsWhere = vi.hoisted(() =>
 const makeRealDb = vi.hoisted(() => () => ({
   select: (_projection?: unknown) => ({
     from: (table: any) => {
+      if (context.meeting) {
+        const rows = table === TABLES.meetings ? [context.meeting] : [];
+        return {
+          where: () =>
+            Object.assign(Promise.resolve(rows), { limit: async () => rows }),
+        };
+      }
       if (context.recording) {
         if (table === TABLES.recordings) {
           return { where: async () => [context.recording] };
@@ -196,6 +209,9 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => makeLazyProxy(makeRealDb()),
   schema: {
     meetings: TABLES.meetings,
+    meetingShares: "meetingShares",
+    meetingParticipants: { meetingId: "participants.meetingId" },
+    meetingActionItems: { meetingId: "actionItems.meetingId" },
     folders: TABLES.folders,
     recordings: TABLES.recordings,
     recordingShares: "recordingShares",
@@ -213,6 +229,16 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/agent-recording-access.js", () => ({
   agentRecordingAccessFilter: () => ({ kind: "agent-access-filter" }),
+}));
+
+vi.mock("../server/lib/meeting-recording-access.js", () => ({
+  loadMeetingRecordingContent: async () => ({
+    recording: null,
+    transcript: {
+      fullText: "Transcript",
+      segmentsJson: context.meetingSegmentsJson,
+    },
+  }),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -238,6 +264,50 @@ vi.mock("../shared/browser-diagnostics.js", () => ({
 }));
 
 import action from "./view-screen";
+
+describe("view-screen meeting", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    context.recording = null;
+    context.navigation.view = "meeting";
+    context.navigation.meetingId = "meeting-1";
+    context.meeting = { id: "meeting-1", title: "Weekly sync" };
+  });
+
+  afterEach(() => {
+    context.navigation.meetingId = undefined;
+    context.meeting = null;
+  });
+
+  it("tells the agent how much earlier audio the notes hold", async () => {
+    context.meetingSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 300_000, text: "Earlier", recovered: true },
+      { startMs: 300_000, endMs: 301_000, text: "The meeting itself" },
+    ]);
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBe(5);
+  });
+
+  it("says when the transcript can't be read instead of reporting none", async () => {
+    context.meetingSegmentsJson = "not json";
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBeNull();
+  });
+
+  it("reports none for notes without it", async () => {
+    context.meetingSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 1000, text: "The meeting itself" },
+    ]);
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBe(0);
+  });
+});
 
 describe("view-screen library view on a cold start", () => {
   beforeEach(() => {

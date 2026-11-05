@@ -741,10 +741,11 @@ const messages = {
     draftCard: {
       loadFailed: "无法加载此草稿。",
       notFoundTitle: "找不到草稿",
+      goneTitle: "此草稿已发送或删除。",
       threadUnavailable: "无法加载此对话中较早的邮件。",
-      threadLookupFailed: "找不到此回复所属的对话，暂时无法发送。",
       earlierMessages: "较早的邮件（{{count}}）",
-      deleted: "草稿已删除。",
+      sendInMail: "在 Mail 中发送",
+      openBlocked: "浏览器拦截了新标签页。",
     },
     agentEngine: {
       activeEngine: "当前引擎",
