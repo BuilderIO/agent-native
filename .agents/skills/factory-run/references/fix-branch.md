@@ -43,9 +43,11 @@ reported failure, or change anything beyond fixing it.
    AGENTS.md says the touched package needs one.
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
-   has this fix, end with `OUTCOME: already-fixed <sha>`; if an open one does,
-   still send yours and name it in your reply, so the factory run can pick one
-   under `factory-run`'s "Duplicate and competing PRs".
+   has this fix, end with `OUTCOME: already-fixed <sha>`; if an open
+   PR from a person does, don't send yours: end with `OUTCOME: blocked`
+   naming it; if an open factory PR does, still send yours and name it in your
+   reply, so the factory run can pick one under `factory-run`'s "Duplicate and
+   competing PRs".
 5. **Live mode:** send one ready pull request (never a draft) for this branch
    with Builder's pull request tool, titled "<app>: <what the fix does>". Then
    set its body with `gh pr edit <url> --body-file <file>`: what changed, why,
