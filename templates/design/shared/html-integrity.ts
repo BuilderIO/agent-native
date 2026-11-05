@@ -575,6 +575,25 @@ function collectOrphanEndTags(
   onlyWithin?: SourceRange[],
 ): DesignHtmlIntegrityIssueDetail[] {
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
+  const matchedEndTags = onlyWithin
+    ? new Set(
+        parsed.elements.flatMap((element) => {
+          const location = locationOf(element);
+          const start = location?.startTag?.startOffset;
+          const end = location?.endTag?.startOffset;
+          if (start === undefined || end === undefined) return [];
+          return onlyWithin.some(
+            (range) =>
+              start >= range.start &&
+              start < range.end &&
+              end >= range.start &&
+              end < range.end,
+          )
+            ? [end]
+            : [];
+        }),
+      )
+    : parsed.matchedEndTags;
   END_TAG_PATTERN.lastIndex = 0;
   let match = END_TAG_PATTERN.exec(parsed.source);
   while (match) {
@@ -582,7 +601,7 @@ function collectOrphanEndTags(
     const tag = match[1]!.toLowerCase();
     if (
       (!onlyWithin || fallsInside(offset, onlyWithin)) &&
-      !parsed.matchedEndTags.has(offset) &&
+      !matchedEndTags.has(offset) &&
       !OPTIONAL_CLOSE_TAGS.has(tag) &&
       !VOID_TAGS.has(tag) &&
       !fallsInside(offset, parsed.rawTextBodies) &&
