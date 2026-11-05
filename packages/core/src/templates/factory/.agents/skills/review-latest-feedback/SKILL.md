@@ -293,8 +293,8 @@ do not claim new roots.
   never count. For a purely visual fix, before and after screenshots are
   evidence, not automated proof: before merging, a human must open both and
   confirm they show the reported change. Put the evidence under the report in
-  the PR's `Reports` section. A test-only change (only test files, plus an
-  optional `.changeset/`) needs only `fix-proof: test-only`.
+  the PR's `Reports` section. A test-only change (test files, optional
+  `.changeset/`) needs only `fix-proof: test-only`.
 - **Two misses, then stop guessing.** If two attempts don't turn the check
   green, stop editing and capture the real failure first (stack, logs, the
   reporter's actual data). If that doesn't settle it within about 30
