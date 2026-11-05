@@ -286,10 +286,16 @@ das Beispiel für neue Schemata diesen entspricht. In einer neuen Datenbank kann
 eine alte ungültige Migration fehlschlagen, bevor eine später angehängte
 Reparatur ausgeführt wird. Erstellen und testen Sie im Rahmen einer sorgfältig
 geplanten und geprüften deployment-spezifischen Strategie eine PostgreSQL-Baseline
-für neue Datenbanken, die das geprüfte bestehende Schema und seine Typen
+für neue Datenbanken, die das geprüfte bestehende Schema und seine Typen, die
+notwendigen Initialdaten und die Auswirkungen ersetzter Migrations-Callbacks
 nachbildet. Stellen Sie sicher, dass ihre Migrationsbuchführung die ersetzten
-Migrationen korrekt abbildet, bevor neuere Migrationen laufen. Der Runner wählt
-nicht automatisch eine Baseline aus.
+Migrationen korrekt abbildet. Benannte Migrationen benötigen passende Namen in
+der Buchführung, ein Versionswasserzeichen allein reicht nicht aus.
+
+Implementieren und testen Sie die Auswahl und Bereitstellung der Baseline für
+Neuinstallationen im Deployment-Code der App, bevor neuere Migrationen laufen.
+Behalten Sie den ursprünglichen Migrationspfad für bestehende Datenbanken bei.
+Der Runner wählt nicht automatisch eine Baseline aus.
 
 <Callout tone="warning">
   Das Chat-Template stellt `pnpm migrate:production` bereit, um Migrationen als

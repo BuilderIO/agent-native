@@ -287,10 +287,16 @@ el ejemplo para esquemas nuevos. En una base nueva, una migración antigua no
 válida puede fallar antes de ejecutar una reparación añadida después. Como parte
 de una estrategia específica del despliegue cuidadosamente planificada y revisada,
 crea y prueba una línea base de PostgreSQL para bases nuevas que reproduzca el
-esquema y los tipos inspeccionados de las bases existentes. Asegúrate de que el
-registro de migraciones de la línea base represente correctamente las migraciones
-que sustituye antes de ejecutar las más recientes. El ejecutor no selecciona una
-línea base automáticamente.
+esquema y los tipos inspeccionados de las bases existentes, los datos iniciales
+necesarios y los efectos de los callbacks de las migraciones sustituidas.
+Asegúrate de que el registro de la línea base represente correctamente las
+migraciones sustituidas. Las migraciones con nombre necesitan nombres coincidentes
+en el registro, no basta con un límite de versión.
+
+Implementa y prueba en el código de despliegue de la aplicación la selección y
+provisión de la línea base para instalaciones nuevas antes de ejecutar migraciones
+más recientes. Conserva la ruta de migración original para las bases existentes.
+El ejecutor no selecciona una línea base automáticamente.
 
 <Callout tone="warning">
   La plantilla Chat incluye `pnpm migrate:production` para ejecutar migraciones

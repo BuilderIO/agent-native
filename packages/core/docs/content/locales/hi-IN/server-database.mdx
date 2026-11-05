@@ -283,9 +283,14 @@ identifiers अपरिवर्तित रहते हैं। किस�
 में पुराना अमान्य migration बाद में जोड़ी गई मरम्मत चलने से पहले विफल हो सकता
 है। सावधानी से नियोजित और समीक्षा की गई deployment-विशिष्ट रणनीति के तहत नए
 डेटाबेस के लिए PostgreSQL baseline बनाएं और जाँचें, जो निरीक्षण किए गए मौजूदा
-schema और प्रकारों को दोहराए। नए migrations चलने से पहले सुनिश्चित करें कि
-baseline का migration bookkeeping उसके बदले गए migrations को सही दर्शाता है।
-Runner अपने आप baseline नहीं चुनता।
+schema और प्रकारों, आवश्यक शुरुआती डेटा और बदले गए migration callbacks के
+प्रभावों को दोहराए। सुनिश्चित करें कि baseline का migration bookkeeping बदले
+गए migrations को सही दर्शाता है। नाम वाले migrations के लिए bookkeeping में
+मेल खाते नाम आवश्यक हैं, केवल version watermark पर्याप्त नहीं है।
+
+नए migrations चलने से पहले ऐप के deployment code में नई स्थापना के लिए
+baseline का चयन और provisioning लागू करें और जाँचें। मौजूदा डेटाबेस के लिए
+मूल migration path बनाए रखें। Runner अपने आप baseline नहीं चुनता।
 
 <Callout tone="warning">
   Chat template migrations को release step में चलाने के लिए `pnpm

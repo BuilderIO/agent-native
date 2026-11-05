@@ -286,9 +286,15 @@ esquemas. Em um banco novo, uma migração antiga inválida pode falhar antes qu
 uma correção adicionada depois seja executada. Como parte de uma estratégia
 específica da implantação, cuidadosamente planejada e revisada, crie e teste uma
 linha de base PostgreSQL para bancos novos que reproduza o esquema e os tipos
-existentes inspecionados. Garanta que o registro de migrações da linha de base
-represente corretamente as migrações que ela substitui antes de executar as mais
-recentes. O runner não seleciona uma linha de base automaticamente.
+existentes inspecionados, os dados iniciais necessários e os efeitos dos callbacks
+das migrações substituídas. Garanta que o registro de migrações da linha de base
+represente corretamente as migrações substituídas. Migrações nomeadas precisam de
+nomes correspondentes no registro, não basta um limite de versão.
+
+Implemente e teste no código de implantação do aplicativo a seleção e o
+provisionamento da linha de base para novas instalações antes de executar as
+migrações mais recentes. Preserve o caminho original de migração para bancos
+existentes. O runner não seleciona uma linha de base automaticamente.
 
 <Callout tone="warning">
   O template Chat fornece `pnpm migrate:production` para executar migrações como

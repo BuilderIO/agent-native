@@ -289,10 +289,17 @@ pour les nouveaux schémas leur correspond. Dans une nouvelle base, une ancienne
 migration invalide peut échouer avant l'exécution d'une correction ajoutée ensuite.
 Dans le cadre d'une stratégie propre au déploiement, soigneusement planifiée et
 examinée, construisez et testez une base de référence PostgreSQL pour les
-nouvelles bases qui reproduit le schéma et les types existants inspectés.
-Assurez-vous que son suivi des migrations représente correctement les migrations
-remplacées avant l'exécution des migrations plus récentes. Le runner ne choisit
-pas automatiquement une base de référence.
+nouvelles bases qui reproduit le schéma et les types existants inspectés, les
+données initiales nécessaires et les effets des callbacks des migrations
+remplacées. Assurez-vous que son suivi représente correctement les migrations
+remplacées. Les migrations nommées nécessitent des noms correspondants dans ce
+suivi, un seuil de version ne suffit pas.
+
+Implémentez et testez dans le code de déploiement de l'application la sélection
+et la mise en place de la base de référence pour les nouvelles installations
+avant d'exécuter les migrations plus récentes. Conservez le parcours de migration
+original pour les bases existantes. Le runner ne choisit pas automatiquement une
+base de référence.
 
 <Callout tone="warning">
   Le template Chat fournit `pnpm migrate:production` pour exécuter les

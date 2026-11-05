@@ -294,9 +294,14 @@ columns to `BIGINT`, so do not assume the new-schema example matches them. On a
 fresh database, an old invalid migration can fail before a newly appended repair
 runs. As part of a carefully planned and reviewed deployment-specific strategy,
 build and test a PostgreSQL baseline for fresh databases that reproduces the
-inspected existing schema and types. Ensure its migration bookkeeping correctly
-represents the migrations it replaces before newer migrations run. The runner
-does not automatically select a baseline.
+inspected existing schema and types, required seed data, and effects of replaced
+migration callbacks. Ensure its migration bookkeeping correctly represents the
+migrations it replaces. Named migrations need matching names in the bookkeeping,
+not just a version watermark.
+
+Implement and test fresh-install baseline selection and provisioning in the
+app's deployment code before newer migrations run. Keep the original migration
+path for existing databases. The runner does not automatically select a baseline.
 
 ### Generate new app migrations with Drizzle Kit {#drizzle-migrations}
 
