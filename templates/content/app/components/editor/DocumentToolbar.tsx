@@ -1135,7 +1135,7 @@ export function DocumentToolbar({
   const notionStatusPending =
     notionStatusApplies &&
     (connectionStatus !== "success" ||
-      typeof connection?.connected !== "boolean" ||
+      typeof connection.connected !== "boolean" ||
       (isConnected &&
         !isDocumentSyncStatusCurrent({
           status: syncStatusState,
