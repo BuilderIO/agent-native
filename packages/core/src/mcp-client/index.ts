@@ -152,6 +152,7 @@ import {
 import {
   MCP_APP_MIME_TYPE,
   type ActionAuthorize,
+  type ActionMcpToolAnnotations,
   type ActionRunContext,
 } from "../action.js";
 import type { EngineToolResultImagePart } from "../agent/engine/types.js";
@@ -215,6 +216,28 @@ export function syncMcpActionEntries(
   }
 }
 
+/**
+ * The upstream server's own hints, so `tool-search` marks a destructive tool
+ * whatever it is called. Only a server that states `destructiveHint` gets
+ * annotations; the hints it leaves out take MCP's defaults.
+ */
+function upstreamMcpAnnotations(tool: McpTool): {
+  mcpAnnotations?: ActionMcpToolAnnotations;
+} {
+  const hints = tool.annotations;
+  if (typeof hints?.destructiveHint !== "boolean") return {};
+  return {
+    mcpAnnotations: {
+      readOnlyHint: hints.readOnlyHint === true,
+      destructiveHint: hints.destructiveHint,
+      openWorldHint: hints.openWorldHint !== false,
+      ...(typeof hints.idempotentHint === "boolean"
+        ? { idempotentHint: hints.idempotentHint }
+        : {}),
+    },
+  };
+}
+
 function mcpToolToActionEntry(
   manager: McpClientManager,
   tool: McpTool,
@@ -236,6 +259,7 @@ function mcpToolToActionEntry(
         "Plan mode allows MCP calls classified as read-only from annotations, operation names, and runtime arguments.",
     },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
+    ...upstreamMcpAnnotations(tool),
     ...resolvedEntry,
     run: async (args: Record<string, unknown>, context?: ActionRunContext) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it

@@ -775,26 +775,24 @@ function leadsWithDestructiveVerb(value: string): boolean {
  * delete it") is the agent's call, so a search finds the tool either way and
  * the mark tells the agent to check.
  *
- * A declared `destructiveHint` decides first, then a read-only tool is never
- * destructive (a `status: "cancelled"` filter on a list is not a write). Any
- * other tool is destructive when an `enum` or `const` value anywhere in its
- * input schema leads with a destructive verb (`operation: "delete"`,
- * `op: "delete"`, `kind: "deleteNode"`), or, without annotations, when its own
- * name does, since most delete actions declare none.
+ * Declared annotations decide, `destructiveHint: false` included. Without
+ * them, a read-only tool is never destructive (a `status: "cancelled"` filter
+ * on a list is not a write), and any other tool is when an `enum` or `const`
+ * value anywhere in its input schema leads with a destructive verb
+ * (`operation: "delete"`, `op: "delete"`, `kind: "deleteNode"`) or its own
+ * name does, since most delete actions declare no annotations.
  */
 function destructiveMark(
   name: string,
   entry: ActionEntry | undefined,
 ): { destructive?: true } {
   if (!entry) return {};
-  const annotations = entry.mcpAnnotations;
-  if (annotations?.destructiveHint === true) return { destructive: true };
-  if (entry.readOnly === true || annotations?.readOnlyHint === true) return {};
-  if (schemaHasDestructiveValue(entry.tool.parameters, 0)) {
-    return { destructive: true };
+  if (entry.mcpAnnotations) {
+    return entry.mcpAnnotations.destructiveHint ? { destructive: true } : {};
   }
-  if (annotations) return {};
-  return leadsWithDestructiveVerb(parseMcpToolName(name)?.toolName ?? name)
+  if (entry.readOnly === true) return {};
+  return schemaHasDestructiveValue(entry.tool.parameters, 0) ||
+    leadsWithDestructiveVerb(parseMcpToolName(name)?.toolName ?? name)
     ? { destructive: true }
     : {};
 }

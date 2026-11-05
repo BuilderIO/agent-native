@@ -1021,6 +1021,55 @@ describe("tool-search ranking", () => {
       });
     });
 
+    it("lets an explicit destructiveHint: false win over the name and schema", () => {
+      expect(
+        marks({
+          "delete-preview": {
+            ...writeAction("Preview what a delete would remove.", {
+              operation: { type: "string", enum: ["delete"] },
+            }),
+            mcpAnnotations: annotations(false),
+          },
+        }),
+      ).toEqual({ "delete-preview": undefined });
+    });
+
+    it("marks a connected MCP tool by its server's destructiveHint", () => {
+      const upstream = (
+        name: string,
+        hints: Record<string, unknown>,
+      ): McpTool => ({
+        source: "files",
+        name: `mcp__files__${name}`,
+        originalName: name,
+        description: "Work with a file.",
+        inputSchema: { type: "object", properties: {} },
+        annotations: hints,
+        raw: {},
+      });
+      const entries = mcpToolsToActionEntries({
+        getTools: () => [
+          upstream("tidy_folder", { destructiveHint: true }),
+          upstream("delete_draft", { destructiveHint: false }),
+          upstream("sync_folder", {}),
+        ],
+      } as unknown as McpClientManager);
+
+      expect(entries["mcp__files__tidy_folder"]?.mcpAnnotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      });
+      expect(
+        entries["mcp__files__sync_folder"]?.mcpAnnotations,
+      ).toBeUndefined();
+      expect(marks(entries)).toEqual({
+        mcp__files__tidy_folder: true,
+        mcp__files__delete_draft: undefined,
+        mcp__files__sync_folder: undefined,
+      });
+    });
+
     it("stops walking a schema past its depth bound", () => {
       let schema: Record<string, unknown> = {
         type: "object",
