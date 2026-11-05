@@ -2527,10 +2527,13 @@ async function detachDebugTab(
 
 async function detachSession(session: CaptureSession): Promise<void> {
   for (const tabId of [...session.debugTabs.keys()]) {
-    await detachDebugTab(session, tabId);
+    await detachDebugTab(session, tabId).catch((err) => {
+      console.warn("[clips-bg] could not detach session tab", tabId, err);
+    });
   }
-  tabToSession.delete(session.targetTabId);
-  session.attached = false;
+  if (!session.debugTabs.has(session.targetTabId)) {
+    tabToSession.delete(session.targetTabId);
+  }
 }
 
 // Runs inside the page through chrome.scripting, so it must not close over

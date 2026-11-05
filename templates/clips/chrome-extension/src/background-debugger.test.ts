@@ -20,6 +20,10 @@ async function restoreRecording(
   const attached: number[] = [];
   const detached: number[] = [];
   const failedDetaches = new Set<number>();
+  const heldDetaches = new Set<number>();
+  const pendingDetaches = new Map<number, () => void>();
+  const debuggerTabs = new Set<number>();
+  let onDetach: ((source: { tabId: number }) => void) | undefined;
   let lastError: { message: string } | undefined;
   let onMessage: MessageListener | undefined;
   let onExternalMessage: MessageListener | undefined;
@@ -55,6 +59,8 @@ async function restoreRecording(
           (onExternalMessage = listener),
       },
       onConnect: event(),
+      sendMessage: (_message: unknown, callback: (response: object) => void) =>
+        callback({ ok: true }),
     },
     storage: {
       session: {
@@ -62,6 +68,10 @@ async function restoreRecording(
           callback(stored),
         set: (value: Partial<typeof stored>, callback: () => void) => {
           Object.assign(stored, value);
+          callback();
+        },
+        remove: (key: string, callback: () => void) => {
+          Reflect.deleteProperty(stored, key);
           callback();
         },
       },
@@ -72,13 +82,19 @@ async function restoreRecording(
           throw new Error(`lookup failed: ${tabId}`);
         return { id: tabId, windowId: windows[tabId] };
       },
-      query: async ({ windowId }: { windowId: number }) =>
-        Object.entries(windows)
-          .filter(([, id]) => id === windowId)
+      query: async (
+        { windowId }: { windowId?: number },
+        callback?: (tabs: Array<{ id: number; windowId: number }>) => void,
+      ) => {
+        const tabs = Object.entries(windows)
+          .filter(([, id]) => windowId === undefined || id === windowId)
           .map(([id, currentWindowId]) => ({
             id: Number(id),
             windowId: currentWindowId,
-          })),
+          }));
+        callback?.(tabs);
+        return tabs;
+      },
       onAttached: {
         addListener: (listener: () => void) => attachedListeners.push(listener),
       },
@@ -91,7 +107,7 @@ async function restoreRecording(
       onUpdated: event(),
     },
     windows: { WINDOW_ID_NONE: -1, onFocusChanged: event() },
-    action: { onClicked: event() },
+    action: { onClicked: event(), setBadgeText: async () => undefined },
     debugger: {
       attach: (
         { tabId }: { tabId: number },
@@ -99,15 +115,21 @@ async function restoreRecording(
         callback: () => void,
       ) => {
         attached.push(tabId);
+        debuggerTabs.add(tabId);
         if (tabId === moveOnAttach) windows[tabId] = 2;
         callback();
       },
       detach: ({ tabId }: { tabId: number }, callback: () => void) => {
         detached.push(tabId);
-        if (failedDetaches.has(tabId))
-          lastError = { message: `detach failed: ${tabId}` };
-        callback();
-        lastError = undefined;
+        const finish = () => {
+          if (failedDetaches.has(tabId))
+            lastError = { message: `detach failed: ${tabId}` };
+          else debuggerTabs.delete(tabId);
+          callback();
+          lastError = undefined;
+        };
+        if (heldDetaches.has(tabId)) pendingDetaches.set(tabId, finish);
+        else finish();
       },
       sendCommand: (
         _target: object,
@@ -116,7 +138,10 @@ async function restoreRecording(
         callback: () => void,
       ) => callback(),
       onEvent: event(),
-      onDetach: event(),
+      onDetach: {
+        addListener: (listener: (source: { tabId: number }) => void) =>
+          (onDetach = listener),
+      },
     },
   });
   await import("./background");
@@ -129,6 +154,31 @@ async function restoreRecording(
     attached,
     detached,
     failedDetaches,
+    heldDetaches,
+    debuggerTabs,
+    stored,
+    releaseDetach: (tabId: number) => {
+      const finish = pendingDetaches.get(tabId);
+      if (!finish) throw new Error(`No pending detach for tab ${tabId}`);
+      pendingDetaches.delete(tabId);
+      finish();
+    },
+    browserDetach: (tabId: number) => {
+      debuggerTabs.delete(tabId);
+      onDetach?.({ tabId });
+    },
+    interaction: (tabId: number) =>
+      new Promise((resolve) =>
+        onMessage?.(
+          { type: "CLIPS_DIAGNOSTIC_INTERACTION", kind: "click" },
+          { tab: { id: tabId } },
+          resolve,
+        ),
+      ),
+    cancel: () =>
+      new Promise((resolve) =>
+        onMessage?.({ type: "CLIPS_OVERLAY_CANCEL" }, {}, resolve),
+      ),
     activate: (tabId: number, windowId: number) =>
       activatedListeners.forEach((listener) => listener({ tabId, windowId })),
     moved: () => attachedListeners.forEach((listener) => listener()),
@@ -309,6 +359,48 @@ describe("background debugger restore", () => {
     result.failedDetaches.delete(2);
     result.moved();
     await vi.waitFor(() => expect(result.detached).toEqual([2, 3, 2]));
+  });
+
+  it("finishes recording cancellation after detach failures and keeps ownership until onDetach", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await restoreRecording(
+      [2, 3].map((tabId) => ({
+        tabId,
+        windowId: 1,
+        lastActiveMs: NOW - tabId,
+      })),
+      { 1: 1, 2: 1, 3: 1 },
+    );
+    result.failedDetaches.add(1);
+    result.failedDetaches.add(3);
+    result.heldDetaches.add(2);
+    const cancellation = result.cancel();
+    await vi.waitFor(() => expect(result.detached).toEqual([1, 2]));
+    expect(result.debuggerTabs.has(1)).toBe(true);
+    expect(await result.interaction(1)).toEqual({ ok: true });
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
+      expect.objectContaining({ message: "detach failed: 1" }),
+    );
+    result.browserDetach(1);
+    expect(await result.interaction(1)).toEqual({ ok: false });
+    result.releaseDetach(2);
+    expect(await cancellation).toEqual({ ok: true });
+    expect(result.detached).toEqual([1, 2, 3]);
+    expect([...result.debuggerTabs]).toEqual([3]);
+    expect(result.stored).not.toHaveProperty("activeNativeRecording");
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      3,
+      expect.objectContaining({ message: "detach failed: 3" }),
+    );
+    result.browserDetach(3);
+    expect([...result.debuggerTabs]).toEqual([]);
+    expect(await result.start()).toMatchObject({
+      ok: false,
+      error: "Capture session not found.",
+    });
   });
 
   it("detaches a selected tab if it moves while attaching", async () => {
