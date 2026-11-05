@@ -19,7 +19,6 @@ export default defineConfig({
         "mermaid",
         "dom-to-pptx",
         "@excalidraw/excalidraw",
-        "@excalidraw/mermaid-to-excalidraw",
       ],
     }),
   ],
