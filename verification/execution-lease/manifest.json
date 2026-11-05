@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "05391579fa32a897b1c9db777b5dd33f439a920f",
+    "syncCommit": "78e92f089f2e033e73dfede6bcd7d3c118ce252c",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -218,7 +218,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "4e89b91618e6b75922f3c8c41509df7da513fbbfe44637ca7f018ebb1faa419c"
+        "sha256": "c0b7db8f6e98231871f79334d39660b54b3e5a751aaae860ef3d88f9be9f8469"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
