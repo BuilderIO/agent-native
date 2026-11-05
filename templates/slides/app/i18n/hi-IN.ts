@@ -492,6 +492,10 @@ const messages = {
     connectGoogle: "Google कनेक्ट करें",
     disconnectGoogle: "Google कनेक्शन हटाएं",
     googleDisconnectFailed: "Google Drive कनेक्शन हटाया नहीं जा सका।",
+    disconnectGoogleConfirmTitle: "Google Drive कनेक्शन हटाएं?",
+    disconnectGoogleConfirmDescription:
+      "दोबारा कनेक्ट करने तक Slides आपके Google Drive में एक्सपोर्ट या उससे इंपोर्ट नहीं करेगा।",
+    disconnectGoogleConfirm: "हटाएं",
     openInGoogleSlides: "Google Slides में खोलें",
     googleSlidesUnavailable: "अनुपलब्ध",
     googleSlidesOpenImporter: "Google Slides इंपोर्ट खोलें",

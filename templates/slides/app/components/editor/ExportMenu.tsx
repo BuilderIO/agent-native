@@ -91,7 +91,7 @@ export interface ExportMenuHandle {
   exportHtml: () => Promise<void>;
   exportPdf: () => Promise<void>;
   exportPptx: () => Promise<void>;
-  disconnectGoogle: () => Promise<void>;
+  requestDisconnectGoogle: () => void;
 }
 
 export interface ExportDropdownActionHandle {
@@ -325,7 +325,7 @@ export function ExportSubmenu({
           }
           onDisconnectGoogle={
             showGoogleSlides
-              ? () => void exportMenuRef.current?.disconnectGoogle()
+              ? () => void exportMenuRef.current?.requestDisconnectGoogle()
               : undefined
           }
         />
@@ -390,7 +390,7 @@ export function ExportDropdown({
           }
           onDisconnectGoogle={
             showGoogleSlides
-              ? () => void exportMenuRef.current?.disconnectGoogle()
+              ? () => void exportMenuRef.current?.requestDisconnectGoogle()
               : undefined
           }
         />
@@ -421,6 +421,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
     const [menuOpen, setMenuOpen] = useState(false);
+    const [confirmDisconnect, setConfirmDisconnect] = useState(false);
     const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
       hasSlides && menuOpen,
@@ -671,7 +672,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       ref,
       () => ({
         cancelExport,
-        disconnectGoogle: handleDisconnectGoogle,
+        requestDisconnectGoogle: () => setConfirmDisconnect(true),
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
         exportPdf: handleExportPdf,
@@ -679,7 +680,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }),
       [
         cancelExport,
-        handleDisconnectGoogle,
         handleExportGoogleSlides,
         handleExportHtml,
         handleExportPdf,
@@ -701,7 +701,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             : undefined
         }
         onDisconnectGoogle={
-          onExportGoogleSlides ? () => void handleDisconnectGoogle() : undefined
+          onExportGoogleSlides ? () => setConfirmDisconnect(true) : undefined
         }
       />
     );
@@ -767,6 +767,37 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             onCancel={cancelExport}
           />
         )}
+        <Dialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t("editorExport.disconnectGoogleConfirmTitle")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("editorExport.disconnectGoogleConfirmDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmDisconnect(false)}
+              >
+                {t("editorExport.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmDisconnect(false);
+                  void handleDisconnectGoogle();
+                }}
+              >
+                {t("editorExport.disconnectGoogleConfirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     );
   },

@@ -493,6 +493,10 @@ const messages = {
     connectGoogle: "توصيل Google",
     disconnectGoogle: "قطع اتصال Google",
     googleDisconnectFailed: "تعذّر قطع اتصال Google Drive.",
+    disconnectGoogleConfirmTitle: "قطع اتصال Google Drive؟",
+    disconnectGoogleConfirmDescription:
+      "ستتوقف Slides عن التصدير إلى Google Drive والاستيراد منه حتى تعيد الاتصال.",
+    disconnectGoogleConfirm: "قطع الاتصال",
     openInGoogleSlides: "فتح في Google Slides",
     googleSlidesUnavailable: "غير متاح",
     googleSlidesOpenImporter: "فتح استيراد Google Slides",

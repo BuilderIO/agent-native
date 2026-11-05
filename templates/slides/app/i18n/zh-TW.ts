@@ -481,6 +481,10 @@ const messages = {
     connectGoogle: "連接 Google",
     disconnectGoogle: "中斷 Google 連線",
     googleDisconnectFailed: "無法中斷 Google Drive 連線。",
+    disconnectGoogleConfirmTitle: "中斷 Google Drive 連線？",
+    disconnectGoogleConfirmDescription:
+      "重新連線前，Slides 將不再匯出到你的 Google Drive，也不再從中匯入。",
+    disconnectGoogleConfirm: "中斷連線",
     openInGoogleSlides: "在 Google Slides 中開啟",
     googleSlidesUnavailable: "無法使用",
     googleSlidesOpenImporter: "開啟 Google Slides 匯入",

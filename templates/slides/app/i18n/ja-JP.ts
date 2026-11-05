@@ -508,6 +508,10 @@ const messages = {
     connectGoogle: "Google に接続",
     disconnectGoogle: "Google の接続を解除",
     googleDisconnectFailed: "Google Drive の接続を解除できませんでした。",
+    disconnectGoogleConfirmTitle: "Google Drive の接続を解除しますか？",
+    disconnectGoogleConfirmDescription:
+      "再接続するまで、Slides は Google Drive へのエクスポートと Google Drive からのインポートを行いません。",
+    disconnectGoogleConfirm: "接続を解除",
     openInGoogleSlides: "Google Slides で開く",
     googleSlidesUnavailable: "利用不可",
     googleSlidesOpenImporter: "Google Slides のインポートを開く",
