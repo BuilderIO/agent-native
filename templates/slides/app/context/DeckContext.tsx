@@ -7770,16 +7770,19 @@ export function DeckProvider({
       pendingCreateIdsRef.current.add(newId);
       noteLocalCreate(newId);
 
-      const duplicatePromise = callAction<DuplicateDeckActionResult>(
-        "duplicate-deck",
-        {
+      const sendDuplicate = () =>
+        callAction<DuplicateDeckActionResult>("duplicate-deck", {
           deckId: sourceDeckId,
           newId,
           title,
           ...(optimistic.slides.length > 0
             ? { slideIds: optimistic.slides.map((s) => s.id) }
             : {}),
-        },
+        });
+      // A source that is still a local create is not on the server yet; sending now copies nothing and 404s.
+      const sourceCreate = pendingCreatePromisesRef.current.get(sourceDeckId);
+      const duplicatePromise = (
+        sourceCreate ? sourceCreate.then(sendDuplicate) : sendDuplicate()
       ).then((created) => {
         rememberDeckServerRevision(newId, created);
       });

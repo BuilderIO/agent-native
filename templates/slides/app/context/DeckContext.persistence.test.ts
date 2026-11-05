@@ -9329,6 +9329,49 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe(false);
   });
 
+  it("holds a duplicate of a pending copy until the copy is persisted", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const source: Deck = {
+      id: "pending-copy-source",
+      title: "Source",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [
+        {
+          id: "source-slide",
+          content: "<div>Source</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, pendingDuplicateCount } = setupFetch({
+      deferredDuplicate: true,
+    });
+    setAccessibleDeck(source);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.duplicateDeck(source.id, "first-copy");
+    });
+    expect(pendingDuplicateCount()).toBe(1);
+
+    const secondFailure = vi.fn();
+    await act(async () => {
+      await result.current.duplicateDeck(
+        "first-copy",
+        "second-copy",
+        undefined,
+        secondFailure,
+      );
+    });
+
+    expect(pendingDuplicateCount()).toBe(1);
+    expect(secondFailure).not.toHaveBeenCalled();
+  });
+
   it("does not let an old duplicate failure mutate a new-organization duplicate", async () => {
     window.history.pushState({}, "", "/");
     orgQueryState.data = { orgId: "org-a" };
