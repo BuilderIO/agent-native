@@ -1,7 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { writeAppStateForCurrentTab } from "./_tab-state.js";
+import {
+  getCurrentRequestBrowserTabId,
+  writeAppStateForCurrentTab,
+} from "./_tab-state.js";
 
 export default defineAction({
   title: "Navigate Slides",
@@ -67,6 +70,13 @@ export default defineAction({
       args.slideNumber != null ? args.slideNumber - 1 : args.slideIndex;
     if (internalSlideIndex != null) nav.slideIndex = internalSlideIndex;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Without a tab the write lands on a key no editor reads, so it would report success while nothing moves.
+    if (!getCurrentRequestBrowserTabId()) {
+      fail(
+        "Nothing was navigated: no browser tab is attached to this request. Open the app in a browser tab and retry.",
+        { errorCode: "no_browser_tab", statusCode: 409 },
+      );
+    }
     await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || ""}${args.deckId ? ` deck:${args.deckId}` : ""}${internalSlideIndex != null ? ` slide:${internalSlideIndex + 1}` : ""}`;
   },

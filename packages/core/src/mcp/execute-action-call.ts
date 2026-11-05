@@ -47,7 +47,7 @@ import type { MCPCallerIdentity } from "./build-server.js";
 import {
   CIRCULAR_RESULT,
   EMBED_RESULT_SENSITIVE_KEYS,
-  DATABASE_FAILURE_MESSAGE,
+  databaseFailureMessage,
   HIDDEN_EMBED_URL,
   IMAGE_BYTES,
   isDatabaseQueryFailure,
@@ -849,7 +849,7 @@ function failedOutcome(
   let errorCode: string | undefined;
   try {
     const raw = isDatabaseQueryFailure(error)
-      ? DATABASE_FAILURE_MESSAGE
+      ? databaseFailureMessage(error)
       : error instanceof Error
         ? error.message
         : error;
