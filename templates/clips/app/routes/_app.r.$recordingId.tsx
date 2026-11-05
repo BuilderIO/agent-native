@@ -2144,8 +2144,6 @@ export default function RecordingPage() {
     }
   }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
-  const handleAiError = (err: Error) =>
-    toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const beginAiRequest = (kind: ClipsAiRequestKind) => {
     activeAiRequestRef.current = { kind, requestedAt: null };
     primeCompletionCue();
@@ -2316,6 +2314,7 @@ export default function RecordingPage() {
     },
   });
   const setEmbedDuration = useActionMutation("set-embed-duration" as any, {
+    errorNotification: "caller",
     onSuccess: () => void playerDataQ.refetch(),
     onError: (err: Error) => {
       console.warn("[clips] Could not save the YouTube clip's duration", err);
@@ -2503,7 +2502,8 @@ export default function RecordingPage() {
     { retry: false },
   );
   const updateAiPrefs = useActionMutation("update-clips-ai-prefs" as any, {
-    onError: handleAiError,
+    errorNotification: "shared",
+    errorLabel: t("recordingPage.aiRequestFailed"),
   });
   const [includeFullVideoOverride, setIncludeFullVideoOverride] = useState<
     boolean | null

@@ -508,7 +508,9 @@ export default function MeetingDetailRoute() {
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
-  const finalize = useActionMutation<any, any>("finalize-meeting");
+  const finalize = useActionMutation("finalize-meeting", {
+    errorNotification: "caller",
+  });
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );

@@ -1,6 +1,10 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { cn } from "@agent-native/toolkit/utils";
@@ -124,10 +128,12 @@ export function ThumbsFeedback({
           },
         );
         if (!response.ok) {
-          throw new Error(`Feedback submission failed (${response.status})`);
+          throw writeFailureFromResponse(response);
         }
         return true;
-      } catch {
+      } catch (error) {
+        // A text submission shows its own inline failure; a vote has none.
+        if (feedbackType !== "text") reportWriteFailure(error);
         // coercion-ok: callers receive false and restore the retryable UI state.
         return false;
       }
