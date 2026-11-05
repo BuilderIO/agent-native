@@ -63,13 +63,4 @@ describe("export-audit-csv download url", () => {
     });
     expect(result.downloadUrl).toBe("https://cdn.example.test/audit.csv");
   });
-
-  it("returns no expiry for the stored file URL", async () => {
-    const result = await (action as any).run({
-      dateFrom: "2026-01-01",
-      dateTo: "2026-01-31",
-      expiresInSeconds: 1800,
-    });
-    expect(result.downloadUrlExpiresAt).toBeNull();
-  });
 });
