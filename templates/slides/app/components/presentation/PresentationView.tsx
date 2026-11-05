@@ -499,7 +499,7 @@ export default function PresentationView({
 
   const openPresenterWindow = useCallback(() => {
     // Shared routes ignore `presenter=1`, so a window opened there shows no notes.
-    if (isShared) return;
+    if (isShared) return false;
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
     url.searchParams.set(
@@ -512,6 +512,7 @@ export default function PresentationView({
       PRESENTER_WINDOW_FEATURES,
     );
     if (!presenterWindow) toast.error(t("editorToolbar.presenterViewBlocked"));
+    return true;
   }, [deckId, isShared, t, toRawIndex]);
 
   useEffect(() => {
@@ -546,10 +547,7 @@ export default function PresentationView({
           break;
         case "s":
         case "S":
-          // Shared routes ignore `presenter=1` and show the audience view, so S must leave the key unclaimed there.
-          if (isSharedRef.current) break;
-          e.preventDefault();
-          openPresenterWindow();
+          if (openPresenterWindow()) e.preventDefault();
           break;
         case "Escape":
           exit();
