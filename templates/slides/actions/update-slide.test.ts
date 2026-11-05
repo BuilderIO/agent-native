@@ -998,7 +998,7 @@ describe("update-slide", () => {
 
   it("returns the current slide and hash with a stale-content error so the agent can rebase", async () => {
     onUpdateMiss = () => {
-      const latest = JSON.parse(mockDeckRow!.data as string);
+      const latest = JSON.parse(String(mockDeckRow?.data ?? "{}"));
       latest.slides[0].content = "<div>Old UIEDITB</div>";
       mockDeckRow = {
         ...mockDeckRow,
