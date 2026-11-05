@@ -64,9 +64,11 @@ import {
   listComposeDrafts,
   getComposeDraft,
   putComposeDraft,
+  saveComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  putStateMany,
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
@@ -113,6 +115,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import {
   getOrgContext,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   resolveOrgScopeForEmail,
 } from "../org/context.js";
@@ -2802,6 +2805,7 @@ export function createBuilderProvisionHandler(
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
+ *   POST   /_agent-native/application-state            — batched write of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -2809,6 +2813,7 @@ export function createBuilderProvisionHandler(
  *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
  *   GET    /_agent-native/application-state/compose/:id — get compose draft
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
+ *   PATCH  /_agent-native/application-state/compose/:id — save a compose draft only if it's unchanged
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
 /**
@@ -3290,6 +3295,7 @@ export function mountApplicationStateRoutes(
       } else {
         if (method === "GET") return getComposeDraft(event);
         if (method === "PUT") return putComposeDraft(event);
+        if (method === "PATCH") return saveComposeDraft(event);
         if (method === "DELETE") return deleteComposeDraft(event);
       }
       setResponseStatus(event, 405);
@@ -3306,6 +3312,7 @@ export function mountApplicationStateRoutes(
       withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
+        if (getMethod(event) === "POST") return putStateMany(event);
         return;
       }
       if (event.context) {
@@ -4346,8 +4353,8 @@ export function createCoreRoutesPlugin(
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
             orgRole = orgCtx.role ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
         }
         connections = await resolveBuilderConnectionsStatus({
@@ -5096,8 +5103,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           // Wrap in runWithRequestContext so resolveBuilderCredential() inside
@@ -5857,8 +5864,8 @@ export function createCoreRoutesPlugin(
               const orgCtx = await getOrgContext(event);
               orgId = orgCtx.orgId ?? null;
               role = orgCtx.role ?? null;
-            } catch {
-              // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
+            } catch (error) {
+              if (!isMissingOrganizationTableError(error)) throw error;
             }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
@@ -5970,6 +5977,13 @@ export function createCoreRoutesPlugin(
                   : undefined,
             };
           } catch (err) {
+            if (
+              typeof err === "object" &&
+              err !== null &&
+              "statusCode" in err &&
+              err.statusCode === 503
+            )
+              throw err;
             await trackBuilderLifecycle(
               event,
               "builder disconnect failed",
@@ -6086,8 +6100,8 @@ export function createCoreRoutesPlugin(
               try {
                 const orgCtx = await getOrgContext(event);
                 orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
+              } catch (error) {
+                if (!isMissingOrganizationTableError(error)) throw error;
               }
             }
             // One context for the whole sweep so the per-request secret memo is
@@ -6277,8 +6291,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -6365,8 +6379,18 @@ export function createCoreRoutesPlugin(
             return { error: "unauthorized" };
           }
 
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+          const orgCtx = await getOrgContext(event);
+          if (!orgCtx.orgId && hasForbiddenOrgScope(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (!orgCtx.orgId && hasOrgScopeResolutionUnavailable(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          const orgId = orgCtx.orgId;
           const ctx = { userEmail: session.email, orgId };
           const canUpdate = await canUpdateAgentLoopSettings(
             session.email,

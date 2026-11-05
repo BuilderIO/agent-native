@@ -11,6 +11,7 @@ import type {
   RunStatus,
   RunTriggerKind,
 } from "../../../server/workflow/contract.js";
+import type { ApiErrorKind } from "./node-details/api-request-output";
 
 /** Every string the Workflows list and the workflow page show, read from the `workflows.*` catalog keys. */
 export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
@@ -231,6 +232,7 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       liveFailed: (reason: string) => t("workflows.run.liveFailed", { reason }),
       enableFailed: (reason: string) =>
         t("workflows.run.enableFailed", { reason }),
+      testNeedsItems: t("workflows.run.testNeedsItems"),
     }),
     diagnostics: () => ({
       copy: t("workflows.diagnostics.copy"),
@@ -245,6 +247,7 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       saveAndTestStep: t("workflows.nodePanel.saveAndTestStep"),
       testStepNeedsRun: t("workflows.nodePanel.testStepNeedsRun"),
       testStepSamplesFailed: t("workflows.nodePanel.testStepSamplesFailed"),
+      testStepOlderSample: t("workflows.nodePanel.testStepOlderSample"),
     }),
     nodeDetails: () => ({
       dialogName: t("workflows.nodeDetails.dialogName"),
@@ -292,6 +295,65 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       pathCopyFailed: t("workflows.nodeData.pathCopyFailed"),
       dragHint: t("workflows.nodeData.dragHint"),
       mappedFirstField: t("workflows.nodeData.mappedFirstField"),
+    }),
+    apiRequest: () => ({
+      docs: t("workflows.apiRequest.docs"),
+      docsFor: (provider: string) =>
+        t("workflows.apiRequest.docsFor", { provider }),
+      truncatedNotice: t("workflows.apiRequest.truncatedNotice"),
+      cutList: (path: string, kept: number, of: number) =>
+        t("workflows.apiRequest.cutList", { path, kept, of }),
+      cutText: (path: string, kept: number, of: number) =>
+        t("workflows.apiRequest.cutText", { path, kept, of }),
+      cutKeys: (path: string, count: number) =>
+        t("workflows.apiRequest.cutKeys", { path, count }),
+      cutsMore: (count: number) =>
+        t("workflows.apiRequest.cutsMore", { count }),
+      tooLargeHint: t("workflows.apiRequest.tooLargeHint"),
+      fieldsMissing: (names: string) =>
+        t("workflows.apiRequest.fieldsMissing", { names }),
+      fieldsMissingMore: (count: number) =>
+        t("workflows.apiRequest.fieldsMissingMore", { count }),
+      cutNotice: t("workflows.apiRequest.cutNotice"),
+      noOutputRecorded: t("workflows.apiRequest.noOutputRecorded"),
+      liveMark: (status: number, ms: number) =>
+        t("workflows.apiRequest.liveMark", { status, ms }),
+      notStored: t("workflows.apiRequest.notStored"),
+      errorDetails: t("workflows.apiRequest.errorDetails"),
+      detailCode: t("workflows.apiRequest.detailCode"),
+      detailStatus: t("workflows.apiRequest.detailStatus"),
+      detailMessage: t("workflows.apiRequest.detailMessage"),
+      heading: {
+        not_connected: t("workflows.apiRequest.heading.not_connected"),
+        access_denied: t("workflows.apiRequest.heading.access_denied"),
+        not_found: t("workflows.apiRequest.heading.not_found"),
+        rate_limited: t("workflows.apiRequest.heading.rate_limited"),
+        provider_problem: t("workflows.apiRequest.heading.provider_problem"),
+        rejected: t("workflows.apiRequest.heading.rejected"),
+        too_large: t("workflows.apiRequest.heading.too_large"),
+        request_failed: t("workflows.apiRequest.heading.request_failed"),
+        request_refused: t("workflows.apiRequest.heading.request_refused"),
+        unreadable: t("workflows.apiRequest.heading.unreadable"),
+        expression_failed: t("workflows.apiRequest.heading.expression_failed"),
+        test_not_allowed: t("workflows.apiRequest.heading.test_not_allowed"),
+        failed: t("workflows.apiRequest.heading.failed"),
+        full_url_refused: t("workflows.apiRequest.heading.full_url_refused"),
+        unsafe_path_value: t("workflows.apiRequest.heading.unsafe_path_value"),
+        invalid_query: t("workflows.apiRequest.heading.invalid_query"),
+        invalid_header: t("workflows.apiRequest.heading.invalid_header"),
+        header_denied: t("workflows.apiRequest.heading.header_denied"),
+        invalid_pagination: t(
+          "workflows.apiRequest.heading.invalid_pagination",
+        ),
+        invalid_timeout: t("workflows.apiRequest.heading.invalid_timeout"),
+        incompatible_fields: t(
+          "workflows.apiRequest.heading.incompatible_fields",
+        ),
+        invalid_fields_to_keep: t(
+          "workflows.apiRequest.heading.invalid_fields_to_keep",
+        ),
+        invalid_field: t("workflows.apiRequest.heading.invalid_field"),
+      } satisfies Record<ApiErrorKind, string>,
     }),
   });
 }

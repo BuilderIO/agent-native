@@ -3,7 +3,7 @@ export type AppStatus = "alpha" | "beta";
 export const DEFAULT_APP_STATUS: AppStatus = "alpha";
 
 export const APP_STATUS: Record<string, AppStatus> = {
-  clips: "alpha",
+  clips: "beta",
   design: "alpha",
   slides: "alpha",
 };

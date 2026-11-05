@@ -169,9 +169,14 @@ async function resolveRunAutomation(input: RunAutomationNowInput) {
   };
 }
 
-export async function queueAutomationRunNow(
-  input: RunAutomationNowInput,
-): Promise<QueuedAutomationRun> {
+/**
+ * The automation a run-now call means, once the caller is known to be allowed
+ * to run it: not found is a 404 and no collaborate access a 403. This is the
+ * whole of the permission `queueAutomationRunNow` checks, so a caller that must
+ * be held to the same rule without queuing a run (a test that runs in the
+ * request) asks here and cannot drift from it.
+ */
+export async function authorizeAutomationRunNow(input: RunAutomationNowInput) {
   const access = await resolveRunAutomation(input);
   if (!access) {
     throw Object.assign(new Error("Automation not found."), {
@@ -211,6 +216,13 @@ export async function queueAutomationRunNow(
       { statusCode: 403 },
     );
   }
+  return access;
+}
+
+export async function queueAutomationRunNow(
+  input: RunAutomationNowInput,
+): Promise<QueuedAutomationRun> {
+  const access = await authorizeAutomationRunNow(input);
   const { resource, name } = access;
   const { body } = parseJobResource(resource.content);
   if (!body.trim()) {

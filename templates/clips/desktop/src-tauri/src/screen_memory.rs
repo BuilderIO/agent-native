@@ -13,7 +13,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -48,10 +48,80 @@ pub struct ScreenMemoryState {
     // Pruning rewrites the event log through a temporary file, so an append that lands
     // between its read and its rename would be lost.
     event_log: Mutex<()>,
+    // A rebuild reads history and then writes its manifest; a Clear History landing between
+    // those steps would have the manifest restore what it removed.
+    chapters: Mutex<()>,
+    history_clear: HistoryClearGate,
     // Exclusion markers increment before locking `inner`; the reservation CAS
     // orders replacement starts against those immediate markers.
     capture_start_gate: Arc<AtomicU64>,
     exclusion_applied_generation: AtomicU64,
+}
+
+// A segment finalized outside `transition` holds `writes` while it persists, and Clear History
+// holds it for its whole removal. The segment either lands before the clear can remove it, or
+// sees the new generation and discards itself.
+#[derive(Default)]
+struct HistoryClearGate {
+    generation: AtomicU64,
+    writes: Mutex<()>,
+}
+
+impl HistoryClearGate {
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    fn begin_clear(&self) -> Result<MutexGuard<'_, ()>, String> {
+        let writes = self.writes.lock().map_err(|error| error.to_string())?;
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        Ok(writes)
+    }
+
+    fn lock_unless_cleared(&self, generation: u64) -> Result<Option<MutexGuard<'_, ()>>, String> {
+        let writes = self.writes.lock().map_err(|error| error.to_string())?;
+        Ok((self.generation() == generation).then_some(writes))
+    }
+}
+
+// Pruning and consumers decide under this one record, so a pin and a deletion cannot each act
+// on a decision the other has already overturned. A user's explicit delete or Clear History
+// deliberately ignores it: their request to erase history outranks a consumer, which then
+// fails on its next read.
+#[derive(Default)]
+struct SegmentReservations {
+    pins: HashMap<String, BTreeSet<String>>,
+    deleting: BTreeSet<String>,
+}
+
+impl SegmentReservations {
+    fn reserve(&mut self, segment_id: &str, pin_id: &str) -> Result<(), String> {
+        if self.deleting.contains(segment_id) {
+            return Err(format!("Rewind segment {segment_id} is being deleted."));
+        }
+        self.pins
+            .entry(segment_id.to_owned())
+            .or_default()
+            .insert(pin_id.to_owned());
+        Ok(())
+    }
+
+    fn release(&mut self, segment_id: &str, pin_id: &str) {
+        if let Some(pins) = self.pins.get_mut(segment_id) {
+            pins.remove(pin_id);
+            if pins.is_empty() {
+                self.pins.remove(segment_id);
+            }
+        }
+    }
+
+    fn claim_for_deletion(&mut self, segment_id: &str) -> bool {
+        !self.pins.contains_key(segment_id) && self.deleting.insert(segment_id.to_owned())
+    }
+
+    fn finish_deletion(&mut self, segment_id: &str) {
+        self.deleting.remove(segment_id);
+    }
 }
 
 #[derive(Default)]
@@ -72,7 +142,7 @@ struct ScreenMemoryRuntime {
     transcript_worker_running: bool,
     transcript_active_segment: Option<String>,
     transcript_cancelled_segments: BTreeSet<String>,
-    segment_pins: HashMap<String, BTreeSet<String>>,
+    segment_reservations: SegmentReservations,
 }
 
 struct ActiveExclusionGap {
@@ -1815,7 +1885,7 @@ fn wait_for_rotation(
             mode_change_retry_at = screen_memory_mode_change_pending(app)?
                 .then(|| mode_change_retry_at.unwrap_or(now + mode_retry_delay));
             if now >= next_sample {
-                append_event(app, event);
+                append_worker_event(app, stop, event);
                 next_sample = now + Duration::from_secs(live_config.sample_interval_seconds.max(1));
             }
             next_exclusion_poll = now + EXCLUSION_POLL_INTERVAL;
@@ -1853,7 +1923,7 @@ fn suspend_for_detected_exclusion(
     reason: &'static str,
 ) -> RotationWait {
     mark_active_segment_exclusion_tainted(app);
-    append_event(app, coverage_gap_event(reason));
+    append_worker_event(app, stop, coverage_gap_event(reason));
     if let Err(error) = suspend_for_exclusion(app) {
         record_error(app, error);
     }
@@ -2217,24 +2287,49 @@ fn remove_discarded_sidecars(paths: &[PathBuf]) -> Result<(), String> {
 }
 
 fn append_event(app: &AppHandle, event: ScreenMemoryEvent) {
-    if let Err(err) = append_event_inner(app, &event) {
+    if let Err(err) = append_event_inner(app, &event, None) {
         eprintln!("[clips-tray] Screen Memory event append failed: {err}");
     }
 }
 
-fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), String> {
+fn append_worker_event(app: &AppHandle, stop: &AtomicBool, event: ScreenMemoryEvent) {
+    if let Err(err) = append_event_inner(app, &event, Some(stop)) {
+        eprintln!("[clips-tray] Screen Memory event append failed: {err}");
+    }
+}
+
+fn append_event_inner(
+    app: &AppHandle,
+    event: &ScreenMemoryEvent,
+    stop: Option<&AtomicBool>,
+) -> Result<bool, String> {
     let path = screen_memory_events_path(app)?;
     let state = app.state::<ScreenMemoryState>();
-    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
+    append_event_path(&state.event_log, &path, event, stop)
+}
+
+fn append_event_path(
+    event_log: &Mutex<()>,
+    path: &Path,
+    event: &ScreenMemoryEvent,
+    stop: Option<&AtomicBool>,
+) -> Result<bool, String> {
+    let _event_log = event_log.lock().map_err(|error| error.to_string())?;
+    // Clear History stops the producer before taking this same log lock. A
+    // producer already waiting here must not recreate the cleared log.
+    if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+        return Ok(false);
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
         .map_err(|e| format!("screen memory events open failed: {e}"))?;
     serde_json::to_writer(&mut file, event)
         .map_err(|e| format!("screen memory event encode failed: {e}"))?;
     file.write_all(b"\n")
-        .map_err(|e| format!("screen memory event write failed: {e}"))
+        .map_err(|e| format!("screen memory event write failed: {e}"))?;
+    Ok(true)
 }
 
 fn rotate_segment(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
@@ -2735,20 +2830,12 @@ pub(crate) fn resume_physical_capture(app: &AppHandle) -> Result<(), String> {
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
     if let Some(suspended) = take_suspended_active_segment(app)? {
         let finalize_app = app.clone();
+        let generation = state.history_clear.generation();
         eprintln!("[clips-tray] finalizing suspended Screen Memory segment in background");
         tauri::async_runtime::spawn_blocking(move || {
-            let result = finalize_active_segment_at(
-                &finalize_app,
-                suspended.active,
-                suspended.ended_at,
-                suspended.ended_at_iso,
-            )
-            .and_then(|segment| {
-                persist_finalized_segment(&finalize_app, segment)?;
-                let _ = finalize_app.emit(SCREEN_MEMORY_EVENT, ());
-                Ok(())
-            });
-            if let Err(error) = result {
+            if let Err(error) =
+                finalize_suspended_unless_cleared(&finalize_app, suspended, generation)
+            {
                 record_error(&finalize_app, error);
             }
         });
@@ -2762,6 +2849,35 @@ pub(crate) fn resume_physical_capture(app: &AppHandle) -> Result<(), String> {
     if config.enabled && !config.paused && !exclusion_active {
         ensure_running_inner(app, &config)?;
     }
+    Ok(())
+}
+
+fn finalize_suspended_unless_cleared(
+    app: &AppHandle,
+    suspended: SuspendedScreenMemorySegment,
+    generation: u64,
+) -> Result<(), String> {
+    let state = app.state::<ScreenMemoryState>();
+    let Some(_writes) = state.history_clear.lock_unless_cleared(generation)? else {
+        let segment_id = suspended.active.id.clone();
+        discard_active_segment(suspended.active);
+        return discard_segment_artifacts(app, &segment_id);
+    };
+    finalize_suspended_segment(app, suspended)
+}
+
+fn finalize_suspended_segment(
+    app: &AppHandle,
+    suspended: SuspendedScreenMemorySegment,
+) -> Result<(), String> {
+    let segment = finalize_active_segment_at(
+        app,
+        suspended.active,
+        suspended.ended_at,
+        suspended.ended_at_iso,
+    )?;
+    persist_finalized_segment(app, segment)?;
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
     Ok(())
 }
 
@@ -3672,12 +3788,24 @@ fn write_segment_metadata(
 }
 
 fn refresh_rewind_chapters(app: &AppHandle) -> Result<(), String> {
-    let events = read_screen_memory_events(app)?;
-    crate::rewind_chapters::rebuild(
+    refresh_chapters_path(
+        &app.state::<ScreenMemoryState>().chapters,
         &screen_memory_dir(app)?,
-        recent_segments(app, None)?,
-        events,
+        || Ok((recent_segments(app, None)?, read_screen_memory_events(app)?)),
     )
+}
+
+fn refresh_chapters_path(
+    chapters: &Mutex<()>,
+    dir: &Path,
+    read_history: impl FnOnce() -> Result<
+        (Vec<ScreenMemorySegmentMetadata>, Vec<ScreenMemoryEvent>),
+        String,
+    >,
+) -> Result<(), String> {
+    let _chapters = chapters.lock().map_err(|error| error.to_string())?;
+    let (segments, events) = read_history()?;
+    crate::rewind_chapters::rebuild(dir, segments, events)
 }
 
 fn read_screen_memory_events(app: &AppHandle) -> Result<Vec<ScreenMemoryEvent>, String> {
@@ -3771,40 +3899,70 @@ fn segment_overlaps_graph_interval(
 }
 
 pub(crate) fn pin_segment(app: &AppHandle, segment_id: &str, pin_id: &str) -> Result<(), String> {
-    let state = app.state::<ScreenMemoryState>();
-    let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
-    runtime
-        .segment_pins
-        .entry(sanitize_segment_id(segment_id))
-        .or_default()
-        .insert(pin_id.to_owned());
-    Ok(())
+    reserve_verified_segment(
+        &app.state::<ScreenMemoryState>().inner,
+        &segment_metadata_path(app, segment_id)?,
+        &sanitize_segment_id(segment_id),
+        pin_id,
+    )
 }
 
 pub(crate) fn unpin_segment(app: &AppHandle, segment_id: &str, pin_id: &str) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
-    let segment_id = sanitize_segment_id(segment_id);
-    if let Some(pins) = runtime.segment_pins.get_mut(&segment_id) {
-        pins.remove(pin_id);
-        if pins.is_empty() {
-            runtime.segment_pins.remove(&segment_id);
-        }
-    }
+    runtime
+        .segment_reservations
+        .release(&sanitize_segment_id(segment_id), pin_id);
     Ok(())
 }
 
-fn segment_is_pinned(app: &AppHandle, segment_id: &str) -> bool {
-    app.try_state::<ScreenMemoryState>()
-        .and_then(|state| {
-            state.inner.lock().ok().map(|runtime| {
-                runtime
-                    .segment_pins
-                    .get(segment_id)
-                    .is_some_and(|pins| !pins.is_empty())
-            })
-        })
-        .unwrap_or(false)
+fn reserve_verified_segment(
+    runtime: &Mutex<ScreenMemoryRuntime>,
+    metadata_path: &Path,
+    segment_id: &str,
+    pin_id: &str,
+) -> Result<(), String> {
+    runtime
+        .lock()
+        .map_err(|error| error.to_string())?
+        .segment_reservations
+        .reserve(segment_id, pin_id)?;
+    // The reservation already blocks pruning, so this check cannot go stale.
+    let verified = read_segment_metadata_path(metadata_path).and_then(|segment| {
+        std::fs::metadata(&segment.path)
+            .map(|_| ())
+            .map_err(|error| format!("Rewind segment media unavailable: {error}"))
+    });
+    if verified.is_err() {
+        runtime
+            .lock()
+            .map_err(|error| error.to_string())?
+            .segment_reservations
+            .release(segment_id, pin_id);
+    }
+    verified
+}
+
+fn delete_unless_reserved<T>(
+    runtime: &Mutex<ScreenMemoryRuntime>,
+    segment_id: &str,
+    delete: impl FnOnce() -> Result<T, String>,
+) -> Result<bool, String> {
+    let claimed = runtime
+        .lock()
+        .map_err(|error| error.to_string())?
+        .segment_reservations
+        .claim_for_deletion(segment_id);
+    if !claimed {
+        return Ok(false);
+    }
+    let deleted = delete();
+    runtime
+        .lock()
+        .map_err(|error| error.to_string())?
+        .segment_reservations
+        .finish_deletion(segment_id);
+    deleted.map(|_| true)
 }
 
 fn query_screen_memory(
@@ -3952,6 +4110,10 @@ fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
     }
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    if let Err(error) = finalize_expired_suspended_segment(app, &config) {
+        record_error(app, error);
+    }
     // A running producer prunes on every segment rotation.
     let capturing = state
         .inner
@@ -3962,28 +4124,76 @@ fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
     if capturing {
         return Ok(());
     }
-    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
     prune_segments(app, &config)
+}
+
+// A segment held for another capture consumer has no metadata for pruning to act on, so it
+// must finalize once it ages out. Pruning then removes it unless a Rewind-derived clip reserved
+// it while finalizing. If finalizing fails, its files are no longer in flight and age out as
+// orphans.
+fn finalize_expired_suspended_segment(
+    app: &AppHandle,
+    config: &ScreenMemoryConfig,
+) -> Result<(), String> {
+    let cutoff = retention_cutoff(config);
+    let state = app.state::<ScreenMemoryState>();
+    let expired = {
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        let is_expired = runtime
+            .suspended_active
+            .as_ref()
+            .map(|suspended| suspended_segment_expired(&suspended.ended_at_iso, cutoff))
+            .transpose()?
+            .unwrap_or(false);
+        if is_expired {
+            runtime.suspended_active.take()
+        } else {
+            None
+        }
+    };
+    match expired {
+        Some(suspended) => finalize_suspended_segment(app, suspended),
+        None => Ok(()),
+    }
+}
+
+fn suspended_segment_expired(ended_at_iso: &str, cutoff: DateTime<Utc>) -> Result<bool, String> {
+    let ended_at = DateTime::parse_from_rfc3339(ended_at_iso)
+        .map_err(|error| format!("held Rewind segment has an unreadable end time: {error}"))?;
+    Ok(ended_at.with_timezone(&Utc) < cutoff)
+}
+
+fn retention_cutoff(config: &ScreenMemoryConfig) -> DateTime<Utc> {
+    Utc::now() - ChronoDuration::hours(config.retention_hours as i64)
 }
 
 fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let segments = recent_segments(app, None)?;
-    let cutoff = Utc::now() - ChronoDuration::hours(config.retention_hours as i64);
+    let cutoff = retention_cutoff(config);
     let mut kept_bytes = 0_u64;
     let mut live_segment_ids = in_flight_segment_ids(app)?;
+    let state = app.state::<ScreenMemoryState>();
     for segment in segments {
         let ended_at = DateTime::parse_from_rfc3339(&segment.ended_at)
             .map(|value| value.with_timezone(&Utc))
             .ok();
         let expired = ended_at.map(|value| value < cutoff).unwrap_or(false);
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
-        if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
-            delete_segment(app, &segment.id)?;
-        } else {
-            live_segment_ids.insert(sanitize_segment_id(&segment.id));
+        let segment_id = sanitize_segment_id(&segment.id);
+        let deleted = (expired || kept_bytes > config.max_bytes)
+            && delete_unless_reserved(&state.inner, &segment_id, || {
+                delete_segment(app, &segment.id)
+            })?;
+        if !deleted {
+            live_segment_ids.insert(segment_id);
         }
     }
-    remove_orphaned_segment_files(&screen_memory_dir(app)?, cutoff.into(), &live_segment_ids)?;
+    remove_orphaned_segment_files(
+        &state.inner,
+        &screen_memory_dir(app)?,
+        cutoff.into(),
+        &live_segment_ids,
+    )?;
     prune_events(app, cutoff)?;
     refresh_rewind_chapters(app)?;
     Ok(())
@@ -4010,6 +4220,7 @@ fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
 // last write. Only segment files match: the event log, chapters, egress log and agent
 // handoffs keep their own lifecycles.
 fn remove_orphaned_segment_files(
+    runtime: &Mutex<ScreenMemoryRuntime>,
     dir: &Path,
     cutoff: std::time::SystemTime,
     live_segment_ids: &BTreeSet<String>,
@@ -4028,7 +4239,7 @@ fn remove_orphaned_segment_files(
             continue;
         }
         if last_written_before(entry.metadata(), cutoff)? {
-            remove_file_if_exists(&entry.path())?;
+            delete_unless_reserved(runtime, segment_id, || remove_file_if_exists(&entry.path()))?;
         }
     }
     Ok(())
@@ -4292,8 +4503,7 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
         if let Ok(mut runtime) = state.inner.lock() {
-            runtime.ocr_cancelled_segments.remove(segment_id);
-            runtime.transcript_cancelled_segments.remove(segment_id);
+            forget_cancellations(&mut runtime, |id| id == segment_id);
         }
     }
     Ok(ScreenMemoryDeleteResult {
@@ -4304,6 +4514,10 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
 
 fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, String> {
     let state = app.try_state::<ScreenMemoryState>();
+    let _history_clear = state
+        .as_ref()
+        .map(|state| state.history_clear.begin_clear())
+        .transpose()?;
     if let Some(state) = state.as_ref() {
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
         let queued_ocr: Vec<_> = runtime
@@ -4348,14 +4562,15 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         remove_file_if_exists(&segment_metadata_path(app, &segment.id)?)?;
         deleted_segments += 1;
     }
-    let event_log = state.as_ref().map(|state| &state.event_log);
-    clear_history_files(&dir, event_log)?;
-    crate::rewind_chapters::clear(&dir)?;
+    clear_history_files(
+        &dir,
+        state.as_ref().map(|state| &state.chapters),
+        state.as_ref().map(|state| &state.event_log),
+    )?;
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
         if let Ok(mut runtime) = state.inner.lock() {
-            runtime.ocr_cancelled_segments.clear();
-            runtime.transcript_cancelled_segments.clear();
+            forget_cancellations(&mut runtime, |_| true);
         }
     }
     Ok(ScreenMemoryDeleteResult {
@@ -4364,17 +4579,42 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
     })
 }
 
-fn clear_history_files(dir: &Path, event_log: Option<&Mutex<()>>) -> Result<(), String> {
+// The caller holds `indexing`, so an active job has not started: its worker is waiting on that
+// lock and clears the mark when the job retires. Without the mark, that job would recreate
+// sidecars for the segment that was just deleted.
+fn forget_cancellations(runtime: &mut ScreenMemoryRuntime, deleted: impl Fn(&str) -> bool) {
+    let ocr_active = runtime.ocr_active_segment.as_deref();
+    runtime
+        .ocr_cancelled_segments
+        .retain(|id| !deleted(id) || ocr_active == Some(id.as_str()));
+    let transcript_active = runtime.transcript_active_segment.as_deref();
+    runtime
+        .transcript_cancelled_segments
+        .retain(|id| !deleted(id) || transcript_active == Some(id.as_str()));
+}
+
+fn clear_history_files(
+    dir: &Path,
+    chapters: Option<&Mutex<()>>,
+    event_log: Option<&Mutex<()>>,
+) -> Result<(), String> {
+    let _chapters = chapters
+        .map(|chapters| chapters.lock().map_err(|error| error.to_string()))
+        .transpose()?;
     let _event_log = event_log
         .map(|event_log| event_log.lock().map_err(|error| error.to_string()))
         .transpose()?;
+    let _egress_log = crate::rewind_egress::lock_log()?;
     for entry in std::fs::read_dir(dir)
         .map_err(|error| format!("screen memory directory read failed: {error}"))?
     {
         let entry =
             entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
         let path = entry.path();
-        if path.is_file() {
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("screen memory entry type unavailable: {error}"))?;
+        if !file_type.is_dir() {
             remove_file_if_exists(&path)?;
         }
     }
@@ -4557,6 +4797,43 @@ command = "keep"
             runtime.transcript_active_segment.as_deref(),
             Some("transcript")
         );
+    }
+
+    fn runtime_with_a_job_waiting_to_run() -> ScreenMemoryRuntime {
+        let cancelled = BTreeSet::from(["waiting".to_string(), "dequeued-earlier".to_string()]);
+        ScreenMemoryRuntime {
+            ocr_active_segment: Some("waiting".to_string()),
+            ocr_cancelled_segments: cancelled.clone(),
+            transcript_active_segment: Some("waiting".to_string()),
+            transcript_cancelled_segments: cancelled,
+            ..ScreenMemoryRuntime::default()
+        }
+    }
+
+    #[test]
+    fn clearing_history_keeps_the_cancellation_of_a_job_waiting_to_run() {
+        let mut runtime = runtime_with_a_job_waiting_to_run();
+
+        forget_cancellations(&mut runtime, |_| true);
+
+        let waiting = BTreeSet::from(["waiting".to_string()]);
+        assert_eq!(runtime.ocr_cancelled_segments, waiting);
+        assert_eq!(runtime.transcript_cancelled_segments, waiting);
+    }
+
+    #[test]
+    fn deleting_a_segment_keeps_its_cancellation_while_its_job_waits_to_run() {
+        let mut runtime = runtime_with_a_job_waiting_to_run();
+
+        forget_cancellations(&mut runtime, |id| id == "waiting");
+        assert!(runtime.ocr_cancelled_segments.contains("waiting"));
+        assert!(runtime.transcript_cancelled_segments.contains("waiting"));
+
+        forget_cancellations(&mut runtime, |id| id == "dequeued-earlier");
+        assert!(!runtime.ocr_cancelled_segments.contains("dequeued-earlier"));
+        assert!(!runtime
+            .transcript_cancelled_segments
+            .contains("dequeued-earlier"));
     }
 
     #[test]
@@ -4888,8 +5165,13 @@ command = "keep"
         write_aged(&handoffs.join("request.mp4"), 9 * HOUR);
         let live = BTreeSet::from(["segment-3-0".to_string()]);
 
-        remove_orphaned_segment_files(&dir, std::time::SystemTime::now() - 8 * HOUR, &live)
-            .unwrap();
+        remove_orphaned_segment_files(
+            &reservation_runtime(),
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &live,
+        )
+        .unwrap();
 
         assert!(expired.iter().all(|name| !dir.join(name).exists()));
         assert!(kept.iter().all(|name| dir.join(name).exists()));
@@ -4908,6 +5190,7 @@ command = "keep"
         }
 
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &current,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5173,6 +5456,7 @@ command = "keep"
         prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &dir,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5186,6 +5470,7 @@ command = "keep"
             .set_modified(std::time::SystemTime::now() - 9 * HOUR)
             .unwrap();
         remove_orphaned_segment_files(
+            &reservation_runtime(),
             &dir,
             std::time::SystemTime::now() - 8 * HOUR,
             &BTreeSet::new(),
@@ -5225,6 +5510,320 @@ command = "keep"
     }
 
     #[test]
+    fn stopped_producer_cannot_recreate_a_cleared_event_log() {
+        let dir = retention_fixture_dir("clear-pending-producer");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        std::fs::write(&path, b"old history\n").unwrap();
+        let event_log = Arc::new(Mutex::new(()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let clear = event_log.lock().unwrap();
+        let (pending_tx, pending_rx) = std::sync::mpsc::channel();
+        let worker_log = event_log.clone();
+        let worker_path = path.clone();
+        let worker_stop = stop.clone();
+        let worker = std::thread::spawn(move || {
+            pending_tx.send(()).unwrap();
+            append_event_path(
+                &worker_log,
+                &worker_path,
+                &event("2026-07-14T12:00:00Z"),
+                Some(&worker_stop),
+            )
+        });
+        pending_rx.recv().unwrap();
+        stop.store(true, Ordering::Relaxed);
+        std::fs::remove_file(&path).unwrap();
+        drop(clear);
+
+        assert!(!worker.join().unwrap().unwrap());
+        assert!(!path.exists());
+        assert!(append_event_path(
+            &event_log,
+            &path,
+            &event("2026-07-14T12:01:00Z"),
+            Some(&AtomicBool::new(false)),
+        )
+        .unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_history_removes_dangling_history_links() {
+        let dir = retention_fixture_dir("clear-dangling-link");
+        let path = dir.join("segment-interrupted.mp4");
+        std::os::unix::fs::symlink(dir.join("missing-capture.mp4"), &path).unwrap();
+
+        clear_history_files(&dir, None, None).unwrap();
+
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_removes_entries_whose_metadata_cannot_be_read() {
+        let dir = retention_fixture_dir("clear-unreadable-metadata");
+        std::fs::write(dir.join("segment-broken.json"), b"not metadata").unwrap();
+        std::fs::write(dir.join("segment-broken.mp4"), b"captured screen").unwrap();
+
+        clear_history_files(&dir, None, None).unwrap();
+
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn clear_history_fails_when_an_entry_cannot_be_removed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = retention_fixture_dir("clear-locked-entry");
+        std::fs::write(dir.join("segment-locked.mp4"), b"captured screen").unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = clear_history_files(&dir, None, None);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(dir.join("segment-locked.mp4").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_keeps_agent_handoff_directories() {
+        let dir = retention_fixture_dir("clear-keeps-handoffs");
+        let handoffs = dir.join("agent-handoffs");
+        std::fs::create_dir_all(&handoffs).unwrap();
+        std::fs::write(handoffs.join("handoff-1.json"), b"{}").unwrap();
+
+        clear_history_files(&dir, None, None).unwrap();
+
+        assert!(handoffs.join("handoff-1.json").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_a_chapter_rebuild_that_already_read_history() {
+        let dir = retention_fixture_dir("clear-during-chapter-rebuild");
+        let chapters = Arc::new(Mutex::new(()));
+        let (read_tx, read_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel::<()>();
+        let rebuild_chapters = chapters.clone();
+        let rebuild_dir = dir.clone();
+        let rebuild = std::thread::spawn(move || {
+            refresh_chapters_path(&rebuild_chapters, &rebuild_dir, || {
+                read_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+                Ok((vec![segment("segment-before-clear")], Vec::new()))
+            })
+        });
+        read_rx.recv().unwrap();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_chapters = chapters.clone();
+        let clear_dir = dir.clone();
+        let clear = std::thread::spawn(move || {
+            finished_tx
+                .send(clear_history_files(&clear_dir, Some(&clear_chapters), None))
+                .unwrap();
+        });
+
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        resume_tx.send(()).unwrap();
+        rebuild.join().unwrap().unwrap();
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_segment_finalizing_for_earlier_history_cannot_outlive_clear_history() {
+        let gate = HistoryClearGate::default();
+        let before_clear = gate.generation();
+
+        drop(gate.begin_clear().unwrap());
+
+        assert!(gate.lock_unless_cleared(before_clear).unwrap().is_none());
+        assert!(gate
+            .lock_unless_cleared(gate.generation())
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn clear_history_waits_for_a_segment_that_is_already_finalizing() {
+        let gate = Arc::new(HistoryClearGate::default());
+        let finalizing = gate
+            .lock_unless_cleared(gate.generation())
+            .unwrap()
+            .unwrap();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_gate = gate.clone();
+        let clear = std::thread::spawn(move || {
+            drop(clear_gate.begin_clear().unwrap());
+            finished_tx.send(()).unwrap();
+        });
+
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        drop(finalizing);
+        finished_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        clear.join().unwrap();
+    }
+
+    fn write_segment_fixture(dir: &Path, id: &str) -> (PathBuf, PathBuf) {
+        let media_path = dir.join(format!("{id}.mp4"));
+        std::fs::write(&media_path, b"captured screen").unwrap();
+        let mut metadata = segment(id);
+        metadata.path = media_path.clone();
+        let metadata_path = dir.join(format!("{id}.json"));
+        std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        (metadata_path, media_path)
+    }
+
+    fn reservation_runtime() -> Mutex<ScreenMemoryRuntime> {
+        Mutex::new(ScreenMemoryRuntime::default())
+    }
+
+    #[test]
+    fn orphan_cleanup_keeps_a_file_reserved_since_the_metadata_pass_until_release() {
+        let dir = retention_fixture_dir("orphan-reserved");
+        write_aged(&dir.join("segment-1-0.mov"), 25 * HOUR);
+        write_aged(&dir.join("segment-2-0.mov"), 25 * HOUR);
+        let runtime = reservation_runtime();
+        runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .reserve("segment-1-0", "clip")
+            .unwrap();
+        let sweep = || {
+            remove_orphaned_segment_files(
+                &runtime,
+                &dir,
+                std::time::SystemTime::now() - 8 * HOUR,
+                &BTreeSet::new(),
+            )
+            .unwrap()
+        };
+
+        sweep();
+        assert!(dir.join("segment-1-0.mov").exists());
+        assert!(!dir.join("segment-2-0.mov").exists());
+
+        runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .release("segment-1-0", "clip");
+        sweep();
+        assert!(!dir.join("segment-1-0.mov").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_reserved_segment_survives_pruning_until_it_is_released() {
+        let dir = retention_fixture_dir("reserved-survives-prune");
+        let (metadata_path, media_path) = write_segment_fixture(&dir, "segment-kept");
+        let runtime = reservation_runtime();
+        reserve_verified_segment(&runtime, &metadata_path, "segment-kept", "clip").unwrap();
+        let remove_media = || std::fs::remove_file(&media_path).map_err(|e| e.to_string());
+
+        assert!(!delete_unless_reserved(&runtime, "segment-kept", remove_media).unwrap());
+        assert!(media_path.exists());
+
+        runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .release("segment-kept", "clip");
+        assert!(delete_unless_reserved(&runtime, "segment-kept", remove_media).unwrap());
+        assert!(!media_path.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_segment_being_pruned_refuses_a_new_reservation() {
+        let dir = retention_fixture_dir("pruning-refuses-pin");
+        let (metadata_path, media_path) = write_segment_fixture(&dir, "segment-going");
+        let runtime = reservation_runtime();
+
+        let deleted = delete_unless_reserved(&runtime, "segment-going", || {
+            // The media is still on disk here, so only the shared claim can refuse this pin.
+            assert!(media_path.exists());
+            assert!(
+                reserve_verified_segment(&runtime, &metadata_path, "segment-going", "clip")
+                    .is_err()
+            );
+            std::fs::remove_file(&media_path).map_err(|e| e.to_string())?;
+            std::fs::remove_file(&metadata_path).map_err(|e| e.to_string())
+        })
+        .unwrap();
+
+        assert!(deleted);
+        assert!(runtime.lock().unwrap().segment_reservations.pins.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_consumer_cannot_reserve_media_that_is_already_deleted() {
+        let dir = retention_fixture_dir("pin-deleted-media");
+        let (metadata_path, media_path) = write_segment_fixture(&dir, "segment-gone");
+        std::fs::remove_file(&media_path).unwrap();
+        let runtime = reservation_runtime();
+
+        assert!(
+            reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err()
+        );
+        std::fs::remove_file(&metadata_path).unwrap();
+        assert!(
+            reserve_verified_segment(&runtime, &metadata_path, "segment-gone", "clip").is_err()
+        );
+
+        assert!(runtime.lock().unwrap().segment_reservations.pins.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_deletion_releases_its_claim_and_reports_the_failure() {
+        let runtime = reservation_runtime();
+
+        let result = delete_unless_reserved(&runtime, "segment-stuck", || {
+            Err::<(), _>("locked".to_string())
+        });
+
+        assert_eq!(result, Err("locked".to_string()));
+        assert!(runtime
+            .lock()
+            .unwrap()
+            .segment_reservations
+            .deleting
+            .is_empty());
+    }
+
+    #[test]
+    fn a_held_segment_expires_on_the_same_cutoff_as_finalized_history() {
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert!(suspended_segment_expired("2026-07-14T11:59:59Z", cutoff).unwrap());
+        assert!(!suspended_segment_expired("2026-07-14T12:00:00Z", cutoff).unwrap());
+        assert!(!suspended_segment_expired("2026-07-14T12:00:01Z", cutoff).unwrap());
+        assert!(suspended_segment_expired("not a time", cutoff).is_err());
+    }
+
+    #[test]
     fn clear_history_waits_for_an_event_log_rewrite_before_removing_files() {
         let dir = retention_fixture_dir("clear-during-rewrite");
         let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
@@ -5240,10 +5839,40 @@ command = "keep"
         let clear = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
             finished_tx
-                .send(clear_history_files(&clear_dir, Some(&clear_log)))
+                .send(clear_history_files(&clear_dir, None, Some(&clear_log)))
                 .unwrap();
         });
         started_rx.recv().unwrap();
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        std::fs::rename(temporary_path, &path).unwrap();
+        drop(rewrite);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_an_egress_log_rewrite() {
+        let dir = retention_fixture_dir("clear-during-egress-rewrite");
+        let path = dir.join("egress.jsonl");
+        let temporary_path = path.with_extension("jsonl.sanitize-1");
+        std::fs::write(&path, b"old receipts").unwrap();
+        std::fs::write(&temporary_path, b"rewritten receipts").unwrap();
+        let rewrite = crate::rewind_egress::lock_log().unwrap();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_dir = dir.clone();
+        let clear = std::thread::spawn(move || {
+            finished_tx
+                .send(clear_history_files(&clear_dir, None, None))
+                .unwrap();
+        });
         assert!(matches!(
             finished_rx.recv_timeout(Duration::from_millis(100)),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout)

@@ -38,7 +38,7 @@ vi.mock("../agent/durable-background.js", () => ({
   resolveAgentChatProcessRunDispatchPath: () => "/_agent-native/process-run",
 }));
 
-import { queueAutomationRunNow } from "./run-now.js";
+import { authorizeAutomationRunNow, queueAutomationRunNow } from "./run-now.js";
 
 function resourceAt(path: string) {
   return {
@@ -320,5 +320,58 @@ describe("queueAutomationRunNow", () => {
       statusCode: 403,
       message: expect.stringContaining("pr-review-reminders"),
     });
+  });
+});
+
+describe("authorizeAutomationRunNow", () => {
+  it("answers the automation a run would be for, and queues nothing", async () => {
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    const access = await authorizeAutomationRunNow({
+      ...organizationRun,
+      name: "digest",
+    });
+
+    expect(access).toMatchObject({
+      name: "digest",
+      scope: "organization",
+      resource: expect.objectContaining({ path: "jobs/digest.md" }),
+    });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller without collaborate access exactly as a run does", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+    const input = { ...organizationRun, name: "digest" };
+
+    const refusal = await authorizeAutomationRunNow(input).catch(
+      (error: unknown) => error,
+    );
+    const queued = await queueAutomationRunNow(input).catch(
+      (error: unknown) => error,
+    );
+
+    expect(refusal).toMatchObject({
+      statusCode: 403,
+      message: "Collaborate access is required to run this automation.",
+    });
+    expect(queued).toMatchObject({
+      statusCode: (refusal as { statusCode: number }).statusCode,
+      message: (refusal as Error).message,
+    });
+  });
+
+  it("does not disclose an automation that is not there", async () => {
+    resourceGetByPathMock.mockResolvedValue(null);
+
+    await expect(
+      authorizeAutomationRunNow({ ...organizationRun, name: "missing" }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Automation not found.",
+    });
+    expect(canQueueAutomationRunNowMock).not.toHaveBeenCalled();
   });
 });
