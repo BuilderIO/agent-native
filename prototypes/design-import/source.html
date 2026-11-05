@@ -380,13 +380,12 @@ function viewProgress() {
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 // The sidebar card and the dialog share their title and button. The Figma variant announces Figma import
-// alone (a .fig upload with page picking, and paste from Figma, both shipped in Design), and its button
-// goes straight to the Figma upload instead of the picker.
+// alone, and its button goes straight to the Figma upload instead of the picker.
 const ANNS = {
   all: { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", lead: "Bring a project from another tool into Agent‑Native Design.", cta: "Import project", act: "import-now", proto: "import",
     checks: ["Move a project from Lovable, v0, Bolt, Replit, and more", "Import a Figma file or a GitHub repository", "Keep building your project as an agentic app"] },
-  figma: { title: "Import from Figma", desc: "Bring your Figma designs in and keep building.", lead: "Bring your Figma designs into Agent‑Native Design.", cta: "Import Figma file", act: "import-figma", proto: "import-figma",
-    checks: ["Upload a .fig file and pick the pages you want", "Copy frames in Figma and paste them onto your canvas", "Keep building your designs as an agentic app"] },
+  figma: { title: "Import from Figma", desc: "Bring your Figma designs into your project and keep building.", lead: "Bring your Figma designs into Agent‑Native Design.", cta: "Import from Figma", act: "import-figma", proto: "import-figma",
+    checks: ["Import Figma files into Agent‑Native Design", "Start with the designs you already have", "Continue building as an agentic app"] },
 };
 let annKind = "all";
 const RINGS = '<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg>';
