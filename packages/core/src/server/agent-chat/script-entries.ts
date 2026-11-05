@@ -527,7 +527,9 @@ export async function createResourceScriptEntries(): Promise<
             const result = await captureCliOutput(async () => {
               try {
                 await read.default(serializeCliArgs(rest), {
-                  maxResultChars: context?.maxResultChars,
+                  ...(context?.maxResultChars !== undefined && {
+                    maxResultChars: context.maxResultChars,
+                  }),
                 });
               } catch (error) {
                 if (!(error instanceof read.ResourceReadResultLimitError))
