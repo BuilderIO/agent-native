@@ -744,8 +744,9 @@ const NEGATED_DESTRUCTIVE_PRIOR = 0.5;
 // most delete actions declare none.
 function isDestructiveTool(name: string, entry: ActionEntry): boolean {
   if (entry.mcpAnnotations) return entry.mcpAnnotations.destructiveHint;
-  const verb = searchTerms(parseMcpToolName(name)?.toolName ?? name)[0];
-  return verb !== undefined && DESTRUCTIVE_VERBS.has(verb);
+  return searchTerms(parseMcpToolName(name)?.toolName ?? name)
+    .slice(0, 1)
+    .some((verb) => DESTRUCTIVE_VERBS.has(verb));
 }
 
 // Nouns that app UIs name things with, which stripping "-ing" would fold into
