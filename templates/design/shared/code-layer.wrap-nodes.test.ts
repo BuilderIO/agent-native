@@ -109,9 +109,85 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("margin: 0 20px 0 0");
     expect(ungrouped.content).toContain("margin-right: 12px !important");
     expect(ungrouped.content).not.toContain(
-      "data-agent-native-group-flow-margin",
+      "data-agent-native-group-flow-style",
     );
     expect(ungrouped.content).not.toContain("position: absolute");
+  });
+
+  it("ungroup restores the authored relative positioning grouping removed from a child", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="row" style="display:flex">
+    <div data-agent-native-node-id="card-a" style="position:relative;left:10px;top:4px;width:100px;height:40px">A</div>
+    <div data-agent-native-node-id="card-b" style="width:100px;height:40px">B</div>
+  </div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["card-a", "card-b"],
+      sizeHints: {
+        "card-a": { width: 100, height: 40, left: 0, top: 0 },
+        "card-b": { width: 100, height: 40, left: 100, top: 0 },
+      },
+    });
+    expect(grouped.result.status).toBe("applied");
+
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+
+    expect(ungrouped.result.status).toBe("applied");
+    const cardA = ungrouped.content.match(
+      /data-agent-native-node-id="card-a"[^>]*>/,
+    )?.[0];
+    expect(cardA).toContain("position: relative");
+    expect(cardA).toContain("left: 10px");
+    expect(cardA).toContain("top: 4px");
+    expect(cardA).not.toContain("position: absolute");
+    const cardB = ungrouped.content.match(
+      /data-agent-native-node-id="card-b"[^>]*>/,
+    )?.[0];
+    expect(cardB).not.toContain("position");
+    expect(ungrouped.content).not.toContain(
+      "data-agent-native-group-flow-style",
+    );
+  });
+
+  it("ungroup keeps a margin edited while grouped instead of replaying the saved one", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="row" style="display:flex">
+    <div data-agent-native-node-id="card-a" style="width:100px;height:40px;margin:0 20px 0 0">A</div>
+    <div data-agent-native-node-id="card-b" style="width:100px;height:40px">B</div>
+  </div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["card-a", "card-b"],
+      sizeHints: {
+        "card-a": { width: 100, height: 40, left: 0, top: 0 },
+        "card-b": { width: 100, height: 40, left: 120, top: 0 },
+      },
+    });
+    const edited = grouped.content.replace(
+      'data-agent-native-node-id="card-a" style="',
+      'data-agent-native-node-id="card-a" style="margin-left: 5px; ',
+    );
+    expect(edited).not.toBe(grouped.content);
+
+    const ungrouped = applyVisualEdit(edited, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+
+    expect(ungrouped.result.status).toBe("applied");
+    const cardA = ungrouped.content.match(
+      /data-agent-native-node-id="card-a"[^>]*>/,
+    )?.[0];
+    expect(cardA).toContain("margin-left: 5px");
+    expect(cardA).not.toContain("margin: 0 20px 0 0");
+    expect(ungrouped.content).not.toContain(
+      "data-agent-native-group-flow-style",
+    );
   });
 
   it("ungroup keeps children pinned when the group itself was nudged in a flex parent", () => {

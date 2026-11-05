@@ -8605,7 +8605,7 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
-const MEASURED_FLOW_MARGIN_ATTR = "data-agent-native-group-flow-margin";
+const MEASURED_FLOW_STYLE_ATTR = "data-agent-native-group-flow-style";
 
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
@@ -8798,13 +8798,13 @@ function rebaseMeasuredFlowChild(
   top: number,
 ): string {
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
-  const margins = declarations.declarations
+  const authored = declarations.declarations
     .filter((declaration) =>
-      cssPropertyKey(declaration.prop).startsWith("margin"),
+      isMeasuredFlowStrippedProp(cssPropertyKey(declaration.prop)),
     )
     .map(
       (declaration) =>
-        `${declaration.prop}: ${declaration.value}${declaration.important ? " !important" : ""}`,
+        `${declaration.prop}: ${styleDeclarationValue(declaration)}`,
     );
   removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
   setStyleDeclaration(declarations, "position", "absolute");
@@ -8815,8 +8815,8 @@ function rebaseMeasuredFlowChild(
       element: child,
       attributes: {
         style: serializeStyleDeclarations(declarations),
-        [MEASURED_FLOW_MARGIN_ATTR]:
-          margins.length > 0 ? margins.join("; ") : null,
+        [MEASURED_FLOW_STYLE_ATTR]:
+          authored.length > 0 ? authored.join("; ") : null,
       },
     },
   ]);
@@ -8828,25 +8828,40 @@ function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
   }
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
   removeStyleDeclarations(declarations, ["position", "left", "top"]);
-  const savedMargins = attributeValue(child, MEASURED_FLOW_MARGIN_ATTR);
-  if (savedMargins) {
-    for (const margin of parseStyleDeclarations(savedMargins).declarations) {
-      setStyleDeclaration(
-        declarations,
-        margin.prop,
-        `${margin.value}${margin.important ? " !important" : ""}`,
-      );
-    }
+  // A family the user set again while grouped keeps their value: appending the
+  // snapshot's shorthand after a newer longhand would silently override it.
+  const keys = declarations.declarations.map((declaration) =>
+    cssPropertyKey(declaration.prop),
+  );
+  const editedMargin = keys.some((key) => key.startsWith("margin"));
+  const editedOffset = keys.some(
+    (key) => isMeasuredFlowStrippedProp(key) && !key.startsWith("margin"),
+  );
+  const saved = parseStyleDeclarations(
+    attributeValue(child, MEASURED_FLOW_STYLE_ATTR),
+  ).declarations;
+  for (const declaration of saved) {
+    const isMargin = cssPropertyKey(declaration.prop).startsWith("margin");
+    if (isMargin ? editedMargin : editedOffset) continue;
+    setStyleDeclaration(
+      declarations,
+      declaration.prop,
+      styleDeclarationValue(declaration),
+    );
   }
   return patchElementAttributes(html, [
     {
       element: child,
       attributes: {
         style: serializeStyleDeclarations(declarations),
-        [MEASURED_FLOW_MARGIN_ATTR]: null,
+        [MEASURED_FLOW_STYLE_ATTR]: null,
       },
     },
   ]);
+}
+
+function isMeasuredFlowStrippedProp(key: string): boolean {
+  return (MEASURED_FLOW_REBASE_STRIP_PROPS as readonly string[]).includes(key);
 }
 
 function nextSequentialWrapperName(
