@@ -81,8 +81,9 @@ selection to the `monitoring` application-state key.
   finds issues with a stored occurrence in that traffic: the occurrence's URL
   host decides, then its environment when it has no host, and with neither it
   counts as production. `eventCount` and `usersAffected` stay across all
-  environments. Occurrences are sampled and capped per issue, so one rare beta
-  occurrence of a noisy issue can be gone.
+  environments. Each kind of traffic is sampled on its own, but an issue keeps
+  only its latest stored occurrences, so an older rare beta occurrence of a
+  noisy issue can be gone.
 - See `docs/error-capture.md`.
 
 ## Session Replay ↔ Errors

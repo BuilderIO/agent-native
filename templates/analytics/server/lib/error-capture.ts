@@ -34,6 +34,7 @@ import { getDb, schema } from "../db/index.js";
 import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 import {
   trafficEnvironmentCondition,
+  trafficEnvironmentOfRow,
   urlHostSql,
 } from "./traffic-environment.js";
 
@@ -1034,7 +1035,10 @@ export async function ingestException(
   const existing = await findIssueForFingerprint(db, scope, fp);
   const testIdentity = derived.testIdentity;
 
-  const samplerKey = `${scope.ownerEmail}|${scope.orgId ?? ""}|${fp}`;
+  // Each kind of traffic samples on its own, so production noise can't drop the
+  // one beta occurrence that lets the environment filter find this issue.
+  const traffic = trafficEnvironmentOfRow(derived.url, raw.environment);
+  const samplerKey = `${scope.ownerEmail}|${scope.orgId ?? ""}|${fp}|${traffic}`;
   const storeSample =
     options.forceStore === true ||
     !existing ||
