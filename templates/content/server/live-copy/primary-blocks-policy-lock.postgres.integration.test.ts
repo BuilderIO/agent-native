@@ -365,22 +365,19 @@ describe.skipIf(!POSTGRES_URL)(
               databaseId: first.databaseId,
               documentId: second.id,
             });
-          const holders = [first, second].map((row) =>
-            holdRow(
+          const holders = [first, second].map((row) => ({
+            row,
+            ...holdRow(
               sql`SELECT id FROM documents WHERE id = ${row.id} FOR UPDATE`,
             ),
-          );
+          }));
           const writes: Tracked[] = [];
           try {
-            const holderPids = await Promise.all(
-              holders.map((holder) => holder.pid),
-            );
+            await Promise.all(holders.map((holder) => holder.pid));
             const { editContentLiveCopy } = await import("./write.js");
             const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
-            for (const [index, row] of [first, second].entries()) {
-              const holderPid = holderPids[index];
-              if (holderPid === undefined)
-                throw new Error("Missing page holder.");
+            for (const { row, pid } of holders) {
+              const holderPid = await pid;
               const write = track(
                 editContentLiveCopy(row.id, {
                   cause: { ctx, operation: "test-independent-page-writes" },
