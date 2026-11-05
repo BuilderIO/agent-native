@@ -32,4 +32,8 @@ End with exactly:
 OUTCOME: approved <sha> | awaiting-author | needs-person | skipped
 REPLY: <the reply text, or none>
 WHY: <one sentence: the gate, the ask, or who should act next>
+CONFIDENCE: <0-100> - <rubric rows>
 ```
+
+Score CONFIDENCE with [confidence.md](confidence.md). Under 70, don't
+approve: report `needs-person` with the score in WHY.
