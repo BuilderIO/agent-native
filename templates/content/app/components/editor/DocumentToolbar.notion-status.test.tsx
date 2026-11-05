@@ -218,9 +218,19 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
       mocks.answerConnection = (body, status = 200) =>
         resolve({ body, status });
     });
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
+      connected: false,
+      pageId: null,
+    });
     await renderToolbar();
     await openPageActions();
+    expect(statusRequests()).toEqual([]);
     expect(notionItem()?.disabled).toBe(true);
+    expect(notionItem()?.getAttribute("aria-busy")).toBe("true");
+    expect(notionItem()?.querySelector(".animate-spin")).not.toBeNull();
     expect(document.body.textContent).not.toContain(
       "editor.toolbar.setUpNotion",
     );
@@ -228,7 +238,12 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     await act(async () =>
       mocks.answerConnection?.({ error: "unavailable" }, 500),
     );
-    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(true));
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("database.retry"),
+    );
+    expect(notionItem()?.disabled).toBe(true);
+    expect(notionItem()?.hasAttribute("aria-busy")).toBe(false);
+    expect(notionItem()?.querySelector(".animate-spin")).toBeNull();
     expect(
       mocks.fetchUrls.some((url) => url.includes("/api/notion/auth-url")),
     ).toBe(false);

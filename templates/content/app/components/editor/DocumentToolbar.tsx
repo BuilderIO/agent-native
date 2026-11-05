@@ -1040,6 +1040,7 @@ export function DocumentToolbar({
     data: connection,
     status: connectionStatus,
     isError: connectionFailed,
+    isFetching: connectionFetching,
     refetch: refetchConnection,
   } = useNotionConnection();
   // The sync status loads after the page settles, or as soon as the page
@@ -1141,7 +1142,8 @@ export function DocumentToolbar({
           isFetchedAfterMount: syncStatusReadSinceMount,
           dataUpdatedAt: syncStatusAnsweredAt,
         })));
-  const notionStatusChecking = notionStatusPending && syncStatusFetching;
+  const notionStatusChecking =
+    notionStatusPending && (connectionFetching || syncStatusFetching);
   // A read that fails while the Notion popover is open closes it, so its link
   // form can't act on the stale answer (and it doesn't reopen on a retry).
   useEffect(() => {
