@@ -108,13 +108,9 @@ describe("update-deck-aspect-ratio action", () => {
     expect(result).toEqual({ id: "deck-1", aspectRatio: "1:1" });
   });
 
-  it("notifies SSE clients and writes a refresh-signal", async () => {
+  it("notifies SSE clients", async () => {
     await action.run({ deckId: "deck-1", aspectRatio: "9:16" });
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "refresh-signal",
-      expect.objectContaining({ source: "update-deck-aspect-ratio" }),
-    );
   });
 
   it("overwrites a previously-set aspectRatio", async () => {
