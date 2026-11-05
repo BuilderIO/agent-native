@@ -769,9 +769,7 @@ const DESTRUCTIVE_VERBS: ReadonlySet<string> = new Set(
 );
 
 function leadingNameVerb(name: string): string | undefined {
-  return searchTerms(parseMcpToolName(name)?.toolName ?? name)
-    .slice(0, 1)
-    .find(() => true);
+  return searchTerms(parseMcpToolName(name)?.toolName ?? name).at(0);
 }
 
 /**
