@@ -7,8 +7,10 @@ import {
   IconPlugConnected,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+import { GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY } from "../../lib/google-slides-export-availability-client";
 import { Button } from "../ui/button";
 
 interface GoogleDocsStatus {
@@ -57,6 +59,7 @@ export function GoogleDriveConnectionCta({
   active = true,
 }: GoogleDriveConnectionCtaProps) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<GoogleDocsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -104,6 +107,21 @@ export function GoogleDriveConnectionCta({
     setDismissed(false);
     void refreshStatus();
   }, [active, refreshStatus]);
+
+  useEffect(() => {
+    if (!active) return;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === "invalidate" &&
+        event.query.queryKey[0] === GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY[0] &&
+        event.query.queryKey[1] === GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY[1]
+      ) {
+        setDismissed(false);
+        void refreshStatus();
+      }
+    });
+  }, [active, queryClient, refreshStatus]);
 
   const needsReconnect =
     status?.connected === true && status.googleSlidesUrlImportReady === false;

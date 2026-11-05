@@ -1,11 +1,13 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import {
   cleanup,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 const requestString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -15,6 +17,16 @@ const requestString = (value: unknown) =>
         ? value.url
         : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY } from "../../lib/google-slides-export-availability-client";
+
+let queryClient: QueryClient;
+const render = (ui: ReactElement) =>
+  rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/agent${path}`,
@@ -47,6 +59,9 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 
 describe("<GoogleDriveConnectionCta>", () => {
   beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity } },
+    });
     const statusResponses = [false, true];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestString(input);
@@ -80,6 +95,41 @@ describe("<GoogleDriveConnectionCta>", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("rechecks the connection when the export availability query is invalidated", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: true,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ configured: true, connected: false }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+    );
+    queryClient.setQueryData(GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY, {});
+    render(<GoogleDriveConnectionCta />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: "Connect Google" })).toBeNull();
+
+    void queryClient.invalidateQueries({
+      queryKey: GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY,
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
   });
 
   it("shows a direct Connect Google button when Drive is disconnected", async () => {
