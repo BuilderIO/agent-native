@@ -35,11 +35,11 @@
       "Import · Ready": "3371:22797",
       "Import · Picker · Dark": "3371:22858",
       "Import · Announcement · Dark": "3371:23077",
-      "Announcement/Galaxy": "3368:20516",
-      "Announcement/Tile": "3396:22703",
       "Sidebar · What's new card · Figma": "3397:22778",
       "Import · Announcement · Figma": "3397:22945",
-      "Import · Announcement · Figma · Dark": "3397:23191"
+      "Import · Announcement · Figma · Dark": "3397:23191",
+      "Announcement/Hero": "3368:20516",
+      "Announcement/App tile": "3396:22703"
     }
   }
 }
