@@ -134,7 +134,13 @@ export function createGoogleCalendarProvider(
 
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
       const resp = await apiCall<{
-        calendars: Record<string, { busy: { start: string; end: string }[] }>;
+        calendars: Record<
+          string,
+          {
+            busy?: { start: string; end: string }[];
+            errors?: { domain?: string; reason?: string }[];
+          }
+        >;
       }>(credentialId, "https://www.googleapis.com/calendar/v3/freeBusy", {
         method: "POST",
         body: JSON.stringify({
@@ -143,8 +149,21 @@ export function createGoogleCalendarProvider(
           items: calendarExternalIds.map((id) => ({ id })),
         }),
       });
+      // freeBusy answers 200 with an empty `busy` and an `errors` entry for a
+      // calendar it couldn't read; that must not count as a free calendar.
       const out: BusyInterval[] = [];
-      for (const [calId, data] of Object.entries(resp.calendars)) {
+      for (const calId of calendarExternalIds) {
+        const data =
+          resp.calendars?.[calId] ??
+          Object.entries(resp.calendars ?? {}).find(
+            ([key]) => key.toLowerCase() === calId.toLowerCase(),
+          )?.[1];
+        if (!data || data.errors?.length || !Array.isArray(data.busy)) {
+          const reason = data?.errors?.[0]?.reason ?? "missing from response";
+          throw new Error(
+            `Google Calendar free/busy failed for ${calId}: ${reason}`,
+          );
+        }
         for (const b of data.busy) {
           out.push({ start: b.start, end: b.end, source: calId });
         }

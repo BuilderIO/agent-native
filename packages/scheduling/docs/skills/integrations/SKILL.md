@@ -36,6 +36,15 @@ description: Calendar + video provider integrations — Google Calendar, Office 
 - Confirmed bookings hosted by the user
 - External busy from each `selected_calendars` entry via the provider
 
+If any selected calendar can't be read (its `getBusy` throws, its provider
+isn't registered, or its credential is `invalid`), `aggregateBusy`,
+`getAvailableSlots`, and `assertSlotAvailable` throw
+`CalendarAvailabilityUnavailableError` (`errorCode:
+"calendar_availability_unavailable"`, status 503) naming the calendar,
+instead of treating it as free. Show "Couldn't check <calendar>" and offer no
+times; tell the host to reconnect when the reason is `credential_invalid`.
+Credentials with no selected calendars are not checked.
+
 Cached in `calendar_cache` (short TTL, default 5 min). Busted on any
 booking write for that host.
 

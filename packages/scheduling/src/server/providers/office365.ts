@@ -117,11 +117,12 @@ export function createOffice365Provider(
       const resp = await graph<{
         value: {
           scheduleId: string;
-          scheduleItems: {
+          scheduleItems?: {
             start: { dateTime: string };
             end: { dateTime: string };
             status: string;
           }[];
+          error?: { message?: string; responseCode?: string };
         }[];
       }>(credentialId, "/me/calendar/getSchedule", {
         method: "POST",
@@ -132,9 +133,23 @@ export function createOffice365Provider(
           availabilityViewInterval: 30,
         }),
       });
+      // getSchedule answers 200 with a per-schedule `error` and no items for a
+      // calendar it couldn't read; that must not count as a free calendar.
       const out: BusyInterval[] = [];
+      for (const id of calendarExternalIds) {
+        const entry = resp.value?.find(
+          (v) => v.scheduleId?.toLowerCase() === id.toLowerCase(),
+        );
+        if (!entry || entry.error || !Array.isArray(entry.scheduleItems)) {
+          const reason =
+            entry?.error?.responseCode ??
+            entry?.error?.message ??
+            "missing from response";
+          throw new Error(`Graph getSchedule failed for ${id}: ${reason}`);
+        }
+      }
       for (const entry of resp.value) {
-        for (const item of entry.scheduleItems) {
+        for (const item of entry.scheduleItems ?? []) {
           if (item.status === "free") continue;
           out.push({
             start: item.start.dateTime + "Z",

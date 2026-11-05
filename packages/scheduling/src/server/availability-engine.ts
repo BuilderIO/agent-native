@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { eq, gte, lt, and, inArray } from "drizzle-orm";
 
 import { expandSlotForConflictCheck } from "../core/buffers.js";
@@ -22,6 +23,50 @@ export class SlotConflictError extends Error {
   constructor(message = "This time slot is no longer available") {
     super(message);
     this.name = "SlotConflictError";
+  }
+}
+
+export type CalendarBusyFailureReason =
+  | "lookup_failed"
+  | "provider_not_registered"
+  | "credential_invalid";
+
+export interface CalendarBusyFailure {
+  credentialId: string;
+  provider: string;
+  providerLabel: string;
+  calendarExternalIds: string[];
+  reason: CalendarBusyFailureReason;
+  cause?: string;
+}
+
+/**
+ * A selected calendar could not be read, so its busy times are unknown.
+ * `details` is echoed to callers (including public booking pages), so it
+ * carries only provider names and reasons; the raw provider error stays in
+ * `failures` on the server.
+ */
+export class CalendarAvailabilityUnavailableError extends ActionContractError {
+  readonly failures: CalendarBusyFailure[];
+
+  constructor(failures: CalendarBusyFailure[]) {
+    const labels = Array.from(new Set(failures.map((f) => f.providerLabel)));
+    super(
+      `Couldn't check ${labels.join(", ")}, so availability can't be confirmed. Try again shortly.`,
+      {
+        errorCode: "calendar_availability_unavailable",
+        statusCode: 503,
+        details: {
+          calendars: failures.map((f) => ({
+            provider: f.provider,
+            providerLabel: f.providerLabel,
+            reason: f.reason,
+          })),
+        },
+      },
+    );
+    this.name = "CalendarAvailabilityUnavailableError";
+    this.failures = failures;
   }
 }
 
@@ -153,15 +198,12 @@ export async function aggregateBusy(input: {
     });
   }
 
+  // Invalid credentials are read too: one whose calendars are still selected
+  // is a calendar we can't check, not one that has no events.
   const creds = await db
     .select()
     .from(schema.schedulingCredentials)
-    .where(
-      and(
-        eq(schema.schedulingCredentials.userEmail, input.userEmail),
-        eq(schema.schedulingCredentials.invalid, false),
-      ),
-    );
+    .where(eq(schema.schedulingCredentials.userEmail, input.userEmail));
   if (creds.length === 0) return busy;
 
   const selected = await db
@@ -188,6 +230,9 @@ export async function aggregateBusy(input: {
     { length: creds.length },
     () => [],
   );
+  const failures: (CalendarBusyFailure | undefined)[] = Array.from({
+    length: creds.length,
+  });
   let nextCredentialIndex = 0;
   async function worker(): Promise<void> {
     while (nextCredentialIndex < creds.length) {
@@ -196,7 +241,25 @@ export async function aggregateBusy(input: {
       const externalIds = externalIdsByCredential.get(cred.id);
       if (!externalIds?.length) continue;
       const provider = getCalendarProvider(cred.type);
-      if (!provider) continue;
+      const failure = (
+        reason: CalendarBusyFailureReason,
+        cause?: string,
+      ): CalendarBusyFailure => ({
+        credentialId: cred.id,
+        provider: cred.type,
+        providerLabel: provider?.label ?? cred.type,
+        calendarExternalIds: externalIds,
+        reason,
+        ...(cause === undefined ? {} : { cause }),
+      });
+      if (!provider) {
+        failures[credentialIndex] = failure("provider_not_registered");
+        continue;
+      }
+      if (cred.invalid) {
+        failures[credentialIndex] = failure("credential_invalid");
+        continue;
+      }
       try {
         providerBusy[credentialIndex] = await provider.getBusy({
           credentialId: cred.id,
@@ -204,14 +267,22 @@ export async function aggregateBusy(input: {
           start: input.rangeStart,
           end: input.rangeEnd,
         });
-      } catch {
-        // Silently degrade — booking UI shows "couldn't verify availability" banner
-        // Consumer logs via their own error handler
+      } catch (error) {
+        failures[credentialIndex] = failure(
+          "lookup_failed",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
   }
   const workerCount = Math.min(MAX_CALENDAR_BUSY_CONCURRENCY, creds.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  const unreadable = failures.filter(
+    (f): f is CalendarBusyFailure => f !== undefined,
+  );
+  if (unreadable.length > 0) {
+    throw new CalendarAvailabilityUnavailableError(unreadable);
+  }
   busy.push(...providerBusy.flat());
 
   return busy;
