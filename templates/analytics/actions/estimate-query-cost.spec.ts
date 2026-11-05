@@ -68,6 +68,7 @@ vi.mock("../server/lib/query-cost-estimate", async (importOriginal) => ({
 }));
 
 import { costFromBytes } from "../server/lib/query-cost-estimate";
+import savedAction from "./estimate-dashboard-cost";
 import action from "./estimate-query-cost";
 
 const GIB = 1024 ** 3;
@@ -454,4 +455,167 @@ describe("estimate-query-cost action", () => {
       run({ dashboardId: "d1", panelId: "nope" }),
     ).rejects.toMatchObject({ errorCode: "panel_not_found", statusCode: 404 });
   });
+});
+
+describe("estimate-dashboard-cost saved-ID entry point", () => {
+  function runSaved(input: Record<string, unknown>) {
+    return savedAction.run(savedAction.schema.parse(input), context);
+  }
+
+  it.each(["sql", "query", "source", "eventsSource"])(
+    "rejects the unsupported %s input before pricing",
+    (key) => {
+      expect(() =>
+        savedAction.schema.parse({ dashboardId: "d1", [key]: "SELECT 1" }),
+      ).toThrow();
+      expect(mocks.getDashboard).not.toHaveBeenCalled();
+      expect(mocks.estimateResolvedPanels).not.toHaveBeenCalled();
+    },
+  );
+
+  it("requires a signed-in reader and does not price an inaccessible dashboard", async () => {
+    mocks.getRequestUserEmail.mockReturnValueOnce(null);
+    await expect(runSaved({ dashboardId: "d1" })).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+    mocks.getDashboard.mockResolvedValueOnce(null);
+    await expect(runSaved({ dashboardId: "private" })).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect(mocks.estimateResolvedPanels).not.toHaveBeenCalled();
+  });
+
+  it("prices only the selected saved panel through the existing scoped dry-run path", async () => {
+    const config = { panels: [] };
+    mocks.getDashboard.mockResolvedValueOnce({
+      kind: "sql",
+      role: "viewer",
+      config,
+    });
+    mocks.resolvePanels.mockReturnValueOnce([
+      {
+        panelId: "small",
+        title: "Small",
+        source: "first-party",
+        query: "saved-query",
+      },
+      {
+        panelId: "big",
+        title: "Big",
+        source: "bigquery",
+        query: "other-saved-query",
+      },
+    ]);
+    const result = await runSaved({
+      dashboardId: "d1",
+      panelId: "small",
+      filters: { timeRange: "7d" },
+      runsPerMonth: 0,
+    });
+    expect(mocks.getDashboard).toHaveBeenCalledWith("d1", {
+      email: "caller@example.test",
+      orgId: "org-1",
+    });
+    expect(mocks.resolvePanels).toHaveBeenCalledWith(config, {
+      timeRange: "7d",
+    });
+    expect(mocks.estimateResolvedPanels).toHaveBeenCalledWith(
+      [
+        {
+          panelId: "small",
+          title: "Small",
+          source: "first-party",
+          query: "saved-query",
+        },
+      ],
+      { userEmail: "caller@example.test", orgId: "org-1" },
+      0,
+      expect.any(Number),
+      signal,
+    );
+    expect(result.total).toMatchObject({ scope: "panel", partial: false });
+    expect(result.panels).toHaveLength(1);
+    expect(result.runsPerMonth).toBe(0);
+    expect(mocks.estimateBigQuerySql).not.toHaveBeenCalled();
+  });
+  it("preserves explicit unpriced and failed panels rather than a complete zero total", async () => {
+    mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+    mocks.resolvePanels.mockReturnValueOnce([
+      {
+        panelId: "failed",
+        title: "Failed",
+        source: "bigquery",
+        query: "saved",
+      },
+      { panelId: "program", title: "Program", source: "program", query: "{}" },
+    ]);
+    mocks.estimateResolvedPanels.mockResolvedValueOnce([
+      {
+        panelId: "failed",
+        title: "Failed",
+        source: "bigquery",
+        status: "failed",
+        failure: "timeout",
+        error: "Timed out",
+      },
+      {
+        panelId: "program",
+        title: "Program",
+        source: "program",
+        status: "not_estimated",
+        reason: "program",
+      },
+    ]);
+    const result = await runSaved({ dashboardId: "d1" });
+    expect(result.total.partial).toBe(true);
+    expect(result.panels.map((panel) => panel.status)).toEqual([
+      "failed",
+      "not_estimated",
+    ]);
+    expect(result.summary).toContain("none could be priced");
+  });
+  it.each([
+    [undefined, 30, "1 enabled daily email report in your org"],
+    [null, 30, "1 enabled daily email report in your org"],
+    ["", 30, "1 enabled daily email report in your org"],
+    ["   ", 30, "1 enabled daily email report in your org"],
+    [
+      String.fromCharCode(9, 10),
+      30,
+      "1 enabled daily email report in your org",
+    ],
+    [" 0 ", 0, "caller"],
+    [" 12 ", 12, "caller"],
+    [0, 0, "caller"],
+    [12, 12, "caller"],
+  ])(
+    "uses saved schedules for an unset run count %s and preserves explicit overrides",
+    async (runsPerMonth, expected, basis) => {
+      mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
+      mocks.countReports.mockResolvedValueOnce(1);
+      mocks.resolvePanels.mockReturnValueOnce([
+        {
+          panelId: "small",
+          title: "Small",
+          source: "bigquery",
+          query: "saved",
+        },
+      ]);
+      const result = await runSaved({ dashboardId: "d1", runsPerMonth });
+      expect(result.runsPerMonth).toBe(expected);
+      expect(result.runsPerMonthBasis).toBe(basis);
+      if (expected === 0) expect(result.total.usdPerMonth).toBe(0);
+      else expect(result.total.usdPerMonth).toBeGreaterThan(0);
+    },
+  );
+  it.each([false, true, [], {}].map((value) => ({ value })))(
+    "rejects non-numeric input $value instead of coercing it to zero",
+    ({ value }) => {
+      expect(() =>
+        savedAction.schema.parse({ dashboardId: "d1", runsPerMonth: value }),
+      ).toThrow();
+      expect(mocks.getDashboard).not.toHaveBeenCalled();
+    },
+  );
 });

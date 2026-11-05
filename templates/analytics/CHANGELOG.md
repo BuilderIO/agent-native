@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-31
+
+### Improved
+
+- The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
 ## 2026-10-29
 
 ### Improved

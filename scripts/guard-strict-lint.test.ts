@@ -7,7 +7,10 @@ import {
   lintBatches,
   oxlintArgs,
 } from "./guard-strict-lint.ts";
-import { pnpmCommand, WINDOWS_COMMAND_LINE_LIMIT } from "./lib/pnpm-command.ts";
+import {
+  WINDOWS_COMMAND_LINE_LIMIT,
+  windowsCommandLine,
+} from "./lib/pnpm-command.ts";
 
 const cwd = "/repo";
 const file = "templates/mail/app/x.ts";
@@ -96,7 +99,7 @@ test("lint runs hold 400 files, and fit cmd.exe's command line on Windows", () =
   assert.ok(windows.length > 3);
   for (const batch of windows) {
     assert.ok(
-      pnpmCommand(oxlintArgs(batch), "win32").command.length <=
+      windowsCommandLine(oxlintArgs(batch)).length <=
         WINDOWS_COMMAND_LINE_LIMIT,
     );
   }

@@ -2747,6 +2747,60 @@ describe("DeckContext deck creation persistence", () => {
     expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeConflict);
   });
 
+  it("reverts a slide the server refuses for a reveal and keeps the refusal visible", async () => {
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchStatus: 400,
+      patchResponse: {
+        error:
+          "Cannot save animations for slide slide-1: step 1 (reveal-first) now lands on a different element in the final HTML.",
+        errorCode: "slide_animation_retargeted",
+        details: {
+          reason: "retargeted",
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-first",
+        },
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "reveal-refused-deck",
+      title: "Reveal refused deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Edited one" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id).catch(() => {});
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe("One");
+    expect(getDeckSaveError(initial.id)).toMatchObject({
+      status: 400,
+      errorCode: "slide_animation_retargeted",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
   it("fails fast on validation errors without exposing a redundant retry", async () => {
     const { setAccessibleDeck, getPatchAttempts } = setupFetch({
       patchStatus: 400,

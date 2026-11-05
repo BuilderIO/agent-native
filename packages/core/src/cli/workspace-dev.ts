@@ -19,6 +19,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { withWorkspaceRootEnv } from "../shared/workspace-default-app.js";
 import {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -32,6 +33,27 @@ import {
 import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
+
+// Windows only resolves `pnpm.cmd` shims through a shell, and the shell needs
+// the command line quoted because app directories may contain spaces.
+export function pnpmSpawnTarget(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return ["pnpm", args, false];
+  const quoted = args.map((arg) => {
+    // cmd.exe has no reliable way to escape these inside a quoted argument.
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run pnpm on Windows: path contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
+  return [["pnpm", ...quoted].join(" "), [], true];
+}
 
 export interface WorkspaceApp {
   id: string;
@@ -674,8 +696,8 @@ export async function runWorkspaceDev(
   options: WorkspaceDevOptions = {},
 ): Promise<WorkspaceDevHandle> {
   const args = options.args ?? process.argv.slice(2);
-  const env = options.env ?? process.env;
   const root = options.root ?? process.cwd();
+  const env = options.env ?? process.env;
   const appsDir = path.join(root, "apps");
   const spawnProcess = options.spawnProcess ?? spawn;
   const stdout = options.stdout ?? process.stdout;
@@ -751,7 +773,8 @@ export async function runWorkspaceDev(
   }
 
   const appById = new Map(apps.map((app) => [app.id, app]));
-  const requestedDefaultApp = env.WORKSPACE_DEFAULT_APP || null;
+  const requestedDefaultApp =
+    withWorkspaceRootEnv(root, env).WORKSPACE_DEFAULT_APP?.trim() || null;
   const explicitDefaultApp =
     requestedDefaultApp && appById.has(requestedDefaultApp)
       ? requestedDefaultApp
@@ -934,7 +957,23 @@ export async function runWorkspaceDev(
       );
     }
 
-    const child = spawnProcess("pnpm", childArgs, {
+    let pnpmTarget: ReturnType<typeof pnpmSpawnTarget>;
+    try {
+      pnpmTarget = pnpmSpawnTarget(childArgs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scheduleAppRestart(app, {
+        code: null,
+        signal: null,
+        installing: shouldInstall,
+        output: message,
+        logMessage: message,
+      });
+      return;
+    }
+    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmTarget;
+    const child = spawnProcess(pnpmCommand, pnpmArgs, {
+      ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",

@@ -758,6 +758,7 @@ describe("permanent recording deletion with durable media cleanup", () => {
     expect(mocks.release).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "stable-user",
+      reason: "cleanup",
     });
   });
   it("does not settle accounting while external compression can still produce media", async () => {
