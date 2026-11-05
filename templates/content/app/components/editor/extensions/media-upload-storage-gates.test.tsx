@@ -90,7 +90,7 @@ function mediaNodeProps(type: "image" | "video" | "audio") {
       attrs: { src: null, alt: "", uploadId: null },
       type: { name: type },
     },
-    editor: { isEditable: true, isDestroyed: false },
+    editor: { isEditable: true, isDestroyed: false, on() {}, off() {} },
     deleteNode: vi.fn(),
     selected: true,
     updateAttributes: vi.fn(),

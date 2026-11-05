@@ -66,6 +66,7 @@ import { ContentIcon } from "../../icons/ContentIcon";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 import { isSuggestingEdits } from "../suggestions/read-only-blocks";
+import { useEditorEditable } from "../useEditorEditable";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -932,7 +933,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const [suggestingOpen, setSuggestingOpen] = useState<boolean | null>(null);
   const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
-  const isEditable = editor.isEditable && !suggesting;
+  const isEditable = useEditorEditable(editor) && !suggesting;
   // Browsers won't select text inside a draggable element, and someone who
   // can't edit has to select a Toggle's text to comment on it. A titled Toggle
   // moves by its drag handle alone, like any line of text.

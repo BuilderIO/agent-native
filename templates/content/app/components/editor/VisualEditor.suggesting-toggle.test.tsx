@@ -165,6 +165,29 @@ describe("Toggles while suggesting", () => {
     },
   );
 
+  it("draws blocks for editing once the page turns editable", async () => {
+    // A page stays read-only until live editing connects, after its blocks
+    // first draw.
+    const editor = await mount(false, false);
+    await act(async () => {
+      editor.commands.insertContentAt(editor.state.doc.content.size, {
+        type: "image",
+        attrs: { src: null, alt: "" },
+      });
+    });
+    expect(container.querySelector("input.content-toggle__summary")).toBeNull();
+    const staticImage = ".media-empty-block__trigger--static";
+    expect(container.querySelector(staticImage)).not.toBe(null);
+
+    await mount(false, true);
+    expect(container.querySelector(staticImage)).toBeNull();
+    expect(container.querySelector("input.content-toggle__summary")).not.toBe(
+      null,
+    );
+    const toggle = container.querySelector(".content-toggle");
+    expect(toggle?.getAttribute("draggable")).toBe("true");
+  });
+
   it("moves a titled Toggle only by its drag handle", async () => {
     await mount(
       false,

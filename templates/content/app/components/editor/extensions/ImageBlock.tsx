@@ -57,6 +57,7 @@ import {
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId } from "../image-upload";
 import { storedBodyImageFailed } from "../stored-body-images";
+import { useEditorEditable } from "../useEditorEditable";
 import type { ContentImageOptions } from "./ImageNode";
 
 type ImageSourceTab = "upload" | "assets" | "link";
@@ -528,7 +529,8 @@ export function ImageBlock({
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const editorEditable = useEditorEditable(editor);
+  const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
@@ -1389,7 +1391,7 @@ export function ImageBlock({
             data-visible={isHovered ? "true" : undefined}
             aria-hidden={!isHovered}
           >
-            {editor.isEditable && options.onImageComment ? (
+            {editorEditable && options.onImageComment ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

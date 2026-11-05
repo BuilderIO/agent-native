@@ -79,6 +79,8 @@ function render(
   const editor = {
     isEditable: true,
     isDestroyed: false,
+    on: () => {},
+    off: () => {},
     state: { doc: { nodeAt: () => null } },
     commands: { command: () => true },
     chain: () => {
