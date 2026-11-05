@@ -18,6 +18,10 @@ import {
 } from "../contract.js";
 import { validateWorkflowGraph } from "../graph-validation.js";
 import { nextTriggerDue } from "../schedule.js";
+import {
+  STANDALONE_TEST_ITEM_ID,
+  canTestWithoutItems,
+} from "../standalone-test.js";
 import { fitText } from "./bounds.js";
 import { planGraph, type GraphPlan } from "./graph-order.js";
 import { reapInterruptedRuns, runStaleAfterMs } from "./reap.js";
@@ -25,7 +29,7 @@ import { prepareResume } from "./resume.js";
 import { createTickContext, dueCutoff } from "./tick-context.js";
 import type { FlowItem, RunWindow } from "./types.js";
 import { walkGraph, type WalkResult, type WalkSeed } from "./walker.js";
-import { computeRunWindow } from "./window.js";
+import { runWindowOfGraph } from "./window.js";
 
 /** One pinned item for a test of a single node: its own fields and what upstream nodes would have attached. */
 export interface SampleItem {
@@ -88,6 +92,34 @@ export type TickResult =
 
 type TriggerNode = WorkflowNodeOfKind<"trigger">;
 
+/**
+ * The items a test of one node runs on: the ones pinned for it. A lookup that
+ * reads nothing about an item has none to wait for, so with none pinned it runs
+ * once on a blank one, and only when the operation is a read: a test never
+ * writes.
+ */
+function testItems(
+  host: WorkflowHost,
+  graph: WorkflowGraph,
+  input: RunTickInput,
+): FlowItem[] {
+  const pinned = (input.sampleItems ?? []).map(
+    (sample): FlowItem => ({
+      id: sample.id,
+      data: sample.item,
+      nodes: sample.nodes ?? {},
+      inbox: false,
+    }),
+  );
+  if (pinned.length > 0) return pinned;
+  const node = graph.nodes.find(
+    (candidate) => candidate.id === input.testNodeId,
+  );
+  if (node?.kind !== "lookup" || !canTestWithoutItems(node)) return [];
+  if (host.catalog.get(node.settings.operation)?.effect !== "read") return [];
+  return [{ id: STANDALONE_TEST_ITEM_ID, data: {}, nodes: {}, inbox: false }];
+}
+
 function describeIssues(
   graph: WorkflowGraph,
   host: WorkflowHost,
@@ -146,7 +178,6 @@ function prepare(args: {
   );
   if (!trigger) return refuse("graph_invalid", "The graph has no trigger.");
 
-  const lookback = graph.settings.lookbackMinutes;
   let end =
     args.dueInstant !== null
       ? new Date(args.dueInstant)
@@ -170,12 +201,11 @@ function prepare(args: {
   ) {
     end = new Date(args.lastTriggerAt);
   }
-  const window = computeRunWindow({
-    schedule: trigger.settings.schedule,
-    timeZone: trigger.settings.timezone ?? graph.settings.timezone ?? "UTC",
+  const window = runWindowOfGraph({
+    graph,
+    trigger,
     lastTriggerAt: args.lastTriggerAt,
     end,
-    ...(lookback === undefined ? {} : { lookbackMinutes: lookback }),
   });
   if (!window.ok) return refuse("engine_error", window.message);
   try {
@@ -447,9 +477,11 @@ export async function runTick(input: RunTickInput): Promise<TickResult> {
     needsManual: runtime.ended.needsManual,
     released: runtime.ended.released,
     itemFailures: runtime.failed,
+    errorRouted: runtime.errorRouted,
     // Rows a provider sent that could not be read are rows to check, the same as items flagged by a write.
     needsCheck: runtime.needsCheck + runtime.skippedRows,
     skippedRows: runtime.skippedRows,
+    primed: runtime.primed,
     modelCalls: budget.usedModelCalls(),
     parked: runtime.parked,
     woke: runtime.woke,
@@ -470,14 +502,7 @@ export async function runTick(input: RunTickInput): Promise<TickResult> {
           {
             kind: "input",
             nodeId: input.testNodeId ?? "",
-            items: (input.sampleItems ?? []).map(
-              (sample): FlowItem => ({
-                id: sample.id,
-                data: sample.item,
-                nodes: sample.nodes ?? {},
-                inbox: false,
-              }),
-            ),
+            items: testItems(host, graph, input),
           },
         ]
       : newPass

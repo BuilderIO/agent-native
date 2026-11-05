@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GitHubMergeNotCompletedError,
   GitHubRequestError,
+  GitHubTokenUnreadableError,
 } from "../triage/github-client.js";
 import { sanitizeDetails } from "../tripwire/redact.js";
 import { createCapturingTripwireSink } from "../tripwire/testing.js";
@@ -15,6 +16,7 @@ import {
   pullRequestSummary,
 } from "./factory-pull-request.fixture.js";
 import type { GitHubClient } from "./factory-pull-request.js";
+import { UnreadableSecretError } from "./unreadable-secret.js";
 import type { WorkflowActionError } from "./workflow-action-errors.js";
 
 function merge(
@@ -287,6 +289,23 @@ describe("mergeGatedPullRequest", () => {
       errorCode: "github_rate_limited",
       retryable: true,
     });
+  });
+
+  it("says a token it cannot decrypt is unreadable, and does not read the pull request back as if a merge may have left", async () => {
+    const unreadable = fakeGitHub({
+      mergePullRequest: vi
+        .fn()
+        .mockRejectedValue(
+          new GitHubTokenUnreadableError(
+            new UnreadableSecretError("GITHUB_TOKEN"),
+          ),
+        ),
+    });
+
+    await expect(merge(unreadable)).rejects.toMatchObject({
+      errorCode: "app_secret_unreadable",
+    });
+    expect(unreadable.getPullRequestSummary).toHaveBeenCalledTimes(1);
   });
 
   it("reads the pull request back after a failure that may have merged it", async () => {
@@ -594,7 +613,8 @@ describe("merge_unexpected_response tripwire", () => {
   });
 
   it.each([
-    [401, "github_access_denied"],
+    // oracle-change: a rejected token (401) is now its own code, github_credential_rejected, no longer the permission refusal (403) github_access_denied
+    [401, "github_credential_rejected"],
     [403, "github_access_denied"],
     [404, "github_not_found"],
   ])(
@@ -818,7 +838,8 @@ describe("a merge attempt that reaches evaluation", () => {
           true,
           401,
         ),
-      "github_access_denied",
+      // oracle-change: this read fails with a 401, now typed github_credential_rejected instead of github_access_denied
+      "github_credential_rejected",
     ],
     [
       "a dropped connection",

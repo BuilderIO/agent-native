@@ -1,5 +1,58 @@
 # @agent-native/scheduling
 
+## 0.2.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6552f04]
+- Updated dependencies [aa0b323]
+- Updated dependencies
+- Updated dependencies [810b9e0]
+- Updated dependencies [7abe86d]
+  - @agent-native/toolkit@0.224.0
+
+## 0.2.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
+## 0.2.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3a2fa31]
+- Updated dependencies [92d54bb]
+- Updated dependencies [23cf2ea]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [033d9ad]
+- Updated dependencies [7138000]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [eacd478]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [f527363]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [d795784]
+- Updated dependencies [4699487]
+  - @agent-native/toolkit@0.223.0
+
 ## 0.2.49
 
 ### Patch Changes
@@ -1197,28 +1250,5 @@
 
 - Updated dependencies [e53a34e]
   - @agent-native/toolkit@0.7.0
-
-## 0.1.28
-
-### Patch Changes
-
-- Updated dependencies [01a3f27]
-  - @agent-native/toolkit@0.6.0
-
-## 0.1.27
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-- Updated dependencies [079e19a]
-  - @agent-native/toolkit@0.5.1
-
-## 0.1.26
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-- Updated dependencies [b6d7f87]
-  - @agent-native/toolkit@0.5.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -244,6 +244,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   let dispatchedModelCalls = 0;
   const stableOpts = {
     ...opts,
+    historyPrivacyState: opts.historyPrivacyState ?? { private: false },
     finalResponseGuardRequestText,
     onModelDispatchStarted: () => {
       dispatchedModelCalls++;

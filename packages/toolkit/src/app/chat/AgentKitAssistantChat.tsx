@@ -174,6 +174,7 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
+import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
@@ -250,6 +251,8 @@ import { ThinkingDisplayProvider } from "./thinking-display.js";
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Reference routing follows the selected conversation even when chat is hidden. */
   isReferenceTarget?: boolean;
+  /** Set to false so mounting the composer leaves focus where it is. */
+  composerAutoFocus?: boolean;
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
@@ -1551,6 +1554,19 @@ const agentKitSlots = {
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
   messageActionsTrailing: AgentKitHistoryMessageSupplement,
+  feedbackNote: ({
+    renderTrigger,
+    ...props
+  }: {
+    threadId: string;
+    runId?: string;
+    messageSeq?: number;
+    renderTrigger: (
+      toggle: () => void,
+      open: boolean,
+      contentId: string,
+    ) => React.ReactNode;
+  }) => <ThumbsFeedback {...props} renderNegativeTrigger={renderTrigger} />,
   text: AgentKitMarkdownText,
   tool: AgentKitTool,
   connectionRequest: AgentKitConnectionRequest,
@@ -5228,6 +5244,7 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
           {promptSuggestions.length ? (
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
+              size={surface.props.emptyStateSuggestionSize}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -5402,7 +5419,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           {surface.authError.sessionExpired && !surface.authSessionAvailable ? (
             <button
               type="button"
-              onClick={() => void signOut()}
+              onClick={() => {
+                void signOut().catch(() =>
+                  toast.error(t("agentChat.auth.logOutFailed")),
+                );
+              }}
               className="rounded-md border border-destructive/30 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
             >
               {t("agentChat.auth.logOut")}
@@ -6148,6 +6169,7 @@ function AgentKitComposerSurface({
         <AgentKitComposer
           threadId={threadId}
           isReferenceTarget={props.isReferenceTarget !== false}
+          autoFocus={props.composerAutoFocus !== false}
           requireAgentEngine
           disabled={
             providerBlocksComposer || props.composerDisabled || isRestoring
@@ -6159,7 +6181,7 @@ function AgentKitComposerSurface({
             // into the queue behind it.
             (isSubmissionInFlight && !submissionHoldsTurn)
           }
-          onDisabledClick={
+          onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
               : () => {
@@ -6330,12 +6352,14 @@ function AgentKitSuggestedPrompts({
   disabled,
   onSelect,
   className,
+  size = "compact",
   layout,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
+  size?: "compact" | "comfortable";
   layout?: "wrap" | "single-line";
 }) {
   const t = useT();
@@ -6357,6 +6381,7 @@ function AgentKitSuggestedPrompts({
       }))}
       onSelect={onSelect}
       className={className}
+      size={size}
       layout={layout}
     />
   );
