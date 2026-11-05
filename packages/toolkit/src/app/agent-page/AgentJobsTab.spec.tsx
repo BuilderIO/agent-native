@@ -321,8 +321,9 @@ describe("AgentJobsTab organization automations", () => {
 
   it("keeps editing controls but hides Run now when operation is unavailable", () => {
     const existing = jobMocks.useAutomations.getMockImplementation();
+    if (!existing) throw new Error("Automation fixture is not configured");
     jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
-      const result = existing!(scope);
+      const result = existing(scope);
       return {
         ...result,
         data: result.data.map((automation: { capabilities: object }) => ({
@@ -342,9 +343,9 @@ describe("AgentJobsTab organization automations", () => {
     const trigger = row?.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="menu"]',
     );
-    expect(trigger).toBeDefined();
+    if (!trigger) throw new Error("Automation menu trigger not found");
     act(() => {
-      trigger!.dispatchEvent(
+      trigger.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
       );
     });
