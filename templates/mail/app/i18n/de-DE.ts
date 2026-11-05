@@ -807,12 +807,12 @@ const messages = {
     draftCard: {
       loadFailed: "Dieser Entwurf konnte nicht geladen werden.",
       notFoundTitle: "Entwurf nicht gefunden",
+      goneTitle: "Dieser Entwurf wurde gesendet oder gelöscht.",
       threadUnavailable:
         "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
-      threadLookupFailed:
-        "Die Unterhaltung zu dieser Antwort wurde nicht gefunden, daher kann sie noch nicht gesendet werden.",
       earlierMessages: "Frühere Nachrichten ({{count}})",
-      deleted: "Entwurf gelöscht.",
+      sendInMail: "In Mail senden",
+      openBlocked: "Dein Browser hat den neuen Tab blockiert.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

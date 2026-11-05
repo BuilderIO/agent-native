@@ -17,6 +17,7 @@ export interface AgentNativeJsonSchema {
   description?: string;
   enum?: unknown[];
   const?: unknown;
+  default?: unknown;
   properties?: Record<string, AgentNativeJsonSchema>;
   required?: string[];
   additionalProperties?: boolean | AgentNativeJsonSchema;

@@ -42,6 +42,14 @@ describe("generate-slides-ai", () => {
     });
   });
 
+  it("returns a warning when the requested slide count is capped", async () => {
+    const result = await action.run({
+      topic: "Quarterly review",
+      slideCount: 15,
+    });
+    expect(result.warnings).toEqual([expect.stringContaining("15")]);
+  });
+
   it("drafts the outline with Gemini 3.6 Flash when Builder is not connected", async () => {
     const result = await action.run({
       topic: "Quarterly review",

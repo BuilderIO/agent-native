@@ -10,6 +10,7 @@ import {
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 
 interface Bullet {
   text: string;
@@ -42,7 +43,7 @@ function safeParseArray<T>(
 
 export default defineAction({
   description:
-    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
+    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
   }),
@@ -115,6 +116,7 @@ export default defineAction({
       actionItems,
       recording,
       transcript,
+      earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),
       role: access.role,
     };
   },

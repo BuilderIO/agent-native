@@ -1,0 +1,84 @@
+{
+  "cases": [
+    {
+      "id": "save-stays-disabled",
+      "category": "ui-bug-evident-state",
+      "report": "The Save button on the profile form stays greyed out after I fix the email error, so I cannot save until I reload the page. It should enable as soon as every field is valid.",
+      "expected": { "clearBug": true, "productUxImplications": false },
+      "note": "A UI bug, but the correct state is stated and evident, so fixing it needs no design call."
+    },
+    {
+      "id": "dialog-title-flips-on-close",
+      "category": "copy-flip",
+      "report": "When I confirm archiving a project, the dialog title flips from 'Archive project?' to 'Archive projects?' for a moment before it closes. It should keep the wording it opened with.",
+      "expected": { "clearBug": true, "productUxImplications": false },
+      "note": "The shape of the live report that was wrongly held: the fix restores the wording the dialog opened with, and nothing needs sign-off."
+    },
+    {
+      "id": "rename-publish-button",
+      "category": "change-request",
+      "report": "Can we rename the Publish button to Go live? Publish sounds permanent to our customers, and the whole screen could use a calmer layout.",
+      "expected": { "clearBug": false, "productUxImplications": true },
+      "note": "Nothing is broken; changing a label or redesigning a screen is a product and design decision."
+    },
+    {
+      "id": "add-dark-mode",
+      "category": "feature-request",
+      "report": "Please add a dark mode to the dashboard, my eyes hurt at night.",
+      "expected": { "clearBug": false, "productUxImplications": true },
+      "note": "New behavior is not a bug, and it needs a design decision before anyone builds it."
+    },
+    {
+      "id": "feels-slow",
+      "category": "vague-complaint",
+      "report": "The dashboard feels slow lately.",
+      "expected": { "clearBug": false, "productUxImplications": false },
+      "note": "No wrong behavior is named, so clearBug false decides the route; productUxImplications is false because no design choice is pending, and either value routes the same."
+    },
+    {
+      "id": "archive-orphans-tasks",
+      "category": "bug-needs-product-choice",
+      "report": "Archiving a project leaves its open tasks orphaned in the task list. Either the tasks should be archived with it, or archiving should be blocked until they are closed, and I do not know which we want.",
+      "expected": { "clearBug": true, "productUxImplications": true },
+      "note": "The wrong behavior is clear, but two different behaviors would both fix it, so a person has to choose."
+    },
+    {
+      "id": "typo-in-empty-state",
+      "category": "typo",
+      "report": "The empty state on the Reports page says 'No resuts yet'. It should say 'No results yet'.",
+      "expected": { "clearBug": true, "productUxImplications": false },
+      "note": "Restores the obviously intended wording, so there is nothing to sign off beyond that."
+    },
+    {
+      "id": "signed-out-after-ten-minutes",
+      "category": "touches-auth",
+      "report": "Signing in with Google logs me out after about ten minutes instead of keeping me signed in for 30 days like it did last week.",
+      "expected": {
+        "clearBug": true,
+        "productUxImplications": false,
+        "categoriesInclude": ["auth"]
+      },
+      "note": "A clear bug, but the fix touches sign-in, so categories must name auth and the gate refuses it whatever else is true."
+    },
+    {
+      "id": "export-does-nothing-again",
+      "category": "duplicate-of-open-report",
+      "report": "Exporting the report table to CSV does nothing in Safari, no file downloads.",
+      "situation": "An open report from yesterday describes the same CSV export failure, and Builder already has a task for it.",
+      "expected": { "clearBug": true, "productUxImplications": false },
+      "note": "The assessment does not judge duplicates: the grouping step sees the open tasks, and nothing routes on what it says yet (story.md, Not in this version)."
+    },
+    {
+      "id": "claimed-by-a-person",
+      "category": "already-claimed",
+      "report": "The notification badge still shows 3 after I have read everything. It should clear.",
+      "situation": "A teammate reacted to the message with eyes before the workflow read the thread.",
+      "expected": {
+        "clearBug": true,
+        "productUxImplications": false,
+        "alreadyClaimed": true
+      },
+      "note": "A person already took it, so alreadyClaimed is true and the report is dismissed whatever else is true."
+    }
+  ]
+}

@@ -296,6 +296,12 @@ const inboxFilterSchema = z.strictObject({
   authors: z.array(z.string().min(1).max(120)).max(50).optional(),
   excludeAuthors: z.array(z.string().min(1).max(120)).max(50).optional(),
   claimReaction: z.string().min(1).max(60).optional(),
+  includeOwnPosts: z
+    .boolean()
+    .optional()
+    .describe(
+      "Slack only. A Slack source leaves out the app's own posts (its notices and replies) unless this is true.",
+    ),
 });
 
 const sourceSettingsSchema = z.discriminatedUnion("source", [
@@ -325,15 +331,29 @@ const sourceSettingsSchema = z.discriminatedUnion("source", [
   }),
 ]);
 
+/**
+ * What a step does with an item that fails at it. Absent is `stop`, so a graph
+ * saved before this setting existed runs exactly as it did.
+ */
+export const ON_ERROR_MODES = ["stop", "route"] as const;
+const onErrorSchema = z
+  .enum(ON_ERROR_MODES)
+  .describe(
+    "stop (the default): a failed item ends for a person. route: the step gets an extra `error` output and a failed item leaves through it carrying `item.error`, the real code and message; the output must lead to a node.",
+  );
+export type OnErrorMode = z.infer<typeof onErrorSchema>;
+
 const lookupSettingsSchema = z.strictObject({
   operation: operationIdSchema,
   args: argsSchema,
   into: identifierSchema.optional(),
+  onError: onErrorSchema.optional(),
 });
 
 const actionSettingsSchema = z.strictObject({
   operation: operationIdSchema,
   args: argsSchema,
+  onError: onErrorSchema.optional(),
 });
 
 const filterSettingsSchema = z.strictObject({
@@ -380,6 +400,12 @@ const combineSettingsSchema = z
     key: pathStringSchema.optional(),
     field: pathStringSchema.optional(),
     summarize: summarizeSchema.optional(),
+    identity: z
+      .literal("firstMember")
+      .optional()
+      .describe(
+        "groupBy only. \"firstMember\" names each group after its first item, in the order the items arrived: the group's id and its `key` come from that item's id, so the grouping value (a label a model wrote, say) decides who goes together and never what the group is. Without it the group is named by the grouping value itself.",
+      ),
   })
   .superRefine((combine, ctx) => {
     const expect = (present: boolean, mode: string, name: string) => {
@@ -406,6 +432,13 @@ const combineSettingsSchema = z
         code: "custom",
         message: 'field only applies to "list"',
         path: ["field"],
+      });
+    }
+    if (combine.identity !== undefined && combine.mode !== "groupBy") {
+      ctx.addIssue({
+        code: "custom",
+        message: 'identity only applies to "groupBy"',
+        path: ["identity"],
       });
     }
   });
@@ -454,12 +487,14 @@ const aiSettingsSchema = z.strictObject({
   tools: z.array(z.string().min(1).max(80)).max(10).default([]),
   batchSize: z.number().int().min(1).max(100).default(10),
   inputBudgetTokens: z.number().int().min(100).max(200_000).optional(),
+  onError: onErrorSchema.optional(),
 });
 
 const agentSettingsSchema = z.strictObject({
   agent: z.literal("builder"),
   op: z.enum(["start", "check", "followUp"]),
   args: argsSchema,
+  onError: onErrorSchema.optional(),
 });
 
 const MAX_WAIT_HOURS = 24 * 30;
@@ -505,7 +540,12 @@ const waitSettingsSchema = z.discriminatedUnion("wait", [
 ]);
 
 // What a row's `extras` already holds from the engine's own reading of it, so a recorded value of the same name would be hidden.
-const RESERVED_RECORD_NAMES = ["status", "coverage", "headSha"] as const;
+const RESERVED_RECORD_NAMES = [
+  "status",
+  "coverage",
+  "headSha",
+  "authorLabel",
+] as const;
 const MAX_RECORDED_VALUES = 10;
 
 const recordSchema = z
@@ -751,6 +791,14 @@ export const itemEventSchema = z
     }
   });
 export type ItemEvent = z.infer<typeof itemEventSchema>;
+
+/**
+ * The `fields` key of a step whose model turn could not use its credential:
+ * the provider that credential belongs to. A step's error keeps only a code
+ * and a message, so without it a reader can only guess from the node's own
+ * operations, and the model's credential is none of them.
+ */
+export const STEP_CREDENTIAL_PROVIDER_FIELD = "credentialProvider";
 
 export const stepRecordSchema = z.strictObject({
   runId: z.string().min(1).max(200),
