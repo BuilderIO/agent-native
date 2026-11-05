@@ -2248,8 +2248,9 @@ function drainPendingDeckOps(
     const keepalive = options?.keepalive === true;
     const parallelSave = inFlightKeepaliveSaves.get(deckId);
     const queuedOps = pendingOpsQueue.get(deckId) ?? [];
-    // Mostly a tab switch, where the active save still lands; on a real close
-    // beforeunload has already sent this and pagehide replays as keepalive.
+    // Mostly a tab switch, where the active save still lands. A close can cancel
+    // this plain request and a body over the 64 KB keepalive cap has no later
+    // fallback, so the editor's beforeunload prompt is what protects it.
     const opsBehindActive =
       options?.keepalive === false && activeOps
         ? opsThatOnlyApplyAfter(activeOps, queuedOps)
@@ -2303,6 +2304,9 @@ function drainPendingDeckOps(
                 deckId,
                 (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) + 1,
               );
+              // This only applies after the active save, whose success handler
+              // now skips confirming its ops.
+              rememberPersistedSlideContent(deckId, activeOps);
             }
             acknowledgeKeepaliveDeckOps(
               deckId,
@@ -2329,15 +2333,22 @@ function drainPendingDeckOps(
             throw err;
           },
         );
-        inFlightKeepaliveSaves.set(deckId, keepaliveSave);
-        if (!keepalive) plainHiddenSaves.add(keepaliveSave);
+        // A superseded plain request is still in flight; flushing the queue
+        // before it settles would resend the edits it carries.
+        const trackedSave = parallelSave
+          ? Promise.allSettled([parallelSave, keepaliveSave]).then(
+              () => keepaliveSave,
+            )
+          : keepaliveSave;
+        inFlightKeepaliveSaves.set(deckId, trackedSave);
+        if (!keepalive) plainHiddenSaves.add(trackedSave);
         const clearKeepaliveSave = () => {
-          if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
+          if (inFlightKeepaliveSaves.get(deckId) === trackedSave) {
             inFlightKeepaliveSaves.delete(deckId);
             notifySaveListeners();
           }
         };
-        void keepaliveSave.then(clearKeepaliveSave, clearKeepaliveSave);
+        void trackedSave.then(clearKeepaliveSave, clearKeepaliveSave);
       }
     }
     notifySaveListeners();
