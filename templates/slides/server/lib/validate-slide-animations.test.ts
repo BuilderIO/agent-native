@@ -325,6 +325,30 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
+  it("accepts a top-level element appended after the slide's content, since no path moves", () => {
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div><div class="fmd-shape"></div></div>`,
+        animations: [reveal],
+        baseline: { content: before, animations: [reveal] },
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses an appended multi-child container that a legacy reveal without a path would resolve to", () => {
+    const legacy = { id: "legacy", elementIndex: 0 };
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div><div class="extra"><p>One</p><p>Two</p></div></div>`,
+        animations: [legacy],
+        baseline: { content: before, animations: [legacy] },
+      }),
+    );
+    expect(error).toMatchObject({ errorCode: "slide_animation_retargeted" });
+  });
+
   it("accepts a text edit to the target, which keeps its identity", () => {
     expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
   });

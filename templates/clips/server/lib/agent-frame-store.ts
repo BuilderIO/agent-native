@@ -10,6 +10,7 @@ import {
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import {
   fetchRecordingMediaResponse,
   loadAgentTranscript,
@@ -353,30 +354,48 @@ async function claimOrWaitForOtherFill(
 }
 
 /**
- * The timestamps the agent context recommends, clamped as the frame route
- * clamps a request, so each one is the `atMs` a request will arrive with.
+ * The original-recording timestamps the agent context recommends, clamped as
+ * the frame route clamps a request, so each one is the `atMs` the route looks
+ * a stored frame up by. The context recommends them on the edited timeline.
  */
 export async function recommendedAgentFrameTimes(
   recording: PublicAgentRecording,
 ): Promise<number[]> {
-  return (await recommendedAgentFrames(recording)).map((frame) => frame.atMs);
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    typeof recording.durationMs === "number" ? recording.durationMs : 0,
+  );
+  const times = (await recommendedAgentFrames(recording)).map((frame) =>
+    timeline.toSourceMs(frame.atMs),
+  );
+  return [...new Set(times)];
 }
 
-/** The recommended frames with their reasons, at the timestamps `recommendedAgentFrameTimes` returns. */
+/**
+ * The recommended frames with their reasons, on the edited timeline the agent
+ * context reports; `recommendedAgentFrameTimes` maps them to the original.
+ */
 export async function recommendedAgentFrames(
   recording: PublicAgentRecording,
 ): Promise<AgentFrameSuggestion[]> {
-  const durationMs =
+  const sourceDurationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
-  const { agentSegments } = await loadAgentTranscript(recording.id, durationMs);
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    sourceDurationMs,
+  );
+  const { agentSegments } = await loadAgentTranscript(
+    recording.id,
+    sourceDurationMs,
+  );
   const seen = new Set<number>();
   const frames: AgentFrameSuggestion[] = [];
   for (const frame of buildRecommendedFrames({
-    durationMs: recording.durationMs,
-    chapters: parseAgentChapters(recording),
-    segments: agentSegments,
+    durationMs: timeline.durationMs,
+    chapters: timeline.mapChapters(parseAgentChapters(recording)),
+    segments: timeline.mapSegments(agentSegments),
   })) {
-    const atMs = clampAgentFrameAtMs(frame.atMs, durationMs);
+    const atMs = clampAgentFrameAtMs(frame.atMs, timeline.durationMs);
     if (seen.has(atMs)) continue;
     seen.add(atMs);
     frames.push({

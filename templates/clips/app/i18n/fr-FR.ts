@@ -660,6 +660,17 @@ const messages = {
     desktopHint:
       "Pour démarrer les notes, ouvrez Clips Desktop dans la barre de menus et choisissez Start Meeting Notes, ou cliquez sur Start notes lorsque le rappel apparaît. Clips capture le micro et l'audio système, puis écrit la transcription ici.",
     getDesktopApp: "Obtenir l'application de bureau",
+    earlierAudioAdded_one: "{{count}} minute ajoutée d'avant votre démarrage",
+    earlierAudioAdded_other:
+      "{{count}} minutes ajoutées d'avant votre démarrage",
+    earlierAudioAdded_many:
+      "{{count}} minutes ajoutées d'avant votre démarrage",
+    earlierAudioUnreadable:
+      "Impossible de vérifier si cette transcription contient de l'audio antérieur",
+    removeEarlierAudioTitle: "Supprimer l'audio antérieur ?",
+    removeEarlierAudioDescription:
+      "Il sera retiré de la transcription, et le résumé, les actions et la description du clip seront recréés, même si vous avez rédigé cette description vous-même. Un titre généré sera aussi recréé ; celui que vous avez choisi est conservé. Les chapitres éventuels seront aussi supprimés.",
+    couldNotRemoveEarlierAudio: "Impossible de supprimer l'audio antérieur",
     generateNotesFailed: "Impossible de générer le résumé. Essayer à nouveau.",
     attendee_one: "participant {{count}}",
     attendee_other: "participants {{count}}",
@@ -1560,6 +1571,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Écoute…",
     noTranscript: "Aucune transcription pour le moment.",
+    unreadable: "Impossible de lire cette transcription.",
     liveTranscriptDescription:
       "La transcription en direct apparaîtra ici lorsque les notes commenceront.",
     me: "Moi",

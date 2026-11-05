@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "../../components/ui/tooltip";
 import ChatRoute from "./chat";
 
 const clientState = vi.hoisted(() => ({
@@ -57,6 +58,7 @@ vi.mock("@agent-native/toolkit/app/chat/AgentChatHome", () => ({
 
 vi.mock("../../components/create-app-popover", () => ({
   CreateAppPopover: () => null,
+  NewAppButton: () => null,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -75,14 +77,15 @@ vi.mock("../../components/layout/Layout", () => ({
   useDispatchWorkspaceAppLauncher: () => ({
     apps: clientState.workspaceApps,
     workspaceApps: clientState.workspaceApps,
-    isLoading: false,
+    workspaceAppsStatus: "ready",
     error: clientState.workspaceAppsError,
     openApp: clientState.openWorkspaceApp,
     retry: clientState.retryWorkspaceApps,
   }),
 }));
 
-vi.mock("../../lib/workspace-app-layout", () => ({
+vi.mock("../../lib/workspace-app-layout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/workspace-app-layout")>()),
   workspaceAppMatchesQuery: (
     app: { name: string; description?: string },
     query: string,
@@ -150,9 +153,11 @@ describe("Dispatch ChatRoute", () => {
   it("keeps the centered hero layout for a direct new Chat", async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat"]}>
-          <ChatRoute />
-        </MemoryRouter>,
+        <TooltipProvider>
+          <MemoryRouter initialEntries={["/chat"]}>
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -176,24 +181,26 @@ describe("Dispatch ChatRoute", () => {
   it("opens a Dispatch run with its Agent Teams parent context", async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter
-          initialEntries={[
-            {
-              pathname: "/chat",
-              state: {
-                dispatchThread: {
-                  id: "run-open-1",
-                  threadId: "child-thread",
-                  parentThreadId: "parent-thread",
-                  description: "Review the Slides task",
-                  name: "Slides review",
+        <TooltipProvider>
+          <MemoryRouter
+            initialEntries={[
+              {
+                pathname: "/chat",
+                state: {
+                  dispatchThread: {
+                    id: "run-open-1",
+                    threadId: "child-thread",
+                    parentThreadId: "parent-thread",
+                    description: "Review the Slides task",
+                    name: "Slides review",
+                  },
                 },
               },
-            },
-          ]}
-        >
-          <ChatRoute />
-        </MemoryRouter>,
+            ]}
+          >
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -213,9 +220,11 @@ describe("Dispatch ChatRoute", () => {
   it("renders the colored app directory below the empty chat composer", async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat"]}>
-          <ChatRoute />
-        </MemoryRouter>,
+        <TooltipProvider>
+          <MemoryRouter initialEntries={["/chat"]}>
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -240,9 +249,11 @@ describe("Dispatch ChatRoute", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat"]}>
-          <ChatRoute />
-        </MemoryRouter>,
+        <TooltipProvider>
+          <MemoryRouter initialEntries={["/chat"]}>
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -263,22 +274,24 @@ describe("Dispatch ChatRoute", () => {
   it("starts bottom-pinned when an Overview prompt is transitioning in", async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter
-          initialEntries={[
-            {
-              pathname: "/chat",
-              state: {
-                dispatchPrompt: {
-                  id: "overview-prompt",
-                  message: "Route this across my apps",
-                  selectedModel: "auto",
+        <TooltipProvider>
+          <MemoryRouter
+            initialEntries={[
+              {
+                pathname: "/chat",
+                state: {
+                  dispatchPrompt: {
+                    id: "overview-prompt",
+                    message: "Route this across my apps",
+                    selectedModel: "auto",
+                  },
                 },
               },
-            },
-          ]}
-        >
-          <ChatRoute />
-        </MemoryRouter>,
+            ]}
+          >
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -320,11 +333,13 @@ describe("Dispatch ChatRoute", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter
-          initialEntries={["/chat?agent=agents/research-partner.md"]}
-        >
-          <ChatRoute />
-        </MemoryRouter>,
+        <TooltipProvider>
+          <MemoryRouter
+            initialEntries={["/chat?agent=agents/research-partner.md"]}
+          >
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 
@@ -349,9 +364,11 @@ describe("Dispatch ChatRoute", () => {
   it("keeps threaded chats free of request ID chrome", async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat/chat-123"]}>
-          <ChatRoute />
-        </MemoryRouter>,
+        <TooltipProvider>
+          <MemoryRouter initialEntries={["/chat/chat-123"]}>
+            <ChatRoute />
+          </MemoryRouter>
+        </TooltipProvider>,
       );
     });
 

@@ -646,6 +646,14 @@ const messages = {
     desktopHint:
       "メモを開始するには、メニューバーから Clips Desktop を開いて Start Meeting Notes を選ぶか、リマインダーが表示されたら Start notes をクリックします。Clips はマイクとシステム音声を取り込み、ここに文字起こしを書き込みます。",
     getDesktopApp: "デスクトップアプリを入手",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    earlierAudioUnreadable:
+      "この文字起こしに開始前の音声が含まれているか確認できませんでした",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか?",
+    removeEarlierAudioDescription:
+      "文字起こしから削除し、要約、アクションアイテム、クリップの説明を作り直します。説明をご自身で書いた場合も作り直されます。自動生成タイトルも作り直されますが、ご自身で選んだタイトルはそのまま残ります。チャプターも削除されます。",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",
     attendee_one: "{{count}} 出席者",
@@ -1532,6 +1540,7 @@ const messages = {
   transcriptBubbles: {
     listening: "聞き取り中…",
     noTranscript: "文字起こしはまだありません。",
+    unreadable: "この文字起こしを読み込めませんでした。",
     liveTranscriptDescription:
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",

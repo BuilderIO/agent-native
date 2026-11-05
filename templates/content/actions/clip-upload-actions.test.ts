@@ -510,6 +510,9 @@ describe("create-video-upload", () => {
       clipEmbedTag: `<ClipEmbed id="${blockId}" recordingId="rec_1" origin="upload" />`,
       method: "POST",
       chunkUrl: ticket.chunkUrl,
+      // curl's --data-binary otherwise labels the body as form data, which
+      // reaches Clips as text and saves a broken Clip.
+      headers: { "Content-Type": "video/mp4" },
       cancelUrl: ticket.cancelUrl,
       chunkSizeBytes: ticket.chunkSizeBytes,
       totalChunks: 2,
@@ -517,6 +520,7 @@ describe("create-video-upload", () => {
       next: expect.stringContaining('"&index=N&isFinal=0"'),
     });
     const { next } = result as { next: string };
+    expect(next).toContain("with the returned headers");
     expect(next).toContain("edit-document");
     // The same retries the editor's uploader makes.
     expect(next).toContain("no answer, times out, or answers 429 or 5xx");

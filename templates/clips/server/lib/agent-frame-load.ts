@@ -4,6 +4,7 @@
  * a stored frame when there is one, and otherwise cut it from the clip's media.
  */
 
+import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import { loadStoredAgentFrame } from "./agent-frame-store.js";
 import {
   loadRecordingMediaFile,
@@ -46,9 +47,11 @@ export function createAgentFrameMediaSource(
 export async function extractFrameWithStaleDurationRecovery({
   mediaPath,
   atMs,
+  lastVisibleSourceMs,
 }: {
   mediaPath: string;
   atMs: number;
+  lastVisibleSourceMs: (sourceMs: number) => number | null;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {
     return {
@@ -73,7 +76,12 @@ export async function extractFrameWithStaleDurationRecovery({
       Math.max(0, actualDurationMs - 1),
       Math.max(0, actualDurationMs - 1000),
       0,
-    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+    ]
+      .map(lastVisibleSourceMs)
+      .filter(
+        (candidate, index, values): candidate is number =>
+          candidate !== null && values.indexOf(candidate) === index,
+      );
     for (const candidate of candidates) {
       if (candidate === atMs) continue;
       try {
@@ -96,14 +104,15 @@ export async function extractFrameWithStaleDurationRecovery({
 
 export type LoadedAgentFrame = {
   frame: Uint8Array;
-  /** Where the frame was cut: not the request's `atMs` when the stored duration ran past the media. */
+  /** Where the frame was cut, in the original recording: not the request's `atMs` when the stored duration ran past the media. */
   atMs: number;
   /** The frame was cut elsewhere than asked, and was not stored under the request's `atMs`. */
   moved: boolean;
 };
 
 /**
- * One frame of a video clip at `atMs` (already clamped to its duration): the
+ * One frame of a video clip at `atMs` in the original recording (already
+ * clamped and mapped from the edited timeline): the
  * stored frame, or one cut from the media. A cut frame fills the clip's other
  * recommended frames too, unless its timestamp had to move. `onFrame` sees the
  * frame and the mime type of the video it came from before it is returned.
@@ -134,6 +143,11 @@ export async function loadAgentFrame(
     const resolved = await extractFrameWithStaleDurationRecovery({
       mediaPath: media.path,
       atMs,
+      // A fallback frame must not land inside a cut the owner removed.
+      lastVisibleSourceMs: buildAgentEditedTimeline(
+        recording.editsJson,
+        typeof recording.durationMs === "number" ? recording.durationMs : 0,
+      ).lastVisibleSourceMs,
     });
     await onFrame?.(resolved.frame, media.mimeType);
 

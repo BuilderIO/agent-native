@@ -383,6 +383,25 @@ describe("clip-level refusals", () => {
 });
 
 describe("frames", () => {
+  it("takes and reports atMs on the edited timeline of a trimmed clip", async () => {
+    // The owner cut 10s-20s, so 15s as played is 25s of the original.
+    mockRecordings.rows = [
+      makeRecording({
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 10_000, endMs: 20_000, excluded: true }],
+        }),
+      }),
+    ];
+    const result = await run({ recordingId: "rec-1", atMs: [15_000] });
+    expect(mockLoadAgentFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      25_000,
+      expect.anything(),
+    );
+    expect(result.frames.map((f: any) => f.atMs)).toEqual([15_000]);
+    expect(result.durationMs).toBe(50_000);
+  });
+
   it("returns the first 4 recommended frames and lists all of them", async () => {
     const result = await run({ recordingId: "rec-1" });
     expect(result.frames.map((f: any) => f.atMs)).toEqual([

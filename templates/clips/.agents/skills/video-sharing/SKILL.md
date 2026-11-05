@@ -91,6 +91,31 @@ public-link-only clips. The UI exposes the same collection at `/shared`; use
 `navigate --view=shared` to open it. `view-screen` returns the recordings
 currently visible in that collection.
 
+## Changing many clips at once
+
+For a request over many of the user's own clips, such as "make my clips older
+than a week private unless I've shared them with someone", find them with one
+`list-recordings` call and change them with one call per 100:
+
+- `list-recordings` takes `createdBefore` / `createdAfter` (an ISO date such
+  as `2026-10-25`, or a date-time with its offset such as `2026-10-25T12:00:00Z`),
+  `visibility` (a list, such as `["public", "org"]`) and `hasShares`
+  (`false` for clips whose share list names no person, group or org; it
+  reads that list, not visibility, and only ever matches the user's own
+  clips).
+- `set-resource-visibility` takes `resourceIds` with `resourceType:
+  "recording"`. Making any clip public asks for one approval for the call.
+- `archive-recording`, `trash-recording`, `restore-recording` and
+  `delete-recording-permanent` take `ids`; `tag-recording` and
+  `add-recording-to-space` take `recordingIds`.
+
+Every clip in the call is checked first; if the user can't change one, none
+change and the error names it. The result lists each clip as `changed`,
+`unchanged` (already that way) or `skipped` with a reason. Report the counts
+back, not the clips one by one. A long `delete-recording-permanent` batch
+can stop early and list the clips it didn't reach as skipped; call it again
+with those ids.
+
 ## Discovery boundary for public clips
 
 Public recordings are unlisted-by-link for agent purposes: an agent may discover

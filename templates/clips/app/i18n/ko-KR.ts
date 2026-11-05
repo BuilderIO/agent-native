@@ -637,6 +637,14 @@ const messages = {
     desktopHint:
       "메모를 시작하려면 메뉴 막대에서 Clips Desktop을 열고 Start Meeting Notes를 선택하거나, 알림이 표시되면 Start notes를 클릭하세요. Clips가 마이크와 시스템 오디오를 캡처하고 여기에 기록을 작성합니다.",
     getDesktopApp: "데스크톱 앱 받기",
+    earlierAudioAdded_one: "시작 전 {{count}}분이 추가됨",
+    earlierAudioAdded_other: "시작 전 {{count}}분이 추가됨",
+    earlierAudioUnreadable:
+      "이 스크립트에 시작 전 오디오가 포함되어 있는지 확인할 수 없습니다",
+    removeEarlierAudioTitle: "시작 전 오디오를 삭제하시겠습니까?",
+    removeEarlierAudioDescription:
+      "스크립트에서 삭제하고 요약, 작업 항목, 클립 설명을 다시 만듭니다. 설명을 직접 작성한 경우에도 다시 만들어집니다. 자동 생성 제목도 다시 만들어지지만 직접 선택한 제목은 유지됩니다. 챕터도 삭제됩니다.",
+    couldNotRemoveEarlierAudio: "시작 전 오디오를 삭제할 수 없습니다",
     generateNotesFailed: "요약을 생성할 수 없습니다. 다시 시도해 보세요.",
     attendee_one: "{{count}} 참석자",
     attendee_other: "{{count}} 참석자",
@@ -1510,6 +1518,7 @@ const messages = {
   transcriptBubbles: {
     listening: "듣는 중…",
     noTranscript: "아직 기록이 없습니다.",
+    unreadable: "이 스크립트를 읽을 수 없습니다.",
     liveTranscriptDescription:
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",

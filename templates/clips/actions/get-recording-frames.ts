@@ -5,6 +5,7 @@ import { formatAgentTimestamp } from "@shared/agent-context";
 import { isImageRecording } from "@shared/recording-kind";
 import { z } from "zod";
 
+import { buildAgentEditedTimeline } from "../server/lib/agent-edited-timeline.js";
 import {
   createAgentFrameMediaSource,
   loadAgentFrame,
@@ -206,7 +207,7 @@ function failAllFrames(failures: FrameFailure[]): never {
 
 export default defineAction({
   description:
-    "Return a Clips recording (clip)'s video frames as images you can see, so you can look at what is on screen. Pass the recordingId: the <id> in a Clips link (/r/<id>, /share/<id>) or the id query parameter of a frame or context URL. Pass atMs (up to 4 timestamps in milliseconds of the original video) for specific moments; at most 4 frames come back per call, so call again for more. Without atMs you get the first 4 recommended frames, and the result lists every recommended moment (atMs, timestamp, reason) to ask for next. A screenshot recording returns its picture. A frame that cannot be produced is listed in failures with a nextStep; if none can, the call fails.",
+    "Return a Clips recording (clip)'s video frames as images you can see, so you can look at what is on screen. Pass the recordingId: the <id> in a Clips link (/r/<id>, /share/<id>) or the id query parameter of a frame or context URL. Pass atMs (up to 4 timestamps in milliseconds of the clip as it plays, with the owner's cuts removed, the same times the agent context and transcript use) for specific moments; at most 4 frames come back per call, so call again for more. Without atMs you get the first 4 recommended frames, and the result lists every recommended moment (atMs, timestamp, reason) to ask for next. A screenshot recording returns its picture. A frame that cannot be produced is listed in failures with a nextStep; if none can, the call fails.",
   schema: z.object({
     recordingId: z.string().trim().min(1).describe("Recording ID."),
     atMs: numberListParam(
@@ -214,7 +215,7 @@ export default defineAction({
     )
       .optional()
       .describe(
-        '1 to 4 timestamps in milliseconds of the original video: an array, one number, or a comma-separated string like "350,6789". Without it, the first 4 recommended frames.',
+        '1 to 4 timestamps in milliseconds of the clip as it plays: an array, one number, or a comma-separated string like "350,6789". Without it, the first 4 recommended frames.',
       ),
   }),
   outputSchema: z.object({
@@ -282,12 +283,17 @@ export default defineAction({
     }
 
     const recording = access.recording;
-    const durationMs =
-      typeof recording.durationMs === "number" ? recording.durationMs : null;
+    // atMs in and out is on the edited timeline the agent context reports;
+    // the media and the stored frames are in the original recording.
+    const timeline = buildAgentEditedTimeline(
+      recording.editsJson,
+      typeof recording.durationMs === "number" ? recording.durationMs : 0,
+    );
     const summary = {
       recordingId: recording.id,
       title: recording.title,
-      durationMs,
+      durationMs:
+        typeof recording.durationMs === "number" ? timeline.durationMs : null,
     };
 
     // A still image has one frame, the picture itself.
@@ -331,7 +337,7 @@ export default defineAction({
     // Each served timestamp with the first one asked for that clamps to it.
     const asked = new Map<number, number>();
     for (const atMs of requested) {
-      const clamped = clampAgentFrameAtMs(atMs, durationMs ?? 0);
+      const clamped = clampAgentFrameAtMs(atMs, timeline.durationMs);
       if (!asked.has(clamped)) asked.set(clamped, atMs);
     }
 
@@ -354,7 +360,12 @@ export default defineAction({
     try {
       for (const [atMs, askedAtMs] of asked) {
         try {
-          const loaded = await loadAgentFrame(recording, atMs, { media });
+          const loaded = await loadAgentFrame(
+            recording,
+            timeline.toSourceMs(atMs),
+            { media },
+          );
+          const servedAtMs = timeline.fromSourceMs(loaded.atMs);
           const data = Buffer.from(loaded.frame).toString("base64");
           if (data.length > MAX_IMAGE_BASE64_CHARS) {
             failures.push({
@@ -367,13 +378,13 @@ export default defineAction({
             });
             continue;
           }
-          const timestamp = formatAgentTimestamp(loaded.atMs);
-          const label = `Frame at ${timestamp} (${loaded.atMs} ms)`;
+          const timestamp = formatAgentTimestamp(servedAtMs);
+          const label = `Frame at ${timestamp} (${servedAtMs} ms)`;
           frames.push({
-            atMs: loaded.atMs,
+            atMs: servedAtMs,
             timestamp,
             label,
-            ...(loaded.atMs === askedAtMs ? {} : { requestedAtMs: askedAtMs }),
+            ...(servedAtMs === askedAtMs ? {} : { requestedAtMs: askedAtMs }),
           });
           images.push({ data, mediaType: "image/jpeg", label });
         } catch (error) {
