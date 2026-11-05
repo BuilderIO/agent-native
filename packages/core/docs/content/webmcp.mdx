@@ -114,11 +114,16 @@ const tool = tools.find(({ name }) => name === "create-deck");
 if (!tool) throw new Error("create-deck is unavailable in this tab");
 const input = { title: "Customer onboarding", slides: [] };
 const ctx = document.modelContext;
-const legacyChrome = typeof ctx.codexExecuteTool !== "function" &&
+const legacyChrome =
+  typeof ctx.codexExecuteTool !== "function" &&
   typeof ctx.codexGetTools !== "function" &&
-  /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(document.defaultView?.navigator.userAgent ?? "");
-const args = ctx.__isWebMCPPolyfill === true || legacyChrome
-  ? JSON.stringify(input) : input;
+  /\b(?:Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(
+    document.defaultView?.navigator.userAgent ?? "",
+  );
+const args =
+  ctx.__isWebMCPPolyfill === true || legacyChrome
+    ? JSON.stringify(input)
+    : input;
 const result = await ctx.executeTool(tool, args);
 return typeof result === "string" ? JSON.parse(result) : result;
 ```
