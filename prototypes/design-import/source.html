@@ -43,6 +43,9 @@ body { font-size: 14px; }
 .imd-x:hover { background: var(--color-accent); color: var(--color-foreground); }
 .ann .imd-x { color: #fff; background: rgb(255 255 255 / 16%); backdrop-filter: blur(8px); }
 .ann .imd-x:hover { background: rgb(255 255 255 / 26%); color: #fff; }
+/* The Figma announcement's hero is light like the import headers, so its close button is the toolkit's own. */
+.ann-light .imd-x { color: var(--color-muted-foreground); background: none; backdrop-filter: none; }
+.ann-light .imd-x:hover { background: var(--color-accent); color: var(--color-foreground); }
 
 /* Header: 128px, the brand blue to teal fading into the page. */
 .imh { position: relative; height: 128px; flex: none; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--color-border);
@@ -315,13 +318,17 @@ const NEBULA_CSS = `
 document.head.insertAdjacentHTML("beforeend", `<style>${NEBULA_CSS}</style>`);
 
 /* ───────── Figma hero ───────── */
-// The Figma announcement's hero holds still: Figma's five colors on the left melt into the Agent-Native
-// blue and teal on the right, under the Figma logo on a white app-icon tile. The card draws the same markup.
+// The Figma announcement's hero is the Figma upload's header at marketing size: the same Figma, relay dots
+// and Agent-Native tiles, on a still wash where Figma's five colors melt into the Agent-Native blue and
+// teal. It sits on the page background like that header, so it follows the theme. The card draws the same
+// markup inside the dashboard frame, which names its colors differently (the --f* variables).
 const MELD = `<div class="meld" aria-hidden="true">${"<i></i>".repeat(8)}</div><div class="grain" aria-hidden="true"></div>`;
+const FIG_PAIR = `<span class="fig-pair" aria-hidden="true"><span class="ft">${logo("figma")}</span><span class="fd"><i></i><i></i><i></i></span><span class="ft">${MARK}</span></span>`;
 const MELD_CSS = `
-.fig { background: var(--c-neutral-950); }
-.meld { position: absolute; inset: -20%; z-index: -1; filter: blur(var(--meld-blur, 40px)) saturate(120%); }
-.meld i { position: absolute; border-radius: 50%; mix-blend-mode: screen; }
+.fig { --fb: var(--color-background); --fbd: var(--color-border); --ffg: var(--color-foreground); --fmuted: var(--color-muted-foreground); background: var(--fb); }
+.fig::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; background: linear-gradient(to bottom, transparent 50%, color-mix(in srgb, var(--fb) 70%, transparent)); box-shadow: var(--fig-edge, inset 0 -1px 0 var(--fbd)); }
+.meld { position: absolute; inset: -20%; z-index: -1; filter: blur(var(--meld-blur, 40px)); }
+.meld i { position: absolute; border-radius: 50%; opacity: var(--meld-strength, .55); }
 .meld i:nth-child(1) { left: 0%; top: 10%; width: 44%; height: 60%; background: radial-gradient(closest-side, #F24E1E, transparent); }
 .meld i:nth-child(2) { left: 8%; top: 46%; width: 40%; height: 56%; background: radial-gradient(closest-side, #FF7262, transparent); }
 .meld i:nth-child(3) { left: 22%; top: 0%; width: 44%; height: 60%; background: radial-gradient(closest-side, #A259FF, transparent); }
@@ -330,9 +337,18 @@ const MELD_CSS = `
 .meld i:nth-child(6) { left: 52%; top: 0%; width: 48%; height: 60%; background: radial-gradient(closest-side, var(--c-blue-600), transparent); }
 .meld i:nth-child(7) { left: 56%; top: 30%; width: 44%; height: 60%; background: radial-gradient(closest-side, var(--c-blue-500), transparent); }
 .meld i:nth-child(8) { left: 64%; top: 52%; width: 40%; height: 52%; background: radial-gradient(closest-side, var(--c-green-400), transparent); }
-.grain { position: absolute; inset: 0; z-index: -1; opacity: .18; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-.fig-tile { position: absolute; left: 50%; top: 50%; width: var(--tile, 96px); height: var(--tile, 96px); transform: translate(-50%, -50%); border-radius: calc(var(--tile, 96px) / 4); display: grid; place-items: center; background: #fff; box-shadow: 0 24px 48px -16px rgb(0 0 0 / 55%), 0 0 0 1px rgb(255 255 255 / 40%), 0 0 60px rgb(255 255 255 / 18%); }
-.fig-tile svg { width: calc(var(--tile, 96px) * .42); height: calc(var(--tile, 96px) * .42); display: block; }`;
+.grain { position: absolute; inset: 0; z-index: -1; opacity: .1; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+/* The upload header's tiles and dots, scaled by --t from its 56px tile. */
+.fig-pair { --k: calc(var(--t, 80px) / 56px); position: absolute; left: 50%; top: 50%; z-index: 2; transform: translate(-50%, -50%); display: flex; align-items: center; gap: calc(24px * var(--k)); }
+.ft { width: var(--t, 80px); height: var(--t, 80px); flex: none; border-radius: calc(10px * var(--k)); display: grid; place-items: center; color: var(--ffg); background: var(--fb); border: 1px solid var(--fbd); box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 calc(12px * var(--k)) calc(32px * var(--k)) calc(-8px * var(--k)) rgb(0 0 0 / 18%); }
+.ft svg.lg { width: calc(24px * var(--k)); height: calc(24px * var(--k)); display: block; }
+.ft svg.an { width: calc(30px * var(--k)); height: calc(18px * var(--k)); display: block; fill: currentColor; }
+.fd { display: flex; gap: calc(8px * var(--k)); }
+.fd i { width: calc(6px * var(--k)); height: calc(6px * var(--k)); border-radius: 50%; background: var(--fmuted); opacity: .35; animation: fd-relay 1.8s ease-in-out infinite; }
+.fd i:nth-child(2) { animation-delay: .3s; }
+.fd i:nth-child(3) { animation-delay: .6s; }
+@keyframes fd-relay { 0%, 45%, 100% { background: var(--fmuted); opacity: .35; } 15% { background: color-mix(in oklab, var(--c-blue-600), var(--c-blue-500)); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .fd i { animation: none; } }`;
 document.head.insertAdjacentHTML("beforeend", `<style>${MELD_CSS}</style>`);
 
 /* ───────── header ───────── */
@@ -406,7 +422,7 @@ const RINGS = '<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMi
 function viewAnnouncement() {
   const a = ANNS[annKind];
   const hero = annKind === "figma"
-    ? `<div class="hero fig">${MELD}<span class="fig-tile" aria-hidden="true">${logo("figma")}</span></div>`
+    ? `<div class="hero fig">${MELD}${FIG_PAIR}</div>`
     : `<div class="hero">${NEBULA}${RINGS}<div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>`;
   return `${hero}
   <div class="imb"><h2 id="imd-title">${a.title}</h2><p class="lead">${a.lead}</p>
@@ -437,6 +453,7 @@ function render({ focus = true, animate = true } = {}) {
   const view = ov.querySelector(".view");
   const keep = view.dataset.key === key();
   dlg.classList.toggle("ann", S.view === "announcement");
+  dlg.classList.toggle("ann-light", S.view === "announcement" && annKind === "figma");
   // Re-rendering the same view (typing, progress ticks) keeps the field focused and skips the fade.
   const active = document.activeElement?.id, caret = active === "imp-url" ? document.activeElement.selectionStart : null;
   const fresh = document.createElement("div");
@@ -741,7 +758,7 @@ const CARD_CSS = `${NEBULA_CSS}${MELD_CSS}
 .an-hero svg.rings ellipse { fill: none; stroke: rgb(255 255 255 / 16%); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .an-orb { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; display: grid; place-items: center; color: #fff; border-radius: 50%; background: rgb(24 24 27 / 88%); border: 1px solid rgb(255 255 255 / 18%); }
 .an-orb svg { width: 20px; height: 20px; fill: currentColor; }
-.an-hero.fig { --meld-blur: 16px; --tile: 44px; }
+.an-hero.fig { background: var(--fb); --fb: hsl(var(--background)); --fbd: hsl(var(--border)); --ffg: hsl(var(--foreground)); --fmuted: hsl(var(--muted-foreground)); --fig-edge: inset 0 0 0 1px hsl(var(--border)); --meld-blur: 16px; --t: 36px; }
 .an-core { position: absolute; left: 50%; top: 50%; z-index: 50; width: 26px; height: 16px; margin: -8px 0 0 -13px; color: #fff; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c-blue-500) 70%, transparent)); }
 .an-core svg { width: 26px; height: 16px; display: block; }
 .an-open:hover .an-hero { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%); }
@@ -754,7 +771,7 @@ const CARD_CSS = `${NEBULA_CSS}${MELD_CSS}
 function cardHTML(kind) {
   const a = ANNS[kind];
   const hero = kind === "figma"
-    ? `<span class="an-hero fig">${MELD}<span class="fig-tile" aria-hidden="true">${logo("figma")}</span></span>`
+    ? `<span class="an-hero fig">${MELD}${FIG_PAIR}</span>`
     : `<span class="an-hero">${NEBULA}${RINGS}<span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span>`;
   return `<div class="an-card"><button type="button" class="an-open" data-proto="announce">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
 }
