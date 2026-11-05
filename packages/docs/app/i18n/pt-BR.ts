@@ -2692,6 +2692,7 @@ const ptBR = {
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",
     updatingUiInProduction: "Atualizando a UI em Produção",
     environmentVariables: "Variáveis de ambiente",
+    telemetry: "Telemetria",
     progress: "Progresso",
     authentication: "Autenticação",
     multiTenancy: "Multilocação",

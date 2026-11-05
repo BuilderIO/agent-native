@@ -2,11 +2,11 @@
 name: review-prs
 description: >-
   Review recent BuilderIO/agent-native human pull requests, approve eligible
-  internal PRs, and identify PRs ready for Steve's final maintainer decision.
-  Outside Factory governance, merge only when Steve explicitly requests it for
-  that PR. Factory governance is approval-only. Use for scheduled or manual PR
+  internal PRs, and identify PRs ready for the user's final decision.
+  Outside Factory governance, merge only when the user explicitly requests it
+  for that PR. Factory governance is approval-only. Use for scheduled or manual PR
   sweeps; flag external work needing a major product call or new framework API,
-  and unresolved major product or UX decisions, to Steve.
+  and unresolved major product or UX decisions, to a maintainer.
 user-invocable: true
 scope: dev
 metadata:
@@ -19,24 +19,28 @@ Review the newest relevant human pull requests in `BuilderIO/agent-native`.
 Under the default internal-author policy below, approve eligible fixes from
 verified BuilderIO organization members. Never submit an approval review for an
 external or unverified author; `community-prs` assigns that code-review
-decision to a human Builder dev. When Steve explicitly gives the manual blanket
+decision to a human Builder dev. When the user explicitly gives the manual blanket
 instruction for a non-Factory review sweep defined below, follow it over
 ordinary approval gates; the non-waivable safeguards still apply.
 
+In this skill, the user is the person running a manual invocation, and a
+maintainer is a verified current BuilderIO organization member who is not a
+bot.
+
 Approval and merge readiness are separate. **Ready for your final approval**
 means implementation is complete, required checks have passed, and any required
-product or UX decision is complete. It identifies a candidate for Steve's
+product or UX decision is complete. It identifies a candidate for the user's
 final decision; readiness alone does not authorize a merge. Factory governance
 never performs or invokes a merge: only the
 designated Factory workflow may merge a Builder PR after its merge gate. Outside
-Factory governance, merge only when Steve explicitly requests the merge for that
+Factory governance, merge only when the user explicitly requests the merge for that
 PR, using the applicable merge path below. Factory governance records a manual
 disposition for confirmed external authors through its action and never
 approves them. Every invocation stands down on a fork PR assigned to a
 verified BuilderIO member, as required by `community-prs`. Other invocations
 apply the external-contribution gate below; external authors are never eligible
 for an approval review. Surface external work that needs a major product call
-or a new framework API for Steve's explicit approval before a full review or
+or a new framework API for a maintainer's explicit approval before a full review or
 merge; a scheduled or manual sweep is not that approval.
 
 ## Selection and evidence
@@ -51,8 +55,8 @@ Before selecting a PR for review, read only enough metadata to determine its
 author and draft state:
 
  - Ignore every bot-authored PR, including Dependabot and
-   `builder-io-integration[bot]`, and ignore every PR authored by the exact
-   login `steve8708`. Do not inspect their diff, checks, reviews, membership,
+   `builder-io-integration[bot]`, and ignore every PR authored by the active
+   GitHub login (`gh api user --jq .login`). Do not inspect their diff, checks, reviews, membership,
    or source links; do not take any review or merge action; and do not add
    them to the end-of-run recap.
 
@@ -88,7 +92,7 @@ author and draft state:
 All non-draft human PRs that pass the author and external-scope gates enter the
 evidence sweep below. For PRs with a verified eligible current-head approval and
 no newer event, skip duplicate code review but check merge readiness. Only a
-manual, non-Factory invocation may merge, and only after Steve explicitly
+manual, non-Factory invocation may merge, and only after the user explicitly
 requests it for that PR. Eligible Liam PRs with only older-head approvals enter
 the sweep so the current head can be reviewed. The blanket approval instruction
 may waive ordinary approval gates, but it does not
@@ -132,7 +136,7 @@ is launched by the `factory-pr-governance` automation and includes the
 server-injected `<!-- factory-skill-alignment:start -->` and
 `<!-- factory-skill-alignment:end -->` markers in its active prompt. The
 automation composes this block independently of its editable prompt text; do
-not rely on a user-editable heading. A manual invocation is a direct Steve
+not rely on a user-editable heading. A manual invocation is a direct user
 request outside that automation. If the source or injected markers cannot be
 verified, do not apply the override or submit an approval; report the invocation
 context as unknown.
@@ -148,7 +152,15 @@ mutation. Route every Factory approval decision through
 `govern-factory-pull-request` and follow its result; only that action may submit
 an approval, under its code-enforced gates.
 
-Only an explicit instruction from Steve, given directly in the current request
+<!-- framework-repo-only:start -->
+Runs of the `factory-run` skill on the factory VM are also Factory governance:
+the blanket override is unavailable there too. Their only approval path is
+`factory-github approve <PR url> --sha <reviewed head>`, which refuses forks,
+non-members, unverifiable membership, drafts, and a moved head. A PR with a
+standing approval gets no further factory approval on later pushes.
+<!-- framework-repo-only:end -->
+
+Only an explicit instruction from the user, given directly in the current request
 or in the user-authorized prompt for this invocation, triggers this override.
 It must expressly request approval of every currently open, non-draft PR by
 verified current BuilderIO human members in `BuilderIO/agent-native`; “Approve
@@ -156,7 +168,7 @@ all BuilderIO member PRs” is one such instruction. Requests to review, inspect
 list, or identify ready PRs do not trigger it. If the requested repository,
 approval action, or author/status scope differs or is ambiguous, apply the
 normal gates rather than expanding the instruction. Exclude all bot-authored
-PRs and the exact login `steve8708`. This direct instruction overrides ordinary
+PRs and PRs authored by the active GitHub login. This direct instruction overrides ordinary
 approval gates, including check, review-feedback, UX-owner, and narrower
 author-specific gates.
 It does not waive membership verification, the external-author prohibition,
@@ -184,17 +196,17 @@ until that review is complete. Submit at most one approval for the reviewed
 head, and do not duplicate an existing current-head approval. If membership or
 the exact reviewed head cannot be verified, do not approve that PR and report
 the specific verification failure. This instruction authorizes approvals only.
-Do not merge from this path. Do not comment or reply unless Steve separately
+Do not merge from this path. Do not comment or reply unless the user separately
 asks; Factory governance still never merges or invokes a merge workflow. Keep
 the recap concise, but report the exact check and actionable-feedback states
 for each approval even when ordinary gates are overridden. Distinguish approval
 from readiness and include any verification or non-waivable safety exceptions;
-omit unrelated risk inventory unless Steve asks for it.
+omit unrelated risk inventory unless the user asks for it.
 
 ## External-contribution scope gate
 
-Builder devs decide bounded outside contributions; Steve keeps major product
-calls and new framework APIs.
+Builder devs decide bounded outside contributions; maintainers keep major
+product calls and new framework APIs.
 
 For an author the membership API confirms is not a current BuilderIO member,
 continue into the normal evidence sweep for a clear bug fix or a bounded
@@ -203,18 +215,18 @@ defect by restoring intended behavior. A bounded improvement stays within one
 established workflow, app, or framework area and follows the patterns already
 there.
 
-External work needs Steve when it makes a major product call (as defined under
+External work needs a maintainer when it makes a major product call (as defined under
 Product and UX decisions) or adds a new framework API: a new public export,
 configuration option, action, plugin or hook contract, or CLI surface in a
 published package under `packages/`. A fix or bounded improvement to an existing
 API stays with devs when it keeps that API's contract. If the title, issue, and
 initial diff do not establish a clear bug fix or a bounded improvement, treat it
-as needing Steve.
+as needing a maintainer.
 
-For external work that needs Steve, stop before the full code review, approval
+For external work that needs a maintainer, stop before the full code review, approval
 or review action, merge-readiness disposition, author-facing draft, or merge.
-Report it to Steve as **Needs Steve's approval for scope**, with the PR link,
-author, stated scope, and which call it needs. Wait for Steve's explicit go-ahead on
+Report it as **Needs a maintainer's approval for scope**, with the PR link,
+author, stated scope, and which call it needs. Wait for a maintainer's explicit go-ahead on
 that PR before continuing. Invoking or scheduling `review-prs`, approving a
 different PR, or prior approval of another external contribution does not
 authorize it. If membership is unknown, use the existing unknown-membership
@@ -373,8 +385,9 @@ includes visible copy, layout, navigation, controls, settings, interaction,
 loading states, accessibility behavior, and user-facing defaults. A major
 decision changes a core workflow, navigation or information architecture,
 product defaults or permissions, or behavior across apps. If that decision is
-not already settled by Steve's written direction, classify it as **Needs Steve's
-product/UX decision** and do not enter the manual merge path until he decides.
+not already settled by a maintainer's written direction, classify it as **Needs a
+maintainer's product/UX decision** and do not enter the manual merge path until
+a maintainer decides.
 A routine bug fix or bounded improvement within an established workflow is not
 a major decision.
 
@@ -455,10 +468,10 @@ safety review above. A non-waivable gate always blocks approval, even under the
 blanket instruction; if one applies, do not submit an approval and flag the
 exact concern and evidence needed to resolve it. External or unverified authors
 never receive an approval review. Outside Factory governance, their PRs may
-still be assessed for code readiness, but merging requires Steve's explicit
+still be assessed for code readiness, but merging requires the user's explicit
 request for that PR and all readiness gates below. Confirmed external PRs must
 also pass the external-contribution scope gate; external work that needs a
-major product call or a new framework API remains stopped at Steve's approval
+major product call or a new framework API remains stopped at the maintainer approval
 gate. For unknown membership, do not apply the external scope gate solely
 because verification failed; preserve the no-approval outcome, assess readiness
 under the existing unknown-membership policy, and name the missing check.
@@ -474,12 +487,12 @@ thank-you; report requested updates in the recap instead. If membership is
 unknown, do not treat the author as external or draft a reply.
 
 Classify the PR as **Ready for your final approval**,
-**Needs updates**, **Needs Steve's product/UX decision**, or **Cannot assess**.
+**Needs updates**, **Needs a maintainer's product/UX decision**, or **Cannot assess**.
 Ready means the current head is sound, implementation is complete, every
 required check and status context has passed, any required independent review
 above is present on the current head, any required product or UX decision is
 complete, and actionable human or automated findings have a verified fix or
-evidence-backed terminal disposition. Steve retains the final decision. PRs
+evidence-backed terminal disposition. The user retains the final decision. PRs
 still waiting on a required check, independent review, or product/UX decision
 are not ready.
 An active human `CHANGES_REQUESTED` review or unresolved actionable request
@@ -494,16 +507,16 @@ and non-required checks accurately; never describe them as passing.
 Independent-review requirements above govern approval actions, reuse of
 existing approvals, code readiness, and merge. When they apply, the required
 separate approval from a verified current BuilderIO member must be present on
-the current head before the PR is ready or can merge. Steve's direct merge
+the current head before the PR is ready or can merge. The user's direct merge
 request and a GitHub admin bypass do not replace that evidence. Factory
 governance must follow its own merge gate and never use this skill's admin or
 queue commands. If no eligible current-head approval supplies the existing
 code assessment, inspect the complete diff and decide readiness from that
 evidence.
 
-A ready disposition is a private handoff for Steve's final decision, not an
+A ready disposition is a private handoff for the user's final decision, not an
 instruction to merge. Do not merge based on readiness alone. The merge gate
-and commands below apply only to manual, non-Factory execution after Steve
+and commands below apply only to manual, non-Factory execution after the user
 explicitly requests a merge for that PR. In Factory governance, stop before
 this section's merge actions, report the current disposition, and leave merging
 to the Factory workflow.
@@ -586,10 +599,10 @@ Use the dequeue mutation only when a queue entry exists and `--disable-auto`
 only when auto-merge is enabled. Do not report the PR merged until its state is
 `MERGED`, then verify the merge commit is an ancestor of `origin/main`. If the
 queue cannot proceed solely because a human approval is required, report that
-queue/approval policy conflict to Steve; do not send the PR to another reviewer
+queue/approval policy conflict to the user; do not send the PR to another reviewer
 or bypass the queue.
 
-For a verified BuilderIO-member PR outside Factory governance, when Steve
+For a verified BuilderIO-member PR outside Factory governance, when the user
 explicitly asks to merge,
 `REVIEW_REQUIRED` alone is not a reason to wait for another reviewer; use the
 guarded admin merge only if all conditions above hold. After the command,
@@ -597,7 +610,7 @@ re-query the PR for its merged state and merge commit, fetch
 `origin/main`, and verify that commit is an ancestor of `origin/main`. Report a
 merge only after that verification; otherwise report the actual pending or
 not-merged state. If the head or another gate changes, restart the gate. Merge
-only if Steve explicitly requested it for this PR and no code or author action
+only if the user explicitly requested it for this PR and no code or author action
 is needed; otherwise report its private readiness disposition.
 
 For every verified external PR needing a code update or evidence necessary to
@@ -605,20 +618,20 @@ assess a material behavior change, draft a concise reply that names the concrete
 change or evidence requested and links the relevant review thread or check when
 useful. Before drafting, inspect
 the PR timeline, commits, and review threads for all actionable requests from
-the exact login `steve8708`. If any request remains unaddressed, do not draft or
+maintainers. If any request remains unaddressed, do not draft or
 post another author-facing comment. In particular, if the latest PR activity is
-Steve asking for an update and no later contributor reply or relevant commit
+a maintainer asking for an update and no later contributor reply or relevant commit
 addresses it, mark the PR as waiting and do not add another comment. A
 contributor commit or substantive reply clears only the requests it actually
 addresses; an unrelated commit or bare acknowledgment does not. Mark the PR as
 waiting on the contributor and link each outstanding request. Once all prior
 requests are addressed, reassess the current head and draft only the remaining
 code or screenshot requests. This also applies when another comment or bot
-event is newer than Steve's request; bot activity alone does not reopen the
+event is newer than the maintainer's request; bot activity alone does not reopen the
 handoff.
 
 On a contributor-owned PR, do not draft a follow-up unless the author has made
-a substantive update since Steve's last message. Begin a first reply by
+a substantive update since a maintainer's last message. Begin a first reply by
 thanking the author for the PR; if replying after an author update, begin by
 thanking them for that update. Never write “I have no further feedback” or
 another vague closing. State the disposition, the exact next action, and who
@@ -634,14 +647,14 @@ and state the resolved disposition, exact next action, and owner. This
 contributor-update gate does not govern review feedback on the active user's
 own PR; follow the own-PR review-update rule in `ship`.
 
-Readiness is an internal disposition for Steve's final decision. Never post a
+Readiness is an internal disposition for the user's final decision. Never post a
 public PR comment saying a change is “ready for maintainer approval and merge,”
-“ready for maintainer review,” or equivalent; Steve is the maintainer. Keep
+“ready for maintainer review,” or equivalent. Keep
 the thread silent while a required product or UX decision is pending, and
 report that gate only in the private recap.
 
-If no prior Steve request is awaiting an update and this would be Steve's first
-comment on that PR, begin the draft with a warm thank-you that tags the author
+If no prior maintainer request is awaiting an update and this would be the
+active login's first comment on that PR, begin the draft with a warm thank-you that tags the author
 using the exact GitHub `author.login` from the live PR metadata, for example:
 
 ```text
@@ -660,7 +673,7 @@ actionable, and supported by the diff or source evidence; ask for a regression
 test when appropriate to the code change rather than as a blanket requirement.
 For a follow-up after an author update, thank them for that update rather than
 repeating the first-contact thanks. Do not draft a duplicate request when an
-existing Steve comment already covers it; link or summarize that request
+existing maintainer comment already covers it; link or summarize that request
 instead. Drafts are for the user to review and are never posted by this skill
 unless the current invocation explicitly authorizes posting.
 
@@ -714,16 +727,16 @@ or source link, checks or review links, and the reason. In private recaps,
 describe a ready PR as **Ready for your final approval** or equivalent. For each
 non-auto-approved external PR that needs an update or screenshot, include its
 draft reply in a separate section, or mark it waiting on the contributor with
-a link to Steve's outstanding request. For internal PRs, report the needed
+a link to the outstanding maintainer request. For internal PRs, report the needed
 update or screenshot without drafting an author-facing reply. Do not add rows
-for bots, `steve8708`, drafts, or fork PRs assigned to a BuilderIO member;
+for bots, the active GitHub login, drafts, or fork PRs assigned to a BuilderIO member;
 those are ignored completely.
 
-If Steve asks only which PRs are ready to merge, return only the candidate list
+If the user asks only which PRs are ready to merge, return only the candidate list
 with short reasons. Do not include PRs waiting on required checks or product,
-UX decision, or a full status report for other PRs. If Steve asks for a
+UX decision, or a full status report for other PRs. If the user asks for a
 blanket internal-member approval, give a concise list of approvals and any
-verification exceptions; do not add a risk inventory unless he asks for one.
+verification exceptions; do not add a risk inventory unless they ask for one.
 
 Use this shape:
 
@@ -732,7 +745,7 @@ Use this shape:
 
 | PR | Author / org status | Review disposition | Merge readiness | Merge result | UX / screenshot | Author-facing reply | Why and evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for your final approval / Needs updates / Needs Steve's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for your final approval / Needs updates / Needs a maintainer's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```
@@ -740,8 +753,8 @@ Unavailable or unverified: ...
 Keep the recap short, link every claim, and distinguish “not approved because
 external” from “not reviewed because GitHub was unavailable.” Record the actual
 merge result. A PR can be code-ready while human approval remains pending. If
-Steve has not requested a merge, report **Ready for your final approval** and
-**Not merged - awaiting Steve's explicit merge request** separately. If a
+the user has not requested a merge, report **Ready for your final approval** and
+**Not merged - awaiting an explicit merge request** separately. If a
 protected-branch human approval remains required, name that requirement. Do not
 imply that a ready disposition or available admin merge authorizes a bypass.
 Factory governance reports its merge-gate state and leaves the merge to its

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.223.0",
+  "version": "0.224.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -415,6 +415,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/telemetry": {
+      "types": "./dist/cli/telemetry.d.ts",
+      "default": "./dist/cli/telemetry.js"
+    },
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
@@ -431,6 +435,7 @@
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
+    "./collab/outbox-keys": "./dist/collab/outbox-keys.js",
     "./a2a": "./dist/a2a/index.js",
     "./state-machine": "./dist/state-machine/index.js",
     "./action-properties": "./dist/action-properties.js",

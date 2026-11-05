@@ -43,6 +43,7 @@ export interface TranscriptSegment {
 interface TranscriptBubblesProps {
   segments: TranscriptSegment[];
   isLive: boolean;
+  unreadable?: boolean;
   participants?: AttendeeStackParticipant[];
   ownerEmail?: string | null;
   registerScrollTo?: (fn: (segmentIndex: number) => void) => void;
@@ -268,6 +269,7 @@ function groupConsecutive(
 export function TranscriptBubbles({
   segments,
   isLive,
+  unreadable = false,
   participants = [],
   ownerEmail,
   registerScrollTo,
@@ -536,11 +538,17 @@ export function TranscriptBubbles({
                 <IconNotes />
               </EmptyMedia>
               <EmptyTitle className="text-sm">
-                {t("transcriptBubbles.noTranscript")}
+                {t(
+                  unreadable
+                    ? "transcriptBubbles.unreadable"
+                    : "transcriptBubbles.noTranscript",
+                )}
               </EmptyTitle>
-              <EmptyDescription className="text-xs">
-                {t("transcriptBubbles.liveTranscriptDescription")}
-              </EmptyDescription>
+              {unreadable ? null : (
+                <EmptyDescription className="text-xs">
+                  {t("transcriptBubbles.liveTranscriptDescription")}
+                </EmptyDescription>
+              )}
             </EmptyHeader>
           </Empty>
         )
