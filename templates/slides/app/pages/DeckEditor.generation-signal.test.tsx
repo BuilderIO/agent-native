@@ -92,7 +92,47 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   toastError: vi.fn(),
   translate: (key: string) => key,
+  toolbarProps: null as null | {
+    onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
+  },
+  pptxSources: [] as string[],
+  renderSlideCanvases: false,
+  pdfAddImage: vi.fn(),
+  domToJpeg: vi.fn(async (_node: unknown) => "data:image/jpeg;base64,AA=="),
 }));
+
+vi.mock("jspdf", () => ({
+  jsPDF: class {
+    addImage = mocks.pdfAddImage;
+    addMetadata = vi.fn();
+    addPage = vi.fn();
+    link = vi.fn();
+    internal = { scaleFactor: 96 / 72 };
+    output = () => new Blob();
+    setFontSize = vi.fn();
+    setTextColor = vi.fn();
+    text = vi.fn();
+  },
+}));
+vi.mock("modern-screenshot", () => ({ domToJpeg: mocks.domToJpeg }));
+// The real PPTX builder needs dom-to-pptx layout; keep its slide lookup.
+vi.mock("@/lib/export-pptx-client", async () => {
+  const { findSlideExportSource } = await import("@/lib/export-pdf-client");
+  return {
+    exportDeckAsPptx: vi.fn(
+      async (_title: string, slides: { id: string }[]) => {
+        slides.forEach((slide, index) => {
+          const source = findSlideExportSource(slide.id, index, slides.length);
+          mocks.pptxSources.push(
+            source.getAttribute("data-slide-canvas") ?? "",
+          );
+        });
+        return { blankShapes: 0 };
+      },
+    ),
+  };
+});
 
 vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
   const original =
@@ -364,9 +404,16 @@ vi.mock("@/lib/pending-deck-changes", () => ({
 }));
 
 vi.mock("@/components/editor/EditorToolbar", () => ({
-  default: ({ canEdit }: { canEdit?: boolean }) => (
-    <div data-testid="editor-toolbar" data-can-edit={String(canEdit)} />
-  ),
+  default: (props: {
+    canEdit?: boolean;
+    onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
+  }) => {
+    mocks.toolbarProps = props;
+    return (
+      <div data-testid="editor-toolbar" data-can-edit={String(props.canEdit)} />
+    );
+  },
 }));
 vi.mock("@/components/editor/QuestionFlow", () => ({
   QuestionFlow: () => <div data-testid="question-flow" />,
@@ -411,7 +458,10 @@ vi.mock("@/components/editor/AssetLibraryPanel", () => ({
   default: () => null,
 }));
 vi.mock("@/components/editor/HistoryPanel", () => ({ default: () => null }));
-vi.mock("@/components/deck/SlideRenderer", () => ({ default: () => null }));
+vi.mock("@/components/deck/SlideRenderer", () => ({
+  default: ({ slide }: { slide: { id: string } }) =>
+    mocks.renderSlideCanvases ? <div data-slide-canvas={slide.id} /> : null,
+}));
 
 import { trackEvent } from "@agent-native/core/client/analytics";
 
@@ -567,6 +617,11 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.toastError.mockClear();
     mocks.toast.mockClear();
     mocks.readPreviousGenerationRun.mockReset().mockResolvedValue("settled");
+    mocks.toolbarProps = null;
+    mocks.renderSlideCanvases = false;
+    mocks.pdfAddImage.mockClear();
+    mocks.domToJpeg.mockClear();
+    mocks.pptxSources = [];
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
     relayTrack.mockClear();
@@ -584,6 +639,61 @@ describe("DeckEditor generation signal wiring", () => {
       Reflect.deleteProperty(navigator, "locks");
     }
     vi.restoreAllMocks();
+  });
+
+  it("exports every slide to PDF even when the sidebar has not rendered them", async () => {
+    // The slide rail only renders thumbnails near its viewport, so a long deck
+    // has slides with no canvas anywhere on the page when export starts.
+    mocks.renderSlideCanvases = true;
+    mocks.deck.slides = Array.from({ length: 3 }, (_, i) => ({
+      id: `slide-${i + 1}`,
+      content: `<p>Slide ${i + 1}</p>`,
+    }));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pdf");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onExportPdf).toBeTruthy());
+    const exportPdf = mocks.toolbarProps?.onExportPdf;
+    if (!exportPdf) throw new Error("the toolbar never received onExportPdf");
+
+    await act(async () => {
+      await exportPdf(new AbortController().signal);
+    });
+
+    expect(
+      mocks.domToJpeg.mock.calls.map(([node]) =>
+        (node as HTMLElement).getAttribute("data-slide-canvas"),
+      ),
+    ).toEqual(["slide-1", "slide-2", "slide-3"]);
+    expect(mocks.pdfAddImage).toHaveBeenCalledTimes(3);
+    expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
+  });
+
+  it("exports every slide to PPTX even when the sidebar has not rendered them", async () => {
+    mocks.renderSlideCanvases = true;
+    mocks.deck.slides = Array.from({ length: 3 }, (_, i) => ({
+      id: `slide-${i + 1}`,
+      content: `<p>Slide ${i + 1}</p>`,
+    }));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onExportPptx).toBeTruthy());
+    const exportPptx = mocks.toolbarProps?.onExportPptx;
+    if (!exportPptx) throw new Error("the toolbar never received onExportPptx");
+
+    await act(async () => {
+      await exportPptx(new AbortController().signal);
+    });
+
+    expect(mocks.pptxSources).toEqual(["slide-1", "slide-2", "slide-3"]);
+    expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
   });
 
   it("guards reloads while an inline edit is active", async () => {

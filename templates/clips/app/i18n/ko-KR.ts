@@ -695,6 +695,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    partialTranscript:
+      "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:
       "로컬에서 음성이 캡처되지 않았으며 백업 기록이 완료되지 않았습니다. 다시 시도하거나 마이크 및 음성 권한을 확인하세요.",
     backupNotSetup:
