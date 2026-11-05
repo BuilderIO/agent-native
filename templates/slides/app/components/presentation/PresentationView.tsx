@@ -498,6 +498,8 @@ export default function PresentationView({
   }, [nav, layout, postState]);
 
   const openPresenterWindow = useCallback(() => {
+    // Shared routes ignore `presenter=1`, so a window opened there shows no notes.
+    if (isShared) return;
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
     url.searchParams.set(
@@ -510,7 +512,7 @@ export default function PresentationView({
       PRESENTER_WINDOW_FEATURES,
     );
     if (!presenterWindow) toast.error(t("editorToolbar.presenterViewBlocked"));
-  }, [deckId, t, toRawIndex]);
+  }, [deckId, isShared, t, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
