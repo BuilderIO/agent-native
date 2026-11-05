@@ -117,6 +117,7 @@ import {
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
+  workspaceAppInitialPathFromPathname,
   workspaceAppDirectHref,
   workspaceAppDirectLaunchHref,
   workspaceAppRoute,
@@ -2461,6 +2462,16 @@ function DispatchLayout({
         (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
       )
     : undefined;
+  // Layout, not the app route component, is what renders the kept-alive pane,
+  // so the deep path a URL carries has to be handed to it here or every app URL
+  // opens the app's home.
+  const workspaceAppDeepPath = workspaceAppRouteActive
+    ? workspaceAppInitialPathFromPathname(
+        localPathname,
+        location.search,
+        location.hash,
+      )
+    : undefined;
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
       workspaceAppChatRegistration ? (
@@ -2470,10 +2481,16 @@ function DispatchLayout({
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
         >
-          <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+          <WorkspaceAppKeepAlive
+            activeAppId={workspaceAppId}
+            {...(workspaceAppDeepPath ? { initialPath: workspaceAppDeepPath } : {})}
+          />
         </WorkspaceAppChatRail>
       ) : (
-        <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+        <WorkspaceAppKeepAlive
+          activeAppId={workspaceAppId}
+          {...(workspaceAppDeepPath ? { initialPath: workspaceAppDeepPath } : {})}
+        />
       )
     ) : (
       <WorkspaceAppKeepAlive
