@@ -969,7 +969,10 @@ export async function mergeCoreSharingActions(
             : {}),
         });
       }
-    } catch {
+    } catch (error) {
+      if (isActionDefinitionError(error)) {
+        throw namedActionDefinitionError(error, name);
+      }
       // Skip any sharing action that fails to import.
     }
   }

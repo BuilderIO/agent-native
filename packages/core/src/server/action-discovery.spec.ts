@@ -97,6 +97,33 @@ describe("action discovery", () => {
   );
 
   it(
+    "fails merging core actions when one defines itself wrongly",
+    async () => {
+      vi.resetModules();
+      vi.doMock("../sharing/actions/share-resource.js", () => ({
+        get default() {
+          throw Object.assign(new TypeError("searchHints must be valid."), {
+            name: "ActionDefinitionError",
+            actionDefinitionError: true,
+          });
+        },
+      }));
+      try {
+        const discovery = await import("./action-discovery.js");
+        await expect(discovery.mergeCoreSharingActions({})).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) &&
+            error.actionName === "share-resource",
+        );
+      } finally {
+        vi.doUnmock("../sharing/actions/share-resource.js");
+        vi.resetModules();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
     "fails on malformed searchHints in the generated registry a bundle falls back to",
     async () => {
       const root = fs.mkdtempSync(
