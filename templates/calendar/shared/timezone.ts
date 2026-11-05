@@ -73,6 +73,16 @@ export function dateTimeInTimezoneToIso(
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute, seconds = "0"] = time.split(":");
   const [second, fraction = ""] = seconds.split(".");
+  if (
+    year === undefined ||
+    month === undefined ||
+    day === undefined ||
+    hour === undefined ||
+    minute === undefined ||
+    second === undefined
+  ) {
+    throw new RangeError(`Invalid date or time: ${date} ${time}`);
+  }
   const wallClockUtc = Date.UTC(
     year,
     month - 1,

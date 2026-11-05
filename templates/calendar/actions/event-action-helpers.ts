@@ -568,7 +568,9 @@ function normalizedIso(
       Number(minute) > 59 ||
       Number(second) >= 60
     ) {
-      throw new Error(`Invalid event ${label}: ${value}`);
+      fail(`Invalid event ${label}: ${value}`, {
+        errorCode: "invalid_event_timestamp",
+      });
     }
     if (zonelessTimezone) {
       return zonedDateTimeToUtcIso(
@@ -582,11 +584,15 @@ function normalizedIso(
       ? !isValidDateOnly(trimmed)
       : !EXPLICIT_TIMEZONE_PATTERN.test(trimmed)
   ) {
-    throw new Error(`Invalid event ${label}: ${value}`);
+    fail(`Invalid event ${label}: ${value}`, {
+      errorCode: "invalid_event_timestamp",
+    });
   }
   const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid event ${label}: ${value}`);
+    fail(`Invalid event ${label}: ${value}`, {
+      errorCode: "invalid_event_timestamp",
+    });
   }
   return date.toISOString();
 }
