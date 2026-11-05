@@ -126,10 +126,11 @@ Real replies that missed, and what to send instead:
 ## Boundaries
 
 - **Slack:** only `#product-agent-native-feedback` (`C0ATH3CCZT4`)
-  and `#qa-agent-native` (`C0C4U4XRT6X`), or the narrower set the invocation
-  names. Never react or reply anywhere else. Reply only in a report thread
-  that this workflow claimed with 👀 and investigated; an old bot reply alone
-  is not evidence of a claim. Never start a new channel message.
+  and `#qa-agent-native` (`C0C4U4XRT6X`), a narrower set the invocation
+  names, or a caller's list (as in `factory-run`). Never
+  react or reply elsewhere. Reply only in a report thread this workflow
+  claimed with 👀 and investigated; a bot reply alone isn't a claim.
+  Never start a new channel message.
 - **Leave a report alone** when:
   - a maintainer put `:mag:` or their own 👀 on it (table above);
   - someone in the thread asked a specific person to look, a teammate says
