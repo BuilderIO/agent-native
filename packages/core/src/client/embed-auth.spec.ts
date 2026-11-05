@@ -3,9 +3,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  FETCH_TRANSPORT_CHANGED_EVENT,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
@@ -74,6 +76,33 @@ describe("embed auth client", () => {
 
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
+  });
+
+  it("tells the session each time the page's requests start carrying another embed token", async () => {
+    const heard = vi.fn();
+    window.addEventListener(FETCH_TRANSPORT_CHANGED_EVENT, heard);
+    try {
+      const auth = await loadEmbedAuth();
+      // No token yet: requests go out as the page's own.
+      auth.ensureEmbedAuthFetchInterceptor();
+      expect(heard).not.toHaveBeenCalled();
+
+      window.history.replaceState(
+        null,
+        "",
+        `/inbox?${EMBED_TOKEN_QUERY_PARAM}=token-b`,
+      );
+      expect(auth.getEmbedAuthToken()).toBe("token-b");
+      expect(auth.getEmbedAuthToken()).toBe("token-b");
+      expect(heard).toHaveBeenCalledTimes(1);
+
+      // Installed over a token already present: announced at install.
+      const reloaded = await loadEmbedAuth();
+      reloaded.ensureEmbedAuthFetchInterceptor();
+      expect(heard).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener(FETCH_TRANSPORT_CHANGED_EVENT, heard);
+    }
   });
 
   it("isolates embed tokens by workspace app mount and preserves same-app reloads", async () => {
@@ -914,6 +943,64 @@ describe("embed auth client", () => {
           "*",
         );
       } finally {
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
+        } else {
+          delete (window as unknown as { parent?: Window }).parent;
+        }
+      }
+    });
+
+    it("renews through the shell when the app runs in the shell's own window", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      let writeAttempts = 0;
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: vi.fn(async () => {
+          writeAttempts += 1;
+          return writeAttempts === 1
+            ? new Response("Expired", {
+                status: 401,
+                headers: { [MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER]: "1" },
+              })
+            : new Response("ok");
+        }),
+      });
+      window.history.replaceState(
+        {},
+        "",
+        `/?embedded=1&__an_embed_token=${encodeURIComponent(oldToken)}&__an_mcp_chat_bridge=1`,
+      );
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+      const renew = vi.fn(async () => true);
+      const windowHooks = window as unknown as Record<string, unknown>;
+      windowHooks[EMBED_SESSION_RENEWAL_WINDOW_KEY] = renew;
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+        expect(response.status).toBe(200);
+        expect(writeAttempts).toBe(2);
+        expect(renew).toHaveBeenCalledTimes(1);
+        expect(parentWindow.postMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ type: "agentNative.embedSessionExpired" }),
+          "*",
+        );
+      } finally {
+        delete windowHooks[EMBED_SESSION_RENEWAL_WINDOW_KEY];
         if (originalParent) {
           Object.defineProperty(window, "parent", originalParent);
         } else {

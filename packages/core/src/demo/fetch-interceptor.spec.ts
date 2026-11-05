@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { shouldSkipDemoResponseRedaction } from "./fetch-interceptor.js";
+import { fetchTransport } from "../client/fetch-transport.js";
+import {
+  ensureDemoModeFetchInterceptor,
+  shouldSkipDemoResponseRedaction,
+} from "./fetch-interceptor.js";
 import { redactDemoData } from "./redact.js";
 
 describe("shouldSkipDemoResponseRedaction", () => {
@@ -44,5 +48,19 @@ describe("shouldSkipDemoResponseRedaction", () => {
       userKey: "anonymous@builder.io",
     });
     expect(redacted.chunks).toEqual(manifest.chunks);
+  });
+});
+
+describe("the demo fetch interceptor's transport", () => {
+  it("sends requests with the credentials of the fetch underneath", () => {
+    const pageFetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+    vi.stubGlobal("window", { fetch: pageFetch });
+    try {
+      ensureDemoModeFetchInterceptor();
+      expect(window.fetch).not.toBe(pageFetch);
+      expect(fetchTransport(window.fetch)).toBe(pageFetch);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

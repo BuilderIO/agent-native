@@ -769,12 +769,12 @@ const messages = {
     draftCard: {
       loadFailed: "Couldn't load this draft.",
       notFoundTitle: "Draft not found",
+      goneTitle: "This draft was sent or deleted.",
       threadUnavailable:
         "Couldn't load the earlier messages in this conversation.",
-      threadLookupFailed:
-        "Couldn't find the conversation this reply belongs to, so it can't be sent yet.",
       earlierMessages: "Earlier messages ({{count}})",
-      deleted: "Draft deleted.",
+      sendInMail: "Send in Mail",
+      openBlocked: "Your browser blocked the new tab.",
     },
     agentEngine: {
       activeEngine: "Active engine",

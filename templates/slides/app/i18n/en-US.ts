@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "No assets yet.",
     assetUploadFailed: "Some uploads failed",
     assetDeleteFailed: "Failed to delete asset",
+    assetDeleteInUse:
+      "This asset is used in a deck. Remove it from the deck first",
+    assetDeleteStorageRemains:
+      "Removed from the library, but the stored file could not be deleted",
     contentMarkdown: "Content (Markdown)",
     speakerNotes: "Speaker Notes",
     speakerNotesForSlide: "Speaker Notes — Slide {{index}} / {{count}}",
@@ -298,6 +302,7 @@ const messages = {
       "Start writing or generate speaker notes quickly with the agent",
   },
   editorToolbar: {
+    saving: "Saving...",
     layoutTitle: "Title",
     layoutSection: "Section Divider",
     layoutContent: "Content",
@@ -841,6 +846,10 @@ const messages = {
       "The deck was rolled back to the selected snapshot.",
     restoreFailed: "Restore failed",
     restoreFailedDescription: "Could not restore this deck version.",
+    alreadyAtVersion: "Already at this version",
+    restoreReloadFailed: "Couldn't refresh the deck",
+    restoreReloadFailedDescription:
+      "Reload the page to see this deck's current version.",
     backToSavedVersions: "Back to history",
     savedVersions: "History",
     description: "Browse deck history and restore a previous snapshot.",
