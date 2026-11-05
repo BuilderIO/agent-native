@@ -1,4 +1,5 @@
 import type { BusyInterval } from "../../shared/index.js";
+import { CalendarCredentialInvalidError } from "./errors.js";
 import type { CalendarProvider } from "./types.js";
 
 export interface Office365ProviderConfig {
@@ -28,13 +29,22 @@ export function createOffice365Provider(
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
     headers.set("content-type", "application/json");
-    const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    // Paging links are absolute; never send the token anywhere but Graph.
+    const url = path.startsWith("/")
+      ? `https://graph.microsoft.com/v1.0${path}`
+      : path;
+    if (!url.startsWith("https://graph.microsoft.com/")) {
+      throw new Error(`Refusing to call a non-Graph URL: ${url}`);
+    }
+    const res = await fetch(url, {
       ...init,
       headers,
     });
     if (res.status === 401 || res.status === 403) {
       await config.markInvalid?.(credentialId);
-      throw new Error(`Office 365 credential invalid (${res.status})`);
+      throw new CalendarCredentialInvalidError(
+        `Office 365 credential invalid (${res.status})`,
+      );
     }
     if (!res.ok) {
       throw new Error(`Graph ${res.status}: ${await res.text()}`);
@@ -113,49 +123,44 @@ export function createOffice365Provider(
         primary: c.isDefaultCalendar,
       }));
     },
+    // Selected calendars are stored by Graph calendar id, which getSchedule
+    // does not accept (it takes SMTP addresses), so read each calendar's
+    // calendarView. Times come back in UTC without an offset.
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
-      const resp = await graph<{
-        value?: {
-          scheduleId?: string;
-          scheduleItems?: {
-            start: { dateTime: string };
-            end: { dateTime: string };
-            status: string;
-          }[];
-          error?: { message?: string; responseCode?: string };
-        }[];
-      }>(credentialId, "/me/calendar/getSchedule", {
-        method: "POST",
-        body: JSON.stringify({
-          schedules: calendarExternalIds,
-          startTime: { dateTime: start.toISOString(), timeZone: "UTC" },
-          endTime: { dateTime: end.toISOString(), timeZone: "UTC" },
-          availabilityViewInterval: 30,
-        }),
-      });
-      // getSchedule answers 200 with a per-schedule `error` and no items for a
-      // calendar it couldn't read; that must not count as a free calendar.
       const out: BusyInterval[] = [];
-      for (const id of calendarExternalIds) {
-        const entry = resp.value?.find(
-          (v) => v.scheduleId?.toLowerCase() === id.toLowerCase(),
-        );
-        if (!entry || entry.error || !Array.isArray(entry.scheduleItems)) {
-          const reason =
-            entry?.error?.responseCode ??
-            entry?.error?.message ??
-            "missing from response";
-          throw new Error(`Graph getSchedule failed for ${id}: ${reason}`);
-        }
-      }
-      for (const entry of resp.value ?? []) {
-        for (const item of entry.scheduleItems ?? []) {
-          if (item.status === "free") continue;
-          out.push({
-            start: item.start.dateTime + "Z",
-            end: item.end.dateTime + "Z",
-            source: entry.scheduleId,
-          });
+      for (const calendarId of calendarExternalIds) {
+        const params = new URLSearchParams({
+          startDateTime: start.toISOString(),
+          endDateTime: end.toISOString(),
+          $select: "start,end,showAs,isCancelled",
+          $top: "250",
+        });
+        let path: string | undefined =
+          `/me/calendars/${encodeURIComponent(calendarId)}/calendarView?${params}`;
+        while (path) {
+          const page: {
+            value?: {
+              start: { dateTime: string };
+              end: { dateTime: string };
+              showAs?: string;
+              isCancelled?: boolean;
+            }[];
+            "@odata.nextLink"?: string;
+          } = await graph(credentialId, path);
+          if (!Array.isArray(page.value)) {
+            throw new Error(
+              `Graph calendarView returned no events list for ${calendarId}`,
+            );
+          }
+          for (const event of page.value) {
+            if (event.isCancelled || event.showAs === "free") continue;
+            out.push({
+              start: event.start.dateTime + "Z",
+              end: event.end.dateTime + "Z",
+              source: calendarId,
+            });
+          }
+          path = page["@odata.nextLink"];
         }
       }
       return out;

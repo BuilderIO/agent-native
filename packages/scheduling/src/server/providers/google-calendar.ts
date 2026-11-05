@@ -10,6 +10,7 @@ import type { BusyInterval } from "../../shared/index.js";
  * the same for every scheduling consumer. Custom token stores are supported
  * via the `getAccessToken` callback.
  */
+import { CalendarCredentialInvalidError } from "./errors.js";
 import type { CalendarProvider } from "./types.js";
 
 export interface GoogleCalendarProviderConfig {
@@ -46,7 +47,9 @@ export function createGoogleCalendarProvider(
     });
     if (res.status === 401 || res.status === 403) {
       await config.markInvalid?.(credentialId);
-      throw new Error(`Google Calendar: credential invalid (${res.status})`);
+      throw new CalendarCredentialInvalidError(
+        `Google Calendar: credential invalid (${res.status})`,
+      );
     }
     if (!res.ok) {
       const body = await res.text();

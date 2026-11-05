@@ -13,6 +13,7 @@ import type {
   Slot,
 } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
+import { isCalendarCredentialInvalidError } from "./providers/errors.js";
 import { getCalendarProvider } from "./providers/registry.js";
 import { getScheduleById } from "./schedules-repo.js";
 
@@ -269,7 +270,9 @@ export async function aggregateBusy(input: {
         });
       } catch (error) {
         failures[credentialIndex] = failure(
-          "lookup_failed",
+          isCalendarCredentialInvalidError(error)
+            ? "credential_invalid"
+            : "lookup_failed",
           error instanceof Error ? error.message : String(error),
         );
       }

@@ -10,6 +10,7 @@ import {
   getAvailableSlots,
 } from "./availability-engine.js";
 import { setSchedulingContext } from "./context.js";
+import { CalendarCredentialInvalidError } from "./providers/errors.js";
 import { registerCalendarProvider } from "./providers/registry.js";
 import type { CalendarProvider } from "./providers/types.js";
 
@@ -405,6 +406,45 @@ describe("aggregateBusy", () => {
       }),
     ]);
     expect(invalidBusy).not.toHaveBeenCalled();
+  });
+
+  it("reports credential_invalid when the provider rejects the credential on this lookup", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-unauthorized",
+        vi.fn(async () => {
+          throw new CalendarCredentialInvalidError(
+            "Test provider credential invalid (401)",
+          );
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        { id: "credential-unauthorized", type: "availability-unauthorized" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-unauthorized",
+          externalId: "calendar-unauthorized",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).details).toEqual({
+      calendars: [
+        expect.objectContaining({
+          provider: "availability-unauthorized",
+          reason: "credential_invalid",
+        }),
+      ],
+    });
   });
 
   it("ignores an invalid credential that has no selected calendars", async () => {

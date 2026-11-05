@@ -48,6 +48,9 @@ registerCalendarProvider({
 `getBusy` must throw when it can't read any requested calendar, including a
 200 response that reports a per-calendar error. Returning `[]` means "no busy
 time", so a failure returned as `[]` lets bookers take slots the host is busy.
+When the provider rejects the credential (401/403), throw
+`CalendarCredentialInvalidError` so availability reports the calendar as
+needing reconnection rather than as a transient failure.
 
 All methods receive a `credentialId` — use it to look up the OAuth token via
 your token store. The package's `setSchedulingContext()` doesn't touch
