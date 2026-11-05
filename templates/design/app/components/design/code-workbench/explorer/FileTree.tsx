@@ -31,6 +31,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import { useWorkbench } from "../store";
@@ -141,7 +142,9 @@ export function FileTree({
           providerKey.slice("localhost:".length),
           () => {},
         );
+        return;
       }
+      reportDesignWriteFailure(error);
     },
     [onRequestLocalWriteConsent, providerKey],
   );

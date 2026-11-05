@@ -46,9 +46,11 @@ Deliberate differences from `review-latest-feedback`, in both modes:
   instead of that line. Replies still never name a person. When a Slack
   message needs a person to act (a 🎫 reply, an alert reply, a "say who
   can" answer, the recap's "Needs a person" section), mention
-  `<!subteam^S0C43BD9CMT|@agentnative-oncall>` once in it. That is the only
-  mention allowed, it overrides `review-latest-feedback`'s no-mention rule,
-  and GitHub comments never carry it.
+  `<!subteam^S0C43BD9CMT|@agentnative-oncall>` once in it, or
+  `<!subteam^S0AD0JBLZST|@design>` instead when it carries a design signal
+  (see Confidence and design). Those are the only mentions allowed, they
+  override `review-latest-feedback`'s no-mention rule, and GitHub comments
+  never carry them.
 - **Its configured channels.** This overrides `review-latest-feedback`'s
   Slack boundary: the feedback channels are exactly the channels in
   `$FACTORY_SLACK_CHANNELS` (the watcher's run prompt and env carry them),
@@ -78,7 +80,7 @@ Deliberate differences from `review-latest-feedback`, in both modes:
   committed by their Builder branch's cloud agent.
 - Post a new top-level Slack message, react or reply outside
   `$FACTORY_SLACK_CHANNELS` and `$FACTORY_SLACK_ALERT_CHANNELS`, or @-mention
-  anyone but the oncall group (see "Its own Slack app").
+  anyone but the oncall or design group (see "Its own Slack app").
 - Use Slack MCP write tools (send, react, schedule): they act as the
   operator's own account. Read Slack through MCP; write only through
   `factory-slack` and `factory-digest`.
@@ -109,9 +111,27 @@ mode forbids. Record it as a note and move on.
 | `factory-branch status <branchName>` / `factory-branch list` | One branch's state, or this run's branches |
 | `factory-slack react "<key>" <eyes\|white_check_mark\|ticket>` | React on a report's root (live only) |
 | `factory-slack reply "<key>" --file <file> [--again]` | Reply in a report's thread (live only); refuses a second reply without `--again` |
-| `factory-digest report "<key>" [--force]` / `factory-digest post --file <file>` | Post a report's digest card, or the recap |
+| `factory-digest report "<key>"` | Post the report's digest card once; later calls edit it in place, and a changed triage adds one line in its thread |
+| `factory-digest post --report "<key>"` (or `--pr "<url>"`) `--file <file>` | One line in that report's or PR's digest thread |
+| `factory-digest post --file <file>` | The recap, in today's factory log thread |
 | `factory-github membership <login>` | `member`, `not-member`, or `unknown` |
 | `factory-github approve "<PR url>" --sha <headRefOid>` | The only approval path (live only) |
+
+The digest channel holds one thread per issue: the report's card is its root,
+and everything later about the report or its PR goes in that thread. Never
+repost a card to show progress; run `factory-digest report` again and it edits
+the card. The watcher threads PR progress, needs-a-person asks, and merges
+itself.
+
+## Confidence and design
+
+Read [confidence.md](references/confidence.md) before the first triage of a
+run. Score each triage and each join with its rubric and record the score on
+the report; record the scores and design questions your workers return. A
+join under 70 doesn't attach, and a PR-review approval under 70 is never
+posted. A design, workflow, or UX question gets a design signal, not a guess.
+The watcher flags low scores and design questions for a person and pings
+the right group in the digest, so never post those digest pings yourself.
 
 Write every prompt, reply, PR body, and recap with your file tool under
 `tmp/factory/` (gitignored) first. Report keys are the Slack root permalink,
@@ -184,8 +204,9 @@ filed after a Slack thread. Before starting any branch:
    error text or stack, the page, the time. Different words for the same
    failure are the same problem; the same app alone is not. When titles and
    notes don't settle it, read the other thread or `factory-branch status`.
-3. A group that matches a branch joins it. Record each report (`triage`
-   `fix`, a note naming the branch's title), then
+3. A group that matches a branch joins it when the match scores 70 or more
+   (see Confidence and design). Record each report (`triage` `fix`, a note
+   naming the branch's title, the `join` score), then
    `factory-branch attach <branchName> --report "<key>"`. Its PR's close-out
    then covers these reports too.
 
@@ -225,6 +246,8 @@ right after recording, and only when you will answer it in this run.
 Every report needs a `title` naming the app and the symptom ("Design: React
 #418 hydration mismatch, 52 users"). The `note` is the card's "Why": one or
 two sentences on what happened, the evidence, and why it got this triage.
+Every claimed report also gets its `triage` confidence, and a `design`
+question when it has one.
 
 Outcomes that need no branch (needs a person, build without a maintainer's
 endorsement, already fixed) get their `wouldReact`, `wouldReply`, and `note`
@@ -263,7 +286,9 @@ and record its reports as `needs-person` with that reason.
 For each report the branch covered (the message's `reports`, which include
 attached ones), upsert `gitBranch`, `proof`, `wouldReact`, `wouldReply`, and
 `prUrl` (the message's `prUrl`, else the reply's `PR:` line). Put the
-`ROOT CAUSE` line in `note`. When it is `unconfirmed`, the PR still ships, and
+`ROOT CAUSE` line in `note`, the `CONFIDENCE` line's scores in
+`confidence`, and a `DESIGN` question other than `none` in `design`. A
+branch that predates those two lines isn't a failure; record no score. When it is `unconfirmed`, the PR still ships, and
 the reply describes what the change does without claiming it fixes the
 reporter's case. `OUTCOME: not-code` (config, data, or an outage) and
 `could-not-reproduce` get the 🎫 outcome with the evidence. In dry mode, link
@@ -301,13 +326,13 @@ contract allows.
 With `$FACTORY_BABYSIT` on or `shadow`, the watcher closes out each merge
 itself: ✅ on each Slack report (a reply only if none was ever sent), a
 thank-you comment and close on each fixed GitHub issue, `already-fixed`, and
-a fresh card. Skip this.
+an updated card. Skip this.
 
 With it `off`, in every live sweep, check each report's `prUrl` with
 `gh pr view <prUrl> --json state,mergedAt`. When merged: react
 `white_check_mark` with no second reply; for a GitHub issue, comment a
 one-line thank-you linking the PR and `gh issue close <url>`; set `triage`
-`already-fixed`; `factory-digest report "<key>" --force`. A closed, unmerged
+`already-fixed`; `factory-digest report "<key>"`. A closed, unmerged
 PR goes under "Needs a person" in the recap, unless the factory closed it
 under "Duplicate and competing PRs".
 
@@ -326,8 +351,8 @@ reason to park a report or make it `needs-person`: settle them and move on.
   PRs after #8676 merged that change): close the factory PR with
   `gh pr close <prUrl> --comment "Superseded by #<n>."`, set `triage`
   `already-fixed`, and post one line saying it was superseded in the report's
-  thread (`factory-slack reply "<key>" --again`), or with `factory-digest post`
-  when the report has no thread.
+  thread (`factory-slack reply "<key>" --again`), or with
+  `factory-digest post --report "<key>"` when the report has no Slack thread.
 - **Competing factory PRs.** Two or more factory PRs or approaches fix the
   same report (#8706 and #8714 for one clipping report): compare correctness,
   scope, and tests, keep the best, and close the rest with a comment pointing
@@ -464,7 +489,7 @@ Read and follow .agents/skills/factory-run/references/pr-review.md.
 ```
 
 Record each worker's outcome on the PR's report (`triage`, `note` from WHY,
-`wouldReply` from REPLY). PR outcomes never go to Slack: no
+`wouldReply` from REPLY, its `review` score from CONFIDENCE). PR outcomes never go to Slack: no
 `factory-digest report` on a PR (it refuses), and leave PRs out of the recap.
 
 ## PR batch
@@ -554,7 +579,8 @@ add a comparison table (their outcome vs yours) after the recap.
 
 The digest renders markdown as Slack blocks, so write
 `review-latest-feedback`'s recap for scanning, to
-`tmp/factory/recap-<runId>.md`, then `factory-digest post --file …`:
+`tmp/factory/recap-<runId>.md`, then `factory-digest post --file …`, which
+posts it in today's factory log thread:
 
 ```markdown
 # Feedback sweep · 2026-10-30 (live)
@@ -571,13 +597,19 @@ Fixed 2 · needs a person 1 · not picked 12 · sources unavailable: Sentry
 
 - [GitHub issue #8360 Clips recordings over 24 MB](<issue url>): one line on why
 
+## Needs design input
+
+<!subteam^S0AD0JBLZST|@design>
+
+- [Chat: agent activity is hard to distinguish](<slack permalink>): the question
+
 ## Not picked
 
 - [Short title](link): reason
 ```
 
-Include the oncall mention only when "Needs a person" has an item; otherwise
-omit the whole section. Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
+Include each section, with its mention, only when it has an item. Design
+questions go under "Needs design input", not "Needs a person". Say `(dry run)` or `(live)` in the heading; in dry mode the first section is
 "Fixed on a branch" with Builder branch links. For an `events` run, start with
 `## Triggered by`: one bullet per event, linked to what started it. Every
 report gets its own one-line bullet linked to its permalink or issue URL.
