@@ -123,6 +123,10 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetDeleteInUse:
+      "このアセットはデッキで使用されています。先にデッキから削除してください",
+    assetDeleteStorageRemains:
+      "ライブラリから削除しましたが、保存されたファイルは削除できませんでした",
     contentMarkdown: "コンテンツ (Markdown)",
     speakerNotes: "スピーカーノート",
     speakerNotesForSlide: "スピーカーノート — スライド {{index}} / {{count}}",
@@ -301,6 +305,7 @@ const messages = {
       "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "タイトル",
     layoutSection: "セクション区切り",
     layoutContent: "コンテンツ",
@@ -409,6 +414,10 @@ const messages = {
       "デッキをエディターで開きます。アクセス権を持つ人はこのリンクを使用できます。",
     presentationLink: "プレゼンテーションリンク",
     presentationLinkDescription: "デッキをプレゼンテーションモードで開きます",
+    copyEditorLink: "エディターのリンクをコピー",
+    copyPresentationLink: "プレゼンテーションのリンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    linkCopyFailed: "リンクをコピーできませんでした。",
     present: "発表",
     presentInTab: "このタブで",
     presentFullScreen: "全画面表示",
@@ -850,6 +859,10 @@ const messages = {
       "デッキを選択したスナップショットに戻しました。",
     restoreFailed: "復元に失敗しました",
     restoreFailedDescription: "このデッキのバージョンを復元できませんでした。",
+    alreadyAtVersion: "すでにこのバージョンです",
+    restoreReloadFailed: "デッキを更新できませんでした",
+    restoreReloadFailedDescription:
+      "ページを再読み込みして、このデッキの現在のバージョンを確認してください。",
     backToSavedVersions: "履歴に戻る",
     savedVersions: "履歴",
     description: "デッキの履歴を表示して、以前のスナップショットを復元します。",

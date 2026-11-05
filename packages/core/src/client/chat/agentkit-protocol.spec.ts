@@ -1848,6 +1848,7 @@ describe("createAgentKitProtocolAdapter", () => {
   });
 
   it("serializes approval metadata with structured tool history", async () => {
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
         type: "message-start",
@@ -1862,7 +1863,7 @@ describe("createAgentKitProtocolAdapter", () => {
               input: { payload: "large" },
               approval: {
                 approvalKey: "send-large-data:approved",
-                askId: "agent-tool-approval-large-1",
+                askId,
               },
             },
             {
@@ -1871,7 +1872,7 @@ describe("createAgentKitProtocolAdapter", () => {
               toolName: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalAskId: askId,
             },
           ],
         },
@@ -1899,8 +1900,8 @@ describe("createAgentKitProtocolAdapter", () => {
               id: "call-approval-history",
               name: "send-large-data",
               input: { payload: "large" },
-              approvalKey: approvalKeyForHistory("send-large-data:approved"),
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalKey: askId,
+              approvalAskId: askId,
             },
           },
           {
@@ -1911,7 +1912,7 @@ describe("createAgentKitProtocolAdapter", () => {
               name: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
-              approvalAskId: "agent-tool-approval-large-1",
+              approvalAskId: askId,
             },
           },
         ],
@@ -1919,10 +1920,80 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it.each([
+    {
+      label: "private message without an ask id",
+      askId: undefined,
+      privateMessage: true,
+      privatePart: false,
+    },
+    {
+      label: "private part with a malformed ask id",
+      askId: "agent-tool-approval-malformed",
+      privateMessage: false,
+      privatePart: true,
+    },
+    {
+      label: "public part with a malformed ask id",
+      askId: "agent-tool-approval-malformed",
+      privateMessage: false,
+      privatePart: false,
+    },
+  ])("omits approval replay metadata for $label", async (scenario) => {
+    const rawKey = 'send-email:{"body":"synthetic-private-body"}';
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-private-approval",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-private-approval",
+              toolName: "send-email",
+              input: {},
+              approval: {
+                approvalKey: rawKey,
+                ...(scenario.askId ? { askId: scenario.askId } : {}),
+              },
+              ...(scenario.privatePart
+                ? { omitFromPersistedHistory: true }
+                : {}),
+            },
+          ],
+          ...(scenario.privateMessage
+            ? { metadata: { custom: { omitFromPersistedHistory: true } } }
+            : {}),
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-private-approval",
+      messages: [userMessage("Continue")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-private-approval", runId }),
+    );
+    const created = result.find((event) => event.type === "message.created");
+    expect(created).toBeDefined();
+    if (created?.type !== "message.created") return;
+    const callPart = created.message.parts.find(
+      (part) =>
+        part.type === "data" &&
+        part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+    );
+    expect(callPart).not.toHaveProperty("data.approvalKey");
+    expect(callPart).not.toHaveProperty("data.approvalAskId");
+    expect(JSON.stringify(callPart)).not.toContain(rawKey);
+  });
+
   it("keeps ask-ID approval history within the protocol event budget", async () => {
     const input = { payload: "x".repeat(140 * 1024) };
     const approvalKey = `send-large-data:${JSON.stringify(input)}`;
-    const askId = "agent-tool-approval-large-payload";
+    const askId = "agent-tool-approval-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
         type: "message-start",
@@ -1977,7 +2048,7 @@ describe("createAgentKitProtocolAdapter", () => {
         id: "call-large-approval-history",
         name: "send-large-data",
         input,
-        approvalKey: approvalKeyForHistory(approvalKey),
+        approvalKey: askId,
         approvalAskId: askId,
       },
     });

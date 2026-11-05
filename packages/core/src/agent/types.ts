@@ -17,6 +17,7 @@ export interface AgentNativeJsonSchema {
   description?: string;
   enum?: unknown[];
   const?: unknown;
+  default?: unknown;
   properties?: Record<string, AgentNativeJsonSchema>;
   required?: string[];
   additionalProperties?: boolean | AgentNativeJsonSchema;
@@ -410,7 +411,7 @@ export function isUnknownWriteCause(
  */
 export type ToolErrorClass = "input_invalid" | "rejected";
 
-export type AgentChatEvent =
+type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "suggestions"; suggestions: AgentSuggestion[] }
@@ -589,7 +590,7 @@ export type AgentChatEvent =
       reason: ContinuationReason;
       maxIterations?: number;
     }
-  | { type: "clear" }
+  | { type: "clear"; allText?: boolean }
   /**
    * A queued message the user sent into this run with Send now, delivered at
    * a tool boundary. The run's later output is written under
@@ -608,6 +609,12 @@ export interface AgentChatSteeredUserMessage {
   createdAt: string;
   attachments?: AgentChatAttachment[];
 }
+
+/** Internal marker: the live event is complete, but durable history must omit
+ * its content because a private action exposed data during this turn. */
+export type AgentChatEvent = AgentChatEventPayload & {
+  omitFromPersistedHistory?: true;
+};
 
 export const CONTINUATION_REASONS = [
   "run_timeout",

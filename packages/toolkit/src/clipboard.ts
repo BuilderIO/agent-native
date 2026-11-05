@@ -27,7 +27,16 @@ function writeWithExecCommand(text: string): boolean {
   textarea.style.left = "-9999px";
   textarea.style.top = "0";
   textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
+  const previousFocus =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  // Selecting the textarea moves focus to it. Outside an open dialog,
+  // popover or menu that focus move dismisses it, so keep the textarea inside.
+  const host =
+    previousFocus?.closest<HTMLElement>('[role="dialog"], [role="menu"]') ??
+    document.body;
+  host.appendChild(textarea);
   textarea.select();
   textarea.setSelectionRange(0, text.length);
   try {
@@ -36,7 +45,8 @@ function writeWithExecCommand(text: string): boolean {
   } catch {
     return false;
   } finally {
-    document.body.removeChild(textarea);
+    textarea.remove();
+    previousFocus?.focus({ preventScroll: true });
   }
 }
 

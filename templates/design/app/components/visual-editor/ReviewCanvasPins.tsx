@@ -3929,7 +3929,6 @@ function DraftComposer({
             contextLabel={
               reprompt ? t("designEditor.nodeRewrite.willPreview") : undefined
             }
-            submitOnEnter
             onEscape={onCancel}
           />
         </div>
@@ -4158,7 +4157,6 @@ function ReviewThreadPopover({
             onSubmit={() => onEditSubmit()}
             commentLabel={t("review.save")}
             placeholder={t("review.editComment")}
-            submitOnEnter
             onEscape={onEditCancel}
           />
         ) : undefined
@@ -4258,7 +4256,6 @@ function ReviewThreadPopover({
               submittingTarget={replying ? "human" : null}
               commentLabel={t("review.reply")}
               placeholder={t("review.reply")}
-              submitOnEnter
               onEscape={onClose}
             />
           </div>

@@ -194,6 +194,29 @@ function storeDuplicateSlideDeck(): string {
   return currentResource.data;
 }
 
+describe("get-deck compact silent success", () => {
+  it("keeps the skipped flag on compact slide summaries", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.data = JSON.stringify({
+      slides: [
+        { id: "a", layout: "blank", content: "<div>Visible</div>" },
+        {
+          id: "b",
+          layout: "blank",
+          content: "<div>Hidden</div>",
+          skipped: true,
+        },
+      ],
+    });
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as { slides: Array<{ id: string; skipped: boolean }> };
+    expect(result.slides[1]).toMatchObject({ id: "b", skipped: true });
+    expect(result.slides[0]).toMatchObject({ id: "a", skipped: false });
+  });
+});
+
 describe("get-deck", () => {
   it("is classified read-only so read-scoped MCP grants can call it", () => {
     // oracle-change: only the app's own UI saves the duplicate-ID repair now, so the read is read-only for every outside caller.
@@ -1272,6 +1295,15 @@ describe("get-deck", () => {
         { left: "ua_col", right: "2026-05-02T00:00:00.000Z" },
       ],
     });
+  });
+
+  it("leaves list columns unwritten for an outside agent's read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "mcp" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("does not write list columns a deck already has", async () => {

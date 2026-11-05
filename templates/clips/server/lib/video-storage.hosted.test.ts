@@ -20,6 +20,11 @@ const hostedProvider = vi.hoisted(() => ({ id: "clips-hosted" }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
+  getBuilderUploadCredentialStatus: async () => ({
+    builderConfigured: false,
+    builderUploadConfigured: false,
+    builderReauthorizationRequired: false,
+  }),
   listFileUploadProviders: () => [],
 }));
 vi.mock("@agent-native/core/feature-flags", () => ({
@@ -45,7 +50,6 @@ vi.mock("@agent-native/core/server", () => ({
       },
     },
   }),
-  hasBuilderApiCredentialCustody: vi.fn(async () => false),
   resolveClipsHostedStorageConfig: (config: unknown) => config,
   runWithRequestContext: async (_context: unknown, callback: () => unknown) =>
     callback(),
@@ -401,4 +405,23 @@ describe("hosted Clips storage mode pinning", () => {
     );
     expect(JSON.stringify(wheres[1])).not.toContain("allowances.identityKey");
   });
+
+  it.each([
+    ["missing user row", [], "hosted_identity_unverifiable"],
+    [
+      "email mismatch",
+      [{ email: "someone-else@example.com", email_verified: true }],
+      "hosted_identity_mismatch",
+    ],
+  ])(
+    "fails the status read with a typed non-auth error for a %s",
+    async (_name, rows, errorCode) => {
+      state.activeProvider = null;
+      mockDbExec.mockResolvedValue({ rows });
+      await expect(getClipsVideoStorageStatus()).rejects.toMatchObject({
+        errorCode,
+        statusCode: 500,
+      });
+    },
+  );
 });

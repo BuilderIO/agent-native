@@ -113,8 +113,7 @@ import {
 } from "../../../shared/slide-transitions";
 import { AppMenu } from "./AppMenu";
 import { DeckPrivacyBadge } from "./DeckPrivacyBadge";
-import { DeckShareAgentTab } from "./DeckShareAgentTab";
-import { useDeckShareLinks } from "./DeckShareButton";
+import { useDeckShareProps } from "./DeckShareButton";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -184,6 +183,7 @@ interface EditorToolbarProps {
   onExportPdf?: (signal: AbortSignal) => Promise<void> | void;
   onExportPptx?: (signal: AbortSignal) => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  flushInlineEdit?: () => void;
   onPresent?: (request?: PresentRequest) => boolean | void;
   onDownloadBackup?: () => void;
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
@@ -277,6 +277,7 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  flushInlineEdit,
   onPresent,
   onDownloadBackup,
   onImportDeckBackup,
@@ -311,8 +312,7 @@ export default function EditorToolbar({
       ? `/deck/${deckId}`
       : `${window.location.origin}${appPath(`/deck/${deckId}`)}`;
   const visibility = useDeckVisibility(deckId, deck.visibility);
-  const { primary: primaryShareLink, secondary: secondaryShareLink } =
-    useDeckShareLinks(deckId, visibility, hasSlides);
+  const deckShareProps = useDeckShareProps(deckId, visibility, hasSlides);
 
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
@@ -925,7 +925,7 @@ export default function EditorToolbar({
           nothing when idle. Only meaningful for editors. */}
       {!readOnlyWidget && (canEdit || saveFailed) && (
         <SaveStatusIndicator
-          saving={saving}
+          saving={saving && deckHasUnsavedChanges}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
           saveError={saveError}
@@ -1098,6 +1098,7 @@ export default function EditorToolbar({
           onExportPdf={onExportPdf}
           onExportPptx={onExportPptx ?? (() => {})}
           onExportGoogleSlides={onExportGoogleSlides}
+          flushInlineEdit={flushInlineEdit}
         />
         <ExportStatusDialog
           status={exportStatus}
@@ -1114,24 +1115,10 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           panelTitle={t("share.title")}
-          roleCopy={{
-            commenter: {
-              label: t("editorToolbar.commenterRoleLabel"),
-              description: t("editorToolbar.commenterRoleDescription"),
-            },
-          }}
-          shareUrl={primaryShareLink?.url}
-          shareUrlLabel={primaryShareLink?.label}
-          shareUrlDescription={primaryShareLink?.description}
-          secondaryShareUrl={secondaryShareLink?.url}
-          secondaryShareUrlLabel={secondaryShareLink?.label}
-          secondaryShareUrlDescription={secondaryShareLink?.description}
-          showShareLinks={Boolean(primaryShareLink || secondaryShareLink)}
-          shareUrlPlacement="bottom"
+          shareUrl={deckShareProps.shareUrl}
+          shareUrlLabel={deckShareProps.shareUrlLabel}
           peopleAccessLabel={t("share.whoHasAccess")}
-          agentTabContent={
-            widgetEmbed ? undefined : <DeckShareAgentTab deckId={deckId} />
-          }
+          sendTo={widgetEmbed ? undefined : deckShareProps.sendTo}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed

@@ -265,6 +265,11 @@ function actionInput(
     if (value === undefined || value === null) continue;
     input[implementation.argMap?.[name] ?? name] = value;
   }
+  // A budget and the paths to keep are the operation's, never fields a graph can raise.
+  if (def.answerBudgetChars !== undefined) {
+    input.budgetChars = def.answerBudgetChars;
+  }
+  if (def.answerFields !== undefined) input.answerFields = def.answerFields;
   return input;
 }
 

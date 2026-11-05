@@ -19,6 +19,7 @@ type AddClipComment = {
   content: string;
   videoTimestampMs?: number;
   threadId?: string;
+  idempotencyKey?: string;
 };
 
 type ResolveClipComment = {
@@ -293,6 +294,7 @@ export function useClipCommentWrites(
             recordingId: input.recordingId,
             content: input.content,
             videoTimestampMs: input.videoTimestampMs,
+            idempotencyKey: input.operationId,
           }),
         (saved) => saved.threadId,
       ),
@@ -319,6 +321,7 @@ export function useClipCommentWrites(
             recordingId: input.recordingId,
             content: input.content,
             threadId: input.threadId,
+            idempotencyKey: input.operationId,
           }),
         (saved) => saved.id,
       ),

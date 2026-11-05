@@ -124,6 +124,10 @@ const messages = {
     noAssetsYet: "Noch keine Assets.",
     assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
     assetDeleteFailed: "Asset konnte nicht gelöscht werden",
+    assetDeleteInUse:
+      "Dieses Asset wird in einer Präsentation verwendet. Entferne es zuerst aus der Präsentation",
+    assetDeleteStorageRemains:
+      "Aus der Bibliothek entfernt, aber die gespeicherte Datei konnte nicht gelöscht werden",
     contentMarkdown: "Inhalt (Markdown)",
     speakerNotes: "Sprechernotizen",
     speakerNotesForSlide: "Sprechernotizen — Folie {{index}} / {{count}}",
@@ -305,6 +309,7 @@ const messages = {
       "Schreibe los oder erstelle Sprechernotizen schnell mit dem Agenten",
   },
   editorToolbar: {
+    saving: "Wird gespeichert...",
     layoutTitle: "Titel",
     layoutSection: "Abschnittstrenner",
     layoutContent: "Inhalt",
@@ -414,6 +419,10 @@ const messages = {
       "Öffnet das Deck im Editor. Alle mit Zugriff können diesen Link verwenden.",
     presentationLink: "Präsentationslink",
     presentationLinkDescription: "Öffnet das Deck im Präsentationsmodus",
+    copyEditorLink: "Editor-Link kopieren",
+    copyPresentationLink: "Präsentationslink kopieren",
+    linkCopied: "Link kopiert",
+    linkCopyFailed: "Der Link konnte nicht kopiert werden.",
     present: "Präsentieren",
     presentInTab: "In diesem Tab",
     presentFullScreen: "Vollbild",
@@ -864,6 +873,10 @@ const messages = {
     restoreFailed: "Wiederherstellung fehlgeschlagen",
     restoreFailedDescription:
       "Diese Deck-Version konnte nicht wiederhergestellt werden.",
+    alreadyAtVersion: "Bereits bei dieser Version",
+    restoreReloadFailed: "Deck konnte nicht aktualisiert werden",
+    restoreReloadFailedDescription:
+      "Lade die Seite neu, um die aktuelle Version dieses Decks zu sehen.",
     backToSavedVersions: "Zurück zum Verlauf",
     savedVersions: "Verlauf",
     description:

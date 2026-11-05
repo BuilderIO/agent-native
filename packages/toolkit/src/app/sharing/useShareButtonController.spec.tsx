@@ -20,21 +20,20 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(async () => undefined),
   },
   setVisibility: { mutate: vi.fn(), mutateAsync: vi.fn() },
-  share: { mutate: vi.fn() },
-  unshare: { mutate: vi.fn() },
+  share: { mutate: vi.fn(), mutateAsync: vi.fn() },
+  unshare: { mutate: vi.fn(), mutateAsync: vi.fn() },
 }));
 
 // The controllers settle each save through mutateAsync; the tests drive it
 // through the callbacks recorded on `mutate`.
-mocks.setVisibility.mutateAsync.mockImplementation(
-  (variables: unknown) =>
-    new Promise((resolve, reject) => {
-      mocks.setVisibility.mutate(variables, {
-        onSuccess: resolve,
-        onError: reject,
-      });
-    }),
-);
+for (const mutation of [mocks.setVisibility, mocks.share, mocks.unshare]) {
+  mutation.mutateAsync.mockImplementation(
+    (variables: unknown) =>
+      new Promise((resolve, reject) => {
+        mutation.mutate(variables, { onSuccess: resolve, onError: reject });
+      }),
+  );
+}
 
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: mocks.useActionQuery,
@@ -228,7 +227,10 @@ describe("useShareButtonController", () => {
     act(() => (controller as ShareButtonController).handleAdd());
 
     const mutation = mocks.share.mutate.mock.calls[0]?.[1];
-    act(() => mutation?.onSuccess?.());
+    await act(async () => {
+      mutation?.onSuccess?.();
+      await Promise.resolve();
+    });
 
     expect(onShareSuccess).toHaveBeenCalledOnce();
   });
@@ -240,7 +242,10 @@ describe("useShareButtonController", () => {
     act(() => (controller as ShareButtonController).handleAdd());
 
     const mutation = mocks.share.mutate.mock.calls[0]?.[1];
-    act(() => mutation?.onSuccess?.({ updated: true }));
+    await act(async () => {
+      mutation?.onSuccess?.({ updated: true });
+      await Promise.resolve();
+    });
 
     expect(onShareSuccess).not.toHaveBeenCalled();
   });

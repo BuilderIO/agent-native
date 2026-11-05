@@ -145,7 +145,7 @@ describe("organization confirmation from the keyboard", () => {
     press("ArrowDown", trigger());
     const content = document.body.querySelector('[role="listbox"]')!;
     expect(content).not.toBeNull();
-    const organization = option("Organization");
+    const organization = option("Anyone in your organization");
     (document.activeElement as HTMLElement | null)?.blur?.();
     organization.focus();
     press(key, organization);

@@ -122,6 +122,10 @@ const messages = {
     noAssetsYet: "Ainda não há ativos.",
     assetUploadFailed: "Alguns envios falharam",
     assetDeleteFailed: "Falha ao excluir o ativo",
+    assetDeleteInUse:
+      "Este ativo é usado em uma apresentação. Remova-o da apresentação primeiro",
+    assetDeleteStorageRemains:
+      "Removido da biblioteca, mas o arquivo armazenado não pôde ser excluído",
     contentMarkdown: "Conteúdo (Markdown)",
     speakerNotes: "Notas do apresentador",
     speakerNotesForSlide: "Notas do apresentador — Slide {{index}} / {{count}}",
@@ -301,6 +305,7 @@ const messages = {
       "Comece a escrever ou gere notas do apresentador rapidamente com o agente",
   },
   editorToolbar: {
+    saving: "Salvando...",
     layoutTitle: "Título",
     layoutSection: "Divisor de seção",
     layoutContent: "Conteúdo",
@@ -410,6 +415,10 @@ const messages = {
       "Abre o deck no editor. Qualquer pessoa com acesso pode usar este link.",
     presentationLink: "Link da apresentação",
     presentationLinkDescription: "Abre o deck no modo apresentação",
+    copyEditorLink: "Copiar link do editor",
+    copyPresentationLink: "Copiar link da apresentação",
+    linkCopied: "Link copiado",
+    linkCopyFailed: "Não foi possível copiar o link.",
     present: "Apresentar",
     presentInTab: "Nesta guia",
     presentFullScreen: "Tela cheia",
@@ -858,6 +867,10 @@ const messages = {
     versionRestoredDescription: "O deck voltou para o snapshot selecionado.",
     restoreFailed: "Falha ao restaurar",
     restoreFailedDescription: "Não foi possível restaurar esta versão do deck.",
+    alreadyAtVersion: "Já está nesta versão",
+    restoreReloadFailed: "Não foi possível atualizar o deck",
+    restoreReloadFailedDescription:
+      "Recarregue a página para ver a versão atual deste deck.",
     backToSavedVersions: "Voltar ao histórico",
     savedVersions: "Histórico",
     description:

@@ -70,6 +70,8 @@ export interface SettingsBridge {
   tabForPage: (pageId: string) => SettingsTabItem | undefined;
   /** The bridged page behind a template tab id. */
   pageForTab: (tabId: string) => string | undefined;
+  /** App-provided content for a shared integration detail page. */
+  integrationDetailContent: (integrationId: string) => ReactNode | undefined;
 }
 
 export const EMPTY_SETTINGS_BRIDGE: SettingsBridge = createSettingsBridge({});
@@ -115,6 +117,13 @@ export function createSettingsBridge(
     },
     tabForPage: (pageId) => pageTabs.get(pageId),
     pageForTab: (tabId) => pageByTabId.get(tabId),
+    integrationDetailContent: (integrationId) => {
+      for (const tab of tabs) {
+        const content = tab.integrationDetails?.[integrationId];
+        if (content !== undefined) return content;
+      }
+      return undefined;
+    },
   };
 }
 
@@ -188,7 +197,13 @@ export function deriveBridgedAppPages(
   const pages: SettingsPageDefinition[] = [];
   const pageTabs = new Map<string, SettingsTabItem>();
   tabs.forEach((tab, index) => {
-    if (claimed.has(tab.id) || tab.settingsPlacement === "app-area") return;
+    if (
+      claimed.has(tab.id) ||
+      tab.settingsPlacement === "app-area" ||
+      tab.settingsTarget
+    ) {
+      return;
+    }
     const base = pageIdFromTabId(tab.id);
     const agentPage = tab.group === "agent";
     let id = taken.has(base) ? `app-${base}` : base;
