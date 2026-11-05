@@ -293,6 +293,7 @@ describe("All-screens PDF download", () => {
       documentElement: {},
       images: [],
       defaultView: window,
+      querySelector: () => null,
     }));
     const download = args();
     await runDownloadAllScreensPdf(download);
