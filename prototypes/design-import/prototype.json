@@ -1,4 +1,38 @@
 {
   "template": "design",
-  "tokens": ["packages/docs/app/components/website-redesign/tokens.css .builder-brand-tokens"]
+  "tokens": ["packages/docs/app/components/website-redesign/tokens.css .builder-brand-tokens"],
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "⏳ Design",
+    "pageId": "547:24",
+    "sections": {
+      "Design import · components": "3362:20036",
+      "Design import · screens": "3370:20630",
+      "Import/Dialog": "3368:20517",
+      "Announcement/Dialog": "3368:20564",
+      "Announcement/Card": "3368:20712",
+      "Sidebar · What's new card": "3370:20631",
+      "Import · Announcement": "3370:20731",
+      "Import · Picker": "3370:21161",
+      "Import · Steps · Lovable": "3370:21362",
+      "Import · Steps · Lovable via GitHub": "3370:21549",
+      "Import · Steps · v0": "3370:21701",
+      "Import · Steps · Bolt": "3370:21846",
+      "Import · Steps · Replit": "3370:21991",
+      "Import · Steps · Base44": "3370:22137",
+      "Import · Steps · Manus": "3370:22295",
+      "Import · Upload · Lovable ZIP": "3371:21646",
+      "Import · Upload · File chosen": "3371:21773",
+      "Import · Upload · Code": "3371:21896",
+      "Import · Upload · Figma": "3371:22020",
+      "Import · URL · Website": "3371:22155",
+      "Import · URL · GitHub error": "3371:22286",
+      "Import · URL · Other site builders": "3371:22409",
+      "Import · Importing": "3371:22525",
+      "Import · Failed": "3371:22665",
+      "Import · Ready": "3371:22797",
+      "Import · Picker · Dark": "3371:22858",
+      "Import · Announcement · Dark": "3371:23077"
+    }
+  }
 }
