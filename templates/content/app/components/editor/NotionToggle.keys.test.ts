@@ -807,8 +807,10 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
       selectFromTitleTo(editor, 0, "After");
       press_(editor);
 
-      const [made] = editor.getJSON().content;
-      expect(made.content?.slice(1)).toEqual([paragraph("Body")]);
+      expect(editor.getJSON().content[0]).toMatchObject({
+        type: "notionToggle",
+        content: [{ type: "notionToggleSummary" }, paragraph("Body")],
+      });
       expect(editor.state.doc.textContent).toContain("After");
     }
   });
