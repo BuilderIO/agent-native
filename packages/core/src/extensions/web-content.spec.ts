@@ -743,6 +743,40 @@ describe("processWebContent", () => {
     },
   );
 
+  it("warns about missing Turndown only for raw-mode extracted searches", async () => {
+    vi.doMock("turndown", () => {
+      const error = new Error("Cannot find module 'turndown'");
+      (error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
+      throw error;
+    });
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+
+    const searched = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "Readable content" },
+    });
+    expect(searched.searchSource).toBe("extracted");
+    expect(searched.markdownUnavailable).toBe(true);
+    expect(formatWebContentResult(searched)).toContain(
+      "Markdown conversion unavailable; showing extracted text.",
+    );
+
+    const rawOnly = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+    });
+    expect(rawOnly.searchSource).toBeUndefined();
+    expect(formatWebContentResult(rawOnly)).not.toContain(
+      "Markdown conversion unavailable",
+    );
+  });
+
   it("falls back to plain-text search when Turndown is missing and search.source is omitted", async () => {
     vi.doMock("turndown", () => {
       const error = new Error("Cannot find module 'turndown'");
@@ -870,6 +904,26 @@ describe("formatWebContentResult", () => {
     });
     expect(formatted).toContain("<html>raw</html>");
     expect(formatted).not.toContain("Markdown conversion unavailable");
+  });
+
+  it("notes missing Turndown when a raw-mode extracted search ran", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const formatted = formatWebContentResult({
+      mode: "raw",
+      extract: "readability",
+      contentType: "text/html",
+      content: "<html>raw</html>",
+      markdownUnavailable: true,
+      matches: [],
+      totalMatches: 0,
+      omittedMatches: 0,
+      searchSource: "extracted",
+      searchTruncated: false,
+    });
+    expect(formatted).toContain("<html>raw</html>");
+    expect(formatted).toContain(
+      "Markdown conversion unavailable; showing extracted text.",
+    );
   });
 
   it("appends fallback content after links output", async () => {

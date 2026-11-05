@@ -362,6 +362,11 @@ export function formatWebContentResult(result: WebContentResult): string {
     if (hasSearchSummary(result)) {
       lines.push("", formatMatches(result));
     }
+    // Raw display is the original body. Keep the missing-Turndown warning
+    // only when an extracted search ran (that search used plain text).
+    if (result.searchSource === "extracted") {
+      appendMarkdownUnavailableFooter(lines, result);
+    }
     return lines.join("\n");
   }
 
