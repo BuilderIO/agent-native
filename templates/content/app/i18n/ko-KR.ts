@@ -1791,6 +1791,7 @@ const overrides = {
       "AI가 이 스레드에서 작업 중입니다. 스레드를 삭제하기 전에 중지하세요.",
     deleteRefusedAiSuggestion:
       "이 스레드의 AI 제안이 검토를 기다리고 있습니다. 스레드를 삭제하기 전에 제안을 수락하거나 거절하세요.",
+    deleteRefusedBusy: "이 스레드가 지금 변경되고 있습니다. 잠시 후 다시 삭제해 보세요.",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",

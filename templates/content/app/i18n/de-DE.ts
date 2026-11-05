@@ -1853,6 +1853,7 @@ const overrides = {
       "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
     deleteRefusedAiSuggestion:
       "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
+    deleteRefusedBusy: "Dieser Thread wird gerade geändert. Versuche gleich noch einmal, ihn zu löschen.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",

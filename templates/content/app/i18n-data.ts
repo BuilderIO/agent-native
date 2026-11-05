@@ -1819,6 +1819,7 @@ const enUS = {
       "The AI is working on this thread. Stop it before deleting the thread.",
     deleteRefusedAiSuggestion:
       "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
+    deleteRefusedBusy: "This thread is being changed right now. Try deleting it again in a moment.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",

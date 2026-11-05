@@ -1837,6 +1837,7 @@ const overrides = {
     deleteRefusedAiWorking: "AI 正在处理此线程。删除线程前请先停止它。",
     deleteRefusedAiSuggestion:
       "此线程中的 AI 建议正在等待审阅。删除线程前请先接受或拒绝它。",
+    deleteRefusedBusy: "此线程正在被修改。请稍后再尝试删除。",
     submit: "评论",
     askAi: "询问 AI",
     aiBadge: "AI",

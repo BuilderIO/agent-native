@@ -1809,6 +1809,7 @@ const overrides = {
       "AI がこのスレッドで作業中です。スレッドを削除する前に停止してください。",
     deleteRefusedAiSuggestion:
       "このスレッドの AI の提案が確認待ちです。スレッドを削除する前に、提案を承認または却下してください。",
+    deleteRefusedBusy: "このスレッドは現在変更中です。少し待ってからもう一度削除してください。",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

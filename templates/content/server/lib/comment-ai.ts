@@ -1529,48 +1529,6 @@ export async function updateCommentAiRequest(
   return serializeCommentAiRequest(current);
 }
 
-/**
- * Reopens the thread of a change whose undo landed, and marks it undone.
- * Locks the root first, as replying, resolving and deleting do: reopening
- * every comment in one statement can reach a reply before the root, and a
- * delete holding the root while it waits on that reply would deadlock.
- */
-export async function reopenUndoneCommentAiThread(
-  request: RequestRow,
-  result: object,
-) {
-  const now = new Date().toISOString();
-  await getDb().transaction(async (tx) => {
-    await tx
-      .select({ id: schema.documentComments.id })
-      .from(schema.documentComments)
-      .where(
-        and(
-          eq(schema.documentComments.id, request.threadId),
-          eq(schema.documentComments.documentId, request.documentId),
-        ),
-      )
-      .for("update");
-    await tx
-      .update(schema.documentComments)
-      .set({ resolved: 0, updatedAt: now })
-      .where(
-        and(
-          eq(schema.documentComments.documentId, request.documentId),
-          eq(schema.documentComments.threadId, request.threadId),
-          eq(schema.documentComments.ownerEmail, request.ownerEmail),
-        ),
-      );
-    await tx
-      .update(schema.commentAiRequests)
-      .set({
-        resultJson: JSON.stringify({ ...result, undone: true }),
-        updatedAt: now,
-      })
-      .where(eq(schema.commentAiRequests.id, request.id));
-  });
-}
-
 export async function reconcileCommentAiSession(args: {
   operationId: string;
   threadId: string;

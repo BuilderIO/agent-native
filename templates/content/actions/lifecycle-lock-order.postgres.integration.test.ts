@@ -4810,12 +4810,10 @@ isFavorite: true
           content: "A comment",
           authorEmail: OWNER,
         });
-        // The reply's row goes in first, so a scan of the thread reaches it
-        // before the root, as one does once the root's row is rewritten.
         await getDb()
           .insert(schema.documentComments)
-          .values([comment(ids.reply, ids.root), comment(ids.root, null)]);
-        const [row] = await getDb()
+          .values([comment(ids.root, null), comment(ids.reply, ids.root)]);
+        await getDb()
           .insert(schema.commentAiRequests)
           .values({
             id: ids.request,
@@ -4832,9 +4830,8 @@ isFavorite: true
             baseRevision: "base",
             suggestionRevision: "suggestion",
             ...request,
-          })
-          .returning();
-        return { ids, request: row };
+          });
+        return { ids };
       }
 
       async function deleteThread(ids: { page: string; root: string }) {
@@ -4877,38 +4874,30 @@ isFavorite: true
         ).toEqual([]);
       });
 
-      it("waits for, rather than deadlocks with, undoing an Ask AI change", async () => {
-        const { reopenUndoneCommentAiThread } =
-          await import("../server/lib/comment-ai.js");
-        const { ids, request } = await seedThread({
-          intent: "apply-resolve",
-          status: "resolved",
-          resultJson: JSON.stringify({ editApplied: true }),
-        });
+      it("refuses at once, rather than waiting, while another write holds one of its replies", async () => {
+        const { ids } = await seedThread({});
 
-        const holder = await holdRowIn("document_comments", ids.root);
-        let undoSettled = false;
-        const undo = reopenUndoneCommentAiThread(request, {
-          editApplied: true,
-        }).finally(() => {
-          undoSettled = true;
-        });
-        let removal: Promise<unknown> | undefined;
+        // Some writers lock a thread's comments in one statement that can
+        // reach a reply before the root, so a delete that waited on the reply
+        // while holding the root could deadlock with them.
+        const holder = await holdRowIn("document_comments", ids.reply);
         try {
-          expect(await waitUntilBlockedBy(holder.pid, () => undoSettled)).toBe(
-            true,
-          );
-          // Waiting on the root, the undo holds none of the thread yet, so a
-          // delete holding the root can't wait on a reply the undo locked.
-          expect(await commentLocked(ids.reply)).toBe(false);
-          removal = deleteThread(ids);
+          const outcome = await Promise.race([
+            deleteThread(ids).then(
+              () => "deleted",
+              (error: unknown) => error,
+            ),
+            sleep(5_000).then(() => "waited"),
+          ]);
+          expect(outcome).toMatchObject({ errorCode: "comment_thread_busy" });
+          // The refused delete let go of the root.
+          expect(await commentLocked(ids.root)).toBe(false);
         } finally {
           holder.release();
           await holder.done;
         }
 
-        await undo;
-        await expect(removal).resolves.toMatchObject({ ok: true });
+        await deleteThread(ids);
         expect(
           await getDb()
             .select({ id: schema.documentComments.id })

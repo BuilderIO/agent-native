@@ -48,6 +48,12 @@ const refuseActiveAi = (): never =>
     errorCode: "comment_ai_already_active",
   });
 
+const refuseBusyThread = (): never =>
+  fail("This thread is being changed right now; try deleting it again", {
+    statusCode: 409,
+    errorCode: "comment_thread_busy",
+  });
+
 /** Whether a NOWAIT lock failed because another transaction holds the row. */
 function isLockNotAvailable(error: unknown) {
   let current = error;
@@ -59,6 +65,14 @@ function isLockNotAvailable(error: unknown) {
   }
   return false;
 }
+
+/** For a NOWAIT lock: refuses when the row is held, and rethrows the rest. */
+const refuseWhenLocked =
+  (refuse: () => never) =>
+  (error: unknown): never => {
+    if (isLockNotAvailable(error)) refuse();
+    throw error;
+  };
 
 export default defineAction({
   description:
@@ -132,7 +146,8 @@ export default defineAction({
     const deletedIds = await db.transaction(async (tx) => {
       if (deletesThread) {
         // Locked as add-comment locks it for a reply, so no reply lands in
-        // the thread while it goes.
+        // the thread while it goes. This is the one lock a thread delete
+        // waits for, and it holds nothing else yet.
         await tx
           .select({ id: schema.documentComments.id })
           .from(schema.documentComments)
@@ -145,10 +160,20 @@ export default defineAction({
           .limit(1)
           .for("update");
       }
-      const targets = await tx
+      const targetsQuery = tx
         .select(targetColumns)
         .from(schema.documentComments)
         .where(targetsWhere);
+      // The rest of a thread is locked without waiting. Writers lock a
+      // thread's comments in different orders (some in one statement that
+      // can reach a reply before the root), so waiting on a reply while
+      // holding the root could deadlock. A comment another transaction
+      // holds is being changed right now, and the delete can be tried again.
+      const targets = deletesThread
+        ? await targetsQuery
+            .for("update", { noWait: true })
+            .catch(refuseWhenLocked(refuseBusyThread))
+        : await targetsQuery;
       if (authorOnly && !allTheirs(targets)) {
         fail(
           "Someone else replied to this thread, so only an editor can delete it",
@@ -168,11 +193,10 @@ export default defineAction({
       let requestIds: string[] = [];
       if (deletesThread) {
         // Each Ask AI request keeps a copy of the thread. Locked without
-        // waiting: one another transaction holds is the AI at work on it
-        // (resuming it, saving its suggestion, resolving the thread), and
-        // some of those lock the thread's comments next, so waiting for it
-        // while holding the thread could deadlock. A resume that comes after
-        // waits for this delete and then finds its request gone.
+        // waiting too: one another transaction holds is the AI at work on it
+        // (resuming it, saving its suggestion), and saving a suggestion locks
+        // the thread's comments next. A resume that comes after waits for
+        // this delete and then finds its request gone.
         const requests = await tx
           .select({
             id: schema.commentAiRequests.id,
@@ -186,10 +210,7 @@ export default defineAction({
             ),
           )
           .for("update", { noWait: true })
-          .catch((error: unknown) => {
-            if (isLockNotAvailable(error)) refuseActiveAi();
-            throw error;
-          });
+          .catch(refuseWhenLocked(refuseActiveAi));
         if (requests.some(({ status }) => ACTIVE_AI_STATUSES.has(status))) {
           refuseActiveAi();
         }

@@ -1156,6 +1156,7 @@ const overrides = {
     deleteRefusedAiWorking: "AI 正在處理此留言串。刪除留言串前請先停止它。",
     deleteRefusedAiSuggestion:
       "此留言串中的 AI 建議正在等待審閱。刪除留言串前請先接受或拒絕它。",
+    deleteRefusedBusy: "此留言串正在被修改。請稍後再試著刪除。",
     submit: "評論",
     askAi: "詢問 AI",
     aiSuggestChanges: "建議變更",
