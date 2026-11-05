@@ -33,9 +33,36 @@ describe("parseTranscriptSegments", () => {
       { startMs: 0, endMs: 1000, text: "Hello.", source: "mic", speaker: "Me" },
     ]);
   });
+
+  it("keeps the mark on audio recovered from before recording started", () => {
+    const raw = JSON.stringify([
+      { startMs: 0, endMs: 1000, text: "Earlier.", recovered: true },
+      { startMs: 1000, endMs: 2000, text: "Live.", recovered: false },
+    ]);
+    expect(parseTranscriptSegments(raw).map((s) => s.recovered)).toEqual([
+      true,
+      undefined,
+    ]);
+  });
 });
 
 describe("normalizeTranscriptSegments", () => {
+  it("keeps the earlier-audio mark on every caption of a split segment", () => {
+    const result = normalizeTranscriptSegments({
+      segments: [
+        {
+          startMs: 0,
+          endMs: 20_000,
+          text: "This long sentence was recovered from before the user started recording the meeting today.",
+          recovered: true,
+        },
+      ],
+    });
+
+    expect(result.length).toBeGreaterThan(1);
+    expect(result.every((caption) => caption.recovered === true)).toBe(true);
+  });
+
   it("preserves source and speaker across a long mic segment split into multiple captions", () => {
     const longMicSegment = {
       startMs: 0,

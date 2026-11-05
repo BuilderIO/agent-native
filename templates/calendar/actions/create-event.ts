@@ -217,6 +217,7 @@ function eventDeepLink(
 }
 
 export default defineAction({
+  searchHints: ["new meeting", "book a meeting", "add to calendar"],
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,

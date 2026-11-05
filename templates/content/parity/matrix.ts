@@ -299,6 +299,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.page-open-read",
+    surface: "editor",
+    label: "Open a page, with a collection page's first rows, in one read",
+    uiEntrypoints: ["app/root.tsx", "app/hooks/use-documents.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "Opening a page reads it once with get-page-open-read, which returns get-document's answer and, for a collection's own page, the collection, the reader's personal view and the first rows of the opening view.",
+    status: "action-backed",
+    actions: ["get-page-open-read"],
+    exception:
+      "Hidden from agent tools with agentTool: false because it only bundles reads for the browser's first paint; agents read the same data with get-document, get-content-database and query-content-database-items.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-page-open-read.db.test.ts",
+      "app/lib/page-open-collection.test.tsx",
+      "app/hooks/use-documents.page-open.test.tsx",
+    ],
+  },
+  {
     id: "editor.private-image-icons",
     surface: "editor",
     label:

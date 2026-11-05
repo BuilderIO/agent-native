@@ -845,16 +845,18 @@ const AgentPatchDeckInputSchema = z.object({
         AddSlideOp,
         z.object({
           op: z.literal("patch-deck-fields"),
-          fields: z.object({
-            title: z
-              .string()
-              .optional()
-              .describe("The concise, specific title to apply to the deck"),
-            starred: z
-              .boolean()
-              .optional()
-              .describe("Whether the deck should be starred"),
-          }),
+          fields: z
+            .object({
+              title: z
+                .string()
+                .optional()
+                .describe("The concise, specific title to apply to the deck"),
+              starred: z
+                .boolean()
+                .optional()
+                .describe("Whether the deck should be starred"),
+            })
+            .strict(),
         }),
       ]),
     )
@@ -938,6 +940,7 @@ export function applyOperation(
   op: Operation,
   options?: {
     clearLayoutWarningDismissal?: boolean;
+    strictReorder?: boolean;
     sourceContentHashes?: ReadonlyMap<string, string>;
   },
 ): boolean {
@@ -1098,12 +1101,18 @@ export function applyOperation(
         });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
-      // Build the new order from the client's desired order, keeping only
-      // slides that actually exist in the server copy.
+      const unknownId = orderedIds.find((id) => !byId.has(id));
+      if (unknownId !== undefined && options?.strictReorder) {
+        fail(
+          `Cannot reorder: slide ${unknownId} is not in this deck. Nothing was moved; re-read the deck and reorder with current slide IDs.`,
+          { errorCode: "reorder_unknown_slide_id", statusCode: 409 },
+        );
+      }
+      // Unnamed slides stay at the end so a concurrent add is not dropped.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const reordered: any[] = orderedIds
-        .map((id) => byId.get(id))
-        .filter(Boolean);
+        .filter((id) => byId.has(id))
+        .map((id) => byId.get(id));
       const orderedSet = new Set(orderedIds);
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
@@ -1656,6 +1665,7 @@ export default defineAction({
 
       const layoutFitSlideIds = new Set<string>();
       const deletedSlideIds = new Set<string>();
+      const skippedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
       const animationBaselinesBeforeOperations = slideAnimationBaselines(deck);
@@ -1701,8 +1711,17 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
+        if (
+          op.op === "add-slide" &&
+          (deck.slides as Array<{ id?: string }>).some(
+            (slide) => slide.id === op.slideId,
+          )
+        ) {
+          skippedSlideIds.add(op.slideId);
+        }
         const operationChangedStructure = applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
+          strictReorder: isAgentCaller,
           sourceContentHashes,
         });
         structuralOperationApplied ||= operationChangedStructure;
@@ -2004,7 +2023,9 @@ export default defineAction({
       if (!meaningfulChange) {
         if (isAgentCaller) {
           throw new NoWriteError(
-            "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+            skippedSlideIds.size
+              ? `Nothing was written: add-slide skipped ${[...skippedSlideIds].join(", ")} because a slide with that ID already exists. Use a new slideId to add another slide.`
+              : "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }
         if (clientWrite) {
@@ -2124,6 +2145,14 @@ export default defineAction({
             signaturesBeforeOperations.has(slideId) &&
             !signaturesAfterOperations.has(slideId),
         ),
+        ...(skippedSlideIds.size
+          ? {
+              skippedSlideIds: [...skippedSlideIds],
+              warnings: [
+                `add-slide skipped ${[...skippedSlideIds].join(", ")}: a slide with that ID already exists, so nothing was added. Use a new slideId to add another slide.`,
+              ],
+            }
+          : {}),
         ...(unchangedSlideIds.length
           ? {
               unchangedSlideIds,

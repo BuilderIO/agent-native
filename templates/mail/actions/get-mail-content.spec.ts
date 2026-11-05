@@ -180,6 +180,28 @@ describe("exact Mail body reads", () => {
     expect(mocks.gmailModifyThread).not.toHaveBeenCalled();
   });
 
+  it("starts the thread read while its labels are loading", async () => {
+    let release: () => void = () => undefined;
+    const labels = new Promise<Map<string, string>>((resolve) => {
+      release = () => resolve(new Map());
+    });
+    mocks.fetchLabelMap.mockReturnValue(labels);
+    mocks.gmailGetThread.mockResolvedValue({
+      messages: [rawMessage("message-1", "thread-1")],
+    });
+    const result = getThread.run({ accountEmail: OWNER, id: "thread-1" });
+    try {
+      await vi.waitFor(() =>
+        expect(mocks.gmailGetThread).toHaveBeenCalledOnce(),
+      );
+    } finally {
+      release();
+    }
+    expect(await result).toMatchObject([
+      { id: "message-1", accountEmail: OWNER },
+    ]);
+  });
+
   it("preserves Gmail cooldown errors from get-thread for the shared action boundary", async () => {
     const { GmailQuotaCooldownError } =
       await import("../server/lib/google-api.js");

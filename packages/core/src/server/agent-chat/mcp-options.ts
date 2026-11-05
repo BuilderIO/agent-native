@@ -18,6 +18,7 @@ export interface AgentChatMcpOptions {
   connectorCatalog?: string[];
   directoryProfile?: {
     connectorCatalog: string[];
+    directoryRoute?: false;
     instructions?: string;
     widgets?: boolean;
     widgetTargets?: Record<
