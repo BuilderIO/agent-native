@@ -42,7 +42,9 @@ export interface CalendarBusyFailure {
   calendarExternalIds: string[];
   reason: CalendarBusyFailureReason;
   cause?: string;
-  /** Set when the provider throttled the lookup and said when to retry. */
+  /** Set when the provider throttled the lookup (rate or quota limit). */
+  throttled?: true;
+  /** Set when a throttling provider said when to retry. */
   retryAfterSeconds?: number;
 }
 
@@ -64,9 +66,10 @@ export class CalendarAvailabilityUnavailableError extends ActionContractError {
       `Couldn't check ${labels.join(", ")}, so availability can't be confirmed. Try again shortly.`,
       {
         errorCode: "calendar_availability_unavailable",
-        // The action route sends Retry-After from details only on a 429, so
-        // a lookup that failed purely on provider throttling uses 429.
-        statusCode: retryAfters.length === failures.length ? 429 : 503,
+        // Purely throttled lookups are a 429; the action route sends
+        // Retry-After from details.retryAfterSeconds only on a 429. Any other
+        // failure in the mix makes it a 503.
+        statusCode: failures.every((f) => f.throttled) ? 429 : 503,
         details: {
           calendars: failures.map((f) => ({
             provider: f.provider,
@@ -291,11 +294,11 @@ export async function aggregateBusy(input: {
             : "lookup_failed",
           error instanceof Error ? error.message : String(error),
         );
-        if (
-          isCalendarLookupRateLimitedError(error) &&
-          error.retryAfterSeconds !== undefined
-        ) {
-          lookupFailure.retryAfterSeconds = error.retryAfterSeconds;
+        if (isCalendarLookupRateLimitedError(error)) {
+          lookupFailure.throttled = true;
+          if (error.retryAfterSeconds !== undefined) {
+            lookupFailure.retryAfterSeconds = error.retryAfterSeconds;
+          }
         }
         failures[credentialIndex] = lookupFailure;
       }

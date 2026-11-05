@@ -505,6 +505,53 @@ describe("aggregateBusy", () => {
     expect((error as CalendarAvailabilityUnavailableError).statusCode).toBe(
       503,
     );
+    expect(
+      (error as CalendarAvailabilityUnavailableError).details
+        ?.retryAfterSeconds,
+    ).toBe(45);
+  });
+
+  it("is a 429 without a delay when a throttle gives no Retry-After", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled-no-delay",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError("Rate limited");
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-throttled-no-delay",
+          type: "availability-throttled-no-delay",
+        },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled-no-delay",
+          externalId: "calendar-throttled-no-delay",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    const unavailable = error as CalendarAvailabilityUnavailableError;
+    expect(unavailable.statusCode).toBe(429);
+    expect(unavailable.details).toEqual({
+      calendars: [
+        {
+          provider: "availability-throttled-no-delay",
+          providerLabel: "Test provider availability-throttled-no-delay",
+          reason: "lookup_failed",
+        },
+      ],
+    });
   });
 
   it("reports credential_invalid when the provider rejects the credential on this lookup", async () => {
