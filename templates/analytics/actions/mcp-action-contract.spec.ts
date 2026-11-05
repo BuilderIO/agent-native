@@ -42,6 +42,7 @@ const DIRECT_MCP_READS = [
   "account-deep-dive",
   "builder-blog-articles",
   "data-source-status",
+  "estimate-dashboard-cost",
   "estimate-onboarding-journey-cost",
   "estimate-query-cost",
   "find-data",

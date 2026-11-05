@@ -336,6 +336,33 @@ describe("create-factory-automation", () => {
     );
   });
 
+  it("surfaces a saved key this deployment cannot decrypt with its own code, not as a setup error", async () => {
+    const { UnreadableSecretError } =
+      await import("../server/lib/unreadable-secret.js");
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new UnreadableSecretError("SLACK_BOT_TOKEN"),
+    );
+    const { default: action } = await import("./create-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          displayName: "Slack feedback",
+          source: "slack",
+          slackChannelId: "C123",
+          enabled: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "app_secret_unreadable",
+      statusCode: 412,
+      actionContractError: true,
+      message: expect.stringContaining("SLACK_BOT_TOKEN is saved but"),
+    });
+    expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+  });
+
   it("rejects Slack jobs when the connector is missing", async () => {
     assertFactoryConnectorReadyMock.mockRejectedValue(
       new Error(

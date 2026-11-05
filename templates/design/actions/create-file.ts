@@ -157,13 +157,6 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
-    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
-      allowCheckpointFailureSkip: true,
-    });
-    const checkpointField = checkpointSkippedResultField(checkpoint);
-
-    const requestedId = nanoid();
-    const now = new Date().toISOString();
 
     assertHubSpotEmailFrameContent({ content, fileType });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
@@ -177,6 +170,14 @@ export default defineAction({
       fileType: fileType ?? "html",
       filename,
     });
+
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
+      allowCheckpointFailureSkip: true,
+    });
+    const checkpointField = checkpointSkippedResultField(checkpoint);
+
+    const requestedId = nanoid();
+    const now = new Date().toISOString();
 
     const createdFile = await withDesignSourceMutationTransaction(
       designId,

@@ -50,7 +50,7 @@ function renderPicker(path: string) {
   );
 }
 
-describe("website LanguagePicker campaign URLs", () => {
+describe("website LanguagePicker site content URLs", () => {
   it("keeps a localized alias navigation on the English canonical page and saves the locale preference", async () => {
     renderPicker("/fr-fr/articles/test-article/?utm_source=campaign#faq");
     fireEvent.click(screen.getByRole("button", { name: /^Language:/ }));
@@ -72,7 +72,7 @@ describe("website LanguagePicker campaign URLs", () => {
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
   });
 
-  it("does not create a localized campaign URL when selecting a language", () => {
+  it("does not create a localized site content URL when selecting a language", () => {
     renderPicker("/articles/test-article/");
     fireEvent.click(screen.getByRole("button", { name: /^Language:/ }));
 

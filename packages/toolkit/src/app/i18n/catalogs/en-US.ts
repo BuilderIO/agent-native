@@ -125,6 +125,9 @@ const messages = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
   "onboarding.roleOps": "Ops",
+  "onboarding.roleCreator": "Content creator",
+  "onboarding.roleStudent": "Student",
+  "onboarding.roleEducator": "Educator",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
@@ -3410,6 +3413,7 @@ const messages = {
   "chatFirst.removeApp": "Remove app from workspace",
   "chatFirst.showMore": "Show more",
   "chatFirst.showLess": "Show less",
+  "chatFirst.showMoreCount": "Show {{count}} more",
   "chatFirst.appOrderUnavailable":
     "App order could not be saved on this device.",
   "chatFirst.openSideSurfaces": "Open side surfaces",

@@ -132,6 +132,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventes",
   "onboarding.roleOps": "Opérations",
+  "onboarding.roleCreator": "Créateur de contenu",
+  "onboarding.roleStudent": "Étudiant",
+  "onboarding.roleEducator": "Enseignant",
   "onboarding.roleIndividual": "Individuel",
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
@@ -3627,6 +3630,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Retirer l’application de l’espace de travail",
   "chatFirst.showMore": "Afficher plus",
   "chatFirst.showLess": "Afficher moins",
+  "chatFirst.showMoreCount": "Afficher {{count}} de plus",
   "chatFirst.appOrderUnavailable":
     "Impossible d’enregistrer l’ordre des applications sur cet appareil.",
   "chatFirst.openSideSurfaces": "Ouvrir les panneaux latéraux",

@@ -6,6 +6,7 @@ import {
   ActionContractError,
   AgentConnectionRequiredError,
   defineAction,
+  noteExternalWrite,
 } from "../action.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -146,6 +147,8 @@ async function recover(
   const seen: EngineMessage[][] = [];
   const modelCalls = new Map<string, number>();
   const sendEmail = vi.fn(async (_input: Record<string, unknown>) => {
+    // The provider send is the write the framework cannot watch.
+    noteExternalWrite("test-email");
     onEmailWrite?.();
     if (failFinalization === "precondition")
       throw new ActionContractError("Account is not enabled", {
