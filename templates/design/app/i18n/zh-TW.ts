@@ -1172,6 +1172,8 @@ export default {
     },
   },
   designEditor: {
+    writeFailed: "無法儲存該變更。",
+    selectionPublishFailed: "代理程式可能看不到你最新的選取內容。請重新選取。",
     liveCollaboration: {
       title: "即時協作",
       description:
