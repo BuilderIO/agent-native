@@ -1839,6 +1839,28 @@ const overrides = {
     discardEditDescription: "Ihr Kommentar bleibt unverändert.",
     discard: "Verwerfen",
     keepEditing: "Weiter bearbeiten",
+    deleteComment: "Kommentar löschen",
+    deleteThread: "Thread löschen",
+    deleteCommentQuestion: "Kommentar löschen?",
+    deleteCommentDescription:
+      "Er wird für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadQuestion: "Thread löschen?",
+    deleteThreadDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadAiChangeDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI an der Seite bleibt, aber über den Thread kannst du sie dann nicht mehr rückgängig machen.",
+    delete: "Löschen",
+    deleting: "Wird gelöscht…",
+    deleteRefusedReplied:
+      "Jemand anderes hat geantwortet, daher kann nur ein Bearbeiter diesen Thread löschen.",
+    deleteRefusedNotion:
+      "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
+    deleteRefusedAiWorking:
+      "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
+    deleteRefusedAiSuggestion:
+      "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
+    deleteRefusedBusy:
+      "Dieser Thread wird gerade geändert. Versuche gleich noch einmal, ihn zu löschen.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
@@ -1849,8 +1871,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",
     identityPerson: "Person",
-    identityModel: "Modell",
     identityEffort: "Denkaufwand",
+    acceptAllAndResolve: "Alle annehmen und erledigen",
+    acceptAndResolve: "Annehmen und erledigen",
+    suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
     identityOpenRun: "Lauf öffnen",
@@ -1884,7 +1908,6 @@ const overrides = {
       "Wende die Änderungen für diesen Kommentar an und erledige ihn.",
     aiWorking: "KI arbeitet…",
     aiReplied: "KI hat geantwortet",
-    aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
     aiAppliedAndResolved: "Angewendet und erledigt",
     aiChangeUndone: "Änderung rückgängig gemacht",

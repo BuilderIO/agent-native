@@ -1844,6 +1844,28 @@ const overrides = {
     discardEditDescription: "Votre commentaire restera tel quel.",
     discard: "Abandonner",
     keepEditing: "Continuer à modifier",
+    deleteComment: "Supprimer le commentaire",
+    deleteThread: "Supprimer le fil",
+    deleteCommentQuestion: "Supprimer le commentaire ?",
+    deleteCommentDescription:
+      "Il sera supprimé pour tout le monde. Cette action est irréversible.",
+    deleteThreadQuestion: "Supprimer le fil ?",
+    deleteThreadDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
+    deleteThreadAiChangeDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible. La modification de l'IA reste dans la page, mais vous ne pourrez pas l'annuler depuis le fil.",
+    delete: "Supprimer",
+    deleting: "Suppression…",
+    deleteRefusedReplied:
+      "Quelqu'un d'autre a répondu : seul un éditeur peut supprimer ce fil.",
+    deleteRefusedNotion:
+      "Ce commentaire est synchronisé avec Notion. Supprimez-le dans Notion.",
+    deleteRefusedAiWorking:
+      "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
+    deleteRefusedAiSuggestion:
+      "La suggestion de l'IA dans ce fil attend votre examen. Acceptez-la ou refusez-la avant de supprimer le fil.",
+    deleteRefusedBusy:
+      "Ce fil est en cours de modification. Réessayez de le supprimer dans un instant.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
@@ -1854,8 +1876,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
     identityPerson: "Personne",
-    identityModel: "Modèle",
     identityEffort: "Effort",
+    acceptAllAndResolve: "Tout accepter et résoudre",
+    acceptAndResolve: "Accepter et résoudre",
+    suggestionLoadFailed: "Impossible de charger cette suggestion",
     identityRan: "Exécuté",
     identityNotRecorded: "Non enregistré",
     identityOpenRun: "Ouvrir l’exécution",
@@ -1889,7 +1913,6 @@ const overrides = {
       "Applique les modifications de ce commentaire et résous-le.",
     aiWorking: "L’IA travaille…",
     aiReplied: "L’IA a répondu",
-    aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
     aiAppliedAndResolved: "Appliqué et résolu",
     aiChangeUndone: "Modification annulée",

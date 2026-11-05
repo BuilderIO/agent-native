@@ -1805,6 +1805,28 @@ const enUS = {
     discardEditDescription: "Your comment will stay as it was.",
     discard: "Discard",
     keepEditing: "Keep editing",
+    deleteComment: "Delete comment",
+    deleteThread: "Delete thread",
+    deleteCommentQuestion: "Delete comment?",
+    deleteCommentDescription:
+      "It's deleted for everyone, and this can't be undone.",
+    deleteThreadQuestion: "Delete thread?",
+    deleteThreadDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone.",
+    deleteThreadAiChangeDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone. The AI's change to the page stays, but you won't be able to undo it from the thread.",
+    delete: "Delete",
+    deleting: "Deleting…",
+    deleteRefusedReplied:
+      "Someone else replied, so only an editor can delete this thread.",
+    deleteRefusedNotion:
+      "This comment is synced with Notion. Delete it in Notion.",
+    deleteRefusedAiWorking:
+      "The AI is working on this thread. Stop it before deleting the thread.",
+    deleteRefusedAiSuggestion:
+      "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
+    deleteRefusedBusy:
+      "This thread is being changed right now. Try deleting it again in a moment.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1815,7 +1837,6 @@ const enUS = {
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
     identityPerson: "Person",
-    identityModel: "Model",
     identityEffort: "Effort",
     identityRan: "Ran",
     identityNotRecorded: "Not recorded",
@@ -1849,7 +1870,6 @@ const enUS = {
     aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
     aiWorking: "AI is working…",
     aiReplied: "AI replied",
-    aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
     aiAppliedAndResolved: "Applied and resolved",
     aiChangeUndone: "Change undone",
@@ -1894,6 +1914,9 @@ const enUS = {
     rejectRemaining: "Reject remaining",
     acceptAll: "Accept all",
     rejectAll: "Reject all",
+    acceptAllAndResolve: "Accept all and resolve",
+    acceptAndResolve: "Accept and resolve",
+    suggestionLoadFailed: "Couldn't load this suggestion",
     suggestionReviewReadOnly:
       "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",

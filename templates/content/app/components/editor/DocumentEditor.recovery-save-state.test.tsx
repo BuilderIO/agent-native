@@ -255,7 +255,7 @@ vi.mock("@/hooks/use-comments", () => ({
   useComments: () => fixture.emptyQuery,
 }));
 vi.mock("./comment-ai", () => ({
-  useCommentAiRequests: () => ({ freshResolutions: new Map() }),
+  useCommentAiRequests: () => ({ requests: [], freshResolutions: new Map() }),
   isCommentAiWorkingOn: () => false,
 }));
 vi.mock("./CommentsSidebar", () => ({

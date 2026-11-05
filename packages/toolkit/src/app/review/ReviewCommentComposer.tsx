@@ -2,6 +2,7 @@ import type {
   ReviewMention,
   ReviewResolutionTarget,
 } from "@agent-native/core/review/types";
+import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -156,7 +157,7 @@ export function ReviewCommentComposer({
   const editorRef = useRef<ReviewComposerEditorHandle>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const [editorReady, setEditorReady] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const { focused, focusWithinProps } = useFocusWithinThroughPress(fieldRef);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -439,11 +440,7 @@ export function ReviewCommentComposer({
               ? "border-input focus-within:border-[color:var(--review-composer-focus,hsl(var(--ring)))]"
               : "border-transparent",
           )}
-          onFocusCapture={() => setFocused(true)}
-          onBlurCapture={(event) => {
-            if (!fieldRef.current?.contains(event.relatedTarget as Node | null))
-              setFocused(false);
-          }}
+          {...focusWithinProps}
           onClick={(event) => {
             if (
               !disabled &&

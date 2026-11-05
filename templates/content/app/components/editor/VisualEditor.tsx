@@ -39,6 +39,8 @@ import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
+  suggestionLinkDestinations,
+  suggestionTextPresentation,
   suggestionTextPresentationForSource,
   type SuggestionPresentationContext,
 } from "@shared/suggestion-text";
@@ -1643,11 +1645,16 @@ export function suggestionHighlightSpec(
     };
   }
   if (suggestion.presentation === "draft") {
+    const newLines = /^\n+$/.test(suggestionAnchorText(suggestion.afterText));
+    // A code line's break is real text, so it takes a highlight. An uneditable
+    // widget beside it would send Chrome's caret, typing and Backspace up a line.
+    const inCode = !!doc.resolve(range.from).parent.type.spec.code;
     if (
-      /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
-      (afterPresentation &&
-        afterPresentation.length > 0 &&
-        afterPresentation.every((node) => node.type === "indent"))
+      !inCode &&
+      (newLines ||
+        (afterPresentation &&
+          afterPresentation.length > 0 &&
+          afterPresentation.every((node) => node.type === "indent")))
     ) {
       return {
         suggestionId: suggestion.id,
@@ -1684,6 +1691,7 @@ export function suggestionHighlightSpec(
           : undefined,
       editableBoundary: suggestion.kind === "replace_text",
       editableText: true,
+      lineBreak: newLines,
     };
   }
   // Removed syntax with no text, such as indentation, a list marker, or an
@@ -1718,6 +1726,14 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.kind === "replace_text"
+      ? {
+          replacedLinks: suggestionLinkDestinations(
+            beforePresentation ??
+              suggestionTextPresentation(suggestion.beforeText),
+          ),
+        }
+      : {}),
     ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
