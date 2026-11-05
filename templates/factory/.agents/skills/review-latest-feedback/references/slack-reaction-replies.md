@@ -292,7 +292,10 @@ substitute for the required root read-back.
 
 Every run, also search `in:<#channel> -has::eyes: -from:<@connected-profile-id>
 after:<YYYY-MM-DD>` and page through every result. Slack's `after:` is
-date-only and excludes that day, so use the day before the window starts.
+date-only and excludes that day, so use the day before the window starts,
+then discard any root older than the window's exact start. The filter also
+hides roots someone else reacted 👀 to; the channel read's
+`slack_get_reactions` check covers those.
 Treat each root it returns as a candidate, even one older than your last-seen
 point. A last-seen timestamp alone skips reports: one was set to the bot's own
 reply and silently dropped three roots posted minutes earlier. Advance a
