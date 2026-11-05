@@ -4,7 +4,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { NotionToggle } from "./extensions/NotionExtensions";
 
@@ -666,6 +666,21 @@ describe("a block's Markdown marker typed at the start of a title", () => {
     }
   });
 
+  it("keeps a list marker's number or check", () => {
+    for (const [marker, attrs] of [
+      ["7. ", { type: "orderedList", attrs: { start: 7 } }],
+      ["[x] ", { type: "taskList", content: [{ attrs: { checked: true } }] }],
+    ] as const) {
+      const editor = createEditor([
+        toggle("Title", false, [paragraph("Body")]),
+      ]);
+      caretIn(editor, "Title", "start");
+      type(editor, marker);
+
+      expect(editor.getJSON().content[0]).toMatchObject(attrs);
+    }
+  });
+
   it("makes a quote holding the title and body on a quote marker", () => {
     for (const marker of ['" ', "| "]) {
       const editor = createEditor([
@@ -749,6 +764,55 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     });
   }
 
+  describe("on a Mac", () => {
+    beforeEach(() => {
+      Object.defineProperty(navigator, "platform", {
+        value: "MacIntel",
+        configurable: true,
+      });
+    });
+    afterEach(() => {
+      delete (navigator as { platform?: string }).platform;
+    });
+
+    for (const [init, label] of [
+      [{ key: "h", ctrlKey: true }, "Ctrl and H"],
+      [{ key: "d", ctrlKey: true }, "Ctrl and D"],
+      [{ key: "d", altKey: true }, "Option and D"],
+    ] as const) {
+      it(`keeps the hidden body on ${label}`, () => {
+        const editor = createEditor([
+          toggle("Title", false, [paragraph("Body")]),
+          paragraph("After"),
+        ]);
+        selectFromTitleTo(editor, 0, "After");
+        press(editor, init);
+
+        expect(editor.getJSON().content).toEqual([
+          toggle("After", false, [paragraph("Body")]),
+        ]);
+      });
+    }
+  });
+
+  it("keeps the hidden body on a line break or Ctrl+Enter over the selection", () => {
+    for (const press_ of [
+      (editor: Editor) => press(editor, { key: "Enter", shiftKey: true }),
+      pressCtrlEnter,
+    ]) {
+      const editor = createEditor([
+        toggle("Title", false, [paragraph("Body")]),
+        paragraph("After"),
+      ]);
+      selectFromTitleTo(editor, 0, "After");
+      press_(editor);
+
+      const [made] = editor.getJSON().content;
+      expect(made?.content?.slice(1)).toEqual([paragraph("Body")]);
+      expect(editor.state.doc.textContent).toContain("After");
+    }
+  });
+
   it("joins what's left of the title to what's left of the last line", () => {
     const editor = createEditor([
       toggle("Title", false, [paragraph("Body")]),
@@ -776,6 +840,47 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     expect(editor.getJSON().content).toEqual([
       toggle("PastedAfter", false, [paragraph("Body")]),
     ]);
+  });
+
+  it("pastes lines over the selection below the Toggle, keeping the hidden body", () => {
+    for (const paste of [
+      (editor: Editor) => editor.view.pasteText("Pasted\nSecond"),
+      (editor: Editor) => editor.view.pasteHTML("<p>Pasted</p><p>Second</p>"),
+    ]) {
+      const editor = createEditor([
+        toggle("Title", false, [paragraph("Body")]),
+        paragraph("After"),
+      ]);
+      selectFromTitleTo(editor, 0, "After");
+      paste(editor);
+
+      expect(editor.getJSON().content).toEqual([
+        toggle("Pasted", false, [paragraph("Body")]),
+        paragraph("SecondAfter"),
+      ]);
+      expect(caret(editor)).toEqual({ line: "SecondAfter", offset: 6 });
+    }
+  });
+
+  it("cuts only what it takes, not the hidden body it keeps", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    const copied = new Map<string, string>();
+    const cut = new Event("cut", { bubbles: true, cancelable: true });
+    Object.defineProperty(cut, "clipboardData", {
+      value: {
+        clearData: () => copied.clear(),
+        setData: (kind: string, data: string) => copied.set(kind, data),
+      },
+    });
+    editor.view.dom.dispatchEvent(cut);
+
+    expect(copied.get("text/plain")).toContain("Title");
+    expect(copied.get("text/plain")).not.toContain("Body");
+    expect(copied.get("text/html")).not.toContain("Body");
   });
 
   it("cuts the selection and keeps the hidden body", () => {
@@ -876,6 +981,35 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     press(editor, { key: "Backspace" });
 
     expect(JSON.stringify(editor.getJSON())).not.toContain("Body");
+  });
+});
+
+describe("pasting lines in a Toggle's title", () => {
+  it("puts the lines after the first below a closed Toggle", () => {
+    const editor = createEditor([toggle("Title", false, [paragraph("Body")])]);
+    editor.commands.setTextSelection(4);
+    editor.view.pasteText("One\nTwo");
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("TiOne", false, [paragraph("Body")]),
+      paragraph("Twotle"),
+    ]);
+    expect(caret(editor)).toEqual({ line: "Twotle", offset: 3 });
+
+    editor.commands.undo();
+    expect(editor.getJSON().content).toEqual([
+      toggle("Title", false, [paragraph("Body")]),
+    ]);
+  });
+
+  it("starts an open Toggle's body with them", () => {
+    const editor = createEditor([toggle("Title", true, [paragraph("Body")])]);
+    editor.commands.setTextSelection(4);
+    editor.view.pasteText("One\nTwo");
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("TiOne", true, [paragraph("Twotle"), paragraph("Body")]),
+    ]);
   });
 });
 

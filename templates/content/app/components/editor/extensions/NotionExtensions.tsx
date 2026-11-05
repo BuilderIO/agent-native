@@ -21,7 +21,14 @@ import {
   IconExternalLink,
   IconFileText,
 } from "@tabler/icons-react";
-import { InputRule, type Editor } from "@tiptap/core";
+import {
+  getTextBetween,
+  getTextSerializersFromSchema,
+  InputRule,
+  isiOS,
+  isMacOS,
+  type Editor,
+} from "@tiptap/core";
 import { Code } from "@tiptap/extension-code";
 import {
   Fragment,
@@ -33,14 +40,14 @@ import {
   type Schema,
 } from "@tiptap/pm/model";
 import {
+  EditorState,
   Plugin,
   PluginKey,
   Selection,
   TextSelection,
-  type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
-import { Mapping } from "@tiptap/pm/transform";
+import { Mapping, Transform } from "@tiptap/pm/transform";
 import type { EditorView } from "@tiptap/pm/view";
 import {
   Mark,
@@ -210,7 +217,11 @@ interface ToggleTitleContext {
 export function toggleTitleAtSelection(
   state: EditorState,
 ): ToggleTitleContext | null {
-  const { $from, $to } = state.selection;
+  return toggleTitleHolding(state.selection);
+}
+
+function toggleTitleHolding(selection: Selection): ToggleTitleContext | null {
+  const { $from, $to } = selection;
   if ($from.depth < 2 || $from.parent.type.name !== TOGGLE_TITLE_NODE) {
     return null;
   }
@@ -506,15 +517,91 @@ function deleteSelectionFromClosedTitle(editor: Editor): boolean {
   return true;
 }
 
-/** The other keys TipTap gives to deleting a selection, past Backspace and Delete. */
-const DELETE_SELECTION_KEYS = [
-  "Mod-Backspace",
-  "Shift-Backspace",
-  "Alt-Backspace",
-  "Ctrl-Alt-Backspace",
-  "Mod-Delete",
-  "Alt-Delete",
-];
+/**
+ * The clipboard for cutting a selection from a closed title: what the cut
+ * takes, without the body it keeps.
+ */
+function clipboardFromClosedTitle(view: EditorView) {
+  const { $from, $to } = view.state.selection;
+  const withoutBody = new Transform(view.state.doc).delete(
+    $from.after(),
+    $from.end(-1),
+  );
+  const { doc } = withoutBody;
+  const range = { from: $from.pos, to: withoutBody.mapping.map($to.pos) };
+  const { dom } = view.serializeForClipboard(doc.slice(range.from, range.to));
+  // TipTap's own clipboard text is the editor's selection, body and all.
+  const text = getTextBetween(doc, range, {
+    textSerializers: getTextSerializersFromSchema(view.state.schema),
+  });
+  return { html: dom.innerHTML, text };
+}
+
+/**
+ * Lines pasted into a closed Toggle's title go below it, where Enter puts
+ * what follows the caret: the first line joins the title, and the rest of the
+ * title ends the last line. ProseMirror's own paste would put them in the body
+ * the Toggle hides. False, with nothing changed, for a paste that stays in the
+ * title.
+ */
+function pasteIntoClosedTitle(tr: Transaction, slice: Slice): boolean {
+  const context = toggleTitleHolding(tr.selection);
+  const paragraph = tr.doc.type.schema.nodes.paragraph as NodeType | undefined;
+  if (!context || context.toggle.attrs.open || !paragraph) return false;
+  const { togglePos, toggle, title, titleStart } = context;
+  const body = (node: ProseMirrorNode) =>
+    node.content.cut(node.firstChild?.nodeSize ?? 0);
+  const pasted = EditorState.create({ doc: tr.doc, selection: tr.selection })
+    .tr.replaceSelection(slice)
+    .doc.nodeAt(togglePos);
+  if (pasted?.type === toggle.type && body(pasted).eq(body(toggle))) {
+    return false;
+  }
+
+  // Paste into the title's text on a line of its own below the Toggle, then
+  // join that line's first line back to the title.
+  const { from, to } = tr.selection;
+  const below = togglePos + toggle.nodeSize - title.content.size;
+  tr.delete(titleStart, titleStart + title.content.size);
+  tr.insert(below, paragraph.create(null, title.content));
+  tr.setSelection(
+    TextSelection.create(
+      tr.doc,
+      below + 1 + from - titleStart,
+      below + 1 + to - titleStart,
+    ),
+  );
+  tr.replaceSelection(slice);
+  const first = tr.doc.nodeAt(below);
+  const line = first ? firstLineOfBlock(first, below) : null;
+  if (!line) return true;
+  const caret = tr.selection.from;
+  const caretInLine = line.from < caret && caret < line.to;
+  tr.replaceWith(line.from, line.to, line.rest);
+  tr.insert(titleStart, line.content);
+  if (caretInLine) {
+    tr.setSelection(
+      TextSelection.create(tr.doc, titleStart + line.content.size),
+    );
+  }
+  return true;
+}
+
+/**
+ * The other keys TipTap gives to deleting a selection, past Backspace and
+ * Delete, with the ones it adds on a Mac.
+ */
+function deleteSelectionKeys() {
+  const keys = [
+    "Mod-Backspace",
+    "Shift-Backspace",
+    "Alt-Backspace",
+    "Ctrl-Alt-Backspace",
+    "Mod-Delete",
+    "Alt-Delete",
+  ];
+  return isMacOS() || isiOS() ? [...keys, "Ctrl-h", "Ctrl-d", "Alt-d"] : keys;
+}
 
 /**
  * Delete at the end of a line joins the line below to it, as in Notion, when
@@ -1484,7 +1571,7 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
       Delete: ({ editor }) =>
         deleteSelectionFromClosedTitle(editor) || joinLineBelowToLine(editor),
       ...Object.fromEntries(
-        DELETE_SELECTION_KEYS.map((key) => [
+        deleteSelectionKeys().map((key) => [
           key,
           ({ editor }: { editor: Editor }) =>
             deleteSelectionFromClosedTitle(editor),
@@ -1553,20 +1640,31 @@ const TITLE_BLOCK_MARKERS = [
 
 const TITLE_QUOTE_MARKER = /^["|]\s$/;
 
-/** The list a Markdown marker typed at the start of a title makes. */
+/**
+ * The list a Markdown marker typed at the start of a title makes. A number
+ * starts the list there and an x checks the task, as on any other line.
+ */
 function listTypesForMarker(typed: string, schema: Schema) {
+  const ordered = /^(\d+)\.\s$/.exec(typed);
+  const task = /^\[([ x]?)\]\s$/.exec(typed);
   const names = /^[-+*]\s$/.test(typed)
     ? ["bulletList", "listItem"]
-    : /^\d+\.\s$/.test(typed)
+    : ordered
       ? ["orderedList", "listItem"]
-      : /^\[[ x]?\]\s$/.test(typed)
+      : task
         ? ["taskList", "taskItem"]
         : null;
   if (!names) return null;
   const [listName = "", itemName = ""] = names;
   const list = schema.nodes[listName] as NodeType | undefined;
   const item = schema.nodes[itemName] as NodeType | undefined;
-  return list && item ? { list, item } : null;
+  if (!list || !item) return null;
+  return {
+    list,
+    item,
+    listAttrs: ordered ? { start: Number(ordered[1]) } : null,
+    itemAttrs: task ? { checked: task[1] === "x" } : null,
+  };
 }
 
 /**
@@ -1612,7 +1710,7 @@ function turnToggleAtTitleMarker(
     const tr = state.tr.replaceWith(
       togglePos,
       togglePos + toggle.nodeSize,
-      list.list.create(null, list.item.create(null, lines)),
+      list.list.create(list.listAttrs, list.item.create(list.itemAttrs, lines)),
     );
     tr.setSelection(TextSelection.create(tr.doc, togglePos + 3));
     view.dispatch(tr.scrollIntoView());
@@ -1826,11 +1924,19 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
 
   addKeyboardShortcuts() {
     return {
+      // Each key acts as it would at the caret once the selection is gone.
       Enter: ({ editor }) => {
         deleteSelectionFromClosedTitle(editor);
         return splitToggleTitle(editor);
       },
-      "Mod-Enter": ({ editor }) => toggleOpenAtTitle(editor),
+      "Shift-Enter": ({ editor }) => {
+        deleteSelectionFromClosedTitle(editor);
+        return false;
+      },
+      "Mod-Enter": ({ editor }) => {
+        deleteSelectionFromClosedTitle(editor);
+        return toggleOpenAtTitle(editor);
+      },
       Backspace: ({ editor }) => unwrapToggleAtTitleStart(editor),
       Delete: ({ editor }) => joinBlockBelowToToggleTitle(editor),
       Tab: ({ editor }) =>
@@ -1924,10 +2030,18 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           // Pasting and cutting act like typing over the selection, so neither
           // takes a closed Toggle's hidden body with it.
           handlePaste(view, _event, slice) {
-            const overHiddenBody = slice.size
-              ? deleteFromClosedTitle(view.state)
-              : null;
-            if (overHiddenBody) view.dispatch(overHiddenBody);
+            if (!slice.size || isSuggestingEdits(view.state)) return false;
+            const tr = deleteFromClosedTitle(view.state) ?? view.state.tr;
+            if (pasteIntoClosedTitle(tr, slice)) {
+              view.dispatch(
+                tr
+                  .scrollIntoView()
+                  .setMeta("paste", true)
+                  .setMeta("uiEvent", "paste"),
+              );
+              return true;
+            }
+            if (tr.docChanged) view.dispatch(tr);
             return false;
           },
           handleDOMEvents: {
@@ -1936,11 +2050,9 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
                 ? deleteFromClosedTitle(view.state)
                 : null;
               if (!overHiddenBody || !event.clipboardData) return false;
-              const { dom, text } = view.serializeForClipboard(
-                view.state.selection.content(),
-              );
+              const { html, text } = clipboardFromClosedTitle(view);
               event.clipboardData.clearData();
-              event.clipboardData.setData("text/html", dom.innerHTML);
+              event.clipboardData.setData("text/html", html);
               event.clipboardData.setData("text/plain", text);
               event.preventDefault();
               view.dispatch(
