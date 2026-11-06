@@ -12455,11 +12455,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           exportPreviewScreenId,
         ].filter((id): id is string => Boolean(id)),
       ),
-      // A mounted editor is painted even once demoted: it stays up until its
-      // preview paints, and needs its source until then.
+      // Painted counts from the mount: a preview reports paint frames after
+      // its document shows, and a demoted editor stays up until its preview
+      // paints. Either needs its source the whole time.
       paintedIds: new Set([
         ...paintedStaticPreviewIds,
         ...screenContentById.keys(),
+        ...canvasFrames
+          .filter(
+            ({ screen }) =>
+              admittedIframeIds.has(screen.id) &&
+              (screen.sourceState ?? "ready") === "ready",
+          )
+          .map(({ screen }) => screen.id),
       ]),
       viewport: cameraMoving
         ? null
@@ -12490,6 +12498,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return JSON.stringify({ pinned, preview });
   }, [
     activeId,
+    admittedIframeIds,
     cameraSettledTick,
     canvasFrames,
     canvasZoom,
