@@ -104,6 +104,10 @@ import {
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
 import { eagerSourceIds } from "../source-hydration";
 import {
+  hydrateDesignFiles,
+  type IdentityCache,
+} from "../stable-file-identity";
+import {
   type DesignData,
   type DesignFile,
   type DesignFileMetadata,
@@ -267,8 +271,10 @@ export function useEditorGenerationAndAccess({
     ((prompt: RetryablePrompt) => void) | null
   >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  // Hashing every screen is too slow to repeat on each render of a large
+  // board, so the editor publishes a reader and a submit calls it.
   const generationOutputBaselineRef = useRef<
-    Array<{ id: string; contentHash: string }> | undefined
+    (() => Array<{ id: string; contentHash: string }>) | undefined
   >(undefined);
   const generationOutputUnknownRef = useRef<{
     designId: string;
@@ -295,6 +301,7 @@ export function useEditorGenerationAndAccess({
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(
     (autoRetry = true) => {
@@ -306,6 +313,7 @@ export function useEditorGenerationAndAccess({
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        references: pending.references,
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
@@ -576,7 +584,7 @@ export function useEditorGenerationAndAccess({
       const previousRunBaselineVerified = baseline.verified;
       const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
         pending?.outputBaselineFiles,
-        generationOutputBaselineRef.current,
+        generationOutputBaselineRef.current?.(),
       );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
@@ -825,27 +833,30 @@ export function useEditorGenerationAndAccess({
     dirtySourceIds,
     previewSourceIds,
   );
+  const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
+    new Map(),
+  );
+  const hydratedDesignRef = useRef<{
+    metadata: object;
+    design: DesignData;
+  } | null>(null);
   const designResult = useMemo<DesignData | string | undefined>(() => {
     if (!metadataResult || typeof metadataResult !== "object")
       return metadataResult;
-    return {
-      ...metadataResult,
-      files: metadataResult.files.flatMap((file) => {
-        const state = sourceLoader?.get(file.id);
-        return state?.status === "ready"
-          ? [
-              {
-                ...file,
-                content: state.content,
-                updatedAt: state.updatedAt,
-                sourceState: state.refreshError
-                  ? ("error" as const)
-                  : (dependencyStatusByRoot.get(file.id) ?? "ready"),
-              },
-            ]
-          : [];
-      }),
-    };
+    const previous = hydratedDesignRef.current;
+    const files = hydrateDesignFiles(
+      hydratedFilesCacheRef.current,
+      previous?.design.files,
+      metadataResult.files,
+      (id) => sourceLoader?.get(id),
+      (id) => dependencyStatusByRoot.get(id),
+    );
+    const design =
+      previous?.metadata === metadataResult && previous.design.files === files
+        ? previous.design
+        : { ...metadataResult, files };
+    hydratedDesignRef.current = { metadata: metadataResult, design };
+    return design;
   }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
@@ -1659,7 +1670,7 @@ export function useEditorGenerationAndAccess({
           setHasPendingGeneration,
           setRetryablePrompt,
           outputBaselineFiles:
-            generationOutputBaselineRef.current ??
+            generationOutputBaselineRef.current?.() ??
             promptState.outputBaselineFiles,
         },
         promptState,

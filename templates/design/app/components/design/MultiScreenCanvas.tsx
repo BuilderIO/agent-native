@@ -590,6 +590,7 @@ import {
   cloneFrameGeometryById,
   findTopFrameEntryAtPoint,
   frameGeometryWithOverrides,
+  type FrameGeometryInputScreen,
   frameStyleLeftTop,
   geometryContainsPoint,
   getBreakpointFrameGeometry,
@@ -603,6 +604,7 @@ import {
   getSelectableBounds,
   rectContainsPoint,
   resolveFrameGeometrySync,
+  reuseFrameGeometryInputs,
   resolveHitTestForegroundId,
   rotatePointAroundCenter,
   sameFrameGeometry,
@@ -2558,15 +2560,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoom,
   ]);
 
+  const frameGeometryInputsRef = useRef<
+    readonly FrameGeometryInputScreen[] | undefined
+  >(undefined);
+  const frameGeometryInputs = useMemo(() => {
+    const inputs = reuseFrameGeometryInputs(
+      frameGeometryInputsRef.current,
+      screens.map((screen) => {
+        const metadata = getResolvedMetadata(screen);
+        return {
+          id: screen.id,
+          metadata: { width: metadata.width, height: metadata.height },
+          breakpointWidths: screen.breakpointWidths,
+          layoutGroupId: screen.layoutGroupId,
+        };
+      }),
+    );
+    frameGeometryInputsRef.current = inputs;
+    return inputs;
+  }, [getResolvedMetadata, screens]);
+
   useLayoutEffect(() => {
-    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     const { next, changed, shouldNotifyParent } = resolveFrameGeometrySync({
-      screens: screens.map((screen) => ({
-        id: screen.id,
-        metadata: getResolvedMetadata(screen),
-        breakpointWidths: screen.breakpointWidths,
-        layoutGroupId: screen.layoutGroupId,
-      })),
+      screens: frameGeometryInputs,
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
       geometryOverridesById,
@@ -2580,20 +2596,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setFrameGeometry(next);
       }
     }
+  }, [
+    frameGeometryInputs,
+    geometryById,
+    geometryOverridesById,
+    updateFrameGeometry,
+    updateFrameGeometryRefOnly,
+  ]);
+
+  useLayoutEffect(() => {
+    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     updateSelectedIds((current) => {
       const next = current.filter((id) => selectableIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [
-    geometryById,
-    geometryOverridesById,
-    getResolvedMetadata,
-    screens,
-    selectableScreens,
-    updateFrameGeometry,
-    updateFrameGeometryRefOnly,
-    updateSelectedIds,
-  ]);
+  }, [selectableScreens, updateSelectedIds]);
 
   useLayoutEffect(() => {
     renderedScreenIdsRef.current = new Set(screens.map((screen) => screen.id));

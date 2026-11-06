@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Unterhaltung referenzieren…",
+    group: "Unterhaltungen",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   composer: {
     removeAttachment: "{{name}} entfernen",
     removeReference: "Referenz {{name}} entfernen",

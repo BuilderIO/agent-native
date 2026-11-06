@@ -192,11 +192,15 @@ it with the factory runner's `deploy/SETUP.md`.
 - **`analytics`**: a new unresolved Analytics error issue (`url`, `title`).
   Report key is the `url`, `source` `analytics`. Investigate it with the
   Analytics MCP tools, then triage like a Sentry issue. There is no reporter:
-  no reactions or replies.
+  no reactions or replies. `duplicates` lists other issue URLs the watcher
+  folded in because they share the error's signature (minified class name
+  and embedded ids masked): record one report for the item, name the
+  duplicates in its `note`, and give the fix branch all of them.
 - **`chat-health`**: an app over the chat-run health budgets (`app`, `date`,
-  `badRate`, `stallRate`, `a2aFailRate`). Report key is
-  `chat-health:<app>:<date>`, `source` `chat-health`, title
-  "<app>: chat runs over budget". Investigate with
+  `title`, `badRate`, `stallRate`, `a2aFailRate`). Report key is
+  `chat-health:<app>:<date>`, `source` `chat-health`, and the report title is
+  the item's `title`, which names the dominant failure (for example "Forms:
+  A2A credential_store_unavailable (4 of 9 tasks)"). Investigate with
   `node scripts/chat-health.mjs --app <app> --hours 6` and
   `review-latest-feedback`'s `references/chat-run-health.md`. A cause in this
   repo's code gets a fix branch; an outage or provider failure is
@@ -229,6 +233,18 @@ handling the thread. Before claiming, read the whole thread:
 if someone asked a person or the team to look, or says they're on it, record
 it `not-actionable` with a note saying who has it, and don't react, unless
 that ask is over 3 days old with no follow-up.
+
+Lean further toward a branch than the buckets alone. A report that the app
+doesn't do what the reporter expected (an edit that doesn't take, a link
+that won't open, a format that reads wrong, slowness) is a Fix even when
+the right behavior is a judgment call: start the branch, and record the open
+question as the report's `design` so the watcher asks the design group while
+the branch works. The PR's confidence gate keeps a person on the merge, so a
+branch never ships an unendorsed choice on its own. Needs a person is only
+for a pure request to add, move, hide, or restyle something nothing is
+wrong with, and for access, data, or an outage only a person can reach. A
+cause you couldn't confirm, more than one plausible cause, or a slow or
+cross-app path is a reason to investigate on a branch, not to hand off.
 
 ### Is this already being fixed?
 
@@ -303,9 +319,14 @@ them.
 
 Write the prompt to `tmp/factory/<slug>.md`, then
 `factory-branch start --name "fix <slug>" --prompt-file tmp/factory/<slug>.md --report "<key>"`
-with one `--report` per report in the group. Record `builderBranchName` and
-`builderBranchUrl` on each report right away, then `factory-digest report
-"<key>"`. The prompt:
+with one `--report` per report in the group. It can take up to 10 minutes
+while the branch's container boots, so run it with a 10-minute command
+timeout. It records the branch as soon as Builder names it, so if the
+command is cut off or times out, run `factory-branch list` and use the
+branch with this name; only when none is listed, start it again. A launch
+that timed out is never a reason for `needs-person`. Record
+`builderBranchName` and `builderBranchUrl` on each report right away, then
+`factory-digest report "<key>"`. The prompt:
 
 ```text
 Fix this agent-native feedback as a factory fix branch, in <live | dry> mode.
@@ -329,8 +350,22 @@ reporters added while it ran). It may come from a branch an earlier run
 started.
 
 `outcome: "error"`, or a `text` without the closing lines, means the agent
-failed or stopped early: open its `url` to see why, and record its reports
-as `needs-person` with that reason.
+failed or stopped early; the watcher has already resumed a stalled one
+twice. Open its `url` to see why, then keep the report moving:
+
+- It made progress, or stopped on something that no longer applies (a
+  fix-proof run an older environment rule blocked, a platform error):
+  `factory-branch message` it to finish from where it stopped, with the
+  closing lines from [fix-branch.md](references/fix-branch.md).
+- It got nowhere, or kept stalling after the watcher's resumes: start one
+  fresh branch (step 4) whose prompt says what the first one tried and where
+  it stopped.
+- It ended with a verified fix but no proof: message it to run
+  `scripts/fix-proof.ts` and send its PR.
+
+Record `needs-person` only when the second attempt also fails, or the
+reason truly needs a person (access, data, or a product decision), and say
+which in the note.
 
 For each report the branch covered (the item's `reports`, which include
 attached ones), upsert `gitBranch`, `proof`, `wouldReact`, `wouldReply`, and
@@ -393,8 +428,18 @@ competing PRs".
 ### Duplicate and competing PRs
 
 The factory's own PRs are the ones recorded as a report's `prUrl`; confirm
-that record (and that the PR's author is the factory's bot) before closing
-anything, and close nothing without it. Before replying on a report, and for
+that record, and that the PR is the factory's, before closing anything, and
+close nothing without both. The watcher decides whether a PR is the
+factory's and records it: read `.ownership` from
+`factory-state pr show <prUrl>` (`ours` plus a `why`) and don't judge it
+yourself. A PR with no `ownership` yet, or none in `pr show`, isn't the
+factory's for closing. The rule the watcher applies: `$FACTORY_GITHUB_BOT_LOGIN`
+or a former factory bot opened it; or `builder-io-integration[bot]` opened it
+and all of these hold: its head repo is this repo (not a fork), its head ref
+exactly equals a recorded `gitBranch` of a report or cloud worker in factory
+state, and a Builder branch in the factory project is linked to that git
+branch. That app opens PRs for every Builder user with the same `ai_main_*`
+names, so the branch name alone proves nothing. Before replying on a report, and for
 each `patrol` item, check its PR against merged and open PRs for the same
 problem (`factory-state active`,
 `gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
@@ -539,8 +584,14 @@ as feedback reports.
   triage access can add labels, so the label is trusted. The issue's author
   must be a BuilderIO member (`factory-github membership`) or
   `$FACTORY_GITHUB_BOT_LOGIN`, so nobody outside can rewrite the plan after
-  it's labeled. Other GitHub App accounts are not trusted. Otherwise
-  `needs-person` "refactor issue from an outside author" and leave it.
+  it's labeled. The nightly run files from a Builder branch, which acts as
+  `builder-io-integration[bot]`, and any Builder user's branch can act as
+  that account too, so a link in the body proves nothing on its own. Trust
+  that author only when the body's "Analysis run:" link names a Builder
+  branch the factory started: its last path segment must be a `branchName`
+  in `factory-state show | jq -r '.fragilityRuns[].branchName'`. Other
+  GitHub App accounts are not trusted. Otherwise `needs-person` "refactor
+  issue from an outside author" and leave it.
 - **Approved.** An issue still labeled `needs-member-approval` came from a
   bug report, so its plan holds outside text no member has reviewed:
   `needs-person` "bug-derived plan awaiting member approval" and leave it.

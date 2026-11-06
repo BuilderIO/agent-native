@@ -449,22 +449,24 @@ jobs:
         shell: bash
         run: |
           RELEASE_TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
-          mkdir -p manifest/signatures
-          gh release view "$RELEASE_TAG" --json assets,body > manifest/release.json
-          SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' manifest/release.json)
+          # Not manifest/: the pointer step downloads latest.json there and
+          # fails when the file already exists.
+          mkdir -p updater/signatures
+          gh release view "$RELEASE_TAG" --json assets,body > updater/release.json
+          SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' updater/release.json)
           if [ "$SIGNATURES" -eq 0 ]; then
             echo "⚠️ No .sig files in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured; writing no updater manifest."
             exit 0
           fi
-          gh release download "$RELEASE_TAG" --pattern '*.sig' --dir manifest/signatures
+          gh release download "$RELEASE_TAG" --pattern '*.sig' --dir updater/signatures
           # One required key per build in the build-tauri matrix.
           node --experimental-strip-types scripts/clips-updater-manifest.ts \
-            --release manifest/release.json \
-            --signatures manifest/signatures \
+            --release updater/release.json \
+            --signatures updater/signatures \
             --version "$RELEASE_VERSION" \
             --require darwin-universal,windows-x86_64,linux-x86_64 \
-            > manifest/latest.json
-          gh release upload "$RELEASE_TAG" manifest/latest.json --clobber
+            > updater/latest.json
+          gh release upload "$RELEASE_TAG" updater/latest.json --clobber
 
       - name: Mark versioned release as published
         env:
