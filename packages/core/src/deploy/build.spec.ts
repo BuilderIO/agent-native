@@ -6,6 +6,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { transform } from "esbuild";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
