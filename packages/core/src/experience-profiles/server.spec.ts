@@ -5,6 +5,7 @@ import { resolveExperienceFlags } from "./index.js";
 const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
+  getAppConfig: vi.fn(),
 }));
 vi.mock("../action.js", () => ({
   defineAction: (value: unknown) => value,
@@ -13,7 +14,9 @@ vi.mock("../action.js", () => ({
   },
 }));
 vi.mock("../settings/user-settings.js", () => mocks);
-const { createExperienceProfileActions } = await import("./server.js");
+vi.mock("../app-config/index.js", () => ({ getAppConfig: mocks.getAppConfig }));
+const { createExperienceProfileActions, canUseReferenceExperience } =
+  await import("./server.js");
 const deviations = [
   { flag: { key: "example.inspector" }, enabledInAgentNative: true },
 ];
@@ -129,4 +132,40 @@ describe("experience profiles", () => {
       resolveExperienceFlags([...deviations, ...deviations], "reference"),
     ).toThrow("Duplicate");
   });
+});
+
+it("matches only explicit deployment reviewers and normalizes case", () => {
+  mocks.getAppConfig.mockReturnValue({
+    experienceProfiles: { referenceEmails: [" Reviewer@Example.com "] },
+  });
+  expect(
+    canUseReferenceExperience({ ...ctx, userEmail: "REVIEWER@example.com" }),
+  ).toBe(true);
+  expect(
+    canUseReferenceExperience({ ...ctx, userEmail: "other@example.com" }),
+  ).toBe(false);
+  expect(canUseReferenceExperience({ caller: "cli" })).toBe(false);
+});
+
+it("rejects unstable app identifiers and duplicate deviation declarations", () => {
+  expect(() =>
+    createExperienceProfileActions({
+      appId: "../example",
+      deviations,
+      canUseReference: () => true,
+    }),
+  ).toThrow("stable app id");
+  expect(() =>
+    createExperienceProfileActions({
+      appId: "example",
+      deviations: [...deviations, ...deviations],
+      canUseReference: () => true,
+    }),
+  ).toThrow("Duplicate");
+  expect(
+    resolveExperienceFlags(
+      [{ flag: { key: "example.optional" }, enabledInAgentNative: false }],
+      "agent-native",
+    ),
+  ).toEqual({ "example.optional": false });
 });

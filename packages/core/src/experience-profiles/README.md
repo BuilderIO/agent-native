@@ -2,7 +2,7 @@
 
 Profiles are user choices over an app's existing deviation flags. They do not create a second rollout store or replace DEVIATIONS.md. Define feature flags with `defineFeatureFlag`, register them with the existing feature-flags plugin, and pass their definitions plus `enabledInAgentNative` to `createExperienceProfileActions` from `@agent-native/core/experience-profiles/server`.
 
-Export the returned `get` and `set` actions as `get-experience-profile.ts` and `set-experience-profile.ts` in the app's actions directory. Both the UI and agent use those actions. `get` returns the effective profile, saved choice, reference availability, and preset values for only the declared deviations. Other feature flags retain their normal rollout semantics.
+In the app’s actions directory, default-export `createGetExperienceProfileAction(options)` from `get-experience-profile.ts` and `createSetExperienceProfileAction(options)` from `set-experience-profile.ts`. These factory exports participate in static action discovery. Both the UI and agent use those actions. `get` returns the effective profile, saved choice, reference availability, and preset values for only the declared deviations. Other feature flags retain their normal rollout semantics.
 
 The first visit uses Agent-Native. Reference disables all declared deviations. Pass `canUseReferenceExperience` as the authorization callback to use the deployment's `experienceProfiles.referenceEmails` allowlist (`EXPERIENCE_REFERENCE_EMAILS`), or supply a stronger app-owned policy. Authorization is rechecked for every read and write. A revoked saved choice remains visible as `savedProfile: reference` but the effective profile is Agent-Native. Invalid or unreadable preferences throw rather than silently becoming defaults.
 

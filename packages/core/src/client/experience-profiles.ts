@@ -22,7 +22,7 @@ export function useExperienceProfile() {
       setSaving(true);
       try {
         const result = await mutation.mutateAsync({ profile });
-        await query.refetch();
+        await query.refetch({ throwOnError: true });
         return result;
       } finally {
         setSaving(false);

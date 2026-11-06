@@ -14,11 +14,15 @@ const stateSchema = z.object({
   values: z.record(z.string(), z.boolean()),
 });
 
-export function createExperienceProfileActions(options: {
+export interface ExperienceProfileOptions {
   appId: string;
   deviations: readonly ExperienceDeviation[];
   canUseReference: (ctx: ActionRunContext) => boolean | Promise<boolean>;
-}) {
+}
+
+export function createExperienceProfileActions(
+  options: ExperienceProfileOptions,
+) {
   if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(options.appId)) {
     throw new Error("Experience profiles require a stable app id.");
   }
@@ -84,4 +88,16 @@ export function canUseReferenceExperience(ctx: ActionRunContext): boolean {
       (reviewer) => reviewer.trim().toLowerCase() === email,
     )
   );
+}
+
+export function createGetExperienceProfileAction(
+  options: ExperienceProfileOptions,
+) {
+  return createExperienceProfileActions(options).get;
+}
+
+export function createSetExperienceProfileAction(
+  options: ExperienceProfileOptions,
+) {
+  return createExperienceProfileActions(options).set;
 }
