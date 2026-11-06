@@ -5,6 +5,10 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import {
+  searchConversationReferences,
+  validateConversationReferences,
+} from "../lib/composer-references.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -16,6 +20,15 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "chat",
+  mentionProviders: {
+    chats: {
+      label: "composerSources.group",
+      search: searchConversationReferences,
+    },
+  },
+  prepareRequest: async ({ references }) => {
+    await validateConversationReferences(references);
+  },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   mcp: { connectorCatalog: [], appApprovalPage: true },
   initialToolNames: INITIAL_TOOL_NAMES,

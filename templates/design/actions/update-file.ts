@@ -16,6 +16,14 @@ import {
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
 import {
+  LegacyEmailFrameTypeNotStoredError,
+  writeWithLegacyEmailFrameTypes,
+} from "../server/lib/legacy-email-frame-type.js";
+import {
+  readDesignDataForUpdate,
+  serializeFrameTypeChange,
+} from "../server/lib/screen-frame-type-store.js";
+import {
   affectedRowCount,
   getDesignSourceMutationExec,
   lockDesignFilesTable,
@@ -27,11 +35,17 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
 import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  frameTypeFromStored,
+  resolveScreenFrameType,
+  STORED_SCREEN_FRAME_TYPES,
+} from "../shared/screen-frame-type.js";
 import {
   applySourceContentPatch,
   sourceContentHash,
@@ -111,6 +125,12 @@ export default defineAction({
         .enum(["html", "css", "jsx", "asset"])
         .optional()
         .describe("Updated file type"),
+      frameType: z
+        .enum(STORED_SCREEN_FRAME_TYPES)
+        .optional()
+        .describe(
+          'Set "hubspot-email" to make this HTML screen a HubSpot email frame, laid out 600px wide with no device variants, or "web" to make an email frame an ordinary screen with the design\'s breakpoints again. Omit to keep the current type.',
+        ),
       syncCollab: z
         .boolean()
         .optional()
@@ -209,6 +229,7 @@ export default defineAction({
         if (
           value.filename !== undefined ||
           value.fileType !== undefined ||
+          value.frameType !== undefined ||
           value.syncCollab === false
         ) {
           ctx.addIssue({
@@ -241,6 +262,7 @@ export default defineAction({
       contentPatch,
       filename,
       fileType,
+      frameType,
       syncCollab,
       identityOnly,
       expectedVersionHash,
@@ -303,7 +325,25 @@ export default defineAction({
       syncCollab,
     });
 
-    await assertAccess("design", file.designId, "editor");
+    const access = await assertAccess("design", file.designId, "editor");
+    // Only a non-HTML file can fail the check, so HTML saves skip parsing the
+    // design data.
+    const targetFileType = fileType ?? file.fileType;
+    if (targetFileType !== "html") {
+      assertHubSpotEmailFileType({
+        fileType: targetFileType,
+        frameType:
+          frameType === undefined
+            ? resolveScreenFrameType({
+                designData: parseDesignDataBlob(
+                  (access.resource as { data?: unknown }).data,
+                ),
+                fileId: file.id,
+                content: requestedContent ?? file.content,
+              })
+            : frameTypeFromStored(frameType),
+      });
+    }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -319,6 +359,7 @@ export default defineAction({
         !expectedVersionHash ||
         filename !== undefined ||
         fileType !== undefined ||
+        frameType !== undefined ||
         syncCollab === false ||
         !operationSource ||
         !Number.isSafeInteger(operationRevision) ||
@@ -383,8 +424,53 @@ export default defineAction({
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
+    let storedLegacyEmailIds: ReadonlySet<string> = new Set();
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
+        // An explicit frame type commits with the content write, so a failed
+        // write leaves neither behind. A skipped write passes null for
+        // previousContent: its request lost to a newer one, so its type must
+        // not land either. A non-HTML file rechecks the type here, under the
+        // row lock, so a concurrent switch to email cannot slip past the
+        // check made before the transaction.
+        const touchDesign = async (
+          previousContent: string | null,
+          nextContent: string,
+          persistedFileType: string | null,
+        ) => {
+          const lockedFileType = fileType ?? persistedFileType ?? file.fileType;
+          const changesType =
+            frameType !== undefined && previousContent !== null;
+          const current =
+            changesType || lockedFileType !== "html"
+              ? await readDesignDataForUpdate(tx, file.designId)
+              : undefined;
+          if (current && lockedFileType !== "html") {
+            assertHubSpotEmailFileType({
+              fileType: lockedFileType,
+              frameType:
+                frameType === undefined
+                  ? resolveScreenFrameType({
+                      designData: current,
+                      fileId: id,
+                      content: nextContent,
+                    })
+                  : frameTypeFromStored(frameType),
+            });
+          }
+          const data =
+            current && changesType
+              ? serializeFrameTypeChange(current, {
+                  fileId: id,
+                  frameType,
+                  previousContent,
+                })
+              : undefined;
+          await tx
+            .update(schema.designs)
+            .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })
+            .where(eq(schema.designs.id, file.designId));
+        };
         await lockDesignFilesTable(tx);
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
@@ -447,13 +533,15 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
-          assertHubSpotEmailFrameContent({
-            content: content ?? liveContent,
-            fileType: fileType ?? persistedFile.fileType ?? "html",
-            previousContent: isHubSpotEmailHtml(liveContent)
-              ? liveContent
-              : persistedFile.content,
-          });
+          if (
+            frameType === undefined &&
+            writesContent &&
+            !storedLegacyEmailIds.has(id) &&
+            (isHubSpotEmailHtml(liveContent) ||
+              isHubSpotEmailHtml(persistedFile.content))
+          ) {
+            throw new LegacyEmailFrameTypeNotStoredError(id);
+          }
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -693,10 +781,11 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await tx
-                  .update(schema.designs)
-                  .set({ updatedAt: now })
-                  .where(eq(schema.designs.id, file.designId));
+                await touchDesign(
+                  null,
+                  confirmed.content,
+                  persistedFile.fileType,
+                );
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -720,10 +809,11 @@ export default defineAction({
             applyTextToYDoc(lease.doc, "content", content, "agent");
             await lease.persist(getDesignSourceMutationExec(tx), content);
           }
-          await tx
-            .update(schema.designs)
-            .set({ updatedAt: now })
-            .where(eq(schema.designs.id, file.designId));
+          await touchDesign(
+            skippedStaleOperation || skippedStaleMirror ? null : liveContent,
+            content !== undefined && !skipContentWrite ? content : liveContent,
+            persistedFile.fileType,
+          );
           persistedUpdatedAt = now;
           return;
         }
@@ -742,15 +832,27 @@ export default defineAction({
       });
 
     try {
-      await (writesContent
-        ? withPreparedSourceFileMutation(
-            id,
-            syncCollab
-              ? context?.requestHeaders?.get("x-request-source") || "agent"
-              : undefined,
-            runMutation,
-          )
-        : withSourceFileWriteLock(id, runMutation));
+      await writeWithLegacyEmailFrameTypes({
+        designId: file.designId,
+        markedFileIds:
+          frameType === undefined &&
+          writesContent &&
+          isHubSpotEmailHtml(file.content)
+            ? [id]
+            : [],
+        write: (stored) => {
+          storedLegacyEmailIds = stored;
+          return writesContent
+            ? withPreparedSourceFileMutation(
+                id,
+                syncCollab
+                  ? context?.requestHeaders?.get("x-request-source") || "agent"
+                  : undefined,
+                runMutation,
+              )
+            : withSourceFileWriteLock(id, runMutation);
+        },
+      });
     } catch (error) {
       if (error instanceof CollabBaseVersionConflictError) {
         throw new SourceWorkspaceEditConflictError(

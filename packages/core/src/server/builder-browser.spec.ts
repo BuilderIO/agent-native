@@ -217,6 +217,53 @@ describe("Builder account provisioning", () => {
     });
   });
 
+  it("signs the new-account-only mode without downgrading when older servers reject it", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: "Invalid Agent-Native account request." }),
+          { status: 401 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      provisionBuilderAccount({
+        email: "owner@example.com",
+        name: "Owner",
+        agentNativeApp: "design",
+        agentNativeTemplate: "design",
+        newAccountOnly: true,
+      }),
+    ).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v3",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(
+      createHmac("sha256", secret)
+        .update(
+          [
+            "agent-native-account-v3",
+            headers["x-agent-native-account-timestamp"],
+            headers["x-agent-native-account-request-id"],
+            "owner@example.com",
+            "Owner",
+            "design",
+            "design",
+            "new-account-only",
+          ].join("\n"),
+        )
+        .digest("base64url"),
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      newAccountOnly: true,
+    });
+  });
+
   it("only advertises account provisioning for a valid deploy secret", () => {
     expect(isBuilderAccountProvisioningEnabled()).toBe(false);
 

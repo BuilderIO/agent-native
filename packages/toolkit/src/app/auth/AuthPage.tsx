@@ -11,6 +11,11 @@ import {
   normalizeOAuthReturnPath,
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";
+import {
+  acceptBuilderSignupAssignment,
+  getBuilderSignupAssignment,
+  type BuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
@@ -260,13 +265,15 @@ async function requestJson(
   return { response, data, readable };
 }
 
+let builderSignupTelemetry: Record<string, unknown> = {};
+
 function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
-  email: string,
+  email?: string,
 ): void {
-  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
+  if (email && (!isValidEmail(email) || isTestIdentityEmail(email))) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -295,7 +302,11 @@ function trackAuth(
         "https://analytics.agent-native.com/track",
       window.location.hostname,
     );
-    const legacyProperties = { app, ...properties };
+    const legacyProperties = {
+      app,
+      ...(app === "design" ? builderSignupTelemetry : {}),
+      ...properties,
+    };
     const events: Array<{
       name: string;
       properties: Record<string, unknown>;
@@ -656,12 +667,63 @@ export function AuthPage(props: AuthPageProps) {
     googleAuthMode,
     builderPreviewLocalDevEnabled,
   } = props;
+  const [builderSignup, setBuilderSignup] =
+    React.useState<BuilderSignupAssignment | null>(
+      trackingApp === "design" ? null : { status: "disabled" },
+    );
+  const builderSignupRequest =
+    React.useRef<Promise<BuilderSignupAssignment> | null>(null);
+  React.useEffect(() => {
+    if (trackingApp !== "design") return;
+    builderSignupTelemetry = {};
+    let disposed = false;
+    builderSignupRequest.current ??= getBuilderSignupAssignment();
+    void builderSignupRequest.current.then(
+      (assignment) => {
+        if (disposed) return;
+        setBuilderSignup(assignment);
+      },
+      () => {
+        if (!disposed) {
+          builderSignupTelemetry = {};
+          setBuilderSignup({ status: "unavailable" });
+          trackAuth(trackingApp, "auth.builder_signup_experiment_unavailable", {
+            stage: "assignment",
+          });
+        }
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [trackingApp]);
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
   const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
   React.useEffect(() => setBrowserLocationReady(true), []);
   const [localeMenuOpen, setLocaleMenuOpen] = React.useState(false);
   const [view, setView] = React.useState<AuthView>(props.initialView);
+  const builderSignupExposure = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (
+      builderSignup?.status !== "assigned" ||
+      !["signup", "magicLink", "googleOnly"].includes(view) ||
+      builderSignupExposure.current === builderSignup.id
+    )
+      return;
+    builderSignupExposure.current = builderSignup.id;
+    builderSignupTelemetry = {
+      experiment_id: "design_builder_signup_v1",
+      experiment_variant: builderSignup.variant,
+      assignment_id: builderSignup.id,
+    };
+    trackAuth(
+      trackingApp,
+      "auth.builder_signup_experiment_exposed",
+      builderSignupTelemetry,
+    );
+  }, [builderSignup, trackingApp, view]);
+
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
   const [submitting, setSubmitting] = React.useState<string | null>(null);
   const [localDevAvailable, setLocalDevAvailable] = React.useState(false);
@@ -1428,10 +1490,52 @@ export function AuthPage(props: AuthPageProps) {
     [publicOAuthOrigin, runtimeAppBasePath],
   );
 
+  const prepareBuilderSignup = React.useCallback(
+    async (
+      method: "password" | "magic-link" | "google",
+      email?: string,
+      flowId = createFlowId(),
+    ): Promise<string | undefined> => {
+      if (
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic" ||
+        view === "login"
+      )
+        return undefined;
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          flowId,
+          method,
+          email,
+        );
+        return flowId;
+      } catch {
+        trackAuth(
+          trackingApp,
+          "auth.builder_signup_experiment_unavailable",
+          { stage: "acceptance" },
+          email,
+        );
+        return undefined;
+      }
+    },
+    [builderSignup, trackingApp, view],
+  );
+
   const startGoogle = React.useCallback(async () => {
-    if (!showGoogle || googleBusy) return;
+    if (!showGoogle || googleBusy || !builderSignup) return;
     setGoogleBusy(true);
     setNotice("google", null);
+    const flowId = createFlowId();
+    const redirectAfterAcceptance = async (url: string) => {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const targetUrl = new URL(url, window.location.origin);
+      if (attemptId)
+        targetUrl.searchParams.set("builder_signup_attempt", attemptId);
+      targetUrl.searchParams.set("flow_id", flowId);
+      window.location.replace(targetUrl.toString());
+    };
     try {
       window.sessionStorage.setItem("__an_signin", "1");
     } catch {
@@ -1447,10 +1551,9 @@ export function AuthPage(props: AuthPageProps) {
       })
     ) {
       const params = new URLSearchParams({ return: target });
-      window.location.replace(`${identityHref}?${params.toString()}`);
+      await redirectAfterAcceptance(`${identityHref}?${params.toString()}`);
       return;
     }
-    const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
@@ -1473,7 +1576,7 @@ export function AuthPage(props: AuthPageProps) {
         return: oauthTarget,
         redirect: "1",
       });
-      window.location.replace(`${authUrl}?${params.toString()}`);
+      await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
       return;
     }
     const verifier = createVerifier();
@@ -1507,7 +1610,7 @@ export function AuthPage(props: AuthPageProps) {
             return: oauthTarget,
             redirect: "1",
           });
-          window.location.replace(`${authUrl}?${params.toString()}`);
+          await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
           return;
         }
         try {
@@ -1528,15 +1631,17 @@ export function AuthPage(props: AuthPageProps) {
           return: oauthTarget,
           redirect: "1",
         });
-        window.location.replace(`${authUrl}?${params.toString()}`);
+        await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
         return;
       }
     }
     try {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
       const params = new URLSearchParams({
         return: oauthTarget,
         desktop: "1",
         flow_id: flowId,
+        ...(attemptId ? { builder_signup_attempt: attemptId } : {}),
       });
       const { response, data } = await requestJson(
         `${authUrl}?${params.toString()}`,
@@ -1589,6 +1694,8 @@ export function AuthPage(props: AuthPageProps) {
     apiPath,
     googleAuthUrlPath,
     googleBusy,
+    builderSignup,
+    prepareBuilderSignup,
     identityHref,
     identityBootstrapHref,
     googleViaIdentitySso,
@@ -1819,6 +1926,10 @@ export function AuthPage(props: AuthPageProps) {
         email,
       );
       try {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "password",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
           {
@@ -1826,6 +1937,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               password: signupPassword,
               callbackURL: identityBootstrapHref(resumeHref()),
             }),
@@ -1888,6 +2000,7 @@ export function AuthPage(props: AuthPageProps) {
       signupEmail,
       signupPassword,
       signupPasswordConfirmation,
+      prepareBuilderSignup,
       t,
       trackingApp,
       view,
@@ -2070,6 +2183,10 @@ export function AuthPage(props: AuthPageProps) {
       );
       const desktop = isAgentNativeDesktop();
       try {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "magic-link",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/magic-link"),
           {
@@ -2077,6 +2194,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
                 : identityBootstrapHref(resumeHref()),
@@ -2122,6 +2240,7 @@ export function AuthPage(props: AuthPageProps) {
       apiPath,
       identityBootstrapHref,
       magicLinkEmail,
+      prepareBuilderSignup,
       resumeHref,
       setNotice,
       startOAuthExchange,
@@ -2312,6 +2431,29 @@ export function AuthPage(props: AuthPageProps) {
       </button>
     </div>
   ) : null;
+  const builderLegalNote =
+    builderSignup?.status === "assigned" &&
+    builderSignup.variant === "automatic" ? (
+      <p className="legal-note">
+        {t("builderSignupDisclosure")}{" "}
+        <a
+          href="https://www.builder.io/legal/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("legalTerms")}
+        </a>{" "}
+        {t("legalConnector")}{" "}
+        <a
+          href="https://www.builder.io/legal/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("legalPrivacy")}
+        </a>
+        {t("legalSuffix")}
+      </p>
+    ) : null;
   const legalNote = signupLegalNotice ? (
     <p className="legal-note">
       <span data-i18n="legalPrefix">
@@ -2401,11 +2543,12 @@ export function AuthPage(props: AuthPageProps) {
       submitLabel={t("createAccount")}
       submitProps={{
         "data-i18n": "createAccount",
-        disabled: submitting === "signup",
+        disabled: submitting === "signup" || !builderSignup,
       }}
       footer={
         <>
           {legalNote}
+
           {localModeNote}
         </>
       }
@@ -2541,13 +2684,14 @@ export function AuthPage(props: AuthPageProps) {
             {t("googleNotConfigured")}
           </p>
         ) : null}
+        {view !== "login" && builderLegalNote}
         {showGoogle ? (
           <div className="google-signin" id="google-signin">
             <button
               className={`btn-google ${view === "magicLink" && isValidEmail(magicLinkEmail) ? "magic-link-secondary" : ""}`}
               id="google-btn"
               type="button"
-              disabled={googleBusy}
+              disabled={googleBusy || !builderSignup}
               aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
@@ -2583,7 +2727,7 @@ export function AuthPage(props: AuthPageProps) {
             <button
               type="submit"
               id="organization-sso-submit"
-              disabled={ssoBusy || !isValidEmail(ssoEmail)}
+              disabled={!builderSignup || ssoBusy || !isValidEmail(ssoEmail)}
               data-i18n="ssoButton"
             >
               {ssoBusy ? t("checking") : t("ssoButton")}
@@ -2618,7 +2762,9 @@ export function AuthPage(props: AuthPageProps) {
               type="submit"
               id="magic-link-submit"
               className="magic-link-submit"
-              disabled={magicLinkBusy || !isValidEmail(magicLinkEmail)}
+              disabled={
+                !builderSignup || magicLinkBusy || !isValidEmail(magicLinkEmail)
+              }
               data-i18n="sendMagicLink"
             >
               {magicLinkBusy ? t("sending") : t("sendMagicLink")}

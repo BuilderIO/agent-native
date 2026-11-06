@@ -336,6 +336,8 @@ export default {
   common: {
     loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
+    linkedSourceSizeLimit:
+      "이 연결된 구성 요소 편집은 소스 크기 제한을 초과합니다.",
   },
   editPanel: {
     colorInputLabel: "색상",
@@ -1036,6 +1038,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
     writeFailed: "변경 사항을 저장하지 못했습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
@@ -2680,6 +2683,7 @@ export default {
   },
   homeContext: {
     websiteReference: "웹사이트 추가",
+    websiteReferenceMenu: "웹사이트 추가…",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -2704,10 +2708,12 @@ export default {
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",
     none: "없음",
-    design: "디자인",
+    design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 추가",
+    connectFigma: "Figma 연결",
+    figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
+    figmaReference: "Figma 디자인",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

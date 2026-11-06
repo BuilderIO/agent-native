@@ -1318,7 +1318,24 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Google Drive 연결을 확인할 수 없습니다. 다시 시도하세요.",
+        attach: "첨부",
+        reading: "읽는 중…",
+        authentication: "Google Slides를 첨부하려면 로그인하세요.",
+        invalid: "유효한 Google Slides 프레젠테이션 URL을 입력하세요.",
+        connect: "이 프레젠테이션을 읽으려면 Google Drive를 연결하세요.",
+        denied:
+          "이 프레젠테이션을 사용할 수 없습니다. 접근 권한을 확인하거나 Google Drive를 다시 연결하세요.",
+        failed: "이 프레젠테이션을 읽을 수 없습니다. 다시 시도하세요.",
+        tooLarge: "이 프레젠테이션은 컨텍스트로 읽기에는 너무 큽니다.",
+        truncated: "참조 발췌문이 잘렸으며 나머지 내용은 포함되지 않았습니다.",
+      },
       websiteReference: "웹사이트 추가",
+      connectFigma: "Figma 연결",
+      figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
+      websiteReferenceMenu: "웹사이트 추가…",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -1332,9 +1349,9 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 추가",
+        figma: "Figma 디자인",
         design: "디자인 참조",
-        deck: "프레젠테이션 참조",
+        deck: "덱 참조…",
         searchDesign: "디자인 검색…",
       },
       loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
@@ -1359,7 +1376,7 @@ const messages = {
         "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",
       search: "참조 검색",
-      designCategory: "디자인",
+      designCategory: "디자인 참조",
     },
     quickStart: {
       invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",

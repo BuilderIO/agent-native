@@ -1353,7 +1353,27 @@ const messages = {
     },
     importDeck: "Importar presentación",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "No se pudo comprobar tu conexión con Google Drive. Inténtalo de nuevo.",
+        attach: "Adjuntar",
+        reading: "Leyendo…",
+        authentication: "Inicia sesión para adjuntar Google Slides.",
+        invalid:
+          "Introduce una URL válida de una presentación de Google Slides.",
+        connect: "Conecta Google Drive para leer esta presentación.",
+        denied:
+          "Esta presentación no está disponible. Comprueba el acceso o vuelve a conectar Google Drive.",
+        failed: "No se pudo leer esta presentación. Inténtalo de nuevo.",
+        tooLarge:
+          "Esta presentación es demasiado grande para leerla como contexto.",
+        truncated:
+          "Extracto de referencia truncado; no se incluyó el contenido restante.",
+      },
       websiteReference: "Añadir sitio web",
+      connectFigma: "Conectar Figma",
+      figmaDisconnected: "Conecta Figma para explorar diseños.",
+      websiteReferenceMenu: "Añadir sitio web…",
       websiteUrlLabel: "URL del sitio web",
       websiteUrl: "Pega la URL de un sitio web",
       figmaUrlLabel: "Enlace de Figma",
@@ -1368,9 +1388,9 @@ const messages = {
       searchPresentations: "Buscar presentaciones…",
       menu: {
         system: "Usar un sistema de diseño",
-        figma: "Añadir Figma",
+        figma: "Diseño de Figma",
         design: "Usar un diseño como referencia",
-        deck: "Usar una presentación como referencia",
+        deck: "Usar una presentación como referencia…",
         searchDesign: "Buscar en diseño…",
       },
       loadFailed: "No se pudo cargar la referencia. Inténtalo de nuevo.",
@@ -1395,7 +1415,7 @@ const messages = {
         "Design no pudo leer esta referencia de Figma. Comprueba el token de acceso a Figma guardado en Design y que esa cuenta pueda abrir el archivo; luego inténtalo de nuevo.",
       tooMany: "Elige hasta 20 referencias.",
       search: "Buscar referencias",
-      designCategory: "Diseño",
+      designCategory: "Referencias de diseño",
     },
     quickStart: {
       invalidUrl: "Introduce una URL HTTP o HTTPS válida.",

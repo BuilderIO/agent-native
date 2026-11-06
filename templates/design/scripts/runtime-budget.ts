@@ -757,6 +757,7 @@ async function runSession() {
             () => (window as any).__budget.selectionEvents.length as number,
           );
           const target = await stableBox(heading);
+          const clickedAt = await now();
           await page.keyboard.down(modifier);
           try {
             await page.mouse.click(
@@ -782,9 +783,29 @@ async function runSession() {
             )
             .then(
               () => true,
-              () => false,
+              (error: unknown) => {
+                console.log(`  selection wait rejected: ${String(error)}`);
+                if (!(error instanceof errors.TimeoutError)) throw error;
+                return false;
+              },
             );
-          if (!selected) continue;
+          if (!selected) {
+            const diagnostic = await page.evaluate(
+              (after) => ({
+                now: performance.now(),
+                events: (
+                  window as unknown as {
+                    __budget: { selectionEvents: unknown[] };
+                  }
+                ).__budget.selectionEvents.slice(after),
+              }),
+              selectionCount,
+            );
+            console.log(
+              `  selection attempt ${attempt + 1}: ${JSON.stringify({ selectionCount, clickedAt, ...diagnostic })}`,
+            );
+            continue;
+          }
           await details.waitFor({ timeout: 5_000 });
           return true;
         }
