@@ -84,8 +84,11 @@ function hasAmbiguousIdentity(
 ): boolean {
   // Counted once: a long page can have tens of thousands of changed blocks.
   const counts = [base, candidate, current].map(blockCounts);
-  return changed.some((index) =>
-    counts.some((count) => (count.get(base[index]) ?? 0) > 1),
+  const changedIndexes = new Set(changed);
+  return base.some(
+    (block, index) =>
+      changedIndexes.has(index) &&
+      counts.some((count) => (count.get(block) ?? 0) > 1),
   );
 }
 
