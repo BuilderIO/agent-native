@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-04
+
+### Added
+
+- Agents connected to Clips over MCP can see a recording's frames as images
+
 ## 2026-11-03
 
 ### Added
@@ -20,6 +26,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Transcripts that get cut off now show the text that was captured, with a partial-transcript note, instead of failing completely.
 - Editing a clip in two tabs, or alongside the agent, now keeps both sets of trims. If you both change the same section, you choose which version to keep and can get the other one back.
 - Password-protected transcripts stay protected in search and agent context.
 - The desktop app no longer uploads a second copy of a saved recording you already uploaded another way.
@@ -35,6 +42,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The recording timer in the Chrome extension keeps its elapsed time when you refresh the page, including in incognito windows.
 - Trash now says whether Clips is still checking a deleted video's files, couldn't confirm they were deleted, or needs to retry a storage usage update, and each retry button retries only that step.
 
 ## 2026-10-29
@@ -1518,36 +1526,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Long recordings now get enough time to download their media before transcription starts.
 - Meeting Notes no longer lowers your microphone volume for other people in Zoom, Meet, or Teams.
 - Meeting reminders now ignore obvious solo personal calendar blocks like Gym or Dinner.
-
-## 2026-07-08
-
-### Added
-
-- Clips now pops up to take notes when you join an adhoc Zoom or Teams call, like Granola.
-
-### Improved
-
-- Chrome extension camera and microphone menus now show which device the system default currently points to.
-- Chrome extension recordings copy their share link automatically after saving.
-- Meeting reminders in the desktop popover can start notes and join the call in one click.
-- Meeting recaps now keep summaries, action items, and transcript controls cleaner on one page.
-- Meeting reminders now appear 1 minute before start, stay until 5 minutes in, and use a Granola-style Join & open Clips button
-- Mobile shared clips now support Loom-style tap-to-pause playback with 15-second skip controls.
-- New recordings and uploads copy their clip link automatically after saving.
-- Settings are cleaner and searchable, and the S3 fields collapse automatically once Builder storage is connected.
-- Video playback controls now match Loom-style 5-second skips and pause from the video surface.
-
-### Fixed
-
-- After finishing a desktop recording, reopening Clips restores the camera preview and Start Recording works again instead of doing nothing.
-- Chrome extension recordings now continue after granting camera or microphone access and recover the camera bubble more reliably.
-- Desktop clip recordings are louder after capture — mic-only clips skip the half-volume downmix and get a stronger pre-gain before loudness normalization; mic+system clips get makeup gain so the centered mix is not systematically quieter.
-- Desktop meeting notes stay active when you open the tray or shortcut controls, and the stop action targets the live meeting.
-- Hosted clip uploads now clear failed buffered chunks and require connected storage before saving thumbnails.
-- Hosted recording uploads now avoid storing video chunks in SQL and ask users to restart when a resumable storage session is missing.
-- Meeting notes keep their recording state when the desktop popover is closed and reopened.
-- Meeting reminder dropdowns now expand fully instead of being cut off.
-- The desktop Meetings panel has room for its drop shadow and a little more space below the last meeting.
-- Transcripts are more reliable for longer desktop recordings when audio extraction is slow.
 
 For the full list of updates, see the [changelog folder](./changelog/).
