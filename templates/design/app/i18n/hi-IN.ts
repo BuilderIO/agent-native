@@ -334,6 +334,8 @@ export default {
   common: {
     loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
+    linkedSourceSizeLimit:
+      "यह लिंक किए गए घटक का संपादन स्रोत आकार सीमा से अधिक है।",
   },
   editPanel: {
     colorInputLabel: "रंग",
@@ -1033,6 +1035,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
     writeFailed: "वह बदलाव सहेजा नहीं जा सका।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
