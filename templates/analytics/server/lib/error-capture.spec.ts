@@ -1855,7 +1855,9 @@ describe("error ingest flood control", () => {
         },
       );
       expect(track).toHaveBeenCalledOnce();
-      const payload = track.mock.calls[0][0];
+      const call = track.mock.calls[0];
+      if (!call) throw new Error("Expected a captured exception");
+      const payload = call[0];
       expect(payload.name).toBe("$exception");
       expect(payload.properties).toMatchObject({
         runtime: "node",
