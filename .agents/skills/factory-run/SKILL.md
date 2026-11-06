@@ -230,6 +230,18 @@ if someone asked a person or the team to look, or says they're on it, record
 it `not-actionable` with a note saying who has it, and don't react, unless
 that ask is over 3 days old with no follow-up.
 
+Lean further toward a branch than the buckets alone. A report that the app
+doesn't do what the reporter expected (an edit that doesn't take, a link
+that won't open, a format that reads wrong, slowness) is a Fix even when
+the right behavior is a judgment call: start the branch, and record the open
+question as the report's `design` so the watcher asks the design group while
+the branch works. The PR's confidence gate keeps a person on the merge, so a
+branch never ships an unendorsed choice on its own. Needs a person is only
+for a pure request to add, move, hide, or restyle something nothing is
+wrong with, and for access, data, or an outage only a person can reach. A
+cause you couldn't confirm, more than one plausible cause, or a slow or
+cross-app path is a reason to investigate on a branch, not to hand off.
+
 ### Is this already being fixed?
 
 The watcher queues reports as they arrive, so the same problem often shows
@@ -303,9 +315,14 @@ them.
 
 Write the prompt to `tmp/factory/<slug>.md`, then
 `factory-branch start --name "fix <slug>" --prompt-file tmp/factory/<slug>.md --report "<key>"`
-with one `--report` per report in the group. Record `builderBranchName` and
-`builderBranchUrl` on each report right away, then `factory-digest report
-"<key>"`. The prompt:
+with one `--report` per report in the group. It can take up to 10 minutes
+while the branch's container boots, so run it with a 10-minute command
+timeout. It records the branch as soon as Builder names it, so if the
+command is cut off or times out, run `factory-branch list` and use the
+branch with this name; only when none is listed, start it again. A launch
+that timed out is never a reason for `needs-person`. Record
+`builderBranchName` and `builderBranchUrl` on each report right away, then
+`factory-digest report "<key>"`. The prompt:
 
 ```text
 Fix this agent-native feedback as a factory fix branch, in <live | dry> mode.
@@ -329,8 +346,22 @@ reporters added while it ran). It may come from a branch an earlier run
 started.
 
 `outcome: "error"`, or a `text` without the closing lines, means the agent
-failed or stopped early: open its `url` to see why, and record its reports
-as `needs-person` with that reason.
+failed or stopped early; the watcher has already resumed a stalled one
+twice. Open its `url` to see why, then keep the report moving:
+
+- It made progress, or stopped on something that no longer applies (a
+  fix-proof run an older environment rule blocked, a platform error):
+  `factory-branch message` it to finish from where it stopped, with the
+  closing lines from [fix-branch.md](references/fix-branch.md).
+- It got nowhere, or kept stalling after the watcher's resumes: start one
+  fresh branch (step 4) whose prompt says what the first one tried and where
+  it stopped.
+- It ended with a verified fix but no proof: message it to run
+  `scripts/fix-proof.ts` and send its PR.
+
+Record `needs-person` only when the second attempt also fails, or the
+reason truly needs a person (access, data, or a product decision), and say
+which in the note.
 
 For each report the branch covered (the item's `reports`, which include
 attached ones), upsert `gitBranch`, `proof`, `wouldReact`, `wouldReply`, and
