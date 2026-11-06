@@ -402,6 +402,7 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
+    // guard:allow-realtime-opt-in — Home must show decks that collaborators or API calls add without a user action
     realtime: isDeckHomePath(location.pathname)
       ? {
           reason: "collaborators and API calls can add or change decks on Home",
