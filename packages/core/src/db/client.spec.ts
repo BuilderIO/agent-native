@@ -2551,8 +2551,8 @@ describe("db/client postgres-js request pool recovery", () => {
     vi.stubGlobal("__env__", {});
     const statements: string[] = [];
     const txSql = {
-      unsafe: vi.fn((query: string) => {
-        statements.push(query);
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
         if (query.includes("set_config")) vi.advanceTimersByTime(300);
         return Promise.resolve(
           Object.assign(
@@ -2591,6 +2591,9 @@ describe("db/client postgres-js request pool recovery", () => {
       vi.useRealTimers();
     }
     expect(statements).not.toContain("SELECT 1");
+    expect(statements.at(-1)).toBe(
+      "SELECT set_config('statement_timeout', $1, true) [0]",
+    );
   });
 
   it("keeps the shared facade stable after a request pool times out", async () => {

@@ -1114,6 +1114,11 @@ async function withTransactionStatementTimeout<T>(
       remainingMs(),
     );
     if (installed >= remainingMs()) {
+      // A caller may catch this and keep using the transaction.
+      await runSetting(
+        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+        POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+      );
       throw Object.assign(
         new Error(
           `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
