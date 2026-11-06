@@ -287,7 +287,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
-    needs: [resolve-version, prepare-release, build-mac, build-windows, build-linux]
+    needs:
+      [resolve-version, prepare-release, build-mac, build-windows, build-linux]
     # A publish run skips the builds, so the default success() check would skip
     # this job too.
     if: >-
@@ -298,6 +299,37 @@ jobs:
       needs.build-linux.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
+      # A publish run never saw the builds, so check that every platform's
+      # updater manifest and the installers it lists reached the draft.
+      - name: Require every platform's installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+        shell: bash
+        run: |
+          RELEASE_TAG="v$RELEASE_VERSION"
+          ASSETS=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' -R "$GITHUB_REPOSITORY")
+          MISSING=()
+          for manifest in latest.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml; do
+            if ! grep -qxF "$manifest" <<< "$ASSETS"; then
+              MISSING+=("$manifest")
+              continue
+            fi
+            CONTENT=$(gh release download "$RELEASE_TAG" --pattern "$manifest" --output - -R "$GITHUB_REPOSITORY")
+            FILES=$(sed -nE "s/^(  - )?(url|path): ['\"]?([^'\"]+)['\"]?$/\3/p" <<< "$CONTENT" | sort -u)
+            if [ -z "$FILES" ]; then
+              echo "::error::$manifest in $RELEASE_TAG lists no files."
+              exit 1
+            fi
+            while read -r file; do
+              grep -qxF "$file" <<< "$ASSETS" || MISSING+=("$file")
+            done <<< "$FILES"
+          done
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "::error::Release $RELEASE_TAG is missing ${MISSING[*]}, so a platform build did not finish. Build it again with mode stage before publishing."
+            exit 1
+          fi
+
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

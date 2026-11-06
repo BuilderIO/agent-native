@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import { parse } from "yaml";
@@ -2662,6 +2672,135 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
         /if \[ "\$RELEASE_MODE" = "publish" \]; then\s*echo "::error::There is no draft release \$TAG to publish/,
       );
     }
+  });
+
+  it("refuses to publish a desktop draft missing any platform's installers", () => {
+    const publishSteps = (
+      (desktopWorkflow.jobs as Workflow)["publish-release"] as Workflow
+    ).steps as Workflow[];
+    const check = publishSteps[0];
+    assert.equal(check.name, "Require every platform's installers");
+    assert.equal(publishSteps[1].name, "Publish draft release");
+
+    // Manifests as electron-builder writes them for v0.1.292.
+    const manifests: Record<string, string[]> = {
+      "latest.yml": [
+        "Agent-Native-x64.exe",
+        "Agent-Native-arm64.exe",
+        "Agent-Native.exe",
+      ],
+      "latest-mac.yml": [
+        "Agent-Native-0.1.292-arm64-mac.zip",
+        "Agent-Native-arm64.dmg",
+        "Agent-Native-0.1.292-mac.zip",
+      ],
+      "latest-linux.yml": [
+        "Agent-Native-x86_64.AppImage",
+        "Agent-Native-amd64.deb",
+      ],
+      "latest-linux-arm64.yml": [
+        "Agent-Native-arm64.AppImage",
+        "Agent-Native-arm64.deb",
+      ],
+    };
+    const manifestText = (files: string[]) =>
+      [
+        "version: 0.1.292",
+        "files:",
+        ...files.flatMap((file) => [
+          `  - url: ${file}`,
+          "    sha512: abc==",
+          "    size: 1",
+        ]),
+        `path: ${files[0]}`,
+        "sha512: abc==",
+        "releaseDate: '2026-11-06T18:15:27.000Z'",
+      ].join("\n");
+    const runCheck = (
+      assets: string[],
+      manifestFiles: Record<string, string> = Object.fromEntries(
+        Object.entries(manifests).map(([name, files]) => [
+          name,
+          manifestText(files),
+        ]),
+      ),
+    ) => {
+      const tempRoot = mkdtempSync(path.join(tmpdir(), "desktop-publish-"));
+      const binDirectory = path.join(tempRoot, "bin");
+      const manifestDirectory = path.join(tempRoot, "manifests");
+      mkdirSync(binDirectory);
+      mkdirSync(manifestDirectory);
+      for (const [name, text] of Object.entries(manifestFiles)) {
+        writeFileSync(path.join(manifestDirectory, name), text);
+      }
+      // `gh release download <tag> --pattern <name> --output -` prints one
+      // manifest, and fails when the stub has none for that name.
+      writeFileSync(
+        path.join(binDirectory, "gh"),
+        `#!/bin/sh
+case "$1 $2" in
+  "release view") printf '%s\\n' "$ASSETS" ;;
+  "release download") cat "$MANIFESTS/$5" ;;
+  *) exit 1 ;;
+esac
+`,
+      );
+      chmodSync(path.join(binDirectory, "gh"), 0o755);
+      try {
+        return spawnSync("bash", ["-eo", "pipefail", "-c", String(check.run)], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+            ASSETS: assets.join("\n"),
+            MANIFESTS: manifestDirectory,
+            RELEASE_VERSION: "0.1.292",
+            GITHUB_REPOSITORY: "BuilderIO/agent-native",
+          },
+        });
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    };
+    const complete = [
+      ...Object.keys(manifests),
+      ...Object.values(manifests).flat(),
+      "Agent-Native-x64.dmg",
+    ];
+
+    const published = runCheck(complete);
+    assert.equal(published.status, 0, published.stdout + published.stderr);
+
+    const noMac = runCheck(
+      complete.filter((name) => name !== "latest-mac.yml"),
+    );
+    assert.equal(noMac.status, 1);
+    assert.match(noMac.stdout, /v0\.1\.292 is missing latest-mac\.yml,/);
+
+    const noDmg = runCheck(
+      complete.filter((name) => name !== "Agent-Native-arm64.dmg"),
+    );
+    assert.equal(noDmg.status, 1);
+    assert.match(noDmg.stdout, /is missing Agent-Native-arm64\.dmg,/);
+
+    const unreadable = runCheck(complete, {});
+    assert.notEqual(unreadable.status, 0);
+    assert.doesNotMatch(unreadable.stdout, /::error::Release/);
+
+    const unrecognized = runCheck(complete, {
+      ...Object.fromEntries(
+        Object.entries(manifests).map(([name, files]) => [
+          name,
+          manifestText(files),
+        ]),
+      ),
+      "latest.yml": "version: 0.1.292\n",
+    });
+    assert.equal(unrecognized.status, 1);
+    assert.match(
+      unrecognized.stdout,
+      /latest\.yml in v0\.1\.292 lists no files/,
+    );
   });
 
   it("checks out the coordinated release commit for desktop builds", () => {
