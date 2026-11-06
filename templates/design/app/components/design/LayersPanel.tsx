@@ -1134,12 +1134,19 @@ function LayersPanelImpl(
 
   const startRowEdit = useCallback(
     (node: LayersPanelNode) => {
-      if (node.type !== "text" || !onStartTextEdit || !onTextEdit) {
+      const isTextRow =
+        node.type === "text" ||
+        node.type === "frame" ||
+        node.type === "element";
+      if (!isTextRow || !onStartTextEdit || !onTextEdit) {
         startRename(node);
         return;
       }
       const value = node.locked ? null : onStartTextEdit(node.id);
-      if (value == null) return;
+      if (value == null) {
+        startRename(node);
+        return;
+      }
       textEditRef.current = { id: node.id, originalValue: value };
       setRenamingId(node.id);
       setRenameDraft(value);

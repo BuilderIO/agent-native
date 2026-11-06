@@ -1474,6 +1474,7 @@ export function useEditorSelectionAndStyles({
         originalHtml?: string;
         routePath?: string;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+        preserveEmptyText?: boolean;
       },
     ) => {
       if (!activeFile) return "refused";

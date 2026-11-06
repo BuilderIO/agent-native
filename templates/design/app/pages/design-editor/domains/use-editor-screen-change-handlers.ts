@@ -893,6 +893,7 @@ export function useEditorScreenChangeHandlers({
         originalHtml?: string;
         routePath?: string;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+        preserveEmptyText?: boolean;
       },
     ) => {
       if (!activeFile) return "refused";

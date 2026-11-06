@@ -5,6 +5,8 @@ import {
 } from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
 
+import { replaceLinkedScreenPreviewContent } from "@/components/design/multi-screen/linked-screen-preview";
+
 import {
   elementInfoFromCodeLayerNode,
   preferredCodeLayerSelector,
@@ -25,7 +27,10 @@ function sidebarEditableLayerText(
     span.contentStart === undefined ||
     span.contentEnd === undefined ||
     node.children.length > 0 ||
-    node.repeatXFor
+    node.repeatXFor ||
+    (!node.paintsOwnText &&
+      node.dataAttributes["data-an-primitive"] !== "text" &&
+      !/^(p|span|h[1-6])$/i.test(node.tag))
   )
     return null;
   let current: CodeLayerNode | undefined = node;
@@ -73,6 +78,7 @@ interface LayerTextEditArgs {
   liveScreenSnapshotsById: Readonly<Record<string, unknown>>;
   overviewScreens: OverviewScreen[];
   handleScreenTextContentChange: EditorScreenChangeHandlers["handleScreenTextContentChange"];
+  requestPreviewRefresh: () => void;
 }
 
 export interface LayerTextEditSession {
@@ -142,7 +148,7 @@ export function commitLayerTextEdit(
   const owner = args.getOwner(session.layerId);
   if (!owner) return "stale";
   const info = elementInfoFromCodeLayerNode(owner.node);
-  return args.handleScreenTextContentChange(
+  const status = args.handleScreenTextContentChange(
     session.screenId,
     session.selector,
     value,
@@ -153,5 +159,17 @@ export function commitLayerTextEdit(
         nodeId: session.layerId,
       },
     },
+    { preserveEmptyText: true },
   );
+  if (status === "accepted") {
+    const content = args.getScreenContent(session.screenId);
+    if (
+      !replaceLinkedScreenPreviewContent(session.screenId, content, null, [], {
+        forceFullDocument: true,
+      })
+    ) {
+      args.requestPreviewRefresh();
+    }
+  }
+  return status;
 }

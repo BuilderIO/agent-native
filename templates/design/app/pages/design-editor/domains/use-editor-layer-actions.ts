@@ -297,6 +297,7 @@ export function useEditorLayerActions({
     canEditLiveScreen,
     syncLiveScreenSnapshotPreview,
     remapMotionTracksForClone,
+    setContentRenderRevision,
   } = editorLiveEditsAndPresence;
   const { contentHistorySelectionAfterRef, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -341,6 +342,8 @@ export function useEditorLayerActions({
     overviewScreens,
     handleScreenTextContentChange:
       editorScreenChangeHandlers.handleScreenTextContentChange,
+    requestPreviewRefresh: () =>
+      setContentRenderRevision((revision) => revision + 1),
   };
   const handleStartLayerTextEdit = (layerId: string) => {
     const session = beginLayerTextEdit(layerTextEditArgs, layerId);
