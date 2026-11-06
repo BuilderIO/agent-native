@@ -3465,6 +3465,35 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("resolves a pending initial status after a blocked popup", async () => {
+    vi.useFakeTimers();
+    let resolveStatus: ((status: BuilderStatus) => void) | undefined;
+    const transport: BuilderConnectTransport = {
+      readStatus: () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+      activateAccount: vi.fn(),
+    };
+    await act(async () => {
+      root.render(<BuilderConnectProbe transport={transport} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(resolveStatus).toBeDefined();
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+    expect(container.textContent).toContain("Allow popups");
+    await act(async () => {
+      resolveStatus?.({ ...connectedBuilderStatus, configured: false });
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured idle resolved");
+    expect(container.textContent).toContain("Allow popups");
+  });
+
   it("reports a timed-out normal poll as unavailable", async () => {
     vi.useFakeTimers();
     const popup = createPopupStub();
@@ -3510,7 +3539,10 @@ describe("useBuilderConnectFlow", () => {
     let connected = false;
     let stalledSignal: AbortSignal | undefined;
     let release: ((status: BuilderStatus) => void) | undefined;
-    const disconnected = { ...connectedBuilderStatus, configured: false };
+    let disconnected: BuilderStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+    };
     const readStatus: BuilderConnectTransport["readStatus"] = async ({
       signal,
     }) => {
@@ -3566,10 +3598,22 @@ describe("useBuilderConnectFlow", () => {
         .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
         ?.click();
     });
+    disconnected = {
+      ...disconnected,
+      connectError: {
+        code: "account_exists",
+        message: "Already exists",
+        at: Date.now(),
+      },
+    };
     await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
       await vi.advanceTimersByTimeAsync(50_000);
     });
-    expect(container.textContent).toContain("not-configured idle resolved");
+    expect(container.textContent).toContain(
+      "not-configured idle resolved no-account-exists",
+    );
     connected = true;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -3935,6 +3979,56 @@ describe("useBuilderConnectFlow", () => {
         ?.textContent?.replace(/\s+/g, " ")
         .trim(),
     ).toBe("not-configured idle resolved no-account-exists");
+  });
+
+  it("ignores a failed embedded host launch after cancel and retry", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    let finishFirst: ((opened: boolean) => void) | undefined;
+    vi.mocked(openMcpAppHostLink)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(true);
+    const transport: BuilderConnectTransport = {
+      readStatus: async () => ({
+        ...connectedBuilderStatus,
+        configured: false,
+      }),
+      activateAccount: vi.fn(),
+    };
+    await act(async () => {
+      root.render(<BuilderConnectProbe transport={transport} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(finishFirst).toBeDefined();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+    await act(async () => {
+      finishFirst?.(false);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(
+      container.querySelector("[data-testid='terminal-error']")?.textContent,
+    ).toBe("none");
   });
 
   it("does not open the MCP host after cancelling a pending embedded startup", async () => {

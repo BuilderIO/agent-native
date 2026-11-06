@@ -892,6 +892,11 @@ export function useBuilderConnectFlow(
   const provisionAccountAttemptRef = useRef(false);
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
+  const blockedLaunchRef = useRef<{
+    from: string | null;
+    to: string;
+    revision: number;
+  } | null>(null);
   const activePopupRef = useRef<Window | null>(null);
   const confirmConnectSuccessRef = useRef<(attemptId: string) => Promise<void>>(
     async () => {},
@@ -1089,18 +1094,27 @@ export function useBuilderConnectFlow(
       const generation = ++refreshGeneration;
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
+      const blocked = blockedLaunchRef.current;
+      const sameBlockedLaunch =
+        blocked?.from === attemptIdAtStart &&
+        blocked.to === connectAttemptIdRef.current &&
+        blocked.revision === errorRevisionRef.current;
       if (
         cancelled ||
         !mountedRef.current ||
         !isCurrentRefresh() ||
-        connectAttemptIdRef.current !== attemptIdAtStart
+        (!sameBlockedLaunch &&
+          (connectAttemptIdRef.current !== attemptIdAtStart ||
+            errorRevisionRef.current !== errorRevisionAtStart))
       )
         return;
-      if (errorRevisionRef.current !== errorRevisionAtStart) return;
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        markStatusUnavailable();
+        if (sameBlockedLaunch) {
+          statusUnavailableRef.current = true;
+          setStatusUnavailableRevision(errorRevisionAtStart);
+        } else markStatusUnavailable();
         return;
       }
       if (statusUnavailableRef.current) {
@@ -1115,7 +1129,11 @@ export function useBuilderConnectFlow(
       setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
-      setAccountExists(s.connectError?.code === "account_exists");
+      if (
+        !connectAttemptIdRef.current ||
+        cancelledConnectAttemptIdRef.current !== connectAttemptIdRef.current
+      )
+        setAccountExists(s.connectError?.code === "account_exists");
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -1260,7 +1278,9 @@ export function useBuilderConnectFlow(
     (startOptions?: BuilderConnectStartOptions) => {
       if (!enabled) return;
       const started = Date.now();
+      const previousAttemptId = connectAttemptIdRef.current;
       const connectAttemptId = createBuilderConnectAttemptId();
+      blockedLaunchRef.current = null;
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
@@ -1595,6 +1615,11 @@ export function useBuilderConnectFlow(
               "Couldn't open Builder. Allow popups and try again.",
               "launch",
             );
+            blockedLaunchRef.current = {
+              from: previousAttemptId,
+              to: connectAttemptId,
+              revision: errorRevisionRef.current,
+            };
             return;
           }
 
@@ -1643,7 +1668,13 @@ export function useBuilderConnectFlow(
             });
             const openedByHost =
               await openBuilderConnectViaMcpHost(trackedHostUrl);
-            if (!mountedRef.current || openedByHost) return;
+            if (
+              !mountedRef.current ||
+              openedByHost ||
+              connectAttemptIdRef.current !== connectAttemptId ||
+              cancelledConnectAttemptIdRef.current === connectAttemptId
+            )
+              return;
             connectStartedAtRef.current = null;
             setConnecting(false);
             if (!s) restoreExistingAccount();
