@@ -404,14 +404,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         .enum(["started", "connected", "fallback"])
         .parse(existing.status);
       if (status !== "started") return terminal(status);
-      const startedAt = z.number().finite().parse(existing.startedAt);
-      if (Date.now() - startedAt < 45000) return { status: "pending" as const };
-      const recovered = await finishSignupActivation(
-        key,
-        z.string().parse(existing.attempt),
-        { status: "fallback", code: "activation_interrupted" },
-      );
-      return terminal(recovered.status, recovered.code ?? undefined);
+      return { status: "pending" as const };
     }
     const attempt = randomBytes(16).toString("hex");
     const record = await mutateSetting(

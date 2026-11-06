@@ -16,7 +16,9 @@ export function BuilderSignupActivation({
   userId: string;
   children: ReactNode;
 }) {
-  const [settled, setSettled] = useState(false);
+  const [settled, setSettled] = useState(
+    () => !hasPendingBuilderSignupAssignment(),
+  );
   useEffect(() => {
     if (!hasPendingBuilderSignupAssignment()) {
       setSettled(true);
@@ -33,6 +35,7 @@ export function BuilderSignupActivation({
         if (!disposed) setSettled(true);
       },
       (error: unknown) => {
+        if (attempts.get(userId) === attempt) attempts.delete(userId);
         void track("builder_signup_experiment_client_failed", {
           reason: error instanceof Error ? error.name : "unknown_error",
         });

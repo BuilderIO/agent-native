@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
-  beforeMutate: undefined as (() => void) | undefined,
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
@@ -31,9 +30,6 @@ vi.mock("../settings/store.js", () => ({
       current: Record<string, unknown> | null,
     ) => Record<string, unknown>,
   ) => {
-    const hook = mocks.beforeMutate;
-    mocks.beforeMutate = undefined;
-    hook?.();
     const result = update(mocks.settings.get(key) ?? null);
     mocks.settings.set(key, result);
     return result;
@@ -119,7 +115,6 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.enabled = true;
   mocks.override = undefined;
-  mocks.beforeMutate = undefined;
   mocks.identity = { user: { id: "new-user", createdAt: new Date() } };
   mocks.settings.clear();
   mocks.settings.set("design_builder_signup_v1:consent:new-user", {
@@ -252,7 +247,7 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
   });
 
-  it("does not let a late activation overwrite a recovered terminal reservation", async () => {
+  it("keeps slow activation pending until its owner records the successful outcome", async () => {
     session = signedSession();
     let finish: (value: { ok: boolean }) => void = () => {
       throw new Error("Activation has not started");
@@ -272,37 +267,10 @@ describe("pre-signup Builder experiment", () => {
     mocks.settings.set(key, { ...running, startedAt: Date.now() - 60000 });
     expect(
       await (await request({ operation: "activate" }, cookie)).json(),
-    ).toEqual({ status: "fallback", code: "activation_interrupted" });
+    ).toEqual({ status: "pending" });
     finish({ ok: true });
-    expect(await (await first).json()).toEqual({
-      status: "fallback",
-      code: "activation_interrupted",
-    });
-    expect(mocks.settings.get(key)?.status).toBe("fallback");
-  });
-
-  it("returns connected when completion wins the stale-recovery race", async () => {
-    session = signedSession();
-    const key = "design_builder_signup_v1:new-user";
-    const running = {
-      status: "started",
-      startedAt: Date.now() - 60000,
-      attempt: "running",
-    };
-    mocks.settings.set(key, running);
-    mocks.beforeMutate = () => {
-      mocks.settings.set(key, { ...running, status: "connected" });
-    };
-    expect(
-      await (
-        await request(
-          { operation: "activate" },
-          encodeBuilderSignupAssignment(accepted()),
-        )
-      ).json(),
-    ).toEqual({ status: "connected" });
+    expect(await (await first).json()).toEqual({ status: "connected" });
     expect(mocks.settings.get(key)?.status).toBe("connected");
-    expect(activate).not.toHaveBeenCalled();
   });
 
   it("honors a deployment override even when the app opts in", async () => {
@@ -324,7 +292,7 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
   });
 
-  it("makes interrupted attempts terminal without provisioning again", async () => {
+  it("does not retry an uncertain in-flight attempt", async () => {
     session = signedSession();
     mocks.settings.set("design_builder_signup_v1:new-user", {
       status: "started",
@@ -335,15 +303,12 @@ describe("pre-signup Builder experiment", () => {
       { operation: "activate" },
       encodeBuilderSignupAssignment(accepted()),
     );
-    expect(await result.json()).toEqual({
-      status: "fallback",
-      code: "activation_interrupted",
-    });
-    expect(result.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(await result.json()).toEqual({ status: "pending" });
+    expect(result.headers.get("set-cookie")).toBeNull();
     expect(activate).not.toHaveBeenCalled();
     expect(
       mocks.settings.get("design_builder_signup_v1:new-user")?.status,
-    ).toBe("fallback");
+    ).toBe("started");
   });
 
   it("records a thrown activation as a terminal failure", async () => {
