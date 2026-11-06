@@ -57,6 +57,30 @@ describe("stripInlineBytes", () => {
     ).not.toThrow();
   });
 
+  it("keeps the storage download URL of a non-image upload", () => {
+    const download =
+      "https://cdn.builder.io/o/assets%2Ffake-space%2Ffake-id?alt=media&token=fake-download-token";
+
+    expect(
+      stripInlineBytes(
+        {
+          attachments: [
+            {
+              type: "file",
+              name: "report.pdf",
+              data: "data:application/pdf;base64,JVBERi0=",
+              url: download,
+            },
+          ],
+        },
+        "reject",
+      ),
+    ).toEqual({
+      attachments: [{ type: "file", name: "report.pdf", url: download }],
+    });
+    expect(() => assertNoInlineImageBytes({ url: download })).not.toThrow();
+  });
+
   it("uses the attachment's upload URL for its nested content parts", () => {
     const stored = stripInlineBytes(
       {
