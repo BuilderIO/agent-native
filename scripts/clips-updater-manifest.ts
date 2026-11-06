@@ -18,7 +18,6 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 export type ReleaseAsset = { name: string; apiUrl: string };
@@ -209,7 +208,7 @@ function main() {
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (import.meta.main) {
   try {
     main();
   } catch (error) {
