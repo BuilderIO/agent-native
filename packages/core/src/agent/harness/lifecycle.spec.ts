@@ -2557,6 +2557,87 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    {
+      monitorError: new Error("database unavailable"),
+      rejection: new Error("finalization failed"),
+      cleanup: false,
+    },
+    { monitorError: undefined, rejection: undefined, cleanup: false },
+    { monitorError: null, rejection: null, cleanup: false },
+    { monitorError: false, rejection: false, cleanup: false },
+    { monitorError: 0, rejection: 0, cleanup: false },
+    { monitorError: "", rejection: "", cleanup: true },
+  ])(
+    "preserves monitor and finalization failures (monitor: $monitorError, rejection: $rejection)",
+    async ({ monitorError, rejection, cleanup }) => {
+      vi.useFakeTimers();
+      let observedSignal!: AbortSignal;
+      let streamStarted!: () => void;
+      const streamReady = new Promise<void>((resolve) => {
+        streamStarted = resolve;
+      });
+      const closeError = new Error("iterator close failed");
+      const iterator = {
+        next: vi.fn(
+          () => new Promise<IteratorResult<AgentHarnessEvent>>(() => {}),
+        ),
+        return: cleanup
+          ? vi.fn().mockRejectedValue(closeError)
+          : vi.fn().mockResolvedValue({ done: true, value: undefined }),
+      };
+      const session = fakeSession();
+      session.streamTurn.mockImplementation(
+        (input: { abortSignal?: AbortSignal }) => {
+          if (!input.abortSignal) throw new Error("Expected an abort signal");
+          observedSignal = input.abortSignal;
+          streamStarted();
+          return { [Symbol.asyncIterator]: () => iterator };
+        },
+      );
+      register(stored, session);
+      const startRun = mocks.startRun.getMockImplementation()!;
+      mocks.startRun.mockImplementationOnce((...args) => {
+        const started: StartedRun = startRun(...args);
+        started.finalized = started.finalized.then(() => {
+          throw rejection;
+        });
+        return started;
+      });
+
+      const followUp = sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      });
+      const outcome = followUp.then(
+        (value) => ({ fulfilled: true as const, value }),
+        (error: unknown) => ({ fulfilled: false as const, error }),
+      );
+      await streamReady;
+      mocks.getById.mockRejectedValue(monitorError);
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      const result = await outcome;
+      expect(result.fulfilled).toBe(false);
+      if (result.fulfilled) throw new Error("Expected follow-up to reject");
+      expect(observedSignal.reason).toBeInstanceOf(AggregateError);
+      expect(observedSignal.reason.errors).toEqual([
+        monitorError,
+        monitorError,
+        monitorError,
+      ]);
+      expect(result.error).toBeInstanceOf(AggregateError);
+      expect((result.error as AggregateError).errors).toEqual([
+        observedSignal.reason,
+        rejection,
+        ...(cleanup ? [closeError] : []),
+      ]);
+      expect(iterator.return).toHaveBeenCalledOnce();
+      expect(session.stop).toHaveBeenCalledOnce();
+    },
+  );
+
   it("finalizes its claim after a same-claim generation conflict", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);

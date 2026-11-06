@@ -4063,7 +4063,7 @@ async function abortTurnByRefDurablyInternal(
     } else if (
       result.value &&
       !(
-        runsToFlush[index].runId === reportedFlushFailure?.runId &&
+        runsToFlush[index]?.runId === reportedFlushFailure?.runId &&
         result.value === reportedFlushFailure.error
       )
     ) {

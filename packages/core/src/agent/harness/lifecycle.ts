@@ -1522,7 +1522,10 @@ export async function sendAgentHarnessFollowUp(input: {
           );
         }
 
-        const failures: unknown[] = [reason ?? error];
+        const failures: unknown[] = [
+          reason,
+          ...(finalizedRejected ? [error] : []),
+        ];
         let failedSession: StoredAgentHarnessSession | null = null;
         try {
           failedSession = await markOwnedFollowUpErrored(
@@ -1551,7 +1554,9 @@ export async function sendAgentHarnessFollowUp(input: {
         if (failures.length > 1) {
           throw new AggregateError(
             failures,
-            "Harness follow-up claim monitoring failed and cleanup was incomplete.",
+            finalizedRejected
+              ? "Harness follow-up claim monitoring failed and finalization or cleanup was incomplete."
+              : "Harness follow-up claim monitoring failed and cleanup was incomplete.",
           );
         }
         const latest =
