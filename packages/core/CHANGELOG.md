@@ -51,6 +51,30 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+- 573f431: `tool-search` finds the right tool more often in large apps. It now scores each field separately (name, then search hints, then the description's first sentence, then the rest, then parameters), drops conversational words such as "can you" and "my", marks results that delete or cancel as `destructive` so the agent confirms intent before calling one, matches tense ("archived" finds "archive", "running" finds "run") and joined words ("powerpoint" finds "PowerPoint"), counts common synonyms ("copy" for duplicate, "page" for document) at half weight, and ranks an app's own actions slightly above framework tools with the same words. `defineAction` accepts `searchHints`, a short list of words users say for the action, which `tool-search` ranks just below the name and never sends to the model. An action with malformed `searchHints` now fails to load with an `ActionDefinitionError` in every loader, instead of being skipped or run as a CLI wrapper; the error names the action when the loader knows it, which an error raised while a module is evaluated may not.
+
+### Patch Changes
+
+- 891c0ae: Accept an active Better Auth session token as a bearer credential, so the Clips Chrome extension stays signed in when the browser session has no legacy session row. Reject expired Better Auth tokens presented in framework session cookies.
+- 00835a7: Actions now accept a boolean for a parameter declared as the strings `"true"` and `"false"`. Models read a flag like `compact` as a boolean and send `false`; that call used to fail validation, and it now runs as `"false"`.
+- fdf139b: Factory template feedback sweep skill: a test-only change means only test files, plus an optional `.changeset/` entry; Markdown changes no longer count as test-only.
+- e61063b: Feedback sweep skill: every run also searches for roots with no eyes reaction, so a last-seen timestamp can no longer skip reports, and that timestamp advances only to report roots.
+- Release all public npm packages with a patch version bump.
+- 3ae69a9: Keep a redacted private reply attributed to its run so later prompts in the same chat no longer fail with "Thread history cannot be verified".
+- 2d71bbb: Allow WOFF2 font files through the shared upload endpoint.
+- 5c25ab0: Allow organization A2A secret sync to configured loopback workspace gateways without following redirects or syncing to the sender. Fail sync when workspace manifests or recipient URLs are invalid instead of silently omitting apps, including URLs with query strings or fragments, while ignoring non-app folders.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+  - @agent-native/recap-cli@0.5.97
+
 ## 0.224.0
 
 ### Minor Changes
@@ -4531,38 +4555,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
-
-## 0.172.0
-
-### Minor Changes
-
-- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
-
-### Patch Changes
-
-- bd7384b: Scope sidebar toggle events to the matching app chat surface.
-- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
-  - `classifyCodeAgentCommandPermission` now matches its blocked and
-    approval-required rules against the quote-stripped form of the command as well
-    as the raw text. The shell removes quoting before the command word exists, so
-    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
-    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
-    escaping, which this pass cannot decode, now asks for approval instead of
-    falling through.
-  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
-    waiting on `close` alone, and spawns detached so a timeout signals the whole
-    process group. A command that backgrounds anything (`npm run dev &`) left a
-    grandchild holding the output pipe and the call never returned — past its
-    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
-    exited. When output is cut short this way the result says so rather than
-    reading as a clean finish.
-  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
-    an explicit untrusted-data instruction, and no longer sit ahead of the
-    automation's own body — the same defense `condition-evaluator.ts` already
-    applied before this data reached a tool-less classifier, now applied on the
-    path that reaches an agent with the full tool surface.
-  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
-    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
-    itself off as framework instructions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

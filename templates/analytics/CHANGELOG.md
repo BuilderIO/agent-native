@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-04
+
+### Improved
+
+- The agent finds the dashboard editing action more often when you ask to add or change a chart.
+
 ## 2026-10-31
 
 ### Improved
@@ -1604,20 +1610,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Dashboard panel deletes now stay deleted after refresh.
 - First-party dashboard dates now align to Pacific time for daily activity and retention panels.
 - First-party signup and pageview dashboard panels now use the selected time range and email filters consistently.
-
-## 2026-06-23
-
-### Added
-
-- Build large first-party analytics dashboards in one fast call by naming metrics
-- Open any dashboard chart full screen in a modal from the panel's three-dots menu
-
-### Improved
-
-- The Dashboards and Analyses sidebar settings buttons now stay hidden until you hover the section, for a cleaner sidebar
-
-### Fixed
-
-- Long dashboard and analysis names in the sidebar now truncate with an ellipsis instead of being clipped
 
 For the full list of updates, see the [changelog folder](./changelog/).
