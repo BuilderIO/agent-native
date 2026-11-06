@@ -44,7 +44,8 @@ export type ActiveRunPhase =
 
 export type RunPhase =
   | ActiveRunPhase
-  | { readonly type: "terminal"; readonly cancelling?: ActiveRunPhase }
+  | { readonly type: "cancelling"; readonly previous: ActiveRunPhase }
+  | { readonly type: "terminal" }
   | { readonly type: "disposed" };
 
 export type RunPhaseEvent =
@@ -57,6 +58,7 @@ export type RunPhaseEvent =
   | { readonly type: "awaitContinuation"; readonly streamClosed: boolean }
   | { readonly type: "terminal" }
   | { readonly type: "cancelStarted" }
+  | { readonly type: "cancelSucceeded" }
   | { readonly type: "cancelFailed" }
   | { readonly type: "dispose" };
 
@@ -64,10 +66,10 @@ export type RunPhaseEvent =
 export function transition(phase: RunPhase, event: RunPhaseEvent): RunPhase {
   if (event.type === "dispose") return { type: "disposed" };
   if (phase.type === "disposed") return phase;
-  if (phase.type === "terminal") {
-    if (event.type === "cancelFailed" && phase.cancelling)
-      return phase.cancelling;
-    if (event.type === "terminal") return { type: "terminal" };
+  if (phase.type === "terminal") return phase;
+  if (phase.type === "cancelling") {
+    if (event.type === "cancelFailed") return phase.previous;
+    if (event.type === "cancelSucceeded") return { type: "terminal" };
     return phase;
   }
   switch (event.type) {
@@ -99,7 +101,8 @@ export function transition(phase: RunPhase, event: RunPhaseEvent): RunPhase {
     case "terminal":
       return { type: "terminal" };
     case "cancelStarted":
-      return { type: "terminal", cancelling: phase };
+      return { type: "cancelling", previous: phase };
+    case "cancelSucceeded":
     case "cancelFailed":
       return phase;
   }

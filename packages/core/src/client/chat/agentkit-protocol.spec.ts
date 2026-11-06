@@ -1732,6 +1732,115 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it.each(["succeeds", "fails"] as const)(
+    "settles connection failure after a pending stop %s",
+    async (stopOutcome) => {
+      const stop = Promise.withResolvers<{ status: "cancelled" }>();
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield {
+          type: "connection-request",
+          requestId: "connection-1",
+          provider: "slack",
+          reason: "connect",
+        };
+      }
+      const runtime = createRuntime(events, {
+        capabilities: {
+          messages: { streaming: true },
+          rich: { connectionRequests: true },
+        },
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => ({
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: events(),
+          cancel: () => stop.promise,
+        }),
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      try {
+        const { runId } = await transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Verify Slack")],
+        });
+        const paused = await drain(
+          transport.subscribeToRun({ threadId: "thread-1", runId }),
+        );
+        const resolveConnectionRequest = transport.resolveConnectionRequest;
+        if (!resolveConnectionRequest)
+          throw new Error("Expected connection support");
+        const resolveConnection = () =>
+          resolveConnectionRequest({
+            threadId: "thread-1",
+            runId,
+            requestId: "connection-1",
+            response: {
+              status: "failed",
+              message: "Slack rejected the setup.",
+            },
+          });
+        const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+        const resolution = resolveConnection();
+        const cancellationResult = cancelling.then(
+          () => "cancelled",
+          () => "failed",
+        );
+        let readerFinished = false;
+        const remaining = drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId,
+            afterSequence: paused.at(-1)?.sequence,
+          }),
+        ).then((events) => {
+          readerFinished = true;
+          return events;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const finishedBeforeStop = readerFinished;
+        if (stopOutcome === "succeeds") stop.resolve({ status: "cancelled" });
+        else stop.reject(new Error("Stop failed"));
+        expect(await cancellationResult).toBe(
+          stopOutcome === "succeeds" ? "cancelled" : "failed",
+        );
+        await resolution;
+        const observed = await remaining;
+        const replay =
+          stopOutcome === "fails"
+            ? await drain(
+                transport.subscribeToRun({
+                  threadId: "thread-1",
+                  runId,
+                  afterSequence:
+                    observed.at(-1)?.sequence ?? paused.at(-1)?.sequence,
+                }),
+              )
+            : [];
+        const terminal = [...observed, ...replay];
+        expect(finishedBeforeStop).toBe(false);
+        expect(terminal.at(-1)).toMatchObject(
+          stopOutcome === "succeeds"
+            ? { type: "run.cancelled" }
+            : { type: "run.failed", error: { code: "connection_failed" } },
+        );
+        expect(
+          terminal.filter(
+            (event) =>
+              event.type === "run.cancelled" ||
+              event.type === "run.failed" ||
+              event.type === "run.completed",
+          ),
+        ).toHaveLength(1);
+      } finally {
+        await transport.dispose();
+      }
+    },
+  );
+
   it("terminates a paused run when connection setup fails", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -7679,6 +7788,105 @@ describe("createAgentKitProtocolAdapter", () => {
     } finally {
       await transport.dispose();
       vi.useRealTimers();
+    }
+  });
+
+  it("retains a paused run during a pending stop and resumes after the stop fails", async () => {
+    const stop = Promise.withResolvers<{ status: "cancelled" }>();
+    let runCount = 0;
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        message: "Publish?",
+      };
+    }
+    async function* completedEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(completedEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async (input) => {
+        runCount += 1;
+        return {
+          id: `turn-${runCount}`,
+          runId: `runtime-run-${runCount}`,
+          sessionId: "thread-1",
+          events:
+            input.prompt === "Publish" ? approvalEvents() : completedEvents(),
+          cancel: () => stop.promise,
+        };
+      },
+      continueTurn: async () => ({
+        id: "continued-turn",
+        runId: "continued-run",
+        sessionId: "thread-1",
+        events: completedEvents(),
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime, {
+      maxRetainedRuns: 1,
+    });
+    try {
+      const paused = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish")],
+      });
+      await drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId: paused.runId }),
+      );
+      const cancelling = transport.cancelRun({
+        threadId: "thread-1",
+        runId: paused.runId,
+      });
+      const cancellationFailure =
+        expect(cancelling).rejects.toThrow("Stop failed");
+      for (const text of ["First", "Second"]) {
+        const completed = await transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage(text)],
+        });
+        await drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId: completed.runId,
+          }),
+        );
+      }
+      const retained = await transport.getRun?.({
+        threadId: "thread-1",
+        runId: paused.runId,
+      });
+      stop.reject(new Error("Stop failed"));
+      await cancellationFailure;
+      expect(retained).not.toBeNull();
+      if (!transport.resumeRun) throw new Error("Expected approval support");
+      const resumed = await transport.resumeRun({
+        threadId: "thread-1",
+        runId: paused.runId,
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-1",
+            response: approvalResponse("approve"),
+          }),
+        ],
+      });
+      const events = await drain(
+        transport.subscribeToRun({
+          threadId: "thread-1",
+          runId: resumed.runId,
+        }),
+      );
+      expect(events.at(-1)?.type).toBe("run.completed");
+    } finally {
+      await transport.dispose();
     }
   });
 

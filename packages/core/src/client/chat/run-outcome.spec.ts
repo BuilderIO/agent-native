@@ -98,6 +98,25 @@ describe("run lifecycle transitions", () => {
         expected: { type: "awaitingContinuation", streamClosed: false },
       },
       {
+        name: "competing terminal does not release a pending cancellation",
+        events: [{ type: "cancelStarted" }, { type: "terminal" }],
+        expected: { type: "cancelling", previous: { type: "streaming" } },
+      },
+      {
+        name: "failed cancel restores the previous phase after a competing terminal",
+        events: [
+          { type: "cancelStarted" },
+          { type: "terminal" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "successful cancel becomes terminal",
+        events: [{ type: "cancelStarted" }, { type: "cancelSucceeded" }],
+        expected: { type: "terminal" },
+      },
+      {
         name: "dispose wins over late cancellation",
         events: [
           { type: "cancelStarted" },

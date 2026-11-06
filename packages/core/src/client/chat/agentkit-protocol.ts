@@ -206,6 +206,10 @@ function isRunTerminal(run: ProtocolRun): boolean {
   return run.phase.type === "terminal" || run.phase.type === "disposed";
 }
 
+function isRunCancelling(run: ProtocolRun): boolean {
+  return run.phase.type === "cancelling";
+}
+
 function isTerminalRunStatus(
   status: AgentRunStatus,
 ): status is "completed" | "failed" | "cancelled" {
@@ -3764,6 +3768,7 @@ export function createAgentKitProtocolAdapter(
       );
       if (refusal) asked.set(decision.runId, refusal);
     }
+    while (isRunCancelling(run)) await notifyWhenChanged(run, readers.signal);
     if (activity && !isRunTerminal(run)) {
       append(run, {
         type: "activity.completed",
@@ -3830,12 +3835,6 @@ export function createAgentKitProtocolAdapter(
     indexRun(run, resumed.runId);
   }
 
-  async function waitForCancellation(run: ProtocolRun): Promise<void> {
-    while (run.phase.type === "terminal" && run.phase.cancelling) {
-      await notifyWhenChanged(run, readers.signal);
-    }
-  }
-
   function ensurePump(run: ProtocolRun): void {
     if (
       run.pumpPromise ||
@@ -3848,12 +3847,14 @@ export function createAgentKitProtocolAdapter(
       try {
         let stream: { failed: boolean; error?: unknown } = { failed: false };
         while (true) {
-          await waitForCancellation(run);
+          while (isRunCancelling(run))
+            await notifyWhenChanged(run, readers.signal);
           if (run.phase.type === "streaming") {
             stream = { failed: false };
             try {
               for await (const event of run.turn.events) {
-                await waitForCancellation(run);
+                while (isRunCancelling(run))
+                  await notifyWhenChanged(run, readers.signal);
                 if (run.phase.type !== "streaming") break;
                 const sequence = event.metadata?.seq;
                 if (
@@ -3876,7 +3877,8 @@ export function createAgentKitProtocolAdapter(
             } catch (error) {
               stream = { failed: true, error };
             }
-            await waitForCancellation(run);
+            while (isRunCancelling(run))
+              await notifyWhenChanged(run, readers.signal);
             if (run.phase.type === "streaming") {
               run.pipeClosedBeforeTerminal = true;
               run.phase = transition(run.phase, {
@@ -3893,7 +3895,8 @@ export function createAgentKitProtocolAdapter(
             runAuthority && capabilities.resumableRuns === true
               ? await followRunAuthority(run, runAuthority, stream)
               : await resumeWithoutAuthority(run, stream);
-          await waitForCancellation(run);
+          while (isRunCancelling(run))
+            await notifyWhenChanged(run, readers.signal);
           if (!resumed) {
             if (
               run.phase.type === "followingSuccessor" ||
@@ -3943,7 +3946,7 @@ export function createAgentKitProtocolAdapter(
         }
         if (
           run.phase.type === "disposed" ||
-          (run.phase.type === "terminal" && !run.phase.cancelling) ||
+          run.phase.type === "terminal" ||
           (run.phase.type === "awaitingContinuation" && run.phase.streamClosed)
         )
           return;
@@ -4172,7 +4175,7 @@ export function createAgentKitProtocolAdapter(
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
-      if (isRunTerminal(run)) return;
+      if (isRunTerminal(run) || run.phase.type === "cancelling") return;
       // "user" is the server's turn-wide stop: it also stops any successor
       // run the turn would otherwise hand off to.
       const cancellation = cancelCoreTurn(run, "user");
@@ -4195,7 +4198,7 @@ export function createAgentKitProtocolAdapter(
         if (run.phase.type === "disposed") return;
         delete run.pendingApprovalId;
         run.terminalSource = "local";
-        run.phase = transition(run.phase, { type: "terminal" });
+        run.phase = transition(run.phase, { type: "cancelSucceeded" });
         append(run, { type: "run.status", status: "cancelled" });
         append(run, { type: "run.cancelled" });
       } finally {
@@ -4392,6 +4395,8 @@ export function createAgentKitProtocolAdapter(
       const continuation = (async () => {
         const activePump = run.pumpPromise;
         if (activePump) await activePump;
+        while (isRunCancelling(run))
+          await notifyWhenChanged(run, readers.signal);
         if (isRunTerminal(run)) {
           throw new Error("The AgentKit run is already terminal.");
         }
@@ -4423,7 +4428,8 @@ export function createAgentKitProtocolAdapter(
           },
           abortSignal: readers.signal,
         });
-        await waitForCancellation(run);
+        while (isRunCancelling(run))
+          await notifyWhenChanged(run, readers.signal);
         if (run.phase.type !== "awaitingContinuation") {
           await closeDiscardedTurnEvents(nextTurn);
           throw new Error("The AgentKit run is already terminal.");
@@ -4629,7 +4635,8 @@ export function createAgentKitProtocolAdapter(
         await run.pumpPromise;
       }
       touchRun(run);
-      if (input.response.status === "declined" && isRunTerminal(run)) return;
+      while (isRunCancelling(run)) await notifyWhenChanged(run, readers.signal);
+      if (isRunTerminal(run)) return;
       if (run.pendingConnectionRequestId !== input.requestId) {
         const staleDecline =
           input.response.status === "declined" &&
@@ -4689,6 +4696,8 @@ export function createAgentKitProtocolAdapter(
       const continuation = (async () => {
         const activePump = run.pumpPromise;
         if (activePump) await activePump;
+        while (isRunCancelling(run))
+          await notifyWhenChanged(run, readers.signal);
         if (isRunTerminal(run)) {
           throw new Error("The AgentKit run is already terminal.");
         }
@@ -4703,7 +4712,8 @@ export function createAgentKitProtocolAdapter(
           },
           abortSignal: readers.signal,
         });
-        await waitForCancellation(run);
+        while (isRunCancelling(run))
+          await notifyWhenChanged(run, readers.signal);
         if (run.phase.type !== "awaitingContinuation") {
           await closeDiscardedTurnEvents(nextTurn);
           throw new Error("The AgentKit run is already terminal.");
