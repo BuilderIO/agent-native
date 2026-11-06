@@ -1856,6 +1856,126 @@ describe("createAgentKitProtocolAdapter", () => {
     },
   );
 
+  it.each(["fails", "succeeds"] as const)(
+    "keeps a live reader through a queued connection continuation that %s",
+    async (outcome) => {
+      const stop = Promise.withResolvers<{ status: "cancelled" }>();
+      const continuationStarted = Promise.withResolvers<void>();
+      const continuation = Promise.withResolvers<AgentChatRuntimeTurn>();
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield {
+          type: "connection-request",
+          requestId: "connection-1",
+          provider: "slack",
+          reason: "connect",
+        };
+      }
+      const runtime = createRuntime(events, {
+        capabilities: {
+          messages: { streaming: true },
+          rich: { connectionRequests: true },
+        },
+      });
+      const continueTurn = vi.fn(() => {
+        continuationStarted.resolve();
+        return continuation.promise;
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => ({
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: events(),
+          cancel: () => stop.promise,
+        }),
+        continueTurn,
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      try {
+        const { runId } = await transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Connect Slack")],
+        });
+        const paused = await drain(
+          transport.subscribeToRun({ threadId: "thread-1", runId }),
+        );
+        const cancellation = transport.cancelRun({
+          threadId: "thread-1",
+          runId,
+        });
+        const stopped = expect(cancellation).rejects.toThrow("Stop failed");
+        let readerFinished = false;
+        const reader = drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId,
+            afterSequence: paused.at(-1)?.sequence,
+          }),
+        ).then((received) => {
+          readerFinished = true;
+          return received;
+        });
+        if (!transport.resolveConnectionRequest)
+          throw new Error("Expected connection support");
+        const resolution = transport.resolveConnectionRequest({
+          threadId: "thread-1",
+          runId,
+          requestId: "connection-1",
+          response: { status: "connected", connectionId: "connection-ref" },
+        });
+        const result = resolution.then(
+          () => "resolved",
+          (error: unknown) => error,
+        );
+        stop.reject(new Error("Stop failed"));
+        await stopped;
+        await continuationStarted.promise;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const endedBeforeContinuation = readerFinished;
+        if (outcome === "fails") {
+          continuation.reject(new Error("Continuation failed"));
+        } else {
+          continuation.resolve({
+            id: "turn-2",
+            runId: "runtime-run-2",
+            sessionId: "thread-1",
+            events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+              yield { type: "done", reason: "complete" };
+            })(),
+          });
+        }
+        const resolutionResult = await result;
+        const received = await reader;
+        expect(endedBeforeContinuation).toBe(false);
+        expect(continueTurn).toHaveBeenCalledOnce();
+        expect(
+          received
+            .filter((event) => event.type === "connection.updated")
+            .map((event) =>
+              event.type === "connection.updated"
+                ? event.request.status
+                : undefined,
+            ),
+        ).toEqual(
+          outcome === "fails"
+            ? ["connecting", "failed"]
+            : ["connecting", "connected"],
+        );
+        if (outcome === "fails") {
+          expect(resolutionResult).toBeInstanceOf(Error);
+          expect(String(resolutionResult)).toContain("Continuation failed");
+        } else {
+          expect(resolutionResult).toBe("resolved");
+          expect(received.at(-1)?.type).toBe("run.completed");
+        }
+      } finally {
+        await transport.dispose();
+      }
+    },
+  );
+
   it("terminates a paused run when connection setup fails", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

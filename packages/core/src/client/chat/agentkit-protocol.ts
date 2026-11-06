@@ -4638,120 +4638,120 @@ export function createAgentKitProtocolAdapter(
         await run.pumpPromise;
       }
       touchRun(run);
-      if (isRunCancelling(run)) {
-        run.pendingConnectionResponses =
-          (run.pendingConnectionResponses ?? 0) + 1;
-        try {
-          while (isRunCancelling(run))
-            await notifyWhenChanged(run, readers.signal);
-        } finally {
-          run.pendingConnectionResponses -= 1;
-          for (const listener of run.listeners) listener();
-        }
-      }
-      if (isRunTerminal(run)) {
-        if (input.response.status === "declined") return;
-        throw new Error("The AgentKit run is already terminal.");
-      }
-      if (run.pendingConnectionRequestId !== input.requestId) {
-        const staleDecline =
-          input.response.status === "declined" &&
-          run.initialAuthorityRead?.kind === "read" &&
-          run.initialAuthorityRead.state.status !== "running";
-        if (staleDecline) return;
-        throw new Error(
-          `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
-        );
-      }
-      const pendingEvent = [...run.events]
-        .reverse()
-        .find(
-          (event) =>
-            event.type === "connection.requested" &&
-            event.request.id === input.requestId,
-        );
-      if (!pendingEvent || pendingEvent.type !== "connection.requested") {
-        throw new Error(`Unknown connection request: ${input.requestId}`);
-      }
-      const update = (status: AgentConnectionRequest["status"]) =>
-        append(run, {
-          type: "connection.updated",
-          request: {
-            ...pendingEvent.request,
-            status,
-            updatedAt: now(),
-          },
-        });
-      if (input.response.status === "failed") {
-        update("failed");
-        run.pendingConnectionRequestId = undefined;
-        run.phase = transition(run.phase, { type: "terminal" });
-        run.terminalSource = "local";
-        append(run, { type: "run.status", status: "failed" });
-        append(run, {
-          type: "run.failed",
-          error: {
-            code: "connection_failed",
-            message:
-              input.response.message?.trim() ||
-              `Failed to connect ${pendingEvent.request.provider}.`,
-          },
-        });
-        pruneRetainedRuns(run.terminalAtMs);
-        return;
-      }
-      if (!run.session.continueTurn) {
-        throw new Error(
-          "The Core runtime does not support connection continuation.",
-        );
-      }
-      if (run.continuationPromise) {
-        throw new Error("A connection continuation is already in progress.");
-      }
-      update("connecting");
-      const continuation = (async () => {
-        const activePump = run.pumpPromise;
-        if (activePump) await activePump;
+      run.pendingConnectionResponses =
+        (run.pendingConnectionResponses ?? 0) + 1;
+      try {
         while (isRunCancelling(run))
           await notifyWhenChanged(run, readers.signal);
         if (isRunTerminal(run)) {
+          if (input.response.status === "declined") return;
           throw new Error("The AgentKit run is already terminal.");
         }
-        const nextTurn = await run.session.continueTurn!({
-          turnId: run.turn.id,
-          connection: {
-            id: pendingEvent.request.provider,
-            status:
-              input.response.status === "connected" ? "connected" : "declined",
-            connectionId: input.response.connectionId,
-            message: input.response.message,
-          },
-          abortSignal: readers.signal,
-        });
-        while (isRunCancelling(run))
-          await notifyWhenChanged(run, readers.signal);
-        if (run.phase.type !== "awaitingContinuation") {
-          await closeDiscardedTurnEvents(nextTurn);
-          throw new Error("The AgentKit run is already terminal.");
+        if (run.pendingConnectionRequestId !== input.requestId) {
+          const staleDecline =
+            input.response.status === "declined" &&
+            run.initialAuthorityRead?.kind === "read" &&
+            run.initialAuthorityRead.state.status !== "running";
+          if (staleDecline) return;
+          throw new Error(
+            `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
+          );
         }
-        run.pendingConnectionRequestId = undefined;
-        run.turn = nextTurn;
-        indexRun(run, nextTurn.runId);
-        run.phase = transition(run.phase, { type: "continuationResumed" });
-        update(input.response.status);
-        append(run, { type: "run.status", status: "running" });
-        ensurePump(run);
-      })();
-      run.continuationPromise = continuation;
-      try {
-        await continuation;
-      } catch (error) {
-        update("failed");
-        throw error;
+        const pendingEvent = [...run.events]
+          .reverse()
+          .find(
+            (event) =>
+              event.type === "connection.requested" &&
+              event.request.id === input.requestId,
+          );
+        if (!pendingEvent || pendingEvent.type !== "connection.requested") {
+          throw new Error(`Unknown connection request: ${input.requestId}`);
+        }
+        const update = (status: AgentConnectionRequest["status"]) =>
+          append(run, {
+            type: "connection.updated",
+            request: {
+              ...pendingEvent.request,
+              status,
+              updatedAt: now(),
+            },
+          });
+        if (input.response.status === "failed") {
+          update("failed");
+          run.pendingConnectionRequestId = undefined;
+          run.phase = transition(run.phase, { type: "terminal" });
+          run.terminalSource = "local";
+          append(run, { type: "run.status", status: "failed" });
+          append(run, {
+            type: "run.failed",
+            error: {
+              code: "connection_failed",
+              message:
+                input.response.message?.trim() ||
+                `Failed to connect ${pendingEvent.request.provider}.`,
+            },
+          });
+          pruneRetainedRuns(run.terminalAtMs);
+          return;
+        }
+        if (!run.session.continueTurn) {
+          throw new Error(
+            "The Core runtime does not support connection continuation.",
+          );
+        }
+        if (run.continuationPromise) {
+          throw new Error("A connection continuation is already in progress.");
+        }
+        update("connecting");
+        const continuation = (async () => {
+          const activePump = run.pumpPromise;
+          if (activePump) await activePump;
+          while (isRunCancelling(run))
+            await notifyWhenChanged(run, readers.signal);
+          if (isRunTerminal(run)) {
+            throw new Error("The AgentKit run is already terminal.");
+          }
+          const nextTurn = await run.session.continueTurn!({
+            turnId: run.turn.id,
+            connection: {
+              id: pendingEvent.request.provider,
+              status:
+                input.response.status === "connected"
+                  ? "connected"
+                  : "declined",
+              connectionId: input.response.connectionId,
+              message: input.response.message,
+            },
+            abortSignal: readers.signal,
+          });
+          while (isRunCancelling(run))
+            await notifyWhenChanged(run, readers.signal);
+          if (run.phase.type !== "awaitingContinuation") {
+            await closeDiscardedTurnEvents(nextTurn);
+            throw new Error("The AgentKit run is already terminal.");
+          }
+          run.pendingConnectionRequestId = undefined;
+          run.turn = nextTurn;
+          indexRun(run, nextTurn.runId);
+          run.phase = transition(run.phase, { type: "continuationResumed" });
+          update(input.response.status);
+          append(run, { type: "run.status", status: "running" });
+          ensurePump(run);
+        })();
+        run.continuationPromise = continuation;
+        try {
+          await continuation;
+        } catch (error) {
+          update("failed");
+          throw error;
+        } finally {
+          if (run.continuationPromise === continuation) {
+            run.continuationPromise = null;
+          }
+        }
       } finally {
-        if (run.continuationPromise === continuation) {
-          run.continuationPromise = null;
-        }
+        run.pendingConnectionResponses -= 1;
+        for (const listener of run.listeners) listener();
       }
     };
   }
