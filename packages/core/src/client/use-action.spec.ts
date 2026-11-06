@@ -1726,11 +1726,11 @@ describe("the UI capability on writes from the signed-in app", () => {
     const fetchMock = routeFetch(() => new Response(null, { status: 204 }));
 
     await callAction("delete-file", { id: "file-1" });
+    await callAction("delete-file", { id: "file-2" });
 
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      MINT,
-      "/_agent-native/actions/delete-file",
-    ]);
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      1,
+    );
   });
 
   it("presents the capability on the first write", async () => {
