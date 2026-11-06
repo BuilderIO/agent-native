@@ -3735,8 +3735,8 @@ export default function DeckEditor() {
   );
 
   const replaceImageInSlide = useCallback(
-    (oldSrc: string, newSrc: string, alt?: string) => {
-      if (!id || !currentSlideRef.current) return;
+    (oldSrc: string, newSrc: string, alt?: string): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       const slide = currentSlideRef.current;
       const currentContent =
         latestSlideContentRef.current.get(slide.id) ?? slide.content;
@@ -3746,9 +3746,9 @@ export default function DeckEditor() {
         newSrc,
         { alt },
       );
-      if (updatedContent !== currentContent) {
-        updateSlideContent(slide.id, updatedContent);
-      }
+      if (updatedContent === currentContent) return false;
+      updateSlideContent(slide.id, updatedContent);
+      return true;
     },
     [updateSlideContent],
   );
@@ -4045,8 +4045,8 @@ export default function DeckEditor() {
       replaceSrc: string | null,
       url: string,
       position?: { x: number; y: number },
-    ) => {
-      if (!id || !currentSlideRef.current) return;
+    ): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       if (!replaceSrc) {
         const targetSlide = currentSlideRef.current;
         const currentContent =
@@ -4057,18 +4057,17 @@ export default function DeckEditor() {
           url,
           { position },
         );
-        if (updatedContent !== currentContent) {
-          updateSlideContent(targetSlide.id, updatedContent);
-          trackEvent("media_added", {
-            output_id: id,
-            output_type: "deck",
-            media_source: "generated_asset",
-            slide_id: targetSlide.id,
-          });
-        }
-        return;
+        if (updatedContent === currentContent) return false;
+        updateSlideContent(targetSlide.id, updatedContent);
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "generated_asset",
+          slide_id: targetSlide.id,
+        });
+        return true;
       }
-      replaceImageInSlide(replaceSrc, url);
+      return replaceImageInSlide(replaceSrc, url);
     },
     [replaceImageInSlide, updateSlideContent],
   );
@@ -6457,20 +6456,22 @@ export default function DeckEditor() {
         onOpenChange={setAssetLibraryOpen}
         deckId={id}
         anchorRef={panelAnchorRef}
-        onSelectAsset={
-          replaceImageSrc
-            ? (newUrl) => {
-                replaceImageInSlide(replaceImageSrc, newUrl);
-                trackEvent("media_added", {
-                  output_id: id,
-                  output_type: "deck",
-                  media_source: "asset_library",
-                  slide_id: currentSlideRef.current?.id,
-                });
-                setReplaceImageSrc(null);
-              }
-            : undefined
-        }
+        onSelectAsset={(newUrl) => {
+          if (!replaceImageSrc) return dropImageUrlOnSlide(null, newUrl);
+          if (newUrl === replaceImageSrc) {
+            setReplaceImageSrc(null);
+            return true;
+          }
+          if (!replaceImageInSlide(replaceImageSrc, newUrl)) return false;
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "asset_library",
+            slide_id: currentSlideRef.current?.id,
+          });
+          setReplaceImageSrc(null);
+          return true;
+        }}
       />
       <HistoryPanel
         deckId={id}

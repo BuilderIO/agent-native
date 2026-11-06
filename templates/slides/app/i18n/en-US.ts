@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "No assets yet.",
     assetUploadFailed: "Some uploads failed",
     assetDeleteFailed: "Failed to delete asset",
+    assetLoadFailed: "Couldn't load assets",
+    assetSelectNoChange: "That image couldn't be applied to this slide",
+    retry: "Retry",
     assetDeleteInUse:
       "This asset is used in a deck. Remove it from the deck first",
     assetDeleteStorageRemains:

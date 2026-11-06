@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "Aún no hay recursos.",
     assetUploadFailed: "Algunas subidas fallaron",
     assetDeleteFailed: "No se pudo eliminar el recurso",
+    assetLoadFailed: "No se pudieron cargar los recursos",
+    assetSelectNoChange: "No se pudo aplicar esta imagen a esta diapositiva",
+    retry: "Reintentar",
     assetDeleteInUse:
       "Este recurso se usa en una presentación. Quítalo primero de la presentación",
     assetDeleteStorageRemains:
