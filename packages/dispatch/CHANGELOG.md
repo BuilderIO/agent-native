@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.42.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
 ## 0.42.2
 
 ### Patch Changes
@@ -1488,11 +1499,5 @@
 ### Patch Changes
 
 - 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.7
-
-### Patch Changes
-
-- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
