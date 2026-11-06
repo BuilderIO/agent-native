@@ -69,6 +69,17 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useSession: () => ({ session: identity }),
   useChangeVersions: () => query.refresh,
 }));
+vi.mock("./use-google-slides-composer-reference", () => ({
+  useGoogleSlidesComposerReference: () => ({
+    menuItem: {
+      id: "google-slides",
+      label: "Google Slides",
+      order: 10,
+      onSelect: vi.fn(),
+    },
+    dialog: null,
+  }),
+}));
 vi.mock("@agent-native/toolkit/composer", async () => ({
   ...(await vi.importActual("@agent-native/toolkit/composer/context-items")),
 }));
@@ -119,10 +130,10 @@ function picker(
   controller: ReturnType<typeof useSlidesComposerContext>,
   id: string,
 ) {
-  const item = controller.props.contextMenuItems[0].children!.find(
-    (item) => item.id === id,
-  )!;
-  if (!("picker" in item) || !item.picker)
+  const item = controller.props.contextMenuItems
+    .flatMap((item) => item.children ?? [item])
+    .find((item) => item.id === id);
+  if (!item || !("picker" in item) || !item.picker)
     throw new Error("Missing shared picker");
   return item.picker;
 }
@@ -132,21 +143,6 @@ const request = (extra = {}) => ({
   signal: new AbortController().signal,
   ...extra,
 });
-
-function attachFrames(
-  controller: ReturnType<typeof useSlidesComposerContext>,
-  items: { id: string; title: string; url?: string }[],
-  url = "https://www.figma.com/design/example-one/Example",
-) {
-  const presentation = picker(controller, "figma").presentation;
-  if (
-    !presentation ||
-    presentation === "submenu" ||
-    presentation.mode !== "multiple"
-  )
-    throw new Error("Missing dialog");
-  return presentation.onAttach(items, request({ url }));
-}
 
 describe("Slides context readiness and identity", () => {
   it("restores reference metadata across same-thread surface remounts and re-reads content", async () => {
@@ -160,10 +156,10 @@ describe("Slides context readiness and identity", () => {
       </SlidesComposerContextProvider>
     );
     const view = render(provider("thread", "sidebar-tab"));
-    const action = model.menuItems[0].children!.find(
-      (item) => item.id === "website",
-    )!;
-    if (!("picker" in action) || !action.picker?.onSelect)
+    const action = model.menuItems
+      .flatMap((item) => item.children ?? [item])
+      .find((item) => item.id === "website");
+    if (!action || !("picker" in action) || !action.picker?.onSelect)
       throw new Error("Missing website picker");
     const url = "https://example.com/reference";
     await act(async () =>
@@ -228,8 +224,9 @@ describe("Slides context readiness and identity", () => {
     const view = render(<>{providers()}</>);
     const action = models
       .get("one")!
-      .menuItems[0].children!.find((item) => item.id === "website")!;
-    if (!("picker" in action) || !action.picker?.onSelect)
+      .menuItems.flatMap((item) => item.children ?? [item])
+      .find((item) => item.id === "website");
+    if (!action || !("picker" in action) || !action.picker?.onSelect)
       throw new Error("Missing website picker");
     await act(async () =>
       action.picker!.onSelect!(
@@ -429,51 +426,8 @@ describe("Slides context readiness and identity", () => {
     ).toThrow("home.context.loadFailed");
     expect(result.current.props.contextItems).toEqual([]);
   });
-  it("blocks submission and retains an error selection when an attached integration is revoked", async () => {
-    const integration = {
-      id: "provider-api:figma",
-      label: "Figma",
-      kind: "provider-api" as const,
-    };
-    capabilities.data.integrations = [integration];
-    const { result, rerender } = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, persistSelection: false }),
-    );
-    await act(async () =>
-      picker(result.current, "integrations").onSelect!(
-        { id: integration.id, title: integration.label },
-        request(),
-      ),
-    );
-    await waitFor(() =>
-      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
-    );
-    const captured = snapshotComposerContextItems(
-      result.current.props.contextItems,
-    );
-    capabilities.data.integrations = [];
-    rerender();
-    callAction.mockRejectedValueOnce(
-      Object.assign(new Error("Integration is no longer available"), {
-        status: 403,
-      }),
-    );
-    const send = vi.fn();
-    await act(async () => {
-      await expect(
-        result.current.beforeSend(captured).then(send),
-      ).rejects.toThrow("home.context.notReady");
-    });
-    expect(send).not.toHaveBeenCalled();
-    expect(result.current.props.contextItems).toEqual([
-      expect.objectContaining({
-        key: captured[0].key,
-        status: "error",
-        context: "",
-        statusMessage: "Integration is no longer available",
-      }),
-    ]);
-  });
+  // oracle-change: workspace integration selection and revocation are owned by the shared composer.
+
   it("removes context picker actions while the Home route is inactive", () => {
     const { result } = renderHook(() =>
       useSlidesComposerContext({ ...defaults, active: false }),
@@ -683,33 +637,21 @@ describe("Slides context readiness and identity", () => {
   it("registers the deck reference with shared-only source views", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
     const entries = result.current.props.contextMenuItems;
-    expect(entries.map((entry) => entry.id)).toEqual(["design-context"]);
-    expect(entries[0].children?.map((entry) => entry.id)).toEqual([
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "google-slides",
       "deck",
       "system",
-      "figma",
       "website",
-      "integrations",
     ]);
-    expect(entries[0].children?.map((entry) => entry.label)).toEqual([
-      "home.context.menu.deck",
-      "home.context.menu.system",
-      "home.context.menu.figma",
-      "home.context.websiteReference",
-      "agentChat.composer.menu.integrations",
-    ]);
+    expect(entries[1]).toMatchObject({ order: 20, referenceType: "deck" });
     expect(
-      entries[0].children
-        ?.filter((entry) => "picker" in entry)
+      entries
+        .filter((entry) => "picker" in entry)
         .every((entry) => "picker" in entry && !("render" in entry)),
     ).toBe(true);
-    expect(
-      "searchPlaceholder" in entries[0] && entries[0].searchPlaceholder,
-    ).toBe("home.context.menu.searchDesign");
     for (const [id, key] of [
       ["deck", "searchPresentations"],
       ["system", "searchSystems"],
-      ["figma", "searchFrames"],
       ["website", "websiteUrl"],
     ]) {
       expect(picker(result.current, id).searchPlaceholder).toBe(
@@ -722,9 +664,15 @@ describe("Slides context readiness and identity", () => {
     const source = "slides";
     query.enabled = false;
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    expect(result.current.props.contextMenuItems[0].children).toContainEqual(
-      expect.objectContaining({ id, intent: "add-context" }),
+    const referenceMenu = result.current.props.contextMenuItems.find(
+      (entry) => entry.id === "deck",
     );
+    expect(referenceMenu).toMatchObject({ order: 20 });
+    expect(
+      result.current.props.contextMenuItems.flatMap(
+        (item) => item.children ?? [item],
+      ),
+    ).toContainEqual(expect.objectContaining({ id, intent: "add-context" }));
     const input = request({ search: "campaign", page: 2, cursor: "next" });
     const references = [{ id: "reference-one", title: "Campaign" }];
     callAction.mockResolvedValueOnce({
@@ -795,100 +743,68 @@ describe("Slides context readiness and identity", () => {
     expect(result.current.props.contextItems).toEqual([]);
     expect(picker(result.current, id).selectedIds).toEqual([]);
   });
-  it("gates Figma and exposes ready integrations through the shared source action", async () => {
-    capabilities.data = {
-      sources: { figma: { available: false } },
-      integrations: [
-        {
-          id: "google_drive",
-          label: "Google Drive",
-          kind: "provider-api",
+  // oracle-change: Figma is now offered only by workspace integrations, not the Slides native source menu.
+  it.each(["pending", "error", "disconnected", "connected"])(
+    "keeps Figma out of native sources when capability state is %s",
+    (state) => {
+      Object.assign(capabilities, {
+        data:
+          state === "pending" || state === "error"
+            ? undefined
+            : {
+                sources: { figma: { available: state === "connected" } },
+                integrations: [],
+              },
+        integrationsLoading: state === "pending",
+        integrationsError:
+          state === "error" ? new Error("read failed") : undefined,
+      });
+      const { result } = renderHook(() => useSlidesComposerContext(defaults));
+      expect(
+        result.current.props.contextMenuItems.map((item) => item.id),
+      ).toEqual(["google-slides", "deck", "system", "website"]);
+      expect(picker(result.current, "deck").load).toBeTypeOf("function");
+    },
+  );
+  it("restores and revalidates existing Figma draft references without a dedicated source action", async () => {
+    const figmaUrl = "https://www.figma.com/design/example-one/Example";
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({
+        ...defaults,
+        initialSelection: {
+          designSystemId: null,
+          references: [
+            {
+              source: "figma",
+              id: "1:2",
+              nodeId: "1:2",
+              figmaUrl,
+              title: "Saved frame",
+            },
+          ],
         },
-      ],
-    };
-    const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    const entries = result.current.props.contextMenuItems[0].children!;
-    expect(entries.some((entry) => entry.id === "figma")).toBe(false);
-    const integrations = entries.find((entry) => entry.id === "integrations");
-    expect(integrations).toMatchObject({ intent: "invoke-integration" });
-    const integrationPicker = picker(result.current, "integrations");
-    expect(integrationPicker.items).toEqual([
-      { id: "google_drive", title: "Google Drive" },
-    ]);
-    act(() => {
-      void integrationPicker.onSelect!(
-        { id: "google_drive", title: "Google Drive" },
-        request(),
-      );
-    });
+      }),
+    );
     await waitFor(() =>
-      expect(callAction).toHaveBeenCalledWith(
-        "read-composer-source",
-        {
-          source: "integration",
-          operation: "read",
-          id: "google_drive",
-        },
-        { method: "GET" },
-      ),
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
     );
-    expect(navigate).not.toHaveBeenCalled();
-  });
-  it("forwards paging and cancellation and refreshes without resetting identity scope", async () => {
-    const { result, rerender } = renderHook(() =>
-      useSlidesComposerContext(defaults),
-    );
-    const input = request({ search: "campaign", page: 2, cursor: "next" });
-    callAction.mockResolvedValueOnce({
-      items: [],
-      hasMore: true,
-      nextCursor: "third",
+    await act(async () => {
+      await result.current.beforeSend();
     });
-    await expect(
-      picker(result.current, "figma").load!(input),
-    ).resolves.toMatchObject({ hasMore: true, nextCursor: "third" });
-    expect(callAction).toHaveBeenLastCalledWith(
+    expect(callAction).toHaveBeenCalledWith(
       "read-composer-source",
       {
         source: "figma",
-        figmaUrl: undefined,
-        operation: "list",
-        search: "campaign",
-        page: 2,
-        cursor: "next",
+        operation: "read",
+        id: "1:2",
+        nodeId: "1:2",
+        figmaUrl,
       },
-      { method: "GET", signal: input.signal },
+      { method: "GET" },
     );
-    const scope = picker(result.current, "figma").scopeKey;
-    query.refresh = 3;
-    rerender();
-    expect(picker(result.current, "figma")).toMatchObject({
-      scopeKey: scope,
-      refreshKey: 3,
-    });
-  });
-  it.each([{ items: [] }, { context: "wrong shape" }])(
-    "rejects malformed/unpageable catalogs: %j",
-    async (data) => {
-      const { result } = renderHook(() => useSlidesComposerContext(defaults));
-      callAction.mockResolvedValueOnce(data);
-      await expect(
-        picker(result.current, "figma").load!(request()),
-      ).rejects.toThrow("home.context.loadFailed");
-    },
-  );
-  it("surfaces real action errors and can retry without an app-owned picker view", async () => {
-    const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    callAction.mockRejectedValueOnce(
-      new Error("Action failed: Design app connection required"),
+    expect(result.current.props.contextItems[0]?.context).toBe(
+      "Visual language",
     );
-    await expect(
-      picker(result.current, "figma").load!(request()),
-    ).rejects.toThrow("Design app connection required");
-    callAction.mockResolvedValueOnce({ items: [], hasMore: false });
-    await expect(
-      picker(result.current, "figma").load!(request()),
-    ).resolves.toEqual({ items: [], hasMore: false });
   });
   it("offers the actual creator for empty systems without a lone None choice", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
@@ -929,47 +845,6 @@ describe("Slides context readiness and identity", () => {
     await act(async () => system.clearSelection!.onSelect());
     expect(picker(result.current, "system").clearSelection).toBeUndefined();
   });
-  it("scopes Figma selected checks to the file and decodes the node for reads", async () => {
-    const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    const url = "https://www.figma.com/design/example-one/Example";
-    expect(picker(result.current, "figma").link).toMatchObject({
-      placeholder: "home.context.figmaUrl",
-      submitLabel: "home.context.browse",
-    });
-    callAction.mockResolvedValueOnce({
-      items: [{ id: "1:2", title: "Frame" }],
-      hasMore: false,
-    });
-    const listed = await picker(result.current, "figma").load!(
-      request({ url }),
-    );
-    await act(async () => attachFrames(result.current, [...listed.items], url));
-    expect(callAction).toHaveBeenLastCalledWith(
-      "read-composer-source",
-      {
-        source: "figma",
-        operation: "read",
-        id: "1:2",
-        nodeId: "1:2",
-        figmaUrl: url,
-      },
-      { method: "GET" },
-    );
-    expect(picker(result.current, "figma").selectedIds).toContain(
-      listed.items[0].id,
-    );
-    callAction.mockResolvedValueOnce({
-      items: [{ id: "1:2", title: "Frame" }],
-      hasMore: false,
-    });
-    const other = await picker(result.current, "figma").load!(
-      request({ url: "https://www.figma.com/design/example-two/Example" }),
-    );
-    expect(picker(result.current, "figma").selectedIds).not.toContain(
-      other.items[0].id,
-    );
-  });
-
   it("keeps references available with design systems disabled and never reads an automatic or saved draft system", async () => {
     query.enabled = false;
     const key = "slides-home-context:one@example.test:one";
@@ -982,8 +857,8 @@ describe("Slides context readiness and identity", () => {
       }),
     );
     expect(
-      result.current.props.contextMenuItems[0].children?.map((item) => item.id),
-    ).toEqual(["deck", "figma", "website", "integrations"]);
+      result.current.props.contextMenuItems.map((item) => item.id),
+    ).toEqual(["google-slides", "deck", "website"]);
     expect(result.current.props.contextItems).toEqual([]);
     expect(callAction).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(key)).toBe(saved);
@@ -1052,51 +927,35 @@ describe("Slides context readiness and identity", () => {
     );
     expect(picker(result.current, "system").selectedIds).toEqual(["brand"]);
   });
-  it("stages a deduplicated Figma batch once and rejects overflow without partial writes", async () => {
+  it("deduplicates native deck batches and rejects overflow without partial writes", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    const firstUrl =
-      "https://www.figma.com/design/example-one/Frame?node-id=1-2";
-    const secondUrl =
-      "https://www.figma.com/design/example-two/Frame?node-id=1-2";
-    await act(async () =>
-      attachFrames(result.current, [
-        { id: "one:1%3A2", title: "One", url: firstUrl },
-        { id: "two:1%3A2", title: "Two", url: secondUrl },
-      ]),
-    );
-    expect(result.current.props.contextItems).toHaveLength(2);
-    expect(callAction).toHaveBeenLastCalledWith(
-      "read-composer-source",
-      {
-        source: "figma",
-        operation: "read",
-        id: "1:2",
-        nodeId: "1:2",
-        figmaUrl: secondUrl,
-      },
-      { method: "GET" },
-    );
-    const many = Array.from({ length: 18 }, (_, i) => ({
-      id: `file:${encodeURIComponent(`2:${i}`)}`,
-      title: "Frame",
-      url: firstUrl,
+    const presentation = picker(result.current, "deck").presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing deck gallery");
+    const decks = Array.from({ length: 20 }, (_, index) => ({
+      id: `deck-${index}`,
+      title: `Deck ${index}`,
     }));
-    await act(async () => attachFrames(result.current, many));
+    await act(async () => {
+      await presentation.onAttach(decks, request());
+    });
+    expect(result.current.props.contextItems).toHaveLength(20);
     const saved = window.localStorage.getItem(
       "slides-home-context:one@example.test:one",
     );
-    const calls = callAction.mock.calls.length;
     expect(() =>
-      attachFrames(result.current, [
-        { id: "file:extra", title: "Extra", url: firstUrl },
-      ]),
+      presentation.onAttach([{ id: "extra", title: "Extra" }], request()),
     ).toThrow("home.context.tooMany");
-    expect(result.current.props.contextItems).toHaveLength(20);
     expect(
       window.localStorage.getItem("slides-home-context:one@example.test:one"),
     ).toBe(saved);
-    expect(callAction).toHaveBeenCalledTimes(calls);
-    await act(async () => attachFrames(result.current, many));
+    await act(async () => {
+      await presentation.onAttach(decks, request());
+    });
     expect(result.current.props.contextItems).toHaveLength(20);
   });
   it.each([201, 2048])(
@@ -1131,17 +990,8 @@ describe("Slides context readiness and identity", () => {
         expect(args).toEqual({ source: "website", operation: "read", url });
     },
   );
-  it("rejects oversized Figma and website URLs locally", () => {
+  it("rejects oversized website URLs locally", () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
-    const figma = picker(result.current, "figma");
-    expect(figma.onSelect).toBeUndefined();
-    const url = "https://www.figma.com/design/example-one/Example";
-    expect(
-      figma.link!.validate!(" " + url.padEnd(2048, "a") + " "),
-    ).toBeUndefined();
-    expect(figma.link!.validate!(url.padEnd(2049, "a"))).toBe(
-      "home.context.invalidFigmaUrl",
-    );
     expect(
       picker(result.current, "website").link!.validate!(
         "https://example.com".padEnd(2049, "a"),

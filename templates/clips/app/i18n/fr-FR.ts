@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Référencer un enregistrement…",
+    group: "Enregistrements",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },

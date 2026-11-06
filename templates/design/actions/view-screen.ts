@@ -27,7 +27,6 @@ import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   DESIGN_REPROMPT_PENDING_STATE_PREFIX,
   DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
@@ -40,6 +39,10 @@ import {
   REVIEW_AGENT_ACTIVE_STATUSES,
   REVIEW_AGENT_INTENTS,
 } from "../shared/review-agent.js";
+import {
+  resolveScreenFrameType,
+  storedScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
@@ -464,17 +467,26 @@ export default defineAction({
           navigation,
           designSelection,
         );
-        let activeFrameType: "hubspot-email" | null = null;
-        if (activeScreen) {
-          const [activeFile] = await db
+        let activeFrameType = activeScreen
+          ? resolveScreenFrameType({
+              designData: data,
+              fileId: activeScreen.id,
+            })
+          : null;
+        if (
+          activeScreen &&
+          storedScreenFrameType(data, activeScreen.id) === undefined
+        ) {
+          const activeFiles = await db
             .select({ content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, activeScreen.id))
             .limit(1);
-          activeFrameType =
-            activeFile && isHubSpotEmailHtml(activeFile.content)
-              ? "hubspot-email"
-              : null;
+          activeFrameType = resolveScreenFrameType({
+            designData: data,
+            fileId: activeScreen.id,
+            content: activeFiles.find(Boolean)?.content,
+          });
         }
         const linkedDesignSystem = await loadAgentDesignSystemContext(
           typeof (access.resource as { designSystemId?: unknown })

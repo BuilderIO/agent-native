@@ -48,6 +48,10 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import {
+  bindBuilderSignupAttempt,
+  BUILDER_SIGNUP_COOKIE,
+} from "./builder-signup-experiment.js";
+import {
   createConsentHandler,
   createConsentRegionHandler,
   requestAllowsConsentCategory,
@@ -387,6 +391,21 @@ function headersWithSignupAttribution(
     headers,
     signupAttributionContextFromCookieHeader(cookieHeader),
   );
+}
+
+async function recordBuilderSignupBinding(
+  event: H3Event,
+  attemptId: unknown,
+  method: "password" | "magic-link" | "google",
+  email: string,
+): Promise<void> {
+  if (typeof attemptId !== "string" && !getCookie(event, BUILDER_SIGNUP_COOKIE))
+    return;
+  try {
+    await bindBuilderSignupAttempt(event, attemptId, method, email);
+  } catch (error) {
+    captureAuthError(error, { route: "signup", email });
+  }
 }
 
 export interface AuthSession {
@@ -4447,11 +4466,37 @@ function createAuthGuardFn(
     if (session) {
       const method = getMethod(event);
       if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
+        // A fresh loopback dev workspace has no session org yet, and the
+        // read-only session resolver never creates one, so the app-access check
+        // below can deny before the ordinary org initializer runs. Resolve (or
+        // create) the existing default org through the normal policy first and
+        // hand its id to the unchanged check. The check still owns the verdict;
+        // a missing or failed org initialization also denies protected requests,
+        // while null keeps the wrapper's org-recovery exemption.
+        let workspaceOrgId = session.orgId;
+        let workspaceOrgInitializationFailed = false;
+        if (
+          !workspaceOrgId &&
+          !hasExplicitPersonalOrgScope(event) &&
+          isSyntheticAutoDevIdentity(session.email) &&
+          isLoopbackDevRequest(event) &&
+          getAppConfig().access.orgCreation === "open" &&
+          getAppConfig().access.autoCreateDefaultOrg
+        ) {
+          const { getOrgContext } = await import("../org/context.js");
+          try {
+            const org = await getOrgContext(event);
+            if (org.orgId) workspaceOrgId = org.orgId;
+            else workspaceOrgInitializationFailed = true;
+          } catch {
+            workspaceOrgInitializationFailed = true;
+          }
+        }
         let workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
           path: p,
           method,
           email: session.email,
-          ...(session.orgId === undefined ? {} : { orgId: session.orgId }),
+          ...(workspaceOrgId === undefined ? {} : { orgId: workspaceOrgId }),
         });
         if (
           workspaceAppAccess === false &&
@@ -4485,7 +4530,10 @@ function createAuthGuardFn(
           setResponseStatus(event, 503);
           return workspaceAppAccessUnavailableBody(workspaceAppAccess);
         }
-        if (workspaceAppAccess === false) {
+        if (
+          (workspaceOrgInitializationFailed && workspaceAppAccess !== null) ||
+          workspaceAppAccess === false
+        ) {
           setResponseStatus(event, 403);
           return { error: "You do not have access to this workspace app." };
         }
@@ -4691,6 +4739,28 @@ export function isLocalDevAuthAllowed(event: H3Event): boolean {
     process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
     ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
       isBuilderPreviewLocalDevRequest(event))
+  );
+}
+
+/**
+ * A real loopback dev/test request. `isLocalDevAuthAllowed` also admits the
+ * Builder-preview branch, which does not require loopback, so org
+ * auto-initialization additionally requires the actual socket peer and
+ * excludes hosted-preview hosts. Builder preview keeps the ordinary
+ * app-access path.
+ */
+function isLoopbackDevRequest(event: H3Event): boolean {
+  return (
+    isLocalDevAuthAllowed(event) &&
+    isLoopbackRequest(event) &&
+    !isHostedPreviewRequest(event)
+  );
+}
+
+/** The framework's own throwaway local account, never a real signup. */
+function isSyntheticAutoDevIdentity(email: string | undefined): boolean {
+  return (
+    email === AUTO_DEV_ACCOUNT_EMAIL || email === LEGACY_AUTO_DEV_ACCOUNT_EMAIL
   );
 }
 
@@ -5613,6 +5683,11 @@ async function mountBetterAuthRoutes(
           flowId: flowId ?? undefined,
           desktopVerifierHash,
           desktopBrowserBindingHash,
+          builderSignupAttemptId:
+            typeof q.builder_signup_attempt === "string" &&
+            q.builder_signup_attempt.length <= 128
+              ? q.builder_signup_attempt
+              : undefined,
           signupAttribution,
           signupAnonymousId,
           signupSessionId,
@@ -5709,6 +5784,7 @@ async function mountBetterAuthRoutes(
             flowId,
             desktopVerifierHash,
             desktopBrowserBindingHash,
+            builderSignupAttemptId,
             signupAttribution,
             signupAnonymousId,
             signupSessionId,
@@ -5871,6 +5947,13 @@ async function mountBetterAuthRoutes(
               isNewUser: isNewGoogleUser,
             },
           });
+          if (isNewGoogleUser)
+            await recordBuilderSignupBinding(
+              event,
+              builderSignupAttemptId,
+              "google",
+              email,
+            );
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
@@ -7089,6 +7172,14 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
+      const signupSession = await getSession(event);
+      if (signupSession?.emailVerified)
+        await recordBuilderSignupBinding(
+          event,
+          query.builder_signup_attempt,
+          "magic-link",
+          signupSession.email,
+        );
       setFirstRunOnboardingCookie(event);
       return queryEchoSafeRedirect(
         event,
@@ -7220,6 +7311,11 @@ async function mountBetterAuthRoutes(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),
         );
+        if (typeof body?.builderSignupAttemptId === "string")
+          newUserCallbackUrl.searchParams.set(
+            "builder_signup_attempt",
+            body.builderSignupAttemptId,
+          );
         if (attributionToken) {
           newUserCallbackUrl.searchParams.set(
             MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -7317,6 +7413,12 @@ async function mountBetterAuthRoutes(
                 getHeader(event, "cookie") ?? null,
               ),
             }),
+        );
+        await recordBuilderSignupBinding(
+          event,
+          body?.builderSignupAttemptId,
+          "password",
+          email,
         );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
@@ -7571,6 +7673,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
                 getHeader(event, "cookie") ?? null,
               ),
             }),
+        );
+        await recordBuilderSignupBinding(
+          event,
+          body?.builderSignupAttemptId,
+          "password",
+          email,
         );
         setFirstRunOnboardingCookie(event);
         return { ok: true };

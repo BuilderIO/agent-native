@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى تسجيل…",
+    group: "التسجيلات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
