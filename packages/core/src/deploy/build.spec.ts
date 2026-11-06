@@ -6,7 +6,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
-import { transform } from "esbuild";
+import { build as esbuildBuild, transform } from "esbuild";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -1500,6 +1500,7 @@ describe("patchCloudflareModuleServerOutput", () => {
           const require = ${factory}(import.meta.url);
           require.extra = 42;
           const shadow = (factory) => factory("process");
+          const shadowRequire = (require) => require("process");
           export default { fetch() {
             let missing;
             try { require("not-a-real-module"); } catch (error) { missing = error.message; }
@@ -1511,6 +1512,7 @@ describe("patchCloudflareModuleServerOutput", () => {
               buffer: typeof require("node:buffer").Buffer,
               extra: require.extra,
               shadow: shadow((value) => "local:" + value),
+              shadowRequire: shadowRequire((value) => "custom:" + value),
               collision: __cf_process,
               missing: missing.includes("not-a-real-module"),
             });
@@ -1540,6 +1542,7 @@ describe("patchCloudflareModuleServerOutput", () => {
             buffer: "function",
             extra: 42,
             shadow: "local:process",
+            shadowRequire: "custom:process",
             collision: "collision",
             missing: true,
           });
@@ -1547,6 +1550,147 @@ describe("patchCloudflareModuleServerOutput", () => {
           await worker.dispose();
         }
       }
+    }
+  });
+
+  it("preserves cyclic exports and module identity while handling re-exported createRequire in workerd", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    const relay = await transform(
+      'export { createRequire as factory } from "node:module";',
+      { format: "esm", minify: true },
+    );
+    fs.writeFileSync(path.join(dir, "relay.mjs"), relay.code);
+    fs.writeFileSync(
+      path.join(dir, "cycle-a.mjs"),
+      `
+      import { early } from "./cycle-b.mjs";
+      import { createRequire } from "node:module";
+      export { createRequire };
+      export function earlyProcess() { return createRequire(import.meta.url)("process"); }
+      export const cycle = early;
+    `,
+    );
+    fs.writeFileSync(
+      path.join(dir, "cycle-b.mjs"),
+      `
+      import { createRequire, earlyProcess } from "./cycle-a.mjs";
+      import process from "node:process";
+      export const early = { factory: typeof createRequire, process: earlyProcess() === process };
+    `,
+    );
+    const entry = path.join(dir, "worker.mjs");
+    fs.writeFileSync(
+      entry,
+      `
+      import * as first from "node:module";
+      import * as second from "node:module";
+      import defaultFirst from "node:module";
+      import defaultSecond from "node:module";
+      import { factory } from "./relay.mjs";
+      import { cycle } from "./cycle-a.mjs";
+      import process from "node:process";
+      const require = factory(import.meta.url);
+      export default { fetch() { return Response.json({
+        namespaceIdentity: first === second,
+        defaultIdentity: defaultFirst === defaultSecond,
+        cycle,
+        process: require("process") === process,
+        buffer: typeof require("node:buffer").Buffer,
+      }); } };
+    `,
+    );
+    patchCloudflareModuleServerOutput(dir);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: entry,
+      modulesRoot: dir,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        namespaceIdentity: true,
+        defaultIdentity: true,
+        cycle: { factory: "function", process: true },
+        process: true,
+        buffer: "function",
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
+  it("loads process through a require function exported from an esbuild split chunk", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    fs.writeFileSync(
+      path.join(dir, "shared.mjs"),
+      'import {createRequire} from "node:module"; export const requireFromApp = createRequire(import.meta.url);',
+    );
+    fs.writeFileSync(
+      path.join(dir, "one.mjs"),
+      'import {requireFromApp} from "./shared.mjs"; import process from "node:process"; export default {fetch() {return Response.json({process: requireFromApp("process") === process});}};',
+    );
+    fs.writeFileSync(
+      path.join(dir, "two.mjs"),
+      'import {requireFromApp} from "./shared.mjs"; export const value = () => requireFromApp("node:process");',
+    );
+    const output = path.join(dir, "output");
+    await esbuildBuild({
+      entryPoints: [path.join(dir, "one.mjs"), path.join(dir, "two.mjs")],
+      outdir: output,
+      outExtension: { ".js": ".mjs" },
+      bundle: true,
+      splitting: true,
+      format: "esm",
+      platform: "node",
+      minify: true,
+    });
+    patchCloudflareModuleServerOutput(output);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: path.join(output, "one.mjs"),
+      modulesRoot: output,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ process: true });
+    } finally {
+      await worker.dispose();
     }
   });
 
@@ -1577,6 +1721,31 @@ describe("patchCloudflareModuleServerOutput", () => {
       extensions: "object",
       collision: "original",
     });
+
+    const override = path.join(serverDir, "override.mjs");
+    fs.writeFileSync(
+      override,
+      `
+      import module from "node:module";
+      const original = module.createRequire;
+      try {
+        module.createRequire = function(value) {
+          const receiver = this === module;
+          return (specifier) => [receiver, value, specifier];
+        };
+        const customRequire = module.createRequire /* preserve */ ("value");
+        globalThis.__cfOverrideResult = customRequire("process");
+      } finally { module.createRequire = original; }
+      export const result = globalThis.__cfOverrideResult;
+      delete globalThis.__cfOverrideResult;
+    `,
+    );
+    patchCloudflareModuleServerOutput(serverDir);
+    const overrideResult = (await import(pathToFileURL(override).href)).result;
+    expect(Array.isArray(overrideResult)).toBe(true);
+    if (Array.isArray(overrideResult)) {
+      expect(overrideResult).toEqual([true, "value", "process"]);
+    }
   });
 
   it("recurses into nested dependency paths a flat scan would miss", () => {

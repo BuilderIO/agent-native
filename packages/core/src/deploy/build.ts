@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
 
 import { parse } from "@babel/parser";
+import traverse from "@babel/traverse";
 import MagicString from "magic-string";
 import { loadEnv } from "vite";
 
@@ -4568,40 +4569,207 @@ const CF_MODULE_NODE_BUILTINS = [
 
 const CF_PROCESS_REQUIRE_MARKER = "/*__cf_process_require_shim__*/";
 
-function patchCloudflareProcessRequire(code: string): string {
-  if (
-    code.includes(CF_PROCESS_REQUIRE_MARKER) ||
-    !code.includes("createRequire") ||
-    !/["'](?:node:)?module["']/.test(code)
-  ) {
+type CloudflareModuleAst = ReturnType<typeof parse>;
+type CloudflareImportKind = "factory" | "module" | { namespace: string };
+
+function patchCloudflareProcessRequire(
+  filePath: string,
+  code: string,
+  loadModule: (filePath: string) => CloudflareModuleAst | undefined,
+): string {
+  if (code.includes(CF_PROCESS_REQUIRE_MARKER) || !code.includes("import"))
     return code;
-  }
 
   const ast = parse(code, {
     sourceType: "unambiguous",
     allowReturnOutsideFunction: true,
     allowAwaitOutsideFunction: true,
   });
+  const resolveImport = (
+    from: string,
+    source: string,
+    name: string,
+    seen: Set<string>,
+  ): CloudflareImportKind | undefined => {
+    if (source === "node:module" || source === "module") {
+      if (name === "createRequire") return "factory";
+      if (name === "default" || name === "*") return "module";
+      return undefined;
+    }
+    if (!source.startsWith(".")) return undefined;
+    const target = path.resolve(path.dirname(from), source);
+    const targetAst = loadModule(target);
+    if (!targetAst) return undefined;
+    if (name === "*") return { namespace: target };
+    const key = `${target}\0${name}`;
+    if (seen.has(key)) return undefined;
+    const nextSeen = new Set(seen).add(key);
+    for (const statement of targetAst.program.body) {
+      if (statement.type !== "ExportNamedDeclaration") continue;
+      for (const specifier of statement.specifiers) {
+        if (specifier.type !== "ExportSpecifier") continue;
+        const exported =
+          specifier.exported.type === "Identifier"
+            ? specifier.exported.name
+            : specifier.exported.value;
+        if (exported !== name) continue;
+        const local =
+          specifier.local.type === "Identifier"
+            ? specifier.local.name
+            : specifier.local.value;
+        if (statement.source)
+          return resolveImport(target, statement.source.value, local, nextSeen);
+        for (const item of targetAst.program.body) {
+          if (item.type !== "ImportDeclaration") continue;
+          for (const imported of item.specifiers) {
+            if (imported.local.name !== local) continue;
+            const importedName =
+              imported.type === "ImportNamespaceSpecifier"
+                ? "*"
+                : imported.type === "ImportDefaultSpecifier"
+                  ? "default"
+                  : imported.imported.type === "Identifier"
+                    ? imported.imported.name
+                    : imported.imported.value;
+            return resolveImport(
+              target,
+              item.source.value,
+              importedName,
+              nextSeen,
+            );
+          }
+        }
+        return undefined;
+      }
+    }
+    return undefined;
+  };
+
   const edited = new MagicString(code);
   const usedNames = new Set<string>();
-  const nodes: unknown[] = [ast.program];
-  while (nodes.length) {
-    const node = nodes.pop();
-    if (!node || typeof node !== "object") continue;
-    if (Array.isArray(node)) {
-      for (const value of node) nodes.push(value);
-      continue;
+  const factoryCalls = new WeakMap<
+    object,
+    {
+      start: number;
+      calleeEnd: number;
+      hasArguments: boolean;
+      receiver: string;
     }
-    if (
-      "type" in node &&
-      node.type === "Identifier" &&
-      "name" in node &&
-      typeof node.name === "string"
-    ) {
-      usedNames.add(node.name);
-    }
-    nodes.push(...Object.values(node));
-  }
+  >();
+  const factories = new Set<{
+    start: number;
+    calleeEnd: number;
+    hasArguments: boolean;
+    receiver: string;
+  }>();
+  const matches: Array<{
+    start: number;
+    calleeEnd: number;
+    hasArguments: boolean;
+  }> = [];
+  let shadowsGlobalThis = false;
+  traverse(ast as unknown as Parameters<typeof traverse>[0], {
+    Program(program) {
+      shadowsGlobalThis = program.scope.hasOwnBinding("globalThis");
+    },
+    Identifier(identifier) {
+      usedNames.add(identifier.node.name);
+    },
+    CallExpression(call) {
+      const callee = call.node.callee;
+      const member =
+        callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.object.type === "Identifier" &&
+        callee.property.type === "Identifier"
+          ? callee
+          : undefined;
+      const identifier = callee.type === "Identifier" ? callee : member?.object;
+      if (!identifier || identifier.type !== "Identifier") return;
+      const binding = call.scope.getBinding(identifier.name);
+      if (!binding || !binding.path.parentPath?.isImportDeclaration()) return;
+      const specifier = binding.path.node;
+      if (
+        specifier.type !== "ImportSpecifier" &&
+        specifier.type !== "ImportNamespaceSpecifier" &&
+        specifier.type !== "ImportDefaultSpecifier"
+      )
+        return;
+      const importedName =
+        specifier.type === "ImportNamespaceSpecifier"
+          ? "*"
+          : specifier.type === "ImportDefaultSpecifier"
+            ? "default"
+            : specifier.imported.type === "Identifier"
+              ? specifier.imported.name
+              : specifier.imported.value;
+      let kind = resolveImport(
+        filePath,
+        binding.path.parentPath.node.source.value,
+        importedName,
+        new Set(),
+      );
+      if (member && member.property.type === "Identifier") {
+        if (kind === "module")
+          kind =
+            member.property.name === "createRequire" ? "factory" : undefined;
+        else if (kind && typeof kind === "object")
+          kind = resolveImport(
+            kind.namespace,
+            "./" + path.basename(kind.namespace),
+            member.property.name,
+            new Set(),
+          );
+        else kind = undefined;
+      }
+      if (kind !== "factory") return;
+      if (call.node.start == null || callee.end == null) {
+        throw new Error("Missing factory call offsets in Cloudflare output");
+      }
+      const receiver =
+        member && member.object.type === "Identifier"
+          ? member.object.name
+          : "undefined";
+      factoryCalls.set(call.node, {
+        start: call.node.start,
+        calleeEnd: callee.end,
+        hasArguments: call.node.arguments.length > 0,
+        receiver,
+      });
+    },
+  });
+  traverse(ast as unknown as Parameters<typeof traverse>[0], {
+    CallExpression(call) {
+      const callee = call.node.callee;
+      let factory =
+        callee.type === "CallExpression" ? factoryCalls.get(callee) : undefined;
+      if (callee.type === "Identifier") {
+        const binding = call.scope.getBinding(callee.name);
+        const declaration = binding?.path.node;
+        factory =
+          binding?.constant &&
+          declaration?.type === "VariableDeclarator" &&
+          declaration.init?.type === "CallExpression"
+            ? factoryCalls.get(declaration.init)
+            : undefined;
+      }
+      if (!factory) return;
+      factories.add(factory);
+      if (call.node.start == null || callee.end == null) {
+        throw new Error("Missing call source offsets in Cloudflare output");
+      }
+      matches.push({
+        start: call.node.start,
+        calleeEnd: callee.end,
+        hasArguments: call.node.arguments.length > 0,
+      });
+    },
+  });
+  if (!matches.length) return code;
+  if (shadowsGlobalThis)
+    throw new Error(
+      `[deploy] Cannot safely patch createRequire in ${filePath}: globalThis is shadowed`,
+    );
   const uniqueName = (base: string): string => {
     let name = base;
     let suffix = 0;
@@ -4611,87 +4779,51 @@ function patchCloudflareProcessRequire(code: string): string {
     return name;
   };
   const processName = uniqueName("__cf_process");
-  const wrapRequire = uniqueName("__cf_wrap_require");
-  const wrapModule = uniqueName("__cf_wrap_module");
-  const bindings: string[] = [];
-
-  for (const statement of ast.program.body) {
-    if (
-      statement.type !== "ImportDeclaration" ||
-      (statement.source.value !== "node:module" &&
-        statement.source.value !== "module")
-    )
-      continue;
-    for (const specifier of statement.specifiers) {
-      if (
-        specifier.type === "ImportSpecifier" &&
-        (specifier.imported.type === "Identifier"
-          ? specifier.imported.name
-          : specifier.imported.value) !== "createRequire"
-      )
-        continue;
-      const original = uniqueName("__cf_module_import");
-      const local = specifier.local.name;
-      if (specifier.type === "ImportSpecifier") {
-        const { start, end } = specifier;
-        const importedStart = specifier.imported.start;
-        const importedEnd = specifier.imported.end;
-        if (
-          start == null ||
-          end == null ||
-          importedStart == null ||
-          importedEnd == null
-        ) {
-          throw new Error("Missing import source offsets in Cloudflare output");
-        }
-        edited.overwrite(
-          start,
-          end,
-          `${code.slice(importedStart, importedEnd)} as ${original}`,
-        );
-        bindings.push(`const ${local}=${wrapRequire}(${original});`);
-      } else {
-        const { start, end } = specifier.local;
-        if (start == null || end == null) {
-          throw new Error("Missing import source offsets in Cloudflare output");
-        }
-        edited.overwrite(start, end, original);
-        bindings.push(`const ${local}=${wrapModule}(${original});`);
-      }
-    }
+  const requireProcess = uniqueName("__cf_require_process");
+  const nativeFactory = uniqueName("__cf_create_require");
+  const trackFactory = uniqueName("__cf_track_require");
+  const nativeRequires = uniqueName("__cf_native_requires");
+  const rewriteCall = (
+    start: number,
+    calleeEnd: number,
+    prefix: string,
+    extra: string,
+  ) => {
+    const opening = /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\(/.exec(
+      code.slice(calleeEnd),
+    );
+    if (!opening)
+      throw new Error(
+        "Cannot locate require call parentheses in Cloudflare output",
+      );
+    edited.appendLeft(start, `${prefix}(`);
+    const paren = calleeEnd + opening[0].length - 1;
+    edited.overwrite(paren, paren + 1, extra);
+  };
+  for (const { start, calleeEnd, hasArguments } of matches) {
+    rewriteCall(start, calleeEnd, requireProcess, hasArguments ? "," : "");
   }
-  if (!bindings.length) return code;
-
-  const cache = uniqueName("__cf_require_cache");
-  // Proxy the returned require rather than replacing it with a function: callers
-  // can still read, write, and invoke its own properties (including resolve).
+  for (const { start, calleeEnd, hasArguments, receiver } of factories) {
+    rewriteCall(
+      start,
+      calleeEnd,
+      trackFactory,
+      `,${receiver}${hasArguments ? "," : ""}`,
+    );
+  }
   const prefix = `${CF_PROCESS_REQUIRE_MARKER}
 import ${processName} from "node:process";
-const ${cache} = new globalThis.WeakMap();
-const ${wrapRequire} = (factory) => {
-  let wrapped = ${cache}.get(factory);
-  if (!wrapped) {
-    wrapped = new globalThis.Proxy(factory, {
-      apply(target, thisArg, args) {
-        return new globalThis.Proxy(globalThis.Reflect.apply(target, thisArg, args), {
-          apply(require, thisArg, args) {
-            return args[0] === "process" || args[0] === "node:process"
-              ? ${processName} : globalThis.Reflect.apply(require, thisArg, args);
-          }
-        });
-      }
-    });
-    ${cache}.set(factory, wrapped);
-  }
-  return wrapped;
-};
-const ${wrapModule} = (module) => new globalThis.Proxy(module, {
-  get(target, key, receiver) {
-    const value = globalThis.Reflect.get(target, key, receiver);
-    return key === "createRequire" && typeof value === "function" ? ${wrapRequire}(value) : value;
-  }
-});
-${bindings.join("\n")}
+import { createRequire as ${nativeFactory} } from "node:module";
+var ${nativeRequires};
+function ${trackFactory}(factory, receiver, ...args) {
+  const require = globalThis.Reflect.apply(factory, receiver, args);
+  if (factory === ${nativeFactory}) (${nativeRequires} ??= new globalThis.WeakSet()).add(require);
+  return require;
+}
+function ${requireProcess}(require, ...args) {
+  return ${nativeRequires}?.has(require) && (args[0] === "process" || args[0] === "node:process")
+    ? ${processName} : globalThis.Reflect.apply(require, undefined, args);
+}
 `;
   const insertion = ast.program.interpreter?.end ?? 0;
   edited.appendLeft(insertion, insertion ? `\n${prefix}` : prefix);
@@ -4708,6 +4840,25 @@ ${bindings.join("\n")}
 export function patchCloudflareModuleServerOutput(serverDir: string): void {
   if (!fs.existsSync(serverDir)) return;
 
+  const files = new Set<string>();
+  walkServerJavaScriptFiles(serverDir, (filePath) =>
+    files.add(path.resolve(filePath)),
+  );
+  const modules = new Map<string, CloudflareModuleAst>();
+  const loadModule = (filePath: string): CloudflareModuleAst | undefined => {
+    if (!files.has(filePath)) return undefined;
+    let ast = modules.get(filePath);
+    if (!ast) {
+      ast = parse(fs.readFileSync(filePath, "utf8"), {
+        sourceType: "unambiguous",
+        allowReturnOutsideFunction: true,
+        allowAwaitOutsideFunction: true,
+      });
+      modules.set(filePath, ast);
+    }
+    return ast;
+  };
+
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     let code = fs.readFileSync(filePath, "utf-8");
     let changed = false;
@@ -4720,7 +4871,11 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
       }
     }
 
-    const processPatched = patchCloudflareProcessRequire(code);
+    const processPatched = patchCloudflareProcessRequire(
+      path.resolve(filePath),
+      code,
+      loadModule,
+    );
     if (processPatched !== code) {
       code = processPatched;
       changed = true;
