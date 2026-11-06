@@ -462,6 +462,8 @@ describe("Design final response guard", () => {
     "Summarize this design at https://example.invalid/preview?note=edit,then.",
     "Summarize this design at https://example.invalid/preview,fix#button.",
     "Summarize this design at https://example.invalid/preview?note=fix,then%20edit.",
+    "Summarize the design at https://example.invalid/preview,edit with its button visible.",
+    "Summarize the design at https://example.invalid/preview?mode=view,edit and its layout.",
     "Do not edit (https://example.invalid/preview).",
   ])("does not infer mutation intent from URL text: %s", (request) => {
     expect(designFinalResponseGuard(guardContext(request))).toBeNull();

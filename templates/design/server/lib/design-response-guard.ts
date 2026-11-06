@@ -527,9 +527,7 @@ function normalizeRequestUrls(text: string): string {
     "i",
   );
   const followingMutation = new RegExp(
-    "^[,;](?:(?:then|and|also|but)\\s+)?(?:(?:please|kindly)\\s+)?" +
-      DESIGN_MUTATION_VERBS.source +
-      "(?=\\s+\\S)",
+    "^\\s+(?:(?:please|kindly)\\s+)?" + DESIGN_MUTATION_VERBS.source,
     "i",
   );
   let normalized = "";
@@ -539,10 +537,13 @@ function normalizeRequestUrls(text: string): string {
   )) {
     const start = match.index;
     const url = match[0];
-    const boundary = [...url.matchAll(/[,;]/g)].find(({ index }) =>
-      followingMutation.test(text.slice(start + index)),
-    );
-    const end = boundary ? boundary.index : url.length;
+    // A URL ending in a conjunction is indistinguishable from a no-space
+    // clause boundary; only treat it as one before a separate mutation verb.
+    const boundary = url.match(/[,;](?:then|and|also|but)$/i);
+    const end =
+      boundary && followingMutation.test(text.slice(start + url.length))
+        ? (boundary.index ?? url.length)
+        : url.length;
     const punctuation = url.slice(0, end).match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
     normalized += text.slice(cursor, start);
     normalized += directUrlTarget.test(normalized) ? "this" : " ";
