@@ -1068,6 +1068,13 @@ interface DefineActionWithSchema<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** Words and short phrases a user says for this action that its name and
+   *  description do not: "auto-archive rule", "canned reply", "reschedule".
+   *  `tool-search` ranks them just below the name. They are never shown to a
+   *  model, so they add no context cost; keep them factual, not a list of
+   *  every request the action might serve. At most 12, each up to 60
+   *  characters. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   /** An empty list on this action sets an option and erases nothing saved, so
    *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
@@ -1203,6 +1210,8 @@ interface DefineActionWithParams<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` on the schema form above. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
@@ -1258,6 +1267,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
+  readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
   readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
@@ -1298,6 +1308,74 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
+}
+
+const MAX_SEARCH_HINTS = 12;
+const MAX_SEARCH_HINT_CHARS = 60;
+
+/**
+ * An action's own definition is invalid. Loaders never skip such an action or
+ * fall back to wrapping it as a CLI script: the app fails to load, naming the
+ * action, until the definition is fixed.
+ */
+export class ActionDefinitionError extends TypeError {
+  readonly actionDefinitionError = true;
+  readonly actionName: string | undefined;
+
+  constructor(message: string, actionName?: string) {
+    super(actionName ? `Action "${actionName}": ${message}` : message);
+    this.name = "ActionDefinitionError";
+    this.actionName = actionName;
+  }
+}
+
+export function isActionDefinitionError(
+  error: unknown,
+): error is ActionDefinitionError {
+  return (
+    error instanceof ActionDefinitionError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionDefinitionError?: unknown }).actionDefinitionError ===
+        true)
+  );
+}
+
+/**
+ * The same error naming `actionName`, for a loader that knows the name the
+ * definition itself could not report.
+ */
+export function namedActionDefinitionError(
+  error: ActionDefinitionError,
+  actionName: string,
+): ActionDefinitionError {
+  return error.actionName
+    ? error
+    : new ActionDefinitionError(error.message, actionName);
+}
+
+/** Throws unless `value` is absent or a valid hint list. */
+export function validateSearchHints(
+  value: unknown,
+  actionName?: string,
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_SEARCH_HINTS ||
+    value.some(
+      (hint) =>
+        typeof hint !== "string" ||
+        hint.trim().length === 0 ||
+        hint.length > MAX_SEARCH_HINT_CHARS,
+    )
+  ) {
+    throw new ActionDefinitionError(
+      `searchHints must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+      actionName,
+    );
+  }
+  return Object.freeze([...value]);
 }
 
 export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
@@ -1624,6 +1702,7 @@ export function defineAction(options: any) {
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
       : undefined;
+  const searchHints = validateSearchHints(options.searchHints);
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1706,6 +1785,7 @@ export function defineAction(options: any) {
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
+    ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
       ? { eagerInputStreaming: options.eagerInputStreaming }
       : {}),

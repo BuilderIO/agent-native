@@ -8,6 +8,7 @@ import {
   parseQueueMessageInput,
   persistableFilePart,
   fingerprintAgentSubmissionAttachment,
+  isPersistableAttachmentUrl,
   submissionAttachmentsMatch,
   type AgentQueuedMessage,
   type AgentRequestAttachment,
@@ -28,8 +29,8 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
+import "../authorization/check-action.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
@@ -71,6 +72,7 @@ import {
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { resolveAgentKitIntegrationReferences } from "../agentkit/capabilities.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -1385,6 +1387,8 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` in `defineAction`. Read only by `tool-search`. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   /** See `emptyListsEraseNothing` in `defineAction`. */
   emptyListsEraseNothing?: boolean;
@@ -2589,27 +2593,6 @@ function isDataUrlReference(value: unknown): boolean {
   return typeof value === "string" && /^\s*data:/i.test(value);
 }
 
-function hasDurableAttachmentUrl(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const normalized = value.trim();
-  if (
-    !normalized ||
-    isDataUrlReference(normalized) ||
-    isRawBase64Payload(normalized) ||
-    !URL.canParse(normalized)
-  ) {
-    return false;
-  }
-  const url = new URL(normalized);
-  return (
-    url.protocol === "https:" &&
-    !url.username &&
-    !url.password &&
-    !url.search &&
-    !url.hash
-  );
-}
-
 const OMIT_DURABLE_DISPATCH_VALUE = Symbol("omit-durable-dispatch-value");
 const DURABLE_ATTACHMENT_PAYLOAD_FIELDS =
   /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
@@ -2753,7 +2736,7 @@ function sanitizeDurableAttachment(
       (attachmentReferenceField &&
         typeof value === "string" &&
         (isInlineBase64Payload(value) ||
-          (value.trim().length > 0 && !hasDurableAttachmentUrl(value)))))
+          (value.trim().length > 0 && !isPersistableAttachmentUrl(value)))))
   ) {
     return OMIT_DURABLE_DISPATCH_VALUE;
   }
@@ -2787,14 +2770,14 @@ function sanitizeDurableAttachment(
     isAttachment && containsDurableAttachmentPayload(item, true);
   const hasDurableReference =
     item.type === "image"
-      ? hasDurableAttachmentUrl(item.url)
-      : hasDurableAttachmentUrl(item.url) ||
-        hasDurableAttachmentUrl(item.referenceUrl);
+      ? isPersistableAttachmentUrl(item.url)
+      : isPersistableAttachmentUrl(item.url) ||
+        isPersistableAttachmentUrl(item.referenceUrl);
   const hasInlineReference = [item.url, item.referenceUrl].some(
     (reference) =>
       typeof reference === "string" &&
       reference.trim().length > 0 &&
-      !hasDurableAttachmentUrl(reference),
+      !isPersistableAttachmentUrl(reference),
   );
   if (
     (requiredAttachment || typedAttachment) &&
@@ -4422,7 +4405,9 @@ async function enrichMessage(
   const fileRefs = references.filter((r) => r.type === "file");
   const skillRefs = references.filter((r) => r.type === "skill");
   const customAgentRefs = references.filter((r) => r.type === "custom-agent");
-  const mentionRefs = references.filter((r) => r.type === "mention");
+  const mentionRefs = references.filter(
+    (r) => r.type === "mention" && r.refType !== "integration",
+  );
 
   const parts: string[] = [];
   if (fileRefs.length > 0) {
@@ -13094,13 +13079,14 @@ async function queueableAttachments(
           ? { fileId: record.id }
           : {}),
     });
+    let uploadAttempted = false;
     if (
-      !part.fileId &&
       inlineData &&
       (!part.url || !record.uploadProvider || record.storageUploadFailed)
     ) {
       const parsedData = parseBase64DataUrl(inlineData);
       if (parsedData) {
+        uploadAttempted = true;
         const uploaded = await uploadFile({
           data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
           filename: attachment.name,
@@ -13115,14 +13101,16 @@ async function queueableAttachments(
             name: attachment.name,
             ...(mediaType ? { mediaType } : {}),
             url: uploaded.url,
+            ...(part.fileId ? { fileId: part.fileId } : {}),
           });
         }
       }
     }
     if (requestAttachmentIndexes.has(index)) {
-      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      if (!part.url || !isPersistableAttachmentUrl(part.url)) return null;
       const referenceUrl = attachment.referenceUrl;
-      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      if (referenceUrl && !isPersistableAttachmentUrl(referenceUrl))
+        return null;
       requestFiles.push({
         type: "image",
         name: attachment.name,
@@ -13132,7 +13120,12 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url && !part.fileId) return null;
+    if (!part.url) {
+      // A failed upload is transient (null -> retryable); an id with no
+      // uploadable bytes can never become a reference.
+      if (uploadAttempted) return null;
+      throw new DurableAttachmentReferenceRequiredError();
+    }
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
@@ -13190,12 +13183,12 @@ function validateQueuedPromotionRequestAttachments(
       }
     }
     if (
-      (typeof url === "string" && !hasDurableAttachmentUrl(url)) ||
+      (typeof url === "string" && !isPersistableAttachmentUrl(url)) ||
       (typeof attachment.referenceUrl === "string" &&
-        !hasDurableAttachmentUrl(attachment.referenceUrl)) ||
+        !isPersistableAttachmentUrl(attachment.referenceUrl)) ||
       (typeof data !== "string" &&
-        !hasDurableAttachmentUrl(url) &&
-        !hasDurableAttachmentUrl(attachment.referenceUrl))
+        !isPersistableAttachmentUrl(url) &&
+        !isPersistableAttachmentUrl(attachment.referenceUrl))
     ) {
       return null;
     }
@@ -14791,11 +14784,24 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 404);
         return { error: "Thread not found" };
       }
-      const attachmentsForQueue = await queueableAttachments(
-        requestAttachments,
-        ownerEmail,
-        submissionRequestAttachmentIndexes,
-      );
+      let attachmentsForQueue: Awaited<ReturnType<typeof queueableAttachments>>;
+      try {
+        attachmentsForQueue = await queueableAttachments(
+          requestAttachments,
+          ownerEmail,
+          submissionRequestAttachmentIndexes,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
       if (!attachmentsForQueue) {
         if (
           requestAttachments.some(
@@ -15445,6 +15451,18 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const integrationCredentialScope = getRequestContext()?.credentialScope;
+    const integrationIntents = await resolveAgentKitIntegrationReferences(
+      options.appId ?? "",
+      requestReferences,
+      {
+        userEmail: getRequestUserEmail() ?? ownerEmail ?? "",
+        orgId: getRequestOrgId() ?? null,
+        ...(integrationCredentialScope
+          ? { credentialScope: integrationCredentialScope }
+          : {}),
+      },
+    );
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -16013,8 +16031,11 @@ export function createProductionAgentHandler(
 
     setupMark("prepDone");
     workerStep("env_config");
+    const integrationMessage = [...integrationIntents, requestMessage].join(
+      "\n\n",
+    );
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, requestReferences);
+      enrichMessage(integrationMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -16411,7 +16432,12 @@ export function createProductionAgentHandler(
       ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
-      presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      presendCap(
+        "enrichedMessage",
+        enrichedMessageThunk,
+        integrationMessage,
+        9000,
+      ),
       presendCap(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),

@@ -3,6 +3,20 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-05
+
+### Fixed
+
+- Failed saves in the editor now show an error message instead of failing silently.
+- Large designs open without loading every screen at once.
+- Renaming a screen to a name that is already taken, or saving an invalid file name or source path, now shows the real reason instead of "Internal server error".
+
+## 2026-11-04
+
+### Fixed
+
+- Ungrouping cards inside a flex or grid row now puts them back in the row instead of leaving them pinned and breaking the layout.
+
 ## 2026-11-03
 
 ### Fixed
@@ -2226,59 +2240,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Text editing: Enter adds a line break, international (IME) typing works, and text keeps its content during live collaboration
 - Undo and redo are dependable across agent edits, screen switches, and copy/paste between tabs
 - Variant picks now more reliably expand the selected direction into the full requested screen instead of leaving a direction summary behind.
-
-## 2026-07-02
-
-### Improved
-
-- Design assets are easier to search and can be dragged directly into the canvas.
-
-### Fixed
-
-- Creating two frames in a row no longer freezes and reloads the editor
-- Design chat now recovers when the model connection goes quiet after reading a screen.
-- Design chat now starts new requests from the design list without carrying over a previously selected screen.
-- Design inspector and canvas controls stay consistent when selecting screens.
-- Design now marks stopped agent actions clearly and keeps variant follow-ups focused on the selected screen.
-- Design now recovers cleanly when an edit screen action stalls before streaming any content.
-- Fixed a crash when opening the code editor.
-- The Motion drawer now animates smoothly when opening and closing.
-
-### Changed
-
-- The temporary Code tab is hidden from the Design editor sidebar.
-
-## 2026-07-01
-
-### Added
-
-- Design can import Figma paste, .fig files, and standalone HTML from a new Import tab.
-- Designs can be edited in a new Code workspace from the left rail.
-
-### Improved
-
-- Exporting a design as PNG or SVG now downloads just the selected frame instead of the entire screen.
-- Import is more compact, Local app setup is clearer, and Figma selections can be pasted from the canvas.
-
-### Fixed
-
-- Code workspace now opens a VS Code-like editor with real code editing affordances
-- Design chat no longer shows an empty-state selection chip in the composer.
-- Design editor polish makes zoom controls, asset insertion, sharing, collaborator following, and agent handoffs clearer.
-- Design previews refresh immediately after agent screen edits.
-- Design prompts that already ask for multiple directions now start generating variants instead of stopping at intake questions.
-- Design QA fixes make exports, read-only permissions, tool filters, and screen overview controls behave more clearly.
-- Design recovers sooner when an agent gets stuck preparing a large design edit.
-- Design systems no longer crash when imported tokens include responsive values.
-- Design variants can now be generated from compact directions, reducing long-running agent stalls.
-- Improved variant-pick follow-ups so selected directions continue from the kept screen in a bounded pass.
-- Motion tracks can be added in local Design editor sessions without failing to save.
-- Org members can see Design projects created in their workspace.
-- Share general access options now appear above the dialog when switching a design from private to organization access.
-- Zoom menus in the design editor now open independently from the toolbar and inspector.
-
-### Removed
-
-- Design chat no longer shows a redundant context tab above the composer.
 
 For the full list of updates, see the [changelog folder](./changelog/).
