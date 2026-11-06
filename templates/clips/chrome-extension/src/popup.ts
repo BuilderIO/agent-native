@@ -1289,7 +1289,7 @@ async function init(): Promise<void> {
   // The website tab hands the session to the background worker, so the popup
   // has to notice the stored token instead of waiting to be reopened.
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.clipsAuth) void refreshAuth();
+    if (area === "local" && "clipsAuth" in changes) void refreshAuth();
   });
   window.addEventListener("focus", () => {
     if (authStatus !== "signed-in" && !arming) void refreshAuth();
