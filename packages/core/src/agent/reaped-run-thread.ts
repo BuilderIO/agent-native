@@ -143,7 +143,12 @@ export async function foldReapedRunIntoThread(
     );
     // A thread with no messages has no tail for the retry check below to wait
     // on, so retrying would defer forever and fail every sweep.
-    if (repo.messages.length === 0) return "superseded";
+    if (repo.messages.length === 0) {
+      console.warn(
+        `[agent-chat] dropping stopped run ${runId}: thread ${run.threadId} has no messages (turn ${run.turnId})`,
+      );
+      return "superseded";
+    }
     const folded = foldAssistantTurnWithSteers(repo, assistant, steered, {
       runId,
       turnId: run.turnId,
