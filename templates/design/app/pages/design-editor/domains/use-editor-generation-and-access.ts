@@ -267,8 +267,10 @@ export function useEditorGenerationAndAccess({
     ((prompt: RetryablePrompt) => void) | null
   >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  // Hashing every screen is too slow to repeat on each render of a large
+  // board, so the editor publishes a reader and a submit calls it.
   const generationOutputBaselineRef = useRef<
-    Array<{ id: string; contentHash: string }> | undefined
+    (() => Array<{ id: string; contentHash: string }>) | undefined
   >(undefined);
   const generationOutputUnknownRef = useRef<{
     designId: string;
@@ -576,7 +578,7 @@ export function useEditorGenerationAndAccess({
       const previousRunBaselineVerified = baseline.verified;
       const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
         pending?.outputBaselineFiles,
-        generationOutputBaselineRef.current,
+        generationOutputBaselineRef.current?.(),
       );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
@@ -1651,7 +1653,7 @@ export function useEditorGenerationAndAccess({
           setHasPendingGeneration,
           setRetryablePrompt,
           outputBaselineFiles:
-            generationOutputBaselineRef.current ??
+            generationOutputBaselineRef.current?.() ??
             promptState.outputBaselineFiles,
         },
         promptState,
