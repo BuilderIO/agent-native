@@ -11,20 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const attempts = new Map<string, Promise<unknown>>();
 
-// Children stay mounted in the same tree position whether or not a session or
-// a pending activation exists: swapping them for a skeleton, keying by user,
-// or wrapping them only once a session arrives remounts every page and
-// discards state the user already changed. Activation makes them inert under
-// a cover instead, then refetches queries that ran before the Builder account
-// was connected.
-export function BuilderSignupActivation({
-  userId,
-  children,
-}: {
-  userId: string | undefined;
-  children: ReactNode;
-}) {
-  const t = useT();
+// Runs a pending Builder signup activation for the signed-in user and reports
+// whether it is still in progress. Anything outside the cover that opens UI,
+// such as a keyboard shortcut or a portaled menu, has to check this itself.
+export function useBuilderSignupActivation(
+  userId: string | undefined,
+): boolean {
   const queryClient = useQueryClient();
   const [settledUserId, setSettledUserId] = useState<string>();
   useEffect(() => {
@@ -55,10 +47,26 @@ export function BuilderSignupActivation({
       disposed = true;
     };
   }, [queryClient, userId]);
-  const activating =
+  return (
     userId !== undefined &&
     settledUserId !== userId &&
-    hasPendingBuilderSignupAssignment();
+    hasPendingBuilderSignupAssignment()
+  );
+}
+
+// Children stay mounted in the same tree position whether or not a session or
+// a pending activation exists: swapping them for a skeleton, keying by user,
+// or wrapping them only once a session arrives remounts every page and
+// discards state the user already changed. Activation makes them inert under
+// a cover instead.
+export function BuilderSignupActivationCover({
+  activating,
+  children,
+}: {
+  activating: boolean;
+  children: ReactNode;
+}) {
+  const t = useT();
   return (
     <>
       <div className="contents" inert={activating}>

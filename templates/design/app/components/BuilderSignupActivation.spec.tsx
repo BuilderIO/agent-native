@@ -23,7 +23,10 @@ vi.mock("@agent-native/core/client/analytics", () => ({
   track: vi.fn(),
 }));
 
-import { BuilderSignupActivation } from "./BuilderSignupActivation";
+import {
+  BuilderSignupActivationCover,
+  useBuilderSignupActivation,
+} from "./BuilderSignupActivation";
 
 function Counter() {
   const [count, setCount] = useState(0);
@@ -31,6 +34,15 @@ function Counter() {
     <button type="button" onClick={() => setCount((value) => value + 1)}>
       {`count ${count}`}
     </button>
+  );
+}
+
+function Activation({ userId }: { userId: string | undefined }) {
+  const activating = useBuilderSignupActivation(userId);
+  return (
+    <BuilderSignupActivationCover activating={activating}>
+      <Counter />
+    </BuilderSignupActivationCover>
   );
 }
 
@@ -42,9 +54,7 @@ async function render(userId: string | undefined) {
   await act(async () => {
     root.render(
       <QueryClientProvider client={queryClient}>
-        <BuilderSignupActivation userId={userId}>
-          <Counter />
-        </BuilderSignupActivation>
+        <Activation userId={userId} />
       </QueryClientProvider>,
     );
   });
