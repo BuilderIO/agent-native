@@ -621,6 +621,7 @@
     "./integrations/channel-settings": "./dist/integrations/channel-settings.js",
     "./jobs/actions/get-scheduled-trigger-status": "./dist/jobs/actions/get-scheduled-trigger-status.js",
     "./labs/core-labs": "./dist/labs/core-labs.js",
+    "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",

@@ -126,6 +126,14 @@ export async function preparePromptComposerAgentHandoff(
   try {
     return await prepareHandoff(files, options);
   } catch (cause) {
-    throw new Error(failureMessage, { cause });
+    throw Object.assign(new Error(failureMessage), {
+      cause,
+      ...(cause &&
+      typeof cause === "object" &&
+      "code" in cause &&
+      typeof cause.code === "string"
+        ? { code: cause.code }
+        : {}),
+    });
   }
 }

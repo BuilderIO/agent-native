@@ -1,14 +1,15 @@
 --- a/server/lib/composer-reference-messages.ts
 +++ b/server/lib/composer-reference-messages.ts
-@@ -1,34 +1,8 @@
+@@ -1,5 +1 @@
 -import {
 -  DEFAULT_LOCALE,
 -  LOCALIZATION_SETTING_KEY,
 -  normalizeLocalizationPreference,
 -} from "@agent-native/core/localization";
--import { getRequestUserEmail } from "@agent-native/core/server/request-context";
++import { workspaceIntegrationMessagesForUser } from "@agent-native/core/localization/workspace-integration-messages";
+@@ -7 +2,0 @@
 -import { getUserSetting } from "@agent-native/core/settings";
--
+@@ -9,14 +3,0 @@
 -const catalogs = {
 -  "en-US": () => import("../../app/i18n/en-US.js"),
 -  "ar-SA": () => import("../../app/i18n/ar-SA.js"),
@@ -23,11 +24,13 @@
 -  "zh-TW": () => import("../../app/i18n/zh-TW.js"),
 -};
 -
- export async function composerReferenceMessages() {
+@@ -24,3 +5,2 @@
 -  const email = getRequestUserEmail();
 -  const preference = normalizeLocalizationPreference(
 -    email ? await getUserSetting(email, LOCALIZATION_SETTING_KEY) : undefined,
--  );
++  const messages = await workspaceIntegrationMessagesForUser(
++    getRequestUserEmail() ?? "",
+@@ -28,6 +8,5 @@
 -  const locale = preference.locale;
 -  const load =
 -    locale && locale in catalogs
@@ -35,9 +38,7 @@
 -      : catalogs[DEFAULT_LOCALE];
 -  return (await load()).default.composerSources;
 +  return {
-+    authentication: "Sign in to add a reference.",
-+    invalid: "Choose a valid reference before sending.",
-+    unavailable:
-+      "A selected reference is no longer available. Remove it or choose it again.",
++    authentication: messages.composerReferenceAuthentication,
++    invalid: messages.composerReferenceInvalid,
++    unavailable: messages.composerReferenceUnavailable,
 +  };
- }

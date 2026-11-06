@@ -6957,6 +6957,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             event,
             options?.resolveOrgId,
           );
+          const mentionContext = {
+            userEmail: mentionsOwner,
+            orgId: mentionsOrgId ?? undefined,
+            ...((mentionsOrgId === null ||
+              (mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal")) && {
+              orgScope: "personal" as const,
+            }),
+          };
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -7005,13 +7014,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 data: { errorCode: "unauthorized" },
               });
             const items = await runWithRequestContext(
-              {
-                userEmail: mentionsOwner,
-                ...(mentionsOrgId ? { orgId: mentionsOrgId } : {}),
-                ...(mentionsOrgId === null && {
-                  orgScope: "personal" as const,
-                }),
-              },
+              mentionContext,
               async () => {
                 try {
                   return await provider.search(q, event);
@@ -7051,18 +7054,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
-              const inheritedPersonalScope =
-                mentionsOrgId === undefined &&
-                getRequestContext()?.orgScope === "personal";
-              return runWithRequestContext(
-                {
-                  userEmail: mentionsOwner,
-                  orgId: mentionsOrgId ?? undefined,
-                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
-                    orgScope: "personal" as const,
-                  }),
-                },
-                () => mentionsStreamWork(controller),
+              return runWithRequestContext(mentionContext, () =>
+                mentionsStreamWork(controller),
               );
             },
             cancel() {

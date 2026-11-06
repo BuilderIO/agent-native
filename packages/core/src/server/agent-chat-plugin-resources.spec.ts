@@ -2292,6 +2292,33 @@ describe("agent chat resource route organization scopes", () => {
     expect(await failure.text()).toContain("mention_source_unavailable");
   });
 
+  it("preserves inherited personal scope for both source-specific and streamed mention searches", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const scopes: unknown[] = [];
+    const app = await mountResourceRoutes({
+      resolveOrgId: () => undefined,
+      mentionProviders: {
+        dashboards: {
+          label: "Dashboards",
+          search: async () => {
+            scopes.push(getRequestContext()?.orgScope);
+            return [];
+          },
+        },
+      },
+    });
+    for (const query of ["?source=dashboards", ""]) {
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/mentions${query}`,
+        { userEmail: "user@example.test", orgScope: "personal" },
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    expect(scopes).toEqual(["personal", "personal"]);
+  });
+
   it("reports a failed generic mention source in the stream instead of a clean empty result", async () => {
     mocks.getSession.mockResolvedValue({ email: "user@example.test" });
     const app = await mountResourceRoutes({

@@ -471,6 +471,12 @@ export function selectedNativeInstances(
   if (!content || (!nodeId && !selector))
     return { instances: [], definitions: [], errors: [] };
   const parsed = parseEffectsFromHtml(content);
+  const candidates = (parsed.document?.instances ?? []).filter(
+    (instance) => instance.placement === placement,
+  );
+  const definitions = parsed.document?.definitions ?? [];
+  if (candidates.length === 0)
+    return { instances: [], definitions, errors: parsed.errors };
   const resolved = selector
     ? resolveCodeLayerTarget(content, { selector }).resolution
     : null;
@@ -479,12 +485,11 @@ export function selectedNativeInstances(
       ? resolved.node.dataAttributes["data-agent-native-node-id"]
       : undefined;
   return {
-    instances: (parsed.document?.instances ?? []).filter(
+    instances: candidates.filter(
       (instance) =>
-        (instance.nodeId === nodeId || instance.nodeId === authoredId) &&
-        instance.placement === placement,
+        instance.nodeId === nodeId || instance.nodeId === authoredId,
     ),
-    definitions: parsed.document?.definitions ?? [],
+    definitions,
     errors: parsed.errors,
   };
 }

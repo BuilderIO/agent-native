@@ -16,7 +16,10 @@ describe("prompt composer agent handoff", () => {
       try {
         await expect(
           preparePromptComposerAgentHandoff(files, {}, "Upload failed"),
-        ).rejects.toMatchObject({ cause: { code: "upload_too_large" } });
+        ).rejects.toMatchObject({
+          code: "upload_too_large",
+          cause: { code: "upload_too_large" },
+        });
         expect(read).not.toHaveBeenCalled();
       } finally {
         read.mockRestore();
