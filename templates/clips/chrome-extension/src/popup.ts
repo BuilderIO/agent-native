@@ -76,6 +76,9 @@ type PopupStatusResponse = {
 
 type AuthStatus = "checking" | "signed-in" | "signed-out" | "unavailable";
 
+const SIGN_IN_PENDING_MESSAGE =
+  "Finish signing in in the Clips tab. This updates when you're done.";
+
 export function classifyAuthProbe(
   status: number | null,
   body: { email?: string; error?: string } | null,
@@ -930,6 +933,7 @@ async function init(): Promise<void> {
   let activeRecording: NativeRecording | null = null;
   let arming = false;
   let authStatus: AuthStatus = "checking";
+  let signingIn = false;
   let feedbackOpenedAt = 0;
   let feedbackSchema: FeedbackFormSchema | null = null;
   let feedbackCloseTimer: number | null = null;
@@ -1265,15 +1269,31 @@ async function init(): Promise<void> {
     void chrome.runtime.openOptionsPage();
   });
 
-  authStatus = await readAuthStatus(settings);
-  renderActiveRecording(activeRecording, arming, authStatus);
-  if (authStatus === "signed-out") setStatus("");
-  if (authStatus === "unavailable") {
-    setStatus(
-      "Couldn't verify Clips sign-in. Reopen the popup to retry.",
-      "error",
-    );
-  }
+  const refreshAuth = async (): Promise<void> => {
+    authStatus = await readAuthStatus(settings);
+    renderActiveRecording(activeRecording, arming, authStatus);
+    if (authStatus === "signed-out") {
+      setStatus(signingIn ? SIGN_IN_PENDING_MESSAGE : "");
+    } else if (authStatus === "unavailable") {
+      setStatus(
+        "Couldn't verify Clips sign-in. Reopen the popup to retry.",
+        "error",
+      );
+    } else {
+      signingIn = false;
+      setStatus("");
+    }
+  };
+  await refreshAuth();
+
+  // The website tab hands the session to the background worker, so the popup
+  // has to notice the stored token instead of waiting to be reopened.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.clipsAuth) void refreshAuth();
+  });
+  window.addEventListener("focus", () => {
+    if (authStatus !== "signed-in" && !arming) void refreshAuth();
+  });
 
   start.addEventListener("click", async () => {
     start.disabled = true;
@@ -1382,11 +1402,12 @@ async function init(): Promise<void> {
       type: "CLIPS_POPUP_SIGN_IN",
       settings,
     });
+    signIn.disabled = false;
     if (response.ok) {
-      window.close();
+      signingIn = true;
+      setStatus(SIGN_IN_PENDING_MESSAGE);
       return;
     }
-    signIn.disabled = false;
     setStatus(response.error || "Could not open Clips sign in.", "error");
   });
 

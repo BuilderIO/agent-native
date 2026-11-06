@@ -19,7 +19,7 @@ import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Links,
   Meta,
@@ -212,23 +212,59 @@ type ExternalChromeRuntime = {
   ) => void;
 };
 
+const EXTENSION_BRIDGE_REPLY_TIMEOUT_MS = 4000;
+
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
   const t = useT();
   const [showAuthSuccess, setShowAuthSuccess] = useState(false);
+  const unmountedRef = useRef(false);
+  const startedForRef = useRef<string | null>(null);
+
+  const params = new URLSearchParams(location.search);
+  const requestedExtensionId =
+    params.get("clipsExtensionAuth") === "1"
+      ? params.get("clipsExtensionId")?.trim() || null
+      : null;
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get("clipsExtensionAuth") !== "1") return;
-    const extensionId = params.get("clipsExtensionId")?.trim();
-    if (!extensionId) return;
-    const targetExtensionId = extensionId;
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
-    let cancelled = false;
+  // Keyed on the requested extension id, not the whole URL: a client redirect
+  // right after landing (onboarding, org selection) drops the query string and
+  // must not abandon a handoff that is already in flight.
+  useEffect(() => {
+    if (!requestedExtensionId) return;
+    if (startedForRef.current === requestedExtensionId) return;
+    startedForRef.current = requestedExtensionId;
+    const targetExtensionId = requestedExtensionId;
+
     let removeBridgeListener: (() => void) | null = null;
+    let replyTimer: number | null = null;
+    const isActive = () => !unmountedRef.current;
+
+    const clearBridgeWait = () => {
+      removeBridgeListener?.();
+      removeBridgeListener = null;
+      if (replyTimer !== null) window.clearTimeout(replyTimer);
+      replyTimer = null;
+    };
+
+    const failExtensionSignIn = (error?: unknown) => {
+      clearBridgeWait();
+      if (!isActive()) return;
+      if (error)
+        console.error("Could not complete Clips extension sign-in.", error);
+      toast.error(t("recordingPage.tryAgainMoment"));
+    };
 
     const completeExtensionSignIn = () => {
-      if (cancelled) return;
+      clearBridgeWait();
+      if (!isActive()) return;
       const cleaned = new URL(window.location.href);
       cleaned.searchParams.delete("clipsExtensionAuth");
       cleaned.searchParams.delete("clipsExtensionId");
@@ -251,16 +287,17 @@ function ClipsExtensionAuthBridge() {
               credentials: "include",
               cache: "no-store",
             }),
-          () => !cancelled,
+          isActive,
         );
       } catch (error) {
-        if (!cancelled) {
-          console.error("Could not complete Clips extension sign-in.", error);
-          toast.error(t("recordingPage.tryAgainMoment"));
-        }
+        failExtensionSignIn(error);
         return;
       }
-      if (cancelled || !session) return;
+      if (!isActive()) return;
+      if (!session) {
+        failExtensionSignIn(new Error("No signed-in Clips session was found."));
+        return;
+      }
 
       const message = {
         source: "clips-auth-bridge",
@@ -289,13 +326,22 @@ function ClipsExtensionAuthBridge() {
           ) {
             return;
           }
-          removeBridgeListener?.();
-          removeBridgeListener = null;
           if (data.ok === true) completeExtensionSignIn();
+          else
+            failExtensionSignIn(
+              new Error("The extension rejected the session."),
+            );
         };
         removeBridgeListener = () =>
           window.removeEventListener("message", onMessage);
         window.addEventListener("message", onMessage);
+        replyTimer = window.setTimeout(
+          () =>
+            failExtensionSignIn(
+              new Error("The Clips extension did not respond."),
+            ),
+          EXTENSION_BRIDGE_REPLY_TIMEOUT_MS,
+        );
         window.postMessage(message, window.location.origin);
       };
 
@@ -313,7 +359,7 @@ function ClipsExtensionAuthBridge() {
           clipsBaseUrl: message.clipsBaseUrl,
         },
         (extensionResponse) => {
-          if (cancelled) return;
+          if (!isActive()) return;
           if (!runtime.lastError && extensionResponse?.ok) {
             completeExtensionSignIn();
             return;
@@ -324,11 +370,7 @@ function ClipsExtensionAuthBridge() {
     }
 
     void sendSessionToExtension();
-    return () => {
-      cancelled = true;
-      removeBridgeListener?.();
-    };
-  }, [location.search]);
+  }, [requestedExtensionId, t]);
 
   return (
     <Dialog open={showAuthSuccess} onOpenChange={setShowAuthSuccess}>
