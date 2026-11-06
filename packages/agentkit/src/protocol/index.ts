@@ -671,6 +671,19 @@ export interface AgentUploadTarget {
   expiresAt?: string;
 }
 
+export interface AgentUploadFile {
+  name: string;
+  mediaType: string;
+  size: number;
+  body: Blob;
+}
+
+export type AgentUploadDriver = (
+  target: AgentUploadTarget,
+  file: AgentUploadFile,
+  context?: AgentRequestContext,
+) => Promise<void>;
+
 export interface AgentUploadProgress {
   uploadId: UploadId;
   loaded: number;
@@ -1347,6 +1360,8 @@ export interface AgentTransportThreadOperations {
 }
 
 export interface AgentTransport extends AgentTransportThreadOperations {
+  /** Local binary transfer for transports whose upload response needs interpretation. */
+  upload?: AgentUploadDriver;
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
   /** Checks whether a new user-initiated chat dispatch is allowed to start. */

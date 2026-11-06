@@ -9,6 +9,7 @@ import { analyticsAskThreadPath } from "@shared/ask-route";
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 
+import { AnalyticsComposerContextProvider } from "@/components/AnalyticsComposerContext";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import {
   clearSelectedDashboardObjectIfOwned,
@@ -57,6 +58,7 @@ export default function AskPage({ threadId }: { threadId: string | null }) {
 
   return (
     <AgentChatHome
+      composerContextProvider={AnalyticsComposerContextProvider}
       className="analytics-ask-page h-full min-h-0"
       contentClassName="max-w-none"
       surfaceClassName="analytics-chat-panel"

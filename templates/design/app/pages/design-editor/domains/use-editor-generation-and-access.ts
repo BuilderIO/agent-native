@@ -297,6 +297,7 @@ export function useEditorGenerationAndAccess({
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(
     (autoRetry = true) => {
@@ -308,6 +309,7 @@ export function useEditorGenerationAndAccess({
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        references: pending.references,
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,

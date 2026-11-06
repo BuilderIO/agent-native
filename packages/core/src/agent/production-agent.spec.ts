@@ -25,6 +25,7 @@ import {
   noteExternalWrite,
   type ActionRunContext,
 } from "../action.js";
+import * as integrationCapabilities from "../agentkit/capabilities.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -4894,6 +4895,62 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("rejects revoked workspace integration references before app preparation or engine dispatch", async () => {
+    const engine = engineWithUncalledStream();
+    const prepareRequest = vi.fn();
+    const revalidate = vi
+      .spyOn(integrationCapabilities, "resolveAgentKitIntegrationReferences")
+      .mockRejectedValue(
+        Object.assign(new Error("Integration unavailable"), {
+          statusCode: 403,
+          errorCode: "workspace_integration_unavailable",
+        }),
+      );
+    onTestFinished(() => revalidate.mockRestore());
+    const references = [
+      {
+        type: "mention",
+        path: "github",
+        name: "GitHub",
+        source: "workspace-integration",
+        refType: "integration",
+        refId: "github",
+      },
+    ];
+    const handler = createProductionAgentHandler({
+      appId: "chat",
+      systemPrompt: "Test",
+      engine,
+      prepareRequest,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.test/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use GitHub", references }),
+      }),
+    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-1", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: "workspace_integration_unavailable",
+    });
+    expect(revalidate).toHaveBeenCalledWith(
+      "chat",
+      references,
+      expect.objectContaining({
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    );
+    expect(prepareRequest).not.toHaveBeenCalled();
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   function authorizePublicThreadHistory() {
     const access = vi
       .spyOn(chatThreadStore, "resolveThreadAccess")

@@ -248,6 +248,7 @@ import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { getUserLabEnabled } from "../labs/store.js";
+import { workspaceIntegrationMessagesForUser } from "../localization/workspace-integration-messages.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -6938,12 +6939,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // a provider that searches `decks` (or any sharable resource)
           // would see every row regardless of ownership.
           const mentionsOwner = await getOwnerFromEvent(event).catch(
-            () => undefined,
+            (error: unknown) => {
+              if (
+                error &&
+                typeof error === "object" &&
+                (("statusCode" in error && error.statusCode === 401) ||
+                  ("status" in error && error.status === 401))
+              )
+                return undefined;
+              throw error;
+            },
+          );
+          const referenceMessages = await workspaceIntegrationMessagesForUser(
+            mentionsOwner ?? "",
           );
           const mentionsOrgId = await resolveResourceOrgId(
             event,
             options?.resolveOrgId,
           );
+          const mentionContext = {
+            ...(mentionsOwner ? { userEmail: mentionsOwner } : {}),
+            ...(mentionsOrgId ? { orgId: mentionsOrgId } : {}),
+            ...((mentionsOrgId === null ||
+              (mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal")) && {
+              orgScope: "personal" as const,
+            }),
+          };
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -6971,6 +6993,67 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             item.label.toLowerCase().includes(q) ||
             (item.description?.toLowerCase().includes(q) ?? false);
 
+          if (query.source !== undefined) {
+            const source = typeof query.source === "string" ? query.source : "";
+            const mentionErrorResponse = (
+              status: number,
+              code: string,
+              message: string,
+            ) =>
+              new Response(
+                JSON.stringify({ error: { code, message, source } }),
+                {
+                  status,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache",
+                  },
+                },
+              );
+            const provider = Object.prototype.hasOwnProperty.call(
+              mentionProviders,
+              source,
+            )
+              ? mentionProviders[source]
+              : undefined;
+            if (!provider)
+              return mentionErrorResponse(
+                404,
+                "mention_source_not_found",
+                referenceMessages.referenceUnknown,
+              );
+            if (!mentionsOwner)
+              return mentionErrorResponse(
+                401,
+                "unauthorized",
+                referenceMessages.referenceSignIn,
+              );
+            let items: Awaited<ReturnType<typeof provider.search>>;
+            try {
+              items = await runWithRequestContext(mentionContext, () =>
+                provider.search(q, event),
+              );
+            } catch {
+              return mentionErrorResponse(
+                503,
+                "mention_source_unavailable",
+                referenceMessages.referenceUnavailable,
+              );
+            }
+            setResponseHeader(event, "Content-Type", "application/x-ndjson");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            return (
+              JSON.stringify({
+                items: items.slice(0, 50).map((item) => ({
+                  ...item,
+                  source,
+                  section: provider.label,
+                  icon: item.icon || provider.icon || "file",
+                })),
+              }) + "\n"
+            );
+          }
+
           const enc = new TextEncoder();
 
           // Stream NDJSON — each source flushes its batch as soon as it's ready.
@@ -6984,18 +7067,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
-              const inheritedPersonalScope =
-                mentionsOrgId === undefined &&
-                getRequestContext()?.orgScope === "personal";
-              return runWithRequestContext(
-                {
-                  userEmail: mentionsOwner,
-                  orgId: mentionsOrgId ?? undefined,
-                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
-                    orgScope: "personal" as const,
-                  }),
-                },
-                () => mentionsStreamWork(controller),
+              return runWithRequestContext(mentionContext, () =>
+                mentionsStreamWork(controller),
               );
             },
             cancel() {
@@ -7045,6 +7118,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             };
 
+            const reportSourceFailure = (source: string) => {
+              if (cancelled || mentionsAbort.signal.aborted) return;
+              try {
+                controller.enqueue(
+                  enc.encode(
+                    JSON.stringify({
+                      error: {
+                        code: "mention_source_unavailable",
+                        message: referenceMessages.referenceUnavailable,
+                        source,
+                      },
+                    }) + "\n",
+                  ),
+                );
+              } catch {
+                cancelled = true;
+              }
+            };
+
             // All sources run in parallel; each flushes independently.
             const sources: Promise<void>[] = [];
 
@@ -7083,7 +7175,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       };
                     }),
                   );
-                } catch {}
+                } catch {
+                  reportSourceFailure("resources");
+                }
               })(),
             );
 
@@ -7098,7 +7192,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }> = [];
                   try {
                     await collectFiles(process.cwd(), "", 0, codebaseFiles);
-                  } catch {}
+                  } catch {
+                    reportSourceFailure("codebase");
+                    return;
+                  }
                   flush(
                     codebaseFiles.map((f) => ({
                       id: `codebase:${f.path}`,
@@ -7143,6 +7240,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       })),
                     );
                   } catch (e) {
+                    reportSourceFailure(key);
                     console.error(
                       `[agent-native] Mention provider "${key}" failed:`,
                       e,
@@ -7153,34 +7251,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // 4. Custom workspace agents
-            sources.push(
-              (async () => {
-                try {
-                  const owner = await getOwnerFromEvent(event);
-                  const { listAccessibleCustomAgents } =
-                    await import("../resources/agents.js");
-                  const agents = await listAccessibleCustomAgents(owner);
-                  flush(
-                    agents.map((agent) => ({
-                      id: `custom-agent:${agent.id}`,
-                      label: agent.name,
-                      description: agent.description || agent.path,
-                      icon: "agent",
-                      source: "agent:custom",
-                      refType: "custom-agent",
-                      refPath: agent.path,
-                      refId: agent.id,
-                      section: "Agents",
-                    })),
-                  );
-                } catch (e) {
-                  console.error(
-                    "[agent-native] Custom agent discovery failed:",
-                    e,
-                  );
-                }
-              })(),
-            );
+            if (mentionsOwner)
+              sources.push(
+                (async () => {
+                  try {
+                    const owner = await getOwnerFromEvent(event);
+                    const { listAccessibleCustomAgents } =
+                      await import("../resources/agents.js");
+                    const agents = await listAccessibleCustomAgents(owner);
+                    flush(
+                      agents.map((agent) => ({
+                        id: `custom-agent:${agent.id}`,
+                        label: agent.name,
+                        description: agent.description || agent.path,
+                        icon: "agent",
+                        source: "agent:custom",
+                        refType: "custom-agent",
+                        refPath: agent.path,
+                        refId: agent.id,
+                        section: "Agents",
+                      })),
+                    );
+                  } catch (e) {
+                    reportSourceFailure("custom-agents");
+                    console.error(
+                      "[agent-native] Custom agent discovery failed:",
+                      e,
+                    );
+                  }
+                })(),
+              );
 
             // 5. Peer agent discovery (network call — often slowest)
             sources.push(
@@ -7204,6 +7304,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     })),
                   );
                 } catch (e) {
+                  reportSourceFailure("connected-agents");
                   console.error("[agent-native] Agent discovery failed:", e);
                 }
               })(),

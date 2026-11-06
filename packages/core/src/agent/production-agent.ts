@@ -29,8 +29,8 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
+import "../authorization/check-action.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
@@ -68,6 +68,7 @@ import {
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { resolveAgentKitIntegrationReferences } from "../agentkit/capabilities.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -4399,7 +4400,9 @@ async function enrichMessage(
   const fileRefs = references.filter((r) => r.type === "file");
   const skillRefs = references.filter((r) => r.type === "skill");
   const customAgentRefs = references.filter((r) => r.type === "custom-agent");
-  const mentionRefs = references.filter((r) => r.type === "mention");
+  const mentionRefs = references.filter(
+    (r) => r.type === "mention" && r.refType !== "integration",
+  );
 
   const parts: string[] = [];
   if (fileRefs.length > 0) {
@@ -15137,6 +15140,18 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const integrationCredentialScope = getRequestContext()?.credentialScope;
+    const integrationIntents = await resolveAgentKitIntegrationReferences(
+      options.appId ?? "",
+      requestReferences,
+      {
+        userEmail: getRequestUserEmail() ?? ownerEmail ?? "",
+        orgId: getRequestOrgId() ?? null,
+        ...(integrationCredentialScope
+          ? { credentialScope: integrationCredentialScope }
+          : {}),
+      },
+    );
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -15705,8 +15720,11 @@ export function createProductionAgentHandler(
 
     setupMark("prepDone");
     workerStep("env_config");
+    const integrationMessage = [...integrationIntents, requestMessage].join(
+      "\n\n",
+    );
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, requestReferences);
+      enrichMessage(integrationMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -16103,7 +16121,12 @@ export function createProductionAgentHandler(
       ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
-      presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      presendCap(
+        "enrichedMessage",
+        enrichedMessageThunk,
+        integrationMessage,
+        9000,
+      ),
       presendCap(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
