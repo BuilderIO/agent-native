@@ -2271,20 +2271,24 @@ export function startRun(
       let suppressContinuationEvent = false;
       try {
         await persistenceChain;
-        await run.abortPersistencePromise;
       } catch (error) {
         eventPersistenceError = error;
-        if (run.status !== "aborted") {
-          run.status = "errored";
-          pendingTerminalEvent = {
-            seq: allocateRunEventSeq(run),
-            event: {
-              type: "error",
-              error: "Agent run ended unexpectedly",
-              errorCode: "run_event_persistence_failed",
-            },
-          };
-        }
+      }
+      try {
+        await run.abortPersistencePromise;
+      } catch (error) {
+        eventPersistenceError ??= error;
+      }
+      if (eventPersistenceError && run.status !== "aborted") {
+        run.status = "errored";
+        pendingTerminalEvent = {
+          seq: allocateRunEventSeq(run),
+          event: {
+            type: "error",
+            error: "Agent run ended unexpectedly",
+            errorCode: "run_event_persistence_failed",
+          },
+        };
       }
       if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
         const event = checkpointStatusReadFailed
@@ -2857,7 +2861,7 @@ export function startRun(
           attemptCount: options?.attemptCount,
         });
       }
-      if (eventPersistenceError && finalStatus !== "aborted") {
+      if (eventPersistenceError) {
         throw eventPersistenceError;
       }
     })

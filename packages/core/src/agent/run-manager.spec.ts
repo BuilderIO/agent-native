@@ -9250,9 +9250,14 @@ describe("run manager soft timeout", () => {
     },
   );
 
-  it("keeps user cancellation when a pending event write permanently fails", async () => {
+  it("keeps user cancellation while reporting a permanent event write failure", async () => {
     let rejectFirstWrite!: (error: Error) => void;
     let seqZeroAttempts = 0;
+    let resolveAbort!: (persisted: boolean) => void;
+    const abortWrite = new Promise<boolean>((resolve) => {
+      resolveAbort = resolve;
+    });
+    vi.mocked(markRunAborted).mockReturnValueOnce(abortWrite);
     const writeError = new Error("permanent event persistence failure");
     const onComplete = vi.fn();
     vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
@@ -9280,7 +9285,13 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
     expect(abortRun(run.runId, "user")).toBe(true);
     rejectFirstWrite(writeError);
-    await run.finalized;
+    try {
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalled());
+      expect(onComplete).not.toHaveBeenCalled();
+    } finally {
+      resolveAbort(true);
+    }
+    await expect(run.finalized).rejects.toBe(writeError);
 
     expect(run.status).toBe("aborted");
     expect(onComplete).toHaveBeenCalledWith(

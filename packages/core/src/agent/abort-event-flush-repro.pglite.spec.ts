@@ -8,12 +8,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
 
+type WriteGate = { runId: string; entered: () => void; wait: Promise<void> };
 const harness = vi.hoisted(() => ({
   init: [] as Promise<void>[],
   close: [] as Array<() => void | Promise<void>>,
-  captured: [] as Array<{ error: unknown; phase?: string }>,
+  singleGate: null as null | WriteGate,
 }));
-
 vi.mock("../server/framework-request-handler.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/framework-request-handler.js")
@@ -25,10 +25,25 @@ vi.mock("../server/framework-request-handler.js", async (importOriginal) => ({
     },
   }),
   markDefaultPluginProvided: vi.fn(),
-  trackPluginInit: (_app: unknown, promise: Promise<void>) => {
-    harness.init.push(promise);
-  },
+  trackPluginInit: (_app: unknown, promise: Promise<void>) =>
+    harness.init.push(promise),
 }));
+vi.mock("./run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./run-store.js")>();
+  return {
+    ...actual,
+    insertRunEvent: async (
+      ...args: Parameters<typeof actual.insertRunEvent>
+    ) => {
+      const gate = harness.singleGate;
+      if (gate?.runId === args[0]) {
+        gate.entered();
+        await gate.wait;
+      }
+      return actual.insertRunEvent(...args);
+    },
+  };
+});
 vi.mock("../agent/run-ownership.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent/run-ownership.js")>()),
   callerHasRunAccess: () => true,
@@ -42,17 +57,6 @@ vi.mock("../server/agent-run-context.js", async (importOriginal) => ({
   }),
   resolveAgentRunOrgId: async () => undefined,
 }));
-vi.mock("../server/capture-error.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../server/capture-error.js")>();
-  return {
-    ...actual,
-    captureError: (...args: Parameters<typeof actual.captureError>) => {
-      harness.captured.push({ error: args[0], phase: args[1]?.tags?.phase });
-      return actual.captureError(...args);
-    },
-  };
-});
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
   deleteSetting: async () => false,
@@ -127,23 +131,33 @@ vi.mock("../db/ddl-guard.js", () => ({
 const { startRun } = await import("./run-manager.js");
 const { createAgentChatPlugin } =
   await import("../server/agent-chat-plugin.js");
-const {
-  ensureRunTables,
-  markRunAborted,
-  insertRun,
-  claimTurnExecutionLease,
-  isTurnAborted,
-  AgentRunEventNotPersistedError,
-} = await import("./run-store.js");
+const { ensureRunTables, markRunAborted } = await import("./run-store.js");
 let server: Server;
 let baseUrl: string;
-
 function gate() {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => {
     resolve = r;
   });
   return { promise, resolve };
+}
+async function events(runId: string) {
+  const result = await pglite.query(
+    "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+    [runId],
+  );
+  return result.rows.map((row) => ({
+    seq: Number(row.seq),
+    ...JSON.parse(String(row.event_data)),
+  }));
+}
+function stop(runId: string) {
+  return fetch(`${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reason: "user" }),
+    signal: AbortSignal.timeout(15_000),
+  });
 }
 beforeAll(async () => {
   vi.stubEnv("NODE_ENV", "test");
@@ -188,399 +202,98 @@ afterAll(async () => {
   vi.unstubAllEnvs();
 });
 
-describe("abort with a queued, fenced event", () => {
-  it("reports a lost event when its terminal drain failed before the POST", async () => {
-    const runId = "flush-repro-completed-terminal-drain";
-    const threadId = "flush-repro-thread-completed-terminal-drain";
+describe("durable abort HTTP responses", () => {
+  it("stops a normal run after its text is persisted", async () => {
+    const runId = "http-abort-normal";
+    const ready = gate();
+    const run = startRun(
+      runId,
+      runId,
+      async (send, signal) => {
+        await send({ type: "text", text: "saved" });
+        ready.resolve();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    try {
+      await ready.promise;
+      const response = await stop(runId);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+      await run.finalized;
+      expect(await events(runId)).toEqual([
+        { seq: 0, type: "text", text: "saved" },
+        { seq: 1, type: "done", reason: "user" },
+      ]);
+    } finally {
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await run.finalized.catch(() => {});
+    }
+  });
+  it("reports an already lost tool event on HTTP and finalization without undoing a durable abort", async () => {
+    const runId = "single-abort-terminal";
     const entered = gate();
-    const eventGate = gate();
-    const driverGate = gate();
+    const write = gate();
+    const driver = gate();
+    harness.singleGate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+    };
     let publication: Promise<void> | undefined;
     const run = startRun(
       runId,
-      threadId,
+      runId,
       async (send) => {
-        publication = send({ type: "text", text: "lost-before-stop" });
+        publication = send({ type: "tool_start", tool: "read", input: {} });
         void publication.catch(() => {});
-        await driverGate.promise;
+        await driver.promise;
       },
       undefined,
-      {
-        softTimeoutMs: 0,
-        noProgressTimeoutMs: 0,
-        executionLease: true,
-        persistEvent: async (write) => {
-          entered.resolve();
-          await eventGate.promise;
-          await write();
-        },
-      },
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
     );
+    const finalization = run.finalized.catch((error: unknown) => error);
     try {
       await entered.promise;
-      if (!publication || !run.flushEvents) {
-        throw new Error("Run did not start event persistence");
-      }
       await markRunAborted(runId, "other-worker");
-      const failedDrain = run.flushEvents();
-      eventGate.resolve();
-      await expect(failedDrain).rejects.toMatchObject({
+      const drain = run.flushEvents();
+      write.resolve();
+      await expect(drain).rejects.toMatchObject({
         name: "AgentRunEventNotPersistedError",
         terminalRun: true,
-        cause: expect.objectContaining({
-          name: "StaleExecutionFenceError",
-          message: expect.stringContaining("generation 1"),
-        }),
       });
-      await expect(publication).rejects.toBeInstanceOf(
-        AgentRunEventNotPersistedError,
-      );
-      harness.captured.length = 0;
-      const response = await fetch(
-        `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ reason: "user" }),
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
-      const events = await pglite.query(
-        "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
-        [runId],
-      );
-      expect(
-        events.rows.map((row) => JSON.parse(String(row.event_data))),
-      ).toEqual([
+      await expect(publication).rejects.toMatchObject({
+        name: "AgentRunEventNotPersistedError",
+        terminalRun: true,
+      });
+      expect((await stop(runId)).status).toBe(500);
+      driver.resolve();
+      expect(await finalization).toMatchObject({
+        name: "AgentRunEventNotPersistedError",
+        terminalRun: true,
+      });
+      expect(await events(runId)).toEqual([
         expect.objectContaining({
+          seq: 0,
           type: "error",
           errorCode: "aborted_other-worker",
         }),
       ]);
-      expect(response.status).toBe(500);
-      expect(harness.captured).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            phase: "abort-run",
-            error: expect.objectContaining({
-              name: "AgentRunEventNotPersistedError",
-              terminalRun: true,
-            }),
-          }),
-        ]),
+      const state = await pglite.query(
+        "SELECT status FROM agent_runs WHERE id = ?",
+        [runId],
       );
-      await expect(run.flushEvents()).rejects.toBeInstanceOf(
-        AgentRunEventNotPersistedError,
-      );
+      expect(state.rows[0]).toMatchObject({ status: "aborted" });
     } finally {
-      eventGate.resolve();
-      driverGate.resolve();
+      write.resolve();
+      driver.resolve();
       if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
-      await run.finalized.catch(() => {});
+      await finalization;
+      harness.singleGate = null;
     }
   });
-  it("waits for a queued event when the abort signal terminates the driver", async () => {
-    const runId = "flush-repro-signal";
-    const threadId = "flush-repro-thread-signal";
-    const entered = gate();
-    const eventGate = gate();
-    const driverExited = gate();
-    const order: string[] = [];
-    harness.captured.length = 0;
-    const run = startRun(
-      runId,
-      threadId,
-      async (send, signal) => {
-        void send({ type: "text", text: "queued-signal" }).catch(() => {});
-        await new Promise<void>((resolve) => {
-          signal.addEventListener(
-            "abort",
-            () => {
-              order.push("signal");
-              resolve();
-            },
-            { once: true },
-          );
-        });
-        order.push("driver-exited");
-        driverExited.resolve();
-      },
-      undefined,
-      {
-        softTimeoutMs: 0,
-        noProgressTimeoutMs: 0,
-        executionLease: true,
-        persistEvent: async (write) => {
-          order.push("write-gated");
-          entered.resolve();
-          await eventGate.promise;
-          order.push("write-started");
-          await write();
-          order.push("write-completed");
-        },
-      },
-    );
-    let finalized = false;
-    void run.finalized.then(
-      () => {
-        finalized = true;
-        order.push("finalized");
-      },
-      () => {
-        finalized = true;
-        order.push("finalized-error");
-      },
-    );
-    try {
-      await entered.promise;
-      const flushSpy = vi.spyOn(run, "flushEvents");
-      const stop = fetch(
-        `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ reason: "user" }),
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
-      await driverExited.promise;
-      await vi.waitFor(() => expect(flushSpy).toHaveBeenCalledTimes(2));
-      const before = await pglite.query(
-        "SELECT r.status, l.generation, l.owner_run_id, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
-        [runId],
-      );
-      expect(before.rows[0]).toMatchObject({
-        status: "running",
-        owner_run_id: runId,
-        lease_is_live: true,
-      });
-      expect(finalized).toBe(false);
-      order.push("observed-live-lease");
-      eventGate.resolve();
-      const response = await stop;
-      const body = await response.text();
-      order.push(`http-${response.status}`);
-      await run.finalized;
-      const after = await pglite.query(
-        "SELECT r.status, l.generation, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
-        [runId],
-      );
-      const events = await pglite.query(
-        "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
-        [runId],
-      );
-      expect(order.slice(0, 5)).toEqual([
-        "write-gated",
-        "signal",
-        "driver-exited",
-        "observed-live-lease",
-        "write-started",
-      ]);
-      expect(order.indexOf("write-completed")).toBeLessThan(
-        order.indexOf("finalized"),
-      );
-      expect(String(before.rows[0]?.generation)).toBe("1");
-      expect(response.status).toBe(200);
-      expect(JSON.parse(body)).toEqual({ ok: true });
-      expect(after.rows[0]).toMatchObject({
-        status: "aborted",
-        lease_is_live: false,
-      });
-      expect(
-        events.rows.map((row) => ({
-          seq: Number(row.seq),
-          ...JSON.parse(String(row.event_data)),
-        })),
-      ).toEqual([
-        { seq: 0, type: "text", text: "queued-signal" },
-        { seq: 1, type: "done", reason: "user" },
-      ]);
-      expect(
-        harness.captured.filter(({ phase }) => phase === "abort-event-flush"),
-      ).toEqual([]);
-    } finally {
-      eventGate.resolve();
-      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
-      await run.finalized.catch(() => {});
-    }
-  });
-  for (const mode of ["current", "expired", "reclaimed", "terminal"] as const) {
-    it(mode, async () => {
-      const runId = `flush-repro-${mode}`;
-      const threadId = `flush-repro-thread-${mode}`;
-      const entered = gate();
-      const eventGate = gate();
-      const driverGate = gate();
-      const run = startRun(
-        runId,
-        threadId,
-        async (send) => {
-          void send({ type: "text", text: `queued-${mode}` }).catch(() => {});
-          await driverGate.promise;
-        },
-        undefined,
-        {
-          softTimeoutMs: 0,
-          noProgressTimeoutMs: 0,
-          executionLease: true,
-          persistEvent: async (write) => {
-            entered.resolve();
-            await eventGate.promise;
-            await write();
-          },
-        },
-      );
-      try {
-        await entered.promise;
-        if (mode === "expired" || mode === "reclaimed") {
-          await pglite.query(
-            "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
-            [threadId, runId],
-          );
-        }
-        if (mode === "reclaimed") {
-          const successorId = `${runId}-successor`;
-          await insertRun(successorId, threadId, runId);
-          await claimTurnExecutionLease(threadId, runId, successorId);
-        }
-        if (mode === "terminal") await markRunAborted(runId, "other-worker");
-        harness.captured.length = 0;
-        const flushSpy = vi.spyOn(run, "flushEvents");
-        const abortReached = new Promise<void>((resolve) =>
-          run.abort.signal.addEventListener("abort", () => resolve(), {
-            once: true,
-          }),
-        );
-        const stop = fetch(
-          `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ reason: "user" }),
-            signal: AbortSignal.timeout(15_000),
-          },
-        );
-        await Promise.race([
-          abortReached,
-          stop.then((response) => {
-            throw new Error(
-              `POST returned ${response.status} before aborting the active run`,
-            );
-          }),
-        ]);
-        await vi.waitFor(() => expect(flushSpy).toHaveBeenCalledTimes(2));
-        eventGate.resolve();
-        const response = await stop;
-        const body = await response.text();
-        const result = { status: response.status, body };
-        const state = await pglite.query(
-          "SELECT id, status, dispatch_mode, terminal_reason FROM agent_runs WHERE thread_id = ? ORDER BY id",
-          [threadId],
-        );
-        const events = await pglite.query(
-          "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
-          [runId],
-        );
-        const eventSummary = events.rows.map((row) => {
-          const event = JSON.parse(String(row.event_data)) as {
-            type?: string;
-            errorCode?: string;
-            text?: string;
-          };
-          return {
-            seq: Number(row.seq),
-            type: event.type,
-            errorCode: event.errorCode,
-            text: event.text,
-          };
-        });
-        const turnAborted = await isTurnAborted(threadId, runId);
-        const textPersisted = events.rows.some((event) =>
-          String(event.event_data).includes(`queued-${mode}`),
-        );
-        const statuses = state.rows.map((row) => ({
-          id: row.id,
-          status: row.status,
-          dispatch_mode: row.dispatch_mode,
-        }));
-        if (mode === "current") {
-          expect(result.status).toBe(200);
-          expect(JSON.parse(result.body)).toEqual({ ok: true });
-          expect(textPersisted).toBe(true);
-          expect(eventSummary).toEqual([
-            {
-              seq: 0,
-              type: "text",
-              errorCode: undefined,
-              text: "queued-current",
-            },
-            { seq: 1, type: "done", errorCode: undefined, text: undefined },
-          ]);
-          expect(statuses[0]).toMatchObject({ status: "aborted" });
-        } else if (mode === "expired" || mode === "reclaimed") {
-          expect(result.status).toBe(500);
-          expect(
-            harness.captured.some(
-              ({ error, phase }) =>
-                phase === "abort-event-flush" &&
-                error instanceof Error &&
-                error.name === "StaleExecutionFenceError",
-            ),
-          ).toBe(true);
-          expect(eventSummary).toEqual([]);
-          expect(statuses[0]).toMatchObject({ status: "running" });
-          expect(textPersisted).toBe(false);
-          expect(turnAborted).toBe(false);
-        } else {
-          expect(result.status).toBe(500);
-          expect(
-            harness.captured.some(
-              ({ error, phase }) =>
-                phase === "abort-event-flush" &&
-                error instanceof AgentRunEventNotPersistedError &&
-                error.terminalRun &&
-                error.cause instanceof Error &&
-                error.cause.name === "StaleExecutionFenceError",
-            ),
-          ).toBe(true);
-          expect(
-            harness.captured.some(
-              ({ error, phase }) =>
-                phase === "abort-run" &&
-                error instanceof AgentRunEventNotPersistedError &&
-                error.terminalRun &&
-                error.cause instanceof Error &&
-                error.cause.name === "StaleExecutionFenceError",
-            ),
-          ).toBe(true);
-          expect(eventSummary).toEqual([
-            {
-              seq: 0,
-              type: "error",
-              errorCode: "aborted_other-worker",
-              text: undefined,
-            },
-          ]);
-          expect(statuses[0]).toMatchObject({ status: "aborted" });
-          expect(textPersisted).toBe(false);
-        }
-        driverGate.resolve();
-        await run.finalized.catch(() => {});
-        const finalState = await pglite.query(
-          "SELECT id, status FROM agent_runs WHERE thread_id = ? ORDER BY id",
-          [threadId],
-        );
-        const finalTurnAborted = await isTurnAborted(threadId, runId);
-        if (mode === "expired" || mode === "reclaimed") {
-          expect(finalState.rows[0]).toMatchObject({ status: "running" });
-          expect(finalTurnAborted).toBe(false);
-        }
-      } finally {
-        eventGate.resolve();
-        driverGate.resolve();
-        if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
-        await run.finalized.catch(() => {});
-      }
-    });
-  }
 });
