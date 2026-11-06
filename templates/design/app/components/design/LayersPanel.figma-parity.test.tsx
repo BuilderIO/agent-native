@@ -211,6 +211,70 @@ describe("LayersPanel rename with Tab", () => {
   });
 });
 
+describe("LayersPanel double-click editing", () => {
+  it("edits text content for text layers and renames other layers", async () => {
+    const onRename = vi.fn();
+    const onStartTextEdit = vi.fn((id: string) =>
+      id === "text" ? "Canvas text" : null,
+    );
+    const onTextEdit = vi.fn();
+    const { host } = await renderPanel({
+      layers: [
+        { id: "text", name: "Text layer", type: "text" },
+        { id: "box", name: "Box", type: "element" },
+      ],
+      onRename,
+      onStartTextEdit,
+      onTextEdit,
+    });
+
+    await act(async () =>
+      rowButton(host, "text").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    expect(onStartTextEdit).toHaveBeenCalledWith("text");
+    const textInput = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    expect(textInput?.value).toBe("Canvas text");
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (!textInput || !setValue) throw new Error("Text input unavailable");
+    await act(async () => {
+      setValue.call(textInput, "Changed text");
+      textInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(textInput, "Enter");
+    expect(onTextEdit).toHaveBeenCalledWith(
+      "text",
+      "Changed text",
+      "Canvas text",
+    );
+    expect(onRename).not.toHaveBeenCalled();
+
+    await act(async () =>
+      rowButton(host, "box").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    const renameInput = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    expect(renameInput?.value).toBe("Box");
+    if (!renameInput) throw new Error("Rename input unavailable");
+    await act(async () => {
+      setValue.call(renameInput, "Renamed box");
+      renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(renameInput, "Enter");
+    expect(onRename).toHaveBeenCalledWith("box", "Renamed box");
+    expect(onTextEdit).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("LayersPanel text edit rejection", () => {
   it("retains a refused draft so it can be copied or corrected", async () => {
     const onTextEdit = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
