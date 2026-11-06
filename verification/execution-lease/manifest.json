@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "e48e841ca056da32a12b3df9cbc4f49710680c07",
+    "syncCommit": "b74c99631b553e7e56a4c952f65e4f703d5eb58f",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -88,7 +88,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "renewExecutionLease",
-        "sha256": "39bedef4406f3db2201e2fbf13ba60af4817dd4b14d09deb0c1ec4f70e9a6b26"
+        "sha256": "94da594096af6c1277c8cca9cfd30aae72126b79c00152950518e0ab36da787a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
