@@ -7,6 +7,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
 
+import { parse } from "@babel/parser";
+import MagicString from "magic-string";
 import { loadEnv } from "vite";
 
 import {
@@ -4564,6 +4566,138 @@ const CF_MODULE_NODE_BUILTINS = [
   "vm",
 ];
 
+const CF_PROCESS_REQUIRE_MARKER = "/*__cf_process_require_shim__*/";
+
+function patchCloudflareProcessRequire(code: string): string {
+  if (
+    code.includes(CF_PROCESS_REQUIRE_MARKER) ||
+    !code.includes("createRequire") ||
+    !/["'](?:node:)?module["']/.test(code)
+  ) {
+    return code;
+  }
+
+  const ast = parse(code, {
+    sourceType: "unambiguous",
+    allowReturnOutsideFunction: true,
+    allowAwaitOutsideFunction: true,
+  });
+  const edited = new MagicString(code);
+  const usedNames = new Set<string>();
+  const nodes: unknown[] = [ast.program];
+  while (nodes.length) {
+    const node = nodes.pop();
+    if (!node || typeof node !== "object") continue;
+    if (Array.isArray(node)) {
+      for (const value of node) nodes.push(value);
+      continue;
+    }
+    if (
+      "type" in node &&
+      node.type === "Identifier" &&
+      "name" in node &&
+      typeof node.name === "string"
+    ) {
+      usedNames.add(node.name);
+    }
+    nodes.push(...Object.values(node));
+  }
+  const uniqueName = (base: string): string => {
+    let name = base;
+    let suffix = 0;
+    while (code.includes(name) || usedNames.has(name))
+      name = `${base}_${++suffix}`;
+    usedNames.add(name);
+    return name;
+  };
+  const processName = uniqueName("__cf_process");
+  const wrapRequire = uniqueName("__cf_wrap_require");
+  const wrapModule = uniqueName("__cf_wrap_module");
+  const bindings: string[] = [];
+
+  for (const statement of ast.program.body) {
+    if (
+      statement.type !== "ImportDeclaration" ||
+      (statement.source.value !== "node:module" &&
+        statement.source.value !== "module")
+    )
+      continue;
+    for (const specifier of statement.specifiers) {
+      if (
+        specifier.type === "ImportSpecifier" &&
+        (specifier.imported.type === "Identifier"
+          ? specifier.imported.name
+          : specifier.imported.value) !== "createRequire"
+      )
+        continue;
+      const original = uniqueName("__cf_module_import");
+      const local = specifier.local.name;
+      if (specifier.type === "ImportSpecifier") {
+        const { start, end } = specifier;
+        const importedStart = specifier.imported.start;
+        const importedEnd = specifier.imported.end;
+        if (
+          start == null ||
+          end == null ||
+          importedStart == null ||
+          importedEnd == null
+        ) {
+          throw new Error("Missing import source offsets in Cloudflare output");
+        }
+        edited.overwrite(
+          start,
+          end,
+          `${code.slice(importedStart, importedEnd)} as ${original}`,
+        );
+        bindings.push(`const ${local}=${wrapRequire}(${original});`);
+      } else {
+        const { start, end } = specifier.local;
+        if (start == null || end == null) {
+          throw new Error("Missing import source offsets in Cloudflare output");
+        }
+        edited.overwrite(start, end, original);
+        bindings.push(`const ${local}=${wrapModule}(${original});`);
+      }
+    }
+  }
+  if (!bindings.length) return code;
+
+  const cache = uniqueName("__cf_require_cache");
+  // Proxy the returned require rather than replacing it with a function: callers
+  // can still read, write, and invoke its own properties (including resolve).
+  const prefix = `${CF_PROCESS_REQUIRE_MARKER}
+import ${processName} from "node:process";
+const ${cache} = new globalThis.WeakMap();
+const ${wrapRequire} = (factory) => {
+  let wrapped = ${cache}.get(factory);
+  if (!wrapped) {
+    wrapped = new globalThis.Proxy(factory, {
+      apply(target, thisArg, args) {
+        return new globalThis.Proxy(globalThis.Reflect.apply(target, thisArg, args), {
+          apply(require, thisArg, args) {
+            return args[0] === "process" || args[0] === "node:process"
+              ? ${processName} : globalThis.Reflect.apply(require, thisArg, args);
+          }
+        });
+      }
+    });
+    ${cache}.set(factory, wrapped);
+  }
+  return wrapped;
+};
+const ${wrapModule} = (module) => new globalThis.Proxy(module, {
+  get(target, key, receiver) {
+    const value = globalThis.Reflect.get(target, key, receiver);
+    return key === "createRequire" && typeof value === "function" ? ${wrapRequire}(value) : value;
+  }
+});
+${bindings.join("\n")}
+`;
+  const insertion = ast.program.interpreter?.end ?? 0;
+  edited.appendLeft(insertion, insertion ? `\n${prefix}` : prefix);
+  return edited.toString();
+}
+
 /**
  * Post-build patches for `cloudflare_module` server output. Recurses (via
  * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
@@ -4584,6 +4718,12 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
         code = code.replace(re, `from"node:${mod}"`);
         changed = true;
       }
+    }
+
+    const processPatched = patchCloudflareProcessRequire(code);
+    if (processPatched !== code) {
+      code = processPatched;
+      changed = true;
     }
 
     if (code.includes("import.meta.url")) {
