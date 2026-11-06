@@ -185,6 +185,17 @@ describe("delete-slide-comment", () => {
     });
   });
 
+  it("does not ask when a commenter targets another person's comment that run would refuse", async () => {
+    mockResolveAccess.mockResolvedValueOnce({ role: "commenter" });
+
+    expect(
+      await deleteAction.needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "tool" },
+      ),
+    ).toBe(false);
+  });
+
   it("asks before an agent deletes another person's comment", async () => {
     const needsApproval = deleteAction.needsApproval;
     expect(

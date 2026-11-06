@@ -51,12 +51,14 @@ export default defineAction({
     // Without commenter access run() refuses the call, so there is nothing to approve.
     const access = await resolveAccess("deck", deckId);
     if (!access || ROLE_RANK[access.role] < ROLE_RANK.commenter) return false;
+    const viewer = getRequestUserEmail()?.trim().toLowerCase();
     const db = getDb();
     const targetRows = await db
       .select({
         id: schema.slideComments.id,
         slideId: schema.slideComments.slideId,
         threadId: schema.slideComments.threadId,
+        authorEmail: schema.slideComments.authorEmail,
       })
       .from(schema.slideComments)
       .where(
@@ -68,6 +70,12 @@ export default defineAction({
       .limit(1);
     const target = targetRows.at(0);
     if (!target) return false;
+    // run() requires editor access to delete someone else's comment, so a commenter has nothing to approve.
+    if (
+      isOtherPerson(target.authorEmail, viewer) &&
+      ROLE_RANK[access.role] < ROLE_RANK.editor
+    )
+      return false;
     const threadRows = await db
       .select({
         id: schema.slideComments.id,
@@ -85,7 +93,6 @@ export default defineAction({
         asc(schema.slideComments.createdAt),
         asc(schema.slideComments.id),
       );
-    const viewer = getRequestUserEmail()?.trim().toLowerCase();
     return removedRows(threadRows, target).some((row) =>
       isOtherPerson(row.authorEmail, viewer),
     );

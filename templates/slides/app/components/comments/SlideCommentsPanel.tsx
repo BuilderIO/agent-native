@@ -9,6 +9,7 @@ import {
   isComposingKey,
   isCommentSendKey,
 } from "@agent-native/toolkit/app/review";
+import { isAgentAuthoredComment } from "@shared/comment-author";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -777,7 +778,10 @@ export function SlideCommentsPanel({
     if (audience === "for-you") {
       // Agent comments carry the viewer's email, so they must be excluded explicitly.
       const isViewerComment = (comment: (typeof thread.comments)[number]) =>
-        comment.author_kind !== "agent" &&
+        !isAgentAuthoredComment({
+          authorKind: comment.author_kind,
+          authorName: comment.author_name,
+        }) &&
         comment.author_email.trim().toLowerCase() ===
           normalizedCurrentUserEmail;
       const hasViewerComment = thread.comments.some(isViewerComment);

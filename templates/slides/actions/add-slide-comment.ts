@@ -9,7 +9,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
-import { commentAuthorKind } from "../shared/comment-author.js";
+import {
+  AGENT_AUTHOR_NAME,
+  commentAuthorKind,
+} from "../shared/comment-author.js";
 import {
   serializeSlideCommentAnchor,
   slideCommentAnchorSchema,
@@ -105,7 +108,7 @@ export default defineAction({
     const authorKind = commentAuthorKind(ctx?.caller);
     const authorName =
       authorKind === "agent"
-        ? "AI Agent"
+        ? AGENT_AUTHOR_NAME
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
