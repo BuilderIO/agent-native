@@ -64,6 +64,15 @@ export function classifyWriteFailure(
 export function writeFailureFromResponse(
   response: Pick<Response, "status">,
 ): Error & { status: number } {
+  // A raw fetch never goes through actionFetch, which is where a 401 normally
+  // rechecks the session. The classifier skips the 401 toast on that promise.
+  // Loaded on demand: use-session touches window when it loads, and this module is imported by pages that never make a raw write.
+  if (response.status === 401) {
+    void import("./use-session.js").then(
+      ({ recheckSessionAfterUnauthorized }) =>
+        recheckSessionAfterUnauthorized(),
+    );
+  }
   return Object.assign(new Error(`HTTP ${response.status}`), {
     status: response.status,
   });

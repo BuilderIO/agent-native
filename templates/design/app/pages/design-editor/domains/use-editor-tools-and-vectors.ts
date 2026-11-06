@@ -3,7 +3,6 @@ import {
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
 import type { ReviewComment } from "@agent-native/core/review";
-import { useT } from "@agent-native/core/client/i18n";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   buildReviewThreads,
@@ -1674,7 +1673,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  const t = useT();
   const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   useEffect(
     () =>

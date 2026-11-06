@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type {
+  MutateOptions,
   Query,
   QueryClient,
   UseMutateAsyncFunction,
@@ -1844,10 +1845,23 @@ export function useActionMutation<
 
   const mutate = useCallback<UseMutateFunction<D, Error, V>>(
     (variables, mutateOptions) => {
-      attemptAsync(variables, mutateOptions).catch((error: unknown) => {
+      // TanStack runs a per-call onError only for the latest mutate call, so a
+      // superseded call would end silent. Record whether this call's ran.
+      let ranCallOnError = false;
+      const callOnError = mutateOptions?.onError;
+      const callOptions: MutateOptions<D, Error, V> | undefined = callOnError
+        ? {
+            ...mutateOptions,
+            onError: (...args) => {
+              ranCallOnError = true;
+              return callOnError(...args);
+            },
+          }
+        : mutateOptions;
+      attemptAsync(variables, callOptions).catch((error: unknown) => {
         const { errorNotification, errorLabel, hookHandled } =
           reporting.current;
-        const handled = hookHandled || mutateOptions?.onError !== undefined;
+        const handled = hookHandled || ranCallOnError;
         if (shouldReportWriteFailure(errorNotification, handled)) {
           reportWriteFailure(error, { label: errorLabel });
         }

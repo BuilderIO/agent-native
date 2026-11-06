@@ -515,13 +515,13 @@ function ProvidersInner({
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
-        {toaster !== null ? <WriteFailureToaster /> : null}
+        <WriteFailureToaster />
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
-        {toaster !== null ? <WriteFailureToaster /> : null}
+        <WriteFailureToaster />
       </AgentNativeI18nProvider>
     );
 

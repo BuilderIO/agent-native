@@ -2,7 +2,12 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("./use-session.js", () => ({
+  recheckSessionAfterUnauthorized: vi.fn(),
+}));
+
 import { ActionCircuitOpenError } from "./action-failure-circuit.js";
+import { recheckSessionAfterUnauthorized } from "./use-session.js";
 import {
   classifyWriteFailure,
   reportWriteFailure,
@@ -179,5 +184,23 @@ describe("writeFailureFromResponse", () => {
       skip: false,
       kind: "server",
     });
+  });
+});
+
+describe("writeFailureFromResponse session recheck", () => {
+  it("rechecks the session on a raw 401, which never reaches actionFetch", async () => {
+    vi.mocked(recheckSessionAfterUnauthorized).mockClear();
+    writeFailureFromResponse({ status: 401 });
+    await vi.waitFor(() =>
+      expect(recheckSessionAfterUnauthorized).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("does not recheck for other statuses", async () => {
+    vi.mocked(recheckSessionAfterUnauthorized).mockClear();
+    writeFailureFromResponse({ status: 403 });
+    writeFailureFromResponse({ status: 500 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(recheckSessionAfterUnauthorized).not.toHaveBeenCalled();
   });
 });

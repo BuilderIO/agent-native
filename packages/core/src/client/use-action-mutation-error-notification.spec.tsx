@@ -127,6 +127,37 @@ describe("useActionMutation errorNotification", () => {
     expect(reports).toHaveLength(0);
   });
 
+  it("reports a superseded call whose per-call onError never ran", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return new Response(
+            JSON.stringify({ error: "Internal server error" }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    const view = await mount();
+    const onError = vi.fn();
+
+    await act(async () => {
+      view.mutation().mutate({ n: 1 }, { onError });
+      view.mutation().mutate({ n: 2 });
+    });
+    await settle();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(reports).toHaveLength(1);
+  });
+
   it("reports exactly once in shared mode beside a hook onError", async () => {
     stubFetch(true);
     const onError = vi.fn();

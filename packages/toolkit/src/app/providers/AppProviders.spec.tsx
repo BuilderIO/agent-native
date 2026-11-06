@@ -343,7 +343,7 @@ describe("AppProviders session gate", () => {
     },
   );
 
-  it("mounts no write-failure toaster when the app opts out of toasts", () => {
+  it("still reports a write failure when the app renders its own toaster", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
     const error = vi.spyOn(toast, "error").mockImplementation(() => "");
 
@@ -361,7 +361,7 @@ describe("AppProviders session gate", () => {
     });
     act(() => reportWriteFailure(new Error("boom")));
 
-    expect(error).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
     error.mockRestore();
   });
 
