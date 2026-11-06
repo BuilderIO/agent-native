@@ -1,5 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+// oracle-change: rule 12 now tells the agent to search tool-search for the task in plain words
 exports[`assembled prompt snapshots > compact prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
@@ -49,6 +50,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: rule 12 now tells the agent to search tool-search for the task in plain words
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
