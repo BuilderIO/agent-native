@@ -141,6 +141,9 @@ export async function foldReapedRunIntoThread(
       run.turnId,
       thread.threadData,
     );
+    // A thread with no messages has no tail for the retry check below to wait
+    // on, so retrying would defer forever and fail every sweep.
+    if (repo.messages.length === 0) return "superseded";
     const folded = foldAssistantTurnWithSteers(repo, assistant, steered, {
       runId,
       turnId: run.turnId,
