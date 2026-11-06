@@ -3461,6 +3461,62 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("immediately cancels after the browser OAuth popup closes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const fetchMock = vi.mocked(fetch);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(openSpy).toHaveBeenCalled();
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+
+    expect.soft(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).not.toContain(
+      "Builder.io setup didn't finish",
+    );
+
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(connectedBuilderStatus),
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+  });
+
   it("keeps a real success during the explicit cancel grace window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
