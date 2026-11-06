@@ -17,6 +17,7 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -54,10 +55,6 @@ import {
 } from "@/lib/clipboard-content-lineage";
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
-import {
-  reportDesignWriteFailure,
-  SURFACE_MUTATION_ERROR,
-} from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -1457,7 +1454,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
-    { meta: SURFACE_MUTATION_ERROR },
+    { errorNotification: "shared" },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1484,6 +1481,7 @@ export function useEditorGenerationAndAccess({
 
   const migrateBoardObjectsMutation = useActionMutation(
     "migrate-board-objects-to-file",
+    { errorNotification: "caller" },
   );
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
@@ -1512,7 +1510,7 @@ export function useEditorGenerationAndAccess({
       );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
         onError: (error) => {
-          reportDesignWriteFailure(error);
+          reportWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

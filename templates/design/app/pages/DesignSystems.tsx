@@ -84,7 +84,6 @@ import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
@@ -183,7 +182,7 @@ export default function DesignSystems() {
   }>("list-design-systems");
 
   const setDefaultMutation = useActionMutation("set-default-design-system", {
-    meta: SURFACE_MUTATION_ERROR,
+    errorNotification: "shared",
   });
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");

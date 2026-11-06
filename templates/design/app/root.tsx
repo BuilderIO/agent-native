@@ -60,7 +60,6 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { BuilderSignupActivation } from "@/components/BuilderSignupActivation";
-import { DesignWriteFailureToasts } from "@/components/design/DesignWriteFailureToasts";
 import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
@@ -465,7 +464,6 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <DesignWriteFailureToasts />
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />

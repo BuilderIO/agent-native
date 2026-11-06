@@ -1034,7 +1034,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
-    writeFailed: "تعذّر حفظ هذا التغيير.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",

@@ -3,6 +3,7 @@ import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 import { SAVE_CONFLICT_MESSAGES } from "./save-conflict-messages.js";
+import { WRITE_FAILURE_MESSAGES } from "./write-failure-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
@@ -52,6 +53,7 @@ const messages = {
   consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
   saveConflict: SAVE_CONFLICT_MESSAGES["en-US"],
+  writeFailure: WRITE_FAILURE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
