@@ -12804,7 +12804,12 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url) throw new DurableAttachmentReferenceRequiredError();
+    if (!part.url) {
+      // A failed upload is transient (null -> retryable); an id with no bytes
+      // to upload can never become a reference.
+      if (inlineData) return null;
+      throw new DurableAttachmentReferenceRequiredError();
+    }
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
@@ -14474,7 +14479,7 @@ export function createProductionAgentHandler(
         if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
           throw error;
         }
-        setResponseStatus(event, 422);
+        setResponseStatus(event, 503);
         return {
           error: error.message,
           code: error.code,

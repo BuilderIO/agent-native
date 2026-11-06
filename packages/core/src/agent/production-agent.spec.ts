@@ -7059,7 +7059,7 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
 
-      expect(event.res.status).toBe(422);
+      expect(event.res.status).toBe(503);
       expect(result).toMatchObject({
         code: "attachment_storage_required",
         retryable: false,
@@ -7067,6 +7067,97 @@ describe("createProductionAgentHandler", () => {
       expect(append).not.toHaveBeenCalled();
     } finally {
       preUpload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("keeps a queued file with an id retryable when its upload fails", async () => {
+    const threadId = "thread-attachment-upload-failed";
+    const messageId = "message-attachment-upload-failed";
+    const attachment = {
+      type: "file",
+      name: "notes.txt",
+      contentType: "text/plain",
+      text: "Remember the agreed deadline",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Use this attachment later",
+      attachments: [
+        {
+          type: "file" as const,
+          name: attachment.name,
+          mediaType: attachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue(null as never);
+    const append = vi.spyOn(chatThreadStore, "mutateThreadQueuedMessages");
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-attachment-upload-failed",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [attachment],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(event.res.status).toBe(503);
+      expect(result).toMatchObject({
+        code: "queued_attachment_reference_unavailable",
+        retryable: true,
+      });
+      expect(append).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
       append.mockRestore();
       readReceipt.mockRestore();
       resolveThreadAccess.mockRestore();
