@@ -2042,6 +2042,7 @@ describe("Neon foreground statement budgets", () => {
       "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
       "SET LOCAL statement_timeout = 900",
       "SELECT 1",
+      "SET LOCAL statement_timeout TO DEFAULT",
       "COMMIT",
     ]);
     expect(client.release).toHaveBeenCalledWith(undefined);
@@ -2424,7 +2425,7 @@ describe("db/client postgres-js request pool recovery", () => {
     vi.resetModules();
   });
 
-  it("bounds explicitly budgeted transaction statements on the server", async () => {
+  it("bounds a budgeted transaction statement on the server, and only that statement", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "");
@@ -2466,6 +2467,7 @@ describe("db/client postgres-js request pool recovery", () => {
     expect(statements).toEqual([
       "SET LOCAL statement_timeout = 3750",
       "UPDATE agent_execution_leases SET updated_at = now()",
+      "SET LOCAL statement_timeout TO DEFAULT",
       "SELECT 1",
     ]);
   });
