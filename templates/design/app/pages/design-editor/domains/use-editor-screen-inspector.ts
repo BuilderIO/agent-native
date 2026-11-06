@@ -99,6 +99,8 @@ type UpdateScreenSourceActionResult = {
   updatedAt: string | null;
 };
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export function useEditorScreenInspector({
   editorCore,
   editorHistory,
@@ -323,9 +325,11 @@ export function useEditorScreenInspector({
               );
             }
             queryClient.setQueryData(
-              ["action", "get-design", { id }],
-              (old: any) => {
+              designMetadataQueryKey(id),
+              (old: Record<string, unknown> | undefined) => {
                 if (!old || typeof old !== "object") return old;
+                if (old.data != null && typeof old.data !== "string")
+                  return old;
                 const currentData = parseDesignDataJson(old.data);
                 const nextData = {
                   ...currentData,
@@ -346,7 +350,6 @@ export function useEditorScreenInspector({
                         file.id === screenId
                           ? {
                               ...file,
-                              content: result.content,
                               ...(result.updatedAt
                                 ? { updatedAt: result.updatedAt }
                                 : {}),
@@ -713,10 +716,13 @@ export function useEditorScreenInspector({
         operations,
       );
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, data: JSON.stringify(nextData) };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, data: JSON.stringify(nextData) };
+        },
+      );
       enqueueFrameGeometryDataSave(operations);
     },
     [enqueueFrameGeometryDataSave, id, queryClient],
@@ -878,8 +884,8 @@ export function useEditorScreenInspector({
         const nextData = applyDesignDataOperations(designData, operations);
         designDataJsonRef.current = nextData;
         queryClient.setQueryData(
-          ["action", "get-design", { id }],
-          (old: any) => {
+          designMetadataQueryKey(id),
+          (old: Record<string, unknown> | undefined) => {
             if (!old || typeof old !== "object") return old;
             return { ...old, data: JSON.stringify(nextData) };
           },

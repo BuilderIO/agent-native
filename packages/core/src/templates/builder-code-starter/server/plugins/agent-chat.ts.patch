@@ -1,12 +1,16 @@
 ===================================================================
 --- a/server/plugins/agent-chat.ts
 +++ b/server/plugins/agent-chat.ts
-@@ -4,25 +4,21 @@
+@@ -4,21 +4,14 @@
    loadActionsFromStaticRegistry,
  } from "@agent-native/core/server";
 
  import actionsRegistry from "../../.generated/actions-registry.js";
 +import { appOperationFinalResponseGuard } from "../agent/app-operation-guard.js";
+ import {
+   searchConversationReferences,
+   validateConversationReferences,
+ } from "../lib/composer-references.js";
 
 -const INITIAL_TOOL_NAMES = [
 -  "view-screen",
@@ -18,6 +22,11 @@
 -
  export default createAgentChatPlugin({
    appId: "chat",
+   mentionProviders: {
+     chats: {
+@@ -30,12 +23,15 @@
+     await validateConversationReferences(references);
+   },
    actions: loadActionsFromStaticRegistry(actionsRegistry),
    mcp: { connectorCatalog: [], appApprovalPage: true },
 -  initialToolNames: INITIAL_TOOL_NAMES,

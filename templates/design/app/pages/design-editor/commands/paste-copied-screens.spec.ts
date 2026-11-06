@@ -282,3 +282,23 @@ describe("pasting copied screens with no explicit drop point", () => {
     expect(saved[0]!["copy-1"]).toMatchObject({ x: 32, y: 32 });
   });
 });
+
+describe("pasting a copied email screen", () => {
+  it("recreates it as an email frame", () => {
+    const { args } = harness();
+    const mutate = vi.fn();
+    args.createFileMutation = {
+      mutate,
+    } as unknown as PasteCopiedScreensArgs["createFileMutation"];
+
+    runPasteCopiedScreens(args, [
+      { ...screen(undefined, "email.html"), frameType: "hubspot-email" },
+      screen(undefined, "web.html"),
+    ]);
+
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      frameType: "hubspot-email",
+    });
+    expect(mutate.mock.calls[1]?.[0]).not.toHaveProperty("frameType");
+  });
+});

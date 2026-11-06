@@ -779,7 +779,7 @@ async function uploadImage(
     .getByRole("button", { name: "Add context", exact: true })
     .click();
   await page
-    .getByRole("menuitem", { name: "Upload File", exact: true })
+    .getByRole("menuitem", { name: "Files and images", exact: true })
     .click();
   const imageInput = sidebarComposer.locator('input[type="file"][multiple]');
   await expect(imageInput).toHaveCount(1);
@@ -2110,7 +2110,7 @@ test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async
     .getByRole("button", { name: "Add context", exact: true })
     .click();
   await page
-    .getByRole("menuitem", { name: "Upload File", exact: true })
+    .getByRole("menuitem", { name: "Files and images", exact: true })
     .click();
   await imageInput.setInputFiles({
     name: "rotated-reference.jpg",

@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Référencer un enregistrement…",
+    group: "Enregistrements",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
@@ -723,6 +731,8 @@ const messages = {
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
     noTranscriptCaptured: "Aucune transcription n’a été capturée.",
+    partialTranscript:
+      "Transcription partielle : l’enregistrement a été coupé, il peut donc manquer des passages.",
     backupFailed:
       "Aucune parole n’a été capturée localement et la transcription de sauvegarde n’a pas été terminée. Réessayez ou vérifiez les autorisations du microphone et de la parole.",
     backupNotSetup:
