@@ -461,7 +461,11 @@ export function EditorLayout({
     return [];
   }, [playerData?.transcript?.segments]);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // The <video> as state rather than a ref: it mounts after the loading
+  // skeleton, and the effects that listen to it have to run again when it does.
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(
+    null,
+  );
   const [playing, setPlaying] = useState(false);
   const [playheadMs, setPlayheadMs] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(() =>
@@ -669,44 +673,35 @@ export function EditorLayout({
   }, [editorReady, scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
   useEffect(() => {
-    const v = videoRef.current;
+    const v = videoElement;
     if (!v) return;
     if (playing) {
       v.play().catch(() => setPlaying(false));
     } else {
       v.pause();
     }
-  }, [playing]);
+  }, [playing, videoElement]);
 
   useEffect(() => {
     if (!recording?.id) return;
-    const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
-    setPlaybackSpeed(next);
-    if (videoRef.current) {
-      videoRef.current.defaultPlaybackRate = next;
-      videoRef.current.playbackRate = next;
-    }
+    setPlaybackSpeed(readPlaybackSpeedPreference(defaultPreviewSpeed));
   }, [defaultPreviewSpeed, recording?.id]);
 
   useEffect(() => {
-    const v = videoRef.current;
+    const v = videoElement;
     if (!v) return;
     v.defaultPlaybackRate = playbackSpeed;
     v.playbackRate = playbackSpeed;
-  }, [playbackSpeed, videoUrl]);
+  }, [playbackSpeed, videoElement, editorVideoUrl]);
 
   const handlePlaybackSpeedChange = useCallback((rate: number) => {
     const next = parsePlaybackSpeed(rate) ?? 1.2;
     setPlaybackSpeed(next);
     savePlaybackSpeedPreference(next);
-    if (videoRef.current) {
-      videoRef.current.defaultPlaybackRate = next;
-      videoRef.current.playbackRate = next;
-    }
   }, []);
 
   useEffect(() => {
-    const v = videoRef.current;
+    const v = videoElement;
     if (!v) return;
     const onTime = () => {
       const rawMs = v.currentTime * 1000;
@@ -716,7 +711,7 @@ export function EditorLayout({
     };
     v.addEventListener("timeupdate", onTime);
     return () => v.removeEventListener("timeupdate", onTime);
-  }, [durationMs, excludedRanges, videoUrl]);
+  }, [durationMs, excludedRanges, videoElement]);
 
   useEffect(() => {
     void writeAppStateClient("editor-draft", {
@@ -1405,11 +1400,10 @@ export function EditorLayout({
   const seek = useCallback(
     (ms: number) => {
       const visibleMs = skipExcludedRange(ms, excludedRanges, durationMs);
-      const v = videoRef.current;
-      if (v) v.currentTime = visibleMs / 1000;
+      if (videoElement) videoElement.currentTime = visibleMs / 1000;
       setPlayheadMs(visibleMs);
     },
-    [durationMs, excludedRanges],
+    [durationMs, excludedRanges, videoElement],
   );
 
   useEffect(() => {
@@ -1622,7 +1616,7 @@ export function EditorLayout({
             {videoUrl ? (
               <div className="relative h-full w-full">
                 <video
-                  ref={videoRef}
+                  ref={setVideoElement}
                   src={editorVideoUrl ?? undefined}
                   className="h-full w-full rounded object-contain shadow"
                   onPlay={() => setPlaying(true)}
