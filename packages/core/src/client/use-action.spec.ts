@@ -1705,23 +1705,16 @@ describe("the UI capability on writes from the signed-in app", () => {
     ["ok", 200],
     ["error", 500],
   ])(
-    "drains the mint response body without a network abort on an %s response",
+    "reads the mint response body to the end on an %s response",
     async (_name, status) => {
       signIn();
-      const cancel = vi.fn(async () => {});
-      const body = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode("{}"));
-          controller.close();
-        },
-        cancel,
-      });
-      const mintResponse = new Response(body, { status });
+      const mintResponse = new Response("{}", { status });
+      const cancel = vi.spyOn(ReadableStream.prototype, "cancel");
       routeFetch(() => mintResponse);
 
       await callAction("delete-file", { id: "file-1" }).catch(() => {});
 
-      await vi.waitFor(() => expect(mintResponse.bodyUsed).toBe(true));
+      expect(mintResponse.bodyUsed).toBe(true);
       expect(cancel).not.toHaveBeenCalled();
     },
   );
