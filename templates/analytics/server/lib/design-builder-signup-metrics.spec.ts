@@ -94,6 +94,72 @@ afterEach(async () => {
 });
 
 describe("Design Builder signup experiment metrics", () => {
+  it("keeps person-linked milestones in the exposure environment", async () => {
+    await event("auth.builder_signup_experiment_exposed", 72, "prod-person");
+    await event(
+      "builder_signup_experiment_enrolled",
+      71,
+      "prod-person",
+      "automatic",
+      "shared-person",
+    );
+    for (const hostname of ["beta.design.agent-native.com", ""]) {
+      await event(
+        "design_prompt_submitted",
+        70,
+        undefined,
+        "automatic",
+        "shared-person",
+        {},
+        hostname,
+      );
+      await event(
+        "design_ready_viewed",
+        69,
+        undefined,
+        "automatic",
+        "shared-person",
+        {},
+        hostname,
+      );
+      await event(
+        "pageview",
+        40,
+        undefined,
+        "automatic",
+        "shared-person",
+        {},
+        hostname,
+      );
+    }
+    const result = await db.query(sql(KEYS[0]));
+    const row = result.rows.find(
+      (value: Record<string, unknown>) =>
+        value.environment === "production" && value.variant === "automatic",
+    );
+    expect(row).toMatchObject({
+      exposed_visitors: 1,
+      signed_up_24h: 1,
+      first_prompt_24h: 0,
+      first_design_24h: 0,
+      d1_return_rate: 0,
+    });
+    await event(
+      "design_ready_viewed",
+      68,
+      undefined,
+      "automatic",
+      "shared-person",
+    );
+    const positive = await db.query(sql(KEYS[0]));
+    expect(
+      positive.rows.find(
+        (value: Record<string, unknown>) =>
+          value.environment === "production" && value.variant === "automatic",
+      ).first_design_24h,
+    ).toBe(1);
+  });
+
   it("surfaces ambiguous historical outcome links using the enrollment eligibility rules", async () => {
     await event(
       "auth.builder_signup_experiment_exposed",

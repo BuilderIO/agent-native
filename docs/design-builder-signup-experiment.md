@@ -117,3 +117,6 @@ window never enters a mature denominator. Assignments linked to multiple people
 remain in the exposure denominator and are reported explicitly in tracking health;
 they are excluded from signup and person-linked milestones rather than choosing an
 arbitrary account.
+
+Person-linked milestones must match the exposure environment. Unknown hosts only
+join unknown cohorts; they never supply activity to production or beta cohorts.

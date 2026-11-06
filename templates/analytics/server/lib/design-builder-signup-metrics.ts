@@ -16,7 +16,10 @@ export const DESIGN_BUILDER_SIGNUP_EVENT_SOURCE = `WITH builder_signup_source AS
 
 export function designBuilderSignupQueries(scopedEventsCte: string) {
   const cohort = `${scopedEventsCte}, design_events AS (
-  SELECT * FROM onboarding_events
+  SELECT *, CASE WHEN lower(COALESCE(hostname, '')) LIKE 'beta.%' OR properties::jsonb ->> 'deployment_environment' = 'beta' THEN 'beta'
+      WHEN lower(COALESCE(hostname, '')) = 'design.agent-native.com' OR properties::jsonb ->> 'deployment_environment' = 'production' THEN 'production'
+      ELSE 'unknown' END AS event_environment
+  FROM onboarding_events
   WHERE lower(COALESCE(NULLIF(app, ''), NULLIF(template, ''), properties::jsonb ->> 'app', '')) = 'design'
 ), experiment_events AS (
   SELECT *, NULLIF(properties::jsonb ->> 'assignment_id', '') AS assignment_id,
@@ -27,9 +30,7 @@ export function designBuilderSignupQueries(scopedEventsCte: string) {
     AND properties::jsonb ->> 'experiment_variant' IN ('control', 'automatic')
 ), ranked_exposures AS (
   SELECT assignment_id, variant, event_at AS exposed_at,
-    CASE WHEN lower(COALESCE(hostname, '')) LIKE 'beta.%' OR properties::jsonb ->> 'deployment_environment' = 'beta' THEN 'beta'
-      WHEN lower(COALESCE(hostname, '')) = 'design.agent-native.com' OR properties::jsonb ->> 'deployment_environment' = 'production' THEN 'production'
-      ELSE 'unknown' END AS environment,
+    event_environment AS environment,
     ROW_NUMBER() OVER (PARTITION BY assignment_id ORDER BY event_at, id) AS position
   FROM experiment_events
   WHERE event_name = 'auth.builder_signup_experiment_exposed' AND assignment_id IS NOT NULL
@@ -73,6 +74,7 @@ export function designBuilderSignupQueries(scopedEventsCte: string) {
     MAX(CASE WHEN e.timestamp::timestamptz >= x.exposed_at::timestamptz + INTERVAL '7 days' AND e.timestamp::timestamptz < x.exposed_at::timestamptz + INTERVAL '8 days'
       AND e.event_name IN ('pageview', 'app_entered', 'onboarding_app_entered', 'design_prompt_submitted', 'design_ready_viewed') THEN 1 ELSE 0 END) AS d7_return
   FROM linked_exposures x LEFT JOIN design_events e ON e.funnel_user_key = x.person_key
+    AND e.event_environment = x.environment
     AND e.timestamp::timestamptz >= x.enrolled_at AND e.timestamp::timestamptz < x.exposed_at::timestamptz + INTERVAL '8 days'
   GROUP BY x.assignment_id, x.variant, x.exposed_at, x.enrolled_at, x.environment
 ), automatic_connections AS (
