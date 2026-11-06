@@ -1,5 +1,19 @@
 # @agent-native/scheduling
 
+## 0.2.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 78305f8: Stop offering times when a selected calendar can't be checked. If a calendar's busy lookup fails, its provider isn't registered, or its credential needs reconnecting, availability and booking now fail with `CalendarAvailabilityUnavailableError` ("Couldn't check <calendar>") instead of treating that calendar as free. Google Calendar busy lookups also fail when Google reports an error for a calendar, and Outlook busy times are now read from each selected calendar instead of a lookup that never returned them.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
 ## 0.2.52
 
 ### Patch Changes
@@ -1243,12 +1257,5 @@
 - 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
 - Updated dependencies [8453025]
   - @agent-native/toolkit@0.8.0
-
-## 0.1.29
-
-### Patch Changes
-
-- Updated dependencies [e53a34e]
-  - @agent-native/toolkit@0.7.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
