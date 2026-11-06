@@ -909,6 +909,7 @@ export async function sendAgentHarnessFollowUp(input: {
     const hasFollowUpProviderDispatchStarted = (): boolean =>
       providerDispatchStarted;
     let activeRun: StartedRun | undefined;
+    let finalizedRejected = false;
     try {
       const dispatchIntent = await markAgentHarnessSessionFollowUpDispatched(
         session.id,
@@ -1245,7 +1246,12 @@ export async function sendAgentHarnessFollowUp(input: {
             dispatch.session.generation,
           );
           if (isAbortRequested(followUpAbort.signal)) abortActiveRun();
-          await activeRun.finalized;
+          try {
+            await activeRun.finalized;
+          } catch (error) {
+            finalizedRejected = true;
+            throw error;
+          }
         } finally {
           followUpAbort.signal.removeEventListener("abort", abortActiveRun);
         }
@@ -1469,14 +1475,21 @@ export async function sendAgentHarnessFollowUp(input: {
       if (isAbortRequested(followUpAbort.signal)) {
         const reason = followUpAbort.signal.reason;
         if (isAgentHarnessSessionConflictError(reason)) {
-          const latest = await getAgentHarnessSessionByRunId(input.runId);
           const cleanupErrors: unknown[] = [];
+          let latest: StoredAgentHarnessSession | null | undefined;
+          try {
+            latest = await getAgentHarnessSessionByRunId(input.runId);
+          } catch (lookupError) {
+            if (!finalizedRejected) throw lookupError;
+            cleanupErrors.push(lookupError);
+          }
           if (
-            !latest ||
-            (latest.status === "idle" && latest.followUpClaimId == null) ||
-            latest.status === "stopped" ||
-            latest.status === "errored" ||
-            latest.status === "destroyed"
+            latest !== undefined &&
+            (!latest ||
+              (latest.status === "idle" && latest.followUpClaimId == null) ||
+              latest.status === "stopped" ||
+              latest.status === "errored" ||
+              latest.status === "destroyed")
           ) {
             try {
               await stopAcquiredHarnessSession(
@@ -1496,10 +1509,11 @@ export async function sendAgentHarnessFollowUp(input: {
           }
           if (cleanupErrors.length > 0) {
             throw new AggregateError(
-              [reason, ...cleanupErrors],
+              [reason, ...(finalizedRejected ? [error] : []), ...cleanupErrors],
               "Harness follow-up was interrupted and stream cleanup was incomplete.",
             );
           }
+          if (finalizedRejected) throw error;
           return failure(
             input.runId,
             latest ?? session,
