@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.224.0",
+  "version": "0.225.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -172,6 +172,7 @@
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
     "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
+    "./client/auth/builder-signup": "./dist/client/auth/builder-signup.js",
     "./client/auth/auth-page-helpers": "./dist/client/auth/auth-page-helpers.js",
     "./client/assistant-chat-history-version": "./dist/client/chat/assistant-chat-history-version.js",
     "./client/agentkit-chat/integrity": "./dist/client/agentkit-chat/integrity.js",
@@ -264,6 +265,9 @@
       "default": "./dist/guards/index.js"
     },
     "./application-state": "./dist/application-state/index.js",
+    "./client/experience-profiles": "./dist/client/experience-profiles.js",
+    "./experience-profiles": "./dist/experience-profiles/index.js",
+    "./experience-profiles/server": "./dist/experience-profiles/server.js",
     "./settings": "./dist/settings/index.js",
     "./user-profile": "./dist/user-profile/index.js",
     "./user-profile/server": "./dist/user-profile/store.js",
@@ -621,6 +625,7 @@
     "./integrations/channel-settings": "./dist/integrations/channel-settings.js",
     "./jobs/actions/get-scheduled-trigger-status": "./dist/jobs/actions/get-scheduled-trigger-status.js",
     "./labs/core-labs": "./dist/labs/core-labs.js",
+    "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",

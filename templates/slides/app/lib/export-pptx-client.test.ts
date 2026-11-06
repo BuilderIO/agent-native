@@ -203,6 +203,36 @@ describe("exportDeckAsPptx", () => {
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
   });
 
+  it("captures from the export stage once its diagrams finish rendering", async () => {
+    document.body.innerHTML = `
+      <div data-slide-canvas="slide-1" style="width: 1200px; height: 675px;"><h1>Editor canvas</h1></div>
+      <div data-pdf-export-stage="true">
+        <div data-slide-canvas="slide-1" style="width: 960px; height: 540px;"><div data-mermaid-index="0"></div></div>
+      </div>`;
+    const editorCanvas = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="slide-1"]',
+    );
+    const stageCanvas = document.querySelector<HTMLElement>(
+      '[data-pdf-export-stage] [data-slide-canvas="slide-1"]',
+    );
+    if (!editorCanvas || !stageCanvas) throw new Error("test canvases missing");
+    Object.defineProperty(editorCanvas, "offsetWidth", { value: 1200 });
+    Object.defineProperty(stageCanvas, "offsetWidth", { value: 960 });
+    const diagram = stageCanvas.querySelector<HTMLElement>(
+      "[data-mermaid-index]",
+    );
+    if (!diagram) throw new Error("test diagram missing");
+    setTimeout(() => {
+      diagram.innerHTML = "<p>Diagram ready</p>";
+      diagram.dataset.mermaidState = "ready";
+    }, 50);
+
+    await exportDeckAsPptx("Diagram Deck", [{ id: "slide-1" }], "16:9");
+
+    const [[target]] = mocks.exportToPptx.mock.calls[0] as [[HTMLElement]];
+    expect(target.textContent).toContain("Diagram ready");
+  });
+
   it("replaces inline SVGs before passing DOM to the native exporter", async () => {
     setRenderedSlide(
       '<svg width="120" height="80" viewBox="0 0 120 80" aria-label="chart"><rect width="120" height="80" fill="#2563eb" /></svg>',

@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Aufnahme referenzieren…",
+    group: "Aufnahmen",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   meetingBrowserConfirmation:
     "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
@@ -726,6 +734,8 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    partialTranscript:
+      "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:
       "Es wurde keine Rede lokal erfasst und die Sicherungstranskription wurde nicht abgeschlossen. Versuchen Sie es noch einmal oder überprüfen Sie die Mikrofon- und Sprachberechtigungen.",
     backupNotSetup:

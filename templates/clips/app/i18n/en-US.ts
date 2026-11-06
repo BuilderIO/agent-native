@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
@@ -628,6 +636,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    partialTranscript:
+      "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
       "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.",
     backupNotSetup:

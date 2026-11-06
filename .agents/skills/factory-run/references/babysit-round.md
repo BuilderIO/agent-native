@@ -64,11 +64,25 @@ sync main" without running the command and quoting its error.
 ## Fix-proof in a worktree
 
 The factory authorizes a throwaway worktree from Builder's Worktrees tool
-for each fix and its proof. Use the tool, never raw `git worktree` or
-`git checkout`. `fix-proof.ts` puts files back to the base inside the
-worktree only; it never touches the PR's checkout. CI re-runs every proof
-as `--fix <sha>`, so the fix must be one real commit on the PR, which
-`merge` gives you.
+for each fix and its proof. Use the tool; don't type `git worktree` or
+`git checkout` yourself. Running `node scripts/fix-proof.ts` in the
+worktree is the sanctioned proof step, not a raw checkout: it writes files
+with fs and never runs `git checkout` or `git rm`, so always run it, and
+quote its output if it fails. It never touches the PR's checkout. CI
+re-runs every proof as `--fix <sha>`, so the fix must be one real commit
+on the PR, which `merge` gives you.
+
+Only a commit that changes behavior gets a proof line. A commit that only
+fixes lint, formatting, types, file names, or CI config gets none: CI's own
+checks cover it. The `<check>` must be one test file run as
+`pnpm [--filter <pkg>] exec vitest run <test-file>` or
+`node --test <test-file>`, with no `-t` filter or other flags; CI rejects
+any other command and fails the whole proof check. fix-proof prints
+`proven locally only` for any other command: that line never goes in the
+PR body. When "Feedback fix proof" fails with `unsupported proof command`,
+or a report link it can't find, fix the PR body: delete or replace the
+proof line it names, and list every report under `## Reports` (a chat-health
+report by its key, `chat-health:<app>:<date>`).
 
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
 2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run
@@ -86,4 +100,7 @@ as `--fix <sha>`, so the fix must be one real commit on the PR, which
 7. Worktrees `activate` `original`, then `remove` the worktree. It is
    merged and clean, so removal is expected and loses nothing.
 
-End your reply with the OUTCOME line the prompt asks for.
+End your reply with the OUTCOME and CONFIDENCE lines the prompt asks for.
+Score CONFIDENCE with the fix rubric in [confidence.md](confidence.md): how
+sure you are the PR's fix is correct as it now stands. Under 70, the
+factory won't merge it until a person approves it on GitHub.

@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用录制内容…",
+    group: "录制内容",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
@@ -651,6 +658,7 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
     backupNotSetup: "本地未捕获任何语音，且未设置备份转录。",
