@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "録画を参照…",
+    group: "録画",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
@@ -706,6 +714,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    partialTranscript:
+      "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:
       "ローカルで音声がキャプチャされておらず、バックアップの文字起こしが完了していません。再試行するか、マイクと音声の許可を確認してください。",
     backupNotSetup:

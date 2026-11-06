@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar uma gravação…",
+    group: "Gravações",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
@@ -719,6 +727,8 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    partialTranscript:
+      "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:
       "Nenhuma fala foi capturada localmente e a transcrição de backup não foi concluída. Tente novamente ou verifique as permissões de microfone e fala.",
     backupNotSetup:

@@ -4,8 +4,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
+
+import { designMetadataQueryKey } from "../design-query-key";
 
 export interface ConfirmMakeRealArgs {
   designDataJsonRef: RefObject<Record<string, unknown>>;
@@ -70,17 +73,21 @@ export async function runConfirmMakeReal({
         dataOperations,
       );
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, data: JSON.stringify(nextData) };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, data: JSON.stringify(nextData) };
+        },
+      );
       updateDesignMutation.mutate({ id, dataOperations } as any, {
         onSuccess: () => {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

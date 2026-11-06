@@ -7,7 +7,7 @@ import {
   artifact,
   type BugReport,
   readBug,
-  readJiraResults,
+  readFindingResults,
 } from "../../fragility-common/lib/artifacts.ts";
 import {
   main,
@@ -17,19 +17,22 @@ import {
   runId,
   ScriptError,
 } from "../../fragility-common/lib/cli.ts";
-import { loadJiraConfig } from "../../jira-refactor-findings/scripts/jira.ts";
+import {
+  loadTracker,
+  trackerName,
+} from "../../fragility-common/lib/findings.ts";
 import { plansDir } from "../../refactor-plan/scripts/lib.ts";
 import type { Analysis } from "../../system-history/scripts/analyze.ts";
 import type { BugVerdict } from "./bug-verdict.ts";
 
-main((args) => {
+main(async (args) => {
   if (args.help) {
     console.log(
-      "summarize --run <id>   (reads bug.json, verdict.json, analysis, jira-results.json; writes the plans README)",
+      "summarize --run <id>   (reads bug.json, verdict.json, analysis, finding-results.json; writes the plans README)",
     );
     return;
   }
-  const { baseUrl } = loadJiraConfig();
+  const { ticketUrl } = await loadTracker();
   const id = runId(args);
   const bug = readBug(id);
   if (!bug)
@@ -41,7 +44,7 @@ main((args) => {
   const file = path.join(plansDir(id), "README.md");
   writeFileSync(
     file,
-    renderBug(id, bug, analysis, verdicts, readJiraResults(id), baseUrl),
+    renderBug(id, bug, analysis, verdicts, readFindingResults(id), ticketUrl),
   );
   console.log(
     `${rel(file)}: ${verdicts.map((v) => `${v.symptom} → ${v.verdict}`).join(", ") || "no verdict"}`,
@@ -58,7 +61,7 @@ function renderBug(
   analysis: Analysis,
   verdicts: BugVerdict[],
   results: { action: string; key: string; url: string }[],
-  jiraBase: string,
+  ticketUrl: (key: string) => string,
 ): string {
   const label = {
     "one-off": "one-off bug",
@@ -80,7 +83,7 @@ function renderBug(
         : v.verdict === "needs-info"
           ? `Ask the reporter for: ${v.ask}`
           : v.ticket
-            ? `${v.plan ? `Plan [${path.basename(v.plan)}](./${path.basename(v.plan)}), ticket` : "Ticket"} [${v.ticket}](${jiraBase}/browse/${v.ticket})`
+            ? `${v.plan ? `Plan [${path.basename(v.plan)}](./${path.basename(v.plan)}), ticket` : "Ticket"} [${v.ticket}](${ticketUrl(v.ticket)})`
             : `Plan [${path.basename(v.plan!)}](./${path.basename(v.plan!)}), not filed: ${v.unfiled}`;
     lines.push(
       `## ${v.symptom}: ${label[v.verdict]}`,
@@ -103,7 +106,7 @@ function renderBug(
         `| \`${r.system}\` | ${r.verdict} | ${r.score} | ${r.lookback.commits}/${r.lookback.fixes} | ${(r.focus ?? []).map((f) => `\`${path.basename(f.path)}\` (${f.fixes})`).join(", ")} |`,
     ),
     "",
-    "## Jira actions",
+    `## ${trackerName() === "github" ? "GitHub" : "Jira"} actions`,
     "",
     ...(results.length
       ? results.map((r) => `- ${r.action}: [${r.key}](${r.url})`)

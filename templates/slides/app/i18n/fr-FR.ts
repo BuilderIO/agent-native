@@ -123,6 +123,10 @@ const messages = {
     noAssetsYet: "Aucun asset pour le moment.",
     assetUploadFailed: "Certains envois ont échoué",
     assetDeleteFailed: "Échec de la suppression de l'asset",
+    assetLoadFailed: "Impossible de charger les assets",
+    assetSelectNoChange:
+      "Cette image n'a pas pu être appliquée à cette diapositive",
+    retry: "Réessayer",
     assetDeleteInUse:
       "Cet asset est utilisé dans une présentation. Retirez-le d'abord de la présentation",
     assetDeleteStorageRemains:
@@ -917,9 +921,6 @@ const messages = {
     newSlideSaveFailed:
       "Impossible d'enregistrer la nouvelle diapositive. Veuillez réessayer.",
     addSlides: "Ajouter des diapositives",
-    addEmptySlide: "Ajouter une diapositive vide",
-    noAi: "sans IA",
-    duplicateCurrentSlide: "Dupliquer la diapositive actuelle",
     promptPlaceholder: "Décrivez les diapositives souhaitées...",
     newSlide: "Nouvelle diapositive",
     slidesHeading: "Diapositives",
@@ -1362,7 +1363,25 @@ const messages = {
     },
     importDeck: "Importer une présentation",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Impossible de vérifier votre connexion Google Drive. Réessayez.",
+        attach: "Joindre",
+        reading: "Lecture…",
+        authentication: "Connectez-vous pour joindre Google Slides.",
+        invalid: "Saisissez une URL valide de présentation Google Slides.",
+        connect: "Connectez Google Drive pour lire cette présentation.",
+        denied:
+          "Cette présentation est indisponible. Vérifiez les droits ou reconnectez Google Drive.",
+        failed: "Impossible de lire cette présentation. Réessayez.",
+        tooLarge:
+          "Cette présentation est trop volumineuse pour servir de contexte.",
+        truncated: "Extrait tronqué ; le contenu restant n’a pas été inclus.",
+      },
       websiteReference: "Ajouter un site web",
+      connectFigma: "Connecter Figma",
+      figmaDisconnected: "Connectez Figma pour parcourir les designs.",
+      websiteReferenceMenu: "Ajouter un site web…",
       websiteUrlLabel: "URL du site web",
       websiteUrl: "Collez l’URL d’un site web",
       figmaUrlLabel: "Lien Figma",
@@ -1377,9 +1396,9 @@ const messages = {
       searchPresentations: "Rechercher des présentations…",
       menu: {
         system: "Utiliser un système de design",
-        figma: "Ajouter Figma",
+        figma: "Design Figma",
         design: "Utiliser un design comme référence",
-        deck: "Utiliser une présentation comme référence",
+        deck: "Utiliser une présentation comme référence…",
         searchDesign: "Rechercher dans Design…",
       },
       loadFailed: "Impossible de charger cette référence. Réessayez.",
@@ -1404,7 +1423,7 @@ const messages = {
         "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
       tooMany: "Choisissez jusqu’à 20 références.",
       search: "Rechercher des références",
-      designCategory: "Création",
+      designCategory: "Références de design",
     },
     quickStart: {
       invalidUrl: "Saisissez une URL HTTP ou HTTPS valide.",

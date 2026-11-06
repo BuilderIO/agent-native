@@ -3,7 +3,17 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-05
+
+### Fixed
+
+- Notion setup now waits for connection status and lets you retry if the check fails.
+
 ## 2026-11-04
+
+### Improved
+
+- The agent finds the right Content action more often when you say page, column, or revert instead of the action's own terms.
 
 ### Fixed
 
@@ -15,6 +25,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- A new line added to a code block while suggesting now works like any other line: what you type stays on it when accepted, and Backspace and the arrow keys start from it, instead of acting on the line above
 - After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
 - An expanded image, video or audio file shows above the dimmed page instead of under it, and clicking it or its toolbar no longer closes it
 
@@ -26,6 +37,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Set up Notion in a document's menu now starts the Notion connection directly instead of sending you to an Integrations page that already shows Notion as connected.
 - Fixed a video an agent uploads into a page over MCP saving as a Clip that can't play
 - Empty Trash now explains that you need to pick a workspace in the filter when you have several.
 
@@ -42,15 +54,20 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- A comment thread that asked an agent for changes has an Accept and resolve button that accepts them all and resolves the thread in one click.
 - Agents connected over MCP can upload a video file into a page as a Clip, which follows the page's sharing like one you upload
 
 ### Improved
 
+- A suggestion that is still loading shows a placeholder in its thread, with a Retry if it fails to load, and the page slides over when the comment margin opens instead of jumping.
+- Agents sign their comment replies with their full model name, and the @ menu lists people first and each agent once.
+- When an agent rewrites most of a paragraph, its suggestion shows the old paragraph and the new one instead of a strike every few words.
 - Reloading a page you've opened before starts sooner: Content keeps its app code on your device, so the page draws without waiting on the network for it.
 - Adding a filter on a status, select, multi-select or person property that already has a chip now opens that chip, so a second value joins it, and two chips that mean the same thing fold into one.
 
 ### Fixed
 
+- Accepting an agent's suggestions no longer moves the comment card, scrolls the page, empties the card, or breaks up the highlight while the change saves.
 - A comment on a Clip in a page is saved once, even when you post it again after an error, and no longer shows an error while its emails send
 - Expanding or double-clicking an image, video or audio file opens it full screen again instead of crashing the page
 
@@ -1259,22 +1276,5 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-25
-
-### Improved
-
-- The editor toolbar now has a one-click page link copy button next to Share.
-- The editor toolbar now shows page breadcrumbs and the latest edit time like Notion.
-
-### Fixed
-
-- Comment cards now track their highlighted text while scrolling and no longer stay open after you click away.
-- Comments now scroll with the document and stay below the page toolbar.
-- Creating a database from the slash menu no longer leaves stale command text or a purple selected strip when returning to the page.
-- Sidebar hover controls no longer leave a lingering fade when moving between pages.
-- Sidebar page actions are now easier to see when hovering inactive pages.
-- Text selections in the editor no longer show white gaps when the formatting toolbar appears.
-- The /page command now leaves a Notion-style page reference and clears stale cursor labels when you return.
 
 For the full list of updates, see the [changelog folder](./changelog/).
