@@ -19,7 +19,7 @@ on:
           - production
           - nightly
       version:
-        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
+        description: "Version to release (e.g. 0.2.0). Leave blank for production to reserve the next stable version; Nightly uses the package.json version. Publish mode needs the staged version."
         required: false
         type: string
       source_ref:
@@ -88,16 +88,48 @@ jobs:
           ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
           sparse-checkout: ${{ env.TAURI_APP_PATH }}
 
+      # The release commit can predate the version script, so it comes from
+      # this workflow's revision.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: ${{ env.RELEASE_CHANNEL == 'production' && !inputs.version && inputs.mode != 'publish' }}
+        with:
+          path: workflow-revision
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Reserve the next stable version
+        id: reserve
+        if: ${{ env.RELEASE_CHANNEL == 'production' && !inputs.version && inputs.mode != 'publish' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_SOURCE_REF: ${{ needs.resolve-source-ref.outputs.source_ref }}
+        with:
+          script: |
+            const { reserveStableVersion } = await import(
+              `${process.env.GITHUB_WORKSPACE}/workflow-revision/scripts/stable-release-version.ts`
+            );
+            const clipsPackage = require(
+              `${process.env.GITHUB_WORKSPACE}/${process.env.TAURI_APP_PATH}/package.json`,
+            );
+            const version = await reserveStableVersion(github, context.repo, {
+              tagPrefix: "clips-v",
+              baseVersion: clipsPackage.version,
+              sourceSha: process.env.RELEASE_SOURCE_REF,
+              warn: (message) => core.warning(message),
+            });
+            core.info(`Reserved clips-v${version} at ${process.env.RELEASE_SOURCE_REF}.`);
+            core.setOutput("version", version);
+
       - name: Resolve version
         id: version
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         env:
-          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_VERSION_INPUT: ${{ inputs.version || steps.reserve.outputs.version }}
         run: |
           if [ "$RELEASE_CHANNEL" = "production" ]; then
             if [ -z "$RELEASE_VERSION_INPUT" ]; then
-              echo "::error::Production releases require an explicit stable version input."
+              echo "::error::Publish mode needs the version of the staged draft to publish."
               exit 1
             fi
             if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
