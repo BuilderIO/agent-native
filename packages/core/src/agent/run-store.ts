@@ -60,6 +60,7 @@ import {
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
+  ownsLapsedTurnLease,
   StaleExecutionFenceError,
   type ExecutionFence,
   withFencedExecutionWrite,
@@ -576,6 +577,12 @@ export function ensureRunTables(): Promise<void> {
 
 export const TURN_EXECUTION_LEASE_MS = 15_000;
 
+// A hung renewal holds the worker's only heartbeat slot, so the database gives
+// up on each of its statements well inside the lease and the next tick tries
+// again. Set once for the renewal's own short transaction: it runs every
+// 1.5 s per active run, so a per-statement setting would triple its queries.
+const LEASE_RENEWAL_STATEMENT_TIMEOUT_MS = 4_000;
+
 function truthySqlValue(value: unknown): boolean {
   return value === true || value === "t" || value === 1 || value === "1";
 }
@@ -728,23 +735,37 @@ async function renewExecutionLease(
     throw new Error("Turn execution leases require transaction support");
   }
   await client.transaction(async (tx) => {
-    const renewed = await tx.execute({
-      sql: `UPDATE agent_execution_leases
-            SET lease_expires_at = clock_timestamp() +
-                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
-                updated_at = clock_timestamp()
-            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
-              AND generation = CAST(? AS BIGINT)
-              AND lease_expires_at > clock_timestamp()`,
-      args: [
-        TURN_EXECUTION_LEASE_MS,
-        fence.threadId,
-        fence.turnId,
-        fence.runId,
-        fence.generation,
-      ],
+    await tx.execute({
+      sql: "SELECT set_config('statement_timeout', ?, true)",
+      args: [`${LEASE_RENEWAL_STATEMENT_TIMEOUT_MS}ms`],
     });
-    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    const renew = (requireLive: boolean) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_leases
+              SET lease_expires_at = clock_timestamp() +
+                    (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                AND generation = CAST(? AS BIGINT)
+                AND (lease_expires_at > clock_timestamp() OR NOT CAST(? AS BOOLEAN))`,
+        args: [
+          TURN_EXECUTION_LEASE_MS,
+          fence.threadId,
+          fence.turnId,
+          fence.runId,
+          fence.generation,
+          requireLive,
+        ],
+      });
+    if ((await renew(true)).rowsAffected !== 1) {
+      if (
+        !renewRunLiveness ||
+        !(await ownsLapsedTurnLease(tx, fence)) ||
+        (await renew(false)).rowsAffected !== 1
+      ) {
+        throw new StaleExecutionFenceError(fence);
+      }
+    }
     if (renewRunLiveness) {
       await tx.execute({
         sql: `UPDATE agent_runs

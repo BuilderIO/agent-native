@@ -6085,7 +6085,7 @@ export function AgentRunFailure({
             </ActionButton>
           </div>
         ) : null}
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <span className="agentkit-command-error" role="alert">
             {labels.continueRunUnavailable}
           </span>
