@@ -189,6 +189,145 @@ afterAll(async () => {
 });
 
 describe("abort with a queued, fenced event", () => {
+  it("waits for a queued event when the abort signal terminates the driver", async () => {
+    const runId = "flush-repro-signal";
+    const threadId = "flush-repro-thread-signal";
+    const entered = gate();
+    const eventGate = gate();
+    const driverExited = gate();
+    const order: string[] = [];
+    harness.captured.length = 0;
+    const run = startRun(
+      runId,
+      threadId,
+      async (send, signal) => {
+        void send({ type: "text", text: "queued-signal" }).catch(() => {});
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              order.push("signal");
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        order.push("driver-exited");
+        driverExited.resolve();
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+        persistEvent: async (write) => {
+          order.push("write-gated");
+          entered.resolve();
+          await eventGate.promise;
+          order.push("write-started");
+          await write();
+          order.push("write-completed");
+        },
+      },
+    );
+    let finalized = false;
+    void run.finalized.then(
+      () => {
+        finalized = true;
+        order.push("finalized");
+      },
+      () => {
+        finalized = true;
+        order.push("finalized-error");
+      },
+    );
+    try {
+      await entered.promise;
+      const flushSpy = vi.spyOn(run, "flushEvents");
+      const stop = fetch(
+        `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "user" }),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      await driverExited.promise;
+      await vi.waitFor(() => expect(flushSpy).toHaveBeenCalledTimes(2));
+      const before = await pglite.query(
+        "SELECT r.status, l.generation, l.owner_run_id, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(before.rows[0]).toMatchObject({
+        status: "running",
+        owner_run_id: runId,
+        lease_is_live: true,
+      });
+      expect(finalized).toBe(false);
+      order.push("observed-live-lease");
+      eventGate.resolve();
+      const response = await stop;
+      const body = await response.text();
+      order.push(`http-${response.status}`);
+      await run.finalized;
+      const after = await pglite.query(
+        "SELECT r.status, l.generation, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      const events = await pglite.query(
+        "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+        [runId],
+      );
+      process.stdout.write(
+        `SIGNAL REPRO ${JSON.stringify({
+          order,
+          before: before.rows,
+          after: after.rows,
+          events: events.rows,
+          status: response.status,
+          body,
+          captured: harness.captured.map(({ error, phase }) => ({
+            name: error instanceof Error ? error.name : String(error),
+            phase,
+          })),
+        })}\n`,
+      );
+      expect(order.slice(0, 5)).toEqual([
+        "write-gated",
+        "signal",
+        "driver-exited",
+        "observed-live-lease",
+        "write-started",
+      ]);
+      expect(order.indexOf("write-completed")).toBeLessThan(
+        order.indexOf("finalized"),
+      );
+      expect(String(before.rows[0]?.generation)).toBe("1");
+      expect(response.status).toBe(200);
+      expect(JSON.parse(body)).toEqual({ ok: true });
+      expect(after.rows[0]).toMatchObject({
+        status: "aborted",
+        lease_is_live: false,
+      });
+      expect(
+        events.rows.map((row) => ({
+          seq: Number(row.seq),
+          ...JSON.parse(String(row.event_data)),
+        })),
+      ).toEqual([
+        { seq: 0, type: "text", text: "queued-signal" },
+        { seq: 1, type: "done", reason: "user" },
+      ]);
+      expect(
+        harness.captured.filter(({ phase }) => phase === "abort-event-flush"),
+      ).toEqual([]);
+    } finally {
+      eventGate.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await run.finalized.catch(() => {});
+    }
+  });
   for (const mode of ["current", "expired", "reclaimed", "terminal"] as const) {
     it(mode, async () => {
       const runId = `flush-repro-${mode}`;
@@ -341,6 +480,16 @@ describe("abort with a queued, fenced event", () => {
           expect(turnAborted).toBe(false);
         } else {
           expect(result.status).toBe(500);
+          expect(
+            harness.captured.some(
+              ({ error, phase }) =>
+                phase === "abort-event-flush" &&
+                error instanceof AgentRunEventNotPersistedError &&
+                error.terminalRun &&
+                error.cause instanceof Error &&
+                error.cause.name === "StaleExecutionFenceError",
+            ),
+          ).toBe(true);
           expect(
             harness.captured.some(
               ({ error, phase }) =>
