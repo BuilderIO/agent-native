@@ -94,6 +94,27 @@ afterEach(async () => {
 });
 
 describe("Design Builder signup experiment metrics", () => {
+  it("does not mature historical cohorts beyond the selected observation window", async () => {
+    const end = new Date(now - 5 * 86400000).toISOString().slice(0, 10);
+    await event(
+      "auth.builder_signup_experiment_exposed",
+      9 * 24 + 1,
+      "historical",
+    );
+    const query = sql("design-builder-signup-ab").replaceAll(
+      new Date(now).toISOString().slice(0, 10),
+      end,
+    );
+    const result = await db.query(query);
+    const row = result.rows.find(
+      (value: Record<string, unknown>) =>
+        value.environment === "production" && value.variant === "automatic",
+    );
+    expect(Number(row.exposed_visitors)).toBe(1);
+    expect(Number(row.d7_eligible)).toBe(0);
+    expect(row.d7_return_rate).toBeNull();
+  });
+
   it("retains abandoners, deduplicates assignments and outcomes, and joins authenticated milestones in order", async () => {
     await event(
       "auth.builder_signup_experiment_exposed",
@@ -300,6 +321,11 @@ describe("Design Builder signup experiment metrics", () => {
       visitors: 2,
     });
     const quality = (await db.query(sql(KEYS[2]))).rows;
+    expect(quality).toContainEqual({
+      metric:
+        "Assignments linked to multiple people (excluded from signup milestones)",
+      count: 1,
+    });
     expect(quality).toContainEqual({
       metric: "Activation attempts without a recorded outcome",
       count: 1,

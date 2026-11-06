@@ -111,3 +111,9 @@ production, beta, and unknown environments; unknown history is never silently
 classified as production. Employee filtering is applied after the assignment-to-user
 join so identified internal visitors are removed from both numerator and denominator.
 Anonymous abandoners with no linked identity cannot be classified as employees.
+
+Historical ranges mature only through the selected end date, so a partial follow-up
+window never enters a mature denominator. Assignments linked to multiple people
+remain in the exposure denominator and are reported explicitly in tracking health;
+they are excluded from signup and person-linked milestones rather than choosing an
+arbitrary account.

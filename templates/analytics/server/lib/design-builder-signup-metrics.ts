@@ -89,12 +89,12 @@ SELECT v.environment, v.variant, COUNT(f.assignment_id) AS exposed_visitors,
   COALESCE(SUM(f.prompted), 0) AS first_prompt_24h,
   COALESCE(SUM(f.ready), 0) AS first_design_24h,
   SUM(f.ready)::float / NULLIF(COUNT(f.assignment_id), 0) AS first_design_rate,
-  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= CURRENT_TIMESTAMP THEN 1 END) AS mature_24h_visitors,
-  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= CURRENT_TIMESTAMP THEN f.ready END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= CURRENT_TIMESTAMP THEN 1 END), 0) AS mature_first_design_rate,
-  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= CURRENT_TIMESTAMP THEN 1 END) AS d1_eligible,
-  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= CURRENT_TIMESTAMP THEN f.d1_return END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= CURRENT_TIMESTAMP THEN 1 END), 0) AS d1_return_rate,
-  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= CURRENT_TIMESTAMP THEN 1 END) AS d7_eligible,
-  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= CURRENT_TIMESTAMP THEN f.d7_return END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= CURRENT_TIMESTAMP THEN 1 END), 0) AS d7_return_rate
+  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END) AS mature_24h_visitors,
+  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN f.ready END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '1 day' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END), 0) AS mature_first_design_rate,
+  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END) AS d1_eligible,
+  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN f.d1_return END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '2 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END), 0) AS d1_return_rate,
+  COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END) AS d7_eligible,
+  SUM(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN f.d7_return END)::float / NULLIF(COUNT(CASE WHEN f.exposed_at::timestamptz + INTERVAL '8 days' <= LEAST(CURRENT_TIMESTAMP, '{{timeRangeEnd}}'::date::timestamptz + INTERVAL '1 day') THEN 1 END), 0) AS d7_return_rate
 FROM variants v LEFT JOIN flags f ON f.variant = v.variant AND f.environment = v.environment
 LEFT JOIN automatic_connections a ON a.assignment_id = f.assignment_id
 GROUP BY v.environment, v.variant ORDER BY v.environment, v.variant`,
@@ -114,6 +114,10 @@ GROUP BY v.environment, v.variant, o.status, o.code ORDER BY v.environment, v.va
 SELECT 'Exposed visitor assignments' AS metric, COUNT(*) AS count FROM exposures
 UNION ALL SELECT 'Signed-up assignments linked to one person', COUNT(*) FROM linked_exposures WHERE person_key IS NOT NULL
 UNION ALL SELECT 'Exposures without a signup link (includes abandonment)', COUNT(*) FROM linked_exposures WHERE person_key IS NULL
+UNION ALL SELECT 'Assignments linked to multiple people (excluded from signup milestones)', COUNT(*)
+  FROM (SELECT x.assignment_id FROM exposures x JOIN experiment_events e ON e.assignment_id = x.assignment_id AND e.variant = x.variant
+    WHERE e.event_name = 'builder_signup_experiment_enrolled' AND e.event_at >= x.exposed_at
+    GROUP BY x.assignment_id HAVING COUNT(DISTINCT e.funnel_user_key) > 1) ambiguous
 UNION ALL SELECT 'Activation attempts without a recorded outcome', COUNT(DISTINCT s.assignment_id)
   FROM experiment_events s WHERE s.event_name = 'builder_signup_experiment_activation_started'
     AND NOT EXISTS (SELECT 1 FROM experiment_events o WHERE o.assignment_id = s.assignment_id AND o.variant = s.variant AND o.event_name = 'builder_signup_experiment_outcome' AND o.event_at >= s.event_at)

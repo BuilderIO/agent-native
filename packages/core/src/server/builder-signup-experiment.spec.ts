@@ -129,6 +129,25 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each(["old", "invalid"])(
+    "does not enroll a %s identity during signup binding",
+    async (kind) => {
+      mocks.settings.clear();
+      mocks.identity.user.createdAt =
+        kind === "old" ? new Date(testTime - 86400000) : new Date(Number.NaN);
+      const result = await bindRequest(
+        encodeBuilderSignupAssignment(accepted()),
+        ATTEMPT,
+        "password",
+        "new@example.com",
+      );
+      expect(await result.json()).toEqual({ bound: false });
+      expect(mocks.track).not.toHaveBeenCalled();
+      expect(mocks.settings.size).toBe(0);
+      expect(activate).not.toHaveBeenCalled();
+    },
+  );
+
   it("links signup enrollment without granting provisioning consent when acceptance is absent", async () => {
     mocks.settings.delete("design_builder_signup_v1:consent:new-user");
     const assignment = {
