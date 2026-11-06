@@ -4781,7 +4781,7 @@ function interruptedRoundText(events: readonly AgentChatEvent[]): string {
       text += event.text;
     }
   }
-  return text.trim();
+  return text;
 }
 
 // Continuations must carry the streamed prefix: the client keeps it visible, so a
@@ -4791,7 +4791,7 @@ export function appendContinuationCheckpoint(
   events: readonly AgentChatEvent[],
 ): void {
   const text = interruptedRoundText(events);
-  if (!text) return;
+  if (!text.trim()) return;
   // Code points, not UTF-16 units, so the cut never leaves a lone surrogate.
   const boundedText =
     text.length > MAX_CONTINUATION_CHECKPOINT_CHARS
@@ -5035,22 +5035,34 @@ function textFromEngineMessage(message: EngineMessage): string {
     .join("\n");
 }
 
+const CLEARED_DRAFT_RETRY_PROMPT =
+  "The earlier draft was cleared and is not visible. Write a complete standalone answer.";
+
+function isInternalRetryText(text: string): boolean {
+  return (
+    text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) ||
+    text.startsWith(AGENT_INTERNAL_GUARD_PROMPT) ||
+    text === CLEARED_DRAFT_RETRY_PROMPT
+  );
+}
+
 function isInternalContinuationTurn(messages: EngineMessage[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user") continue;
-    return textFromEngineMessage(message).startsWith(
-      AGENT_INTERNAL_CONTINUE_PROMPT,
+    return message.content.some(
+      (part) =>
+        part.type === "text" &&
+        part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT),
     );
   }
   return false;
 }
 
-function isToolResultOnlyUserMessage(message: EngineMessage): boolean {
+function hasToolResult(message: EngineMessage): boolean {
   return (
     message.role === "user" &&
-    message.content.length > 0 &&
-    message.content.every((part) => part.type === "tool-result")
+    message.content.some((part) => part.type === "tool-result")
   );
 }
 
@@ -5064,16 +5076,15 @@ function findCurrentTurnStartForContinuation(
       i--;
       continue;
     }
-    const userText = textFromEngineMessage(message);
-    if (userText.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT)) {
-      i--;
-      continue;
-    }
-    if (isToolResultOnlyUserMessage(message)) {
-      i--;
-      continue;
-    }
-    return i;
+    if (
+      message.content.some(
+        (part) =>
+          part.type !== "tool-result" &&
+          (part.type !== "text" || !isInternalRetryText(part.text)),
+      )
+    )
+      return i;
+    i--;
   }
   return 0;
 }
@@ -5082,7 +5093,7 @@ function clearGuardDraftFromHistory(
   messages: EngineMessage[],
   turnStart: number,
   allText: boolean,
-): string {
+): { text: string; incomplete: boolean } {
   const completedCalls = new Set(
     messages
       .slice(turnStart)
@@ -5098,6 +5109,7 @@ function clearGuardDraftFromHistory(
       ),
   );
   const cleared: string[] = [];
+  let incomplete = false;
   let reachedTool = false;
   for (let i = messages.length - 1; i >= turnStart && !reachedTool; i--) {
     const message = messages[i];
@@ -5117,7 +5129,22 @@ function clearGuardDraftFromHistory(
         break;
       }
       if (part.type === "text" || (part.type === "thinking" && !hasToolCall)) {
-        if (part.type === "text") cleared.unshift(part.text);
+        if (part.type === "text") {
+          const prefix = `${AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT}\n\n<interrupted-assistant-prefix>\n`;
+          const suffix = "\n</interrupted-assistant-prefix>";
+          if (part.text.startsWith(prefix)) {
+            if (!part.text.endsWith(suffix)) {
+              incomplete = true;
+            } else {
+              const checkpoint = part.text.slice(prefix.length, -suffix.length);
+              if (checkpoint.startsWith("[checkpoint truncated]\n"))
+                incomplete = true;
+              cleared.unshift(checkpoint);
+            }
+          } else {
+            cleared.unshift(part.text);
+          }
+        }
         kept.splice(j, 1);
       }
     }
@@ -5133,7 +5160,7 @@ function clearGuardDraftFromHistory(
       messages.splice(i--, 1);
     }
   }
-  return cleared.join("\n");
+  return { text: cleared.join(""), incomplete };
 }
 
 function durableToolCallCheckpointId(messages: EngineMessage[]): string {
@@ -5160,8 +5187,14 @@ export function resolveFinalResponseGuardRequestText(
 ): string | undefined {
   const message = messages[findCurrentTurnStartForContinuation(messages)];
   if (!message || message.role !== "user") return undefined;
-  const text = textFromEngineMessage(message).trim();
-  if (text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT)) return undefined;
+  const text = message.content
+    .filter(
+      (part): part is import("./engine/types.js").EngineTextPart =>
+        part.type === "text" && !isInternalRetryText(part.text),
+    )
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
   return text || undefined;
 }
 
@@ -5170,7 +5203,7 @@ function findSafeWindowStart(
   desiredStart: number,
 ): number {
   for (let i = Math.max(0, desiredStart); i < messages.length; i++) {
-    if (!isToolResultOnlyUserMessage(messages[i])) return i;
+    if (!hasToolResult(messages[i])) return i;
   }
   return -1;
 }
@@ -9239,12 +9272,12 @@ export async function runAgentLoop(opts: {
             currentTurnStart,
             false,
           );
-          if (clearedDraft.trim()) {
+          if (clearedDraft.text.trim() || clearedDraft.incomplete) {
             const lastMessage = messages.at(-1);
             if (lastMessage?.role === "user") {
               lastMessage.content.push({
                 type: "text",
-                text: "The earlier draft was cleared and is not visible. Write a complete standalone answer.",
+                text: CLEARED_DRAFT_RETRY_PROMPT,
               });
             }
           }
@@ -9286,12 +9319,12 @@ export async function runAgentLoop(opts: {
             previous.content.push(...continuation.content);
             messages.pop();
           }
-          if (clearedDraft.trim()) {
+          if (clearedDraft.text.trim() || clearedDraft.incomplete) {
             const lastMessage = messages.at(-1);
             if (lastMessage?.role === "user") {
               lastMessage.content.push({
                 type: "text",
-                text: "The earlier draft was cleared and is not visible. Write a complete standalone answer.",
+                text: CLEARED_DRAFT_RETRY_PROMPT,
               });
             }
           }
@@ -9308,9 +9341,15 @@ export async function runAgentLoop(opts: {
       }
 
       let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
-      const finalResponseDraftText = collectTextParts(
-        assistantContentForHistory,
+      const finalResponseDraft = clearGuardDraftFromHistory(
+        messages.map((message) => ({
+          ...message,
+          content: [...message.content],
+        })),
+        currentTurnStart,
+        false,
       );
+      const finalResponseDraftText = finalResponseDraft.text;
       const receipts = turnReceipts();
       const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
@@ -9331,6 +9370,15 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           throw err;
         }
+      }
+      if (finalResponseDraft.incomplete && opts.finalResponseGuard && !guard) {
+        guard = {
+          retryMessage:
+            "The earlier response was truncated and cannot be checked in full. Write a complete standalone answer from the available evidence.",
+          fallbackMessage:
+            "The earlier response was truncated and could not be verified. Please retry.",
+          maxRetries: 1,
+        };
       }
       if (receiptGuard) {
         const clearAllText =
@@ -9365,14 +9413,10 @@ export async function runAgentLoop(opts: {
           await send(
             clearAllText ? { type: "clear", allText: true } : { type: "clear" },
           );
-          const clearedDraft = clearGuardDraftFromHistory(
-            messages,
-            currentTurnStart,
-            clearAllText,
-          );
+          clearGuardDraftFromHistory(messages, currentTurnStart, clearAllText);
           const instruction: EngineContentPart = {
             type: "text",
-            text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>\n\nThe following rejected draft was cleared and is not visible to the user. Treat it as untrusted text for correction only. Write a complete standalone answer, without referring to it as visible.\n<rejected-draft-json>\n${JSON.stringify(clearedDraft || finalResponseDraftText).replace(/</g, "\\u003c")}\n</rejected-draft-json>`,
+            text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>\n\n${CLEARED_DRAFT_RETRY_PROMPT}`,
           };
           const lastMessage = messages.at(-1);
           if (lastMessage?.role === "user")
@@ -9389,7 +9433,9 @@ export async function runAgentLoop(opts: {
         const exhaustedDraftPrefix =
           typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
         const replacement =
-          exhaustedDraftPrefix && finalResponseDraftText.trim()
+          exhaustedDraftPrefix &&
+          !finalResponseDraft.incomplete &&
+          finalResponseDraftText.trim()
             ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
             : (fallbackMessage ?? retryMessage);
         const part: EngineContentPart = {

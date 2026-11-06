@@ -1075,11 +1075,31 @@ function hasUnsupportedResultClaim(text: string): boolean {
 }
 
 export function draftClaimsAnalyticsMetrics(text: string): boolean {
-  const prose = String(text ?? "").replace(
-    /(?:^|\n) {0,3}((`|~)\2{2,})[^\n]*\n[\s\S]*?\n {0,3}\1\2*[ \t]*(?=\r?$)/gm,
-    "\n",
-  );
-  return hasUnsupportedResultClaim(prose.trim());
+  const lines = String(text ?? "").split("\n");
+  const prose: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const opening = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(lines[i]);
+    if (!opening) {
+      prose.push(lines[i]);
+      continue;
+    }
+    const fence = opening[1];
+    const closing = new RegExp(
+      `^ {0,3}${fence[0]}{${fence.length},}[ \\t]*\\r?$`,
+    );
+    let end = i + 1;
+    while (end < lines.length && !closing.test(lines[end])) end++;
+    if (end === lines.length) {
+      prose.push(...lines.slice(i));
+      break;
+    }
+    if (!/^\s*sql(?:\s.*)?$/i.test(opening[2])) {
+      prose.push(...lines.slice(i, end + 1));
+    }
+    prose.push("");
+    i = end;
+  }
+  return hasUnsupportedResultClaim(prose.join("\n").trim());
 }
 
 // Whether a draft only restates an earlier turn's grounded result. Every

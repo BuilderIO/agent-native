@@ -1513,6 +1513,18 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     ).toBe(true);
   });
 
+  it("detects factual claims in non-SQL fences and conservatively handles incomplete SQL", () => {
+    for (const draft of [
+      "```text\nSignups were 42.\n```",
+      "```\nSignups were 42.\n```",
+      '```json\n{"signups": 42}\n```',
+      "```text\n```sql\nSELECT COUNT(*) FROM events\n```\nSignups were 42.\n```",
+      "```sql\nSELECT COUNT(*) FROM events\nSignups were 42.",
+    ]) {
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    }
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),
