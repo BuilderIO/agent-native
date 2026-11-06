@@ -577,8 +577,10 @@ export function ensureRunTables(): Promise<void> {
 
 export const TURN_EXECUTION_LEASE_MS = 15_000;
 
-// A hung renewal holds the worker's only heartbeat slot, so each statement
-// gives up well inside the lease and the next tick tries again.
+// A hung renewal holds the worker's only heartbeat slot, so the database gives
+// up on each of its statements well inside the lease and the next tick tries
+// again. Set once for the renewal's own short transaction: it runs every
+// 1.5 s per active run, so a per-statement setting would triple its queries.
 const LEASE_RENEWAL_STATEMENT_TIMEOUT_MS = 4_000;
 
 function truthySqlValue(value: unknown): boolean {
@@ -733,6 +735,10 @@ async function renewExecutionLease(
     throw new Error("Turn execution leases require transaction support");
   }
   await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT set_config('statement_timeout', ?, true)",
+      args: [`${LEASE_RENEWAL_STATEMENT_TIMEOUT_MS}ms`],
+    });
     const renew = (requireLive: boolean) =>
       tx.execute({
         sql: `UPDATE agent_execution_leases
@@ -750,8 +756,6 @@ async function renewExecutionLease(
           fence.generation,
           requireLive,
         ],
-        timeoutMs: LEASE_RENEWAL_STATEMENT_TIMEOUT_MS,
-        maxAttempts: 1,
       });
     if ((await renew(true)).rowsAffected !== 1) {
       if (
@@ -772,8 +776,6 @@ async function renewExecutionLease(
                   END
               WHERE id = ? AND status = 'running'`,
         args: [currentRssMb(), currentRssMb(), fence.runId],
-        timeoutMs: LEASE_RENEWAL_STATEMENT_TIMEOUT_MS,
-        maxAttempts: 1,
       });
     }
   });

@@ -1101,15 +1101,26 @@ async function withTransactionStatementTimeout<T>(
       "Could not read the transaction's statement_timeout before bounding a statement",
     );
   }
-  const effective =
+  let installed =
     previousMs > 0 && previousMs <= applied ? previousMs : applied;
   // A slow round trip above leaves less of the budget than the server was
   // given, so the statement could outlive its caller holding its locks.
-  if (effective >= remainingMs()) {
+  // Tightening is itself a round trip, so a budget it also outruns is spent:
+  // the statement never starts.
+  if (installed >= remainingMs()) {
+    installed = serverTimeout();
     await runSetting(
-      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${serverTimeout()}ms`] },
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
       remainingMs(),
     );
+    if (installed >= remainingMs()) {
+      throw Object.assign(
+        new Error(
+          `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
+        ),
+        { code: "STATEMENT_BUDGET_EXHAUSTED" },
+      );
+    }
   }
   const result = await statement(remainingMs());
   await runSetting(

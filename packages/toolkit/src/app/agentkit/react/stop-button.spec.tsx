@@ -75,7 +75,44 @@ describe("useAgentKitStopButton", () => {
     );
   });
 
-  // oracle-change: Send never sits beside Stop now, so Stop has no secondary variant to test.
+  it("steps down to secondary only while End voice chat sits beside it", async () => {
+    mocks.activeRunIds = ["run-1"];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const row = (withSend: boolean) => (
+      <div data-agent-composer-slot="toolbar">
+        <div data-agent-composer-slot="stop-slot">
+          <Harness />
+        </div>
+        {withSend ? (
+          <button type="button" data-agent-composer-slot="send-button" />
+        ) : null}
+      </div>
+    );
+    await act(async () => root.render(row(false)));
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="stop-button"]',
+    )!;
+    const variants = button.className
+      .split(" ")
+      .map((name) =>
+        /^\[(.+)_&\]:(bg|text)-secondary(-foreground)?$/.exec(name),
+      )
+      .filter((match) => match !== null);
+    expect(variants.map((match) => match![0])).toEqual([
+      expect.stringContaining(":bg-secondary"),
+      expect.stringContaining(":text-secondary-foreground"),
+    ]);
+    // The default fill stays primary; the variant is what swaps it.
+    expect(button.className.split(" ")).toContain("bg-primary");
+    const besideSend = `${variants[0]![1]} [data-agent-composer-slot="stop-button"]`;
+    expect(container.querySelector(besideSend)).toBeNull();
+
+    await act(async () => root.render(row(true)));
+    expect(container.querySelector(besideSend)).toBe(button);
+  });
+
   it("stops every active run when clicked", async () => {
     mocks.activeRunIds = ["run-1", "run-2"];
     await render();

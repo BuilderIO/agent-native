@@ -2542,6 +2542,57 @@ describe("db/client postgres-js request pool recovery", () => {
     ]);
   });
 
+  it("never starts a statement whose budget the tightening round trip spent", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string) => {
+        statements.push(query);
+        if (query.includes("set_config")) vi.advanceTimersByTime(300);
+        return Promise.resolve(
+          Object.assign(
+            query.includes("current_setting")
+              ? [{ previous: "0", previous_ms: "0" }]
+              : [],
+            { count: 1 },
+          ),
+        );
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    try {
+      await expect(
+        runWithRequestDbPoolScope(true, undefined, () =>
+          getDbExec().transaction!((tx) =>
+            tx.execute({ sql: "SELECT 1", timeoutMs: 1_000, maxAttempts: 1 }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "STATEMENT_BUDGET_EXHAUSTED" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(statements).not.toContain("SELECT 1");
+  });
+
   it("keeps the shared facade stable after a request pool times out", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
