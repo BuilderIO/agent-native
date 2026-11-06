@@ -5,6 +5,10 @@ import {
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
+import {
+  screenFrameTypeForCopy,
+  STORED_SCREEN_FRAME_TYPES,
+} from "@shared/screen-frame-type";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -52,6 +56,7 @@ const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
   "heightPinned",
   "heightMode",
   "breakpointHeights",
+  "frameType",
 ] as const;
 
 interface DuplicateBatchState {
@@ -145,6 +150,10 @@ function widgetDuplicateScreenMetadata(
       if (typeof value === "boolean") result[key] = value;
     } else if (key === "heightMode") {
       if (value === "auto" || value === "fixed" || value === "hug") {
+        result[key] = value;
+      }
+    } else if (key === "frameType") {
+      if (STORED_SCREEN_FRAME_TYPES.some((type) => type === value)) {
         result[key] = value;
       }
     } else if (
@@ -679,6 +688,7 @@ export function runDuplicateScreen(
           "heightPinned",
           "heightMode",
           "breakpointHeights",
+          "frameType",
         ].flatMap((key) =>
           key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
         ),
@@ -713,12 +723,18 @@ export function runDuplicateScreen(
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
+  const frameType = screenFrameTypeForCopy({
+    designData: designDataJsonRef.current,
+    fileId: screenId,
+    content,
+  });
   const createFile = () =>
     createFileAsync({
       designId: id,
       filename,
       content,
       fileType,
+      ...(frameType ? { frameType } : {}),
       ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
     } as any);
   const callCreateFile = () => {

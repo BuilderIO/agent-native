@@ -6895,11 +6895,20 @@ async function retryPendingStaleRunThreadProjections(
     };
     if (projection.thread_projection_error_code != null) {
       failed += 1;
+      console.error(
+        `[run-store] stale projection stuck for run ${String(projection.id)}:`,
+        projection.thread_projection_error_code,
+      );
       continue;
     }
     const runId = projection.id;
     if (typeof runId !== "string") continue;
-    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) {
+      failed += 1;
+      console.error(
+        `[run-store] stale projection retry failed for run ${runId}`,
+      );
+    }
   }
   return { failed, truncated };
 }

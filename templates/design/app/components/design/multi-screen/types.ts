@@ -176,7 +176,11 @@ export interface ScreenContentRenderOptions {
 
 export interface MultiScreenCanvasProps {
   screens: ScreenFile[];
-  onSourceDemandChange?: (screenIds: readonly string[]) => void;
+  /** Pinned sources are held; preview sources load after them, nearest first. */
+  onSourceDemandChange?: (demand: {
+    pinned: readonly string[];
+    preview: readonly string[];
+  }) => void;
   onSourceRetry?: (screenId: string) => void;
   zoom: number;
   activeId?: string | null;
