@@ -212,7 +212,7 @@ type ExternalChromeRuntime = {
   ) => void;
 };
 
-const EXTENSION_BRIDGE_REPLY_TIMEOUT_MS = 4000;
+const EXTENSION_HANDOFF_TIMEOUT_MS = 10_000;
 
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
@@ -244,28 +244,37 @@ function ClipsExtensionAuthBridge() {
     const targetExtensionId = requestedExtensionId;
 
     let removeBridgeListener: (() => void) | null = null;
-    let replyTimer: number | null = null;
-    const isActive = () => !unmountedRef.current;
+    let settled = false;
+    const isActive = () => !unmountedRef.current && !settled;
 
-    const clearBridgeWait = () => {
+    // One deadline for the whole handoff: the session fetch, the direct
+    // extension message, and the page-bridge fallback can each fail to settle.
+    const deadline = window.setTimeout(
+      () =>
+        failExtensionSignIn(new Error("The Clips extension did not respond.")),
+      EXTENSION_HANDOFF_TIMEOUT_MS,
+    );
+
+    const settle = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      window.clearTimeout(deadline);
       removeBridgeListener?.();
       removeBridgeListener = null;
-      if (replyTimer !== null) window.clearTimeout(replyTimer);
-      replyTimer = null;
+      return true;
     };
 
-    const failExtensionSignIn = (error?: unknown) => {
-      clearBridgeWait();
+    function failExtensionSignIn(error?: unknown) {
+      if (!settle()) return;
       startedForRef.current = null;
-      if (!isActive()) return;
+      if (unmountedRef.current) return;
       if (error)
         console.error("Could not complete Clips extension sign-in.", error);
       toast.error(t("recordingPage.tryAgainMoment"));
-    };
+    }
 
     const completeExtensionSignIn = () => {
-      clearBridgeWait();
-      if (!isActive()) return;
+      if (!settle() || unmountedRef.current) return;
       const cleaned = new URL(window.location.href);
       cleaned.searchParams.delete("clipsExtensionAuth");
       cleaned.searchParams.delete("clipsExtensionId");
@@ -336,13 +345,6 @@ function ClipsExtensionAuthBridge() {
         removeBridgeListener = () =>
           window.removeEventListener("message", onMessage);
         window.addEventListener("message", onMessage);
-        replyTimer = window.setTimeout(
-          () =>
-            failExtensionSignIn(
-              new Error("The Clips extension did not respond."),
-            ),
-          EXTENSION_BRIDGE_REPLY_TIMEOUT_MS,
-        );
         window.postMessage(message, window.location.origin);
       };
 
