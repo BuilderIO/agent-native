@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import {
+  getOrCreateRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import * as errorCapture from "../server/capture-error.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -52,6 +57,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
     markAgentExecutionStepDispatched: vi.fn(async () => {}),
     resetAgentExecutionStepBeforeInvocation: vi.fn(async () => {}),
     markAgentExecutionStepUnknown: vi.fn(async () => {}),
+    recordLateAgentExecutionStepOutcome: vi.fn(async () => {}),
     completeAgentExecutionStep: vi.fn(
       async (intent: AgentExecutionStepIntent, resultJson: string) => {
         durableStep.resultJson = resultJson;
@@ -141,6 +147,143 @@ beforeEach(() => {
   durableStep.resultJson = undefined;
   durableStep.priorEvents = [];
   durableStep.completedSteps = [];
+});
+
+describe("late outcome error reporting", () => {
+  const lateTags = {
+    component: "agent-execution-step",
+    phase: "late-outcome-persistence",
+    tool: "create-deck",
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns an on-time action rejection without reporting a late persistence failure", async () => {
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    const actionError = new Error("Action rejected");
+    const pool = { end: vi.fn(async () => {}) };
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("late-outcome-test", () => pool);
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[toolCall()], [text("Done")]], []),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "Go" }] }],
+          actions: {
+            "create-deck": {
+              tool: {
+                description: "Read a deck",
+                parameters: { type: "object", properties: {} },
+              },
+              readOnly: true,
+              run: async () => {
+                throw actionError;
+              },
+            },
+          },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        isError: true,
+        result: expect.stringContaining("Action rejected"),
+      }),
+    );
+    expect(capture).not.toHaveBeenCalledWith(
+      actionError,
+      expect.objectContaining({ tags: lateTags }),
+    );
+  });
+
+  it.each(["reject", "persistence-fails"] as const)(
+    "reports only a genuine late persistence failure when the interrupted action settles: %s",
+    async (outcome) => {
+      const capture = vi
+        .spyOn(errorCapture, "captureError")
+        .mockImplementation(() => {});
+      const runStore = await import("./run-store.js");
+      const lateWrite = vi.mocked(runStore.recordLateAgentExecutionStepOutcome);
+      lateWrite.mockReset();
+      const persistenceError = new Error("Late journal write failed");
+      lateWrite.mockRejectedValueOnce(persistenceError);
+      const actionStarted = Promise.withResolvers<void>();
+      const actionResult = Promise.withResolvers<string>();
+      const actionError = new Error("Action rejected after interruption");
+      const controller = new AbortController();
+      const pool = { end: vi.fn(async () => {}) };
+      const request = runWithRequestDbPoolScope(true, undefined, async () => {
+        getOrCreateRequestDbPool("late-outcome-test", () => pool);
+        await withExecutionFence(fence, () =>
+          runAgentLoop({
+            engine: engineFor([[toolCall()]], []),
+            model: "test-model",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "Go" }] },
+            ],
+            actions: {
+              "create-deck": {
+                tool: {
+                  description: "Create a deck",
+                  parameters: { type: "object", properties: {} },
+                },
+                readOnly: false,
+                run: () => {
+                  actionStarted.resolve();
+                  return actionResult.promise;
+                },
+              },
+            },
+            threadId: fence.threadId,
+            turnId: fence.turnId,
+            runId: fence.runId,
+            send: () => {},
+            signal: controller.signal,
+          }),
+        );
+      });
+      await actionStarted.promise;
+      controller.abort();
+      await request;
+      expect(pool.end).not.toHaveBeenCalled();
+      if (outcome === "reject") actionResult.reject(actionError);
+      else actionResult.resolve("Deck saved");
+      await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
+      if (outcome === "reject") {
+        expect(lateWrite).not.toHaveBeenCalled();
+        expect(capture).not.toHaveBeenCalledWith(
+          actionError,
+          expect.objectContaining({ tags: lateTags }),
+        );
+      } else {
+        expect(lateWrite).toHaveBeenCalledOnce();
+        expect(lateWrite).toHaveBeenCalledWith(
+          expect.objectContaining({ ...fence, toolName: "create-deck" }),
+          expect.stringContaining('"result":"Deck saved"'),
+        );
+        expect(capture).toHaveBeenCalledWith(
+          persistenceError,
+          expect.objectContaining({
+            aiTraceId: fence.runId,
+            tags: lateTags,
+          }),
+        );
+      }
+    },
+  );
 });
 
 describe("durable execution step replay", () => {

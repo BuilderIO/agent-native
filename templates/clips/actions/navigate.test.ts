@@ -1,3 +1,4 @@
+import { ActionInputValidationError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppStateForCurrentTab = vi.fn();
@@ -86,11 +87,48 @@ describe("clips navigate action", () => {
     expect(result).toBe("Navigating to recording:rec_123:debug");
   });
 
-  it("still rejects empty commands", async () => {
-    await expect(action.run({})).rejects.toThrow(
-      "at least --view or --path is required.",
-    );
-
+  it.each([
+    {},
+    { recordingId: "rec_123" },
+    { path: "" },
+    { path: "   " },
+    { view: "library" as const, path: "" },
+  ])("rejects an invalid destination before writing: %j", async (args) => {
+    const failure = action.run(args);
+    await expect(failure).rejects.toBeInstanceOf(ActionInputValidationError);
+    await expect(failure).rejects.toThrow(/view|path/i);
     expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
+  });
+
+  it("accepts a raw path and preserves other navigation parameters", async () => {
+    const result = await action.run({
+      path: "/library?q=clips",
+      spaceId: "space_123",
+      folderId: "folder_123",
+      shareId: "share_123",
+      search: "clips",
+      atMs: 0,
+    });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      path: "/library?q=clips",
+      spaceId: "space_123",
+      folderId: "folder_123",
+      shareId: "share_123",
+      search: "clips",
+      atMs: 0,
+    });
+    expect(result).toBe("Navigating to /library?q=clips");
+  });
+
+  it("tells the model that view or path is required", () => {
+    expect(action.tool.description).toMatch(/(?:view.*path|path.*view)/i);
+    expect(action.tool.description).toMatch(/nonempty/i);
+    expect(action.tool.description).toMatch(/requir/i);
+    const properties = action.tool.parameters?.properties;
+    expect(properties?.view?.description).toMatch(/path.*requir|requir.*path/i);
+    expect(properties?.view?.description).toMatch(/nonempty/i);
+    expect(properties?.path?.description).toMatch(/view.*requir|requir.*view/i);
+    expect(properties?.path?.description).toMatch(/nonempty/i);
   });
 });
