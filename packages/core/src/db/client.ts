@@ -2315,6 +2315,15 @@ async function createDbExecInternal(
               const { rawSql, args } = sqlAndArgs(sql);
               const { timeoutMs } = dbExecQueryBudget(sql);
               const pgSql = postgresSqlForStatement(sql, rawSql);
+              // The client-side timeout only abandons the promise; without a
+              // server-side bound the statement keeps its row locks and its
+              // pooled connection, as the Neon path already prevents.
+              if (hasExplicitDbTimeout(sql)) {
+                // raw-sql-ok: the interpolated value is a clamped integer, not input.
+                await txSql.unsafe(
+                  `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(timeoutMs)}`,
+                );
+              }
               const result = await withDbTimeout<
                 ArrayLike<unknown> & { count?: number }
               >(

@@ -2424,6 +2424,52 @@ describe("db/client postgres-js request pool recovery", () => {
     vi.resetModules();
   });
 
+  it("bounds explicitly budgeted transaction statements on the server", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string) => {
+        statements.push(query);
+        return Promise.resolve(Object.assign([], { count: 1 }));
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    await runWithRequestDbPoolScope(true, undefined, () =>
+      getDbExec().transaction!(async (tx) => {
+        await tx.execute({
+          sql: "UPDATE agent_execution_leases SET updated_at = now()",
+          timeoutMs: 4_000,
+          maxAttempts: 1,
+        });
+        await tx.execute({ sql: "SELECT 1" });
+      }),
+    );
+
+    expect(statements).toEqual([
+      "SET LOCAL statement_timeout = 3750",
+      "UPDATE agent_execution_leases SET updated_at = now()",
+      "SELECT 1",
+    ]);
+  });
+
   it("keeps the shared facade stable after a request pool times out", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
