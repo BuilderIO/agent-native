@@ -3,7 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
-import { withExecutionFence, withFencedExecutionWrite } from "./execution-fence.js";
+import {
+  withExecutionFence,
+  withFencedExecutionWrite,
+} from "./execution-fence.js";
 import type { ActiveRun } from "./run-manager.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -60,9 +63,15 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: async () => true,
 }));
 
-const { abortRunAndTurnDurably, abortTurnByRefDurably, startRun } = await import("./run-manager.js");
-const { claimTaskExecutionLease, claimTurnExecutionLease, ensureRunTables, insertRun, markRunAborted } =
-  await import("./run-store.js");
+const { abortRunAndTurnDurably, abortTurnByRefDurably, startRun } =
+  await import("./run-manager.js");
+const {
+  claimTaskExecutionLease,
+  claimTurnExecutionLease,
+  ensureRunTables,
+  insertRun,
+  markRunAborted,
+} = await import("./run-store.js");
 const { buildAssistantTurnFromRunJournal } =
   await import("./run-thread-projector.js");
 
@@ -240,21 +249,41 @@ describe("a stopped leased run's completion", () => {
 
   it("finalizes a locally stopped turn without reporting a stale release", async () => {
     const runId = "run-local-turn-abort";
-    const { run, ready } = startStoppableRun({ runId, threadId: "thread-local-turn-abort" });
-    const captures: Array<{ phase?: string; code?: unknown }> = [];
-    const unregister = registerErrorCaptureProvider("local-turn-abort", (error, context) => {
-      captures.push({ phase: context.tags?.phase, code: (error as { code?: unknown })?.code });
+    const { run, ready } = startStoppableRun({
+      runId,
+      threadId: "thread-local-turn-abort",
     });
+    const captures: Array<{ phase?: string; code?: unknown }> = [];
+    const unregister = registerErrorCaptureProvider(
+      "local-turn-abort",
+      (error, context) => {
+        captures.push({
+          phase: context.tags?.phase,
+          code: (error as { code?: unknown })?.code,
+        });
+      },
+    );
     try {
       await ready;
-      await expect(abortTurnByRefDurably(run.threadId, run.turnId, "user")).resolves.toBe("aborted");
+      await expect(
+        abortTurnByRefDurably(run.threadId, run.turnId, "user"),
+      ).resolves.toBe("aborted");
       await expect(run.finalized).resolves.toBeUndefined();
       const { rows } = await pglite.query(
         "SELECT status, terminal_reason FROM agent_runs WHERE id = ?",
         [runId],
       );
-      expect(rows[0]).toMatchObject({ status: "aborted", terminal_reason: "aborted:user" });
-      expect(captures.filter(({ phase }) => phase === "terminal-status-persistence" || phase === "execution-lease-release")).toEqual([]);
+      expect(rows[0]).toMatchObject({
+        status: "aborted",
+        terminal_reason: "aborted:user",
+      });
+      expect(
+        captures.filter(
+          ({ phase }) =>
+            phase === "terminal-status-persistence" ||
+            phase === "execution-lease-release",
+        ),
+      ).toEqual([]);
     } finally {
       unregister();
     }
@@ -389,9 +418,18 @@ describe("a stopped leased run's completion", () => {
   });
 
   it("does not treat a stale parent fence as the stopped worker's lease", async () => {
-    const parent = await claimTaskExecutionLease("parent-task-thread", "parent-task-turn", "parent-task-owner");
+    const parent = await claimTaskExecutionLease(
+      "parent-task-thread",
+      "parent-task-turn",
+      "parent-task-owner",
+    );
     const runId = "run-stopped-under-stale-parent";
-    const { run, ready } = withExecutionFence(parent, () => startStoppableRun({ runId, threadId: "thread-stopped-under-stale-parent" }));
+    const { run, ready } = withExecutionFence(parent, () =>
+      startStoppableRun({
+        runId,
+        threadId: "thread-stopped-under-stale-parent",
+      }),
+    );
     try {
       await ready;
       await markRunAborted(runId, "user");
