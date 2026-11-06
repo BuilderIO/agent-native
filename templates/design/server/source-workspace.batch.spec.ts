@@ -43,6 +43,7 @@ import { eq, sql } from "drizzle-orm";
 import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
+import { designDataWithFrameTypeChange } from "./lib/screen-frame-type-store.js";
 import {
   getDesignSourceMutationExec,
   withDesignSourceMutationTransaction,
@@ -237,6 +238,48 @@ describe("writeInlineSourceFilesBatch", () => {
     expect(JSON.parse(design!.data ?? "{}").screenMetadata).not.toHaveProperty(
       SOURCE_ID,
     );
+  });
+
+  it("commits an explicit frame type change only with its source transaction", async () => {
+    const designData = async () => {
+      const [design] = (
+        await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+      ).rows as Array<{ data: string | null }>;
+      return design!.data;
+    };
+    const writeType = (afterWrite: () => void) =>
+      withDesignSourceMutationTransaction(DESIGN_ID, async (tx) => {
+        const data = await designDataWithFrameTypeChange(tx, {
+          designId: DESIGN_ID,
+          fileId: SOURCE_ID,
+          frameType: "hubspot-email",
+          previousContent: SOURCE_BASE,
+        });
+        await tx
+          .update(schema.designs)
+          .set({ data })
+          .where(eq(schema.designs.id, DESIGN_ID));
+        afterWrite();
+      });
+    const before = await designData();
+
+    await expect(
+      writeType(() => {
+        throw new Error("source write failed");
+      }),
+    ).rejects.toThrow("source write failed");
+    expect(await designData()).toBe(before);
+
+    await writeType(() => {});
+    expect(JSON.parse((await designData()) ?? "{}")).toMatchObject({
+      screenMetadata: {
+        [SOURCE_ID]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+        },
+      },
+    });
   });
 
   it("rolls back prepared collaboration state with the source transaction", async () => {

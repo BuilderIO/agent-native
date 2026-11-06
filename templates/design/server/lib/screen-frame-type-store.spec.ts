@@ -20,11 +20,17 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("./design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
+  InvalidDesignDataError: class InvalidDesignDataError extends Error {},
+}));
+
+vi.mock("../db/index.js", () => ({
+  schema: { designs: { id: { name: "id" }, data: { name: "data" } } },
 }));
 
 import { createHubSpotEmailHtml } from "../../shared/hubspot-email.js";
+import { InvalidDesignDataError } from "./design-data-mutation.js";
 import {
-  changeScreenFrameType,
+  designDataWithFrameTypeChange,
   persistScreenFrameType,
 } from "./screen-frame-type-store.js";
 
@@ -87,8 +93,33 @@ describe("persistScreenFrameType", () => {
   });
 });
 
-describe("changeScreenFrameType", () => {
-  beforeEach(applyMutation);
+describe("designDataWithFrameTypeChange", () => {
+  const lockedRead = vi.fn();
+  const tx = {
+    select: () => ({
+      from: () => ({ where: () => ({ for: lockedRead }) }),
+    }),
+  } as unknown as Parameters<typeof designDataWithFrameTypeChange>[0];
+  const change = async (
+    frameType: "hubspot-email" | "web",
+    previousContent: string,
+  ) => {
+    const data = await designDataWithFrameTypeChange(tx, {
+      designId: "design",
+      fileId: "a",
+      frameType,
+      previousContent,
+    });
+    return data === undefined ? undefined : JSON.parse(data);
+  };
+
+  beforeEach(() => {
+    lockedRead.mockReset();
+    lockedRead.mockImplementation(async (strength: string) => {
+      expect(strength).toBe("update");
+      return [{ data: JSON.stringify(mocks.getDesignData()) }];
+    });
+  });
 
   it("lays out a web screen as an email when it becomes one", async () => {
     mocks.setDesignData({
@@ -97,13 +128,7 @@ describe("changeScreenFrameType", () => {
         a: { width: 1440, height: 900, breakpointWidths: [390, 768] },
       },
     });
-    await changeScreenFrameType({
-      designId: "design",
-      fileId: "a",
-      frameType: "hubspot-email",
-      content: "<main>Promo</main>",
-    });
-    expect(mocks.getDesignData()).toEqual({
+    expect(await change("hubspot-email", "<main>Promo</main>")).toEqual({
       canvasFrames: { a: { x: 10, y: 20, width: 600, height: 900 } },
       screenMetadata: {
         a: {
@@ -125,13 +150,7 @@ describe("changeScreenFrameType", () => {
         a: { width: 600, breakpointWidths: [], frameType: "hubspot-email" },
       },
     });
-    await changeScreenFrameType({
-      designId: "design",
-      fileId: "a",
-      frameType: "web",
-      content: "<main>Promo</main>",
-    });
-    expect(mocks.getDesignData()).toEqual({
+    expect(await change("web", "<main>Promo</main>")).toEqual({
       canvasFrames: { a: { x: 0, y: 0, width: 600, height: 800 } },
       screenMetadata: { a: { width: 600, frameType: "web" } },
     });
@@ -141,13 +160,7 @@ describe("changeScreenFrameType", () => {
     mocks.setDesignData({
       screenMetadata: { a: { width: 1080, breakpointWidths: [] } },
     });
-    await changeScreenFrameType({
-      designId: "design",
-      fileId: "a",
-      frameType: "web",
-      content: "<main>Poster</main>",
-    });
-    expect(mocks.getDesignData()).toEqual({
+    expect(await change("web", "<main>Poster</main>")).toEqual({
       screenMetadata: {
         a: { width: 1080, breakpointWidths: [], frameType: "web" },
       },
@@ -158,13 +171,7 @@ describe("changeScreenFrameType", () => {
     mocks.setDesignData({
       screenMetadata: { a: { width: 600, height: 1200, heightMode: "fixed" } },
     });
-    await changeScreenFrameType({
-      designId: "design",
-      fileId: "a",
-      frameType: "hubspot-email",
-      content: createHubSpotEmailHtml(),
-    });
-    expect(mocks.getDesignData()).toEqual({
+    expect(await change("hubspot-email", createHubSpotEmailHtml())).toEqual({
       screenMetadata: {
         a: {
           width: 600,
@@ -174,5 +181,17 @@ describe("changeScreenFrameType", () => {
         },
       },
     });
+  });
+
+  it("leaves the data alone when the type is already stored", async () => {
+    mocks.setDesignData({ screenMetadata: { a: { frameType: "web" } } });
+    expect(await change("web", "<main>Promo</main>")).toBeUndefined();
+  });
+
+  it("refuses to rewrite design data it cannot read", async () => {
+    lockedRead.mockResolvedValueOnce([{ data: "{not json" }]);
+    await expect(change("web", "<main>Promo</main>")).rejects.toBeInstanceOf(
+      InvalidDesignDataError,
+    );
   });
 });

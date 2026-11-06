@@ -109,7 +109,7 @@ const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
 );
 vi.mock("../server/lib/screen-frame-type-store.js", () => ({
   persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
-  changeScreenFrameType: vi.fn().mockResolvedValue(undefined),
+  designDataWithFrameTypeChange: vi.fn(async () => '{"frameTypeChanged":true}'),
 }));
 
 vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
@@ -134,6 +134,7 @@ const designFilesStore = vi.hoisted(() => ({
 }));
 const designsStore = vi.hoisted(() => ({
   updatedAt: new Map<string, string>(),
+  data: new Map<string, unknown>(),
 }));
 
 const FILE_ID = "file_mirror_1";
@@ -251,6 +252,7 @@ vi.mock("../server/db/index.js", () => {
               DESIGN_ID,
               (values as { updatedAt?: string }).updatedAt ?? "",
             );
+            if ("data" in values) designsStore.data.set(DESIGN_ID, values.data);
           }
           return Promise.resolve({ rowsAffected: 1 });
         },
@@ -264,7 +266,7 @@ import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import {
-  changeScreenFrameType,
+  designDataWithFrameTypeChange,
   persistScreenFrameType,
 } from "../server/lib/screen-frame-type-store.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
@@ -300,6 +302,7 @@ beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
   designsStore.updatedAt.clear();
+  designsStore.data.clear();
   snapshotDesignBeforeAgentEditMock.mockReset();
   snapshotDesignBeforeAgentEditMock.mockResolvedValue(null);
   seedFile(buildDoc());
@@ -1063,41 +1066,64 @@ describe("update-file: typed filename refusals", () => {
 describe("update-file: frame type", () => {
   beforeEach(() => {
     vi.mocked(persistScreenFrameType).mockClear();
-    vi.mocked(changeScreenFrameType).mockClear();
+    vi.mocked(designDataWithFrameTypeChange).mockClear();
   });
 
   it("stores an explicit frame type change without rewriting content", async () => {
     const before = designFilesStore.rows.get(FILE_ID)!.content;
     await updateFileAction.run({ id: FILE_ID, frameType: "web" } as never);
 
-    // oracle-change: an explicit change now goes through changeScreenFrameType, which also applies the type's layout.
-    expect(changeScreenFrameType).toHaveBeenCalledWith({
-      designId: DESIGN_ID,
-      fileId: FILE_ID,
-      frameType: "web",
-      content: before,
-    });
+    // oracle-change: an explicit change now commits in the write transaction with the type's layout.
+    expect(designDataWithFrameTypeChange).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        frameType: "web",
+        previousContent: before,
+      },
+    );
+    expect(designsStore.data.get(DESIGN_ID)).toBe('{"frameTypeChanged":true}');
     expect(persistScreenFrameType).not.toHaveBeenCalled();
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
   });
 
-  it("stores an explicit frame type change before writing content", async () => {
+  it("commits an explicit frame type with the content write", async () => {
     const before = designFilesStore.rows.get(FILE_ID)!.content;
-    const contentAtChange: string[] = [];
-    vi.mocked(changeScreenFrameType).mockImplementationOnce(async () => {
-      contentAtChange.push(designFilesStore.rows.get(FILE_ID)!.content);
-    });
-
     await updateFileAction.run({
       id: FILE_ID,
       content: buildDoc(" email-"),
       frameType: "hubspot-email",
     } as never);
 
-    expect(contentAtChange).toEqual([before]);
+    expect(designDataWithFrameTypeChange).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        frameType: "hubspot-email",
+        previousContent: before,
+      }),
+    );
+    expect(designsStore.data.get(DESIGN_ID)).toBe('{"frameTypeChanged":true}');
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
       buildDoc(" email-"),
     );
+  });
+
+  it("leaves the frame type alone when the content write fails", async () => {
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    const before = designFilesStore.rows.get(FILE_ID)!.content;
+
+    await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" email-"),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+        frameType: "hubspot-email",
+      } as never),
+    );
+
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
   });
 
   it("stores a legacy email type before an edit that removes the marker", async () => {
@@ -1143,7 +1169,7 @@ describe("update-file: frame type", () => {
     );
 
     expect(error).toMatchObject({ paths: ["identityOnly"] });
-    expect(changeScreenFrameType).not.toHaveBeenCalled();
+    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
   });
 
   it("does not touch the frame type of an ordinary content save", async () => {
@@ -1165,6 +1191,6 @@ describe("update-file: frame type", () => {
     );
 
     expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
-    expect(changeScreenFrameType).not.toHaveBeenCalled();
+    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
   });
 });

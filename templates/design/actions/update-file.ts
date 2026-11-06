@@ -19,7 +19,7 @@ import {
   LegacyEmailFrameTypeNotStoredError,
   writeWithLegacyEmailFrameTypes,
 } from "../server/lib/legacy-email-frame-type.js";
-import { changeScreenFrameType } from "../server/lib/screen-frame-type-store.js";
+import { designDataWithFrameTypeChange } from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -425,6 +425,23 @@ export default defineAction({
     let storedLegacyEmailIds: ReadonlySet<string> = new Set();
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
+        // An explicit frame type commits with the content write, so a failed
+        // write leaves neither behind.
+        const touchDesign = async (previousContent: string) => {
+          const data =
+            frameType === undefined
+              ? undefined
+              : await designDataWithFrameTypeChange(tx, {
+                  designId: file.designId,
+                  fileId: id,
+                  frameType,
+                  previousContent,
+                });
+          await tx
+            .update(schema.designs)
+            .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })
+            .where(eq(schema.designs.id, file.designId));
+        };
         await lockDesignFilesTable(tx);
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
@@ -735,10 +752,7 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await tx
-                  .update(schema.designs)
-                  .set({ updatedAt: now })
-                  .where(eq(schema.designs.id, file.designId));
+                await touchDesign(liveContent);
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -762,10 +776,7 @@ export default defineAction({
             applyTextToYDoc(lease.doc, "content", content, "agent");
             await lease.persist(getDesignSourceMutationExec(tx), content);
           }
-          await tx
-            .update(schema.designs)
-            .set({ updatedAt: now })
-            .where(eq(schema.designs.id, file.designId));
+          await touchDesign(liveContent);
           persistedUpdatedAt = now;
           return;
         }
@@ -783,17 +794,6 @@ export default defineAction({
         throw exhausted;
       });
 
-    // Before the content write: a retry of this call re-sends a content hash
-    // that no longer matches once the content has committed, so a type stored
-    // afterwards could never be completed by retrying.
-    if (frameType !== undefined) {
-      await changeScreenFrameType({
-        designId: file.designId,
-        fileId: id,
-        frameType,
-        content: file.content,
-      });
-    }
     try {
       await writeWithLegacyEmailFrameTypes({
         designId: file.designId,

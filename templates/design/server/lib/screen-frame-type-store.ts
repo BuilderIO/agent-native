@@ -1,4 +1,5 @@
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 
 import { parseDesignDataBlob } from "../../shared/full-app.js";
 import {
@@ -8,7 +9,12 @@ import {
   withStoredScreenFrameType,
   type StoredScreenFrameType,
 } from "../../shared/screen-frame-type.js";
-import { mutateDesignData } from "./design-data-mutation.js";
+import { schema } from "../db/index.js";
+import {
+  InvalidDesignDataError,
+  mutateDesignData,
+  type DesignDataMutationTransaction,
+} from "./design-data-mutation.js";
 
 /**
  * Stores a screen's frame type in `screenMetadata`. With `onlyIfAbsent` it is
@@ -43,36 +49,62 @@ export async function persistScreenFrameType({
 }
 
 /**
- * Applies an explicit frame type change, with the layout the new type implies.
- * `content` is the screen's HTML before the change, which decides the previous
- * type of a legacy screen with no stored type.
+ * The serialized design data with an explicit frame type change and its
+ * layout applied, read under a row lock inside the caller's transaction so the
+ * change commits with the caller's source write. Undefined when the type is
+ * already stored. `previousContent` is the screen's HTML before the write,
+ * which decides the previous type of a legacy screen with no stored type.
  */
-export async function changeScreenFrameType({
-  designId,
-  fileId,
-  frameType,
-  content,
-}: {
-  designId: string;
-  fileId: string;
-  frameType: StoredScreenFrameType;
-  content: string | null;
-}): Promise<void> {
-  const settled = (data: unknown) =>
-    storedScreenFrameType(data, fileId) === frameType;
-  const access = await assertAccess("design", designId, "editor");
-  if (settled(parseDesignDataBlob(access.resource.data))) return;
-  await mutateDesignData({
+export async function designDataWithFrameTypeChange(
+  tx: DesignDataMutationTransaction,
+  {
     designId,
-    mutate: (current) =>
-      settled(current)
-        ? current
-        : withScreenFrameTypeLayout(
-            current,
-            fileId,
-            frameType,
-            resolveScreenFrameType({ designData: current, fileId, content }),
-          ),
-    isApplied: settled,
-  });
+    fileId,
+    frameType,
+    previousContent,
+  }: {
+    designId: string;
+    fileId: string;
+    frameType: StoredScreenFrameType;
+    previousContent: string;
+  },
+): Promise<string | undefined> {
+  await assertAccess("design", designId, "editor");
+  const rows = await tx
+    .select({ data: schema.designs.data })
+    .from(schema.designs)
+    .where(eq(schema.designs.id, designId))
+    .for("update");
+  if (rows.length === 0) throw new Error(`Design "${designId}" not found.`);
+  const current = parseStoredDesignData(designId, rows[0].data);
+  if (storedScreenFrameType(current, fileId) === frameType) return undefined;
+  return JSON.stringify(
+    withScreenFrameTypeLayout(
+      current,
+      fileId,
+      frameType,
+      resolveScreenFrameType({
+        designData: current,
+        fileId,
+        content: previousContent,
+      }),
+    ),
+  );
+}
+
+function parseStoredDesignData(
+  designId: string,
+  serialized: string | null,
+): Record<string, unknown> {
+  if (serialized === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new InvalidDesignDataError(designId);
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  throw new InvalidDesignDataError(designId);
 }
