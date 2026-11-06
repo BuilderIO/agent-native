@@ -218,33 +218,10 @@ jobs:
             rust-targets: ""
             args: "--bundles appimage,deb,rpm"
     runs-on: ${{ matrix.os }}
-    env:
-      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
-      GGML_METAL_MACOSX_VERSION_MIN: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          native-canvas-deps: "false"
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libfuse2 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-libav \
-            gstreamer1.0-pipewire
 
       - name: Guard — refuse to release with placeholder updater pubkey
         shell: bash
@@ -256,24 +233,9 @@ jobs:
             exit 1
           fi
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: ./.github/actions/setup-clips-desktop
         with:
-          targets: ${{ matrix.rust-targets }}
-
-      - name: Link Apple compiler runtime for Rust
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          # Xcode emits __isPlatformVersionAtLeast for whisper-rs-sys's
-          # availability checks. Rust's final link does not add compiler-rt.
-          CLANG_RUNTIME="$(xcrun --sdk macosx clang -print-libgcc-file-name)"
-          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: ${{ env.TAURI_APP_PATH }}/src-tauri
+          rust-targets: ${{ matrix.rust-targets }}
 
       - name: Set version
         working-directory: ${{ env.TAURI_APP_PATH }}
@@ -335,31 +297,8 @@ jobs:
           fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
-      - name: Install NASM for x86_64 ffmpeg sidecar
-        if: runner.os == 'macOS'
-        shell: bash
-        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
-
-      - name: Prepare macOS ffmpeg sidecars
-        if: runner.os == 'macOS'
-        working-directory: ${{ env.TAURI_APP_PATH }}
-        shell: bash
-        run: |
-          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
-          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
-
-      - name: Create universal macOS ffmpeg sidecar
-        if: runner.os == 'macOS'
-        working-directory: ${{ env.TAURI_APP_PATH }}/src-tauri
-        shell: bash
-        run: |
-          lipo -create \
-            binaries/ffmpeg-aarch64-apple-darwin \
-            binaries/ffmpeg-x86_64-apple-darwin \
-            -output binaries/ffmpeg-universal-apple-darwin
-          chmod +x binaries/ffmpeg-universal-apple-darwin
-          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
-
+      # clips-desktop-build-check.yml runs this step without the secrets or
+      # releaseId; keep the two in step.
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
@@ -449,22 +388,24 @@ jobs:
         shell: bash
         run: |
           RELEASE_TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
-          mkdir -p manifest/signatures
-          gh release view "$RELEASE_TAG" --json assets,body > manifest/release.json
-          SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' manifest/release.json)
+          # Not manifest/: the pointer step downloads latest.json there and
+          # fails when the file already exists.
+          mkdir -p updater/signatures
+          gh release view "$RELEASE_TAG" --json assets,body > updater/release.json
+          SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' updater/release.json)
           if [ "$SIGNATURES" -eq 0 ]; then
             echo "⚠️ No .sig files in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured; writing no updater manifest."
             exit 0
           fi
-          gh release download "$RELEASE_TAG" --pattern '*.sig' --dir manifest/signatures
+          gh release download "$RELEASE_TAG" --pattern '*.sig' --dir updater/signatures
           # One required key per build in the build-tauri matrix.
           node --experimental-strip-types scripts/clips-updater-manifest.ts \
-            --release manifest/release.json \
-            --signatures manifest/signatures \
+            --release updater/release.json \
+            --signatures updater/signatures \
             --version "$RELEASE_VERSION" \
             --require darwin-universal,windows-x86_64,linux-x86_64 \
-            > manifest/latest.json
-          gh release upload "$RELEASE_TAG" manifest/latest.json --clobber
+            > updater/latest.json
+          gh release upload "$RELEASE_TAG" updater/latest.json --clobber
 
       - name: Mark versioned release as published
         env:

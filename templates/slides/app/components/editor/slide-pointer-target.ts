@@ -409,6 +409,9 @@ export function clampSelectionToTextRoot(
 ): void {
   const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
   if (!anchorNode || !focusNode) return;
+  const tree = root.getRootNode();
+  if (anchorNode.getRootNode() !== tree || focusNode.getRootNode() !== tree)
+    return;
   if (root.contains(anchorNode) && root.contains(focusNode)) return;
   const bounds = root.ownerDocument.createRange();
   bounds.selectNodeContents(root);

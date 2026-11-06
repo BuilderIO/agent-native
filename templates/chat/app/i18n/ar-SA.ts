@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى محادثة…",
+    group: "المحادثات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   composer: {
     removeAttachment: "إزالة {{name}}",
     removeReference: "إزالة مرجع {{name}}",
