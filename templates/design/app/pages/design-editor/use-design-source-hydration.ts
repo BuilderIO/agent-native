@@ -169,13 +169,15 @@ export function useDesignSourceHydration(
     const roots = previewIds.filter((id) => !demanded.has(id));
     if (!loader)
       return { ids: roots, statusByRoot: new Map(), idsByRoot: new Map() };
+    // The byte budget decides which previews load; an id cap here would
+    // count every loaded root and dependency and turn later previews away
+    // for good.
     const scheduled = scheduleSourceDependencies(
       files,
       roots,
       (id) => loader.get(id),
-      128,
+      Number.POSITIVE_INFINITY,
       dependencyIndex,
-      { readRootsPastBudget: false },
     );
     const ids = scheduled.ids.filter((id) => !demanded.has(id));
     const upcoming = {

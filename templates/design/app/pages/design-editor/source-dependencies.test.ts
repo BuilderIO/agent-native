@@ -172,57 +172,6 @@ describe("source dependencies", () => {
     expect(result.statusByRoot.get("active")).toBe("loading");
     expect(result.statusByRoot.get("other")).toBe("loading");
   });
-  it("does not read a preview root past the budget, but keeps a loaded one", () => {
-    const files = [
-      { id: "active", filename: "index.html" },
-      { id: "one", filename: "one.css" },
-      { id: "two", filename: "two.css" },
-      { id: "other", filename: "other.html" },
-      { id: "loaded", filename: "loaded.html" },
-      { id: "loaded-css", filename: "loaded.css" },
-    ];
-    const states = new Map<string, SourceHydrationState>([
-      [
-        "active",
-        {
-          status: "ready",
-          content: '<link href="one.css"><link href="two.css">',
-          updatedAt: "1",
-        },
-      ],
-      [
-        "loaded",
-        {
-          status: "ready",
-          content: '<link href="loaded.css">',
-          updatedAt: "1",
-        },
-      ],
-    ]);
-    const result = scheduleSourceDependencies(
-      files,
-      ["active", "other", "loaded"],
-      (id) => states.get(id) ?? { status: "unloaded" },
-      3,
-      undefined,
-      { readRootsPastBudget: false },
-    );
-    expect(result.ids).toEqual(["active", "one", "two", "loaded"]);
-    expect(result.statusByRoot.get("other")).toBe("deferred");
-    expect(result.statusByRoot.get("loaded")).toBe("deferred");
-    states.set("other", { status: "loading" });
-    const reading = scheduleSourceDependencies(
-      files,
-      ["active", "other"],
-      (id) => states.get(id) ?? { status: "unloaded" },
-      3,
-      undefined,
-      { readRootsPastBudget: false },
-    );
-    // A read already under way keeps going and reports as such.
-    expect(reading.ids).toContain("other");
-    expect(reading.statusByRoot.get("other")).toBe("loading");
-  });
   it("defers only the dependencies of a loaded root once the budget is full", () => {
     const files = [
       { id: "active", filename: "index.html" },

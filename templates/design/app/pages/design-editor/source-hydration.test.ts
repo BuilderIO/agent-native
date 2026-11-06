@@ -803,3 +803,65 @@ it("never reports a preview that fits the budget as deferred before it starts lo
   expect(statuses).not.toContain("deferred");
   await act(async () => root.unmount());
 });
+
+it("loads every preview and its dependencies, however many previews there are", async () => {
+  const count = 96;
+  const files = Array.from({ length: count }, (_, index) => [
+    {
+      id: `screen-${index}`,
+      filename: `screen-${index}.html`,
+      updatedAt: "1",
+      contentBytes: 40,
+    },
+    {
+      id: `style-${index}`,
+      filename: `style-${index}.css`,
+      updatedAt: "1",
+      contentBytes: 4,
+    },
+  ]).flat();
+  callAction.mockReset();
+  callAction.mockImplementation(
+    async (_action: string, { fileId }: { fileId: string }) => ({
+      files: [
+        {
+          id: fileId,
+          updatedAt: "1",
+          content: fileId.startsWith("screen-")
+            ? `<link href="${fileId.replace("screen", "style")}.css">`
+            : "body{}",
+        },
+      ],
+    }),
+  );
+  const empty = new Set<string>();
+  const none: string[] = [];
+  const previews = files
+    .filter((file) => file.id.startsWith("screen-"))
+    .map((file) => file.id);
+  let current: ReturnType<typeof useDesignSourceHydration> | undefined;
+  function Harness() {
+    current = useDesignSourceHydration(
+      "design",
+      files,
+      none,
+      empty,
+      empty,
+      previews,
+    );
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Harness));
+  });
+  await vi.waitFor(() => {
+    expect(
+      previews.filter(
+        (id) => current?.dependencyStatusByRoot.get(id) !== "ready",
+      ),
+    ).toEqual([]);
+  });
+  await act(async () => root.unmount());
+});
