@@ -1077,11 +1077,25 @@ function hasUnsupportedResultClaim(text: string): boolean {
 function hasNumericSqlProjection(sql: string): boolean {
   // Keep quoted text opaque and comments out of the projection scan; the
   // separate factual-claim check still inspects the original SQL.
-  const tokens =
-    sql.match(
-      /--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|(\$[a-z_][a-z_0-9]*\$|\$\$)[\s\S]*?\1|'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/gi,
-    ) ?? [];
-  const code = tokens.filter((token) => !/^(?:--|#|\/\*)/.test(token));
+  const tokenPattern =
+    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
+  const code: string[] = [];
+  let position = 0;
+  while (position < sql.length) {
+    tokenPattern.lastIndex = position;
+    const match = tokenPattern.exec(sql);
+    if (!match) break;
+    const token = match[0];
+    position = tokenPattern.lastIndex;
+    if (/^\$(?:[a-z_][a-z_0-9]*)?\$$/i.test(token)) {
+      const end = sql.indexOf(token, position);
+      code.push("'quoted'");
+      if (end === -1) break;
+      position = end + token.length;
+    } else if (!/^(?:\s|--|#|\/\*)/.test(token)) {
+      code.push(token);
+    }
+  }
   const numeric = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
   const endProjection =
     /^(?:from|where|group|order|having|qualify|limit|offset|fetch|union|intersect|except|window|;)$/i;
@@ -1105,17 +1119,11 @@ function hasNumericSqlProjection(sql: string): boolean {
     if (expression[0] === "+" || expression[0] === "-") {
       expression = expression.slice(1);
     }
-    return (
-      numeric.test(expression[0] ?? "") &&
-      (expression.length === 1 || /^[+*/%-]$/.test(expression[1]))
-    );
+    return expression.length === 1 && numeric.test(expression[0] ?? "");
   }
 
-  let statementDepth = 0;
   for (let i = 0; i < code.length; i++) {
-    if (code[i] === "(") statementDepth++;
-    else if (code[i] === ")") statementDepth--;
-    if (statementDepth !== 0 || !/^select$/i.test(code[i])) continue;
+    if (!/^select$/i.test(code[i])) continue;
     let depth = 0;
     let projection: string[] = [];
     for (let j = i + 1; j < code.length; j++) {

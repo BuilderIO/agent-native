@@ -1569,9 +1569,8 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     "SELECT IF(category IN (1, 2), COALESCE(value, 3), 4) FROM events",
     "SELECT 1 IN (1, 2) AS matches FROM events",
     "SELECT category FROM events WHERE value IN (SELECT value FROM events WHERE category IN (1, 2))",
-    "SELECT category FROM events WHERE EXISTS (SELECT 1 FROM events)",
-    "SELECT category FROM events WHERE value IN (SELECT 1 UNION ALL SELECT 2)",
-    "WITH sample AS (SELECT 42 AS value) SELECT value FROM sample",
+    "SELECT 100 * revenue / amount AS ratio FROM events",
+    "SELECT (100 * revenue / amount) AS ratio FROM events",
     "SELECT 'text, 42' AS label FROM events",
     "SELECT 'isn''t SELECT 42' AS label FROM events",
     "SELECT $tag$SELECT 42$tag$ AS label FROM events",
@@ -1594,17 +1593,34 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     "SELECT 1e3 AS value",
     "SELECT category, .5E-2 AS value FROM events",
     "SELECT category, ((42)) AS value FROM events",
-    "SELECT 42 + value AS result FROM events",
+    "WITH sample AS (SELECT 42 AS value) SELECT value FROM sample",
+    "SELECT value FROM (SELECT DISTINCT 1e3 AS value)",
+    "SELECT (SELECT 42) AS value",
+    "SELECT category FROM events WHERE EXISTS (SELECT 1 FROM events)",
+    "SELECT category FROM events WHERE value IN (SELECT 1 UNION ALL SELECT 2)",
     "SELECT category, 42 AS value FROM events WHERE category IN (1, 2)",
     "SELECT category FROM events UNION ALL SELECT 42 AS category",
   ])("detects numeric SQL result projections: %s", (sql) => {
     expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(true);
   });
 
+  it("treats an unterminated dollar quote as opaque even with many distinct tags", () => {
+    const tags = Array.from(
+      { length: 1000 },
+      (_, index) => `$tag${index}$`,
+    ).join(" ");
+    expect(
+      draftClaimsAnalyticsMetrics(
+        `\`\`\`sql\nSELECT ${tags} SELECT 42\n\`\`\``,
+      ),
+    ).toBe(false);
+  });
+
   it("preserves factual claims in SQL comments and surrounding prose", () => {
     for (const draft of [
       "```sql\nSELECT value FROM events WHERE value IN (1, 2) -- 42 users\n```",
       "```sql\nSELECT value FROM events /* Signups were 42. */\n```",
+      "```sql\nSELECT 100 * revenue / total AS ratio FROM events\n```",
       "Signups were 42.\n```sql\nSELECT value FROM events WHERE value IN (1, 2)\n```",
     ]) {
       expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
