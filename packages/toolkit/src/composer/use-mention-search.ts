@@ -3,7 +3,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem } from "./types.js";
 
-function parseMentionBatch(line: string): MentionItem[] {
+function parseMentionBatch(
+  line: string,
+): { items: MentionItem[] } | { error: Error } {
   const data: unknown = JSON.parse(line);
   if (
     data &&
@@ -14,7 +16,7 @@ function parseMentionBatch(line: string): MentionItem[] {
     "message" in data.error &&
     typeof data.error.message === "string"
   )
-    throw new Error(data.error.message);
+    return { error: new Error(data.error.message) };
   if (
     !data ||
     typeof data !== "object" ||
@@ -34,7 +36,7 @@ function parseMentionBatch(line: string): MentionItem[] {
   ) {
     throw new Error("Invalid mention search response");
   }
-  return data.items as MentionItem[];
+  return { items: data.items as MentionItem[] };
 }
 export async function loadWorkspaceMentionItems(
   query: string,
@@ -56,7 +58,11 @@ export async function loadWorkspaceMentionItems(
   return body
     .split("\n")
     .filter((line) => line.trim())
-    .flatMap(parseMentionBatch);
+    .flatMap((line) => {
+      const batch = parseMentionBatch(line);
+      if ("error" in batch) throw batch.error;
+      return batch.items;
+    });
 }
 
 export function useMentionSearch(
@@ -108,15 +114,20 @@ export function useMentionSearch(
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        const sourceError: { current: Error | null } = { current: null };
         const receive = (line: string) => {
           if (!line.trim()) return;
           const batch = parseMentionBatch(line);
+          if ("error" in batch) {
+            sourceError.current ??= batch.error;
+            return;
+          }
           if (id !== requestIdRef.current || abort.signal.aborted) return;
           setItems((previous) => {
             const seen = new Set(previous.map((item) => item.id));
             return [
               ...previous,
-              ...batch.filter((item) => {
+              ...batch.items.filter((item) => {
                 if (seen.has(item.id)) return false;
                 seen.add(item.id);
                 return true;
@@ -142,8 +153,10 @@ export function useMentionSearch(
         }
         // Only a completed search settles its query: a failed one is unknown,
         // not empty, and must not read as "nothing matches".
-        if (id === requestIdRef.current && !abort.signal.aborted)
-          setSettledQuery(query);
+        if (id === requestIdRef.current && !abort.signal.aborted) {
+          if (sourceError.current) setError(sourceError.current);
+          else setSettledQuery(query);
+        }
       } catch (err: unknown) {
         if (abort.signal.aborted) return;
         if (id === requestIdRef.current)

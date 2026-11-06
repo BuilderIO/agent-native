@@ -21,5 +21,11 @@ export function useClipsComposerMenuItems(): ComposerContextMenuItem[] {
 export function ClipsComposerContextProvider({
   children,
 }: AssistantChatComposerContextProviderProps) {
-  return children({ menuItems: useClipsComposerMenuItems() });
+  return children({
+    menuItems: useClipsComposerMenuItems(),
+    contextItems: [],
+    onRemoveContextItem: () => {},
+    prepareSubmission: async (snapshot) => snapshot,
+    submissionAccepted: () => {},
+  });
 }

@@ -4,6 +4,12 @@ import { isPersistableAttachmentReferenceUrl } from "@agent-native/agentkit/prot
 
 import { agentNativePath } from "../api-path.js";
 
+export function fileUploadUrlForChatApi(apiUrl: string): string {
+  return apiUrl.endsWith("/agent-chat")
+    ? `${apiUrl.slice(0, -"/agent-chat".length)}/file-upload`
+    : agentNativePath("/_agent-native/file-upload");
+}
+
 export function createAgentNativeUploadRuntime(
   options: {
     url?: string;

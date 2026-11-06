@@ -1,4 +1,3 @@
-import { readFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   IconId,
   IconThumbUpFilled,
@@ -113,7 +112,6 @@ import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.j
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
-import { FileStorageSetupPopover } from "../../chat/FileStorageSetupPopover.js";
 import {
   ApprovalCard,
   approvalOptionDecision,
@@ -6542,7 +6540,6 @@ export function AgentKitComposer({
   };
   const coreFileStorageSetup = useContext(CoreFileStorageSetupContext);
   const storageAnchorRef = useRef<HTMLDivElement>(null);
-  const storageInputRef = useRef<HTMLInputElement>(null);
   const [storageState, setStorageState] = useState<
     "unknown" | "pending" | "ready" | "missing" | "unavailable"
   >("unknown");
@@ -6570,46 +6567,41 @@ export function AgentKitComposer({
     scope: typeof storageScope;
     pending: Promise<{ configured: boolean }>;
   } | null>(null);
-  const requestCoreAttachment = useCallback(
-    async (chooseFile = true) => {
-      const isCurrentScope = () => storageScope.current;
-      if (!canUpload || !isCurrentScope()) return "stale" as const;
-      setStorageState("pending");
-      changeStorageOpen(false);
-      const previous = storageReadRef.current;
-      const sharedRead =
-        previous?.scope === storageScope ? previous.pending : null;
-      const pending = sharedRead ?? readFileUploadStatus();
-      storageReadRef.current = { scope: storageScope, pending };
-      try {
-        const status = await pending;
-        if (!isCurrentScope()) return "stale" as const;
-        setStorageState(status.configured ? "ready" : "missing");
-        changeStorageOpen(!status.configured);
-        if (status.configured && chooseFile && !sharedRead)
-          storageInputRef.current?.click();
-        return status.configured ? ("ready" as const) : ("missing" as const);
-      } catch (error) {
-        if (!isCurrentScope()) return "stale" as const;
-        setStorageState("unavailable");
-        changeStorageOpen(true);
-        onAttachmentError?.(
-          formatAttachmentError(error, labels.dropFileFailed),
-        );
-        return "unavailable" as const;
-      } finally {
-        const currentRead = () => storageReadRef.current;
-        if (currentRead()?.pending === pending) storageReadRef.current = null;
-      }
-    },
-    [
-      canUpload,
-      storageScope,
-      onAttachmentError,
-      labels.dropFileFailed,
-      changeStorageOpen,
-    ],
-  );
+  const requestCoreAttachment = useCallback(async () => {
+    const isCurrentScope = () => storageScope.current;
+    if (!canUpload || !isCurrentScope() || !coreFileStorageSetup)
+      return "stale" as const;
+    setStorageState("pending");
+    changeStorageOpen(false);
+    const previous = storageReadRef.current;
+    const sharedRead =
+      previous?.scope === storageScope ? previous.pending : null;
+    const pending = sharedRead ?? coreFileStorageSetup.readStatus();
+    storageReadRef.current = { scope: storageScope, pending };
+    try {
+      const status = await pending;
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState(status.configured ? "ready" : "missing");
+      changeStorageOpen(!status.configured);
+      return status.configured ? ("ready" as const) : ("missing" as const);
+    } catch (error) {
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState("unavailable");
+      changeStorageOpen(true);
+      onAttachmentError?.(formatAttachmentError(error, labels.dropFileFailed));
+      return "unavailable" as const;
+    } finally {
+      const currentRead = () => storageReadRef.current;
+      if (currentRead()?.pending === pending) storageReadRef.current = null;
+    }
+  }, [
+    canUpload,
+    coreFileStorageSetup,
+    storageScope,
+    onAttachmentError,
+    labels.dropFileFailed,
+    changeStorageOpen,
+  ]);
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
   const composerInitialText = editingMessage
@@ -6764,7 +6756,7 @@ export function AgentKitComposer({
       );
     }
     if (files.length && coreFileStorageSetup) {
-      const status = await requestCoreAttachment(false);
+      const status = await requestCoreAttachment();
       if (status !== "ready") {
         throw new Error(
           composerTranslate(
@@ -7035,20 +7027,7 @@ export function AgentKitComposer({
       >
         {coreFileStorageSetup && canUpload && (
           <>
-            <input
-              ref={storageInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = "";
-                void Promise.all(files.map(addDroppedAttachment)).catch(
-                  () => undefined,
-                );
-              }}
-            />
-            <FileStorageSetupPopover
+            <coreFileStorageSetup.Setup
               open={storageOpen}
               anchorRef={storageAnchorRef}
               onOpenChange={(open) => {
@@ -7056,7 +7035,7 @@ export function AgentKitComposer({
                 if (!open) composerRef.current?.focus();
               }}
               onConnected={() => {
-                void requestCoreAttachment(false);
+                void requestCoreAttachment();
               }}
               {...(storageState === "unavailable"
                 ? {
@@ -7298,14 +7277,7 @@ export function AgentKitComposer({
           stopButton={stopButton === undefined ? defaultStopButton : stopButton}
           noticeOutlet
           attachmentsEnabled={canUpload}
-          onAttachmentRequest={
-            onAttachmentRequest ??
-            (coreFileStorageSetup && canUpload
-              ? () => {
-                  void requestCoreAttachment();
-                }
-              : undefined)
-          }
+          onAttachmentRequest={onAttachmentRequest}
           contextButtonTooltipDisabled={
             contextButtonTooltipDisabled || storageOpen
           }

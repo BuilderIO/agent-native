@@ -445,7 +445,9 @@ export function useSlidesComposerContext({
           );
           return {
             hasMore: Boolean(result.nextCursor),
-            nextCursor: result.nextCursor,
+            ...(result.nextCursor !== undefined
+              ? { nextCursor: result.nextCursor }
+              : {}),
             items: result.decks.map((deck) => ({
               id: deck.id,
               title: deck.title,
@@ -499,12 +501,17 @@ export function useSlidesComposerContext({
                 ? [selection.designSystemId]
                 : [],
               items: systems,
-              loading: systemsLoading,
-              error: systemsError
-                ? (actionErrorMessage(systemsError) ??
-                  t("home.context.loadFailed"))
-                : undefined,
-              onRetry: retrySystems,
+              ...(systemsLoading !== undefined
+                ? { loading: systemsLoading }
+                : {}),
+              ...(systemsError
+                ? {
+                    error:
+                      actionErrorMessage(systemsError) ??
+                      t("home.context.loadFailed"),
+                  }
+                : {}),
+              ...(retrySystems ? { onRetry: retrySystems } : {}),
               emptyMessage: systems.length
                 ? t("home.context.empty")
                 : t("home.context.noSystems"),
@@ -512,13 +519,15 @@ export function useSlidesComposerContext({
                 label: t("home.context.createSystem"),
                 onSelect: onCreateDesignSystem,
               },
-              clearSelection: selection.designSystemId
+              ...(selection.designSystemId
                 ? {
-                    label: t("home.none"),
-                    onSelect: () =>
-                      save({ ...selection, designSystemId: null }),
+                    clearSelection: {
+                      label: t("home.none"),
+                      onSelect: () =>
+                        save({ ...selection, designSystemId: null }),
+                    },
                   }
-                : undefined,
+                : {}),
               onSelect: (item) => {
                 if (!activeRef.current || activeIdentity.current !== identity)
                   throw new Error(t("home.context.loadFailed"));

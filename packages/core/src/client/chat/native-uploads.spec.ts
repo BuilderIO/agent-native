@@ -4,9 +4,19 @@ import { persistableFilePart } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
-import { createAgentNativeUploadRuntime } from "./native-uploads.js";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "./native-uploads.js";
 
 describe("native AgentKit uploads", () => {
+  it("uses the configured chat server for file uploads", () => {
+    expect(
+      fileUploadUrlForChatApi(
+        "https://chat.example.test/base/_agent-native/agent-chat",
+      ),
+    ).toBe("https://chat.example.test/base/_agent-native/file-upload");
+  });
   it.each(["create", "complete"] as const)(
     "does not mix Core upload state with a custom %s operation",
     async (operation) => {

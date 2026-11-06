@@ -178,7 +178,7 @@ test("home context actions wait for the organization draft scope", async ({
     await expect(addContext).toBeEnabled({ timeout: 30_000 });
     await addContext.click();
     await expect(
-      page.getByRole("menuitem", { name: "Reference a design…", exact: true }),
+      page.getByRole("menuitem", { name: "Reference a design", exact: true }),
     ).toBeVisible();
   } finally {
     releaseOrganization();

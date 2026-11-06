@@ -120,9 +120,7 @@ describe("Google Slides as chat context", () => {
     render(<Harness />);
     open();
     fill();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Attach", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Attach$/ }));
     await waitFor(() =>
       expect(screen.getByTestId("chips").textContent).toContain(
         "Planning reference: ready",
@@ -157,9 +155,7 @@ describe("Google Slides as chat context", () => {
     render(<Harness />);
     open();
     fill();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Attach", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Attach$/ }));
     await waitFor(() =>
       expect(screen.getByTestId("chips").textContent).toContain("ready"),
     );
@@ -181,15 +177,11 @@ describe("Google Slides as chat context", () => {
     render(<Harness />);
     const opener = open();
     fill();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Attach", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Attach$/ }));
     await screen.findByText("Presentation access was denied");
     expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe(url);
     expect(model.selection.references).toEqual([]);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cancel", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
@@ -203,9 +195,7 @@ describe("Google Slides as chat context", () => {
     const view = render(<Harness />);
     open();
     fill();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Attach", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Attach$/ }));
     const signal = mocks.action.mock.calls[0]?.[2]?.signal as
       | AbortSignal
       | undefined;
@@ -224,9 +214,7 @@ describe("Google Slides as chat context", () => {
     open();
     fill("https://example.com/presentation");
     expect(
-      screen
-        .getByRole("button", { name: "Attach", exact: true })
-        .hasAttribute("disabled"),
+      screen.getByRole("button", { name: /^Attach$/ }).hasAttribute("disabled"),
     ).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(
       en.home.context.googleSlides.invalid,
@@ -237,9 +225,7 @@ describe("Google Slides as chat context", () => {
     const view = render(<Harness draftScope="review-thread-one" />);
     open();
     fill();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Attach", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Attach$/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() =>
       expect(screen.getByTestId("chips").textContent).toContain(

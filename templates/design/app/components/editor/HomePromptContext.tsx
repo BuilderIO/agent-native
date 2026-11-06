@@ -41,7 +41,7 @@ import {
   TEMPLATE_CONTEXT_KEY,
 } from "@/lib/composer-context";
 
-type SourceItem = { id: string; title: string; url?: string };
+type SourceItem = { id: string; title: string; url?: string | undefined };
 const sourceSchema = z.enum([
   "design",
   "slides",
@@ -51,7 +51,7 @@ const sourceSchema = z.enum([
 ]);
 type Source = z.infer<typeof sourceSchema>;
 type BrowseSource = Exclude<Source, "website" | "integration">;
-type Reference = SourceItem & { source: Source; figmaUrl?: string };
+type Reference = SourceItem & { source: Source; figmaUrl?: string | undefined };
 
 function referenceKey(reference: Reference) {
   const scope =
@@ -507,7 +507,7 @@ export function useHomePromptContext({
               },
             },
           }
-        : capabilities.data?.sources.figma.available
+        : capabilities.data.sources.figma.available
           ? { picker: referencePicker("figma") }
           : {
               picker: {
@@ -560,7 +560,9 @@ export function useHomePromptContext({
             items: result.designs.map((design) => ({
               id: design.id,
               title: design.title,
-              description: design.description,
+              ...(design.description !== undefined
+                ? { description: design.description }
+                : {}),
               preview: (
                 <DesignThumbnail
                   html={design.previewHtml ?? null}
@@ -580,80 +582,77 @@ export function useHomePromptContext({
         },
       },
     },
-    ...(systemsEnabled
-      ? [
-          {
-            id: "system",
-            order: 30,
-            icon: <IconLayoutGrid />,
-            label: t("homeContext.useDesignSystem"),
-            picker: {
-              presentation: { type: "dialog", mode: "single" },
-              scopeKey: identity,
-              searchPlaceholder: t("homeContext.searchSystems"),
-              selectedIds: systemId ? [systemId] : [],
-              items: systems.map((system) => ({
-                id: system.id,
-                title: system.title,
-                disabled: !system.ready,
-              })),
-              loading: systemsLoading,
-              error: systemsError
-                ? (actionErrorMessage(systemsError) ?? loadFailed)
-                : undefined,
-              onRetry: retrySystems,
-              emptyMessage: systems.length
-                ? t("homeContext.empty")
-                : t("homeContext.noSystems"),
-              footerAction: {
-                label: t("homeContext.createSystem"),
-                renderLink: (children) => (
-                  <Link to="/design-systems/setup">{children}</Link>
-                ),
-              },
-              clearSelection: systemId
-                ? {
-                    label: t("homeContext.none"),
-                    onSelect: () => onSystemChange(null),
-                  }
-                : undefined,
-              onSelect: (item) => {
-                if (!activeRef.current || identityRef.current !== identity)
-                  throw new Error(loadFailed);
-                onSystemChange(item.id);
-              },
-            },
-          } satisfies ComposerContextMenuItem,
-        ]
-      : []),
-    {
-      id: "website-reference",
-      order: 30,
-      icon: <IconWorld />,
-      label: t("homeContext.websiteReferenceMenu"),
-      intent: "add-context",
-      picker: {
-        scopeKey: identity,
-        presentation: { type: "dialog", mode: "url" },
-        searchPlaceholder: t("homeContext.websiteUrl"),
-        link: {
-          label: t("homeContext.websiteUrlLabel"),
-          placeholder: t("homeContext.websiteUrl"),
-          submitLabel: t("homeContext.websiteReference"),
-          validate: (url) =>
-            url.trim().length <= 2048 &&
-            !new URL(url).username &&
-            !new URL(url).password
-              ? undefined
-              : t("homeContext.invalidWebsiteUrl"),
-        },
-        onSelect: (item) =>
-          attachBatch([
-            { ...item, source: "website", url: item.url ?? item.id },
-          ]),
-      },
-    },
   ];
+  if (systemsEnabled)
+    menuItems.push({
+      id: "system",
+      order: 30,
+      icon: <IconLayoutGrid />,
+      label: t("homeContext.useDesignSystem"),
+      picker: {
+        presentation: { type: "dialog", mode: "single" },
+        scopeKey: identity,
+        searchPlaceholder: t("homeContext.searchSystems"),
+        selectedIds: systemId ? [systemId] : [],
+        items: systems.map((system) => ({
+          id: system.id,
+          title: system.title,
+          disabled: !system.ready,
+        })),
+        ...(systemsLoading !== undefined ? { loading: systemsLoading } : {}),
+        ...(systemsError
+          ? { error: actionErrorMessage(systemsError) ?? loadFailed }
+          : {}),
+        ...(retrySystems ? { onRetry: retrySystems } : {}),
+        emptyMessage: systems.length
+          ? t("homeContext.empty")
+          : t("homeContext.noSystems"),
+        footerAction: {
+          label: t("homeContext.createSystem"),
+          renderLink: (children) => (
+            <Link to="/design-systems/setup">{children}</Link>
+          ),
+        },
+        ...(systemId
+          ? {
+              clearSelection: {
+                label: t("homeContext.none"),
+                onSelect: () => onSystemChange(null),
+              },
+            }
+          : {}),
+        onSelect: (item) => {
+          if (!activeRef.current || identityRef.current !== identity)
+            throw new Error(loadFailed);
+          onSystemChange(item.id);
+        },
+      },
+    } satisfies ComposerContextMenuItem);
+  menuItems.push({
+    id: "website-reference",
+    order: 30,
+    icon: <IconWorld />,
+    label: t("homeContext.websiteReferenceMenu"),
+    intent: "add-context",
+    picker: {
+      scopeKey: identity,
+      presentation: { type: "dialog", mode: "url" },
+      searchPlaceholder: t("homeContext.websiteUrl"),
+      link: {
+        label: t("homeContext.websiteUrlLabel"),
+        placeholder: t("homeContext.websiteUrl"),
+        submitLabel: t("homeContext.websiteReference"),
+        validate: (url) =>
+          url.trim().length <= 2048 &&
+          !new URL(url).username &&
+          !new URL(url).password
+            ? undefined
+            : t("homeContext.invalidWebsiteUrl"),
+      },
+      onSelect: (item) =>
+        attachBatch([{ ...item, source: "website", url: item.url ?? item.id }]),
+    },
+  });
   const remove = (key: string) => {
     if (key === "design-context-draft") {
       saveDraft();

@@ -74,7 +74,10 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
-import { createAgentNativeUploadRuntime } from "./native-uploads.js";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "./native-uploads.js";
 import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import { runOutcomeForCode } from "./run-outcome.js";
 import {
@@ -2906,9 +2909,7 @@ export function createAgentNativeAgentKitTransport(
   const defaultUploads =
     !options.operations?.createUpload && !options.operations?.completeUpload
       ? createAgentNativeUploadRuntime({
-          url: apiUrl.endsWith("/agent-chat")
-            ? `${apiUrl.slice(0, -"/agent-chat".length)}/file-upload`
-            : agentNativePath("/_agent-native/file-upload"),
+          url: fileUploadUrlForChatApi(apiUrl),
           fetch: fetcher,
           headers: (threadId) => headers({ sessionId: threadId }),
         })

@@ -229,10 +229,7 @@
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
-      "protectedImports": [
-        "@agent-native/core/client/uploads",
-        "@agent-native/core/client/use-action"
-      ]
+      "protectedImports": ["@agent-native/core/client/use-action"]
     },
     {
       "id": "toolkit/app-chat",

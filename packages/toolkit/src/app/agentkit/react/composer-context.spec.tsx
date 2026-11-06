@@ -19,6 +19,7 @@ import type {
   ComposerContextMenuItem,
 } from "../../../agentkit.js";
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import { FileStorageSetupPopover } from "../../chat/FileStorageSetupPopover.js";
 import {
   AgentKitChat,
   AgentKitComposer,
@@ -120,58 +121,6 @@ function withActiveRun(runtime: ReturnType<typeof transport>) {
 }
 
 describe("AgentKit composer context submission", () => {
-  it.each(["ready", "missing", "unavailable"] as const)(
-    "checks storage lazily and preserves the upload entry when %s",
-    async (state) => {
-      const runtime = {
-        ...transport(),
-        capabilities: { uploads: true },
-      } satisfies AgentTransport;
-      client = new AgentKitClient({ transport: runtime });
-      if (state === "unavailable")
-        capture.storageStatus.mockRejectedValue(new Error("Status denied"));
-      else
-        capture.storageStatus.mockResolvedValue({
-          configured: state === "ready",
-        });
-      await act(async () =>
-        root.render(
-          <AgentKitProvider controller={client} threadId="thread-1">
-            <CoreFileStorageSetupContext.Provider
-              value={{ scopeKey: "user-1:org-1" }}
-            >
-              <AgentKitComposer />
-            </CoreFileStorageSetupContext.Provider>
-          </AgentKitProvider>,
-        ),
-      );
-      expect(capture.storageStatus).not.toHaveBeenCalled();
-      expect(capture.props?.attachmentsEnabled).toBe(true);
-      expect(capture.props?.onAttachmentRequest).toBeTypeOf("function");
-      const input =
-        container.querySelector<HTMLInputElement>('input[type="file"]');
-      if (!input) throw new Error("Missing native file input");
-      const choose = vi
-        .spyOn(input, "click")
-        .mockImplementation(() => undefined);
-      await act(async () => capture.props?.onAttachmentRequest?.());
-      expect(capture.storageStatus).toHaveBeenCalledOnce();
-      if (state === "ready") {
-        expect(choose).toHaveBeenCalledOnce();
-        expect(capture.props?.attachmentsEnabled).toBe(true);
-        expect(capture.storage?.open).toBe(false);
-      } else {
-        expect(choose).not.toHaveBeenCalled();
-        expect(capture.storage?.open).toBe(true);
-        expect(capture.storage?.status).toBe(state);
-        if (state === "unavailable") {
-          capture.storageStatus.mockResolvedValue({ configured: true });
-          await act(async () => capture.storage?.onRetry?.());
-          expect(choose).toHaveBeenCalledOnce();
-        }
-      }
-    },
-  );
   it.each(["missing", "unavailable"] as const)(
     "blocks raw-file custom submissions with visible %s storage state",
     async (state) => {
@@ -187,7 +136,11 @@ describe("AgentKit composer context submission", () => {
         root.render(
           <AgentKitProvider controller={client} threadId="thread-1">
             <CoreFileStorageSetupContext.Provider
-              value={{ scopeKey: "user-1:org-1" }}
+              value={{
+                scopeKey: "user-1:org-1",
+                readStatus: capture.storageStatus,
+                Setup: FileStorageSetupPopover,
+              }}
             >
               <AgentKitComposer onSubmit={submit} />
             </CoreFileStorageSetupContext.Provider>
@@ -253,43 +206,6 @@ describe("AgentKit composer context submission", () => {
     );
     expect(container.textContent).not.toContain("upload_too_large");
   });
-  it("opens one chooser for repeated requests while storage readiness is pending", async () => {
-    client = new AgentKitClient({
-      transport: { ...transport(), capabilities: { uploads: true } },
-    });
-    let resolveStatus: ((value: { configured: boolean }) => void) | undefined;
-    capture.storageStatus.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveStatus = resolve;
-        }),
-    );
-    await act(async () =>
-      root.render(
-        <AgentKitProvider controller={client} threadId="thread-1">
-          <CoreFileStorageSetupContext.Provider
-            value={{ scopeKey: "user-1:org-1" }}
-          >
-            <AgentKitComposer />
-          </CoreFileStorageSetupContext.Provider>
-        </AgentKitProvider>,
-      ),
-    );
-    const input =
-      container.querySelector<HTMLInputElement>('input[type="file"]');
-    if (!input) throw new Error("Missing native file input");
-    const choose = vi.spyOn(input, "click").mockImplementation(() => undefined);
-    await act(async () => {
-      capture.props?.onAttachmentRequest?.();
-      capture.props?.onAttachmentRequest?.();
-    });
-    expect(capture.storageStatus).toHaveBeenCalledOnce();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "Loading",
-    );
-    await act(async () => resolveStatus?.({ configured: true }));
-    expect(choose).toHaveBeenCalledOnce();
-  });
   it("ignores a delayed storage response after the identity scope changes", async () => {
     client = new AgentKitClient({
       transport: { ...transport(), capabilities: { uploads: true } },
@@ -304,15 +220,32 @@ describe("AgentKit composer context submission", () => {
     const render = (scopeKey: string) =>
       root.render(
         <AgentKitProvider controller={client} threadId="thread-1">
-          <CoreFileStorageSetupContext.Provider value={{ scopeKey }}>
+          <CoreFileStorageSetupContext.Provider
+            value={{
+              scopeKey,
+              readStatus: capture.storageStatus,
+              Setup: FileStorageSetupPopover,
+            }}
+          >
             <AgentKitComposer />
           </CoreFileStorageSetupContext.Provider>
         </AgentKitProvider>,
       );
     await act(async () => render("user-1:org-1"));
-    await act(async () => capture.props?.onAttachmentRequest?.());
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = capture.props?.onSubmit(
+        "draft",
+        [new File(["bytes"], "note.txt")],
+        [],
+        {},
+      );
+    });
     await act(async () => render("user-2:org-2"));
-    await act(async () => resolveStatus?.({ configured: false }));
+    await act(async () => {
+      resolveStatus?.({ configured: false });
+      await submission?.catch(() => undefined);
+    });
     expect(capture.storage?.open).toBe(false);
     expect(capture.props?.attachmentsEnabled).toBe(true);
   });

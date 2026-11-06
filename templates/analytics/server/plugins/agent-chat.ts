@@ -1,4 +1,3 @@
-import { searchDashboardMentions, validateDashboardReferences } from "../lib/composer-references.js";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
@@ -11,10 +10,9 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
-
-import "../register-secrets.js";
 import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
+import "../register-secrets.js";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -24,6 +22,10 @@ import {
 } from "../lib/analytics-agent-context";
 import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
+import {
+  searchDashboardMentions,
+  validateDashboardReferences,
+} from "../lib/composer-references.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import {

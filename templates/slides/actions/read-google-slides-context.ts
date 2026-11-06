@@ -125,24 +125,26 @@ export default defineAction({
     const messages = await googleSlidesReferenceMessages();
     const owner = getRequestUserEmail();
     if (!owner)
-      errors.fail(messages.authentication, "unauthorized", { statusCode: 401 });
+      return errors.fail(messages.authentication, "unauthorized", {
+        statusCode: 401,
+      });
     const reference = parseGoogleSlidesReferenceUrl(presentationUrl);
     if (!reference)
-      errors.fail(messages.invalid, "google_slides_reference_invalid", {
+      return errors.fail(messages.invalid, "google_slides_reference_invalid", {
         statusCode: 400,
       });
     let connection;
     try {
       connection = await getAvailableGoogleDocsAccessToken(owner);
     } catch {
-      errors.fail(
+      return errors.fail(
         messages.connectionFailed,
         "google_drive_connection_unreadable",
         { statusCode: 502 },
       );
     }
     if (!connection)
-      errors.fail(messages.connect, "google_drive_not_connected", {
+      return errors.fail(messages.connect, "google_drive_not_connected", {
         statusCode: 412,
       });
     const fields =
@@ -158,20 +160,28 @@ export default defineAction({
         { httpsOnly: true, maxRedirects: 0 },
       );
     } catch {
-      errors.fail(messages.failed, "google_slides_reference_network_failed", {
-        statusCode: 502,
-      });
+      return errors.fail(
+        messages.failed,
+        "google_slides_reference_network_failed",
+        {
+          statusCode: 502,
+        },
+      );
     }
     if (
       response.status === 401 ||
       response.status === 403 ||
       response.status === 404
     )
-      errors.fail(messages.denied, "google_slides_reference_unavailable", {
-        statusCode: 403,
-      });
+      return errors.fail(
+        messages.denied,
+        "google_slides_reference_unavailable",
+        {
+          statusCode: 403,
+        },
+      );
     if (!response.ok || !response.body)
-      errors.fail(messages.failed, "google_slides_reference_failed", {
+      return errors.fail(messages.failed, "google_slides_reference_failed", {
         statusCode: 502,
       });
     const reader = response.body.getReader();
@@ -191,9 +201,13 @@ export default defineAction({
       bytes += part.value.byteLength;
       if (bytes > MAX_RESPONSE_BYTES) {
         await reader.cancel();
-        errors.fail(messages.tooLarge, "google_slides_reference_too_large", {
-          statusCode: 413,
-        });
+        return errors.fail(
+          messages.tooLarge,
+          "google_slides_reference_too_large",
+          {
+            statusCode: 413,
+          },
+        );
       }
       chunks.push(part.value);
     }
@@ -207,15 +221,23 @@ export default defineAction({
     try {
       raw = JSON.parse(new TextDecoder().decode(data));
     } catch {
-      errors.fail(messages.failed, "google_slides_reference_unreadable", {
-        statusCode: 502,
-      });
+      return errors.fail(
+        messages.failed,
+        "google_slides_reference_unreadable",
+        {
+          statusCode: 502,
+        },
+      );
     }
     const parsed = presentationSchema.safeParse(raw);
     if (!parsed.success || parsed.data.presentationId !== reference.id)
-      errors.fail(messages.failed, "google_slides_reference_unreadable", {
-        statusCode: 502,
-      });
+      return errors.fail(
+        messages.failed,
+        "google_slides_reference_unreadable",
+        {
+          statusCode: 502,
+        },
+      );
     const presentation = parsed.data;
     const extraction = { truncated: false };
     const body = [

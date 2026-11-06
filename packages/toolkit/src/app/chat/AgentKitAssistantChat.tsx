@@ -69,7 +69,10 @@ import {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
-import { createAgentNativeUploadRuntime } from "@agent-native/core/client/agentkit-chat/transport";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "@agent-native/core/client/agentkit-chat/transport";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
@@ -1954,7 +1957,15 @@ export const AgentKitAssistantChat = forwardRef<
     uploadSession?.orgId ?? null,
     uploadSession?.authUserId ?? null,
   ]);
-  const uploadRuntime = useMemo(() => createAgentNativeUploadRuntime(), []);
+  const uploadRuntime = useMemo(
+    () =>
+      createAgentNativeUploadRuntime({
+        url: fileUploadUrlForChatApi(
+          props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        ),
+      }),
+    [props.apiUrl],
+  );
   useEffect(
     () => () => uploadRuntime.dispose(),
     [uploadRuntime, uploadScopeKey],

@@ -941,7 +941,7 @@ describe("Slides context readiness and identity", () => {
       title: `Deck ${index}`,
     }));
     await act(async () => {
-      presentation.onAttach(decks, request());
+      await presentation.onAttach(decks, request());
     });
     expect(result.current.props.contextItems).toHaveLength(20);
     const saved = window.localStorage.getItem(
@@ -954,7 +954,7 @@ describe("Slides context readiness and identity", () => {
       window.localStorage.getItem("slides-home-context:one@example.test:one"),
     ).toBe(saved);
     await act(async () => {
-      presentation.onAttach(decks, request());
+      await presentation.onAttach(decks, request());
     });
     expect(result.current.props.contextItems).toHaveLength(20);
   });

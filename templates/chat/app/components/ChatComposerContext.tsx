@@ -21,5 +21,11 @@ export function useChatComposerMenuItems(): ComposerContextMenuItem[] {
 export function ChatComposerContextProvider({
   children,
 }: AssistantChatComposerContextProviderProps) {
-  return children({ menuItems: useChatComposerMenuItems() });
+  return children({
+    menuItems: useChatComposerMenuItems(),
+    contextItems: [],
+    onRemoveContextItem: () => {},
+    prepareSubmission: async (snapshot) => snapshot,
+    submissionAccepted: () => {},
+  });
 }

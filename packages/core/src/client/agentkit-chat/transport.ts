@@ -3,4 +3,7 @@ export {
   getAgentNativeAgentKitUploadDriver,
   clearAgentNativeAgentKitUploads,
 } from "../chat/agentkit-agent-native.js";
-export { createAgentNativeUploadRuntime } from "../chat/native-uploads.js";
+export {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "../chat/native-uploads.js";

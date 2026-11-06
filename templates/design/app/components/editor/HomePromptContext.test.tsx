@@ -395,7 +395,7 @@ describe("home prompt context", () => {
       .get("one")!
       .menuItems.flatMap((item) => item.children ?? [item])
       .find((item) => item.id === "website-reference");
-    if (!("picker" in newAction) || !newAction.picker?.onSelect)
+    if (!newAction || !("picker" in newAction) || !newAction.picker?.onSelect)
       throw new Error("Missing website action");
     await act(async () =>
       newAction.picker!.onSelect!({ id: website, title: "Website" }, request()),

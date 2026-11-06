@@ -21,5 +21,11 @@ export function useAnalyticsComposerMenuItems(): ComposerContextMenuItem[] {
 export function AnalyticsComposerContextProvider({
   children,
 }: AssistantChatComposerContextProviderProps) {
-  return children({ menuItems: useAnalyticsComposerMenuItems() });
+  return children({
+    menuItems: useAnalyticsComposerMenuItems(),
+    contextItems: [],
+    onRemoveContextItem: () => {},
+    prepareSubmission: async (snapshot) => snapshot,
+    submissionAccepted: () => {},
+  });
 }

@@ -91,6 +91,39 @@ describe("shared launcher mention discovery", () => {
     expect(result.error).toBeNull();
     expect(result.isLoading).toBe(false);
   });
+  it.each([false, true])(
+    "keeps healthy streamed batches around a source error (earlier batch: %s)",
+    async (earlier) => {
+      const second = { ...file, id: "file:two", label: "Notes" };
+      const lines = [
+        ...(earlier ? [{ items: [file] }] : []),
+        { error: { message: "Source unavailable" } },
+        { items: [second] },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  for (const line of lines)
+                    controller.enqueue(
+                      new TextEncoder().encode(JSON.stringify(line) + "\n"),
+                    );
+                  controller.close();
+                },
+              }),
+            ),
+        ),
+      );
+      await render();
+      expect(result.items).toEqual(earlier ? [file, second] : [second]);
+      expect(result.error?.message).toBe("Source unavailable");
+      expect(result.settledQuery).toBeNull();
+      expect(result.isLoading).toBe(false);
+    },
+  );
   it.each([
     new Response("{}"),
     new Response("{broken"),

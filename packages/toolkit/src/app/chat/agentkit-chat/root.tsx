@@ -5,12 +5,14 @@ import {
 } from "@agent-native/core/client/agentkit-chat/transport";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { readFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useMemo, useEffect } from "react";
 
 import { CoreFileStorageSetupContext } from "../../agentkit/react/core-file-storage.js";
 import { AgentKitRoot } from "../../agentkit/react/root.js";
 import type { AgentKitRootProps } from "../../agentkit/react/root.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { AgentKitActionWidget } from "./action-widget.js";
 import { CoreAgentKitApproval } from "./approval-card.js";
 import { agentKitWorkStepLabels } from "./work-step-labels.js";
@@ -47,7 +49,14 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
     session?.authUserId ?? null,
   ]);
   const storageScope = useMemo(
-    () => (nativeUpload ? { scopeKey } : null),
+    () =>
+      nativeUpload
+        ? {
+            scopeKey,
+            readStatus: readFileUploadStatus,
+            Setup: FileStorageSetupPopover,
+          }
+        : null,
     [nativeUpload, scopeKey],
   );
   useEffect(
