@@ -1280,8 +1280,9 @@ export interface TiptapComposerProps {
   /**
    * Stop control for an active run. It takes the primary slot while the
    * composer is empty and gives it to Send once a draft exists; it stays
-   * mounted, so Escape in the editor still clicks it when it is enabled. Pass
-   * it only while there is something to stop.
+   * mounted, so Escape in the editor still clicks it when it is enabled.
+   * During voice chat it sits beside End voice chat, which does not stop the
+   * run. Pass it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -6967,11 +6968,12 @@ function TiptapComposerSurface({
             {stopButton ? (
               // Stop and Send are one control: Stop while the composer is
               // empty, Send once a draft exists. The hidden Stop stays mounted
-              // so Escape can still stop the run mid-draft.
+              // so Escape can still stop the run mid-draft. Voice chat keeps it
+              // visible: End voice chat does not stop the run.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                hidden={hasDraft || voiceChat !== null}
+                hidden={hasDraft && voiceChat === null}
                 className="flex shrink-0"
               >
                 {stopButton}

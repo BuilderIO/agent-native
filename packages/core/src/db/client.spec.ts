@@ -2490,6 +2490,58 @@ describe("db/client postgres-js request pool recovery", () => {
     ]);
   });
 
+  it("tightens the server cap when the setup round trip ate into a short budget", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
+        if (query.includes("current_setting")) {
+          vi.advanceTimersByTime(200);
+          return Promise.resolve(
+            Object.assign([{ previous: "0", previous_ms: "0" }], { count: 1 }),
+          );
+        }
+        return Promise.resolve(Object.assign([], { count: 1 }));
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    try {
+      await runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().transaction!((tx) =>
+          tx.execute({ sql: "SELECT 1", timeoutMs: 1_000, maxAttempts: 1 }),
+        ),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(statements.slice(1)).toEqual([
+      "SELECT set_config('statement_timeout', $1, true) [720ms]",
+      "SELECT 1",
+      "SELECT set_config('statement_timeout', $1, true) [0]",
+    ]);
+  });
+
   it("keeps the shared facade stable after a request pool times out", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");

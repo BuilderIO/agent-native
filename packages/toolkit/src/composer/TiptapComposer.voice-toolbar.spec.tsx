@@ -501,7 +501,7 @@ describe("TiptapComposer voice chat", () => {
     expect(realtime.end).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps End voice chat as the one primary control while a run is active", async () => {
+  it("keeps Stop beside End voice chat while a run is active", async () => {
     activate("listening");
     await act(async () =>
       root.render(
@@ -512,7 +512,8 @@ describe("TiptapComposer voice chat", () => {
       ),
     );
 
-    expect(slot<HTMLElement>("stop-slot")?.hidden).toBe(true);
+    // End voice chat does not cancel the run, so Stop stays reachable.
+    expect(slot<HTMLElement>("stop-slot")?.hidden).toBe(false);
     expect(
       slot<HTMLButtonElement>("send-button")?.dataset.composerPrimary,
     ).toBe("end-voice-chat");

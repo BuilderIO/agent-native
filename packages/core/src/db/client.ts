@@ -1105,10 +1105,9 @@ async function withTransactionStatementTimeout<T>(
     previousMs > 0 && previousMs <= applied ? previousMs : applied;
   // A slow round trip above leaves less of the budget than the server was
   // given, so the statement could outlive its caller holding its locks.
-  const tightened = serverTimeout();
-  if (effective - tightened > POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS) {
+  if (effective >= remainingMs()) {
     await runSetting(
-      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${tightened}ms`] },
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${serverTimeout()}ms`] },
       remainingMs(),
     );
   }
