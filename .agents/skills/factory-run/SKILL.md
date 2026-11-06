@@ -192,7 +192,10 @@ it with the factory runner's `deploy/SETUP.md`.
 - **`analytics`**: a new unresolved Analytics error issue (`url`, `title`).
   Report key is the `url`, `source` `analytics`. Investigate it with the
   Analytics MCP tools, then triage like a Sentry issue. There is no reporter:
-  no reactions or replies.
+  no reactions or replies. `duplicates` lists other issue URLs the watcher
+  folded in because they share the error's signature (minified class name
+  and embedded ids masked): record one report for the item, name the
+  duplicates in its `note`, and give the fix branch all of them.
 - **`chat-health`**: an app over the chat-run health budgets (`app`, `date`,
   `badRate`, `stallRate`, `a2aFailRate`). Report key is
   `chat-health:<app>:<date>`, `source` `chat-health`, title
