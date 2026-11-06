@@ -39,7 +39,8 @@ it("waits for verification without replacing an in-progress prompt when activati
   try {
     await act(async () => render(false));
     expect(mocks.activate).not.toHaveBeenCalled();
-    const input = container.querySelector("input")!;
+    const input = container.querySelector("input");
+    if (!input) throw new Error("Prompt input did not mount");
     input.value = "My unfinished design prompt";
     await act(async () => render(true));
     expect(mocks.activate).toHaveBeenCalledOnce();
