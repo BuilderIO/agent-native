@@ -70,6 +70,27 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(html).initialPrompt).toBe(false);
   });
 
+  it.each(["design.agent-native.com", "beta.design.agent-native.com"])(
+    "identifies the public Design auth shell on %s before app config is populated",
+    (requestHost) => {
+      defineAppConfig({ app: {} });
+      expect(
+        readAuthPageData(
+          getOnboardingHtml({ requestHost, requestPath: "/sign-in" }),
+        ).trackingApp,
+      ).toBe("design");
+    },
+  );
+
+  it("keeps an explicitly configured app identity ahead of the host fallback", () => {
+    defineAppConfig({ app: { slug: "custom-app" } });
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestHost: "design.agent-native.com" }),
+      ).trackingApp,
+    ).toBe("custom-app");
+  });
+
   it("styles the first-paint auth fallback when no renderer is injected", () => {
     const renderSignInPage = vi.fn(
       (props: AuthPageProps) =>

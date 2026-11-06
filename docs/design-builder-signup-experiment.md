@@ -79,3 +79,35 @@ success, existing-account refusal, and both variants on the intended Design host
 Legal/privacy review of the combined-account disclosure is separate from technical
 verification. Signup acceptance does not opt the user into optional marketing or
 paid billing.
+
+## End-to-end readout
+
+`builder_signup_experiment_enrolled` links an assignment to the authenticated new
+account at signup, independently of Builder consent or activation success. This
+analytics event never authorizes provisioning or adds a prerequisite SQL write.
+Every attributed activation response emits an outcome, including early ineligibility
+and replayed responses. Missing assignments emit `builder_signup_experiment_unattributed`
+without inventing a variant. Identity-store unavailability has a separate event, and
+owned activation attempts emit a start event and completion duration.
+
+Analytics exposes three reusable metrics through `compose-dashboard`:
+`design-builder-signup-ab`, `design-builder-signup-outcomes`, and
+`design-builder-signup-tracking-health`. Use a private dashboard with the first-party
+time, app, and employee filters. The funnel deduplicates by assignment, includes
+signup abandoners, joins signed-in Design activity through enrollment, and uses
+24-hour milestones. Compare mature first-design conversion; D1 and D7 rates include
+only fully observed windows. Milestones are independent: a user can produce a design
+with custom keys without connecting Builder. Historical outcome events provide a
+compatible signup link where the new enrollment event is not yet available.
+
+A public auth shell can render before app configuration is populated. Its app
+identifier falls back to the existing first-party host/path catalog, so Design
+actually fetches its experiment assignment on both production and beta hosts.
+Production rollout still requires promotion and live exposure verification; a merged
+commit or a zero-filled dashboard does not prove the test is running.
+
+Auth beacons include the originating hostname. Dashboard cohorts are split into
+production, beta, and unknown environments; unknown history is never silently
+classified as production. Employee filtering is applied after the assignment-to-user
+join so identified internal visitors are removed from both numerator and denominator.
+Anonymous abandoners with no linked identity cannot be classified as employees.
