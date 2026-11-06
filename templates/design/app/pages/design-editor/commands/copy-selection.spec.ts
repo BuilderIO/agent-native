@@ -695,6 +695,43 @@ describe("copying one instance of a repeated list", () => {
     );
   });
 
+  it("refuses to copy a partial screen selection while a source is unavailable", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content: "<p>Home</p>",
+      createdAt: "1",
+      updatedAt: "1",
+    };
+    const previousWrites = clipboard.writeDesignClipboard.mock.calls.length;
+    const result = await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef: ref([]),
+      copiedLayerHtmlRef: ref(null),
+      copiedScreenEntriesRef: ref(undefined),
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref(null),
+      lastWrittenClipboardPlainTextRef: ref(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["screen-a", "screen-b"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+    expect(result).toEqual({ copied: false, written: false });
+    expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(
+      previousWrites,
+    );
+  });
+
   it("records which screen each copied screen came from so paste can find it again", async () => {
     const file: DesignFile = {
       id: "screen-a",

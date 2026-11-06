@@ -43,6 +43,8 @@ import {
 } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 const DUPLICATE_SCREEN_GAP = 56;
 const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
   "width",
@@ -961,10 +963,13 @@ export function runDuplicateScreen(
         dataOperations,
       );
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, data: JSON.stringify(nextData) };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, data: JSON.stringify(nextData) };
+        },
+      );
       await updateDesignAsync({
         id,
         dataOperations,

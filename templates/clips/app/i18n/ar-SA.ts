@@ -693,6 +693,7 @@ const messages = {
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
+    partialTranscript: "نص جزئي: تم قطع التسجيل، لذا قد يكون جزء منه مفقودًا.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",
     backupNotSetup: "لم يتم التقاط أي كلام محليًا، ولم يتم إعداد النسخ الاحتياطي.",
@@ -795,7 +796,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر على أداتك إرجاع الصور أو فتح هذه الروابط، فوضّح أن هذا قيد في أداتك وليس خطأ في Clips.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر عليك فتح عناوين URL للإطارات كصور، فاستدعِ أداة Clips المسماة get-recording-frames مع معرّف التسجيل من عنوان URL للسياق هذا إن كانت متاحة. وإن لم تكن متاحة، فأخبر المستخدم أن ربط Clips عبر {{connectUrl}} يتيح لك رؤية الإطارات.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",

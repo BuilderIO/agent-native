@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.66
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.65
 
 ### Patch Changes
@@ -638,11 +644,5 @@
 ### Minor Changes
 
 - abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
-
-## 0.5.12
-
-### Patch Changes
-
-- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -83,6 +83,7 @@ import {
   frameHeightChangedIds,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
 import {
@@ -269,7 +270,7 @@ export function discardDesignReadsInFlight(
   queryClient: QueryClient,
   designId: string,
 ): void {
-  const queryKey = ["action", "get-design", { id: designId }];
+  const queryKey = designMetadataQueryKey(designId);
   if (queryClient.isFetching({ queryKey }) === 0) return;
   void queryClient.cancelQueries({ queryKey });
   void queryClient.invalidateQueries({ queryKey });
@@ -347,6 +348,7 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    sourceMetadata,
     designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
@@ -499,8 +501,8 @@ export function useEditorActiveScreenAndGeometry({
 
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
-    const boardFile = files.find((file) => file.id === boardFileId);
-    return typeof boardFile?.content === "string" ? boardFile.content : "";
+    // A board whose source has not loaded is unknown, not empty.
+    return files.find((file) => file.id === boardFileId)?.content;
   }, [boardFileId, files]);
 
   useEffect(() => {
@@ -844,10 +846,12 @@ export function useEditorActiveScreenAndGeometry({
         operation,
       ]);
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       enqueueFrameGeometryDataSave([operation]);
     },
@@ -1358,33 +1362,33 @@ export function useEditorActiveScreenAndGeometry({
     retryDesignSaveOutbox,
   ]);
 
-  const defaultActiveFile: (typeof files)[number] | undefined =
-    files.find(
+  const availableFiles = sourceMetadata.length ? sourceMetadata : files;
+  const defaultActiveMetadata =
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename) &&
         file.filename.toLowerCase() === "index.html",
     ) ??
-    files.find(
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    (files.length > 0 ? files[0] : undefined);
+    (availableFiles.length > 0 ? availableFiles[0] : undefined);
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
       activeFileId,
-      availableFileIds: files.map((file) => file.id),
-      defaultFileId: defaultActiveFile?.id,
+      availableFileIds: availableFiles.map((file) => file.id),
+      defaultFileId: defaultActiveMetadata?.id,
     });
-    if (nextActiveFileId !== activeFileId) {
-      setActiveFileId(nextActiveFileId);
-    }
-  }, [activeFileId, defaultActiveFile?.id, files]);
+    if (nextActiveFileId !== activeFileId) setActiveFileId(nextActiveFileId);
+  }, [activeFileId, availableFiles, defaultActiveMetadata?.id]);
 
-  const activeFile =
-    files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeFile = files.find(
+    (file) => file.id === (activeFileId ?? defaultActiveMetadata?.id),
+  );
   const handleActiveScreenRuntimeReload = useCallback(() => {
     if (activeFile) {
       handleLiveScreenRuntimeReload(

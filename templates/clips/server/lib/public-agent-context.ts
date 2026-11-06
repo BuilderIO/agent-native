@@ -367,10 +367,27 @@ function screenshotMimeTypeFromUrl(url: string | null | undefined): string {
   return "image/*";
 }
 
-export async function loadPublicAgentAccess(
-  event: H3Event,
+/**
+ * The access check every agent surface shares: the HTTP routes through
+ * `loadPublicAgentAccess`, and the MCP frames action with the connected
+ * user's email. `recordView` is how a surface that has a request records the
+ * agent view; one without a request passes none.
+ */
+export async function resolvePublicAgentAccess(
   recordingId: string,
-  options: { password?: string; token?: string } = {},
+  options: {
+    viewerEmail?: string | null;
+    password?: string;
+    token?: string;
+    recordView?: (
+      recording: PublicAgentRecording,
+      view: {
+        agentLabel: string | null;
+        ownerEmail: string;
+        viaScopedLink: boolean;
+      },
+    ) => Promise<void>;
+  } = {},
 ): Promise<PublicAgentAccessResult> {
   const id = recordingId.trim();
   if (!id) {
@@ -407,9 +424,9 @@ export async function loadPublicAgentAccess(
     };
   }
 
-  const session = await getSession(event).catch(() => null);
   const viewerIsOwner = Boolean(
-    session?.email && sameOwnerEmail(session.email, recording.ownerEmail),
+    options.viewerEmail &&
+    sameOwnerEmail(options.viewerEmail, recording.ownerEmail),
   );
   const scopedRecordingId = getRecordingAccessTokenResourceId(
     recording.id,
@@ -496,8 +513,8 @@ export async function loadPublicAgentAccess(
   }
 
   if (!viewerIsOwner) {
-    await recordAgentView(event, recording.id, {
-      agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+    await options.recordView?.(recording, {
+      agentLabel: tokenAccess?.ok ? (tokenAccess.agentLabel ?? null) : null,
       ownerEmail: recording.ownerEmail,
       viaScopedLink: tokenAccess?.ok === true,
     });
@@ -514,6 +531,20 @@ export async function loadPublicAgentAccess(
       apiToken,
     },
   };
+}
+
+export async function loadPublicAgentAccess(
+  event: H3Event,
+  recordingId: string,
+  options: { password?: string; token?: string } = {},
+): Promise<PublicAgentAccessResult> {
+  // coercion-ok: no session is no owner access; the share checks still apply
+  const session = await getSession(event).catch(() => null);
+  return resolvePublicAgentAccess(recordingId, {
+    ...options,
+    viewerEmail: session?.email ?? null,
+    recordView: (recording, view) => recordAgentView(event, recording.id, view),
+  });
 }
 
 // Events carry more than the summary in agent context, so neither an open
@@ -989,6 +1020,10 @@ export function buildPublicAgentContext({
       updatedAt: recording.updatedAt,
     },
     apis: {
+      mcp: {
+        tool: "get-recording-frames",
+        connectUrl: `${requestUrl.origin}/mcp/connect`,
+      },
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
       ...(frameMode === "still" || frameMode === "video"

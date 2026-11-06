@@ -148,6 +148,7 @@ import {
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
+  threadHasAppliedAiChange,
   type CommentAiController,
 } from "./comment-ai";
 import {
@@ -3362,6 +3363,23 @@ export function CommentsSidebar({
             // A Clip's comments are kept in Clips, so the page doesn't edit,
             // delete, or react to them.
             canComment={canComment && !thread.clip}
+            // Its author deletes a thread no one else has written in, while
+            // the AI isn't working on it.
+            canDeleteThread={
+              id === thread.comments[0]?.id &&
+              !aiWorking &&
+              !!currentUserEmail &&
+              thread.comments.every(
+                (comment) =>
+                  !comment.notion_comment_id &&
+                  comment.author_email.toLowerCase() ===
+                    currentUserEmail.toLowerCase(),
+              )
+            }
+            keepsAppliedAiChange={threadHasAppliedAiChange(
+              commentAi?.requests,
+              thread.threadId,
+            )}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}

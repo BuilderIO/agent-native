@@ -1,3 +1,9 @@
+## 0.1.9
+
+### Patch Changes
+
+- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
+
 ## 0.1.8
 
 ### Patch Changes
