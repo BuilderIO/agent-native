@@ -151,7 +151,9 @@ function setupFetch(options?: {
     | ((status?: number, errorCode?: string) => void)
     | null = null;
   let rejectDeferredPatch: ((error: unknown) => void) | null = null;
-  let resolveSecondDeferredPatch: (() => void) | null = null;
+  let resolveSecondDeferredPatch:
+    | ((status?: number, errorCode?: string) => void)
+    | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
@@ -602,7 +604,7 @@ function setupFetch(options?: {
             resolveDeferredPatch = settle;
             rejectDeferredPatch = reject;
           } else {
-            resolveSecondDeferredPatch = () => settle();
+            resolveSecondDeferredPatch = settle;
           }
         });
       }
@@ -849,7 +851,8 @@ function setupFetch(options?: {
       resolveDeferredPatch?.(status, errorCode),
     rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
       rejectDeferredPatch?.(error),
-    resolveSecondDeferredPatch: () => resolveSecondDeferredPatch?.(),
+    resolveSecondDeferredPatch: (status?: number, errorCode?: string) =>
+      resolveSecondDeferredPatch?.(status, errorCode),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
@@ -1494,6 +1497,30 @@ describe("DeckContext deck creation persistence", () => {
     expect(keepaliveFailureLogs()).toHaveLength(0);
     expect(hasFailedDeckSave("hidden-queued-b-first")).toBe(false);
     expect(hasUnsavedDeckChanges("hidden-queued-b-first")).toBe(false);
+  });
+
+  it("does not fail the flush when the hidden-tab request's stale rejection arrives after the active save", async () => {
+    const deckId = "hidden-queued-stale-after-a";
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave(deckId, { content: largeContent });
+
+    resolveDeferredPatch();
+    await settle();
+    const flushed = result.current.flushDeckSave(deckId);
+    resolveSecondDeferredPatch(409, "slide_content_stale");
+    await settle();
+    await expect(flushed).resolves.toBeUndefined();
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(3);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
   it("keeps queued edits that could land before the active save behind it", async () => {

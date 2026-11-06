@@ -2317,8 +2317,8 @@ function drainPendingDeckOps(
             );
           },
           (err) => {
-            // Landing before the active save is expected; the queue drains
-            // after it as usual.
+            // Landing before the active save is expected. Resolving rather than
+            // rejecting keeps flushes waiting on this request from failing.
             const landedFirst =
               opsBehindActive !== null &&
               Boolean(
@@ -2327,7 +2327,8 @@ function drainPendingDeckOps(
                 "errorCode" in err &&
                 err.errorCode === "slide_content_stale",
               );
-            if (!landedFirst && !controller?.signal.aborted) {
+            if (landedFirst) return;
+            if (!controller?.signal.aborted) {
               console.error(`Failed to keepalive save deck ${deckId}:`, err);
             }
             throw err;
