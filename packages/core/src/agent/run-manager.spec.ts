@@ -2516,6 +2516,58 @@ describe("run manager soft timeout", () => {
     expect(finalized).toBe(true);
   });
 
+  it.each([undefined, null, false])(
+    "rejects finalization and records an errored run when event persistence rejects with %s",
+    async (failure) => {
+      vi.mocked(insertRunEvent).mockRejectedValue(failure);
+      const run = startRun(
+        "run-falsy-event-failure",
+        "thread-falsy-event-failure",
+        async (send) => {
+          await send({ type: "text", text: "not persisted" }).catch(() => {});
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await expect(run.finalized).rejects.toBe(failure);
+      expect(run.status).toBe("errored");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        run.runId,
+        "errored",
+      );
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        run.runId,
+        "error:run_event_persistence_failed",
+      );
+    },
+  );
+
+  it("reports independent event and abort status failures even when they share an error", async () => {
+    const failure = new Error("shared persistence failure");
+    vi.mocked(insertRunEvent).mockRejectedValue(failure);
+    vi.mocked(markRunAborted).mockRejectedValue(failure);
+    const runId = "run-shared-finalization-failure";
+    const run = startRun(
+      runId,
+      "thread-shared-finalization-failure",
+      async (send) => {
+        await send({ type: "text", text: "not persisted" }).catch(() => {});
+        abortRun(runId, "user");
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    const result = await run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(markRunAborted).toHaveBeenCalledWith(runId, "user");
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors).toEqual([failure, failure]);
+  });
+
   it("rejects finalized when terminal event persistence cannot be established", async () => {
     const terminalError = new Error("terminal event persistence failed");
     vi.mocked(insertRunEvent).mockImplementation(

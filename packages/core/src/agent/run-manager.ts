@@ -2262,7 +2262,7 @@ export function startRun(
       completionInProgress = true;
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
-      let eventPersistenceError: unknown = null;
+      let eventPersistenceFailure: { error: unknown } | null = null;
       let runTerminalErrorCode: string | undefined;
       let runTerminalBlockedTool: string | undefined;
       let runTerminalBlockedBy: UnknownWriteCause | undefined;
@@ -2272,14 +2272,14 @@ export function startRun(
       try {
         await persistenceChain;
       } catch (error) {
-        eventPersistenceError = error;
+        eventPersistenceFailure = { error };
       }
       try {
         await run.abortPersistencePromise;
       } catch (error) {
-        eventPersistenceError ??= error;
+        eventPersistenceFailure ??= { error };
       }
-      if (eventPersistenceError && run.status !== "aborted") {
+      if (eventPersistenceFailure && run.status !== "aborted") {
         run.status = "errored";
         pendingTerminalEvent = {
           seq: allocateRunEventSeq(run),
@@ -2298,7 +2298,7 @@ export function startRun(
           run.status === "aborted" && run.abortReason !== undefined;
         if (!abortAlreadyWon) {
           run.status = "errored";
-          if (!eventPersistenceError) {
+          if (!eventPersistenceFailure) {
             pendingTerminalEvent = {
               seq: peekRunEventSeq(run),
               event: { ...event },
@@ -2316,7 +2316,7 @@ export function startRun(
       const resolveTerminalEventForCompletion = () => {
         if (run.status === "aborted" && run.abortReason !== undefined)
           return null;
-        if (eventPersistenceError) {
+        if (eventPersistenceFailure) {
           return pendingTerminalEvent
             ? { ...pendingTerminalEvent, seq: run.events.length }
             : null;
@@ -2458,7 +2458,7 @@ export function startRun(
         terminalEvent = unfinishedTurnContinuationEvent;
       }
       const terminalReason =
-        eventPersistenceError && finalStatus !== "aborted"
+        eventPersistenceFailure && finalStatus !== "aborted"
           ? "error:run_event_persistence_failed"
           : privateTurn && terminalEvent?.type === "error"
             ? "error:private_content_omitted"
@@ -2583,7 +2583,7 @@ export function startRun(
       };
 
       if (finalStatus === "completed" || finalStatus === "errored") {
-        const terminalEventToEmit: AgentChatEvent = eventPersistenceError
+        const terminalEventToEmit: AgentChatEvent = eventPersistenceFailure
           ? {
               type: "error",
               error: "Agent run ended unexpectedly",
@@ -2641,7 +2641,7 @@ export function startRun(
               ? { ...terminalEventToEmit, omitFromPersistedHistory: true }
               : terminalEventToEmit,
           };
-          if (eventPersistenceError) {
+          if (eventPersistenceFailure) {
             volatileTerminalEvent = terminal;
           } else {
             try {
@@ -2701,8 +2701,10 @@ export function startRun(
         ) {
           terminalPersistenceEstablished = false;
         } else {
+          let abortStatusAttempted = false;
           try {
             await insertRunPromise;
+            abortStatusAttempted = true;
             const persistAtomicAbort = () =>
               markRunAborted(
                 runId,
@@ -2717,9 +2719,12 @@ export function startRun(
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
-            if (eventPersistenceError && eventPersistenceError !== error) {
+            if (
+              eventPersistenceFailure &&
+              (abortStatusAttempted || eventPersistenceFailure.error !== error)
+            ) {
               throw new AggregateError(
-                [eventPersistenceError, error],
+                [eventPersistenceFailure.error, error],
                 "Run event and abort status persistence both failed",
               );
             }
@@ -2747,7 +2752,7 @@ export function startRun(
           }
           if (
             !continuationStatusPersistedBeforeEvent &&
-            (!terminalPersistenceError || eventPersistenceError)
+            (!terminalPersistenceError || eventPersistenceFailure)
           ) {
             let statusUpdated = false;
             try {
@@ -2833,7 +2838,7 @@ export function startRun(
       }
 
       if (terminalPersistenceError) {
-        const reconciled = eventPersistenceError
+        const reconciled = eventPersistenceFailure
           ? false
           : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
@@ -2867,8 +2872,8 @@ export function startRun(
           attemptCount: options?.attemptCount,
         });
       }
-      if (eventPersistenceError) {
-        throw eventPersistenceError;
+      if (eventPersistenceFailure) {
+        throw eventPersistenceFailure.error;
       }
     })
     .finally(async () => {
