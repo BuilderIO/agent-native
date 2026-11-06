@@ -4983,10 +4983,15 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
         allowAwaitOutsideFunction: true,
       });
       modules.set(filePath, ast);
+      if (modules.size > 8) {
+        const oldest = modules.keys().next().value;
+        if (oldest !== undefined) modules.delete(oldest);
+      }
     }
     return ast;
   };
 
+  const changedFiles = new Map<string, string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     let code = fs.readFileSync(filePath, "utf-8");
     let changed = false;
@@ -5029,8 +5034,10 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
       changed = true;
     }
 
-    if (changed) fs.writeFileSync(filePath, code);
+    if (changed) changedFiles.set(filePath, code);
   });
+  // Evicted ASTs must be reparsed from the same original source as cached ASTs.
+  for (const [filePath, code] of changedFiles) fs.writeFileSync(filePath, code);
 }
 
 export function bundleYjsRuntimeForServerlessOutput(

@@ -1906,6 +1906,75 @@ describe("patchCloudflareModuleServerOutput", () => {
     }
   });
 
+  it.each(["a", "z"])(
+    "rewrites calls through a long cyclic export chain when the consumer sorts %s",
+    async (consumerPrefix) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      for (let i = 0; i < 16; i++) {
+        fs.writeFileSync(
+          path.join(dir, `relay-${i}.mjs`),
+          `${i === 7 ? 'export * from "./relay-0.mjs";\n' : ""}export * from "./relay-${(i + 1) % 16}.mjs";${
+            i === 15
+              ? '\nexport { createRequire as factory } from "node:module";'
+              : ""
+          }`,
+        );
+      }
+      fs.writeFileSync(
+        path.join(dir, "shared.mjs"),
+        `import {factory} from "./relay-0.mjs";
+         import process from "node:process";
+         export {factory};
+         export function check() { return factory(import.meta.url)("process") === process; }`,
+      );
+      const entry = path.join(dir, `${consumerPrefix}-worker.mjs`);
+      fs.writeFileSync(
+        entry,
+        `import {factory, check} from "./shared.mjs";
+         import process from "node:process";
+         export default {fetch() {return Response.json({
+           shared: check(),
+           consumer: factory(import.meta.url)("node:process") === process,
+           buffer: typeof factory(import.meta.url)("node:buffer").Buffer,
+         });}};`,
+      );
+      patchCloudflareModuleServerOutput(dir);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          shared: true,
+          consumer: true,
+          buffer: "function",
+        });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
   it.each([
     [
       "require function",
