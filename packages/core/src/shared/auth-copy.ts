@@ -85,8 +85,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "Continue",
     email: "Email",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Your Design signup also creates a Builder.io account. By continuing, you agree to Builder’s",
+    builderSignupDisclosure: "You also agree to Builder’s",
     legalPrefix: "By signing up, you accept our",
     legalTerms: "Terms",
     legalConnector: "and",
@@ -133,8 +132,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "继续",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "注册 Design 也会创建 Builder.io 帐户。继续即表示你同意 Builder 的",
+    builderSignupDisclosure: "你也同意 Builder 的",
     legalPrefix: "注册即表示你接受我们的",
     legalTerms: "条款",
     legalConnector: "和",
@@ -179,8 +177,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "繼續",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "註冊 Design 也會建立 Builder.io 帳戶。繼續即表示你同意 Builder 的",
+    builderSignupDisclosure: "你也同意 Builder 的",
     legalPrefix: "註冊即表示你接受我們的",
     legalTerms: "條款",
     legalConnector: "和",
@@ -225,8 +222,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Al registrarte en Design también se crea una cuenta de Builder.io. Al continuar, aceptas los",
+    builderSignupDisclosure: "También aceptas los de Builder:",
     legalPrefix: "Al registrarte, aceptas nuestros",
     legalTerms: "Términos",
     legalConnector: "y",
@@ -272,8 +268,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "Continuer",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Votre inscription à Design crée aussi un compte Builder.io. En continuant, vous acceptez les",
+    builderSignupDisclosure: "Vous acceptez aussi ceux de Builder :",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
     legalTerms: "Conditions",
     legalConnector: "et",
@@ -320,8 +315,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "Weiter",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Mit deiner Design-Registrierung wird auch ein Builder.io-Konto erstellt. Wenn du fortfährst, akzeptierst du Builders",
+    builderSignupDisclosure: "Du akzeptierst auch Builders",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
     legalTerms: "Bedingungen",
     legalConnector: "und",
@@ -368,8 +362,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "続行",
     email: "メール",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Design に登録すると Builder.io アカウントも作成されます。続行すると Builder の以下に同意します:",
+    builderSignupDisclosure: "Builder の以下にも同意します:",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
     legalTerms: "利用規約",
     legalConnector: "および",
@@ -416,8 +409,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "계속",
     email: "이메일",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Design에 가입하면 Builder.io 계정도 생성됩니다. 계속하면 Builder의 다음에 동의합니다:",
+    builderSignupDisclosure: "Builder의 다음 사항에도 동의합니다:",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
     legalTerms: "약관",
     legalConnector: "및",
@@ -463,8 +455,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Seu cadastro no Design também cria uma conta Builder.io. Ao continuar, você aceita os",
+    builderSignupDisclosure: "Você também aceita os do Builder:",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
     legalTerms: "Termos",
     legalConnector: "e",
@@ -510,8 +501,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "Design पर साइन अप करने से Builder.io खाता भी बनता है। जारी रखकर, आप Builder की",
+    builderSignupDisclosure: "आप Builder की निम्न नीतियों से भी सहमत हैं:",
     legalPrefix: "साइन अप करके, आप हमारी",
     legalTerms: "शर्तें",
     legalConnector: "और",
@@ -557,8 +547,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailLinkContinueAction: "متابعة",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
-    builderSignupDisclosure:
-      "يؤدي التسجيل في Design أيضًا إلى إنشاء حساب Builder.io. بالمتابعة، توافق على",
+    builderSignupDisclosure: "توافق أيضًا على شروط Builder:",
     legalPrefix: "بالتسجيل، فإنك توافق على",
     legalTerms: "الشروط",
     legalConnector: "و",

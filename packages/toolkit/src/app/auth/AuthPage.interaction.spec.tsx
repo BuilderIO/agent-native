@@ -74,19 +74,29 @@ describe("AuthPage interactions", () => {
             trackingApp="design"
             googleOnly
             showGoogle
+            signupLegalNotice={{
+              termsUrl: "https://example.com/terms",
+              privacyUrl: "https://example.com/privacy",
+            }}
             identitySsoEnabled={false}
           />,
         );
       });
       expect(
-        container.textContent?.includes(
-          "Your Design signup also creates a Builder.io account",
-        ),
+        container.textContent?.includes("You also agree to Builder’s"),
       ).toBe(variant === "automatic");
       expect(
         container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
       ).toBe(false);
+      const footer = container.querySelector(".legal-note");
+      expect(footer?.textContent).toContain("By signing up, you accept our");
+      expect(
+        container
+          .querySelector("#google-btn")
+          ?.compareDocumentPosition(footer ?? container),
+      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       if (variant === "automatic") {
+        expect(footer?.querySelectorAll("a").length).toBe(4);
         expect(
           container.querySelector(
             'a[href="https://www.builder.io/legal/terms"]',
