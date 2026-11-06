@@ -83,20 +83,24 @@ describe("AuthPage interactions", () => {
         );
       });
       expect(
-        container.textContent?.includes("You also agree to Builder’s"),
+        container.textContent?.includes(
+          "You also create a Builder.io account and agree to Builder’s",
+        ),
       ).toBe(variant === "automatic");
       expect(
         container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
       ).toBe(false);
       const footer = container.querySelector(".legal-note");
       if (variant === "automatic") {
-        expect(footer?.textContent).toContain("By signing up, you accept our");
+        expect(footer?.textContent).not.toContain(
+          "By signing up, you accept our",
+        );
         expect(
           container
             .querySelector("#google-btn")
             ?.compareDocumentPosition(footer ?? container),
         ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-        expect(footer?.querySelectorAll("a").length).toBe(4);
+        expect(footer?.querySelectorAll("a").length).toBe(2);
         expect(
           container.querySelector(
             'a[href="https://www.builder.io/legal/terms"]',
