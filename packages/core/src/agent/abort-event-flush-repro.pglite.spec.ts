@@ -1,7 +1,100 @@
+import { EventEmitter } from "node:events";
+import { createServer, type Server } from "node:http";
+
+import { createApp, type EventHandler } from "h3";
+import { toNodeHandler } from "h3/node";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
+
+const harness = vi.hoisted(() => ({
+  init: [] as Promise<void>[],
+  close: [] as Array<() => void | Promise<void>>,
+  captured: [] as Array<{ error: unknown; phase?: string }>,
+}));
+
+vi.mock("../server/framework-request-handler.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/framework-request-handler.js")
+  >()),
+  awaitBootstrap: () => Promise.resolve(),
+  getH3App: (app: { h3App: ReturnType<typeof createApp> }) => ({
+    use(path: string, handler: EventHandler) {
+      app.h3App.all(path.endsWith("/runs") ? `${path}/**` : path, handler);
+    },
+  }),
+  markDefaultPluginProvided: vi.fn(),
+  trackPluginInit: (_app: unknown, promise: Promise<void>) => {
+    harness.init.push(promise);
+  },
+}));
+vi.mock("../agent/run-ownership.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-ownership.js")>()),
+  callerHasRunAccess: () => true,
+  callerHasThreadAccess: () => true,
+}));
+vi.mock("../server/agent-run-context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/agent-run-context.js")>()),
+  resolveAgentRunOwnerContext: async () => ({
+    owner: "user@example.com",
+    anonymous: false,
+  }),
+  resolveAgentRunOrgId: async () => undefined,
+}));
+vi.mock("../server/capture-error.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/capture-error.js")>();
+  return {
+    ...actual,
+    captureError: (...args: Parameters<typeof actual.captureError>) => {
+      harness.captured.push({ error: args[0], phase: args[1]?.tags?.phase });
+      return actual.captureError(...args);
+    },
+  };
+});
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  deleteSetting: async () => false,
+  getSetting: async () => null,
+  getSettingsEmitter: () => new EventEmitter(),
+  putSetting: async () => {},
+}));
+vi.mock("../server/hosted-harness-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/hosted-harness-policy.js")
+  >()),
+  loadHostedHarnessConfig: async () => undefined,
+}));
+vi.mock("../server/action-discovery.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/action-discovery.js")>()),
+  mergeCoreSharingActions: async () => {},
+}));
+vi.mock("../server/agent-chat/script-entries.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/agent-chat/script-entries.js")
+  >()),
+  createAgentEngineScriptEntries: async () => ({}),
+  createAgentLoopSettingsScriptEntries: async () => ({}),
+}));
+vi.mock("../server/agent-chat/run-code-tools.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/agent-chat/run-code-tools.js")
+  >()),
+  loadRunCodeToolEntries: async () => ({}),
+}));
+vi.mock("../scripts/dev/index.js", () => ({
+  createDevScriptRegistry: async () => ({}),
+}));
+vi.mock("../a2a/server.js", () => ({ mountA2A: vi.fn() }));
+vi.mock("../server/social-og-image.js", () => ({
+  createAgentNativeOgImageHandler: () => () => new Response(),
+}));
+vi.mock("../mcp-client/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mcp-client/index.js")>()),
+  buildMergedConfig: async () => null,
+  startMcpConfigRefresh: () => () => {},
+}));
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 function getExecutor(): DbExec {
@@ -23,20 +116,27 @@ function getExecutor(): DbExec {
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => getExecutor(),
+  createDbExec: async () => getExecutor(),
+  getMigrationDatabaseUrl: () => "pglite:memory://",
 }));
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: async () => true,
   ensureIndexExists: async () => true,
   ensureTableExists: async () => true,
 }));
-const { startRun, abortRunAndTurnDurably } = await import("./run-manager.js");
+const { startRun } = await import("./run-manager.js");
+const { createAgentChatPlugin } =
+  await import("../server/agent-chat-plugin.js");
 const {
   ensureRunTables,
   markRunAborted,
   insertRun,
   claimTurnExecutionLease,
   isTurnAborted,
+  AgentRunEventNotPersistedError,
 } = await import("./run-store.js");
+let server: Server;
+let baseUrl: string;
 
 function gate() {
   let resolve!: () => void;
@@ -46,11 +146,46 @@ function gate() {
   return { promise, resolve };
 }
 beforeAll(async () => {
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("AGENT_MODE", "production");
+  vi.stubEnv("DATABASE_URL", "pglite:memory://");
   pglite = await createTestPglite();
   await ensureRunTables();
-});
+  const h3App = createApp();
+  createAgentChatPlugin({
+    actions: () => ({}),
+    a2aAgentDelegation: false,
+    frameworkTools: "minimal",
+    leanPrompt: true,
+    mcp: { enabled: false },
+  })({
+    h3App,
+    hooks: {
+      hook(name: string, callback: () => void | Promise<void>) {
+        if (name === "close") harness.close.push(callback);
+      },
+    },
+  });
+  const init = harness.init.at(-1);
+  if (!init) throw new Error("Plugin initialization was not registered");
+  await init;
+  server = createServer(toNodeHandler(h3App));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No local port");
+  baseUrl = `http://127.0.0.1:${address.port}`;
+}, 30_000);
 afterAll(async () => {
+  if (server?.listening)
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  await Promise.all(harness.close.map((close) => close()));
   await pglite?.close();
+  vi.unstubAllEnvs();
 });
 
 describe("abort with a queued, fenced event", () => {
@@ -80,94 +215,171 @@ describe("abort with a queued, fenced event", () => {
           },
         },
       );
-      await entered.promise;
-      if (mode === "expired" || mode === "reclaimed") {
-        await pglite.query(
-          "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
-          [threadId, runId],
+      try {
+        await entered.promise;
+        if (mode === "expired" || mode === "reclaimed") {
+          await pglite.query(
+            "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+            [threadId, runId],
+          );
+        }
+        if (mode === "reclaimed") {
+          const successorId = `${runId}-successor`;
+          await insertRun(successorId, threadId, runId);
+          await claimTurnExecutionLease(threadId, runId, successorId);
+        }
+        if (mode === "terminal") await markRunAborted(runId, "other-worker");
+        harness.captured.length = 0;
+        const flushSpy = vi.spyOn(run, "flushEvents");
+        const abortReached = new Promise<void>((resolve) =>
+          run.abort.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
         );
-      }
-      if (mode === "reclaimed") {
-        const successorId = `${runId}-successor`;
-        await insertRun(successorId, threadId, runId);
-        await claimTurnExecutionLease(threadId, runId, successorId);
-      }
-      if (mode === "terminal") await markRunAborted(runId, "other-worker");
-      const stop = abortRunAndTurnDurably(runId, "user").then(
-        () => ({ ok: true, name: null, message: null, terminalRun: null }),
-        (error: unknown) => ({
-          ok: false,
-          name: error instanceof Error ? error.name : String(error),
-          message: error instanceof Error ? error.message : String(error),
-          terminalRun:
-            error && typeof error === "object" && "terminalRun" in error
-              ? error.terminalRun
-              : null,
-        }),
-      );
-      eventGate.resolve();
-      const result = await stop;
-      const state = await pglite.query(
-        "SELECT id, status, dispatch_mode, terminal_reason FROM agent_runs WHERE thread_id = ? ORDER BY id",
-        [threadId],
-      );
-      const events = await pglite.query(
-        "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
-        [runId],
-      );
-      const turnAborted = await isTurnAborted(threadId, runId);
-      const textPersisted = events.rows.some((event) =>
-        String(event.event_data).includes(`queued-${mode}`),
-      );
-      const statuses = state.rows.map((row) => ({
-        id: row.id,
-        status: row.status,
-        dispatch_mode: row.dispatch_mode,
-      }));
-      console.log(
-        "REPRO",
-        mode,
-        JSON.stringify({
-          result,
-          statuses,
-          eventCount: events.rows.length,
-          textPersisted,
-          turnAborted,
-        }),
-      );
-      if (mode === "current") {
-        expect(result.ok).toBe(true);
-        expect(textPersisted).toBe(true);
-        expect(statuses[0]).toMatchObject({ status: "aborted" });
-      } else if (mode === "expired" || mode === "reclaimed") {
-        expect(result).toMatchObject({
-          ok: false,
-          name: "StaleExecutionFenceError",
+        const stop = fetch(
+          `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: "user" }),
+            signal: AbortSignal.timeout(15_000),
+          },
+        );
+        await Promise.race([
+          abortReached,
+          stop.then((response) => {
+            throw new Error(
+              `POST returned ${response.status} before aborting the active run`,
+            );
+          }),
+        ]);
+        await vi.waitFor(() => expect(flushSpy).toHaveBeenCalledTimes(2));
+        eventGate.resolve();
+        const response = await stop;
+        const body = await response.text();
+        const result = { status: response.status, body };
+        console.log("REPRO HTTP", mode, response.status, body);
+        const state = await pglite.query(
+          "SELECT id, status, dispatch_mode, terminal_reason FROM agent_runs WHERE thread_id = ? ORDER BY id",
+          [threadId],
+        );
+        const events = await pglite.query(
+          "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+          [runId],
+        );
+        const eventSummary = events.rows.map((row) => {
+          const event = JSON.parse(String(row.event_data)) as {
+            type?: string;
+            errorCode?: string;
+            text?: string;
+          };
+          return {
+            seq: Number(row.seq),
+            type: event.type,
+            errorCode: event.errorCode,
+            text: event.text,
+          };
         });
-        expect(statuses[0]).toMatchObject({ status: "running" });
-        expect(textPersisted).toBe(false);
-        expect(turnAborted).toBe(false);
-      } else {
-        expect(result).toMatchObject({
-          ok: false,
-          name: "AgentRunEventNotPersistedError",
-          terminalRun: true,
-        });
-        expect(statuses[0]).toMatchObject({ status: "aborted" });
-        expect(textPersisted).toBe(false);
-      }
-      driverGate.resolve();
-      await run.finalized.catch(() => {});
-      const finalState = await pglite.query(
-        "SELECT id, status FROM agent_runs WHERE thread_id = ? ORDER BY id",
-        [threadId],
-      );
-      const finalTurnAborted = await isTurnAborted(threadId, runId);
-      console.log("REPRO FINAL", mode, JSON.stringify(finalState.rows));
-      console.log("REPRO TURN MARKER", mode, finalTurnAborted);
-      if (mode === "expired" || mode === "reclaimed") {
-        expect(finalState.rows[0]).toMatchObject({ status: "running" });
-        expect(finalTurnAborted).toBe(false);
+        console.log("REPRO EVENTS", mode, JSON.stringify(eventSummary));
+        console.log(
+          "REPRO CAPTURE",
+          mode,
+          JSON.stringify(
+            harness.captured.map(({ error, phase }) => ({
+              name: error instanceof Error ? error.name : String(error),
+              phase,
+            })),
+          ),
+        );
+        const turnAborted = await isTurnAborted(threadId, runId);
+        const textPersisted = events.rows.some((event) =>
+          String(event.event_data).includes(`queued-${mode}`),
+        );
+        const statuses = state.rows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          dispatch_mode: row.dispatch_mode,
+        }));
+        console.log(
+          "REPRO",
+          mode,
+          JSON.stringify({
+            result,
+            statuses,
+            eventCount: events.rows.length,
+            textPersisted,
+            turnAborted,
+          }),
+        );
+        if (mode === "current") {
+          expect(result.status).toBe(200);
+          expect(JSON.parse(result.body)).toEqual({ ok: true });
+          expect(textPersisted).toBe(true);
+          expect(eventSummary).toEqual([
+            {
+              seq: 0,
+              type: "text",
+              errorCode: undefined,
+              text: "queued-current",
+            },
+            { seq: 1, type: "done", errorCode: undefined, text: undefined },
+          ]);
+          expect(statuses[0]).toMatchObject({ status: "aborted" });
+        } else if (mode === "expired" || mode === "reclaimed") {
+          expect(result.status).toBe(500);
+          expect(
+            harness.captured.some(
+              ({ error, phase }) =>
+                phase === "abort-event-flush" &&
+                error instanceof Error &&
+                error.name === "StaleExecutionFenceError",
+            ),
+          ).toBe(true);
+          expect(eventSummary).toEqual([]);
+          expect(statuses[0]).toMatchObject({ status: "running" });
+          expect(textPersisted).toBe(false);
+          expect(turnAborted).toBe(false);
+        } else {
+          expect(result.status).toBe(500);
+          expect(
+            harness.captured.some(
+              ({ error, phase }) =>
+                phase === "abort-run" &&
+                error instanceof AgentRunEventNotPersistedError &&
+                error.terminalRun &&
+                error.cause instanceof Error &&
+                error.cause.name === "StaleExecutionFenceError",
+            ),
+          ).toBe(true);
+          expect(eventSummary).toEqual([
+            {
+              seq: 0,
+              type: "error",
+              errorCode: "aborted_other-worker",
+              text: undefined,
+            },
+          ]);
+          expect(statuses[0]).toMatchObject({ status: "aborted" });
+          expect(textPersisted).toBe(false);
+        }
+        driverGate.resolve();
+        await run.finalized.catch(() => {});
+        const finalState = await pglite.query(
+          "SELECT id, status FROM agent_runs WHERE thread_id = ? ORDER BY id",
+          [threadId],
+        );
+        const finalTurnAborted = await isTurnAborted(threadId, runId);
+        console.log("REPRO FINAL", mode, JSON.stringify(finalState.rows));
+        console.log("REPRO TURN MARKER", mode, finalTurnAborted);
+        if (mode === "expired" || mode === "reclaimed") {
+          expect(finalState.rows[0]).toMatchObject({ status: "running" });
+          expect(finalTurnAborted).toBe(false);
+        }
+      } finally {
+        eventGate.resolve();
+        driverGate.resolve();
+        if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+        await run.finalized.catch(() => {});
       }
     });
   }
