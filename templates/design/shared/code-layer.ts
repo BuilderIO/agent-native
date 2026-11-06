@@ -4024,6 +4024,111 @@ export function ensureCodeLayerNodeIdsInHtml(
   return { content, changed: true, stamped: orderedEdits.length };
 }
 
+function attributeOccurrencesByValue(
+  elements: readonly ParsedElement[],
+  name: string,
+): Map<string, ParsedAttribute[]> {
+  const byValue = new Map<string, ParsedAttribute[]>();
+  for (const element of elements) {
+    const attr = getAttribute(element, name);
+    const value = typeof attr?.value === "string" ? attr.value.trim() : "";
+    if (!attr || !value) continue;
+    const holders = byValue.get(value);
+    if (holders) holders.push(attr);
+    else byValue.set(value, [attr]);
+  }
+  for (const holders of byValue.values()) {
+    holders.sort((a, b) => a.start - b.start);
+  }
+  return byValue;
+}
+
+const RENAMEABLE_HTML_ID_RE = /^[A-Za-z][\w:.-]*$/;
+
+/**
+ * An edit that copies an element copies its ids with it. Keeps the first
+ * `max(before, 1)` holders of each id and gives every further holder this
+ * write added a fresh one; ids that already repeated in `previousHtml` stay as
+ * authored. A markup `id` is only renamed when it existed before the write: a
+ * new id repeated across freshly authored markup is the author's own, and
+ * renaming it would detach its `#id` selectors.
+ */
+export function reconcileIntroducedIdsInHtml(
+  previousHtml: string,
+  nextHtml: string,
+): { content: string; restampedNodeIds: number; renamedHtmlIds: number } {
+  const unchanged = {
+    content: nextHtml,
+    restampedNodeIds: 0,
+    renamedHtmlIds: 0,
+  };
+  if (
+    nextHtml === previousHtml ||
+    !previousHtml.trim() ||
+    isStandaloneHttpUrl(previousHtml) ||
+    isStandaloneHttpUrl(nextHtml)
+  ) {
+    return unchanged;
+  }
+  const previousElements = parseHtmlElements(previousHtml);
+  const nextElements = parseHtmlElements(nextHtml);
+  const edits: Array<{ start: number; end: number; value: string }> = [];
+
+  const previousNodeIds = attributeOccurrencesByValue(
+    previousElements,
+    "data-agent-native-node-id",
+  );
+  const nextNodeIds = attributeOccurrencesByValue(
+    nextElements,
+    "data-agent-native-node-id",
+  );
+  const usedNodeIds = new Set(nextNodeIds.keys());
+  let restampedNodeIds = 0;
+  for (const [value, holders] of nextNodeIds) {
+    const kept = Math.max(previousNodeIds.get(value)?.length ?? 0, 1);
+    for (const attr of holders.slice(kept)) {
+      const fresh = freshNodeId(
+        usedNodeIds,
+        `reconciled:${value}:${attr.start}`,
+      );
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `data-agent-native-node-id="${escapeHtmlAttribute(fresh)}"`,
+      });
+      restampedNodeIds += 1;
+    }
+  }
+
+  const previousHtmlIds = attributeOccurrencesByValue(previousElements, "id");
+  const nextHtmlIds = attributeOccurrencesByValue(nextElements, "id");
+  const usedHtmlIds = new Set(nextHtmlIds.keys());
+  let renamedHtmlIds = 0;
+  for (const [value, holders] of nextHtmlIds) {
+    const before = previousHtmlIds.get(value)?.length ?? 0;
+    if (before < 1 || !RENAMEABLE_HTML_ID_RE.test(value)) continue;
+    for (const attr of holders.slice(before)) {
+      let suffix = 2;
+      while (usedHtmlIds.has(`${value}-${suffix}`)) suffix += 1;
+      const renamed = `${value}-${suffix}`;
+      usedHtmlIds.add(renamed);
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `${attr.name}="${renamed}"`,
+      });
+      renamedHtmlIds += 1;
+    }
+  }
+
+  if (edits.length === 0) return unchanged;
+  let content = nextHtml;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, edit.start)}${edit.value}${content.slice(edit.end)}`;
+  }
+  return { content, restampedNodeIds, renamedHtmlIds };
+}
+
 export function ensureCodeLayerNodeIdInHtml(
   html: string,
   targetNodeId: string,

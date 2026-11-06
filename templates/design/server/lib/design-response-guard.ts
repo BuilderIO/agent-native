@@ -35,6 +35,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "insert-asset",
   "insert-design-native-asset",
   "insert-figma-library-asset",
+  "move-design-element",
   "present-design-variants",
   "update-design",
   "update-file",
@@ -290,6 +291,8 @@ function hasSuccessfulMutation(
         parsed.stale !== true
       );
     }
+
+    if (name === "move-design-element") return parsed.moved === true;
 
     if (name === "update-file") {
       return parsed.updated === true && parsed.skippedStaleMirror !== true;
