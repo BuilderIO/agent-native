@@ -104,6 +104,14 @@ function watchPage(page: Page, baseURL: string) {
       ) {
         return;
       }
+      // The app aborts its own UI capability mint when the session changes and
+      // mints again on the next write; this smoke makes no write after signup.
+      if (
+        pathname === "/_agent-native/ui-capability" &&
+        errorText === "net::ERR_ABORTED"
+      ) {
+        return;
+      }
       if (errorText === "net::ERR_ABORTED") {
         unretriedAborts.set(request.url(), `${pathname} ${errorText}`);
         return;
