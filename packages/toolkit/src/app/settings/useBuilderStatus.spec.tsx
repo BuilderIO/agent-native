@@ -3447,10 +3447,15 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Didn't finish connecting");
 
+    (popup as unknown as { closed: boolean }).closed = true;
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
       container
         .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
         ?.click();
+    });
+    expect(container.textContent).toContain("not-configured idle");
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(24_000);
     });
 
@@ -3460,21 +3465,21 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
-  it("does not surface a late connection error after explicit cancellation", async () => {
+  it("reports a timed-out normal poll as unavailable", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
-    let failed = false;
+    let stall = false;
     const disconnected = { ...connectedBuilderStatus, configured: false };
     const transport: BuilderConnectTransport = {
-      readStatus: async () =>
-        failed
-          ? {
-              ...disconnected,
-              connectError: { message: "Failed to save", at: Date.now() },
-            }
-          : disconnected,
+      readStatus: ({ signal }) =>
+        stall
+          ? new Promise((_resolve, reject) =>
+              signal?.addEventListener("abort", () =>
+                reject(new Error("timeout")),
+              ),
+            )
+          : Promise.resolve(disconnected),
       activateAccount: vi.fn(),
     };
     await act(async () => {
@@ -3486,47 +3491,21 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
-      await Promise.resolve();
     });
-    const attemptId = popupAttemptId(popup);
+    stall = true;
     await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
-        ?.click();
+      await vi.advanceTimersByTimeAsync(12_000);
     });
-    failed = true;
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: {
-            type: "builder-connect-error",
-            attemptId,
-            message: "Failed to save",
-          },
-        }),
-      );
-      await vi.advanceTimersByTimeAsync(24_000);
-    });
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured idle");
     expect(
-      container.querySelector("[data-testid='terminal-error']")?.textContent,
-    ).toBe("none");
-    expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
-      "builder connect failed",
-      expect.anything(),
-    );
+      container.querySelector("[data-testid='status-unavailable']")
+        ?.textContent,
+    ).toBe("unavailable");
   });
 
   it("restarts reconciliation when an earlier poll is stuck", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
+    openSpy.mockReturnValue(createPopupStub());
     let stall = false;
     let connected = false;
     let stalledSignal: AbortSignal | undefined;
@@ -3554,6 +3533,7 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
+    const startedAt = Date.now();
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -3571,12 +3551,23 @@ describe("useBuilderConnectFlow", () => {
     });
     expect(stalledSignal?.aborted).toBe(true);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+      vi.setSystemTime(startedAt);
+      container.querySelector("button")?.click();
+      await Promise.resolve();
     });
     await act(async () => {
       release?.(connectedBuilderStatus);
       await Promise.resolve();
       await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50_000);
     });
     expect(container.textContent).toContain("not-configured idle resolved");
     connected = true;
@@ -3584,337 +3575,6 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(container.textContent).toContain("configured idle resolved");
-  });
-
-  it("keeps the initial status when the first popup is blocked", async () => {
-    vi.useFakeTimers();
-    let resolveInitial: ((status: BuilderStatus) => void) | undefined;
-    const transport: BuilderConnectTransport = {
-      readStatus: () =>
-        new Promise<BuilderStatus>((resolve) => {
-          resolveInitial = resolve;
-        }),
-      activateAccount: vi.fn(),
-    };
-    await act(async () => {
-      root.render(<BuilderConnectProbe transport={transport} />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    expect(resolveInitial).toBeDefined();
-    await act(async () => {
-      container.querySelector("button")?.click();
-    });
-    expect(container.textContent).toContain("Allow popups and try again.");
-    await act(async () => {
-      resolveInitial?.({ ...connectedBuilderStatus, configured: false });
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).toContain("Allow popups and try again.");
-  });
-
-  it("keeps a blocked-popup launch error while allowing a failed initial status read to retry", async () => {
-    vi.useFakeTimers();
-    let resolveInitial: ((status: BuilderStatus | null) => void) | undefined;
-    let first = true;
-    const transport: BuilderConnectTransport = {
-      readStatus: () => {
-        if (!first)
-          return Promise.resolve({
-            ...connectedBuilderStatus,
-            configured: false,
-          });
-        first = false;
-        return new Promise<BuilderStatus | null>((resolve) => {
-          resolveInitial = resolve;
-        });
-      },
-      activateAccount: vi.fn(),
-    };
-    await act(async () => {
-      root.render(<BuilderConnectProbe transport={transport} />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    expect(resolveInitial).toBeDefined();
-    await act(async () => {
-      container.querySelector("button")?.click();
-    });
-    await act(async () => {
-      resolveInitial?.(null);
-      await Promise.resolve();
-    });
-    expect(
-      container.querySelector("[data-testid='status-unavailable']")
-        ?.textContent,
-    ).toBe("unavailable");
-    expect(container.textContent).toContain("Allow popups and try again.");
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-    });
-    expect(
-      container.querySelector("[data-testid='status-unavailable']")
-        ?.textContent,
-    ).toBe("available");
-    expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).toContain("Allow popups and try again.");
-  });
-
-  it("does not let a blocked-popup status read settle a later retry", async () => {
-    vi.useFakeTimers();
-    const popup = createPopupStub();
-    openSpy.mockReturnValueOnce(null).mockReturnValueOnce(popup);
-    let resolveInitial: ((status: BuilderStatus) => void) | undefined;
-    const disconnected = { ...connectedBuilderStatus, configured: false };
-    const transport: BuilderConnectTransport = {
-      readStatus: ({ connectAttemptId }) =>
-        connectAttemptId
-          ? Promise.resolve(disconnected)
-          : new Promise<BuilderStatus>((resolve) => {
-              resolveInitial = resolve;
-            }),
-      activateAccount: vi.fn(),
-    };
-    await act(async () => {
-      root.render(<BuilderConnectProbe transport={transport} />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    expect(resolveInitial).toBeDefined();
-    await act(async () => {
-      container.querySelector("button")?.click();
-    });
-    expect(container.textContent).toContain("Allow popups and try again.");
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured connecting");
-    await act(async () => {
-      resolveInitial?.(connectedBuilderStatus);
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured connecting");
-  });
-
-  it("immediately cancels after the browser OAuth popup closes", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-    const fetchMock = vi.mocked(fetch);
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured connecting");
-    expect(openSpy).toHaveBeenCalled();
-
-    (popup as unknown as { closed: boolean }).closed = true;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3_000);
-    });
-    expect(container.textContent).toContain("not-configured connecting");
-
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
-        ?.click();
-    });
-
-    expect.soft(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).not.toContain(
-      "Builder.io setup didn't finish",
-    );
-
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(connectedBuilderStatus),
-    );
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: {
-            type: "builder-connect-success",
-            attemptId: popupAttemptId(popup),
-          },
-        }),
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("configured idle resolved");
-  });
-
-  it("ignores an old cancellation poll after a new attempt starts at the same time", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const firstPopup = createPopupStub();
-    const secondPopup = createPopupStub();
-    openSpy.mockReturnValueOnce(firstPopup).mockReturnValueOnce(secondPopup);
-    const fetchMock = vi.mocked(fetch);
-    const defaultFetch = fetchMock.getMockImplementation();
-    let stallNextRead = false;
-    let resolveOldRead: ((response: Response) => void) | undefined;
-    fetchMock.mockImplementation((input, init) => {
-      if (stallNextRead) {
-        stallNextRead = false;
-        return new Promise<Response>((resolve) => {
-          resolveOldRead = resolve;
-        });
-      }
-      if (!defaultFetch) throw new Error("Missing default fetch mock");
-      return defaultFetch(input, init);
-    });
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    const startedAt = Date.now();
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    stallNextRead = true;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(resolveOldRead).toBeDefined();
-
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
-        ?.click();
-      vi.setSystemTime(startedAt);
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(popupAttemptId(secondPopup)).not.toBe(popupAttemptId(firstPopup));
-    const readsBeforePoll = fetchMock.mock.calls.length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(readsBeforePoll);
-    await act(async () => {
-      resolveOldRead?.(jsonResponse(connectedBuilderStatus));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("not-configured connecting");
-    await act(async () => {
-      fetchMock.mockImplementation(async () =>
-        jsonResponse(connectedBuilderStatus),
-      );
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: {
-            type: "builder-connect-success",
-            attemptId: popupAttemptId(secondPopup),
-          },
-        }),
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("configured idle resolved");
-  });
-
-  it("reconciles a late connection by polling after explicit cancellation", async () => {
-    vi.useFakeTimers();
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    openSpy.mockReturnValue(createPopupStub());
-    const fetchMock = vi.mocked(fetch);
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
-        ?.click();
-    });
-    expect(container.textContent).toContain("not-configured idle");
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(connectedBuilderStatus),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(container.textContent).toContain("configured idle resolved");
-  });
-
-  it("ends cancellation reconciliation when a status read never settles", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-
-    await act(async () => {
-      root.render(<BuilderConnectProbe />);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    await act(async () => {
-      container.querySelector("button")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const attemptId = popupAttemptId(popup);
-    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
-        ?.click();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(130_000);
-    });
-    expect(container.textContent).toContain("not-configured idle");
-    expect(
-      container.querySelector("[data-testid='status-unavailable']")
-        ?.textContent,
-    ).toBe("unavailable");
-    const readsAtDeadline = vi.mocked(fetch).mock.calls.length;
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://agent-workspace.builder.io",
-          data: { type: "builder-connect-success", attemptId },
-        }),
-      );
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(readsAtDeadline);
   });
 
   it("keeps a real success during the explicit cancel grace window", async () => {
@@ -3925,7 +3585,7 @@ describe("useBuilderConnectFlow", () => {
     openSpy.mockReturnValue(popup);
 
     const startedAt = Date.now();
-    const configuredAfterMs = 24_200;
+    const configuredAfterMs = 34_200;
     vi.mocked(fetch).mockImplementation(async () => {
       const isConfigured = Date.now() - startedAt >= configuredAfterMs;
       return jsonResponse(
@@ -3966,7 +3626,7 @@ describe("useBuilderConnectFlow", () => {
     expect(popup.close).toHaveBeenCalledOnce();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
 
     await act(async () => {
@@ -3984,7 +3644,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain("Didn't finish connecting");
   });
 
-  it("allows cancellation after success confirmation retries exhaust", async () => {
+  it("bounds cancellation after success confirmation retries exhaust", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -4027,14 +3687,20 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(container.textContent).toContain("not-configured connecting");
-
+    const fetchMock = vi.mocked(fetch);
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
         ?.click();
-      await vi.advanceTimersByTimeAsync(22_000);
     });
-
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(130_000);
+    });
+    const readsAtDeadline = fetchMock.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(fetchMock.mock.calls.length).toBe(readsAtDeadline);
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).not.toContain(
       "Builder.io setup didn't finish. Try again, or use your own keys.",

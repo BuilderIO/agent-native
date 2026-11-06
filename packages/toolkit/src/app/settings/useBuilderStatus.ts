@@ -856,8 +856,10 @@ export function useBuilderConnectFlow(
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [reconcilingCancellation, setReconcilingCancellation] = useState(false);
-  const [pollAttemptId, setPollAttemptId] = useState<string | null>(null);
+  const [reconciling, setReconciling] = useState<string | null>(null);
+  const pollEpochRef = useRef(0);
+  const [pollEpoch, setPollEpoch] = useState(0);
+  const pendingPollRef = useRef<number | null>(null);
   const errorRevisionRef = useRef(0);
   const [errorState, setErrorState] = useState<{
     kind: BuilderConnectErrorKind;
@@ -890,24 +892,19 @@ export function useBuilderConnectFlow(
   const provisionAccountAttemptRef = useRef(false);
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
-  const blockedPopupRef = useRef<{
-    previousAttemptId: string | null;
-    attemptId: string;
-    errorRevision: number;
-  } | null>(null);
   const activePopupRef = useRef<Window | null>(null);
   const confirmConnectSuccessRef = useRef<(attemptId: string) => Promise<void>>(
     async () => {},
   );
   const popupClosedAtRef = useRef<number | null>(null);
-  const callbackSuccessAttemptIdRef = useRef<string | null>(null);
-  const callbackSuccessInFlightAttemptIdRef = useRef<string | null>(null);
+  const callbackSuccessStartedAtRef = useRef<number | null>(null);
+  const callbackSuccessInFlightAtRef = useRef<number | null>(null);
   const callbackSuccessCancelRef = useRef<{
-    attemptId: string;
+    started: number;
     cancel: () => void;
   } | null>(null);
   const callbackSuccessRequestControllerRef = useRef<{
-    attemptId: string;
+    started: number;
     controller: AbortController;
   } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
@@ -934,15 +931,14 @@ export function useBuilderConnectFlow(
     source: trackingSource,
     flow: trackingFlow,
   });
+  // A new generation must not wait for a transport that ignores abort.
   const getConnectPollInterval = useCallback(
     () =>
-      pollAttemptId || reconcilingCancellation
-        ? Math.min(
-            MAX_POLL_INTERVAL_MS,
-            POLL_INTERVAL_MS * 2 ** statusPollFailuresRef.current,
-          )
-        : POLL_INTERVAL_MS,
-    [pollAttemptId, reconcilingCancellation],
+      Math.min(
+        MAX_POLL_INTERVAL_MS,
+        POLL_INTERVAL_MS * 2 ** statusPollFailuresRef.current,
+      ),
+    [pollEpoch],
   );
 
   useEffect(() => {
@@ -969,17 +965,19 @@ export function useBuilderConnectFlow(
     const removePopupClosed = desktopBridge?.oauth?.onPopupClosed(
       (attemptId) => {
         if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
-        if (callbackSuccessAttemptIdRef.current === attemptId) {
+        const started = connectStartedAtRef.current;
+        if (
+          started !== null &&
+          callbackSuccessStartedAtRef.current === started
+        ) {
           popupClosedAtRef.current ??= Date.now();
           return;
         }
         popupClosedAtRef.current ??= Date.now();
-        if (callbackSuccessCancelRef.current?.attemptId === attemptId) {
+        if (callbackSuccessCancelRef.current?.started === started) {
           callbackSuccessCancelRef.current.cancel();
         }
-        if (
-          callbackSuccessRequestControllerRef.current?.attemptId === attemptId
-        ) {
+        if (callbackSuccessRequestControllerRef.current?.started === started) {
           callbackSuccessRequestControllerRef.current.controller.abort();
         }
       },
@@ -1069,7 +1067,7 @@ export function useBuilderConnectFlow(
       setBuilderEnabled(false);
       setOrgName(null);
       setConnecting(false);
-      setReconcilingCancellation(false);
+      setReconciling(null);
       setError(null);
       markStatusAvailable();
       setAccountExists(false);
@@ -1091,29 +1089,18 @@ export function useBuilderConnectFlow(
       const generation = ++refreshGeneration;
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
-      const blockedPopup = blockedPopupRef.current;
-      const unchangedBlockedLaunch =
-        blockedPopup?.previousAttemptId === attemptIdAtStart &&
-        blockedPopup.attemptId === connectAttemptIdRef.current &&
-        blockedPopup.errorRevision === errorRevisionRef.current;
       if (
         cancelled ||
         !mountedRef.current ||
         !isCurrentRefresh() ||
-        (!unchangedBlockedLaunch &&
-          (connectAttemptIdRef.current !== attemptIdAtStart ||
-            errorRevisionRef.current !== errorRevisionAtStart))
+        connectAttemptIdRef.current !== attemptIdAtStart
       )
         return;
+      if (errorRevisionRef.current !== errorRevisionAtStart) return;
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        if (unchangedBlockedLaunch) {
-          statusUnavailableRef.current = true;
-          setStatusUnavailableRevision(errorRevisionAtStart);
-        } else {
-          markStatusUnavailable();
-        }
+        markStatusUnavailable();
         return;
       }
       if (statusUnavailableRef.current) {
@@ -1128,12 +1115,7 @@ export function useBuilderConnectFlow(
       setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
-      const wasCancelled =
-        connectAttemptIdRef.current !== null &&
-        cancelledConnectAttemptIdRef.current === connectAttemptIdRef.current;
-      if (!wasCancelled) {
-        setAccountExists(s.connectError?.code === "account_exists");
-      }
+      setAccountExists(s.connectError?.code === "account_exists");
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -1147,7 +1129,7 @@ export function useBuilderConnectFlow(
       if (connectComplete) {
         connectStartedAtRef.current = null;
         setConnecting(false);
-        setReconcilingCancellation(false);
+        setReconciling(null);
       }
       if (connectComplete && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
@@ -1164,7 +1146,9 @@ export function useBuilderConnectFlow(
       if (errorRevisionRef.current === errorRevisionAtStart) {
         const activeConnectStartedAt = connectStartedAtRef.current;
         if (
-          !wasCancelled &&
+          (!connectAttemptIdRef.current ||
+            cancelledConnectAttemptIdRef.current !==
+              connectAttemptIdRef.current) &&
           isCurrentConnectError(s.connectError, activeConnectStartedAt)
         ) {
           setError(s.connectError.message);
@@ -1216,38 +1200,40 @@ export function useBuilderConnectFlow(
   ]);
 
   useEffect(() => {
-    if (!reconcilingCancellation) return;
-    const attemptId = connectAttemptIdRef.current;
-    const timeout = setTimeout(
+    if (!reconciling) return;
+    const timer = setTimeout(
       () => {
-        if (connectAttemptIdRef.current !== attemptId) return;
+        if (connectAttemptIdRef.current !== reconciling) return;
         callbackSuccessCancelRef.current?.cancel();
         callbackSuccessRequestControllerRef.current?.controller.abort();
         connectStartedAtRef.current = null;
-        setReconcilingCancellation(false);
-        markStatusUnavailable();
+        setReconciling(null);
+        if (pendingPollRef.current === pollEpochRef.current)
+          markStatusUnavailable();
       },
       POPUP_CLOSED_CONFIRMATION_GRACE_MS +
         CALLBACK_SUCCESS_STATUS_RETRIES *
           (STATUS_FETCH_ABORT_MS + CALLBACK_SUCCESS_STATUS_RETRY_MS),
     );
-    return () => clearTimeout(timeout);
-  }, [reconcilingCancellation, pollAttemptId, markStatusUnavailable]);
+    return () => clearTimeout(timer);
+  }, [reconciling, markStatusUnavailable]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
     const started = connectStartedAtRef.current;
     if (started === null) return;
     const attemptId = connectAttemptIdRef.current;
+    setConnecting(false);
+    setReconciling(attemptId);
+    setPollEpoch(++pollEpochRef.current);
     provisionAccountAttemptRef.current = false;
     cancelledConnectAttemptIdRef.current = attemptId;
     popupClosedAtRef.current ??= Date.now();
-    setConnecting(false);
-    setReconcilingCancellation(true);
-    if (callbackSuccessCancelRef.current?.attemptId === attemptId)
+    if (callbackSuccessCancelRef.current?.started === started)
       callbackSuccessCancelRef.current.cancel();
-    if (callbackSuccessRequestControllerRef.current?.attemptId === attemptId)
+    if (callbackSuccessRequestControllerRef.current?.started === started)
       callbackSuccessRequestControllerRef.current.controller.abort();
+    callbackSuccessStartedAtRef.current = null;
     try {
       activePopupRef.current?.close();
     } catch {
@@ -1274,9 +1260,7 @@ export function useBuilderConnectFlow(
     (startOptions?: BuilderConnectStartOptions) => {
       if (!enabled) return;
       const started = Date.now();
-      const previousAttemptId = connectAttemptIdRef.current;
       const connectAttemptId = createBuilderConnectAttemptId();
-      blockedPopupRef.current = null;
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
@@ -1302,12 +1286,13 @@ export function useBuilderConnectFlow(
       callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
-      setPollAttemptId(connectAttemptId);
+      setReconciling(null);
+      setPollEpoch(++pollEpochRef.current);
       provisionAccountAttemptRef.current = provisionAccountForStart;
       cancelledConnectAttemptIdRef.current = null;
       statusPollFailuresRef.current = 0;
-      callbackSuccessAttemptIdRef.current = null;
-      callbackSuccessInFlightAttemptIdRef.current = null;
+      callbackSuccessStartedAtRef.current = null;
+      callbackSuccessInFlightAtRef.current = null;
       callbackSuccessCancelRef.current = null;
       callbackSuccessRequestControllerRef.current = null;
       activePopupRef.current = null;
@@ -1317,7 +1302,6 @@ export function useBuilderConnectFlow(
         flow: clickTrackingFlow,
       };
       setConnecting(true);
-      setReconcilingCancellation(false);
       setError(null);
       setAccountExists(false);
 
@@ -1611,11 +1595,6 @@ export function useBuilderConnectFlow(
               "Couldn't open Builder. Allow popups and try again.",
               "launch",
             );
-            blockedPopupRef.current = {
-              previousAttemptId,
-              attemptId: connectAttemptId,
-              errorRevision: errorRevisionRef.current,
-            };
             return;
           }
 
@@ -1664,13 +1643,7 @@ export function useBuilderConnectFlow(
             });
             const openedByHost =
               await openBuilderConnectViaMcpHost(trackedHostUrl);
-            if (
-              !mountedRef.current ||
-              connectAttemptIdRef.current !== connectAttemptId ||
-              cancelledConnectAttemptIdRef.current === connectAttemptId ||
-              openedByHost
-            )
-              return;
+            if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
             if (!s) restoreExistingAccount();
@@ -1810,13 +1783,16 @@ export function useBuilderConnectFlow(
     async (signal) => {
       const started = connectStartedAtRef.current;
       const attemptId = connectAttemptIdRef.current;
-      if (started == null || attemptId == null) return;
+      const epoch = pollEpochRef.current;
+      if (started == null || !attemptId) return;
+      pendingPollRef.current = epoch;
       const s = await fetchStatus(signal, attemptId);
+      if (pendingPollRef.current === epoch) pendingPollRef.current = null;
       if (
-        signal.aborted ||
         !mountedRef.current ||
         connectStartedAtRef.current !== started ||
-        connectAttemptIdRef.current !== attemptId
+        connectAttemptIdRef.current !== attemptId ||
+        pollEpochRef.current !== epoch
       ) {
         return;
       }
@@ -1841,9 +1817,8 @@ export function useBuilderConnectFlow(
         setCanDisconnect(!!s.canDisconnect);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
-        if (cancelledConnectAttemptIdRef.current !== attemptId) {
+        if (cancelledConnectAttemptIdRef.current !== attemptId)
           setAccountExists(s.connectError?.code === "account_exists");
-        }
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
@@ -1853,7 +1828,7 @@ export function useBuilderConnectFlow(
       if (s && isBuilderConnectComplete(s, connectTargetRef.current)) {
         setAccountExists(false);
         setConnecting(false);
-        setReconcilingCancellation(false);
+        setReconciling(null);
         connectStartedAtRef.current = null;
         notifiedConnectedRef.current = true;
         notifyProvisionedAccount();
@@ -1871,7 +1846,6 @@ export function useBuilderConnectFlow(
       ) {
         connectStartedAtRef.current = null;
         setConnecting(false);
-        setReconcilingCancellation(false);
         setAccountExists(s.connectError.code === "account_exists");
         setError(
           s.connectError.code === "account_exists"
@@ -1879,9 +1853,10 @@ export function useBuilderConnectFlow(
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
       } else if (
+        cancelledConnectAttemptIdRef.current !== attemptId &&
         (isPopupClosed(activePopupRef.current) ||
           popupClosedAtRef.current !== null) &&
-        callbackSuccessInFlightAttemptIdRef.current !== attemptId
+        callbackSuccessInFlightAtRef.current !== started
       ) {
         popupClosedAtRef.current ??= Date.now();
         if (
@@ -1890,20 +1865,17 @@ export function useBuilderConnectFlow(
         ) {
           connectStartedAtRef.current = null;
           setConnecting(false);
-          setReconcilingCancellation(false);
-          if (cancelledConnectAttemptIdRef.current !== attemptId) {
-            const { source, flow } = activeTrackingRef.current;
-            trackEvent("builder connect failed", {
-              feature: "builder",
-              stage: "client",
-              reason: "popup_closed_without_status",
-              source,
-              flow:
-                cleanTrackingParam(flow) ??
-                inferBuilderConnectTrackingFlow(source),
-            });
-            if (s) setError(t("agentChat.settingsShell.builder.setupFailed"));
-          }
+          const { source, flow } = activeTrackingRef.current;
+          trackEvent("builder connect failed", {
+            feature: "builder",
+            stage: "client",
+            reason: "popup_closed_without_status",
+            source,
+            flow:
+              cleanTrackingParam(flow) ??
+              inferBuilderConnectTrackingFlow(source),
+          });
+          if (s) setError(t("agentChat.settingsShell.builder.setupFailed"));
         }
       } else if (
         cancelledConnectAttemptIdRef.current !== attemptId &&
@@ -1911,7 +1883,6 @@ export function useBuilderConnectFlow(
       ) {
         connectStartedAtRef.current = null;
         setConnecting(false);
-        setReconcilingCancellation(false);
         const { source, flow } = activeTrackingRef.current;
         trackEvent("builder connect failed", {
           feature: "builder",
@@ -1932,7 +1903,7 @@ export function useBuilderConnectFlow(
     {
       intervalMs: getConnectPollInterval,
       leading: false,
-      enabled: enabled && (connecting || reconcilingCancellation),
+      enabled: enabled && (connecting || !!reconciling),
     },
   );
 
@@ -1954,7 +1925,6 @@ export function useBuilderConnectFlow(
         return;
       connectStartedAtRef.current = null;
       setConnecting(false);
-      setReconcilingCancellation(false);
       setAccountExists(code === "account_exists");
       setError(
         code === "account_exists"
@@ -1965,18 +1935,12 @@ export function useBuilderConnectFlow(
     const handleSuccess = async (attemptId: string | undefined) => {
       if (!isCurrentConnectAttempt(attemptId)) return;
       const started = connectStartedAtRef.current;
-      if (
-        started == null ||
-        !attemptId ||
-        callbackSuccessAttemptIdRef.current === attemptId
-      ) {
+      if (started == null || callbackSuccessStartedAtRef.current === started) {
         return;
       }
-      callbackSuccessAttemptIdRef.current = attemptId;
-      callbackSuccessInFlightAttemptIdRef.current = attemptId;
-      if (cancelledConnectAttemptIdRef.current !== attemptId) {
-        popupClosedAtRef.current = null;
-      }
+      callbackSuccessStartedAtRef.current = started;
+      callbackSuccessInFlightAtRef.current = started;
+      popupClosedAtRef.current = null;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
       let cancelled = false;
       let resolveCancelled: (value: null) => void = () => {};
@@ -1989,7 +1953,7 @@ export function useBuilderConnectFlow(
         resolveCancelled(null);
       };
       callbackSuccessCancelRef.current = {
-        attemptId,
+        started,
         cancel: cancelConfirmation,
       };
       try {
@@ -2000,7 +1964,7 @@ export function useBuilderConnectFlow(
               : null;
           if (controller) {
             callbackSuccessRequestControllerRef.current = {
-              attemptId,
+              started,
               controller,
             };
           }
@@ -2046,22 +2010,22 @@ export function useBuilderConnectFlow(
           }
         }
       } finally {
-        if (callbackSuccessCancelRef.current?.attemptId === attemptId) {
+        if (callbackSuccessCancelRef.current?.cancel === cancelConfirmation) {
           callbackSuccessCancelRef.current = null;
-        }
-        if (
-          callbackSuccessRequestControllerRef.current?.attemptId === attemptId
-        ) {
-          callbackSuccessRequestControllerRef.current.controller.abort();
-          callbackSuccessRequestControllerRef.current = null;
-        }
-        if (callbackSuccessInFlightAttemptIdRef.current === attemptId) {
-          callbackSuccessInFlightAttemptIdRef.current = null;
           if (
-            popupClosedAtRef.current !== null &&
-            !(s && isBuilderConnectComplete(s, connectTargetRef.current))
+            callbackSuccessRequestControllerRef.current?.started === started
           ) {
-            popupClosedAtRef.current = Date.now();
+            callbackSuccessRequestControllerRef.current.controller.abort();
+            callbackSuccessRequestControllerRef.current = null;
+          }
+          if (callbackSuccessInFlightAtRef.current === started) {
+            callbackSuccessInFlightAtRef.current = null;
+            if (
+              popupClosedAtRef.current !== null &&
+              !(s && isBuilderConnectComplete(s, connectTargetRef.current))
+            ) {
+              popupClosedAtRef.current = Date.now();
+            }
           }
         }
       }
@@ -2096,9 +2060,8 @@ export function useBuilderConnectFlow(
           setAgentNativeProvisioningToken(
             s.agentNativeProvisioningToken ?? null,
           );
-          if (cancelledConnectAttemptIdRef.current !== attemptId) {
+          if (cancelledConnectAttemptIdRef.current !== attemptId)
             setAccountExists(s.connectError?.code === "account_exists");
-          }
           setBuilderEnabled(!!s.builderEnabled);
           const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
@@ -2108,7 +2071,6 @@ export function useBuilderConnectFlow(
         if (connectError) {
           connectStartedAtRef.current = null;
           setConnecting(false);
-          setReconcilingCancellation(false);
           setAccountExists(connectError.code === "account_exists");
           setError(
             connectError.code === "account_exists"
@@ -2136,7 +2098,7 @@ export function useBuilderConnectFlow(
       const org = s.orgName ?? null;
       setOrgName(org);
       setConnecting(false);
-      setReconcilingCancellation(false);
+      setReconciling(null);
       connectStartedAtRef.current = null;
       notifyProvisionedAccount();
       notifiedConnectedRef.current = true;
