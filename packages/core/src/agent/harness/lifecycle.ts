@@ -910,6 +910,7 @@ export async function sendAgentHarnessFollowUp(input: {
       providerDispatchStarted;
     let activeRun: StartedRun | undefined;
     let finalizedRejected = false;
+    const hasFinalizedRejection = (): boolean => finalizedRejected;
     try {
       const dispatchIntent = await markAgentHarnessSessionFollowUpDispatched(
         session.id,
@@ -1516,18 +1517,22 @@ export async function sendAgentHarnessFollowUp(input: {
           }
           if (
             lookupFailed &&
-            !finalizedRejected &&
+            !hasFinalizedRejection() &&
             cleanupErrors.length === 1
           ) {
             throw cleanupErrors[0];
           }
           if (cleanupErrors.length > 0) {
             throw new AggregateError(
-              [reason, ...(finalizedRejected ? [error] : []), ...cleanupErrors],
+              [
+                reason,
+                ...(hasFinalizedRejection() ? [error] : []),
+                ...cleanupErrors,
+              ],
               "Harness follow-up was interrupted and stream cleanup was incomplete.",
             );
           }
-          if (finalizedRejected) throw error;
+          if (hasFinalizedRejection()) throw error;
           return failure(
             input.runId,
             latest ?? session,
@@ -1538,7 +1543,7 @@ export async function sendAgentHarnessFollowUp(input: {
 
         const failures: unknown[] = [
           reason ?? error,
-          ...(finalizedRejected ? [error] : []),
+          ...(hasFinalizedRejection() ? [error] : []),
         ];
         let failedSession: StoredAgentHarnessSession | null = null;
         try {
@@ -1568,7 +1573,7 @@ export async function sendAgentHarnessFollowUp(input: {
         if (failures.length > 1) {
           throw new AggregateError(
             failures,
-            finalizedRejected
+            hasFinalizedRejection()
               ? "Harness follow-up claim monitoring failed and finalization or cleanup was incomplete."
               : "Harness follow-up claim monitoring failed and cleanup was incomplete.",
           );
