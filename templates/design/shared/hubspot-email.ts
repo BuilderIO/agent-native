@@ -40,8 +40,9 @@ function mayHaveFrameTypeMarker(content: string): boolean {
       }
       if (character === "&") hasReference = true;
     }
-    // A tag still open at the end of the input is dropped by the parser.
-    if (index >= lower.length) return false;
+    // A tag still open at the end of the input may hold a later tag inside
+    // an unclosed quoted value, so any reference after it goes to the parse.
+    if (index >= lower.length) return hasReference;
     if (hasReference) return true;
     from = index;
   }

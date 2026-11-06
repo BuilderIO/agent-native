@@ -617,7 +617,13 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       .map((values) => JSON.parse(values.data!) as Record<string, unknown>);
     expect(sourceWriteData).toContainEqual(
       expect.objectContaining({
-        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+        screenMetadata: {
+          "file-1": expect.objectContaining({
+            frameType: "hubspot-email",
+            width: 600,
+            breakpointWidths: [],
+          }),
+        },
       }),
     );
   });

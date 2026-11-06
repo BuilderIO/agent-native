@@ -76,7 +76,7 @@ describe("HubSpot email frame classification", () => {
 
     it("scans many unterminated meta tags in linear time", () => {
       const started = performance.now();
-      expect(isHubSpotEmailHtml(`${"<meta ".repeat(200_000)}&`)).toBe(false);
+      expect(isHubSpotEmailHtml("<meta ".repeat(200_000))).toBe(false);
       expect(performance.now() - started).toBeLessThan(500);
       expect(parse).not.toHaveBeenCalled();
     });
@@ -97,6 +97,7 @@ describe("HubSpot email frame classification", () => {
       '<meta name="agent-native:frame&#x2D;type" content="hubspot-email">',
       '<meta content="hubspot-email" data-note="a>b" name="agent-native&#58;frame-type">',
       "<meta data=foo' name=agent-native&#58;frame-type content=hubspot-email>",
+      `<!-- <meta a='x --><meta name="agent-native&#58;frame-type" content="hubspot-email">`,
     ])("parses when the marker name is spelled %s", (marker) => {
       expect(isHubSpotEmailHtml(documentWithHead(marker))).toBe(true);
       expect(parse).toHaveBeenCalledTimes(1);

@@ -268,7 +268,14 @@ describe("writeInlineSourceFilesBatch", () => {
     });
     expect(await getText(SOURCE_ID)).toBe(SOURCE_NEXT);
     expect(await designData()).toMatchObject({
-      screenMetadata: { [SOURCE_ID]: { frameType: "hubspot-email" } },
+      screenMetadata: {
+        [SOURCE_ID]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+        },
+      },
     });
   });
 

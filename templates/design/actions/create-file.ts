@@ -331,7 +331,11 @@ export default defineAction({
             fileType: existingRestoredFile.fileType,
             createdAt: existingRestoredFile.createdAt,
             created: false,
-            frameType: undefined,
+            frameType: resolveScreenFrameType({
+              designData: await readDesignDataForUpdate(tx, designId),
+              fileId: id,
+              content: existingRestoredFile.content,
+            }),
           };
         }
 
@@ -537,14 +541,7 @@ export default defineAction({
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       createdFile.content.trim().length > 0;
 
-    let createdFrameType: ScreenFrameType | null =
-      createdFile.frameType !== undefined
-        ? createdFile.frameType
-        : frameType === undefined
-          ? isHubSpotEmailHtml(createdFile.content)
-            ? HUBSPOT_EMAIL_FRAME_TYPE
-            : null
-          : frameTypeFromStored(frameType);
+    let createdFrameType: ScreenFrameType | null = createdFile.frameType;
     if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({

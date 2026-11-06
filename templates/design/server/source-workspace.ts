@@ -25,8 +25,9 @@ import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
   frameTypeFromStored,
   sourceWriteFrameType,
+  resolveScreenFrameType,
   storedScreenFrameType,
-  withStoredScreenFrameType,
+  withScreenFrameTypeLayout,
   type StoredScreenFrameType,
 } from "../shared/screen-frame-type.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -964,11 +965,18 @@ async function writeInlineSourceFileContent(
         if (
           storedScreenFrameType(designData, args.file.id) !== requestedFrameType
         ) {
+          // The type's layout commits with it, so a stored email type never
+          // sits on web geometry if a later layout pass fails.
           frameTypeData = JSON.stringify(
-            withStoredScreenFrameType(
+            withScreenFrameTypeLayout(
               designData,
               args.file.id,
               requestedFrameType,
+              resolveScreenFrameType({
+                designData,
+                fileId: args.file.id,
+                content: current.content,
+              }),
             ),
           );
         }
