@@ -211,6 +211,58 @@ describe("LayersPanel rename with Tab", () => {
   });
 });
 
+describe("LayersPanel text editing with Tab", () => {
+  it.each([false, true])(
+    "commits text without opening a layer rename on Shift=$shift",
+    async (shift) => {
+      const onRename = vi.fn();
+      const onTextEdit = vi.fn();
+      const { host } = await renderPanel({
+        layers: [
+          { id: "a", name: "Alpha", type: "text" },
+          { id: "b", name: "Bravo", type: "text" },
+        ],
+        onRename,
+        onStartTextEdit: () => "Canvas text",
+        onTextEdit,
+      });
+      const first = host.querySelector<HTMLElement>("[data-layer-row-button]");
+      if (!first) throw new Error("Missing layer row");
+      const id = first.dataset.layerNodeId;
+      await act(async () =>
+        first.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+      );
+      const input = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!input) throw new Error("Missing text input");
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!setValue) throw new Error("Input setter unavailable");
+      await act(async () => {
+        setValue.call(input, "Changed");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const event = new KeyboardEvent("keydown", {
+        key: "Tab",
+        bubbles: true,
+        cancelable: true,
+        shiftKey: shift,
+      });
+      await act(async () => input.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+      await act(async () =>
+        input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
+      );
+      expect(onTextEdit).toHaveBeenCalledWith(id, "Changed", "Canvas text");
+      expect(onRename).not.toHaveBeenCalled();
+      expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
+    },
+  );
+});
+
 describe("LayersPanel search", () => {
   function searchInput(host: HTMLElement) {
     return host.querySelector<HTMLInputElement>(

@@ -36,12 +36,10 @@ function sidebarEditableLayerText(
   let current: CodeLayerNode | undefined = node;
   while (current) {
     if (
-      Object.keys(current.attributes).some(
-        (name) =>
-          name === "x-text" ||
-          name === "x-html" ||
-          name === "x-for" ||
-          name === "x-if",
+      Object.keys(current.attributes).some((name) =>
+        /^(?:x-(?:text|html|for|if|bind|effect|init|model)(?:[:.]|$)|v-(?:text|html|for|if|else-if|else|bind|model)(?:[:.]|$)|:|\[(?:textcontent|innerhtml)\]|data-bind$|ng-(?:bind|bind-html|if|repeat)$|th:(?:text|utext)$)/i.test(
+          name,
+        ),
       )
     )
       return null;
@@ -135,7 +133,7 @@ export function commitLayerTextEdit(
   args: LayerTextEditArgs,
   session: LayerTextEditSession,
   value: string,
-): TextCommitStatus | "stale" {
+): TextCommitStatus | "stale" | "empty" {
   const current = beginLayerTextEdit(args, session.layerId);
   if (
     !current ||
@@ -147,6 +145,12 @@ export function commitLayerTextEdit(
     return "stale";
   const owner = args.getOwner(session.layerId);
   if (!owner) return "stale";
+  if (
+    !value.trim() &&
+    owner.node.dataAttributes["data-an-primitive"] !== "text" &&
+    !/^(p|span|h[1-6])$/i.test(owner.node.tag)
+  )
+    return "empty";
   const info = elementInfoFromCodeLayerNode(owner.node);
   const status = args.handleScreenTextContentChange(
     session.screenId,

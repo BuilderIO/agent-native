@@ -360,10 +360,17 @@ export function useEditorLayerActions({
     if (
       !session ||
       session.layerId !== layerId ||
-      session.originalValue !== originalValue ||
-      commitLayerTextEdit(layerTextEditArgs, session, value) === "stale"
+      session.originalValue !== originalValue
     ) {
       toast.error(t("designEditor.toasts.saveConflict"));
+      return;
+    }
+    const status = commitLayerTextEdit(layerTextEditArgs, session, value);
+    if (status === "stale") toast.error(t("designEditor.toasts.saveConflict"));
+    if (status === "empty") {
+      toast.error(t("designEditor.tools.text"), {
+        description: t("questionFlow.required"),
+      });
     }
   };
 

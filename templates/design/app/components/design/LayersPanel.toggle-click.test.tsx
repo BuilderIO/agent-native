@@ -845,6 +845,13 @@ describe("sidebar text edit safety", () => {
   it.each([
     '<p data-agent-native-node-id="text">Hello <strong>world</strong></p>',
     '<p data-agent-native-node-id="text" x-text="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-text="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-html="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-model="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-model="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" :textContent="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind="bindings">Fallback</p>',
+    '<section v-if="shown"><p data-agent-native-node-id="text">Fallback</p></section>',
     '<div x-if="visible"><p data-agent-native-node-id="text">Hello</p></div>',
     '<p data-agent-native-node-id="text">{{ name }}</p>',
     '<p data-agent-native-node-id="text">Line one\nLine two</p>',
@@ -890,6 +897,16 @@ describe("sidebar text edit safety", () => {
         node.id,
       ),
     ).toBeNull();
+  });
+
+  it("refuses clearing non-semantic text that would become an indistinguishable empty container", () => {
+    const { args, node, handleScreenTextContentChange } = textTarget(
+      '<div data-agent-native-node-id="text" style="width:100px;height:30px;background:red">Hello</div>',
+    );
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Expected text session");
+    expect(commitLayerTextEdit(args, session, " ")).toBe("empty");
+    expect(handleScreenTextContentChange).not.toHaveBeenCalled();
   });
 
   it("requests a render when no preview handler accepts the update", () => {
@@ -957,6 +974,7 @@ describe("sidebar text edit safety", () => {
           ?.value,
       ).toBe("Label");
       expect(onRename).not.toHaveBeenCalled();
+      expect(host.textContent).toContain("layersPanel.rename");
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -972,6 +990,11 @@ describe("sidebar text edit safety", () => {
     {
       html: '<p data-agent-native-node-id="text"></p>',
       type: "element",
+      value: "",
+    },
+    {
+      html: '<p data-agent-native-node-id="text" style="width: 100px; height: 30px; background: red"></p>',
+      type: "shape",
       value: "",
     },
   ])(

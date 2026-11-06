@@ -1137,7 +1137,9 @@ function LayersPanelImpl(
       const isTextRow =
         node.type === "text" ||
         node.type === "frame" ||
-        node.type === "element";
+        node.type === "element" ||
+        (node.type === "shape" &&
+          /^(p|span|h[1-6])$/i.test(node.tagName ?? ""));
       if (!isTextRow || !onStartTextEdit || !onTextEdit) {
         startRename(node);
         return;
@@ -2325,37 +2327,44 @@ const LayerRow = memo(function LayerRow({
             {node.icon ?? <LayerGlyph node={node} />}
           </span>
           {isRenaming ? (
-            <input
-              data-layer-row-name
-              ref={focusRenameInput}
-              value={renameDraft}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onRenameDraftChange(event.target.value)}
-              onFocus={(event) => event.currentTarget.select()}
-              onBlur={() => {
-                if (renameCancelledRef.current) {
-                  renameCancelledRef.current = false;
-                  return;
-                }
-                onCommitRename(node.id);
-              }}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
+            <>
+              {!textEditLabel && (
+                <span className="max-w-20 shrink-0 truncate text-[10px] text-muted-foreground">
+                  {labels.rename}
+                </span>
+              )}
+              <input
+                data-layer-row-name
+                ref={focusRenameInput}
+                value={renameDraft}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => onRenameDraftChange(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={() => {
+                  if (renameCancelledRef.current) {
+                    renameCancelledRef.current = false;
+                    return;
+                  }
                   onCommitRename(node.id);
-                } else if (event.key === "Tab") {
-                  event.preventDefault();
-                  onRenameAdjacent(node.id, event.shiftKey ? -1 : 1);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  renameCancelledRef.current = true;
-                  onCancelRename(node.id);
-                }
-              }}
-              className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
-              aria-label={textEditLabel ?? labels.rename}
-            />
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onCommitRename(node.id);
+                  } else if (event.key === "Tab" && !textEditLabel) {
+                    event.preventDefault();
+                    onRenameAdjacent(node.id, event.shiftKey ? -1 : 1);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    renameCancelledRef.current = true;
+                    onCancelRename(node.id);
+                  }
+                }}
+                className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
+                aria-label={textEditLabel ?? labels.rename}
+              />
+            </>
           ) : (
             <span
               data-layer-row-name
