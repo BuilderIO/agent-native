@@ -60,7 +60,7 @@ export function readPanelColumns<T extends { key: string }>(
   if (!Array.isArray(value)) return undefined;
   const columns: T[] = [];
   const seen = new Set<string>();
-  for (const column of value) {
+  for (const column of value as unknown[]) {
     if (!isKeyedColumn(column) || seen.has(column.key)) continue;
     seen.add(column.key);
     const normalized: Record<string, unknown> & { key: string } = {
