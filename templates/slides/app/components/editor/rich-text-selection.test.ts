@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyInlineTextStyle,
+  applyInlineFontSizeDelta,
+  applyObjectFontSizeDelta,
   getEditableTextRange,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
@@ -424,6 +426,134 @@ describe("rich text selection", () => {
     expect(wrappers).toHaveLength(1);
     expect((wrappers[0] as HTMLSpanElement).style.fontSize).toBe("32px");
     expect(window.getSelection()!.toString()).toBe("resize me");
+  });
+
+  it("adjusts each selected run's computed size and preserves a backward partial selection", () => {
+    const block = editable(
+      '<span style="font-size: 20px">first</span><strong style="font-size: 30px">second</strong>',
+    );
+    const first = block.firstElementChild!.firstChild as Text;
+    const second = block.lastElementChild!.firstChild as Text;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(second, 3, first, 2);
+
+    const result = applyInlineFontSizeDelta(block, 4, { min: 10, max: 50 });
+
+    const firstRun = block.querySelector("span > span") as HTMLElement;
+    const secondRun = block.querySelector("strong > span") as HTMLElement;
+    expect(firstRun.textContent).toBe("rst");
+    expect(firstRun.style.fontSize).toBe("24px");
+    expect(secondRun.textContent).toBe("sec");
+    expect(secondRun.style.fontSize).toBe("34px");
+    expect(block.textContent).toBe("firstsecond");
+    expect(selection.toString()).toBe("rstsec");
+    expect(selection.anchorNode).toBe(secondRun.firstChild);
+    expect(selection.anchorOffset).toBe(3);
+    expect(selection.focusNode).toBe(firstRun.firstChild);
+    expect(selection.focusOffset).toBe(0);
+    expect(result.range?.toString()).toBe("rstsec");
+  });
+
+  it.each([
+    [4, ["10px", "14px", "24px", "35px"]],
+    [12, ["17px", "22px", "30px", "35px"]],
+    [-4, ["5px", "10px", "16px", "30px"]],
+    [0, ["5px", "10px", "20px", "35px"]],
+  ])(
+    "clamps a %s px step without moving out-of-range runs backwards",
+    (delta, sizes) => {
+      const block = editable(
+        '<span style="font-size: 5px">a</span><span style="font-size: 10px">b</span><span style="font-size: 20px">c</span><span style="font-size: 35px">d</span>',
+      );
+      const first = block.firstElementChild!.firstChild as Text;
+      const last = block.lastElementChild!.firstChild as Text;
+      rangeFor(first, 0, last, 1);
+
+      applyInlineFontSizeDelta(block, delta, { min: 10, max: 30 });
+
+      expect(
+        Array.from(
+          block.children,
+          (run) => getComputedStyle(run.firstElementChild ?? run).fontSize,
+        ),
+      ).toEqual(sizes);
+      expect(window.getSelection()!.toString()).toBe("abcd");
+    },
+  );
+
+  it("uses inherited computed sizes and leaves a foreign selection alone", () => {
+    const block = editable(
+      '<span style="font-size: 18.5px"><em>inside</em></span>',
+    );
+    const other = editable("outside");
+    const text = other.firstChild as Text;
+    rangeFor(text, 0, text, 3);
+
+    expect(
+      applyInlineFontSizeDelta(block, 1.5, { min: 1, max: 40 }).scope,
+    ).toBe("block");
+    expect(block.querySelector("em")!.textContent).toBe("inside");
+    expect(window.getSelection()!.toString()).toBe("out");
+
+    const inside = block.querySelector("em")!.firstChild as Text;
+    rangeFor(inside, 0);
+    applyInlineFontSizeDelta(block, 1.5, { min: 1, max: 40 });
+    expect(block.querySelector("em > span")?.getAttribute("style")).toBe(
+      "font-size: 20px;",
+    );
+  });
+
+  it("rejects invalid bounds or a non-finite delta without changing the object", () => {
+    const block = editable('<span style="font-size: 20px">inside</span>');
+    const before = block.innerHTML;
+    expect(() =>
+      applyObjectFontSizeDelta(block, 2, { min: 40, max: 10 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      applyObjectFontSizeDelta(block, Number.NaN, { min: 1, max: 40 }),
+    ).toThrow(RangeError);
+    expect(block.innerHTML).toBe(before);
+  });
+
+  it("resizes a whole object without changing the active backward selection", () => {
+    const block = editable(
+      '<span style="font-size: 18px">hello</span><span style="font-size: 24px">world</span>',
+    );
+    const first = block.firstElementChild!.firstChild as Text;
+    const last = block.lastElementChild!.firstChild as Text;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(last, 3, first, 1);
+
+    applyObjectFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(
+      Array.from(
+        block.children,
+        (run) => getComputedStyle(run.firstElementChild!).fontSize,
+      ),
+    ).toEqual(["20px", "26px"]);
+    expect(selection.toString()).toBe("ellowor");
+    expect(selection.anchorNode).toBe(last);
+    expect(selection.anchorOffset).toBe(3);
+    expect(selection.focusNode).toBe(first);
+    expect(selection.focusOffset).toBe(1);
+  });
+
+  it("leaves a foreign selection untouched when resizing a whole object", () => {
+    const block = editable('<span style="font-size: 20px">inside</span>');
+    const other = editable("outside");
+    const text = other.firstChild as Text;
+    other.focus();
+    rangeFor(text, 1, text, 4);
+
+    applyObjectFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(document.activeElement).toBe(other);
+    expect(block.querySelector("span > span")?.getAttribute("style")).toBe(
+      "font-size: 22px;",
+    );
+    expect(window.getSelection()!.anchorNode).toBe(text);
+    expect(window.getSelection()!.toString()).toBe("uts");
   });
 
   it("reports a single inline value and null for mixed selected runs", () => {

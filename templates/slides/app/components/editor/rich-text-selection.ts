@@ -384,6 +384,106 @@ export function applyInlineTextStyle(
   });
 }
 
+export interface FontSizeBounds {
+  min: number;
+  max: number;
+}
+
+function validateFontSizeDelta(delta: number, bounds: FontSizeBounds) {
+  if (
+    !Number.isFinite(delta) ||
+    !Number.isFinite(bounds.min) ||
+    !Number.isFinite(bounds.max) ||
+    bounds.min < 0 ||
+    bounds.min > bounds.max
+  ) {
+    throw new RangeError("Invalid font size delta or bounds");
+  }
+}
+
+function resizeTextRuns(texts: Text[], delta: number, bounds: FontSizeBounds) {
+  const sizes = texts.map((text) => {
+    const parent = text.parentElement;
+    const computed = parent && window.getComputedStyle(parent).fontSize;
+    if (!computed || !/^(?:\d+\.?\d*|\.\d+)px$/.test(computed)) {
+      throw new Error(`Cannot determine computed font size: ${computed}`);
+    }
+    return Number.parseFloat(computed);
+  });
+  let changed = false;
+  texts.forEach((text, index) => {
+    const size = sizes[index];
+    const next =
+      delta > 0
+        ? Math.max(
+            size,
+            Math.min(bounds.max, Math.max(bounds.min, size + delta)),
+          )
+        : delta < 0
+          ? Math.min(
+              size,
+              Math.max(bounds.min, Math.min(bounds.max, size + delta)),
+            )
+          : size;
+    if (next === size) return;
+    innermostStyleSpan(text).style.fontSize = `${next}px`;
+    changed = true;
+  });
+  return changed;
+}
+
+export function applyInlineFontSizeDelta(
+  editable: HTMLElement,
+  delta: number,
+  bounds: FontSizeBounds,
+  selection: Selection | null = window.getSelection(),
+): InlineTextStyleApplication {
+  validateFontSizeDelta(delta, bounds);
+  if (delta === 0) {
+    const range = getEditableTextRange(editable, selection);
+    return range ? { scope: "selection", range } : { scope: "block" };
+  }
+  return styleSelectedText(editable, selection, (texts) => {
+    resizeTextRuns(texts, delta, bounds);
+  });
+}
+
+export function applyObjectFontSizeDelta(
+  editable: HTMLElement,
+  delta: number,
+  bounds: FontSizeBounds,
+): boolean {
+  validateFontSizeDelta(delta, bounds);
+  if (delta === 0) return false;
+  const texts: Text[] = [];
+  const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text;
+    if (text.length && isStylableText(text)) texts.push(text);
+  }
+
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const preserve =
+    selection &&
+    anchor &&
+    focus &&
+    (editable.contains(anchor) || editable.contains(focus));
+  const anchorOffset = selection?.anchorOffset ?? 0;
+  const focusOffset = selection?.focusOffset ?? 0;
+  const changed = resizeTextRuns(texts, delta, bounds);
+  if (changed && preserve) {
+    if (typeof selection.setBaseAndExtent === "function") {
+      selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+    } else {
+      selection.collapse(anchor, anchorOffset);
+      selection.extend(focus, focusOffset);
+    }
+  }
+  return changed;
+}
+
 function decorationLines(value: string) {
   return value.split(/\s+/).filter((line) => line && line !== "none");
 }

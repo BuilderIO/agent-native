@@ -116,7 +116,7 @@ export function stepFontSize(
 export interface FontSizeChangeMeta {
   /** A scrub sends previews, then one commit, or a cancel that restores. */
   phase: "preview" | "commit" | "cancel";
-  /** Set when a mixed selection takes a typed expression such as `Mixed+2`. */
+  /** Set when a mixed selection takes a relative expression such as `Mixed+2`. */
   relativeExpression?: ScrubRelativeExpression;
 }
 
@@ -153,8 +153,8 @@ export interface FontSizeFieldProps {
   scrubIcon?: FontSizeScrubIcon;
   scrubStep?: number;
   /**
-   * Lets a mixed selection take an expression on its label (`Mixed+2`),
-   * reported as `meta.relativeExpression` so each object changes by it.
+   * Lets a mixed selection take an expression on its label (`Mixed+2`) or
+   * step with the arrow keys, reported as `meta.relativeExpression`.
    */
   allowRelativeExpressions?: boolean;
   disabled?: boolean;
@@ -285,8 +285,8 @@ export function FontSizeField({
     if (mixed || next !== previous) onChange(next, { phase: "commit" });
   };
 
-  const commitRelativeDraft = () => {
-    const expression = normalizeScrubMixedExpression(draft, mixedLabel);
+  const commitRelativeDraft = (input = draft) => {
+    const expression = normalizeScrubMixedExpression(input, mixedLabel);
     if (!expression) return false;
     const relative = parseScrubRelativeExpression(
       expression,
@@ -323,11 +323,14 @@ export function FontSizeField({
   };
 
   const step = (delta: number) => {
+    if (mixed && allowRelativeExpressions && draft === mixedLabel) {
+      commitRelativeDraft(`Mixed${delta > 0 ? "+" : ""}${delta}`);
+      return;
+    }
     const typed =
       mixed && draft === mixedLabel
         ? null
         : parseFontSizeInput(draft, value, {
-            ...bounds,
             ...(unit ? { unit } : {}),
           });
     const current = typed ?? value;
@@ -335,7 +338,7 @@ export function FontSizeField({
       Number((current + delta).toFixed(FONT_SIZE_PRECISION)),
       bounds,
     );
-    if (next > 0 && next !== current) commit(next, current);
+    if (next > 0 && (next - current) * delta > 0) commit(next, current);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
