@@ -1876,14 +1876,39 @@ describe("error ingest flood control", () => {
         },
         derived: derivedFor(),
       };
+      const latePersistence = {
+        ...server,
+        properties: {
+          ...payload.properties,
+          exceptionTags: {
+            component: "agent-execution-step",
+            phase: "late-outcome-persistence",
+            reportExpected: "true",
+          },
+        },
+      };
+      const unmarkedServer = {
+        ...server,
+        properties: { ...payload.properties, exceptionTags: {} },
+      };
+      const unrelatedServer = {
+        ...server,
+        properties: {
+          ...payload.properties,
+          exceptionTags: { component: "other", reportExpected: "true" },
+        },
+      };
       const result = await ingestAnalyticsExceptionEvents(SCOPE, [
         server,
+        latePersistence,
         browser,
+        unmarkedServer,
+        unrelatedServer,
       ]);
-      expect(result).toEqual({ ingested: 1, suppressed: 1, failed: 0 });
+      expect(result).toEqual({ ingested: 2, suppressed: 3, failed: 0 });
       expect(await issues()).toHaveLength(1);
-      expect(await events()).toHaveLength(1);
-      expect(getErrorIngestStats().suppressed).toEqual({ "benign-abort": 1 });
+      expect(await events()).toHaveLength(2);
+      expect(getErrorIngestStats().suppressed).toEqual({ "benign-abort": 3 });
     } finally {
       unregisterTrackingProvider("late-abort-ingest-test");
     }

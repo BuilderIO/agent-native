@@ -1226,7 +1226,13 @@ export async function ingestAnalyticsExceptionEvents(
     try {
       const raw = extractExceptionInput(item.properties);
       const surface = noiseSurfaceOf(item.properties);
-      if (surface === "browser" && isBenignBrowserAbortException(raw)) {
+      const markedLateExecutionFailure =
+        surface === "server" &&
+        raw.tags?.reportExpected === "true" &&
+        raw.tags.component === "agent-execution-step" &&
+        (raw.tags.phase === "late-action-failure" ||
+          raw.tags.phase === "late-outcome-persistence");
+      if (!markedLateExecutionFailure && isBenignBrowserAbortException(raw)) {
         suppressed += 1;
         ingestStats.suppressed["benign-abort"] =
           (ingestStats.suppressed["benign-abort"] ?? 0) + 1;
