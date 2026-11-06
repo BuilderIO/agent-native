@@ -465,6 +465,14 @@ describe("Design final response guard", () => {
     "Summarize the design at https://example.invalid/preview,edit with its button visible.",
     "Summarize the design at https://example.invalid/preview?mode=view,edit and its layout.",
     "Do not edit (https://example.invalid/preview).",
+    "Explain the update https://example.invalid/preview",
+    "Explain the edit: https://example.invalid/preview",
+    "Summarize the page at example.invalid/edit",
+    "Summarize example.invalid/edit?mode=fix#button",
+    "Summarize example.invalid/preview,fix#button",
+    "Summarize https://example.invalid/preview,fix the button",
+    "Summarize https://example.invalid/preview,fix#button",
+    "Explain the update in welcome-email.html",
   ])("does not infer mutation intent from URL text: %s", (request) => {
     expect(designFinalResponseGuard(guardContext(request))).toBeNull();
   });
@@ -472,6 +480,12 @@ describe("Design final response guard", () => {
   it.each([
     "Update the layout using https://example.invalid/reference",
     "Edit https://example.invalid/preview",
+    "Edit: https://example.invalid/preview",
+    "Please edit: <https://example.invalid/preview>",
+    "Edit example.invalid/preview",
+    "Edit: example.invalid/preview",
+    "Edit the file welcome-email.html",
+    "Review example.invalid/preview, then fix the button",
     "Edit (https://example.invalid/preview)",
     "Edit <https://example.invalid/preview>",
     'Edit "https://example.invalid/preview"',
@@ -490,6 +504,16 @@ describe("Design final response guard", () => {
       });
     },
   );
+
+  it("handles long dotted text without a URL", () => {
+    const start = performance.now();
+    for (const suffix of ["", "/path", "://example.invalid/preview"]) {
+      expect(looksLikeDesignMutationRequest("a.".repeat(40_000) + suffix)).toBe(
+        false,
+      );
+    }
+    expect(performance.now() - start).toBeLessThan(3_000);
+  });
 
   it("retries prose-only completion for a design mutation", () => {
     const result = designFinalResponseGuard(

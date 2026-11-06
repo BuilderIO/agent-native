@@ -523,20 +523,43 @@ function removeDesignTestRequests(text: string): string {
 
 function normalizeRequestUrls(text: string): string {
   const directUrlTarget = new RegExp(
-    DESIGN_MUTATION_VERBS.source + "[\\s(\\[<\"'`]*$",
+    DESIGN_MUTATION_VERBS.source + "[\\s:(\\[<\"'`]*$",
     "i",
   );
   const followingMutation = new RegExp(
     "^\\s+(?:(?:please|kindly)\\s+)?" + DESIGN_MUTATION_VERBS.source,
     "i",
   );
-  let normalized = "";
+  const parts: string[] = [];
   let cursor = 0;
-  for (const match of text.matchAll(
-    /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>"'`]+/gi,
-  )) {
-    const start = match.index;
-    const url = match[0];
+  for (const token of text.matchAll(/[^\s<>"'`]+/g)) {
+    const value = token[0];
+    let urlStart = -1;
+    const schemeEnd = value.indexOf("://");
+    if (schemeEnd !== -1) {
+      let start = schemeEnd;
+      while (start > 0 && /[a-z\d+.-]/i.test(value[start - 1])) start -= 1;
+      if (/[a-z]/i.test(value[start] ?? "")) urlStart = start;
+    }
+    const wwwStart = value.toLowerCase().indexOf("www.");
+    if (
+      wwwStart !== -1 &&
+      (wwwStart === 0 || !/\w/.test(value[wwwStart - 1])) &&
+      (urlStart === -1 || wwwStart < urlStart)
+    ) {
+      urlStart = wwwStart;
+    }
+    // Requiring a path avoids masking ordinary prose and standalone filenames.
+    if (urlStart === -1 && value.includes("/")) {
+      const bareUrl = /^[([{]*((?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?\/)/i.exec(
+        value,
+      );
+      if (bareUrl) urlStart = bareUrl[0].length - bareUrl[1].length;
+    }
+    if (urlStart === -1) continue;
+
+    const start = token.index + urlStart;
+    const url = value.slice(urlStart);
     // A URL ending in a conjunction is indistinguishable from a no-space
     // clause boundary; only treat it as one before a separate mutation verb.
     const boundary = url.match(/[,;](?:then|and|also|but)$/i);
@@ -545,12 +568,24 @@ function normalizeRequestUrls(text: string): string {
         ? (boundary.index ?? url.length)
         : url.length;
     const punctuation = url.slice(0, end).match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
-    normalized += text.slice(cursor, start);
-    normalized += directUrlTarget.test(normalized) ? "this" : " ";
-    normalized += punctuation + url.slice(end);
+    const beforeUrl = text.slice(cursor, start);
+    const target = directUrlTarget.exec(beforeUrl);
+    const beforeVerb = target ? beforeUrl.slice(0, target.index).trimEnd() : "";
+    const isDirectTarget =
+      target &&
+      (!beforeVerb ||
+        /[.!?,;:]$/.test(beforeVerb) ||
+        DESIGN_REQUEST_LEAD_IN.test(beforeVerb));
+    parts.push(
+      text.slice(cursor, start),
+      isDirectTarget ? "this" : " ",
+      punctuation,
+      url.slice(end),
+    );
     cursor = start + url.length;
   }
-  return (normalized + text.slice(cursor)).trim();
+  parts.push(text.slice(cursor));
+  return parts.join("").trim();
 }
 
 export function looksLikeDesignMutationRequest(text: string): boolean {
