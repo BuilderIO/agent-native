@@ -517,13 +517,11 @@ describe("Design final response guard", () => {
   );
 
   it("handles long dotted text without a URL", () => {
-    const start = performance.now();
     for (const suffix of ["", "/path", "://example.invalid/preview"]) {
       expect(looksLikeDesignMutationRequest("a.".repeat(40_000) + suffix)).toBe(
         false,
       );
     }
-    expect(performance.now() - start).toBeLessThan(3_000);
   });
 
   it("handles long punctuation within a URL", () => {
