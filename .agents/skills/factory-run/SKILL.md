@@ -428,8 +428,18 @@ competing PRs".
 ### Duplicate and competing PRs
 
 The factory's own PRs are the ones recorded as a report's `prUrl`; confirm
-that record (and that the PR's author is the factory's bot) before closing
-anything, and close nothing without it. Before replying on a report, and for
+that record, and that the PR is the factory's, before closing anything, and
+close nothing without both. The watcher decides whether a PR is the
+factory's and records it: read `.ownership` from
+`factory-state pr show <prUrl>` (`ours` plus a `why`) and don't judge it
+yourself. A PR with no `ownership` yet, or none in `pr show`, isn't the
+factory's for closing. The rule the watcher applies: `$FACTORY_GITHUB_BOT_LOGIN`
+or a former factory bot opened it; or `builder-io-integration[bot]` opened it
+and all of these hold: its head repo is this repo (not a fork), its head ref
+exactly equals a recorded `gitBranch` of a report or cloud worker in factory
+state, and a Builder branch in the factory project is linked to that git
+branch. That app opens PRs for every Builder user with the same `ai_main_*`
+names, so the branch name alone proves nothing. Before replying on a report, and for
 each `patrol` item, check its PR against merged and open PRs for the same
 problem (`factory-state active`,
 `gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
