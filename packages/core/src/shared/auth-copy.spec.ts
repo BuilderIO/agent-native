@@ -28,6 +28,7 @@ describe("native auth copy", () => {
     expect(copy.welcomeToApp).toContain("{appName}");
     expect(copy.welcomeSubtitle.trim()).not.toBe("");
     expect(copy.sendMagicLink.trim()).not.toBe("");
+    expect(copy.builderSignupDisclosure).toContain("Builder.io");
     expect(copy.emailLinkContinueTitle.trim()).not.toBe("");
     expect(copy.emailLinkContinueMessage.trim()).not.toBe("");
     expect(copy.emailLinkContinueAction.trim()).not.toBe("");
