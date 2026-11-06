@@ -45,7 +45,7 @@ export function resolveScreenFrameType({
 }: {
   designData: unknown;
   fileId: string;
-  content?: string | null;
+  content?: string | null | undefined;
 }): ScreenFrameType | null {
   const stored = storedScreenFrameType(designData, fileId);
   if (stored !== undefined) {

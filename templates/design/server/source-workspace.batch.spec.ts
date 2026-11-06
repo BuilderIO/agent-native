@@ -144,11 +144,11 @@ beforeAll(async () => {
     sql.raw(`
       CREATE TABLE IF NOT EXISTS designs (
         id TEXT PRIMARY KEY,
-        data TEXT,
         updated_at TEXT
       )
     `),
   );
+  await execute("ALTER TABLE designs ADD COLUMN IF NOT EXISTS data TEXT");
   await getDb().execute(
     sql.raw(`
       CREATE TABLE IF NOT EXISTS design_files (

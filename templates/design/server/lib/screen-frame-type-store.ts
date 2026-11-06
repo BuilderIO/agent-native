@@ -1,12 +1,12 @@
-import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 
+import { parseDesignDataBlob } from "../../shared/full-app.js";
 import {
   storedScreenFrameType,
   withStoredScreenFrameType,
   type StoredScreenFrameType,
 } from "../../shared/screen-frame-type.js";
-import { getDb, schema } from "../db/index.js";
-import { mutateDesignData, parseDesignData } from "./design-data-mutation.js";
+import { mutateDesignData } from "./design-data-mutation.js";
 
 /**
  * Stores a screen's frame type in `screenMetadata`. With `onlyIfAbsent` it is
@@ -28,13 +28,8 @@ export async function persistScreenFrameType({
     const stored = storedScreenFrameType(data, fileId);
     return onlyIfAbsent ? stored !== undefined : stored === frameType;
   };
-  const [row] = await getDb()
-    .select({ data: schema.designs.data })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-  if (!row) throw new Error(`Design "${designId}" not found.`);
-  if (settled(parseDesignData(designId, row.data))) return;
+  const access = await assertAccess("design", designId, "editor");
+  if (settled(parseDesignDataBlob(access.resource.data))) return;
   await mutateDesignData({
     designId,
     mutate: (current) =>

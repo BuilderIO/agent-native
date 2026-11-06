@@ -11,21 +11,14 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../db/index.js", () => ({
-  schema: { designs: { id: "id", data: "data" } },
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => [{ data: JSON.stringify(mocks.getDesignData()) }],
-        }),
-      }),
-    }),
-  }),
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { data: JSON.stringify(mocks.getDesignData()) },
+  })),
 }));
 
 vi.mock("./design-data-mutation.js", () => ({
-  parseDesignData: (_designId: string, raw: string) => JSON.parse(raw),
   mutateDesignData: mocks.mutateDesignData,
 }));
 
