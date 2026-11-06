@@ -1548,6 +1548,21 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     ).toBe(false);
   });
 
+  it("does not mistake grouping and ordering ordinals for returned figures", () => {
+    for (const sql of [
+      "SELECT category, COUNT(*) AS signups FROM events GROUP BY 1 ORDER BY 1, 2",
+      "SELECT category, COUNT(*) AS signups FROM events GROUP BY 1, 2 ORDER BY 1, 2 DESC",
+    ])
+      expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(
+        false,
+      );
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT category, COUNT(*) FROM events GROUP BY 1 ORDER BY 1, 2 -- 42 users\n```",
+      ),
+    ).toBe(true);
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),

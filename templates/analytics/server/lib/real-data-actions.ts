@@ -1093,8 +1093,12 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
       const sql = lines.slice(i + 1, end).join("\n");
       const resultLiteral =
         /(?:\bselect\b|,)\s*[-+]?\d+(?:\.\d+)?(?=\s|,|;|$)/i;
+      const projections = sql.replace(
+        /\b(?:group|order)\s+by\s+\d+(?:\s+(?:asc|desc))?(?:\s*,\s*\d+(?:\s+(?:asc|desc))?)*/gi,
+        " ",
+      );
       if (
-        resultLiteral.test(sql) ||
+        resultLiteral.test(projections) ||
         hasUnsupportedResultClaim(sql.replace(/\bcount\s*(?=\()/gi, ""))
       )
         return true;

@@ -4789,16 +4789,19 @@ function interruptedRoundText(events: readonly AgentChatEvent[]): string {
 export function appendContinuationCheckpoint(
   messages: EngineMessage[],
   events: readonly AgentChatEvent[],
+  attemptStartMessages: ReadonlySet<EngineMessage> = new Set(messages),
 ): void {
   let text = interruptedRoundText(events);
   if (!text.trim()) return;
-  const prior = clearGuardDraftFromHistory(
-    messages.map((message) => ({ ...message, content: [...message.content] })),
-    findCurrentTurnStartForContinuation(messages) + 1,
+  const recorded = clearGuardDraftFromHistory(
+    messages
+      .filter((message) => !attemptStartMessages.has(message))
+      .map((message) => ({ ...message, content: [...message.content] })),
+    0,
     false,
   );
-  if (!prior.incomplete && prior.text && text.startsWith(prior.text)) {
-    text = text.slice(prior.text.length);
+  if (!recorded.incomplete && recorded.text.length) {
+    text = text.slice(recorded.text.length);
     if (!text) return;
   }
   // Code points, not UTF-16 units, so the cut never leaves a lone surrogate.
@@ -5034,16 +5037,6 @@ function errorSearchText(err: unknown): string {
   return parts.join(" ").toLowerCase();
 }
 
-function textFromEngineMessage(message: EngineMessage): string {
-  return message.content
-    .filter(
-      (part): part is import("./engine/types.js").EngineTextPart =>
-        part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("\n");
-}
-
 const CLEARED_DRAFT_RETRY_PROMPT =
   "The earlier draft was cleared and is not visible. Write a complete standalone answer.";
 
@@ -5126,6 +5119,13 @@ function clearGuardDraftFromHistory(
     const hasToolCall = message.content.some(
       (part) => part.type === "tool-call",
     );
+    if (
+      !allText &&
+      message.content.some(
+        (part) => part.type === "tool-call" && completedCalls.has(part.id),
+      )
+    )
+      break;
     const kept = [...message.content];
     for (let j = kept.length - 1; j >= 0; j--) {
       const part = kept[j];
@@ -5175,17 +5175,19 @@ function clearGuardDraftFromHistory(
 function durableToolCallCheckpointId(messages: EngineMessage[]): string {
   const turnMessages = messages
     .slice(findCurrentTurnStartForContinuation(messages))
-    .filter(
-      (message) =>
-        (message.role !== "user" ||
-          !textFromEngineMessage(message).startsWith(
-            AGENT_INTERNAL_CONTINUE_PROMPT,
-          )) &&
-        (message.role !== "assistant" ||
-          !textFromEngineMessage(message).startsWith(
-            AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
-          )),
-    );
+    .map((message) => ({
+      ...message,
+      content: message.content.filter(
+        (part) =>
+          part.type !== "text" ||
+          !(message.role === "user"
+            ? part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT)
+            : part.text.startsWith(
+                AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+              )),
+      ),
+    }))
+    .filter((message) => message.content.length > 0);
   return createHash("sha256")
     .update(JSON.stringify(stripInlineBytes(turnMessages, "placeholder")) ?? "")
     .digest("hex");
@@ -9365,15 +9367,24 @@ export async function runAgentLoop(opts: {
       }
 
       let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
-      const finalResponseDraft = clearGuardDraftFromHistory(
+      const draftHistory = () =>
         messages.map((message) => ({
           ...message,
           content: [...message.content],
-        })),
+        }));
+      const scopedDraft = clearGuardDraftFromHistory(
+        draftHistory(),
         currentTurnStart,
         false,
       );
+      const finalResponseDraft = clearGuardDraftFromHistory(
+        draftHistory(),
+        currentTurnStart,
+        true,
+      );
       const finalResponseDraftText = finalResponseDraft.text;
+      const guardMustClearAllText =
+        finalResponseDraft.text !== scopedDraft.text;
       const receipts = turnReceipts();
       const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
@@ -9433,7 +9444,8 @@ export async function runAgentLoop(opts: {
           }
           finalGuardRetries += 1;
           const clearAllText =
-            typeof guard !== "string" && guard.clearAllText === true;
+            guardMustClearAllText ||
+            (typeof guard !== "string" && guard.clearAllText === true);
           await send(
             clearAllText ? { type: "clear", allText: true } : { type: "clear" },
           );
@@ -9449,7 +9461,8 @@ export async function runAgentLoop(opts: {
           continue;
         }
         const clearAllText =
-          typeof guard !== "string" && guard.clearAllText === true;
+          guardMustClearAllText ||
+          (typeof guard !== "string" && guard.clearAllText === true);
         await send(
           clearAllText ? { type: "clear", allText: true } : { type: "clear" },
         );
@@ -12298,6 +12311,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     lastAttemptWasUnfinishedContinuation = false;
     continuationReason = undefined;
     const attemptStartIndex = localTurnEvents.length;
+    const attemptStartMessages = new Set(opts.messages);
 
     try {
       const nextUsage = await runAgentLoop({
@@ -12352,6 +12366,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     appendContinuationCheckpoint(
       opts.messages,
       localTurnEvents.slice(attemptStartIndex),
+      attemptStartMessages,
     );
     const actionPreparationTool =
       lastUnfinishedPreparingActionToolFromEvents(localTurnEvents);
