@@ -1053,7 +1053,8 @@ const BOUND_STATEMENT_TIMEOUT_SQL = `WITH previous AS MATERIALIZED (
     SELECT current_setting('statement_timeout') AS value
   )
   SELECT value AS previous, set_config('statement_timeout', ?, true)
-  FROM previous`;
+  FROM previous
+  LIMIT 1`;
 const SET_STATEMENT_TIMEOUT_SQL =
   "SELECT set_config('statement_timeout', ?, true)";
 
