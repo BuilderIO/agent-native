@@ -1228,7 +1228,7 @@ export async function ingestAnalyticsExceptionEvents(
       const surface = noiseSurfaceOf(item.properties);
       const markedLateExecutionFailure =
         surface === "server" &&
-        raw.tags?.reportExpected === "true" &&
+        raw.tags.reportExpected === "true" &&
         raw.tags.component === "agent-execution-step" &&
         (raw.tags.phase === "late-action-failure" ||
           raw.tags.phase === "late-outcome-persistence");
