@@ -399,6 +399,29 @@ describe("a reply that narrates between steps", () => {
     expect(visible()[0]!.dataset.open).toBe("true");
   });
 
+  it("keeps a row opened to watch the steps open when the run finishes", async () => {
+    const live = reduce(narrated);
+    const observable = observableController(snapshotOf(live, 0));
+    await render(observable.controller);
+    await flush();
+    await act(async () =>
+      rows()[0]!
+        .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")!
+        .click(),
+    );
+    expect(rows()[0]!.dataset.open).toBe("true");
+
+    await act(async () =>
+      observable.update(snapshotOf(reduce(answered, live), 1)),
+    );
+    await flush();
+
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.closest(".agentkit-message-actions")).not.toBeNull();
+    expect(rows()[0]!.textContent).toContain("Worked for");
+    expect(rows()[0]!.dataset.open).toBe("true");
+  });
+
   it("shows no row while narration after a step streams", async () => {
     const observable = observableController(
       snapshotOf(reduce(narrated.slice(0, 6)), 0),

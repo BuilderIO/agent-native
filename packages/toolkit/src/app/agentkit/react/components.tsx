@@ -2269,23 +2269,20 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   foldedReasoningMessageId,
   summarizesTurn = false,
   part,
-  hidden = false,
 }: {
-  runId?: RunId;
-  afterSequence?: number;
-  throughSequence?: number;
-  excludeAgentActivities?: boolean;
-  isCurrentSegment?: boolean;
+  runId?: RunId | undefined;
+  afterSequence?: number | undefined;
+  throughSequence?: number | undefined;
+  excludeAgentActivities?: boolean | undefined;
+  isCurrentSegment?: boolean | undefined;
   /** The reply this work segment precedes. */
-  messageId?: string;
+  messageId?: string | undefined;
   /** A saved reply whose reasoning before its answer joins this group. */
-  foldedReasoningMessageId?: string;
+  foldedReasoningMessageId?: string | undefined;
   /** This segment is its run's whole turn, so it shows a row with no work. */
-  summarizesTurn?: boolean;
+  summarizesTurn?: boolean | undefined;
   /** Only the steps' result cards, or only the work row; both by default. */
-  part?: "results" | "row";
-  /** Kept mounted but not shown, so the row returns as it was left. */
-  hidden?: boolean;
+  part?: "results" | "row" | undefined;
 }) {
   const {
     threadId,
@@ -2751,7 +2748,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
           label={baseSummaryLabel}
-          hidden={hidden}
           failedCount={failedCount}
           icon={summaryIcon}
           running={visiblyRunning}
@@ -3346,11 +3342,9 @@ function AgentWorkDisclosure({
   currentLabel,
   runId,
   messageId,
-  hidden,
   children,
 }: {
   label: string;
-  hidden?: boolean;
   failedCount?: number;
   icon?: ReactNode;
   running?: boolean;
@@ -3365,7 +3359,13 @@ function AgentWorkDisclosure({
   children: ReactNode;
 }) {
   const { slots, labels, workedForRowLayout } = useAgentKit();
-  const [open, setOpen] = useState(false);
+  const row = useContext(AgentWorkRowOpenContext);
+  const [open, setOpen] = useState(() => row?.opened.has(row.key) ?? false);
+  useEffect(() => {
+    if (!row) return;
+    if (open) row.opened.add(row.key);
+    else row.opened.delete(row.key);
+  }, [open, row]);
   const contentId = useId();
   const Summary = slots.workedForSummary;
   const failed =
@@ -3414,7 +3414,6 @@ function AgentWorkDisclosure({
   const disclosure = (
     <div
       className="agentkit-activities"
-      hidden={hidden}
       data-running={running ? "true" : undefined}
       data-expandable={expandable ? "true" : "false"}
       data-open={open ? "true" : "false"}
@@ -4861,6 +4860,16 @@ function createAgentMessageWorkHosts(): AgentMessageWorkHosts {
     },
   };
 }
+
+/**
+ * The work rows the reader opened, by run and segment. A segment's row
+ * remounts when narration hides it and again when the run finishes, and an
+ * opened row comes back open.
+ */
+const AgentWorkRowOpenContext = createContext<{
+  key: string;
+  opened: Set<string>;
+} | null>(null);
 
 const AgentMessageWorkHostsContext =
   createContext<AgentMessageWorkHosts | null>(null);
@@ -7711,6 +7720,7 @@ export function AgentKitChat({
     [editingMessage, messageEditEnabled, setEditingMessage],
   );
   const [messageWorkHosts] = useState(createAgentMessageWorkHosts);
+  const [openedWorkRows] = useState(() => new Set<string>());
   const hasConversation =
     thread.messages.length > 0 ||
     pendingSubmissions.length > 0 ||
@@ -8555,8 +8565,6 @@ export function AgentKitChat({
     new Map<string, { deps: readonly unknown[]; element: ReactElement }>(),
   );
   const usedRowElementKeys = new Set<string>();
-  const shownLiveRowsRef = useRef(new Set<string>());
-  const shownLiveRows = new Set<string>();
   const cachedRowElement = (
     key: string,
     deps: readonly unknown[],
@@ -8578,7 +8586,6 @@ export function AgentKitChat({
     foldedReasoningMessageId,
     summarizesTurn,
     part,
-    hidden,
   }: {
     runId: RunId;
     anchor: string;
@@ -8588,9 +8595,9 @@ export function AgentKitChat({
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
     part?: "results" | "row" | undefined;
-    hidden?: boolean | undefined;
   }) => {
-    const key = `run-work:${threadId}:${runId}:${anchor}${part === "row" ? ":row" : ""}`;
+    const openKey = `${threadId}:${runId}:${anchor}`;
+    const key = `run-work:${openKey}${part === "row" ? ":row" : ""}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
     return cachedRowElement(
       key,
@@ -8602,11 +8609,11 @@ export function AgentKitChat({
         foldedReasoningMessageId,
         summarizesTurn,
         part,
-        hidden,
       ],
       () =>
         renderRunWorkElement({
           key,
+          openKey,
           resetKey,
           runId,
           afterSequence,
@@ -8615,12 +8622,12 @@ export function AgentKitChat({
           foldedReasoningMessageId,
           summarizesTurn,
           part,
-          hidden,
         }),
     );
   };
   const renderRunWorkElement = ({
     key,
+    openKey,
     resetKey,
     runId,
     afterSequence,
@@ -8629,9 +8636,9 @@ export function AgentKitChat({
     foldedReasoningMessageId,
     summarizesTurn,
     part,
-    hidden,
   }: {
     key: string;
+    openKey: string;
     resetKey: string;
     runId: RunId;
     afterSequence?: number | undefined;
@@ -8640,35 +8647,37 @@ export function AgentKitChat({
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
     part?: "results" | "row" | undefined;
-    hidden?: boolean | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
-      {part === "row" ? null : (
-        <>
-          <AgentCollaborationFeed
-            runId={runId}
-            afterSequence={afterSequence}
-            throughSequence={throughSequence}
-          />
-          <AgentTaskGroup
-            runId={runId}
-            afterSequence={afterSequence}
-            throughSequence={throughSequence}
-          />
-        </>
-      )}
-      <AgentActivityGroup
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-        excludeAgentActivities
-        isCurrentSegment={throughSequence === undefined}
-        messageId={messageId}
-        foldedReasoningMessageId={foldedReasoningMessageId}
-        summarizesTurn={summarizesTurn}
-        part={part}
-        hidden={hidden}
-      />
+      <AgentWorkRowOpenContext.Provider
+        value={{ key: openKey, opened: openedWorkRows }}
+      >
+        {part === "row" ? null : (
+          <>
+            <AgentCollaborationFeed
+              runId={runId}
+              afterSequence={afterSequence}
+              throughSequence={throughSequence}
+            />
+            <AgentTaskGroup
+              runId={runId}
+              afterSequence={afterSequence}
+              throughSequence={throughSequence}
+            />
+          </>
+        )}
+        <AgentActivityGroup
+          runId={runId}
+          afterSequence={afterSequence}
+          throughSequence={throughSequence}
+          excludeAgentActivities
+          isCurrentSegment={throughSequence === undefined}
+          messageId={messageId}
+          foldedReasoningMessageId={foldedReasoningMessageId}
+          summarizesTurn={summarizesTurn}
+          part={part}
+        />
+      </AgentWorkRowOpenContext.Provider>
     </AgentKitSurfaceBoundary>
   );
   const renderRunTail = (runId: RunId) => {
@@ -8676,25 +8685,18 @@ export function AgentKitChat({
     const liveReply = liveReplies.get(runId);
     if (liveReply) {
       // While the reply's text is the newest output the text is the focus,
-      // so the row shows only while work runs after it. Once shown it stays
-      // mounted, so a row opened to watch the steps is still open when they
-      // resume.
-      const anchor = liveReply.start?.id ?? "start";
-      const shownKey = `${runId}:${anchor}`;
-      const shown = pendingRuns.has(runId);
-      if (shown || shownLiveRowsRef.current.has(shownKey)) {
-        shownLiveRows.add(shownKey);
+      // so the row shows only while work runs after it.
+      if (pendingRuns.has(runId)) {
         items.push(
           renderRunWork({
             runId,
-            anchor,
+            anchor: liveReply.start?.id ?? "start",
             afterSequence: liveReply.start?.sequence,
             messageId: liveReply.replyId,
             foldedReasoningMessageId: liveReply.foldsReasoning
               ? liveReply.replyId
               : undefined,
             part: "row",
-            hidden: !shown,
           }),
         );
       }
@@ -9004,7 +9006,6 @@ export function AgentKitChat({
       displayMessageCache.delete(messageId);
     }
   }
-  shownLiveRowsRef.current = shownLiveRows;
   for (const key of rowElementCacheRef.current.keys()) {
     if (!usedRowElementKeys.has(key)) rowElementCacheRef.current.delete(key);
   }
