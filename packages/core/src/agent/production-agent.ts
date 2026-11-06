@@ -10997,6 +10997,54 @@ export async function runAgentLoop(opts: {
             ),
           );
 
+          // Registered first so the ledger catch can distinguish the original
+          // rejection from a failure in its own fulfillment handler.
+          let actionRejected = false;
+          const rejectionObserver = actionPromise
+            .catch(async (error: unknown) => {
+              actionRejected = true;
+              await new Promise<void>((resolve) => setTimeout(resolve, 0));
+              if (
+                !actionRaceLost ||
+                ranEffect({ failed: { lost: true } }).effect === "none"
+              )
+                return;
+              captureError(
+                isPrivateCall() ? new Error("Private content omitted") : error,
+                {
+                  ...(isPrivateCall()
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase: "late-action-rejection",
+                    tool: toolCall.name,
+                    [REPORT_EXPECTED_FAILURE_TAG]: "true",
+                  },
+                },
+              );
+            })
+            .catch((error: unknown) => {
+              captureError(
+                isPrivateCall() ? new Error("Private content omitted") : error,
+                {
+                  ...(isPrivateCall()
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase: "late-outcome-persistence",
+                    tool: toolCall.name,
+                  },
+                },
+              );
+            });
+          if (opts.threadId) void retainRequestDbPoolScope(rejectionObserver);
+
           // When the run is aborted (soft-timeout / user cancel) while this tool
           // call is in flight, Promise.race below will throw "Run aborted" and the
           // action's promise becomes a zombie — it keeps running but its result is
@@ -11004,7 +11052,7 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          {
+          if (opts.threadId) {
             const ledgerThreadId = opts.threadId;
             const ledgerArgumentsHash = argumentsHash;
             const ledgerToolKey = preparedToolCallKey(
@@ -11012,122 +11060,95 @@ export async function runAgentLoop(opts: {
               ledgerArgumentsHash,
             );
             const zombieLedgerPromise = actionPromise
-              .then(
-                async (zombieRaw: unknown) => {
-                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                  if (!toolResultLost || !ledgerThreadId) return;
-                  // A call is recovered only when it may have written.
-                  if (ranEffect({}).effect === "none") return;
-                  const zombieMcp = isMcpActionResult(zombieRaw)
-                    ? zombieRaw
-                    : null;
-                  if (
-                    zombieMcp &&
-                    zombieMcp.raw &&
-                    typeof zombieMcp.raw === "object" &&
-                    (zombieMcp.raw as Record<string, unknown>).isError === true
-                  ) {
-                    return;
-                  }
-                  const zombieResultForAgent = zombieMcp
-                    ? zombieMcp.text
-                    : extractAgentImagesFromActionResult(zombieRaw).value;
-                  const zombieResultMetadata =
-                    zombieMcp?.raw ?? zombieResultForAgent;
-                  const zombieStr =
-                    typeof zombieResultForAgent === "string"
-                      ? zombieResultForAgent
-                      : JSON.stringify(zombieResultForAgent, null, 2);
-                  const zombieArtifacts = detectArtifactReceipts(
-                    zombieResultMetadata,
-                    toolCall.name,
-                  );
-                  const zombieReceipt = readWriteReceipt(zombieResultMetadata);
-                  const zombieChatUI = actionChatUIForResult(
-                    toolCall.name,
-                    actionEntry,
-                    toolCall.input as Record<string, unknown>,
-                    zombieResultForAgent,
-                    false,
-                  );
-                  const zombieFileMutation = actionEntry.fileMutationProof?.(
-                    toolCall.input,
-                  );
-                  if (executionStepIntent) {
-                    await recordLateAgentExecutionStepOutcome(
-                      executionStepIntent,
-                      serializeDurableExecutionStepOutcome({
-                        result: isPrivateCall()
-                          ? "[Private content omitted]"
-                          : stripInlineBytes(zombieStr, "placeholder").slice(
-                              0,
-                              toolMaxResultChars,
-                            ),
-                        isError: false,
-                        completedSideEffect: true,
-                        ...(isPrivateCall()
-                          ? {}
-                          : { artifacts: zombieArtifacts }),
-                        ...(!isPrivateCall() && zombieReceipt
-                          ? { receipt: zombieReceipt }
-                          : {}),
-                        ...(!isPrivateCall() && zombieMcp?.mcpApp
-                          ? { mcpApp: zombieMcp.mcpApp }
-                          : {}),
-                        ...(!isPrivateCall() && zombieChatUI
-                          ? {
-                              chatUI: zombieChatUI.chatUI,
-                              chatUIResult: zombieChatUI.result,
-                            }
-                          : {}),
-                        ...(!isPrivateCall() && zombieFileMutation
-                          ? { fileMutation: zombieFileMutation }
-                          : {}),
-                      }),
-                    );
-                  }
-                  if (!executionStepIntent && !isPrivateCall()) {
-                    await writeLedgerEntry(
-                      ledgerThreadId,
-                      ledgerToolKey,
-                      zombieStr,
-                      zombieArtifacts,
-                      typeof zombieResultForAgent === "string",
-                      zombieChatUI
-                        ? JSON.stringify(zombieChatUI.result)
-                        : undefined,
-                      ledgerArgumentsHash,
-                    );
-                  }
-                },
-                async (error: unknown) => {
-                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                  if (
-                    !actionRaceLost ||
-                    ranEffect({ failed: { lost: true } }).effect === "none"
-                  )
-                    return;
-                  captureError(
-                    isPrivateCall()
-                      ? new Error("Private content omitted")
-                      : error,
-                    {
+              .then(async (zombieRaw: unknown) => {
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (!toolResultLost) return;
+                // A call is recovered only when it may have written.
+                if (ranEffect({}).effect === "none") return;
+                const zombieMcp = isMcpActionResult(zombieRaw)
+                  ? zombieRaw
+                  : null;
+                if (
+                  zombieMcp &&
+                  zombieMcp.raw &&
+                  typeof zombieMcp.raw === "object" &&
+                  (zombieMcp.raw as Record<string, unknown>).isError === true
+                ) {
+                  return;
+                }
+                const zombieResultForAgent = zombieMcp
+                  ? zombieMcp.text
+                  : extractAgentImagesFromActionResult(zombieRaw).value;
+                const zombieResultMetadata =
+                  zombieMcp?.raw ?? zombieResultForAgent;
+                const zombieStr =
+                  typeof zombieResultForAgent === "string"
+                    ? zombieResultForAgent
+                    : JSON.stringify(zombieResultForAgent, null, 2);
+                const zombieArtifacts = detectArtifactReceipts(
+                  zombieResultMetadata,
+                  toolCall.name,
+                );
+                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
+                const zombieChatUI = actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  zombieResultForAgent,
+                  false,
+                );
+                const zombieFileMutation = actionEntry.fileMutationProof?.(
+                  toolCall.input,
+                );
+                if (executionStepIntent) {
+                  await recordLateAgentExecutionStepOutcome(
+                    executionStepIntent,
+                    serializeDurableExecutionStepOutcome({
+                      result: isPrivateCall()
+                        ? "[Private content omitted]"
+                        : stripInlineBytes(zombieStr, "placeholder").slice(
+                            0,
+                            toolMaxResultChars,
+                          ),
+                      isError: false,
+                      completedSideEffect: true,
                       ...(isPrivateCall()
-                        ? { errorMessagePolicy: "omit" as const }
+                        ? {}
+                        : { artifacts: zombieArtifacts }),
+                      ...(!isPrivateCall() && zombieReceipt
+                        ? { receipt: zombieReceipt }
                         : {}),
-                      route: "/_agent-native/agent-chat",
-                      ...(opts.runId ? { aiTraceId: opts.runId } : {}),
-                      tags: {
-                        component: "agent-execution-step",
-                        phase: "late-action-rejection",
-                        tool: toolCall.name,
-                        [REPORT_EXPECTED_FAILURE_TAG]: "true",
-                      },
-                    },
+                      ...(!isPrivateCall() && zombieMcp?.mcpApp
+                        ? { mcpApp: zombieMcp.mcpApp }
+                        : {}),
+                      ...(!isPrivateCall() && zombieChatUI
+                        ? {
+                            chatUI: zombieChatUI.chatUI,
+                            chatUIResult: zombieChatUI.result,
+                          }
+                        : {}),
+                      ...(!isPrivateCall() && zombieFileMutation
+                        ? { fileMutation: zombieFileMutation }
+                        : {}),
+                    }),
                   );
-                },
-              )
+                }
+                if (!executionStepIntent && !isPrivateCall()) {
+                  await writeLedgerEntry(
+                    ledgerThreadId,
+                    ledgerToolKey,
+                    zombieStr,
+                    zombieArtifacts,
+                    typeof zombieResultForAgent === "string",
+                    zombieChatUI
+                      ? JSON.stringify(zombieChatUI.result)
+                      : undefined,
+                    ledgerArgumentsHash,
+                  );
+                }
+              })
               .catch((error) => {
+                if (actionRejected) return;
                 captureError(
                   isPrivateCall()
                     ? new Error("Private content omitted")
@@ -11146,8 +11167,7 @@ export async function runAgentLoop(opts: {
                   },
                 );
               });
-            if (ledgerThreadId)
-              void retainRequestDbPoolScope(zombieLedgerPromise);
+            void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
           const raw = await Promise.race([
