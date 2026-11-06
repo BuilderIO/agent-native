@@ -574,6 +574,8 @@ export function runSaveFileContent(
               file.id === pending.id
                 ? {
                     ...file,
+                    contentBytes: new TextEncoder().encode(pending.content)
+                      .byteLength,
                     ...(persistedUpdatedAt !== undefined
                       ? { updatedAt: persistedUpdatedAt }
                       : {}),

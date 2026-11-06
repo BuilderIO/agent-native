@@ -808,6 +808,7 @@ export function useEditorGenerationAndAccess({
     dependencyStatusByRoot,
     retrySources,
     leaseHydratedSource,
+    leaseSources,
     awaitCommittedSources,
   } = useDesignSourceHydration(
     id,
@@ -960,14 +961,16 @@ export function useEditorGenerationAndAccess({
   const designEditorCommandVersion = useChangeVersions(
     designEditorCommandKeys.map((key) => `app-state:${key}`),
   );
+  // Every screen, loaded or not, can hold a pending rewrite proposal.
+  const designFileMetadata = shellMode ? design?.files : sourceMetadata;
   const pendingNodeRewriteStateKeys = useMemo(
     () =>
       id
-        ? (design?.files.map((file) =>
+        ? (designFileMetadata?.map((file) =>
             designRepromptPendingStateKey(id, file.id),
           ) ?? [])
         : [],
-    [design?.files, id],
+    [designFileMetadata, id],
   );
   const pendingNodeRewriteStateVersion = useChangeVersions(
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
@@ -977,7 +980,7 @@ export function useEditorGenerationAndAccess({
     designId: id,
     isOwner: !shellMode && designAccessRole === "owner",
     designLoaded: Boolean(design),
-    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+    files: designFileMetadata ?? EMPTY_READY_VIEW_FILES,
   });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -1775,6 +1778,7 @@ export function useEditorGenerationAndAccess({
     retrySources,
     dependencyStatusByRoot,
     leaseHydratedSource,
+    leaseSources,
     awaitCommittedSources,
     onSourceDemandChange,
     overviewDataReady,

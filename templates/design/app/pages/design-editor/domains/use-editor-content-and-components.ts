@@ -202,7 +202,7 @@ export function useEditorContentAndComponents({
     restoreSelectionSnapshot,
     sourceMetadata,
     sourceLoader,
-    awaitCommittedSources,
+    leaseSources,
     canEditDesign,
     canEditDesignRef,
     rawServerFilesByIdRef,
@@ -1667,15 +1667,13 @@ export function useEditorContentAndComponents({
             throw new LinkedSourceSizeLimitError(
               t("common.linkedSourceSizeLimit"),
             );
-          const releases: Array<() => void> = [];
-          const release = () => releases.forEach((dispose) => dispose());
+          let release: (() => void) | undefined;
           try {
+            release = await leaseSources(fileIds);
             let actualBytes = 0;
             for (const fileId of fileIds) {
-              releases.push(sourceLoader.lease(fileId));
-              await sourceLoader.request(fileId);
               const state = sourceLoader.get(fileId);
-              if (state.status !== "ready" || state.refreshError)
+              if (state.status !== "ready")
                 throw new Error(t("common.genericError"));
               const pending = pendingLocalFileContentsRef.current.get(fileId);
               actualBytes += encoder.encode(
@@ -1686,10 +1684,9 @@ export function useEditorContentAndComponents({
                   t("common.linkedSourceSizeLimit"),
                 );
             }
-            await awaitCommittedSources(fileIds);
             return release;
           } catch (error) {
-            release();
+            release?.();
             throw Object.assign(
               new Error(
                 error instanceof LinkedSourceSizeLimitError

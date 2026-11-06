@@ -1185,7 +1185,15 @@ describe("runSaveFileContent source version", () => {
     const updater = setQueryData.mock.calls[0]![1] as (old: unknown) => unknown;
     expect(
       updater({ files: [{ id: pending.id, updatedAt: "old-version" }] }),
-    ).toEqual({ files: [{ id: pending.id, updatedAt: "saved-version" }] });
+    ).toEqual({
+      files: [
+        {
+          id: pending.id,
+          updatedAt: "saved-version",
+          contentBytes: new TextEncoder().encode(pending.content).byteLength,
+        },
+      ],
+    });
   });
 
   it("shows exactly one version-history-unavailable toast per design across repeated skipped-checkpoint saves", async () => {

@@ -17,6 +17,7 @@ it("renames a loaded screen while preserving loaded edits and ignoring unloaded 
     {
       canEditDesign: true,
       files,
+      screenFiles: files,
       serverFiles: [files[0]],
       overviewScreens: [
         { id: "one", sourceState: "ready", sourceType: "inline" },
@@ -56,6 +57,7 @@ it("preserves edited bodies even when their preview dependencies failed", () => 
     {
       canEditDesign: true,
       files,
+      screenFiles: files,
       serverFiles: files,
       overviewScreens: [
         { id: "one", sourceState: "ready" },
@@ -81,6 +83,38 @@ it("preserves edited bodies even when their preview dependencies failed", () => 
         },
       ],
     }),
+    expect.any(Object),
+  );
+});
+
+it("renames a screen whose source has not loaded", () => {
+  const loaded = {
+    id: "one",
+    filename: "one.html",
+    fileType: "html",
+    content: "saved",
+  };
+  const mutate = vi.fn();
+  runLayerRename(
+    {
+      canEditDesign: true,
+      files: [loaded],
+      screenFiles: [loaded, { id: "two", filename: "two.html" }],
+      serverFiles: [loaded],
+      overviewScreens: [
+        { id: "one", sourceState: "ready", sourceType: "inline" },
+        { id: "two", sourceState: "unloaded", sourceType: "inline" },
+      ],
+      designSourceType: "inline",
+      getScreenContent: () => "saved",
+      queryClient: new QueryClient(),
+      renameScreenMutation: { mutate },
+    } as unknown as Parameters<typeof runLayerRename>[0],
+    "two",
+    "renamed",
+  );
+  expect(mutate).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "two" }),
     expect.any(Object),
   );
 });

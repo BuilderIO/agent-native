@@ -52,6 +52,8 @@ export interface LayerRenameArgs {
   >;
   designSourceType: "inline" | "localhost" | "fusion";
   files: DesignFile[];
+  /** Every screen's metadata, so an unloaded screen can still be renamed. */
+  screenFiles: readonly Pick<DesignFile, "id" | "filename">[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
@@ -73,6 +75,7 @@ export function runLayerRename(
     codeLayerOwnerByNodeId,
     designSourceType,
     files,
+    screenFiles,
     getFreshActiveContent,
     getScreenContent,
     id,
@@ -87,7 +90,7 @@ export function runLayerRename(
   name: string,
 ) {
   if (!canEditDesign) return;
-  const renamedFile = files.find((file) => file.id === layerId);
+  const renamedFile = screenFiles.find((file) => file.id === layerId);
   if (renamedFile) {
     const nextFilename = renameFilenamePreservingExtension(
       renamedFile.filename,

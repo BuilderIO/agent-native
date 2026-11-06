@@ -955,7 +955,7 @@ export function ComponentSection({
           ) {
             requestLocalhostWrite({
               files: [effectiveRuntime.local.path],
-              onGranted: () => submit(true),
+              onGranted: () => submit(true, request),
               onCancel: rollbackPreview,
             });
             return;

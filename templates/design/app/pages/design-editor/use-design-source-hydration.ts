@@ -232,8 +232,34 @@ export function useDesignSourceHydration(
     [awaitCommittedSources, dependencyIndex, files, loader],
   );
 
+  /** Loads and holds every listed source until the returned release runs. */
+  const leaseSources = useCallback(
+    async (ids: readonly string[]): Promise<() => void> => {
+      if (!loader) throw new Error("Source loader is unavailable");
+      const releases = ids.map((id) => loader.lease(id));
+      const release = () => {
+        for (const dispose of releases.splice(0)) dispose();
+      };
+      try {
+        await Promise.all(ids.map((id) => loader.request(id)));
+        for (const id of ids) {
+          const state = loader.get(id);
+          if (state.status !== "ready" || state.refreshError)
+            throw new Error("Screen source could not be loaded");
+        }
+        await awaitCommittedSources(ids);
+        return release;
+      } catch (error) {
+        release();
+        throw error;
+      }
+    },
+    [awaitCommittedSources, loader],
+  );
+
   return {
     retrySources,
+    leaseSources,
     leaseHydratedSource,
     awaitCommittedSources,
     loader,

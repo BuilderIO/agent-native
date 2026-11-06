@@ -181,7 +181,7 @@ export function useEditorFilesAndSaving({
     sourceLoader,
     sourceRevision,
     dependencyStatusByRoot,
-    awaitCommittedSources,
+    leaseSources,
     pendingNodeRewriteStateVersion,
     canShareDesign,
     canEditDesign,
@@ -952,7 +952,6 @@ export function useEditorFilesAndSaving({
           versionHash: sourceContentHash(file.content),
         }));
     if (shellMode) return hashes(files);
-    if (!sourceLoader) throw new Error(t("common.genericError"));
     const htmlFiles = sourceMetadata.filter((file) => file.fileType === "html");
     const estimatedBytes = htmlFiles.reduce(
       (total, file) => total + (file.contentBytes ?? 0),
@@ -961,15 +960,12 @@ export function useEditorFilesAndSaving({
     if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
       throw new Error(t("common.linkedSourceSizeLimit"));
     const ids = htmlFiles.map((file) => file.id);
-    const releases = ids.map((fileId) => sourceLoader.lease(fileId));
+    const release = await leaseSources(ids).catch((error: unknown) => {
+      throw Object.assign(new Error(t("designEditor.sourceLoadFailed")), {
+        cause: error,
+      });
+    });
     try {
-      await Promise.all(ids.map((fileId) => sourceLoader.request(fileId)));
-      for (const fileId of ids) {
-        const state = sourceLoader.get(fileId);
-        if (state.status !== "ready" || state.refreshError)
-          throw new Error(t("common.genericError"));
-      }
-      await awaitCommittedSources(ids);
       const current = historyFilesRef.current.filter((file) =>
         ids.includes(file.id),
       );
@@ -977,17 +973,9 @@ export function useEditorFilesAndSaving({
         throw new Error(t("common.genericError"));
       return hashes(current);
     } finally {
-      for (const release of releases) release();
+      release();
     }
-  }, [
-    awaitCommittedSources,
-    files,
-    historyFilesRef,
-    shellMode,
-    sourceLoader,
-    sourceMetadata,
-    t,
-  ]);
+  }, [files, historyFilesRef, leaseSources, shellMode, sourceMetadata, t]);
   historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(
@@ -1006,7 +994,9 @@ export function useEditorFilesAndSaving({
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
-  const proposalFileIdsKey = files.map((file) => file.id).join("\u0000");
+  const proposalFileIdsKey = (shellMode ? files : sourceMetadata)
+    .map((file) => file.id)
+    .join("\u0000");
   const proposalFileIds = useMemo(
     () => (proposalFileIdsKey ? proposalFileIdsKey.split("\u0000") : []),
     [proposalFileIdsKey],

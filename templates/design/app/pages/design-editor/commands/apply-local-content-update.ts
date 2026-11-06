@@ -157,7 +157,7 @@ export function runApplyLocalContentUpdate(
   if (
     !activeFile ||
     !canEditDesignRef.current ||
-    (activeFile.sourceState && activeFile.sourceState !== "ready")
+    activeFile.sourceState === "error"
   )
     return { status: "refused" };
   if (isShaderWriteInFlight(activeFile.id) && !options.shaderWriteCompletion) {

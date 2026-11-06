@@ -171,8 +171,7 @@ export function useEditorEditCommands({
     canEditLiveScreens,
     rawServerFilesByIdRef,
     historyFilesRef,
-    sourceLoader,
-    awaitCommittedSources,
+    leaseSources,
     pendingLocalFileContentsRef,
     markPendingLocalFileContent,
     createFileMutation,
@@ -685,41 +684,32 @@ export function useEditorEditCommands({
         return false;
       }
       // Undo restores a deleted screen from its source, so load it first.
-      if (!sourceLoader) {
-        toast.error(t("designEditor.sourceLoadFailed"));
-        return false;
-      }
-      const releases = unloadedIds.map((id) => sourceLoader.lease(id));
-      void Promise.all(unloadedIds.map((id) => sourceLoader.request(id)))
-        .then(() => {
-          for (const id of unloadedIds) {
-            const state = sourceLoader.get(id);
-            if (state.status !== "ready" || state.refreshError)
+      void leaseSources(unloadedIds).then(
+        (release) => {
+          try {
+            if (selectionRevisionRef.current !== selectionRevisionAtStart)
+              return;
+            const loaded = historyFilesRef.current.filter((file) =>
+              intendedIds.includes(file.id),
+            );
+            if (loaded.length !== intendedIds.length)
               throw new Error("Screen source could not be loaded");
+            deleteScreens(loaded);
+          } catch {
+            toast.error(t("designEditor.sourceLoadFailed"));
+          } finally {
+            release();
           }
-          return awaitCommittedSources(unloadedIds);
-        })
-        .then(() => {
-          if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
-          const loaded = historyFilesRef.current.filter((file) =>
-            intendedIds.includes(file.id),
-          );
-          if (loaded.length !== intendedIds.length)
-            throw new Error("Screen source could not be loaded");
-          deleteScreens(loaded);
-        })
-        .catch(() => toast.error(t("designEditor.sourceLoadFailed")))
-        .finally(() => {
-          for (const release of releases) release();
-        });
+        },
+        () => toast.error(t("designEditor.sourceLoadFailed")),
+      );
       return false;
     },
     [
-      awaitCommittedSources,
       canEditDesign,
       files,
       historyFilesRef,
-      sourceLoader,
+      leaseSources,
       performDeleteFiles,
       handleDeleteSelection,
       overviewScreens,

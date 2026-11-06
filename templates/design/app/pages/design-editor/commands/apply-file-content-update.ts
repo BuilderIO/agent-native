@@ -168,10 +168,8 @@ export function runApplyFileContentUpdate(
     return applyLocalContentUpdate(nextContent, options);
   }
   const previousFile = files.find((file) => file.id === fileId);
-  if (
-    !previousFile ||
-    (previousFile.sourceState && previousFile.sourceState !== "ready")
-  ) {
+  // A file in `files` has its body; dependency loading must not block edits.
+  if (!previousFile || previousFile.sourceState === "error") {
     toast.error(t("designEditor.sourceLoadFailed"));
     return { status: "refused" };
   }
