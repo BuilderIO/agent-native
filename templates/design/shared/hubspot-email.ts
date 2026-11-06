@@ -17,16 +17,26 @@ function mayHaveFrameTypeMarker(content: string): boolean {
     const start = lower.indexOf("<meta", from);
     if (start === -1) return false;
     let quote = "";
+    // A quote opens a value only right after "=" and optional whitespace;
+    // anywhere else it is an ordinary character, as it is to the parser.
+    let expectingValue = false;
     let hasReference = false;
     let index = start + 5;
     for (; index < lower.length; index += 1) {
-      const character = lower[index];
+      const character = lower.charAt(index);
       if (quote) {
         if (character === quote) quote = "";
-      } else if (character === '"' || character === "'") {
-        quote = character;
       } else if (character === ">") {
         break;
+      } else if (character === "=") {
+        expectingValue = true;
+      } else if (expectingValue && /\s/.test(character)) {
+        // Still waiting for the value.
+      } else {
+        if (expectingValue && (character === '"' || character === "'")) {
+          quote = character;
+        }
+        expectingValue = false;
       }
       if (character === "&") hasReference = true;
     }

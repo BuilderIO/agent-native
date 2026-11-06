@@ -240,6 +240,38 @@ describe("writeInlineSourceFilesBatch", () => {
     );
   });
 
+  it("stores a single-file write's frame type with its content, and not when it fails", async () => {
+    const designData = async () => {
+      const [design] = (
+        await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+      ).rows as Array<{ data: string | null }>;
+      return JSON.parse(design!.data ?? "{}") as Record<string, unknown>;
+    };
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+        content: SOURCE_NEXT,
+        expectedVersionHash: sourceContentHash("<main>stale</main>"),
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toThrow();
+    expect(await designData()).not.toHaveProperty("screenMetadata");
+
+    await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+      content: SOURCE_NEXT,
+      expectedVersionHash: sourceContentHash(SOURCE_BASE),
+      frameType: "hubspot-email",
+    });
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_NEXT);
+    expect(await designData()).toMatchObject({
+      screenMetadata: { [SOURCE_ID]: { frameType: "hubspot-email" } },
+    });
+  });
+
   it("commits an explicit frame type change only with its source transaction", async () => {
     const designData = async () => {
       const [design] = (

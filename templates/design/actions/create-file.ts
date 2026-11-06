@@ -331,6 +331,7 @@ export default defineAction({
             fileType: existingRestoredFile.fileType,
             createdAt: existingRestoredFile.createdAt,
             created: false,
+            frameType: undefined,
           };
         }
 
@@ -437,9 +438,12 @@ export default defineAction({
         }
         // The type commits with the insert: markerless email HTML has no
         // other record of being an email if the placement write below fails.
+        // A duplicate copies its source's stored type, which a leftover
+        // marker in the copied HTML must not override.
         const insertedFrameType =
           frameType ??
-          (isHubSpotEmailHtml(annotatedContent)
+          (storedScreenFrameType(copiedDesignData, id) === undefined &&
+          isHubSpotEmailHtml(annotatedContent)
             ? HUBSPOT_EMAIL_FRAME_TYPE
             : undefined);
         if (insertedFrameType !== undefined) {
@@ -511,6 +515,14 @@ export default defineAction({
           fileType: fileType ?? "html",
           createdAt,
           created: true,
+          frameType:
+            insertedFrameType === undefined
+              ? resolveScreenFrameType({
+                  designData: copiedDesignData,
+                  fileId: id,
+                  content: annotatedContent,
+                })
+              : frameTypeFromStored(insertedFrameType),
         };
       },
     );
@@ -526,11 +538,13 @@ export default defineAction({
       createdFile.content.trim().length > 0;
 
     let createdFrameType: ScreenFrameType | null =
-      frameType === undefined
-        ? isHubSpotEmailHtml(createdFile.content)
-          ? HUBSPOT_EMAIL_FRAME_TYPE
-          : null
-        : frameTypeFromStored(frameType);
+      createdFile.frameType !== undefined
+        ? createdFile.frameType
+        : frameType === undefined
+          ? isHubSpotEmailHtml(createdFile.content)
+            ? HUBSPOT_EMAIL_FRAME_TYPE
+            : null
+          : frameTypeFromStored(frameType);
     if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({

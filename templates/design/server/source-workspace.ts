@@ -23,8 +23,11 @@ import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js
 import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
+  frameTypeFromStored,
   sourceWriteFrameType,
   storedScreenFrameType,
+  withStoredScreenFrameType,
+  type StoredScreenFrameType,
 } from "../shared/screen-frame-type.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
@@ -39,6 +42,7 @@ import {
   LegacyEmailFrameTypeNotStoredError,
   writeWithLegacyEmailFrameTypes,
 } from "./lib/legacy-email-frame-type.js";
+import { readDesignDataForUpdate } from "./lib/screen-frame-type-store.js";
 import "./db/index.js";
 
 type LegacyEmailIds = ReadonlySet<string>;
@@ -541,9 +545,11 @@ export async function writeInlineSourceFile(
 ): ReturnType<typeof writeInlineSourceFileContent> {
   return writeWithLegacyEmailFrameTypes({
     designId: args.designId,
-    markedFileIds: isHubSpotEmailHtml(args.file.content ?? "")
-      ? [args.file.id]
-      : [],
+    markedFileIds:
+      args.frameType === undefined &&
+      isHubSpotEmailHtml(args.file.content ?? "")
+        ? [args.file.id]
+        : [],
     write: (storedLegacyEmailIds) =>
       writeInlineSourceFileContent(args, storedLegacyEmailIds),
   });
@@ -560,6 +566,8 @@ async function writeInlineSourceFileContent(
     operationSource?: string;
     operationRevision?: number;
     allowUrlBackedTransition?: boolean;
+    /** Stored with the content, in the same transaction. */
+    frameType?: StoredScreenFrameType;
   },
   storedLegacyEmailIds: LegacyEmailIds,
 ): Promise<{
@@ -620,12 +628,18 @@ async function writeInlineSourceFileContent(
             args.file.id,
           ),
         }).value;
+      const requestedFrameType = args.frameType;
       const frameTypeFor = (content: string) =>
-        sourceWriteFrameType({
-          readStored: readStoredFrameType,
-          previousContents: [current.content, currentFile.content],
-          nextContent: content,
-        });
+        requestedFrameType !== undefined
+          ? {
+              frameType: frameTypeFromStored(requestedFrameType),
+              unstoredLegacyMarker: false,
+            }
+          : sourceWriteFrameType({
+              readStored: readStoredFrameType,
+              previousContents: [current.content, currentFile.content],
+              nextContent: content,
+            });
       if (
         frameTypeFor(args.content).unstoredLegacyMarker &&
         !storedLegacyEmailIds.has(args.file.id)
@@ -944,9 +958,27 @@ async function writeInlineSourceFileContent(
         throw error;
       }
 
+      let frameTypeData: string | undefined;
+      if (requestedFrameType !== undefined) {
+        const designData = await readDesignDataForUpdate(tx, args.designId);
+        if (
+          storedScreenFrameType(designData, args.file.id) !== requestedFrameType
+        ) {
+          frameTypeData = JSON.stringify(
+            withStoredScreenFrameType(
+              designData,
+              args.file.id,
+              requestedFrameType,
+            ),
+          );
+        }
+      }
       await tx
         .update(schema.designs)
-        .set({ updatedAt })
+        .set({
+          updatedAt,
+          ...(frameTypeData === undefined ? {} : { data: frameTypeData }),
+        })
         .where(eq(schema.designs.id, args.designId));
 
       return {

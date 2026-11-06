@@ -593,6 +593,35 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     resetDesignDataMutation();
   });
 
+  it("stores an existing file's requested frame type in its source write", async () => {
+    setExistingFile("<html><body>old</body></html>");
+    mocks.designUpdateChain.set.mockClear();
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Convert to a HubSpot email",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+
+    const sourceWriteData = mocks.designUpdateChain.set.mock.calls
+      .map(([values]) => values as { data?: string; updatedAt?: string })
+      .filter((values) => typeof values.data === "string")
+      .map((values) => JSON.parse(values.data!) as Record<string, unknown>);
+    expect(sourceWriteData).toContainEqual(
+      expect.objectContaining({
+        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+      }),
+    );
+  });
+
   it("updates an existing file's content via the hash-guarded write path", async () => {
     setExistingFile("<html><body>old</body></html>");
 

@@ -384,6 +384,35 @@ describe("create-file: node-id annotation", () => {
     expect(copied).not.toHaveProperty("breakpointWidths");
   });
 
+  it("keeps a duplicate's copied web type over a leftover marker", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "former-email.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: { source: { width: 600, frameType: "web" } },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "former-email copy.html",
+      content: createHubSpotEmailHtml({ title: "Former email" }),
+      fileType: "html",
+      duplicateSourceFileId: "source",
+    });
+
+    expect(result.frameType).toBeNull();
+    expect(
+      (mocks.getDesignData().screenMetadata as Record<string, unknown>)[
+        result.id
+      ],
+    ).toMatchObject({ frameType: "web" });
+  });
+
   it("rejects a duplicate source from a different design", async () => {
     mocks.setExistingRows([
       {

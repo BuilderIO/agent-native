@@ -1033,6 +1033,7 @@ const generateDesignAction = defineAction({
               file: workspaceFile,
               content: file.content,
               expectedVersionHash: live.versionHash,
+              ...(file.frameType ? { frameType: file.frameType } : {}),
             });
 
             const nextFileType = file.fileType ?? "html";
