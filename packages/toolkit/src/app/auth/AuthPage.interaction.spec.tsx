@@ -43,6 +43,64 @@ describe("AuthPage interactions", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["control", "automatic"] as const)(
+    "shows Builder legal disclosure before Google-only signup only for the %s assignment",
+    async (variant) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => ({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(input).includes("builder-signup-experiment")
+              ? {
+                  status: "assigned",
+                  id: "a".repeat(32),
+                  variant,
+                  policy: "builder-signup-2026-11-06",
+                }
+              : { available: false },
+        })),
+      );
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+              }),
+            )}
+            trackingApp="design"
+            googleOnly
+            showGoogle
+            identitySsoEnabled={false}
+          />,
+        );
+      });
+      expect(
+        container.textContent?.includes(
+          "Your Design signup also creates a Builder.io account",
+        ),
+      ).toBe(variant === "automatic");
+      expect(
+        container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+      ).toBe(false);
+      if (variant === "automatic") {
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/terms"]',
+          ),
+        ).not.toBeNull();
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/privacy"]',
+          ),
+        ).not.toBeNull();
+      }
+    },
+  );
+
   it("opens and closes the auth options without dropping focus from the localized toggle", async () => {
     await act(async () => {
       root.render(

@@ -48,6 +48,7 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import { createBuilderSignupExperimentHandler } from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
   resolveAgentEngineStatus,
@@ -2522,6 +2523,7 @@ export type BuilderAccountActivationResult =
     };
 
 interface BuilderAccountActivationInput {
+  newAccountOnly?: boolean;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2600,6 +2602,7 @@ export async function activateBuilderAccount(
     }
     const activationOrg = activation.write;
     const credentials = await provisionBuilderAccount({
+      ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
       email: ownerEmail,
       name: session.name,
       agentNativeApp: input.tracking.agentNativeApp,
@@ -5051,6 +5054,39 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Cache-Control", "no-store");
           setResponseHeader(event, "Location", authorizationUrl);
           return "";
+        }),
+      );
+
+      getH3App(nitroApp).use(
+        `${P}/auth/builder-signup-experiment`,
+        createBuilderSignupExperimentHandler({
+          getSession,
+          sameOrigin: isSameOriginConnect,
+          activate: async (event, session) => {
+            const authorization = await authorizeBuilderConnectScope(
+              event,
+              session.email,
+              null,
+            );
+            if ("deny" in authorization)
+              return { ok: false, code: authorization.deny.reason };
+            return activateBuilderAccount(event, {
+              ownerEmail: session.email,
+              session,
+              provisioningToken: signBuilderProvisioningToken(
+                session.email,
+                session.token ?? "",
+              ),
+              requestedScope: null,
+              member: authorization.member,
+              connectAttemptId: null,
+              tracking: {
+                agentNativeApp: "design",
+                agentNativeTemplate: "design",
+              },
+              newAccountOnly: true,
+            });
+          },
         }),
       );
 
