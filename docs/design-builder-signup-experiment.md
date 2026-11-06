@@ -120,3 +120,7 @@ arbitrary account.
 
 Person-linked milestones must match the exposure environment. Unknown hosts only
 join unknown cohorts; they never supply activity to production or beta cohorts.
+
+Employee classification uses authenticated assignment identity evidence before
+signup eligibility, primary-person ranking, or ambiguity exclusion. Any known Builder identity excludes
+the assignment from the external cohort.

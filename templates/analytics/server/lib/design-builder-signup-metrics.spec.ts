@@ -458,6 +458,19 @@ describe("Design Builder signup experiment metrics", () => {
     );
     await event(
       "auth.builder_signup_experiment_exposed",
+      70,
+      "employee-later",
+      "automatic",
+    );
+    await event(
+      "builder_signup_experiment_enrolled",
+      69,
+      "employee-later",
+      "automatic",
+      "member@builder.io",
+    );
+    await event(
+      "auth.builder_signup_experiment_exposed",
       72,
       "beta-visitor",
       "automatic",
@@ -483,6 +496,40 @@ describe("Design Builder signup experiment metrics", () => {
       {},
       "beta.design.agent-native.com",
     );
+    await event(
+      "auth.builder_signup_experiment_exposed",
+      72,
+      "mixed-employees",
+      "automatic",
+    );
+    await event(
+      "builder_signup_experiment_enrolled",
+      71,
+      "mixed-employees",
+      "automatic",
+      "second@builder.io",
+    );
+    await event(
+      "builder_signup_experiment_enrolled",
+      70,
+      "mixed-employees",
+      "automatic",
+      "external@example.com",
+    );
+    await event(
+      "auth.builder_signup_experiment_exposed",
+      72,
+      "returning-employee",
+      "automatic",
+    );
+    await event(
+      "builder_signup_experiment_outcome",
+      71,
+      "returning-employee",
+      "automatic",
+      "returning@builder.io",
+      { status: "fallback", code: "signup_attempt_unbound" },
+    );
     const filtered = sql(KEYS[0]);
     const excludingEmployees = panel(KEYS[0]).sql.replace(
       /{{\s*([A-Za-z0-9_]+)\s*}}/g,
@@ -504,6 +551,12 @@ describe("Design Builder signup experiment metrics", () => {
           row.environment === "production" && row.variant === "control",
       ),
     ).toMatchObject({ exposed_visitors: 1, first_design_24h: 1 });
+    expect(
+      allRows.find(
+        (row: Record<string, unknown>) =>
+          row.environment === "production" && row.variant === "automatic",
+      ),
+    ).toMatchObject({ exposed_visitors: 3, signed_up_24h: 0 });
     const rows = (await db.query(excludingEmployees)).rows;
     expect(
       rows.find(

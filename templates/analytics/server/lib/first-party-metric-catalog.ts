@@ -3282,9 +3282,17 @@ const ENTRIES: FirstPartyMetric[] = [
           format: "percent",
         },
         { key: "d1_eligible", label: "D1 eligible", format: "number" },
-        { key: "d1_return_rate", label: "D1 return", format: "percent" },
+        {
+          key: "d1_return_rate",
+          label: "D1 return / exposed",
+          format: "percent",
+        },
         { key: "d7_eligible", label: "D7 eligible", format: "number" },
-        { key: "d7_return_rate", label: "D7 return", format: "percent" },
+        {
+          key: "d7_return_rate",
+          label: "D7 return / exposed",
+          format: "percent",
+        },
       ],
     },
   },
@@ -3318,7 +3326,7 @@ const ENTRIES: FirstPartyMetric[] = [
     buildSql: fixed(BUILDER_SIGNUP_QUERIES.quality),
     config: {
       description:
-        "Tracking completeness within the selected window. No signup link can mean abandonment; it is not automatically a telemetry failure. Unattributed requests are not assigned to either experiment arm.",
+        "Tracking completeness within the selected window. No signup link can mean abandonment. Cohort counts honor the employee filter; operational error counters cover all observed Design traffic across environments. Unattributed requests are not assigned to either experiment arm.",
       columns: [
         { key: "metric", label: "Metric" },
         { key: "count", label: "Count", format: "number" },

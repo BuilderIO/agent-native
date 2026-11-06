@@ -52,12 +52,19 @@ export function designBuilderSignupQueries(scopedEventsCte: string) {
 ), ranked_links AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY person_key ORDER BY enrolled_at, assignment_id) AS person_assignment
   FROM signup_links
+), assignment_identity AS (
+  SELECT x.assignment_id, MAX(CASE WHEN lower(COALESCE(e.funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END) AS known_employee
+  FROM raw_exposures x JOIN experiment_events e ON e.assignment_id = x.assignment_id
+    AND e.variant = x.variant AND e.event_at >= x.exposed_at
+  WHERE e.event_name LIKE 'builder_signup_experiment_%' AND e.funnel_user_key IS NOT NULL
+  GROUP BY x.assignment_id
 ), linked_exposures AS (
   SELECT x.*, l.person_key, l.enrolled_at FROM raw_exposures x
   LEFT JOIN ranked_links l ON l.assignment_id = x.assignment_id AND l.person_assignment = 1
+  LEFT JOIN assignment_identity i ON i.assignment_id = x.assignment_id
   WHERE ('{{emailFilter}}' IN ('', 'all')
-    OR ('{{emailFilter}}' = 'exclude_builder' AND lower(COALESCE(l.person_email, '')) NOT LIKE '%@builder.io')
-    OR ('{{emailFilter}}' = 'only_builder' AND lower(COALESCE(l.person_email, '')) LIKE '%@builder.io'))
+    OR ('{{emailFilter}}' = 'exclude_builder' AND COALESCE(i.known_employee, 0) = 0)
+    OR ('{{emailFilter}}' = 'only_builder' AND i.known_employee = 1))
 ), exposures AS (
   SELECT assignment_id, variant, exposed_at, environment FROM linked_exposures
 ), flags AS (
