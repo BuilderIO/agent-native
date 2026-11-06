@@ -5,7 +5,10 @@ import {
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
-import { screenFrameTypeForCopy } from "@shared/screen-frame-type";
+import {
+  screenFrameTypeForCopy,
+  STORED_SCREEN_FRAME_TYPES,
+} from "@shared/screen-frame-type";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -53,6 +56,7 @@ const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
   "heightPinned",
   "heightMode",
   "breakpointHeights",
+  "frameType",
 ] as const;
 
 interface DuplicateBatchState {
@@ -146,6 +150,10 @@ function widgetDuplicateScreenMetadata(
       if (typeof value === "boolean") result[key] = value;
     } else if (key === "heightMode") {
       if (value === "auto" || value === "fixed" || value === "hug") {
+        result[key] = value;
+      }
+    } else if (key === "frameType") {
+      if (STORED_SCREEN_FRAME_TYPES.some((type) => type === value)) {
         result[key] = value;
       }
     } else if (

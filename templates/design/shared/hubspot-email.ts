@@ -7,8 +7,8 @@ export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 // Gates the full parse, so it must match every spelling parse5 decodes to the
 // marker name. Any meta tag holding a character reference goes to the parse,
 // since references can spell any part of the name. A false positive only
-// costs a parse. The scan stays linear: a regex like /<meta[^>]*&/ rescans the
-// rest of the input for every unterminated <meta.
+// costs a parse. The scan is linear and honors quoted attribute values, which
+// may contain ">"; a regex like /<meta[^>]*&/ is neither.
 function mayHaveFrameTypeMarker(content: string): boolean {
   const lower = content.toLowerCase();
   if (lower.includes("agent-native:frame-type")) return true;
@@ -16,10 +16,24 @@ function mayHaveFrameTypeMarker(content: string): boolean {
   for (;;) {
     const start = lower.indexOf("<meta", from);
     if (start === -1) return false;
-    const end = lower.indexOf(">", start);
-    if (end === -1) return false;
-    if (lower.slice(start, end).includes("&")) return true;
-    from = end;
+    let quote = "";
+    let hasReference = false;
+    let index = start + 5;
+    for (; index < lower.length; index += 1) {
+      const character = lower[index];
+      if (quote) {
+        if (character === quote) quote = "";
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === ">") {
+        break;
+      }
+      if (character === "&") hasReference = true;
+    }
+    // A tag still open at the end of the input is dropped by the parser.
+    if (index >= lower.length) return false;
+    if (hasReference) return true;
+    from = index;
   }
 }
 

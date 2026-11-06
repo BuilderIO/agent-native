@@ -95,6 +95,7 @@ describe("HubSpot email frame classification", () => {
       '<meta name="Agent-Native&colon;Frame-Type" content="hubspot-email">',
       '<meta name="&#97;gent-native:frame-type" content="hubspot-email">',
       '<meta name="agent-native:frame&#x2D;type" content="hubspot-email">',
+      '<meta content="hubspot-email" data-note="a>b" name="agent-native&#58;frame-type">',
     ])("parses when the marker name is spelled %s", (marker) => {
       expect(isHubSpotEmailHtml(documentWithHead(marker))).toBe(true);
       expect(parse).toHaveBeenCalledTimes(1);

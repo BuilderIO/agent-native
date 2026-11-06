@@ -1081,6 +1081,25 @@ describe("update-file: frame type", () => {
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
   });
 
+  it("stores an explicit frame type change before writing content", async () => {
+    const before = designFilesStore.rows.get(FILE_ID)!.content;
+    const contentAtChange: string[] = [];
+    vi.mocked(changeScreenFrameType).mockImplementationOnce(async () => {
+      contentAtChange.push(designFilesStore.rows.get(FILE_ID)!.content);
+    });
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" email-"),
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(contentAtChange).toEqual([before]);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" email-"),
+    );
+  });
+
   it("stores a legacy email type before an edit that removes the marker", async () => {
     const marked = buildDoc().replace(
       "<title>Doc</title>",

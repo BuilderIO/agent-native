@@ -783,6 +783,17 @@ export default defineAction({
         throw exhausted;
       });
 
+    // Before the content write: a retry of this call re-sends a content hash
+    // that no longer matches once the content has committed, so a type stored
+    // afterwards could never be completed by retrying.
+    if (frameType !== undefined) {
+      await changeScreenFrameType({
+        designId: file.designId,
+        fileId: id,
+        frameType,
+        content: file.content,
+      });
+    }
     try {
       await writeWithLegacyEmailFrameTypes({
         designId: file.designId,
@@ -812,15 +823,6 @@ export default defineAction({
         );
       }
       throw error;
-    }
-
-    if (frameType !== undefined) {
-      await changeScreenFrameType({
-        designId: file.designId,
-        fileId: id,
-        frameType,
-        content: file.content,
-      });
     }
 
     if (skippedStaleMirror) {

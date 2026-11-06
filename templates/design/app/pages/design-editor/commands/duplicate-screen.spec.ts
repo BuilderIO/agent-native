@@ -417,6 +417,13 @@ describe("runDuplicateScreen", () => {
       expect((args.createFileAsync as any).mock.calls[0]?.[0]).toMatchObject({
         frameType,
       });
+      await vi.waitFor(() =>
+        expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        vi.mocked(args.recordFileCreationHistoryEntry).mock.calls[0]?.[0]
+          .screenMetadata,
+      ).toMatchObject({ frameType });
     },
   );
 
