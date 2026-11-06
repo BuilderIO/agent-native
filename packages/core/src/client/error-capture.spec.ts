@@ -576,6 +576,43 @@ describe("DOM mutation diagnostics", () => {
     dispose();
   });
 
+  it("retries diagnostics after a synchronous send failure", () => {
+    installBrowser();
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "lang" ? "fr" : null),
+        classList: { contains: (name: string) => name === "translated-ltr" },
+      },
+      querySelector: () => null,
+    });
+    const send = vi
+      .fn((_event: CapturedExceptionEvent) => {})
+      .mockImplementationOnce(() => {
+        throw new Error("transport failed");
+      });
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const crash = () =>
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': child missing",
+        "NotFoundError",
+      );
+
+    captureException(crash());
+    captureException(crash());
+    captureException(crash());
+
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send.mock.calls[1][0].extra).toMatchObject({
+      domMutationDiagnostics: {
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: false,
+      },
+    });
+    expect(send.mock.calls[2][0].extra).toBeUndefined();
+    dispose();
+  });
+
   it.each([
     [
       "Firefox removeChild",

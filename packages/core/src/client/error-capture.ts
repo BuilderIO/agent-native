@@ -676,11 +676,11 @@ function dispatch(
   const signature = signatureOf(event.type, event.message, event.stack);
   if (shouldDedupe(runtime, signature)) return;
   if (!consumeBudget(runtime, event)) return;
-  if (event.extra?.domMutationDiagnostics) {
-    runtime.domMutationDiagnosticsReported = true;
-  }
   try {
     runtime.config.send(event);
+    if (event.extra?.domMutationDiagnostics) {
+      runtime.domMutationDiagnosticsReported = true;
+    }
   } catch {
     // transport must never throw into the host app
   }
