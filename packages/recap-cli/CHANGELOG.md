@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.99
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.98
 
 ### Patch Changes
@@ -657,11 +663,5 @@
 ### Minor Changes
 
 - f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
-
-## 0.4.7
-
-### Patch Changes
-
-- 687fefc: Bundle the visual recap workflow as a package asset instead of an escaped source string.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

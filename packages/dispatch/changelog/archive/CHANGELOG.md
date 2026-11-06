@@ -1,3 +1,9 @@
+## 0.31.7
+
+### Patch Changes
+
+- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
 ## 0.31.6
 
 ### Patch Changes
