@@ -11116,11 +11116,14 @@ export async function runAgentLoop(opts: {
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
                   (isActionContractError(error) &&
                     !isActionOutputContractError(error) &&
+                    (error.statusCode < 500 ||
+                      error.errorCode === "storage_setup_required") &&
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
-                  isAgentActionStopError(error) ||
-                  (signal.aborted &&
-                    error instanceof Error &&
-                    error.name === "AbortError") ||
+                  ((isAgentActionStopError(error) ||
+                    (signal.aborted &&
+                      error instanceof Error &&
+                      error.name === "AbortError")) &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
                   (!actionInvoked &&
                     error instanceof Error &&
                     ((signal.aborted && error.message === "Run aborted") ||

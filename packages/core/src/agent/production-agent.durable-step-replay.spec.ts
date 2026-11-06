@@ -229,6 +229,7 @@ describe("late outcome error reporting", () => {
     "validation",
     "contract",
     "internal-contract",
+    "upstream-contract",
     "setup-required",
     "setup-after-write",
     "post-write-contract",
@@ -276,16 +277,21 @@ describe("late outcome error reporting", () => {
                   errorCode: "internal_failure",
                   statusCode: 500,
                 })
-              : outcome === "setup-required"
-                ? new ActionContractError("Storage setup required", {
-                    errorCode: "storage_setup_required",
+              : outcome === "upstream-contract"
+                ? new ActionContractError("Upstream unavailable", {
+                    errorCode: "upstream_failure",
                     statusCode: 503,
                   })
-                : outcome === "aborted"
-                  ? new DOMException("Action aborted", "AbortError")
-                  : outcome === "stop"
-                    ? new AgentActionStopError("Action stopped")
-                    : new Error("Action rejected after interruption");
+                : outcome === "setup-required"
+                  ? new ActionContractError("Storage setup required", {
+                      errorCode: "storage_setup_required",
+                      statusCode: 503,
+                    })
+                  : outcome === "aborted"
+                    ? new DOMException("Action aborted", "AbortError")
+                    : outcome === "stop"
+                      ? new AgentActionStopError("Action stopped")
+                      : new Error("Action rejected after interruption");
       const nestedAction = defineAction({
         description: "Check nested input",
         schema: z.object({ required: z.number(), payload: z.string() }),
@@ -475,13 +481,10 @@ describe("late outcome error reporting", () => {
         if (
           outcome === "validation" ||
           outcome === "contract" ||
-          outcome === "internal-contract" ||
           outcome === "setup-required" ||
           outcome === "nested-validation-no-write" ||
           outcome === "aborted" ||
-          outcome === "aborted-after-write" ||
-          outcome === "stop" ||
-          outcome === "stop-after-write"
+          outcome === "stop"
         ) {
           expect(capture).not.toHaveBeenCalled();
         } else {
