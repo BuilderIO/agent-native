@@ -4,6 +4,10 @@ import { z } from "zod";
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction, NoWriteError, noteExternalWrite } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import {
+  classifyErrorSignal,
+  errorSignalFromSentryEvent,
+} from "../server/error-noise-filter.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -216,6 +220,9 @@ describe("late action outcomes", () => {
     write?: boolean;
     retrySafe?: boolean;
     private?: boolean;
+    timeout?: boolean;
+    abortAfterTimeout?: boolean;
+    sameTurn?: boolean;
   }) {
     const controller = new AbortController();
     let started!: () => void;
@@ -254,6 +261,7 @@ describe("late action outcomes", () => {
     });
     const trackedAction = {
       ...action,
+      ...(options.timeout ? { timeoutMs: 20 } : {}),
       run: async (...args: Parameters<typeof action.run>) => {
         try {
           return await action.run(...args);
@@ -269,9 +277,16 @@ describe("late action outcomes", () => {
       withoutThread: true,
     });
     await actionStarted;
-    controller.abort(options.cancelWithError ? options.error : undefined);
-    await run;
-    release();
+    if (options.timeout) {
+      await run;
+      if (options.abortAfterTimeout) controller.abort();
+      release();
+    } else {
+      controller.abort(options.cancelWithError ? options.error : undefined);
+      if (options.sameTurn) release();
+      await run;
+      if (!options.sameTurn) release();
+    }
     await actionSettled;
     await new Promise((resolve) => setTimeout(resolve, 10));
     return events;
@@ -291,6 +306,37 @@ describe("late action outcomes", () => {
       await rejectAfterInterrupt({ error, readOnly, cancelWithError });
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("suppresses a no-write cancellation that rejects in the abort turn", async () => {
+    await rejectAfterInterrupt({
+      error: new DOMException("cancelled", "AbortError"),
+      readOnly: true,
+      sameTurn: true,
+    });
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "reports an unrelated AbortError after a tool timeout (later abort=%s)",
+    async (abortAfterTimeout) => {
+      const error = new DOMException(
+        "provider aborted its request",
+        "AbortError",
+      );
+      await rejectAfterInterrupt({
+        error,
+        readOnly: true,
+        timeout: true,
+        abortAfterTimeout,
+      });
+      expect(captureErrorMock).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          tags: expect.objectContaining({ phase: "late-action-failure" }),
+        }),
+      );
     },
   );
 
@@ -426,6 +472,56 @@ describe("late action outcomes", () => {
       unregister();
     }
   });
+
+  it.each([false, true])(
+    "delivers late validation failures through real capture and Sentry with privacy=%s",
+    async (isPrivate) => {
+      const capture = await vi.importActual<
+        typeof import("../server/capture-error.js")
+      >("../server/capture-error.js");
+      const provider = vi.fn();
+      const unregister = capture.registerErrorCaptureProvider(
+        "late-validation-test",
+        provider,
+      );
+      captureErrorMock.mockImplementation(capture.captureError);
+      try {
+        const error = Object.assign(new Error("private validation detail"), {
+          name: "ValidationError",
+        });
+        capture.captureError(error, { tags: { reportExpected: "true" } });
+        expect(provider).not.toHaveBeenCalled();
+        await rejectAfterInterrupt({ error, write: true, private: isPrivate });
+        await vi.waitFor(() => expect(provider).toHaveBeenCalledOnce());
+        const [reportedError, context] = provider.mock.calls[0];
+        if (isPrivate) {
+          expect(JSON.stringify(provider.mock.calls)).not.toContain(
+            "private validation detail",
+          );
+          expect(reportedError.message).not.toContain(
+            "private validation detail",
+          );
+          expect(context.errorMessagePolicy).toBe("omit");
+        } else {
+          expect(reportedError).toBe(error);
+        }
+        expect(
+          classifyErrorSignal(
+            errorSignalFromSentryEvent({
+              exception: {
+                values: [
+                  { type: reportedError.name, value: reportedError.message },
+                ],
+              },
+              tags: context.tags,
+            }),
+          ),
+        ).toEqual({ drop: false });
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it.each(["upstream refused", "Tool call timed out after 5 seconds"])(
     "reports an on-time rejection normally without late telemetry: %s",

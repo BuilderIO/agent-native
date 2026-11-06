@@ -10977,7 +10977,7 @@ export async function runAgentLoop(opts: {
             ),
           );
 
-          let raceInterrupted = false;
+          let raceInterruption: "abort" | "timeout" | undefined;
           let timeoutError: Error | undefined;
           let abortError: Error | undefined;
 
@@ -11088,10 +11088,12 @@ export async function runAgentLoop(opts: {
                 // The race's catch must settle before we classify a rejection
                 // that arrives in the same turn as an abort or deadline.
                 await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                if (!raceInterrupted || !actionInvoked) return;
+                if (!raceInterruption || !actionInvoked) return;
                 const cancellation =
-                  (signal.aborted && error === signal.reason) ||
-                  (error instanceof Error && error.name === "AbortError");
+                  raceInterruption === "abort" &&
+                  signal.aborted &&
+                  (error === signal.reason ||
+                    (error instanceof Error && error.name === "AbortError"));
                 // Retry safety permits replay; it does not prove no write occurred.
                 if (
                   cancellation &&
@@ -11161,9 +11163,12 @@ export async function runAgentLoop(opts: {
               signal.addEventListener("abort", abort, { once: true });
             }),
           ]).catch((error: unknown) => {
-            raceInterrupted =
-              (timeoutError !== undefined && error === timeoutError) ||
-              (abortError !== undefined && error === abortError);
+            raceInterruption =
+              timeoutError !== undefined && error === timeoutError
+                ? "timeout"
+                : abortError !== undefined && error === abortError
+                  ? "abort"
+                  : undefined;
             throw error;
           });
           const mcpResult = isMcpActionResult(raw) ? raw : null;
