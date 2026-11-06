@@ -394,6 +394,7 @@ export {
   createThread,
   getThread,
   listThreads,
+  searchThreads,
   updateThreadData,
   deleteThread,
   setThreadArchived,

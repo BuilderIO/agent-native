@@ -275,6 +275,7 @@ describe("All-screens PDF download", () => {
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
       overviewScreens,
+      leaseHydratedSource: async () => () => {},
       prepareScreenForExport: () => undefined,
       resolveSnapshotExportSource: () => null,
       releaseScreenFromExport: () => undefined,
@@ -292,6 +293,7 @@ describe("All-screens PDF download", () => {
       documentElement: {},
       images: [],
       defaultView: window,
+      querySelector: () => null,
     }));
     const download = args();
     await runDownloadAllScreensPdf(download);

@@ -168,6 +168,7 @@ export interface MotionAutosaveArgs {
       persist?: boolean;
       recordHistory?: boolean;
       updatedAt?: string;
+      serverAccepted?: boolean;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
   ) => void;
@@ -588,7 +589,7 @@ export function runMotionAutosave({
       ...(!localSource
         ? { currentContent, revision: fileRevisionAtSchedule }
         : {}),
-      includeContent: false,
+      includeContent: true,
     };
     const applyWithConsentRetry = (allowConsentRetry: boolean) =>
       applyMotionEdit(applyArgs, {
@@ -607,6 +608,7 @@ export function runMotionAutosave({
             contentPatched?: unknown;
             filePath?: unknown;
             versionHash?: unknown;
+            patchedContent?: unknown;
           };
           const isStillActiveFile = isCurrentActivation();
           const timelineId =
@@ -717,17 +719,27 @@ export function runMotionAutosave({
                 })
               : currentContent;
             const hasConcurrentEdits = freshContent !== currentContent;
-            let patchedContent = injectManagedMotionCss(
-              freshContent,
-              localMotionCss,
-            );
-            patchedContent = motionTextDocument
-              ? injectMotionTextRuntime(
-                  patchedContent,
-                  motionTextDocument,
-                  motionPlaybackMode,
-                )
-              : removeMotionTextRuntime(patchedContent);
+            let patchedContent: string;
+            if (hasConcurrentEdits) {
+              patchedContent = injectManagedMotionCss(
+                freshContent,
+                localMotionCss,
+              );
+              patchedContent = motionTextDocument
+                ? injectMotionTextRuntime(
+                    patchedContent,
+                    motionTextDocument,
+                    motionPlaybackMode,
+                  )
+                : removeMotionTextRuntime(patchedContent);
+            } else {
+              if (typeof response.patchedContent !== "string") {
+                throw new Error(
+                  `${MOTION_SOURCE_WRITE_UNAVAILABLE}: missing saved source acknowledgement`,
+                );
+              }
+              patchedContent = response.patchedContent;
+            }
             applyFileContentUpdate(response.fileId, patchedContent, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
@@ -736,6 +748,7 @@ export function runMotionAutosave({
                 ? {}
                 : {
                     persist: false,
+                    serverAccepted: true,
                     ...(typeof response.updatedAt === "string"
                       ? { updatedAt: response.updatedAt }
                       : {}),

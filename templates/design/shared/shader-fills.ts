@@ -2,6 +2,7 @@ import { parse, type DefaultTreeAdapterTypes } from "parse5";
 
 import { nativeShaderRuntimeBridgeScript } from "../.generated/bridge/native-shader-runtime.generated";
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
+import { memoizeByContent } from "./memoize-by-content";
 
 export type GlslUniformType = "float" | "vec2" | "color";
 
@@ -209,12 +210,21 @@ function isGeneratedShaderRuntime(source: string, native: boolean): boolean {
         body.endsWith("})();\n})();");
 }
 
-function inspectRuntimeScripts(html: string): RuntimeScript[] {
+// Every live editor re-checks its runtime when it mounts, and selecting a
+// screen mounts one; without the memo that is a full parse of the screen on
+// the click path. Sized to the board's live-editor pool.
+const runtimeScriptsByContent = memoizeByContent(32, parseRuntimeScripts);
+
+function inspectRuntimeScripts(html: string): readonly RuntimeScript[] {
   if (
     !html.includes(NATIVE_RUNTIME_ATTR) &&
     !html.includes(SHADER_RUNTIME_ATTR)
   )
     return [];
+  return runtimeScriptsByContent(html);
+}
+
+function parseRuntimeScripts(html: string): readonly RuntimeScript[] {
   const scripts: RuntimeScript[] = [];
   const visit = (node: LocatedHtmlNode): void => {
     if (node.nodeName === "script") {
