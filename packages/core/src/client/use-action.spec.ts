@@ -1701,6 +1701,38 @@ describe("the UI capability on writes from the signed-in app", () => {
     recordSessionIdentity(identity);
   }
 
+  it.each([
+    ["ok", 200],
+    ["error", 500],
+  ])(
+    "releases the mint response body on an %s response",
+    async (_name, status) => {
+      signIn();
+      const cancel = vi.fn(async () => {});
+      const mintResponse = new Response("{}", { status });
+      Object.defineProperty(mintResponse, "body", {
+        value: { cancel },
+      });
+      routeFetch(() => mintResponse);
+
+      await callAction("delete-file", { id: "file-1" }).catch(() => {});
+
+      expect(cancel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("mints from a response that has no body", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => new Response(null, { status: 204 }));
+
+    await callAction("delete-file", { id: "file-1" });
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      1,
+    );
+  });
+
   it("presents the capability on the first write", async () => {
     signIn();
     const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
