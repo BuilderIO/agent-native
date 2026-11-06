@@ -334,7 +334,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # A publish run never saw the builds, so check that every platform's
-      # updater manifest and the installers it lists reached the draft.
+      # updater manifest, the installers it lists and the Linux archives
+      # reached the draft.
       - name: Require every platform's installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -358,6 +359,11 @@ jobs:
             while read -r file; do
               grep -qxF "$file" <<< "$ASSETS" || MISSING+=("$file")
             done <<< "$FILES"
+          done
+          # The docs site also offers the Linux archives, which no updater
+          # manifest lists.
+          for arch in x64 arm64; do
+            grep -qE -- "-${arch}\.tar\.xz$" <<< "$ASSETS" || MISSING+=("*-${arch}.tar.xz")
           done
           if [ "${#MISSING[@]}" -gt 0 ]; then
             echo "::error::Release $RELEASE_TAG is missing ${MISSING[*]}, so a platform build did not finish. Build it again with mode stage before publishing."
