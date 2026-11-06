@@ -159,11 +159,16 @@ function hasDistinctVerbAndObject(text: string): boolean {
   return matchSpans(
     new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
     text,
-  ).some(([objectStart, objectEnd]) =>
-    verbs.some(
-      ([verbStart, verbEnd]) =>
-        verbEnd <= objectStart || objectEnd <= verbStart,
-    ),
+  ).some(
+    ([objectStart, objectEnd]) =>
+      !(
+        /^frames?$/i.test(text.slice(objectStart, objectEnd)) &&
+        /\btime\s+$/i.test(text.slice(0, objectStart))
+      ) &&
+      verbs.some(
+        ([verbStart, verbEnd]) =>
+          verbEnd <= objectStart || objectEnd <= verbStart,
+      ),
   );
 }
 
@@ -523,7 +528,7 @@ function removeDesignTestRequests(text: string): string {
 
 function normalizeRequestUrls(text: string): string {
   const directUrlTarget = new RegExp(
-    DESIGN_MUTATION_VERBS.source + "[\\s:(\\[<\"'`–—-]*$",
+    DESIGN_MUTATION_VERBS.source + "[\\s.:(\\[<\"'`–—-]*$",
     "i",
   );
   const followingMutation = new RegExp(
