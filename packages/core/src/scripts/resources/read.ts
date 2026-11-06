@@ -1,3 +1,4 @@
+import { isLocalWorkspaceResourceId } from "../../local-artifacts/index.js";
 import {
   SHARED_OWNER,
   resourceGetByPath,
@@ -20,11 +21,13 @@ async function requireSkillLabAccess(
   owner: string,
   orgId: string | null,
 ): Promise<void> {
-  const parts = resourcePath.split("/").filter(Boolean);
+  const parts = resource.path.split("/").filter(Boolean);
   if (parts[0] !== "skills" || !parts[1]) return;
 
   const flatSkill = parts.length === 2 && parts[1].endsWith(".md");
-  const manifestPath = flatSkill ? resourcePath : `skills/${parts[1]}/SKILL.md`;
+  const manifestPath = flatSkill
+    ? resource.path
+    : `skills/${parts[1]}/SKILL.md`;
   let manifest =
     resource.path === manifestPath
       ? resource
@@ -65,14 +68,14 @@ async function requireSkillLabAccess(
   }
 }
 
-async function writeResource(
+async function checkResourceForRead(
   resource: Resource,
   resourcePath: string,
   owner: string,
   orgId: string | null,
-): Promise<void> {
+): Promise<Resource> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
-  process.stdout.write(resource.content);
+  return resource;
 }
 
 export default async function resourceReadScript(
@@ -97,6 +100,38 @@ Options:
   }
 
   const scope = parsed.scope;
+  const resource = await resolveResourceForRead(resourcePath, scope);
+  if (resource) {
+    process.stdout.write(resource.content);
+    return;
+  }
+  if (scope === "workspace") {
+    console.log(
+      `Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`,
+    );
+    return;
+  }
+  if (scope === "shared") {
+    console.log(
+      `Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`,
+    );
+    return;
+  }
+  if (scope === "personal") {
+    console.log(
+      `Resource not found: ${resourcePath} (scope: personal). You can create it with resource-write.`,
+    );
+    return;
+  }
+  console.log(
+    `Resource not found: ${resourcePath}. You can create it with resource-write.`,
+  );
+}
+
+export async function resolveResourceForRead(
+  resourcePath: string,
+  scope?: string,
+): Promise<Resource | null> {
   const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
@@ -113,14 +148,9 @@ Options:
     const resource = await resourceGetByPath(WORKSPACE_OWNER, resourcePath, {
       orgId,
     });
-    if (!resource) {
-      console.log(
-        `Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`,
-      );
-      return;
-    }
-    await writeResource(resource, resourcePath, owner, orgId);
-    return;
+    return resource
+      ? checkResourceForRead(resource, resourcePath, owner, orgId)
+      : null;
   }
 
   if (scope === "shared") {
@@ -131,33 +161,22 @@ Options:
       (sharedOwner === SHARED_OWNER
         ? null
         : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
-    if (!resource) {
-      console.log(
-        `Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`,
-      );
-      return;
-    }
-    await writeResource(resource, resourcePath, owner, orgId);
-    return;
+    return resource
+      ? checkResourceForRead(resource, resourcePath, owner, orgId)
+      : null;
   }
 
   const personal = await resourceGetByPath(owner, resourcePath);
   if (personal) {
-    await writeResource(
+    return checkResourceForRead(
       personal,
       resourcePath,
       owner,
       getRequestOrgId() ?? null,
     );
-    return;
   }
 
-  if (scope === "personal") {
-    console.log(
-      `Resource not found: ${resourcePath} (scope: personal). You can create it with resource-write.`,
-    );
-    return;
-  }
+  if (scope === "personal") return null;
 
   const orgId = getRequestOrgId() ?? null;
   const sharedOwner = sharedResourceOwner(orgId);
@@ -167,19 +186,139 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(shared, resourcePath, owner, orgId);
-    return;
+    return checkResourceForRead(shared, resourcePath, owner, orgId);
   }
 
   const workspace = await resourceGetByPath(WORKSPACE_OWNER, resourcePath, {
     orgId,
   });
   if (workspace) {
-    await writeResource(workspace, resourcePath, owner, orgId);
-    return;
+    return checkResourceForRead(workspace, resourcePath, owner, orgId);
   }
 
-  console.log(
-    `Resource not found: ${resourcePath}. You can create it with resource-write.`,
-  );
+  return null;
+}
+
+interface ResourceTextRange {
+  offset: number;
+  limit: number;
+}
+
+export function validateResourceTextRange(args: {
+  action: string;
+  offset?: number;
+  limit?: number;
+}): ResourceTextRange | null {
+  if (!("offset" in args) && !("limit" in args)) return null;
+  const { offset, limit } = args;
+  if (
+    args.action !== "read" ||
+    typeof offset !== "number" ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    typeof limit !== "number" ||
+    !Number.isSafeInteger(limit) ||
+    limit <= 0
+  ) {
+    fail(
+      "Resource ranges require action read, a nonnegative safe-integer offset and a positive safe-integer limit, supplied together as numbers.",
+      {
+        errorCode: "invalid_resource_range",
+      },
+    );
+  }
+  return { offset, limit };
+}
+
+const countFormat = new Intl.NumberFormat("en-US");
+
+function footer(returned: number, total: number, next: number): string {
+  return `\n\n${next === total ? "" : "..."}[Returned ${countFormat.format(returned)} characters; ${next === total ? "end of resource" : `${countFormat.format(total)} total; next offset ${countFormat.format(next)}`}]`;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+export function formatResourceTextRange(
+  resource: Resource,
+  range: ResourceTextRange,
+  maxResultChars: number,
+): string {
+  const { content } = resource;
+  const mimeType = resource.mimeType.toLowerCase();
+  if (
+    !mimeType.startsWith("text/") &&
+    mimeType !== "application/json" &&
+    !isLocalWorkspaceResourceId(resource.id)
+  ) {
+    if (content.length > maxResultChars) {
+      fail("The result allowance cannot fit the complete Resource content.", {
+        errorCode: "resource_range_budget_too_small",
+      });
+    }
+    return content;
+  }
+  const { offset, limit } = range;
+  const total = content.length;
+  let start = Math.min(offset, total);
+  if (
+    start > 0 &&
+    start < total &&
+    isHighSurrogate(content.charCodeAt(start - 1)) &&
+    isLowSurrogate(content.charCodeAt(start))
+  ) {
+    start--;
+  }
+  let requestedEnd = start + Math.min(limit, total - start);
+  if (
+    requestedEnd < total &&
+    isHighSurrogate(content.charCodeAt(requestedEnd - 1)) &&
+    isLowSurrogate(content.charCodeAt(requestedEnd))
+  ) {
+    requestedEnd =
+      requestedEnd - 1 > start ? requestedEnd - 1 : requestedEnd + 1;
+  }
+
+  // Terminal footers are shorter: a complete page can fit when a smaller partial page cannot.
+  if (requestedEnd === total) {
+    const ending = footer(total - start, total, total);
+    if (total - start + ending.length <= maxResultChars) {
+      return content.slice(start) + ending;
+    }
+  }
+  let end = start;
+  let low = start + 1;
+  let high = Math.min(requestedEnd, total - 1, start + maxResultChars);
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const candidate =
+      isHighSurrogate(content.charCodeAt(middle - 1)) &&
+      isLowSurrogate(content.charCodeAt(middle))
+        ? middle - 1
+        : middle;
+    const returned = candidate - start;
+    if (
+      returned + footer(returned, total, candidate).length <=
+      maxResultChars
+    ) {
+      end = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  if (end === start) {
+    fail(
+      "The result allowance cannot fit a Resource range footer and useful text, or an empty terminal result.",
+      {
+        errorCode: "resource_range_budget_too_small",
+      },
+    );
+  }
+  return content.slice(start, end) + footer(end - start, total, end);
 }
