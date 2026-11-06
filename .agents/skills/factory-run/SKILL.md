@@ -188,7 +188,8 @@ it with the factory runner's `deploy/SETUP.md`.
   process.
 - **`ci`** (a red workflow on main) and **`sentry`** issues: triage as
   `review-latest-feedback` does. Sentry is org `$SENTRY_ORG`, only the
-  project ids in `$SENTRY_PROJECTS`.
+  project ids in `$SENTRY_PROJECTS`, an allowlist of projects whose code is
+  in this repo. An issue whose code still isn't here is `not-ours`.
 - **`analytics`**: a new unresolved Analytics error issue (`url`, `title`).
   Report key is the `url`, `source` `analytics`. Investigate it with the
   Analytics MCP tools, then triage like a Sentry issue. There is no reporter:
@@ -204,7 +205,7 @@ it with the factory runner's `deploy/SETUP.md`.
   `node scripts/chat-health.mjs --app <app> --hours 6` and
   `review-latest-feedback`'s `references/chat-run-health.md`. A cause in this
   repo's code gets a fix branch; an outage or provider failure is
-  `needs-person` with the evidence. No reactions or replies.
+  `transient` with the evidence (see Outcomes). No reactions or replies.
 - **`worker`**: a fix branch stopped. See step 5.
 - **`patrol`** (`kind` `duplicate-pr`, `reportKey`, `prUrls`): two open
   factory PRs share a report, or one of them merged. Settle it with
@@ -306,10 +307,51 @@ two sentences on what happened, the evidence, and why it got this triage.
 Every claimed report also gets its `triage` confidence, and a `design`
 question when it has one.
 
-Outcomes that need no branch (needs a person, build without a maintainer's
-endorsement, already fixed) get their `wouldReact`, `wouldReply`, and `note`
-now. In live mode, act on them first (step 5's "Close the loop"), then
-`factory-digest report "<key>"`.
+Outcomes that need no branch (needs a person, not ours, transient, build
+without a maintainer's endorsement, already fixed) get their `wouldReact`,
+`wouldReply`, and `note` now. In live mode, act on them first (step 5's
+"Close the loop"), then `factory-digest report "<key>"`.
+
+### Outcomes
+
+Pick the outcome by who has to act. Only `needs-person` reaches the board's
+Blocked column and the console's Needs attention.
+
+- **`not-ours`**: the code or its owner is outside this repo: a Sentry event
+  from the Builder webapp, dev-tools CLI, air-layout or the codegen server,
+  the Builder Electron app, the Fusion editor, or CMS MCP tools; a custom
+  workspace app's own code; another team's repo. Set `owner` when you know
+  it. In live mode, reply once in a Slack thread (or comment once on a GitHub
+  issue) saying who owns it, or that it's outside agent-native when you
+  don't know who does. No 🎫. Nothing else follows.
+- **`transient`**: an infra or provider blip with no cause in this repo:
+  Netlify 5xx, a slow or `PRESSURED` hosted database in keep-warm, an Apple
+  notarytool or timestamp timeout, a sigstore TLOG 409 on publish, an
+  internal git outage, a provider error spike that resolved itself. It
+  closes on its own after `$FACTORY_TRANSIENT_RECUR_DAYS` days. Before
+  recording one, check `watchingTransient` in `factory-state active`. If the
+  same failure is already being watched, it recurred: it's a fix, or
+  `needs-person` with an ask, and its note names the earlier report. Alerts
+  and CI get no reply; a Slack report gets one short reply saying it was a
+  blip and asking them to say if it comes back.
+- **`not-actionable`**: noise: a waitlist signup, an announcement, a thread
+  people already handled or resolved, a vague report naming no defect, a
+  low-signal error (a few events, 0 users, a synthetic event), a noisy alert
+  rule (suggest a threshold).
+- **`needs-person`**: a specific person must act. Always set `ask`, one
+  imperative sentence ("Set `NEON_ORG_ID` in the repo's GitHub Actions
+  settings", "Decide whether personal automations use the org AI key"), and
+  `owner` when you can name one: `oncall`, `design`, the reporter, the PR
+  author, a maintainer or team. It fits a human PR the factory won't
+  approve, a credential or config only a person can set, a fix the factory
+  couldn't verify, a real product or UX call, and access or data only a
+  person can reach. It doesn't fit code outside this repo, a blip, noise, or
+  a cause you couldn't confirm (a branch investigates that). A needs-person
+  report with no activity for 7 days moves to Done as stale.
+
+```bash
+factory-state report upsert "<key>" --json '{"source":"ci","triage":"needs-person","title":"Neon transfer alert: NEON_ORG_ID unset","ask":"Set NEON_ORG_ID and SLACK_NEON_TRANSFER_WEBHOOK_URL in the repo'"'"'s GitHub Actions settings","owner":"oncall","note":"The script exits 2 because both are empty."}'
+```
 
 ## 4. Start one fix branch per new fix group
 
@@ -509,9 +551,11 @@ don't apply, and there is no reporter to thank.
   it, then correlate with Sentry, Analytics errors, the app's read replica,
   and deploys around the start time (`gh run list --branch main`, merged PRs).
 - A cause in this repo's code gets a fix branch like any fix (or joins one in
-  flight), with the alert in the PR's `## Reports`. Provider outage, infra, or
-  configuration: `needs-person` with the evidence. A noisy or mistuned rule:
-  `not-actionable` with a suggested threshold.
+  flight), with the alert in the PR's `## Reports`. A provider outage or infra
+  blip: `transient` with the evidence; a repeat inside the watch window makes
+  it a fix or `needs-person`. Configuration only a person can change:
+  `needs-person` with the `ask`. A noisy or mistuned rule: `not-actionable`
+  with a suggested threshold.
 - Live mode: once investigated, reply once in the alert's thread with
   `factory-slack reply` (what's failing, the root cause and how sure you are,
   the PR link or that a fix branch is on it, or the oncall mention when a
