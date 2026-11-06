@@ -1976,8 +1976,33 @@ export const AgentKitAssistantChat = forwardRef<
           { code: "upload_network_error", retryable: true, cause: error },
         );
       }
-      // The server's error body is never shown: its text is untranslated.
+      // The server's error text is never shown: it is untranslated.
       if (!response.ok) {
+        if (response.status === 503) {
+          let result: unknown;
+          try {
+            result = await response.json();
+          } catch (error) {
+            if (context?.signal?.aborted) throw error;
+          }
+          if (
+            asRecord(result)?.errorCode ===
+            "builder_oauth_reauthorization_required"
+          ) {
+            throw Object.assign(
+              new Error(
+                translatorRef.current(
+                  "agentChat.errorMessages.builderAuthentication",
+                ),
+              ),
+              {
+                code: "upload_builder_oauth_reauthorization_required",
+                status: response.status,
+                retryable: false,
+              },
+            );
+          }
+        }
         throw uploadHttpError(response.status, translatorRef.current);
       }
       const result: unknown = await response.json();
@@ -7725,6 +7750,7 @@ function queueSubmissionErrorMessage(
     t("agentChat.composer.uploadFailed"),
     t("agentChat.composer.uploadUnavailable"),
     t("agentChat.composer.uploadOffline"),
+    t("agentChat.errorMessages.builderAuthentication"),
     t("onboarding.fileStorage.title"),
   ];
   return localizedUploadMessages.some(
