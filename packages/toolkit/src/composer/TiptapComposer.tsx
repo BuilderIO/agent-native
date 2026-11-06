@@ -6964,20 +6964,16 @@ function TiptapComposerSurface({
               />
             )}
             {stopButton ? (
-              // Stop takes Send's place while the composer is empty, and Send
-              // joins it once a draft exists so a draft never hides Stop. The
-              // slot grows from zero width, gap included, so the controls to
-              // its left slide rather than jump.
+              // Stop and Send are one control: Stop while the composer is
+              // empty, Send once a draft exists. The hidden Stop stays mounted
+              // so Escape can still stop the run mid-draft.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
-                  hasDraft ? "me-1" : ""
-                }`}
+                hidden={hasDraft || voiceChat}
+                className="flex shrink-0"
               >
-                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
-                  {stopButton}
-                </div>
+                {stopButton}
               </div>
             ) : null}
             {stopButton && !hasDraft && !voiceChat ? null : sendButton}

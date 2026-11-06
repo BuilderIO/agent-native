@@ -2456,7 +2456,7 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
   });
 
-  it("puts Stop in Send's place until a draft exists, then beside Send", async () => {
+  it("shows one primary control: Stop while empty, Send once a draft exists", async () => {
     const stop = vi.fn();
     const focusRef: React.MutableRefObject<TiptapComposerHandle | null> = {
       current: null,
@@ -2515,15 +2515,15 @@ describe("createTiptapComposerExtensions", () => {
     expect(stopButton()).not.toBeNull();
     expect(send()).toBeNull();
 
+    // oracle-change: a draft now swaps Stop for Send, so there is no Stop-before-Send order to check.
     act(() => focusRef.current?.setText("Follow-up while it runs"));
-    expect(stopButton()).not.toBeNull();
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
     expect(send()?.disabled).toBe(false);
     expect(send()?.getAttribute("aria-label")).toBe("Queue message");
-    // Stop precedes Send, so Send keeps the trailing position.
-    expect(
-      stopButton()!.compareDocumentPosition(send()!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
 
     await pressEscape();
     expect(stop).toHaveBeenCalledOnce();

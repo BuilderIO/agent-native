@@ -414,7 +414,7 @@ describe("TiptapComposer primary slot", () => {
     expect(container.textContent).toContain("Stop run");
   });
 
-  it("keeps Send last, after Stop, once a draft exists during a run", async () => {
+  it("swaps Stop for Send once a draft exists during a run", async () => {
     await act(async () =>
       root.render(
         <Harness
@@ -426,6 +426,11 @@ describe("TiptapComposer primary slot", () => {
     );
 
     expect(trailing()).toEqual(["voice-button", "stop-slot", "send-button"]);
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
     expect(send()?.dataset.composerPrimary).toBe("send");
   });
 
@@ -494,6 +499,23 @@ describe("TiptapComposer voice chat", () => {
     expect(realtime.setInputMuted).toHaveBeenCalledWith(true);
     act(() => end.click());
     expect(realtime.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps End voice chat as the one primary control while a run is active", async () => {
+    activate("listening");
+    await act(async () =>
+      root.render(
+        <Harness
+          adapters={realtimeReady}
+          stopButton={<button type="button">Stop run</button>}
+        />,
+      ),
+    );
+
+    expect(slot<HTMLElement>("stop-slot")?.hidden).toBe(true);
+    expect(
+      slot<HTMLButtonElement>("send-button")?.dataset.composerPrimary,
+    ).toBe("end-voice-chat");
   });
 
   it("renders no floating dock", async () => {
