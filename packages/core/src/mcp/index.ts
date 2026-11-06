@@ -13,6 +13,7 @@ export type {
   MCPCallerIdentity,
   MCPRequestMeta,
   McpCallerContext,
+  VerifyAuthResult,
 } from "./build-server.js";
 export type { ExternalAgentPolicy } from "./external-agent-policy.js";
 export { handleMcpFetchRequest } from "./framework-fetch-handler.js";

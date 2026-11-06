@@ -116,6 +116,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.userEmail).toBe("a@example.com");
     expect(res.callerContext).toEqual({
       credentialKind: "a2a-deployment",
+      firstPartyMcp: false,
       principal: { kind: "asserted-user", email: "a@example.com" },
       organization: {
         scope: { kind: "unresolved" },
@@ -164,6 +165,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.callerContext).toMatchObject({
       credentialKind: "a2a-deployment",
+      firstPartyMcp: false,
       principal: { kind: "organization" },
       organization: { scope: { kind: "identity", orgId: "org_123" } },
     });
@@ -228,6 +230,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.callerContext).toEqual({
       credentialKind: "a2a-organization",
+      firstPartyMcp: false,
       principal: { kind: "organization" },
       organization: {
         scope: { kind: "identity", orgId: "org-builder" },
@@ -393,6 +396,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       },
       callerContext: {
         credentialKind: "a2a-organization",
+        firstPartyMcp: false,
         principal: { kind: "organization" },
         organization: {
           scope: { kind: "identity", orgId: "org-builder" },
@@ -579,6 +583,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "connect-legacy",
+      firstPartyMcp: false,
       principal: { kind: "connect-subject", email: "ci@example.com" },
       organization: {
         scope: { kind: "identity", orgId: null },
@@ -643,8 +648,10 @@ describe("verifyAuth — connect-token revoke check", () => {
       orgId: "org_123",
       firstPartyMcp: true,
     });
+    expect(res.callerContext?.firstPartyMcp).toBe(true);
     expect(res.callerContext).toEqual({
       credentialKind: "a2a-deployment",
+      firstPartyMcp: true,
       principal: {
         kind: "asserted-user",
         email: "svc-mcp-client@service.org_123",
@@ -656,6 +663,36 @@ describe("verifyAuth — connect-token revoke check", () => {
       oauth: null,
       issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
       revocationAnchor: null,
+    });
+  });
+
+  it("preserves the admitted organization-secret marker without asserting a user", async () => {
+    process.env.A2A_SECRET = "different-global-secret";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
+    const resourceUrl = "https://assets.example.com/mcp";
+    const token = await sign(
+      {
+        sub: "asserted@example.com",
+        org_domain: "builder.io",
+        agent_native_first_party_mcp: true,
+      },
+      "org-a2a-secret",
+      { audience: resourceUrl },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, { resourceUrl });
+    expect(res.identity).toMatchObject({
+      userEmail: undefined,
+      identityAssurance: "organization",
+      firstPartyMcp: true,
+    });
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "a2a-organization",
+      principal: { kind: "organization" },
+      firstPartyMcp: true,
     });
   });
 
@@ -671,6 +708,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       resourceUrl: "https://assets.example.com/_agent-native/mcp",
     });
     expect(res.authed).toBe(false);
+    expect(res.callerContext).toBeUndefined();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
@@ -720,6 +758,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "connect-legacy",
+      firstPartyMcp: false,
       principal: { kind: "service", email: "svc-ci@service.org_123" },
       organization: {
         scope: { kind: "identity", orgId: "org_123" },
@@ -881,6 +920,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "oauth",
+      firstPartyMcp: false,
       principal: { kind: "signed-subject", email: "oauth@example.com" },
       organization: {
         scope: { kind: "identity", orgId: "org_123" },
@@ -1021,6 +1061,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.mcpCredentialIssuedAtMs).toBe(grantCreatedAtMs);
     expect(res.callerContext).toEqual({
       credentialKind: "oauth",
+      firstPartyMcp: false,
       principal: { kind: "signed-subject", email: "oauth@example.com" },
       organization: {
         scope: { kind: "unresolved" },
@@ -1043,6 +1084,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       sub: "sibling-assertion@example.test",
       org_id: null,
       client_id: "sibling-client",
+      agent_native_first_party_mcp: true,
       scope: "mcp:read",
       resource,
       grant_created_at_ms: 1_650_000_000_000,
@@ -1064,6 +1106,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.callerContext).toEqual({
       credentialKind: "oauth",
+      firstPartyMcp: false,
       principal: {
         kind: "signed-subject",
         email: "sibling-assertion@example.test",
@@ -1079,6 +1122,8 @@ describe("verifyAuth — connect-token revoke check", () => {
         source: "signed-grant-created-at",
       },
     });
+    expect(res.identity?.firstPartyMcp).toBeUndefined();
+    expect(res.callerContext?.firstPartyMcp).toBe(false);
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
@@ -1130,6 +1175,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.mcpCredentialIssuedAtMs).toBeUndefined();
     expect(res.callerContext).toEqual({
       credentialKind: "connect-legacy",
+      firstPartyMcp: false,
       principal: { kind: "connect-subject", email: "ci@example.com" },
       organization: {
         scope: { kind: "identity", orgId: null },
@@ -1184,6 +1230,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "connect-oauth",
+      firstPartyMcp: false,
       principal: {
         kind: "connect-subject",
         email: "oauth-connect@example.com",
@@ -1362,6 +1409,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.callerContext).toMatchObject({
       credentialKind: "static",
+      firstPartyMcp: false,
       principal: { kind: "owner-hint", email: "owner@example.com" },
       issuedAt: null,
       revocationAnchor: null,
@@ -1436,6 +1484,7 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     ).toBe(true);
     expect(res.callerContext).toEqual({
       credentialKind: "static",
+      firstPartyMcp: false,
       principal: { kind: "owner-hint", email: "owner@example.com" },
       organization: {
         scope: { kind: "unresolved" },
@@ -1463,6 +1512,7 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     expect(res.fullSurface).toBe(true);
     expect(res.callerContext).toMatchObject({
       credentialKind: "dev-open",
+      firstPartyMcp: false,
       principal: { kind: "owner-hint", email: "owner@example.com" },
       issuedAt: null,
       revocationAnchor: null,
@@ -1475,6 +1525,7 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     expect(res.fullSurface).toBe(false);
     expect(res.callerContext).toMatchObject({
       credentialKind: "dev-open",
+      firstPartyMcp: false,
       principal: { kind: "anonymous" },
       issuedAt: null,
       revocationAnchor: null,
@@ -2079,6 +2130,7 @@ describe("verifyAuth — organization-member delegation for MCP", () => {
     });
     expect(res.callerContext).toMatchObject({
       credentialKind: "a2a-org-member",
+      firstPartyMcp: false,
       principal: { kind: "org-member", email: "member@example.test" },
       organization: {
         scope: { kind: "identity", orgId: "receiver-org" },
@@ -2117,6 +2169,7 @@ describe("verifyAuth — organization-member delegation for MCP", () => {
       fullCatalog: false,
     });
     expect(res.identity).not.toHaveProperty("firstPartyMcp");
+    expect(res.callerContext?.firstPartyMcp).toBe(false);
   });
 
   it.each([

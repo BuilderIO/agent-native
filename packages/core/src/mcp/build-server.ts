@@ -282,6 +282,8 @@ export interface McpDirectoryWidgetTarget {
 }
 
 export type McpCallerContext = {
+  /** Mirrors the admitted A2A marker, not proof of a particular sender or user. */
+  firstPartyMcp: boolean;
   /** A signed subject is not proof of local issuance or a verified person; a connect subject also matched a local token row. */
   principal:
     | { kind: "signed-subject"; email: string }
@@ -4282,26 +4284,37 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
   }
 }
 
-export type VerifyAuthResult = {
-  authed: boolean;
+type McpAdmissionSuccess = {
+  authed: true;
   identity?: MCPCallerIdentity;
-  /** Present only after successful authentication and admission. */
-  callerContext?: McpCallerContext;
   fullSurface?: boolean;
   fullCatalog?: boolean;
-  /**
-   * The token verified, but its standing could not be checked: the
-   * connect-token lookup, the retired-address check, or the
-   * membership check hit a database or identity-authority error. Answer with
-   * a retryable error, not an auth challenge: signing in again would not help.
-   */
-  unavailable?: true;
-  /**
-   * Why a presented bearer token was refused. Absent when no token was
-   * presented, and when the refusal is `unavailable`.
-   */
-  refusal?: BearerCredentialRefusal;
+  unavailable?: never;
+  refusal?: never;
 };
+
+type McpAuthFailure = {
+  authed: false;
+  identity?: never;
+  callerContext?: never;
+  fullSurface?: never;
+  fullCatalog?: never;
+} & (
+  | {
+      /** Verification or admission could not complete; retry rather than reauthenticate. */
+      unavailable: true;
+      refusal?: never;
+    }
+  | {
+      unavailable?: never;
+      /** Absent when no bearer token was presented. */
+      refusal?: BearerCredentialRefusal;
+    }
+);
+
+export type VerifyAuthResult =
+  | (McpAdmissionSuccess & { callerContext: McpCallerContext })
+  | McpAuthFailure;
 
 /**
  * A verified MCP OAuth access token, or a connect token in the older A2A
@@ -4524,6 +4537,7 @@ async function admitIssuedMcpCredential(
     ...admitted,
     callerContext: {
       ...callerCredential,
+      firstPartyMcp: false,
       principal: {
         kind:
           stored?.kind === "service"
@@ -4565,11 +4579,11 @@ async function admitIssuedMcpCredential(
  * credential signed for it before the change is refused, Personal or not.
  */
 async function admitIssuedCredential(
-  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  result: McpAdmissionSuccess & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
   storedConnectToken: StoredConnectTokenIdentity | undefined,
   issuedAt: number | undefined,
-): Promise<VerifyAuthResult> {
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const admitted = await checkIssuedCredential(
     result,
     requestOrigin,
@@ -4585,8 +4599,8 @@ async function admitIssuedCredential(
  * email is not service-shaped returns before any database read.
  */
 async function admitServicePrincipal(
-  result: VerifyAuthResult,
-): Promise<VerifyAuthResult> {
+  result: McpAdmissionSuccess,
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const email = result.identity?.userEmail;
   try {
     await assertServicePrincipalMayRun(
@@ -4617,11 +4631,11 @@ async function admitServicePrincipal(
 }
 
 async function checkIssuedCredential(
-  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  result: McpAdmissionSuccess & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
   storedConnectToken: StoredConnectTokenIdentity | undefined,
   issuedAt: number | undefined,
-): Promise<VerifyAuthResult> {
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
     await import("./credential-membership.js");
   if (result.identity.userEmail) {
@@ -4805,6 +4819,7 @@ export async function verifyAuth(
       ...admitted,
       callerContext: {
         credentialKind: verifiedA2AIdentity.credentialKind,
+        firstPartyMcp: admitted.identity?.firstPartyMcp === true,
         principal,
         organization: mcpOrganizationContext(
           admitted.identity?.orgId,
@@ -4854,6 +4869,7 @@ function staticCallerContext(
 ): McpCallerContext {
   return {
     credentialKind,
+    firstPartyMcp: false,
     principal: identity?.userEmail
       ? { kind: "owner-hint", email: identity.userEmail }
       : { kind: "anonymous" },
