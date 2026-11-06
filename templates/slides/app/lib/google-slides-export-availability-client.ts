@@ -7,6 +7,7 @@ export type GoogleSlidesExportAvailability =
 
 export type GoogleSlidesExportState = GoogleSlidesExportAvailability & {
   disconnectable: boolean;
+  checked: boolean;
 };
 
 export const GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY = [
@@ -19,6 +20,7 @@ const STALE_MS = 30_000;
 const UNKNOWN_STATE: GoogleSlidesExportState = {
   available: true,
   disconnectable: false,
+  checked: false,
 };
 
 type StatusBody = {
@@ -52,9 +54,9 @@ async function load(): Promise<GoogleSlidesExportState> {
   const disconnectable = result.body.disconnectable === true;
   const reported = result.body.googleSlidesExport;
   if (!reported || typeof reported.available !== "boolean") {
-    return { available: true, disconnectable };
+    return { available: true, disconnectable, checked: false };
   }
-  return { ...reported, disconnectable };
+  return { ...reported, disconnectable, checked: true };
 }
 
 const availabilityQuery = {

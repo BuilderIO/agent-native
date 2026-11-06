@@ -507,6 +507,7 @@ const messages = {
     connectGoogle: "Conectar o Google",
     disconnectGoogle: "Desconectar o Google",
     googleDisconnectFailed: "Não foi possível desconectar o Google Drive.",
+    googleSlidesStatusUnknown: "Não foi possível verificar o status",
     openInGoogleSlides: "Abrir no Google Slides",
     googleSlidesUnavailable: "Indisponível",
     googleSlidesOpenImporter: "Abrir a importação do Google Slides",

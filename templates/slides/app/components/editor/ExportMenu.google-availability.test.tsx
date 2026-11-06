@@ -40,6 +40,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.openInGoogleSlides": "Export to Google Slides",
         "editorExport.googleSlidesUnavailable": "Unavailable",
+        "editorExport.googleSlidesStatusUnknown": "Couldn't check status",
         "editorExport.disconnectGoogle": "Disconnect Google",
         "editorExport.googleDisconnectFailed":
           "Could not disconnect Google Drive.",
@@ -330,6 +331,26 @@ describe("<ExportMenu> Google Slides availability", () => {
     expect(
       await screen.findByText("Could not disconnect Google Drive."),
     ).toBeTruthy();
+  });
+
+  it("says the status is unknown, not available, when the status check fails", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ) as typeof fetch;
+
+    renderMenu();
+    openExportMenu();
+
+    const item = await googleSlidesItem();
+    await vi.waitFor(() =>
+      expect(item.textContent).toContain("Couldn't check status"),
+    );
+    expect(item.getAttribute("data-disabled")).toBeNull();
+    expect(item.textContent).not.toContain("Unavailable");
   });
 
   it("hides Disconnect when the only account is the workspace's shared one", async () => {

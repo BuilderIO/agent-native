@@ -502,6 +502,7 @@ const messages = {
     connectGoogle: "Google 연결",
     disconnectGoogle: "Google 연결 해제",
     googleDisconnectFailed: "Google Drive 연결을 해제하지 못했습니다.",
+    googleSlidesStatusUnknown: "상태를 확인하지 못함",
     openInGoogleSlides: "Google Slides에서 열기",
     googleSlidesUnavailable: "사용 불가",
     googleSlidesOpenImporter: "Google Slides 가져오기 열기",

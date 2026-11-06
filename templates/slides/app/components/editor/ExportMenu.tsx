@@ -206,6 +206,7 @@ export function ExportStatusDialog({
 function ExportActionItems({
   hasSlides,
   googleSlidesAvailable,
+  googleSlidesChecked,
   googleDisconnectable,
   onExportHtml,
   onExportPdf,
@@ -216,6 +217,7 @@ function ExportActionItems({
 }: {
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
+  googleSlidesChecked: boolean;
   googleDisconnectable: boolean;
   onExportHtml: () => void;
   onExportPdf?: () => void;
@@ -262,6 +264,10 @@ function ExportActionItems({
           {hasSlides && !googleSlidesAvailable ? (
             <span className="ml-auto text-[11px] text-muted-foreground">
               {t("editorExport.googleSlidesUnavailable")}
+            </span>
+          ) : hasSlides && !googleSlidesChecked ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t("editorExport.googleSlidesStatusUnknown")}
             </span>
           ) : null}
         </DropdownMenuItem>
@@ -312,6 +318,7 @@ export function ExportSubmenu({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
           googleDisconnectable={googleSlidesExport.disconnectable}
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
@@ -376,6 +383,7 @@ export function ExportDropdown({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
           googleDisconnectable={googleSlidesExport.disconnectable}
           downloadLabels
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
@@ -691,6 +699,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <ExportActionItems
         hasSlides={hasSlides}
         googleSlidesAvailable={googleSlidesExport.available}
+        googleSlidesChecked={googleSlidesExport.checked}
         googleDisconnectable={googleSlidesExport.disconnectable}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={onExportPdf ? () => void handleExportPdf() : undefined}
