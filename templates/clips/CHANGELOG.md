@@ -5,6 +5,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-11-05
 
+### Improved
+
+- Reference recordings directly from the composer
+
 ### Fixed
 
 - Recording thumbnails show hours for longer clips.

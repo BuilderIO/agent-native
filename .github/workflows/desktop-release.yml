@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/desktop-release.yml"
+      - ".github/actions/build-agent-native-desktop/**"
       - "packages/desktop-app/**"
       - "packages/shared-app-config/**"
   workflow_dispatch:
@@ -42,10 +43,6 @@ concurrency:
 
 env:
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
-  AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
-  EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
-  ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
-  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -190,93 +187,31 @@ jobs:
     # step held a macOS runner for the 6-hour default and kept Release everything
     # waiting on it.
     timeout-minutes: 60
-    env:
-      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: ./.github/actions/setup-pnpm
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Import signing certificate
+      # Signing credentials and the token go in as inputs: as env they would
+      # reach every dependency's install script.
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          # A keychain made by the CLI re-locks after 5 idle minutes. codesign
-          # then waits forever for an unlock prompt a headless runner cannot
-          # show, so any build that spends longer than that before signing hangs.
-          security set-keychain-settings -lut 21600 build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:mac-assets && pnpm build
-          npx electron-builder --mac --config --publish always \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: mac
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          sign: "true"
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          apple-certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple-certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
   build-windows:
     needs: [resolve-version, prepare-release]
@@ -286,66 +221,19 @@ jobs:
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: ./.github/actions/setup-pnpm
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:chrome-extension && pnpm build
-          pnpm exec electron-builder --win --config --publish always \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: windows
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     needs: [resolve-version, prepare-release]
@@ -355,73 +243,19 @@ jobs:
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          native-canvas-deps: "false"
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:chrome-extension && pnpm build
-          LINUX_EXECUTABLE_NAME="agent-native"
-          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
-            LINUX_EXECUTABLE_NAME="agent-native-nightly"
-          fi
-          npx electron-builder --linux --config --publish always \
-            "-c.linux.executableName=$LINUX_EXECUTABLE_NAME" \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: linux
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
     needs: [resolve-version, build-mac, build-windows, build-linux]
