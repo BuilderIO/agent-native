@@ -12804,7 +12804,7 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url) return null;
+    if (!part.url) throw new DurableAttachmentReferenceRequiredError();
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
@@ -14463,11 +14463,24 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 404);
         return { error: "Thread not found" };
       }
-      const attachmentsForQueue = await queueableAttachments(
-        requestAttachments,
-        ownerEmail,
-        submissionRequestAttachmentIndexes,
-      );
+      let attachmentsForQueue: Awaited<ReturnType<typeof queueableAttachments>>;
+      try {
+        attachmentsForQueue = await queueableAttachments(
+          requestAttachments,
+          ownerEmail,
+          submissionRequestAttachmentIndexes,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 422);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
       if (!attachmentsForQueue) {
         if (
           requestAttachments.some(

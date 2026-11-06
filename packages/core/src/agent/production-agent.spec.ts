@@ -7059,9 +7059,10 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
 
-      expect(event.res.status).toBe(503);
+      expect(event.res.status).toBe(422);
       expect(result).toMatchObject({
-        code: "queued_attachment_reference_unavailable",
+        code: "attachment_storage_required",
+        retryable: false,
       });
       expect(append).not.toHaveBeenCalled();
     } finally {

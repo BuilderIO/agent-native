@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-A chat attachment whose only reference is its file id no longer loses its contents. Saving chat history now rejects it the same way background dispatch does (`attachment_storage_required`), so it is never stored quietly without its bytes. A queued message now uploads the attachment's inline bytes even when the attachment carries an id, and it refuses to queue a file that has no file URL.
+A chat attachment whose only reference is its file id no longer loses its contents. Background dispatch and `reject`-policy saves fail with `attachment_storage_required`, and queueing such a file returns a non-retryable 422 with that code instead of a retryable 503. Saving thread history keeps a visible omitted-bytes stub for it. A queued message now uploads the attachment's inline bytes even when the attachment carries an id.
