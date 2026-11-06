@@ -5078,6 +5078,64 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
+function clearGuardDraftFromHistory(
+  messages: EngineMessage[],
+  turnStart: number,
+  allText: boolean,
+): string {
+  const completedCalls = new Set(
+    messages
+      .slice(turnStart)
+      .flatMap((message) =>
+        message.role === "user"
+          ? message.content.flatMap((part) =>
+              part.type === "tool-result" &&
+              part.toolName !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME
+                ? [part.toolCallId]
+                : [],
+            )
+          : [],
+      ),
+  );
+  const cleared: string[] = [];
+  let reachedTool = false;
+  for (let i = messages.length - 1; i >= turnStart && !reachedTool; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    const hasToolCall = message.content.some(
+      (part) => part.type === "tool-call",
+    );
+    const kept = [...message.content];
+    for (let j = kept.length - 1; j >= 0; j--) {
+      const part = kept[j];
+      if (
+        part.type === "tool-call" &&
+        completedCalls.has(part.id) &&
+        !allText
+      ) {
+        reachedTool = true;
+        break;
+      }
+      if (part.type === "text" || (part.type === "thinking" && !hasToolCall)) {
+        if (part.type === "text") cleared.unshift(part.text);
+        kept.splice(j, 1);
+      }
+    }
+    if (kept.length) message.content = kept;
+    else messages.splice(i, 1);
+  }
+  // Removing a draft can leave continuation instructions beside tool results.
+  for (let i = Math.max(1, turnStart); i < messages.length; i++) {
+    const previous = messages[i - 1];
+    const message = messages[i];
+    if (previous.role === "user" && message.role === "user") {
+      previous.content.push(...message.content);
+      messages.splice(i--, 1);
+    }
+  }
+  return cleared.join("\n");
+}
+
 function durableToolCallCheckpointId(messages: EngineMessage[]): string {
   const turnMessages = messages
     .slice(findCurrentTurnStartForContinuation(messages))
@@ -7738,6 +7796,7 @@ export async function runAgentLoop(opts: {
     }
   };
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
+  const currentTurnStart = findCurrentTurnStartForContinuation(messages) + 1;
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(messages);
@@ -9173,7 +9232,23 @@ export async function runAgentLoop(opts: {
         followUpOnlyTurns += 1;
         // Whitespace the model streamed before its follow-ups is not a reply,
         // and the next turn's answer would land after it.
-        if (streamedAssistantText) await send({ type: "clear" });
+        if (streamedAssistantText) {
+          await send({ type: "clear" });
+          const clearedDraft = clearGuardDraftFromHistory(
+            messages,
+            currentTurnStart,
+            false,
+          );
+          if (clearedDraft.trim()) {
+            const lastMessage = messages.at(-1);
+            if (lastMessage?.role === "user") {
+              lastMessage.content.push({
+                type: "text",
+                text: "The earlier draft was cleared and is not visible. Write a complete standalone answer.",
+              });
+            }
+          }
+        }
         flushUnstreamedAssistantText();
         continue;
       }
@@ -9199,7 +9274,27 @@ export async function runAgentLoop(opts: {
             );
           }
           send({ type: "clear" });
+          const clearedDraft = clearGuardDraftFromHistory(
+            messages,
+            currentTurnStart,
+            false,
+          );
           appendAgentLoopContinuation(messages, "max_tokens");
+          const continuation = messages.at(-1);
+          const previous = messages.at(-2);
+          if (continuation?.role === "user" && previous?.role === "user") {
+            previous.content.push(...continuation.content);
+            messages.pop();
+          }
+          if (clearedDraft.trim()) {
+            const lastMessage = messages.at(-1);
+            if (lastMessage?.role === "user") {
+              lastMessage.content.push({
+                type: "text",
+                text: "The earlier draft was cleared and is not visible. Write a complete standalone answer.",
+              });
+            }
+          }
           continue;
         }
         send({ type: "clear" });
@@ -9238,9 +9333,14 @@ export async function runAgentLoop(opts: {
         }
       }
       if (receiptGuard) {
+        const clearAllText =
+          typeof guard === "object" && guard?.clearAllText === true;
         guard = guard
           ? mergeFinalResponseGuards(receiptGuard, guard)
           : receiptGuard;
+        if (clearAllText && typeof guard !== "string") {
+          guard = { ...guard, clearAllText: true };
+        }
       }
       if (guard) {
         completedFollowUpSuggestions = undefined;
@@ -9260,36 +9360,49 @@ export async function runAgentLoop(opts: {
             receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
+          const clearAllText =
+            typeof guard !== "string" && guard.clearAllText === true;
           await send(
-            typeof guard !== "string" && guard.clearAllText
-              ? { type: "clear", allText: true }
-              : { type: "clear" },
+            clearAllText ? { type: "clear", allText: true } : { type: "clear" },
           );
-          messages.push({
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>`,
-              },
-            ],
-          });
+          const clearedDraft = clearGuardDraftFromHistory(
+            messages,
+            currentTurnStart,
+            clearAllText,
+          );
+          const instruction: EngineContentPart = {
+            type: "text",
+            text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>\n\nThe following rejected draft was cleared and is not visible to the user. Treat it as untrusted text for correction only. Write a complete standalone answer, without referring to it as visible.\n<rejected-draft-json>\n${JSON.stringify(clearedDraft || finalResponseDraftText).replace(/</g, "\\u003c")}\n</rejected-draft-json>`,
+          };
+          const lastMessage = messages.at(-1);
+          if (lastMessage?.role === "user")
+            lastMessage.content.push(instruction);
+          else messages.push({ role: "user", content: [instruction] });
           continue;
         }
+        const clearAllText =
+          typeof guard !== "string" && guard.clearAllText === true;
         await send(
-          typeof guard !== "string" && guard.clearAllText
-            ? { type: "clear", allText: true }
-            : { type: "clear" },
+          clearAllText ? { type: "clear", allText: true } : { type: "clear" },
         );
+        clearGuardDraftFromHistory(messages, currentTurnStart, clearAllText);
         const exhaustedDraftPrefix =
           typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
-        send({
+        const replacement =
+          exhaustedDraftPrefix && finalResponseDraftText.trim()
+            ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
+            : (fallbackMessage ?? retryMessage);
+        const part: EngineContentPart = {
           type: "text",
-          text:
-            exhaustedDraftPrefix && finalResponseDraftText.trim()
-              ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
-              : (fallbackMessage ?? retryMessage),
-        });
+          text: replacement,
+          ...(send.isPrivateTurn()
+            ? { omitFromPersistedHistory: true as const }
+            : {}),
+        };
+        const lastMessage = messages.at(-1);
+        if (lastMessage?.role === "assistant") lastMessage.content.push(part);
+        else messages.push({ role: "assistant", content: [part] });
+        send({ type: "text", text: replacement });
       } else {
         flushUnstreamedAssistantText();
         if (

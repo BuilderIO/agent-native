@@ -1491,6 +1491,28 @@ describe("analytics turn classification probe", () => {
 });
 
 describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
+  it("ignores fenced code but detects unsupported claims in surrounding prose", () => {
+    const sql = "```sql\nSELECT COUNT(*) AS signups FROM events\n```";
+    expect(draftClaimsAnalyticsMetrics(sql)).toBe(false);
+    expect(draftClaimsAnalyticsMetrics(`Signups rose last week.\n${sql}`)).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics(`${sql}\nSignups were 42.`)).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("~~~sql\nSELECT COUNT(*) FROM events\n~~~"),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "````sql\n```\nSELECT COUNT(*) FROM events\n```\n````",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT COUNT(*) FROM events\n```sql\nSignups were 42.",
+      ),
+    ).toBe(true);
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),

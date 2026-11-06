@@ -22171,6 +22171,359 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each([false, true])(
+    "aligns guard retry history with cleared text (allText=%s)",
+    async (clearAllText) => {
+      const seenMessages: EngineMessage[][] = [];
+      let calls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(opts): AsyncIterable<EngineEvent> {
+          calls++;
+          seenMessages.push(structuredClone(opts.messages));
+          if (calls === 1) {
+            yield { type: "text-delta", text: "Earlier narration." };
+            yield {
+              type: "assistant-content",
+              parts: [
+                { type: "text", text: "Earlier narration." },
+                {
+                  type: "tool-call",
+                  id: "read-1",
+                  name: "read-data",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            const text =
+              calls === 2
+                ? "First partial draft."
+                : calls === 3
+                  ? "Rejected final draft."
+                  : "Standalone replacement.";
+            yield { type: "text-delta", text };
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text }],
+            };
+            yield {
+              type: "stop",
+              reason: calls === 2 ? "max_tokens" : "end_turn",
+            };
+          }
+        },
+      };
+      const events: AgentChatEvent[] = [];
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "earlier question" }],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Earlier conversation." }],
+          },
+          { role: "user", content: [{ type: "text", text: "go" }] },
+        ],
+        actions: {
+          "read-data": {
+            ...actionEntry({ readOnly: true }),
+            run: async () => ({ value: 7 }),
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        finalResponseGuard: (context) =>
+          context.text === "Rejected final draft."
+            ? {
+                retryMessage: "Correct the draft using the tool result.",
+                clearAllText,
+              }
+            : null,
+      });
+      expect(calls).toBe(4);
+      const retry = seenMessages[3];
+      const assistantHistory = retry.filter(
+        (message) => message.role === "assistant",
+      );
+      const assistantText = JSON.stringify(assistantHistory);
+      expect(assistantText).not.toContain("First partial draft.");
+      expect(assistantText).not.toContain("Rejected final draft.");
+      expect(assistantText.includes("Earlier narration.")).toBe(!clearAllText);
+      expect(assistantText).toContain("Earlier conversation.");
+      expect(assistantText).toContain("read-1");
+      expect(retry.flatMap((message) => message.content)).toContainEqual(
+        expect.objectContaining({
+          type: "tool-result",
+          toolCallId: "read-1",
+          content: expect.stringMatching(/"value":\s*7/),
+        }),
+      );
+      expect(retry.at(-1)?.role).toBe("user");
+      expect(JSON.stringify(retry.at(-1))).toContain(
+        "Correct the draft using the tool result.",
+      );
+      expect(JSON.stringify(retry.at(-1))).toContain("Rejected final draft.");
+      expect(
+        retry.every(
+          (message, index) =>
+            index === 0 || retry[index - 1]?.role !== message.role,
+        ),
+      ).toBe(true);
+      expect(events).toContainEqual(
+        clearAllText ? { type: "clear", allText: true } : { type: "clear" },
+      );
+      expect(events).toContainEqual({
+        type: "text",
+        text: "Standalone replacement.",
+      });
+    },
+  );
+
+  it("clears earlier partial text across an invisible follow-up metadata call", async () => {
+    const seenMessages: EngineMessage[][] = [];
+    const events: AgentChatEvent[] = [];
+    let calls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        calls++;
+        if (calls === 1) {
+          yield { type: "text-delta", text: "Partial draft." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Partial draft." }],
+          };
+          yield { type: "stop", reason: "max_tokens" };
+        } else {
+          const text = calls === 2 ? "\n\n" : "Complete answer.";
+          yield { type: "text-delta", text };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text", text },
+              {
+                type: "tool-call",
+                id: `follow-${calls}`,
+                name: FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+                input: {
+                  suggestions: [{ label: "Next", prompt: "Do the next step" }],
+                },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      runId: "synthetic-run",
+      followUpSuggestions: true,
+    });
+    expect(calls).toBe(3);
+    expect(events).toContainEqual({ type: "clear" });
+    const retry = seenMessages[2];
+    expect(
+      JSON.stringify(retry.filter((message) => message.role === "assistant")),
+    ).not.toContain("Partial draft.");
+    expect(retry.flatMap((message) => message.content)).toContainEqual(
+      expect.objectContaining({ type: "tool-result", toolCallId: "follow-2" }),
+    );
+    expect(
+      retry.every(
+        (message, index) =>
+          index === 0 || retry[index - 1]?.role !== message.role,
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves all-text clearing and the write warning when receipt and app guards combine", async () => {
+    const seenMessages: EngineMessage[][] = [];
+    const events: AgentChatEvent[] = [];
+    let calls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        calls++;
+        if (calls === 1) {
+          yield { type: "text-delta", text: "Earlier narration." };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text", text: "Earlier narration." },
+              {
+                type: "tool-call",
+                id: "write-1",
+                name: "save-item",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          const text =
+            calls === 2
+              ? "Saved successfully."
+              : "The write failed verification.";
+          yield { type: "text-delta", text };
+          yield { type: "assistant-content", parts: [{ type: "text", text }] };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "save-item": {
+          ...actionEntry({ readOnly: false }),
+          run: async () => ({
+            _receipt: {
+              changed: true,
+              verified: false,
+              summary: "Verification failed",
+            },
+          }),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: (context) =>
+        context.retryCount === 0
+          ? { retryMessage: "Correct the claim.", clearAllText: true }
+          : null,
+    });
+    expect(calls).toBe(3);
+    expect(events).toContainEqual({ type: "clear", allText: true });
+    expect(
+      JSON.stringify(
+        seenMessages[2].filter((message) => message.role === "assistant"),
+      ),
+    ).not.toContain("Earlier narration.");
+    expect(JSON.stringify(seenMessages[2])).toContain("write-1");
+    expect(JSON.stringify(seenMessages[2])).toContain("verified=false");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Write check:"),
+      }),
+    );
+  });
+
+  it("removes a previously streamed partial draft when an empty response clears it", async () => {
+    const seenMessages: EngineMessage[][] = [];
+    let calls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        calls++;
+        if (calls === 1) {
+          yield { type: "text-delta", text: "A partial answer." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "A partial answer." }],
+          };
+          yield { type: "stop", reason: "max_tokens" };
+        } else if (calls === 2) {
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "end_turn" };
+        } else {
+          yield { type: "text-delta", text: "A complete answer." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "A complete answer." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(calls).toBe(3);
+    expect(events).toContainEqual({ type: "clear" });
+    expect(
+      JSON.stringify(
+        seenMessages[2].filter((message) => message.role === "assistant"),
+      ),
+    ).not.toContain("A partial answer.");
+    expect(
+      seenMessages[2].every(
+        (message, index) =>
+          index === 0 || seenMessages[2][index - 1]?.role !== message.role,
+      ),
+    ).toBe(true);
+  });
+
   it("lets a final-response guard clear all streamed text on retry and exhaustion", async () => {
     let streamCalls = 0;
     const events: AgentChatEvent[] = [];
@@ -22482,6 +22835,9 @@ describe("runAgentLoop", () => {
   });
 
   it("prepends exhaustedDraftPrefix to the draft instead of the fallback when retries are exhausted", async () => {
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -22513,7 +22869,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -22525,6 +22881,15 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
+    expect(messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Unverified — here is what I tried:\n\nstill fake",
+        },
+      ],
+    });
     expect(events).toContainEqual({
       type: "text",
       text: "Unverified — here is what I tried:\n\nstill fake",
