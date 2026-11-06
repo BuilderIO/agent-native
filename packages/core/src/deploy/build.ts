@@ -4647,25 +4647,11 @@ function patchCloudflareProcessRequire(
 
   const edited = new MagicString(code);
   const usedNames = new Set<string>();
-  const factoryCalls = new WeakMap<
-    object,
-    {
-      start: number;
-      calleeEnd: number;
-      hasArguments: boolean;
-      receiver: string;
-    }
-  >();
-  const factories = new Set<{
+  const factories: Array<{
     start: number;
     calleeEnd: number;
     hasArguments: boolean;
     receiver: string;
-  }>();
-  const matches: Array<{
-    start: number;
-    calleeEnd: number;
-    hasArguments: boolean;
   }> = [];
   let shadowsGlobalThis = false;
   traverse(ast as unknown as Parameters<typeof traverse>[0], {
@@ -4729,8 +4715,8 @@ function patchCloudflareProcessRequire(
       const receiver =
         member && member.object.type === "Identifier"
           ? member.object.name
-          : "undefined";
-      factoryCalls.set(call.node, {
+          : "void 0";
+      factories.push({
         start: call.node.start,
         calleeEnd: callee.end,
         hasArguments: call.node.arguments.length > 0,
@@ -4738,34 +4724,7 @@ function patchCloudflareProcessRequire(
       });
     },
   });
-  traverse(ast as unknown as Parameters<typeof traverse>[0], {
-    CallExpression(call) {
-      const callee = call.node.callee;
-      let factory =
-        callee.type === "CallExpression" ? factoryCalls.get(callee) : undefined;
-      if (callee.type === "Identifier") {
-        const binding = call.scope.getBinding(callee.name);
-        const declaration = binding?.path.node;
-        factory =
-          binding?.constant &&
-          declaration?.type === "VariableDeclarator" &&
-          declaration.init?.type === "CallExpression"
-            ? factoryCalls.get(declaration.init)
-            : undefined;
-      }
-      if (!factory) return;
-      factories.add(factory);
-      if (call.node.start == null || callee.end == null) {
-        throw new Error("Missing call source offsets in Cloudflare output");
-      }
-      matches.push({
-        start: call.node.start,
-        calleeEnd: callee.end,
-        hasArguments: call.node.arguments.length > 0,
-      });
-    },
-  });
-  if (!matches.length) return code;
+  if (!factories.length) return code;
   if (shadowsGlobalThis)
     throw new Error(
       `[deploy] Cannot safely patch createRequire in ${filePath}: globalThis is shadowed`,
@@ -4779,10 +4738,8 @@ function patchCloudflareProcessRequire(
     return name;
   };
   const processName = uniqueName("__cf_process");
-  const requireProcess = uniqueName("__cf_require_process");
   const nativeFactory = uniqueName("__cf_create_require");
-  const trackFactory = uniqueName("__cf_track_require");
-  const nativeRequires = uniqueName("__cf_native_requires");
+  const wrapFactory = uniqueName("__cf_wrap_require");
   const rewriteCall = (
     start: number,
     calleeEnd: number,
@@ -4800,29 +4757,26 @@ function patchCloudflareProcessRequire(
     const paren = calleeEnd + opening[0].length - 1;
     edited.overwrite(paren, paren + 1, extra);
   };
-  for (const { start, calleeEnd, hasArguments } of matches) {
-    rewriteCall(start, calleeEnd, requireProcess, hasArguments ? "," : "");
-  }
   for (const { start, calleeEnd, hasArguments, receiver } of factories) {
     rewriteCall(
       start,
       calleeEnd,
-      trackFactory,
+      wrapFactory,
       `,${receiver}${hasArguments ? "," : ""}`,
     );
   }
   const prefix = `${CF_PROCESS_REQUIRE_MARKER}
 import ${processName} from "node:process";
 import { createRequire as ${nativeFactory} } from "node:module";
-var ${nativeRequires};
-function ${trackFactory}(factory, receiver, ...args) {
+function ${wrapFactory}(factory, receiver, ...args) {
   const require = globalThis.Reflect.apply(factory, receiver, args);
-  if (factory === ${nativeFactory}) (${nativeRequires} ??= new globalThis.WeakSet()).add(require);
-  return require;
-}
-function ${requireProcess}(require, ...args) {
-  return ${nativeRequires}?.has(require) && (args[0] === "process" || args[0] === "node:process")
-    ? ${processName} : globalThis.Reflect.apply(require, undefined, args);
+  if (factory !== ${nativeFactory}) return require;
+  return new globalThis.Proxy(require, {
+    apply(target, thisArg, args) {
+      return args[0] === "process" || args[0] === "node:process"
+        ? ${processName} : globalThis.Reflect.apply(target, thisArg, args);
+    }
+  });
 }
 `;
   const insertion = ast.program.interpreter?.end ?? 0;

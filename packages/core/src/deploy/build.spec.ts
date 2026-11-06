@@ -133,6 +133,12 @@ import {
 
 const tempDirs: string[] = [];
 
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 describe("nitroNoExternalsForPreset", () => {
   it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
@@ -1478,6 +1484,7 @@ describe("patchCloudflareModuleServerOutput", () => {
       Miniflare: new (options: {
         modules: boolean;
         scriptPath: string;
+        modulesRoot: string;
         compatibilityDate: string;
         compatibilityFlags: string[];
       }) => {
@@ -1528,6 +1535,7 @@ describe("patchCloudflareModuleServerOutput", () => {
         const worker = new Miniflare({
           modules: true,
           scriptPath: file,
+          modulesRoot: serverDir,
           compatibilityDate: "2026-04-01",
           compatibilityFlags: ["nodejs_compat"],
         });
@@ -1898,7 +1906,13 @@ function expectDefaultWorkerSsrCacheHeaders(response: Response) {
 }
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-worker-test-"));
+  const root = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../..",
+    ".tmp",
+  );
+  fs.mkdirSync(root, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(root, "worker-test-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -2243,9 +2257,6 @@ describe("generateWorkerEntry", () => {
   afterEach(() => {
     resetAppConfigForTests();
     vi.unstubAllEnvs();
-    for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it("pins generated React Router SSR to an anonymous request context", () => {
@@ -2536,6 +2547,7 @@ export default async (event) => {
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
+      linkCorePackageForWorker(dir);
       const actionPath = path.join(dir, "keep-alive-action.mjs");
       const rawAction = `
 // A module-scope timer, the same shape a dependency chunk gets after
@@ -3026,6 +3038,7 @@ export default (event) =>
 
   it("resolves a custom app home from a generated config plugin", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "home-config.mjs");
     fs.writeFileSync(
       configPath,
@@ -3047,6 +3060,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
   it("includes configured app identity in the generated worker shell config", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
@@ -3124,6 +3138,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
 
   it("projects the configured current mount when the worker manifest only lists siblings", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "mount-config.mjs");
     vi.stubEnv("APP_BASE_PATH", "/dispatch/");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch/");
@@ -3165,6 +3180,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
   it("projects an explicit root workspace mount into the worker shell config", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "root-mount-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
