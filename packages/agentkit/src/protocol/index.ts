@@ -139,6 +139,33 @@ function isInlineFileBody(value: string): boolean {
   return INLINE_FILE_BASE64_PREFIXES.some((prefix) => prefix.test(normalized));
 }
 
+const STORAGE_DOWNLOAD_QUERY_KEYS = new Set(["alt", "token", "apiKey"]);
+
+/**
+ * A query string usually means an expiring signature or a secret, so durable
+ * references carry none. The one exception is Builder storage's file download
+ * URL (`/o/<object>?alt=media&token=…`): the token is the object's permanent
+ * download token, and it is the only URL Builder returns for non-image
+ * uploads, so rejecting it fails every such attachment. `apiKey` is the
+ * space's public key, which these URLs also carry. The token makes the stored
+ * URL a bearer link to the file: every store that persists it (threads, runs,
+ * resources, dispatched work) must already be access-scoped to the people
+ * allowed to read the file.
+ */
+function hasDurableQuery(url: URL): boolean {
+  if (!url.search) return true;
+  const keys = [...url.searchParams.keys()];
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "cdn.builder.io" &&
+    url.pathname.startsWith("/o/") &&
+    url.searchParams.get("alt") === "media" &&
+    Boolean(url.searchParams.get("token")) &&
+    new Set(keys).size === keys.length &&
+    keys.every((key) => STORAGE_DOWNLOAD_QUERY_KEYS.has(key))
+  );
+}
+
 export function isPersistableAttachmentUrl(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   if (!URL.canParse(value)) return false;
@@ -148,7 +175,7 @@ export function isPersistableAttachmentUrl(value: unknown): value is string {
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }
@@ -170,7 +197,7 @@ export function isPersistableAttachmentReferenceUrl(
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }

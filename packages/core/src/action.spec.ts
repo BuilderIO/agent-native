@@ -2771,16 +2771,26 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       expect(intent.valid).toBe(true);
     });
 
-    it.each([
-      { id: "a", title: null, label: "" },
-      { id: "a", title: null, note: null },
-    ])("refuses a padded call that could clear data: %j", async (input) => {
-      const intent = await actionCallIntent(update, input);
-      expect(intent).toMatchObject({
-        valid: false,
-        error: { errorCode: "ambiguous_tool_placeholders" },
+    it("treats null on a nullable optional field as omitted beside other nulls", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        note: null,
       });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).not.toHaveProperty("note");
     });
+
+    it.each([{ id: "a", title: null, label: "" }])(
+      "refuses a padded call that could clear data: %j",
+      async (input) => {
+        const intent = await actionCallIntent(update, input);
+        expect(intent).toMatchObject({
+          valid: false,
+          error: { errorCode: "ambiguous_tool_placeholders" },
+        });
+      },
+    );
 
     it("refuses a padded call whose dynamic plan-mode effect defaults to a write", async () => {
       const publish = defineAction({

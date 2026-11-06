@@ -181,6 +181,14 @@ export async function runCopySelection({
             Boolean(entry),
           )
       : [];
+  if (
+    entries.length === 0 &&
+    viewModeRef.current === "overview" &&
+    screens.length !== overviewSelectedScreenIds.length
+  ) {
+    toast.error(t("common.genericError"));
+    return { copied: false, written: false };
+  }
   if (entries.length === 0 && screens.length === 0) {
     return { copied: false, written: false };
   }
