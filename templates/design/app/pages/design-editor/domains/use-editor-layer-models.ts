@@ -350,13 +350,17 @@ export function useEditorLayerModels({
           );
           return activeStoredNodeIds.has(layerId);
         };
+        // A screen id names no layer, loaded or not: selecting a screen whose
+        // source has not loaded would otherwise build every loaded model.
+        const isScreenId = (id: string) =>
+          liveFileIds.has(id) || overviewScreenById.has(id);
         return [
           ...(demand?.selectedLayerIds ?? []),
           pendingOverviewLayerSelectionRef.current,
         ].some(
           (layerId) =>
             layerId &&
-            !liveFileIds.has(layerId) &&
+            !isScreenId(layerId) &&
             !built.some((model) => model.nodeById.has(layerId)) &&
             !ownedByActiveFile(layerId),
         );
