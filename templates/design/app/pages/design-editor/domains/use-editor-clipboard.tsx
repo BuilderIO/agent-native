@@ -215,6 +215,7 @@ export function useEditorClipboard({
     boardFileId,
     overviewScreens,
     updateLiveScreenSnapshotContent,
+    designDataJsonRef,
   } = editorFilesAndSaving;
   const {
     setCameraCommand,
@@ -650,6 +651,7 @@ export function useEditorClipboard({
         copiedLayerEntriesRef,
         copiedLayerHtmlRef,
         copiedScreenEntriesRef,
+        designData: designDataJsonRef.current,
         designSourceType,
         files,
         getScreenContent,

@@ -59,6 +59,7 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import { BuilderSignupActivation } from "@/components/BuilderSignupActivation";
 import { DesignWriteFailureToasts } from "@/components/design/DesignWriteFailureToasts";
 import {
   DesignHomeLibrary,
@@ -469,7 +470,13 @@ function PrivateRootContent() {
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
-      {content}
+      {hasSession && session?.userId ? (
+        <BuilderSignupActivation key={session.userId} userId={session.userId}>
+          {content}
+        </BuilderSignupActivation>
+      ) : (
+        content
+      )}
     </>
   );
 }

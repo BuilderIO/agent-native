@@ -72,6 +72,18 @@ quote its output if it fails. It never touches the PR's checkout. CI
 re-runs every proof as `--fix <sha>`, so the fix must be one real commit
 on the PR, which `merge` gives you.
 
+Only a commit that changes behavior gets a proof line. A commit that only
+fixes lint, formatting, types, file names, or CI config gets none: CI's own
+checks cover it. The `<check>` must be one test file run as
+`pnpm [--filter <pkg>] exec vitest run <test-file>` or
+`node --test <test-file>`, with no `-t` filter or other flags; CI rejects
+any other command and fails the whole proof check. fix-proof prints
+`proven locally only` for any other command: that line never goes in the
+PR body. When "Feedback fix proof" fails with `unsupported proof command`,
+or a report link it can't find, fix the PR body: delete or replace the
+proof line it names, and list every report under `## Reports` (a chat-health
+report by its key, `chat-health:<app>:<date>`).
+
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
 2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run
    `pnpm install --frozen-lockfile --prefer-offline` (about a minute).

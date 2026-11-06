@@ -51,6 +51,19 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.225.1
+
+### Patch Changes
+
+- 1a62c08: Non-image chat attachments uploaded to Builder storage no longer fail the agent run with "An attachment has inline bytes but no durable file URL". Builder's file download URL (`/o/<object>?alt=media&token=…`) now counts as a durable reference, and the client, thread storage, and background dispatch all share one rule for it.
+- a94e957: Log which recurring-job sweep steps were incomplete, and which runs failed stale-projection retry, when the sweep route returns 500.
+- Release all public npm packages with a patch version bump.
+- efb0662: Keep event persistence failures visible to later flushes, durable abort requests, and run finalization without changing a durable abort outcome.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+  - @agent-native/recap-cli@0.5.98
+
 ## 0.225.0
 
 ### Minor Changes
@@ -4549,11 +4562,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
   now serialized, which is what makes the suppression meaningful for the calls
   after it.
-
-## 0.172.1
-
-### Patch Changes
-
-- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
