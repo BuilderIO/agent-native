@@ -35,9 +35,15 @@ function sidebarEditableLayerText(
     return null;
   let current: CodeLayerNode | undefined = node;
   while (current) {
+    const openTag = current.source
+      ? content.slice(current.source.openStart, current.source.openEnd)
+      : "";
     if (
+      /\s\[(?:textcontent|innerhtml|innertext|outerhtml)\]\s*=/i.test(
+        openTag,
+      ) ||
       Object.keys(current.attributes).some((name) =>
-        /^(?:x-(?:text|html|for|if|bind|effect|init|model)(?:[:.]|$)|v-(?:text|html|for|if|else-if|else|bind|model)(?:[:.]|$)|:|\[(?:textcontent|innerhtml)\]|data-bind$|ng-(?:bind|bind-html|if|repeat)$|th:(?:text|utext)$)/i.test(
+        /^(?:(?:x|v)-(?:text|html|for|if|else-if|else|effect|init|model)(?:[:.]|$)|(?:x|v)-bind(?:$|\.|:$|:\[|:(?:textcontent|innerhtml|innertext|outerhtml|text-content|inner-html|inner-text)(?:[.]|$))|:$|:\[|:(?:textcontent|innerhtml|innertext|outerhtml|text-content|inner-html|inner-text)(?:[.]|$)|\[(?:textcontent|innerhtml|innertext|outerhtml)\]|data-bind$|ng-(?:bind|bind-html|if|repeat)$|th:(?:text|utext)$)/i.test(
           name,
         ),
       )
@@ -85,6 +91,8 @@ export interface LayerTextEditSession {
   selector: string;
   originalValue: string;
   sourceHash: string;
+  durableId: string | null;
+  tag: string;
 }
 
 export function beginLayerTextEdit(
@@ -118,6 +126,15 @@ export function beginLayerTextEdit(
   const node = projection.nodes.find((candidate) => candidate.id === layerId);
   if (!node) return null;
   const value = sidebarEditableLayerText(content, projection, node);
+  const durableId = node.dataAttributes["data-agent-native-node-id"];
+  if (
+    durableId &&
+    projection.nodes.filter(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === durableId,
+    ).length !== 1
+  )
+    return null;
   return value === null
     ? null
     : {
@@ -126,6 +143,8 @@ export function beginLayerTextEdit(
         selector: preferredCodeLayerSelector(node),
         originalValue: value,
         sourceHash: sourceContentHash(content),
+        durableId: durableId ?? null,
+        tag: node.tag,
       };
 }
 
@@ -140,7 +159,10 @@ export function commitLayerTextEdit(
     current.screenId !== session.screenId ||
     current.selector !== session.selector ||
     current.originalValue !== session.originalValue ||
-    current.sourceHash !== session.sourceHash
+    current.tag !== session.tag ||
+    (session.durableId
+      ? current.durableId !== session.durableId
+      : current.sourceHash !== session.sourceHash)
   )
     return "stale";
   const owner = args.getOwner(session.layerId);

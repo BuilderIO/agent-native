@@ -195,7 +195,11 @@ export interface LayersPanelProps {
   ) => void;
   onRename?: (id: string, name: string) => void;
   onStartTextEdit?: (id: string) => string | null;
-  onTextEdit?: (id: string, value: string, originalValue: string) => void;
+  onTextEdit?: (
+    id: string,
+    value: string,
+    originalValue: string,
+  ) => boolean | void;
   onToggleLocked?: (id: string, locked: boolean) => void;
   onToggleHidden?: (id: string, hidden: boolean) => void;
   onHoverLayer?: (id: string) => void;
@@ -1100,15 +1104,17 @@ function LayersPanelImpl(
   onTextEditRef.current = onTextEdit;
   const commitRename = useCallback((id: string) => {
     const textEdit = textEditRef.current;
-    textEditRef.current = null;
     if (textEdit?.id === id) {
-      if (renameDraftRef.current !== textEdit.originalValue) {
+      if (
+        renameDraftRef.current !== textEdit.originalValue &&
         onTextEditRef.current?.(
           id,
           renameDraftRef.current,
           textEdit.originalValue,
-        );
-      }
+        ) === false
+      )
+        return;
+      textEditRef.current = null;
     } else {
       const nextName = renameDraftRef.current.trim();
       if (nextName) onRenameRef.current?.(id, nextName);
@@ -1122,7 +1128,7 @@ function LayersPanelImpl(
 
   const startRename = useCallback(
     (node: LayersPanelNode) => {
-      if (!onRename || node.renamable === false) return;
+      if (!onRename || node.renamable === false || textEditRef.current) return;
       textEditRef.current = null;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
@@ -1134,6 +1140,7 @@ function LayersPanelImpl(
 
   const startRowEdit = useCallback(
     (node: LayersPanelNode) => {
+      if (textEditRef.current) return;
       const isTextRow =
         node.type === "text" ||
         node.type === "frame" ||
@@ -1184,7 +1191,7 @@ function LayersPanelImpl(
 
   const beginRename = useCallback(
     (layerId: string): boolean => {
-      if (!onRename) return false;
+      if (!onRename || textEditRef.current) return false;
       const found = findNodeWithAncestors(rootsRef.current, layerId);
       if (!found || found.node.renamable === false) return false;
       const { node, ancestorIds } = found;

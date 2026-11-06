@@ -211,6 +211,59 @@ describe("LayersPanel rename with Tab", () => {
   });
 });
 
+describe("LayersPanel text edit rejection", () => {
+  it("retains a refused draft so it can be copied or corrected", async () => {
+    const onTextEdit = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const { host } = await renderPanel({
+      layers: [
+        { id: "text", name: "Text", type: "text" },
+        { id: "other", name: "Other", type: "element" },
+      ],
+      onRename: () => {},
+      onStartTextEdit: () => "Before",
+      onTextEdit,
+    });
+    await act(async () =>
+      rowButton(host, "text").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    const input = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    if (!input) throw new Error("Text input missing");
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Input setter unavailable");
+    await act(async () => {
+      setValue.call(input, "Unsaved draft");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(input, "Enter");
+    expect(onTextEdit).toHaveBeenCalledWith("text", "Unsaved draft", "Before");
+    expect(
+      host.querySelector<HTMLInputElement>("input[data-layer-row-name]")?.value,
+    ).toBe("Unsaved draft");
+    await act(async () =>
+      rowButton(host, "other").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    expect(
+      host.querySelector<HTMLInputElement>("input[data-layer-row-name]")?.value,
+    ).toBe("Unsaved draft");
+    await act(async () => {
+      setValue.call(input, "Corrected");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(input, "Enter");
+    expect(onTextEdit).toHaveBeenLastCalledWith("text", "Corrected", "Before");
+    expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
+  });
+});
+
 describe("LayersPanel text editing with Tab", () => {
   it.each([false, true])(
     "commits text without opening a layer rename on Shift=$shift",

@@ -728,7 +728,7 @@ describe("LayersPanel text editing", () => {
       let session: LayerTextEditSession | null = null;
       const onTextEdit = vi.fn((_id: string, value: string) => {
         if (!session) throw new Error("Text session missing");
-        return commitLayerTextEdit(textArgs, session, value);
+        return commitLayerTextEdit(textArgs, session, value) === "accepted";
       });
       const host = document.createElement("div");
       document.body.appendChild(host);
@@ -779,7 +779,7 @@ describe("LayersPanel text editing", () => {
           nextText,
           "Canvas text",
         );
-        expect(onTextEdit.mock.results[0]?.value).toBe("accepted");
+        expect(onTextEdit.mock.results[0]?.value).toBe(true);
         const savedNode = buildCodeLayerProjection(content, {
           source,
         }).nodes.find(
@@ -850,6 +850,11 @@ describe("sidebar text edit safety", () => {
     '<p data-agent-native-node-id="text" v-model="message">Fallback</p>',
     '<p data-agent-native-node-id="text" x-model="message">Fallback</p>',
     '<p data-agent-native-node-id="text" :textContent="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind:innerHTML="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-bind:text-content="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" :[property]="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind:[property]="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" [innerHTML]="message">Fallback</p>',
     '<p data-agent-native-node-id="text" x-bind="bindings">Fallback</p>',
     '<section v-if="shown"><p data-agent-native-node-id="text">Fallback</p></section>',
     '<div x-if="visible"><p data-agent-native-node-id="text">Hello</p></div>',
@@ -924,6 +929,139 @@ describe("sidebar text edit safety", () => {
       ),
     ).toBe("accepted");
     expect(requestPreviewRefresh).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    '<button data-agent-native-node-id="text" :aria-pressed="pressed">Hello</button>',
+    '<button data-agent-native-node-id="text" x-bind:class="active">Hello</button>',
+    '<button data-agent-native-node-id="text" v-bind:disabled="busy">Hello</button>',
+  ])("allows static text with a non-text binding: %s", (html) => {
+    const { args, node } = textTarget(html);
+    expect(beginLayerTextEdit(args, node.id)?.originalValue).toBe("Hello");
+  });
+
+  it("preserves unrelated collaborator changes when committing identified text", () => {
+    const { args, node, setContent } = textTarget(
+      '<main><p data-agent-native-node-id="text">Hello</p><p>Other</p></main>',
+    );
+    const commandArgs: ScreenTextContentChangeArgs = {
+      activeFile: {
+        id: "other",
+        filename: "other.html",
+        fileType: "html",
+        content: "",
+        createdAt: "",
+        updatedAt: "",
+      },
+      applyFileContentUpdate: (fileId, content) => {
+        const publication = prepareCanonicalSourceContent(content, {
+          fileId,
+          fileType: "html",
+        });
+        setContent(publication.content);
+        return { status: "accepted", ...publication };
+      },
+      canEditDesign: true,
+      designSourceType: "inline",
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: false,
+        historyHandled: false,
+        confirm: () => {},
+      }),
+      getScreenContent: args.getScreenContent,
+      handleTextContentChange: () => "refused",
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      recordPendingLiveTextEdit: () => {},
+      setActiveFileId: () => {},
+      setActiveTool: () => {},
+      setMode: () => {},
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      t: (key) => key,
+      updateLiveScreenSnapshotContent: () => false,
+    };
+    const currentArgs = {
+      ...args,
+      handleScreenTextContentChange: (
+        screenId: string,
+        selector: string,
+        value: string,
+        info?: Parameters<typeof runScreenTextContentChange>[4],
+        details?: Parameters<typeof runScreenTextContentChange>[5],
+      ) =>
+        runScreenTextContentChange(
+          commandArgs,
+          screenId,
+          selector,
+          value,
+          info,
+          details,
+        ),
+    };
+    const session = beginLayerTextEdit(currentArgs, node.id);
+    if (!session) throw new Error("Expected text session");
+    setContent(
+      '<main><p data-agent-native-node-id="text">Hello</p><p>Changed elsewhere</p></main>',
+    );
+    expect(commitLayerTextEdit(currentArgs, session, "Updated")).toBe(
+      "accepted",
+    );
+    const saved = new DOMParser().parseFromString(
+      args.getScreenContent("screen"),
+      "text/html",
+    );
+    expect(
+      Array.from(saved.querySelectorAll("p"), (p) => p.textContent),
+    ).toEqual(["Updated", "Changed elsewhere"]);
+  });
+
+  it.each([
+    '<main><p data-agent-native-node-id="other">Hello</p></main>',
+    '<main><h1 data-agent-native-node-id="text">Hello</h1></main>',
+    '<main><p data-agent-native-node-id="text">Hello</p><p data-agent-native-node-id="text">Hello</p></main>',
+    '<main><p data-agent-native-node-id="text" x-text="message">Hello</p></main>',
+  ])(
+    "refuses edits when a target is deleted, replaced, duplicated, or becomes dynamic: %s",
+    (next) => {
+      const { args, node, setContent, handleScreenTextContentChange } =
+        textTarget(
+          '<main><p data-agent-native-node-id="text">Hello</p></main>',
+        );
+      const session = beginLayerTextEdit(args, node.id);
+      if (!session) throw new Error("Expected text session");
+      setContent(next);
+      expect(commitLayerTextEdit(args, session, "Updated")).toBe("stale");
+      expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not start editing when the durable target ID is duplicated", () => {
+    const { args, node } = textTarget(
+      '<main><p data-agent-native-node-id="text">Hello</p><p data-agent-native-node-id="text">Hello</p></main>',
+    );
+    expect(beginLayerTextEdit(args, node.id)).toBeNull();
+  });
+
+  it("keeps whole-screen conflict protection for a path-only target", () => {
+    let content = "<main><p>Hello</p><p>Other</p></main>";
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen" },
+    });
+    const node = projection.nodes.find((item) => item.tag === "p");
+    if (!node) throw new Error("Missing text node");
+    const base = textTarget('<p data-agent-native-node-id="text">Hello</p>');
+    const args = {
+      ...base.args,
+      getOwner: () => ({ fileId: "screen", node, runtimeOnly: false }),
+      getFreshActiveContent: () => content,
+      getScreenContent: () => content,
+    };
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Expected text session");
+    content = "<main><p>Hello</p><p>Changed</p></main>";
+    expect(commitLayerTextEdit(args, session, "Updated")).toBe("stale");
+    expect(base.handleScreenTextContentChange).not.toHaveBeenCalled();
   });
 
   it("uses the complete decoded text and refuses a stale edit", () => {

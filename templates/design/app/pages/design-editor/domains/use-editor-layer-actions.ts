@@ -356,14 +356,13 @@ export function useEditorLayerActions({
     originalValue: string,
   ) => {
     const session = sidebarTextTargetRef.current;
-    sidebarTextTargetRef.current = null;
     if (
       !session ||
       session.layerId !== layerId ||
       session.originalValue !== originalValue
     ) {
       toast.error(t("designEditor.toasts.saveConflict"));
-      return;
+      return false;
     }
     const status = commitLayerTextEdit(layerTextEditArgs, session, value);
     if (status === "stale") toast.error(t("designEditor.toasts.saveConflict"));
@@ -372,6 +371,10 @@ export function useEditorLayerActions({
         description: t("questionFlow.required"),
       });
     }
+    if (status === "refused") toast.error(t("common.genericError"));
+    if (status !== "accepted") return false;
+    sidebarTextTargetRef.current = null;
+    return true;
   };
 
   const runtimeLayerRenameRevisionRef = useRef(0);
