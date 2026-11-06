@@ -27,7 +27,8 @@ export function SnapshotShareLinks({ deckId }: { deckId: string }) {
   const revoke = useActionMutation<unknown, { deckId: string; token: string }>(
     "revoke-deck-share-link",
     {
-      onSuccess: () => void query.refetch(),
+      // Refetch on failure too: a 404 means another manager already revoked it.
+      onSettled: () => void query.refetch(),
       onError: () => toast.error(t("share.revokeFailed")),
     },
   );
