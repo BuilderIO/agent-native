@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
-import { ActionContractError, ActionInputValidationError } from "../action.js";
+import {
+  ActionContractError,
+  ActionInputValidationError,
+  defineAction,
+  noteExternalWrite,
+} from "../action.js";
 import {
   getOrCreateRequestDbPool,
   runWithRequestDbPoolScope,
@@ -213,6 +218,8 @@ describe("late outcome error reporting", () => {
     "aborted",
     "validation",
     "contract",
+    "internal-contract",
+    "output-contract",
     "persistence-fails",
   ] as const)(
     "classifies an interrupted action's late outcome: %s",
@@ -234,9 +241,27 @@ describe("late outcome error reporting", () => {
             ? new ActionContractError("Missing destination", {
                 errorCode: "invalid_input",
               })
-            : outcome === "aborted"
-              ? new DOMException("Action aborted", "AbortError")
-              : new Error("Action rejected after interruption");
+            : outcome === "internal-contract"
+              ? new ActionContractError("Internal action failure", {
+                  errorCode: "internal_failure",
+                  statusCode: 500,
+                })
+              : outcome === "aborted"
+                ? new DOMException("Action aborted", "AbortError")
+                : new Error("Action rejected after interruption");
+      const outputAction = defineAction({
+        description: "Create a deck",
+        schema: z.object({}),
+        outputSchema: z.object({ ok: z.boolean().refine((ok) => ok) }),
+        outputErrorStrategy: "strict",
+        readOnly: false,
+        run: async () => {
+          actionStarted.resolve();
+          await actionResult.promise;
+          noteExternalWrite("late-output-contract-test");
+          return { ok: false };
+        },
+      });
       const controller = new AbortController();
       const pool = { end: vi.fn(async () => {}) };
       const request = runWithRequestDbPoolScope(true, undefined, async () => {
@@ -251,21 +276,26 @@ describe("late outcome error reporting", () => {
               { role: "user", content: [{ type: "text", text: "Go" }] },
             ],
             actions: {
-              "create-deck": {
-                tool: {
-                  description: "Create a deck",
-                  parameters: { type: "object", properties: {} },
-                },
-                readOnly: false,
-                ...(outcome === "unexpected-timeout" ? { timeoutMs: 10 } : {}),
-                ...(outcome === "private"
-                  ? { persistInChatHistory: false }
-                  : {}),
-                run: () => {
-                  actionStarted.resolve();
-                  return actionResult.promise;
-                },
-              },
+              "create-deck":
+                outcome === "output-contract"
+                  ? outputAction
+                  : {
+                      tool: {
+                        description: "Create a deck",
+                        parameters: { type: "object", properties: {} },
+                      },
+                      readOnly: false,
+                      ...(outcome === "unexpected-timeout"
+                        ? { timeoutMs: 10 }
+                        : {}),
+                      ...(outcome === "private"
+                        ? { persistInChatHistory: false }
+                        : {}),
+                      run: () => {
+                        actionStarted.resolve();
+                        return actionResult.promise;
+                      },
+                    },
             },
             threadId: fence.threadId,
             turnId: fence.turnId,
@@ -281,7 +311,8 @@ describe("late outcome error reporting", () => {
       await request;
       if (outcome !== "unexpected-immediate") {
         expect(pool.end).not.toHaveBeenCalled();
-        if (outcome === "persistence-fails") actionResult.resolve("Deck saved");
+        if (outcome === "persistence-fails" || outcome === "output-contract")
+          actionResult.resolve("Deck saved");
         else actionResult.reject(actionError);
       }
       await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
@@ -311,7 +342,13 @@ describe("late outcome error reporting", () => {
           expect(capture).toHaveBeenCalledWith(
             outcome === "private"
               ? new Error("Private content omitted")
-              : actionError,
+              : outcome === "output-contract"
+                ? expect.objectContaining({
+                    name: "ActionOutputContractError",
+                    errorCode: "output_contract_violation",
+                    effect: "committed",
+                  })
+                : actionError,
             expect.objectContaining({
               aiTraceId: fence.runId,
               ...(outcome === "private" ? { errorMessagePolicy: "omit" } : {}),

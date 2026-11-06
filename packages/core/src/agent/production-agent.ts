@@ -11108,7 +11108,7 @@ export async function runAgentLoop(opts: {
                   !actionRaceFailure ||
                   Object.is(actionRaceFailure.error, error) ||
                   error instanceof ActionInputValidationError ||
-                  isActionContractError(error) ||
+                  (isActionContractError(error) && error.statusCode < 500) ||
                   isAgentActionStopError(error) ||
                   (signal.aborted &&
                     error instanceof Error &&
