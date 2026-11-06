@@ -508,6 +508,7 @@ describe("rich text selection", () => {
     const block = editable(
       '<span style="font-size: 12pt">one</span><span>two</span>',
     );
+    block.style.fontSize = "20px";
     const first = block.firstElementChild!;
     const second = block.lastElementChild!;
     const original = window.getComputedStyle.bind(window);
@@ -528,6 +529,7 @@ describe("rich text selection", () => {
     try {
       const result = applyObjectFontSizeDelta(block, 2, { min: 1, max: 100 });
       expect(result).toEqual({ changed: true, unresolved: 1 });
+      expect(block.style.fontSize).toBe("20px");
       expect(
         (block.firstElementChild!.firstElementChild as HTMLElement).style
           .fontSize,
@@ -628,6 +630,79 @@ describe("rich text selection", () => {
     } finally {
       session.end();
     }
+  });
+
+  it("updates the object size and each mixed run once while keeping bounded runs unchanged", () => {
+    const block = editable(
+      'inherited <span style="font-size: 18px">small</span> <strong style="font-size: 30px">limited</strong>',
+    );
+    block.style.fontSize = "20px";
+    const direct = block.firstChild as Text;
+    const small = block.querySelector("span")!.firstChild as Text;
+    const limited = block.querySelector("strong")!.firstChild as Text;
+
+    const result = applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(result).toEqual({ changed: true, unresolved: 0 });
+    expect(getInlineTextStyleSnapshot(block, null).values.fontSize).toBe(
+      "24px",
+    );
+    expect(getComputedStyle(direct.parentElement!).fontSize).toBe("24px");
+    expect(getComputedStyle(small.parentElement!).fontSize).toBe("22px");
+    expect(getComputedStyle(limited.parentElement!).fontSize).toBe("30px");
+    expect(block.textContent).toBe("inherited small limited");
+  });
+
+  it("keeps relative nested text at its original size when the root moves past its bound", () => {
+    const block = editable(
+      '<span style="font-size: 200%">large</span><span style="font-size: 100%">normal</span>',
+    );
+    block.style.fontSize = "20px";
+    const large = block.firstElementChild!.firstChild as Text;
+    const normal = block.lastElementChild!.firstChild as Text;
+
+    expect(getComputedStyle(large.parentElement!).fontSize).toBe("40px");
+    expect(getComputedStyle(normal.parentElement!).fontSize).toBe("20px");
+    applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(getComputedStyle(block).fontSize).toBe("24px");
+    expect(getComputedStyle(large.parentElement!).fontSize).toBe("40px");
+    expect(getComputedStyle(normal.parentElement!).fontSize).toBe("24px");
+    expect(block.firstElementChild!.getAttribute("style")).toBe(
+      "font-size: 200%",
+    );
+  });
+
+  it.each([
+    ["20px", -4, "16px", true],
+    ["35px", 4, "35px", false],
+    ["5px", -4, "5px", false],
+  ])(
+    "updates an empty object's root with directional bounds",
+    (size, delta, expected, changed) => {
+      const block = editable("");
+      block.style.fontSize = size;
+      const result = applyObjectFontSizeDelta(block, delta, {
+        min: 10,
+        max: 30,
+      });
+      expect(result.changed).toBe(changed);
+      expect(getComputedStyle(block).fontSize).toBe(expected);
+    },
+  );
+
+  it("does not mutate an object when its root and runs are already at the directional bound", () => {
+    const block = editable('<span style="font-size: 35px">above</span> text');
+    block.style.fontSize = "30px";
+    const before = block.outerHTML;
+    const text = block.lastChild as Text;
+    rangeFor(text, 1, text, 3);
+
+    const result = applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 });
+
+    expect(result).toEqual({ changed: false, unresolved: 0 });
+    expect(block.outerHTML).toBe(before);
+    expect(window.getSelection()!.toString()).toBe("te");
   });
 
   it("resizes a whole object without changing the active backward selection", () => {

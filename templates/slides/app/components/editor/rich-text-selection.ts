@@ -396,7 +396,7 @@ export interface FontSizeBounds {
 
 export interface FontSizeDeltaResult {
   changed: boolean;
-  /** Text runs skipped because their computed size could not be resolved to pixels. */
+  /** Text runs or object roots skipped because their computed size could not be resolved to pixels. */
   unresolved: number;
 }
 
@@ -413,8 +413,7 @@ const ABSOLUTE_FONT_SIZE_UNITS: Record<string, number> = {
   q: 96 / 101.6,
 };
 
-function computedFontSize(text: Text): number | null {
-  const element = text.parentElement;
+function computedFontSize(element: Element | null): number | null {
   if (!element) return null;
   const value = window.getComputedStyle(element).fontSize.trim().toLowerCase();
   if (value === "0") return 0;
@@ -423,16 +422,20 @@ function computedFontSize(text: Text): number | null {
   return Number(match[1]) * ABSOLUTE_FONT_SIZE_UNITS[match[2]];
 }
 
+function nextFontSize(size: number, delta: number, bounds: FontSizeBounds) {
+  const bounded = Math.min(bounds.max, Math.max(bounds.min, size + delta));
+  return delta > 0 ? Math.max(size, bounded) : Math.min(size, bounded);
+}
+
 function fontSizeChanges(texts: Text[], delta: number, bounds: FontSizeBounds) {
   let unresolved = 0;
   const sizes = texts.map((text) => {
-    const size = computedFontSize(text);
+    const size = computedFontSize(text.parentElement);
     if (size === null) {
       unresolved++;
       return null;
     }
-    const bounded = Math.min(bounds.max, Math.max(bounds.min, size + delta));
-    const next = delta > 0 ? Math.max(size, bounded) : Math.min(size, bounded);
+    const next = nextFontSize(size, delta, bounds);
     return next === size ? null : next;
   });
   return { sizes, unresolved, changed: sizes.some((size) => size !== null) };
@@ -476,7 +479,27 @@ export function applyObjectFontSizeDelta(
     const text = node as Text;
     if (text.length && isStylableText(text)) texts.push(text);
   }
-  const { sizes, changed, unresolved } = fontSizeChanges(texts, delta, bounds);
+  const rootSize = computedFontSize(editable);
+  const rootNext =
+    rootSize === null ? null : nextFontSize(rootSize, delta, bounds);
+  const originalSizes = texts.map((text) =>
+    computedFontSize(text.parentElement),
+  );
+  const sizes = originalSizes.map((size) =>
+    size === null ? null : nextFontSize(size, delta, bounds),
+  );
+  const unresolved =
+    originalSizes.filter((size) => size === null).length +
+    (rootSize === null ? 1 : 0);
+  // An unresolved run might inherit from the root, so moving the root could
+  // resize it without knowing its starting size or respecting its bounds.
+  const rootChanged =
+    rootNext !== null &&
+    rootNext !== rootSize &&
+    originalSizes.every((size) => size !== null);
+  const changed =
+    rootChanged ||
+    sizes.some((size, index) => size !== null && size !== originalSizes[index]);
   if (!changed) return { changed, unresolved };
 
   const selection = window.getSelection();
@@ -488,8 +511,14 @@ export function applyObjectFontSizeDelta(
     (editable.contains(anchor) || (focus && editable.contains(focus)));
   const anchorOffset = selection?.anchorOffset ?? 0;
   const focusOffset = selection?.focusOffset ?? 0;
-  resizeTextRuns(texts, sizes);
-  if (preserve && focus) {
+  if (rootChanged) editable.style.fontSize = `${rootNext}px`;
+  const overrides = sizes.map((size, index) =>
+    size !== null && size !== computedFontSize(texts[index].parentElement)
+      ? size
+      : null,
+  );
+  resizeTextRuns(texts, overrides);
+  if (preserve && focus && overrides.some((size) => size !== null)) {
     if (typeof selection.setBaseAndExtent === "function") {
       selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
     } else {
