@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 export const onboardingConfig = z.object({
-  builderSignupExperiment: z.boolean().default(false).meta({
+  builderSignupExperiment: z.boolean().default(false),
+  builderSignupExperimentOverride: z.boolean().optional().meta({
     env: "BUILDER_SIGNUP_EXPERIMENT",
     doc: "Enable the pre-signup automatic Builder account experiment for Design.",
   }),

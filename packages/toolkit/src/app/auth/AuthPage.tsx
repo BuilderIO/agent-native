@@ -671,16 +671,26 @@ export function AuthPage(props: AuthPageProps) {
     React.useState<BuilderSignupAssignment | null>(
       trackingApp === "design" ? null : { status: "disabled" },
     );
+  const builderSignupRequest =
+    React.useRef<Promise<BuilderSignupAssignment> | null>(null);
   React.useEffect(() => {
     if (trackingApp !== "design") return;
+    builderSignupTelemetry = {};
     let disposed = false;
-    void getBuilderSignupAssignment().then(
+    builderSignupRequest.current ??= getBuilderSignupAssignment();
+    void builderSignupRequest.current.then(
       (assignment) => {
         if (disposed) return;
         setBuilderSignup(assignment);
       },
       () => {
-        if (!disposed) setBuilderSignup({ status: "disabled" });
+        if (!disposed) {
+          builderSignupTelemetry = {};
+          setBuilderSignup({ status: "unavailable" });
+          trackAuth(trackingApp, "auth.builder_signup_experiment_unavailable", {
+            stage: "assignment",
+          });
+        }
       },
     );
     return () => {
@@ -1480,27 +1490,51 @@ export function AuthPage(props: AuthPageProps) {
     [publicOAuthOrigin, runtimeAppBasePath],
   );
 
-  const prepareBuilderSignup = React.useCallback(async () => {
-    if (!builderSignup) throw new Error("Signup assignment is still loading");
-    if (builderSignup.status === "assigned" && view !== "login")
-      await acceptBuilderSignupAssignment(builderSignup.id);
-  }, [builderSignup, view]);
+  const prepareBuilderSignup = React.useCallback(
+    async (
+      method: "password" | "magic-link" | "google",
+      email?: string,
+      flowId = createFlowId(),
+    ): Promise<string | undefined> => {
+      if (
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic" ||
+        view === "login"
+      )
+        return undefined;
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          flowId,
+          method,
+          email,
+        );
+        return flowId;
+      } catch {
+        trackAuth(
+          trackingApp,
+          "auth.builder_signup_experiment_unavailable",
+          { stage: "acceptance" },
+          email,
+        );
+        return undefined;
+      }
+    },
+    [builderSignup, trackingApp, view],
+  );
 
   const startGoogle = React.useCallback(async () => {
     if (!showGoogle || googleBusy || !builderSignup) return;
     setGoogleBusy(true);
     setNotice("google", null);
+    const flowId = createFlowId();
     const redirectAfterAcceptance = async (url: string) => {
-      try {
-        await prepareBuilderSignup();
-        window.location.replace(url);
-      } catch {
-        setGoogleBusy(false);
-        setNotice("google", {
-          kind: "error",
-          text: t("networkErrorDashRetry"),
-        });
-      }
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const targetUrl = new URL(url, window.location.origin);
+      if (attemptId)
+        targetUrl.searchParams.set("builder_signup_attempt", attemptId);
+      targetUrl.searchParams.set("flow_id", flowId);
+      window.location.replace(targetUrl.toString());
     };
     try {
       window.sessionStorage.setItem("__an_signin", "1");
@@ -1520,7 +1554,6 @@ export function AuthPage(props: AuthPageProps) {
       await redirectAfterAcceptance(`${identityHref}?${params.toString()}`);
       return;
     }
-    const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
@@ -1603,11 +1636,12 @@ export function AuthPage(props: AuthPageProps) {
       }
     }
     try {
-      await prepareBuilderSignup();
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
       const params = new URLSearchParams({
         return: oauthTarget,
         desktop: "1",
         flow_id: flowId,
+        ...(attemptId ? { builder_signup_attempt: attemptId } : {}),
       });
       const { response, data } = await requestJson(
         `${authUrl}?${params.toString()}`,
@@ -1892,7 +1926,10 @@ export function AuthPage(props: AuthPageProps) {
         email,
       );
       try {
-        await prepareBuilderSignup();
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "password",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/register"),
           {
@@ -1900,6 +1937,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               password: signupPassword,
               callbackURL: identityBootstrapHref(resumeHref()),
             }),
@@ -2145,7 +2183,10 @@ export function AuthPage(props: AuthPageProps) {
       );
       const desktop = isAgentNativeDesktop();
       try {
-        await prepareBuilderSignup();
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "magic-link",
+          email,
+        );
         const { response, data } = await requestJson(
           apiPath("/_agent-native/auth/magic-link"),
           {
@@ -2153,6 +2194,7 @@ export function AuthPage(props: AuthPageProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email,
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
               callbackURL: desktop
                 ? apiPath("/_agent-native/auth/magic-link/desktop-callback")
                 : identityBootstrapHref(resumeHref()),
@@ -2219,7 +2261,6 @@ export function AuthPage(props: AuthPageProps) {
       setSsoBusy(true);
       setNotice("sso", null);
       try {
-        await prepareBuilderSignup();
         const callbackURL = new URL(
           resumeHref(),
           window.location.origin,
@@ -2251,7 +2292,7 @@ export function AuthPage(props: AuthPageProps) {
         setSsoBusy(false);
       }
     },
-    [apiPath, prepareBuilderSignup, resumeHref, setNotice, ssoEmail, t],
+    [apiPath, resumeHref, setNotice, ssoEmail, t],
   );
 
   const resendVerification = React.useCallback(async () => {

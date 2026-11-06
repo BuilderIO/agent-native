@@ -64,16 +64,29 @@ describe("Builder signup client contract", () => {
   it("requires the server to acknowledge the displayed assignment before signup", async () => {
     const fetch = vi.fn(async () => response({ status: "accepted" }));
     vi.stubGlobal("fetch", fetch);
-    await acceptBuilderSignupAssignment("visitor-example");
+    await acceptBuilderSignupAssignment(
+      "visitor-example",
+      "signup-attempt-example",
+      "password",
+      "new@example.com",
+    );
     const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({
       operation: "accept",
       assignmentId: "visitor-example",
+      attemptId: "signup-attempt-example",
+      method: "password",
+      email: "new@example.com",
     });
     fetch.mockResolvedValueOnce(response({ status: "fallback" }));
     await expect(
-      acceptBuilderSignupAssignment("visitor-example"),
+      acceptBuilderSignupAssignment(
+        "visitor-example",
+        "signup-attempt-example",
+        "password",
+        "new@example.com",
+      ),
     ).rejects.toThrow();
   });
 

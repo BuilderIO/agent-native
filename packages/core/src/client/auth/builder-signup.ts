@@ -7,7 +7,8 @@ export type BuilderSignupAssignment =
       variant: "control" | "automatic";
       policy: string;
     }
-  | { status: "disabled" };
+  | { status: "disabled" }
+  | { status: "unavailable" };
 
 async function request(
   body?: Record<string, unknown>,
@@ -56,8 +57,17 @@ export async function getBuilderSignupAssignment(): Promise<BuilderSignupAssignm
 
 export async function acceptBuilderSignupAssignment(
   assignmentId: string,
+  attemptId: string,
+  method: "password" | "magic-link" | "google",
+  email?: string,
 ): Promise<void> {
-  const result = await request({ operation: "accept", assignmentId });
+  const result = await request({
+    operation: "accept",
+    assignmentId,
+    attemptId,
+    method,
+    ...(email ? { email } : {}),
+  });
   if (result.status !== "accepted")
     throw new Error("Builder signup acceptance was not recorded");
 }

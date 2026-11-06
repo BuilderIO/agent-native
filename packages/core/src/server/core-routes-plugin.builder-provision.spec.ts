@@ -168,6 +168,16 @@ afterEach(() => {
 });
 
 describe("POST /builder/provision", () => {
+  it("keeps a stored connection connected when post-write audit reporting fails", async () => {
+    mocks.recordAudit.mockRejectedValueOnce(new Error("audit unavailable"));
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, scope: "user" });
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledTimes(1);
+  });
+
   it("creates the account with one upstream call and stores its keys", async () => {
     mocks.settings.set("builder-disconnected", { at: 1 });
     mocks.settings.set(getBuilderConnectErrorKey(OWNER), { message: "old" });

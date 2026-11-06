@@ -1,15 +1,19 @@
-import { createApp } from "h3";
+import { createApp, defineEventHandler } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   enabled: true,
+  override: undefined as boolean | undefined,
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
-    onboarding: { builderSignupExperiment: mocks.enabled },
+    onboarding: {
+      builderSignupExperiment: mocks.enabled,
+      builderSignupExperimentOverride: mocks.override,
+    },
   }),
 }));
 vi.mock("./better-auth-instance.js", () => ({
@@ -39,16 +43,21 @@ vi.mock("../tracking/index.js", () => ({ track: mocks.track }));
 import type { AuthSession } from "./auth.js";
 import {
   BUILDER_SIGNUP_POLICY,
+  bindBuilderSignupAttempt,
+  getBuilderSignupConnectError,
   createBuilderSignupExperimentHandler,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
 } from "./builder-signup-experiment.js";
 
+let testTime: number;
+const ATTEMPT = "signup-attempt-example-123";
 const accepted = () => ({
   id: "a".repeat(32),
   variant: "automatic" as const,
-  issuedAt: Date.now() - 2000,
-  acceptedAt: Date.now() - 1000,
+  issuedAt: testTime - 2000,
+  acceptedAt: testTime - 1000,
+  attemptId: ATTEMPT,
   policy: BUILDER_SIGNUP_POLICY,
 });
 const signedSession = (): AuthSession => ({
@@ -82,10 +91,37 @@ function request(body?: unknown, cookie?: string) {
   );
 }
 
+function bindRequest(
+  cookie: string,
+  attemptId: string,
+  method: "password" | "magic-link" | "google",
+  email: string,
+) {
+  const app = createApp();
+  app.use(
+    "/bind",
+    defineEventHandler(async (event) => ({
+      bound: await bindBuilderSignupAttempt(event, attemptId, method, email),
+    })),
+  );
+  return app.fetch(
+    new Request("https://design.example.com/bind", {
+      headers: { cookie: `an_builder_signup=${cookie}` },
+    }),
+  );
+}
+
 beforeEach(() => {
+  testTime = Date.now();
   mocks.enabled = true;
+  mocks.override = undefined;
   mocks.identity = { user: { id: "new-user", createdAt: new Date() } };
   mocks.settings.clear();
+  mocks.settings.set("design_builder_signup_v1:consent:new-user", {
+    ...accepted(),
+    userId: "new-user",
+    email: "new@example.com",
+  });
   mocks.track.mockClear();
   session = null;
   sameOrigin = true;
@@ -93,6 +129,159 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("binds acceptance to the submitted email and auth attempt, not a later login", async () => {
+    mocks.settings.delete("design_builder_signup_v1:consent:new-user");
+    const acceptedResponse = await request(
+      {
+        operation: "accept",
+        assignmentId: accepted().id,
+        attemptId: ATTEMPT,
+        method: "password",
+        email: "new@example.com",
+      },
+      encodeBuilderSignupAssignment(accepted()),
+    );
+    const cookie = acceptedResponse.headers
+      .get("set-cookie")
+      ?.match(/an_builder_signup=([^;]+)/)?.[1];
+    expect(cookie).toBeTruthy();
+    if (!cookie) throw new Error("Acceptance cookie missing");
+    mocks.identity.user.createdAt = new Date(Date.now());
+    expect(
+      await (
+        await bindRequest(
+          cookie,
+          "another-signup-attempt",
+          "password",
+          "new@example.com",
+        )
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(
+      await (
+        await bindRequest(cookie, ATTEMPT, "password", "other@example.com")
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(
+      await (
+        await bindRequest(cookie, ATTEMPT, "google", "new@example.com")
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(
+      await (
+        await bindRequest(cookie, ATTEMPT, "password", "new@example.com")
+      ).json(),
+    ).toEqual({ bound: true });
+    expect(
+      mocks.settings.get("design_builder_signup_v1:consent:new-user"),
+    ).toMatchObject({
+      attemptId: ATTEMPT,
+      email: "new@example.com",
+      userId: "new-user",
+    });
+  });
+
+  it("records control assignment at account creation without recording Builder acceptance", async () => {
+    mocks.settings.clear();
+    const cookie = encodeBuilderSignupAssignment({
+      id: accepted().id,
+      variant: "control",
+      issuedAt: testTime - 2000,
+      policy: BUILDER_SIGNUP_POLICY,
+    });
+    await bindRequest(
+      cookie,
+      "unused-control-attempt",
+      "google",
+      "new@example.com",
+    );
+    const record = mocks.settings.get("design_builder_signup_v1:new-user");
+    expect(record).toMatchObject({ variant: "control", status: "control" });
+    expect(record).not.toHaveProperty("acceptedAt");
+    expect(
+      mocks.settings.has("design_builder_signup_v1:consent:new-user"),
+    ).toBe(false);
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("does not record acceptance for control", async () => {
+    const response = await request(
+      { operation: "accept", assignmentId: accepted().id },
+      encodeBuilderSignupAssignment({ ...accepted(), variant: "control" }),
+    );
+    expect(await response.json()).toEqual({ status: "not_required" });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("keeps existing-account fallback on the login/space-picker flow", async () => {
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "fallback",
+      code: "account_exists",
+      message: "Connect the existing account",
+      completedAt: testTime,
+    });
+    expect(await getBuilderSignupConnectError("new-user")).toEqual({
+      code: "account_exists",
+      message: "Connect the existing account",
+      at: testTime,
+    });
+    expect(await getBuilderSignupConnectError("another-user")).toBeUndefined();
+  });
+
+  it("honors a deployment override even when the app opts in", async () => {
+    mocks.override = false;
+    expect(await (await request()).json()).toEqual({ status: "disabled" });
+  });
+
+  it("requires consent bound to the signup that created the verified identity", async () => {
+    mocks.settings.delete("design_builder_signup_v1:consent:new-user");
+    session = signedSession();
+    const result = await request(
+      { operation: "activate" },
+      encodeBuilderSignupAssignment(accepted()),
+    );
+    expect(await result.json()).toEqual({
+      status: "fallback",
+      code: "signup_attempt_unbound",
+    });
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("makes interrupted attempts terminal without provisioning again", async () => {
+    session = signedSession();
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "started",
+      startedAt: Date.now() - 60000,
+      attempt: "stopped",
+    });
+    const result = await request(
+      { operation: "activate" },
+      encodeBuilderSignupAssignment(accepted()),
+    );
+    expect(await result.json()).toEqual({
+      status: "fallback",
+      code: "activation_interrupted",
+    });
+    expect(result.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(activate).not.toHaveBeenCalled();
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("fallback");
+  });
+
+  it("records a thrown activation as a terminal failure", async () => {
+    session = signedSession();
+    activate.mockRejectedValue(new Error("authorization store unavailable"));
+    const result = await request(
+      { operation: "activate" },
+      encodeBuilderSignupAssignment(accepted()),
+    );
+    expect((await result.json()).status).toBe("fallback");
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user"),
+    ).toMatchObject({ status: "fallback", code: "activation_interrupted" });
+  });
+
   it("does not assign or write cookies when disabled", async () => {
     mocks.enabled = false;
     const response = await request();
@@ -140,7 +329,12 @@ describe("pre-signup Builder experiment", () => {
         .status,
     ).toBe(409);
     const response = await request(
-      { operation: "accept", assignmentId: assignment.id },
+      {
+        operation: "accept",
+        assignmentId: assignment.id,
+        attemptId: ATTEMPT,
+        method: "google",
+      },
       cookie,
     );
     expect(await response.json()).toEqual({ status: "accepted" });
@@ -149,7 +343,12 @@ describe("pre-signup Builder experiment", () => {
     expect(
       (
         await request(
-          { operation: "accept", assignmentId: assignment.id },
+          {
+            operation: "accept",
+            assignmentId: assignment.id,
+            attemptId: ATTEMPT,
+            method: "google",
+          },
           cookie,
         )
       ).status,
@@ -188,11 +387,7 @@ describe("pre-signup Builder experiment", () => {
       (await (await request({ operation: "activate" }, cookie)).json()).status,
     ).toBe("fallback");
     expect(activate).not.toHaveBeenCalled();
-    expect(mocks.track).toHaveBeenCalledWith(
-      "builder_signup_experiment_outcome",
-      expect.objectContaining({ experiment_variant: "control" }),
-      expect.anything(),
-    );
+    expect(mocks.track).not.toHaveBeenCalled();
   });
   it("activates once and persists the acceptance and outcome", async () => {
     session = signedSession();
@@ -204,7 +399,9 @@ describe("pre-signup Builder experiment", () => {
       (await (await request({ operation: "activate" }, cookie)).json()).status,
     ).toBe("connected");
     expect(activate).toHaveBeenCalledTimes(1);
-    expect([...mocks.settings.values()][0]).toMatchObject({
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user"),
+    ).toMatchObject({
       policy: BUILDER_SIGNUP_POLICY,
       status: "connected",
       userId: "new-user",

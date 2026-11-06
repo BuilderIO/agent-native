@@ -9,15 +9,30 @@ Anonymous visitors receive a signed, HttpOnly, seven-day assignment cookie befor
 signup controls are enabled. The allocation is 50% control and 50% automatic.
 Both groups retain their assignment through redirects and reloads in that browser.
 The automatic group sees Builder account creation and linked Builder terms and
-privacy disclosure before signup. Clicking signup records acceptance in the signed
-cookie. A verified session must resolve to an account created after that acceptance;
-returning accounts and missing/expired cookies never auto-provision.
+privacy disclosure before signup. Clicking treatment signup records acceptance for an explicit auth attempt. Password
+and magic-link attempts include the submitted email; Google carries the attempt in
+its signed OAuth state. Only the successful account-creation continuation may bind
+that attempt to a user, and its original browser cookie must still match. A verified
+session must match that durable consent binding and an account created after
+acceptance. Abandoned attempts, later unrelated logins, returning accounts and
+missing/expired cookies never auto-provision. Control records assignment at account
+creation without recording Builder acceptance or calling the acceptance endpoint.
+Acceptance failures preserve normal signup and disable automatic activation for
+that attempt. Organization-managed SSO and delegated preview sign-in retain their
+existing connection flow; cross-device magic links also fall back when the original
+acceptance cookie is absent.
 
 A non-secret pending cookie lets Design hold the first-run surface while activation
 runs. Ordinary returning visitors make no activation request. Server-side settings
 under `design_builder_signup_v1:<auth-user-id>` retain the assignment, policy revision,
-acceptance time, attempt and terminal outcome. Automatic attempts are reserved
-atomically and are not retried after an uncertain outcome. The old connection flow
+acceptance time, attempt and terminal outcome. Separate `:attempt:<id>` and
+`:consent:<user-id>` settings bind treatment consent to its authenticated completion.
+Anonymous acceptance writes only the signed cookie; durable records are created only
+after account creation, avoiding abandoned pre-signup records.
+Automatic attempts are reserved atomically and are not retried after an uncertain
+outcome. An interrupted reservation expires into terminal fallback after 45 seconds;
+a thrown activation error records terminal fallback immediately. Post-write audit or
+telemetry failures keep the connection connected and report an explicit warning. The old connection flow
 remains available after errors and for every existing Builder account, including
 accounts with multiple spaces.
 
@@ -45,8 +60,10 @@ Agent-Native alone does not establish that the bypass is live.
 
 `auth.builder_signup_experiment_exposed` identifies the pre-signup denominator.
 Auth events include `experiment_id`, `experiment_variant` and `assignment_id`.
-`builder_signup_experiment_outcome` binds the accepted assignment to the verified
-account and reports connected/fallback with an explicit reason. Join subsequent
+`builder_signup_experiment_outcome` binds assignment to account creation and reports
+control/connected/fallback with an explicit reason.
+`auth.builder_signup_experiment_unavailable` records assignment or acceptance
+failures separately from an intentionally disabled experiment. Join subsequent
 Design activation and retention events by authenticated user id. Include every
 exposed visitor, including signup abandoners, in the primary conversion analysis.
 Stratify by the independent first-run credits experiment and track provisioning

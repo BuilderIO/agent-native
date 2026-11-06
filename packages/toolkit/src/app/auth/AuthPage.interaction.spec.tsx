@@ -101,76 +101,90 @@ describe("AuthPage interactions", () => {
     },
   );
 
-  it("opens the Google popup immediately but waits for signup acceptance before starting OAuth", async () => {
-    window.history.replaceState({}, "", "/signup");
-    const popup = {
-      closed: false,
-      location: { href: "" },
-    } as unknown as Window;
-    const open = vi.fn(() => popup);
-    vi.stubGlobal("open", open);
-    let accept: () => void = () => {
-      throw new Error("Acceptance has not started");
-    };
-    const oauthRequests = vi.fn();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (
-          url.includes("builder-signup-experiment") &&
-          init?.method === "POST"
-        ) {
-          return new Promise<Response>((resolve) => {
-            accept = () =>
-              resolve(new Response(JSON.stringify({ status: "accepted" })));
-          });
-        }
-        if (url.includes("google/auth-url")) {
-          oauthRequests();
-          return new Promise<Response>(() => {});
-        }
-        return Promise.resolve(
-          new Response(
-            JSON.stringify(
-              url.includes("builder-signup-experiment")
-                ? {
-                    status: "assigned",
-                    id: "a".repeat(32),
-                    variant: "automatic",
-                    policy: "builder-signup-2026-11-06",
-                  }
-                : { available: false },
+  it.each([200, 409])(
+    "opens Google immediately and preserves the existing flow when acceptance returns %s",
+    async (acceptStatus) => {
+      window.history.replaceState({}, "", "/signup");
+      const popup = {
+        closed: false,
+        location: { href: "" },
+      } as unknown as Window;
+      const open = vi.fn(() => popup);
+      vi.stubGlobal("open", open);
+      let accept: () => void = () => {
+        throw new Error("Acceptance has not started");
+      };
+      const oauthRequests = vi.fn();
+      let oauthUrl: string | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (
+            url.includes("builder-signup-experiment") &&
+            init?.method === "POST"
+          ) {
+            return new Promise<Response>((resolve) => {
+              accept = () =>
+                resolve(
+                  new Response(JSON.stringify({ status: "accepted" }), {
+                    status: acceptStatus,
+                  }),
+                );
+            });
+          }
+          if (url.includes("google/auth-url")) {
+            oauthUrl = url;
+            oauthRequests();
+            return new Promise<Response>(() => {});
+          }
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                url.includes("builder-signup-experiment")
+                  ? {
+                      status: "assigned",
+                      id: "a".repeat(32),
+                      variant: "automatic",
+                      policy: "builder-signup-2026-11-06",
+                    }
+                  : { available: false },
+              ),
             ),
-          ),
-        );
-      }),
-    );
-    await act(async () => {
-      root.render(
-        <AuthPage
-          {...propsFromHtml(
-            getOnboardingHtml({
-              requestHost: "127.0.0.1",
-              requestPath: "/signup",
-            }),
-          )}
-          trackingApp="design"
-          identitySsoEnabled={false}
-          googleViaIdentitySso={false}
-          googleAuthMode="popup"
-          showGoogle
-        />,
+          );
+        }),
       );
-    });
-    const button = container.querySelector<HTMLButtonElement>("#google-btn");
-    await act(async () => button?.click());
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(button?.getAttribute("aria-busy")).toBe("true");
-    expect(oauthRequests).not.toHaveBeenCalled();
-    await act(async () => accept());
-    expect(oauthRequests).toHaveBeenCalledTimes(1);
-  });
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+              }),
+            )}
+            trackingApp="design"
+            identitySsoEnabled={false}
+            googleViaIdentitySso={false}
+            googleAuthMode="popup"
+            showGoogle
+          />,
+        );
+      });
+      const button = container.querySelector<HTMLButtonElement>("#google-btn");
+      await act(async () => button?.click());
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(button?.getAttribute("aria-busy")).toBe("true");
+      expect(oauthRequests).not.toHaveBeenCalled();
+      await act(async () => accept());
+      expect(oauthRequests).toHaveBeenCalledTimes(1);
+      expect(
+        new URL(oauthUrl ?? "", "https://design.example.com").searchParams.has(
+          "builder_signup_attempt",
+        ),
+      ).toBe(acceptStatus === 200);
+    },
+  );
 
   it("opens and closes the auth options without dropping focus from the localized toggle", async () => {
     await act(async () => {

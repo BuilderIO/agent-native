@@ -48,6 +48,10 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import {
+  bindBuilderSignupAttempt,
+  BUILDER_SIGNUP_COOKIE,
+} from "./builder-signup-experiment.js";
+import {
   createConsentHandler,
   createConsentRegionHandler,
   requestAllowsConsentCategory,
@@ -387,6 +391,21 @@ function headersWithSignupAttribution(
     headers,
     signupAttributionContextFromCookieHeader(cookieHeader),
   );
+}
+
+async function recordBuilderSignupBinding(
+  event: H3Event,
+  attemptId: unknown,
+  method: "password" | "magic-link" | "google",
+  email: string,
+): Promise<void> {
+  if (typeof attemptId !== "string" && !getCookie(event, BUILDER_SIGNUP_COOKIE))
+    return;
+  try {
+    await bindBuilderSignupAttempt(event, attemptId, method, email);
+  } catch (error) {
+    captureAuthError(error, { route: "signup", email });
+  }
 }
 
 export interface AuthSession {
@@ -5613,6 +5632,11 @@ async function mountBetterAuthRoutes(
           flowId: flowId ?? undefined,
           desktopVerifierHash,
           desktopBrowserBindingHash,
+          builderSignupAttemptId:
+            typeof q.builder_signup_attempt === "string" &&
+            q.builder_signup_attempt === flowId
+              ? q.builder_signup_attempt
+              : undefined,
           signupAttribution,
           signupAnonymousId,
           signupSessionId,
@@ -5709,6 +5733,7 @@ async function mountBetterAuthRoutes(
             flowId,
             desktopVerifierHash,
             desktopBrowserBindingHash,
+            builderSignupAttemptId,
             signupAttribution,
             signupAnonymousId,
             signupSessionId,
@@ -5871,6 +5896,13 @@ async function mountBetterAuthRoutes(
               isNewUser: isNewGoogleUser,
             },
           });
+          if (isNewGoogleUser)
+            await recordBuilderSignupBinding(
+              event,
+              builderSignupAttemptId,
+              "google",
+              email,
+            );
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
@@ -7089,6 +7121,14 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
+      const signupSession = await getSession(event);
+      if (signupSession?.emailVerified)
+        await recordBuilderSignupBinding(
+          event,
+          query.builder_signup_attempt,
+          "magic-link",
+          signupSession.email,
+        );
       setFirstRunOnboardingCookie(event);
       return queryEchoSafeRedirect(
         event,
@@ -7220,6 +7260,11 @@ async function mountBetterAuthRoutes(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),
         );
+        if (typeof body?.builderSignupAttemptId === "string")
+          newUserCallbackUrl.searchParams.set(
+            "builder_signup_attempt",
+            body.builderSignupAttemptId,
+          );
         if (attributionToken) {
           newUserCallbackUrl.searchParams.set(
             MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -7317,6 +7362,12 @@ async function mountBetterAuthRoutes(
                 getHeader(event, "cookie") ?? null,
               ),
             }),
+        );
+        await recordBuilderSignupBinding(
+          event,
+          body?.builderSignupAttemptId,
+          "password",
+          email,
         );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
@@ -7571,6 +7622,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
                 getHeader(event, "cookie") ?? null,
               ),
             }),
+        );
+        await recordBuilderSignupBinding(
+          event,
+          body?.builderSignupAttemptId,
+          "password",
+          email,
         );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
