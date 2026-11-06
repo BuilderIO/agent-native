@@ -554,6 +554,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.sessionExpired":
     "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
+  "composer.uploadBuilderReconnect":
+    "आपके Builder.io कनेक्शन को फिर से जोड़ना ज़रूरी है। सेटिंग में Builder को फिर से जोड़ें, फिर दोबारा कोशिश करें।",
   "composer.uploadUnavailable":
     "फ़ाइल अपलोड अभी उपलब्ध नहीं है। कुछ देर बाद फिर कोशिश करें।",
   "composer.uploadOffline":

@@ -577,6 +577,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.sessionExpired":
     "セッションの有効期限が切れました。もう一度サインインしてから、メッセージを送信してください。",
   "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
+  "composer.uploadBuilderReconnect":
+    "Builder.io との接続を再確立する必要があります。設定で Builder を再接続してから、もう一度お試しください。",
   "composer.uploadUnavailable":
     "現在ファイルをアップロードできません。しばらくしてからもう一度お試しください。",
   "composer.uploadOffline":

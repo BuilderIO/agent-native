@@ -1992,7 +1992,7 @@ export const AgentKitAssistantChat = forwardRef<
             throw Object.assign(
               new Error(
                 translatorRef.current(
-                  "agentChat.errorMessages.builderAuthentication",
+                  "agentChat.composer.uploadBuilderReconnect",
                 ),
               ),
               {
@@ -7750,7 +7750,7 @@ function queueSubmissionErrorMessage(
     t("agentChat.composer.uploadFailed"),
     t("agentChat.composer.uploadUnavailable"),
     t("agentChat.composer.uploadOffline"),
-    t("agentChat.errorMessages.builderAuthentication"),
+    t("agentChat.composer.uploadBuilderReconnect"),
     t("onboarding.fileStorage.title"),
   ];
   return localizedUploadMessages.some(

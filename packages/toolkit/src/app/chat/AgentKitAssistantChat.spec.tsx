@@ -5409,14 +5409,14 @@ describe("AgentKitAssistantChat host behavior", () => {
             "data:image/png;base64,SGVsbG8=",
           ]),
         ).rejects.toMatchObject({
-          message: "agentChat.errorMessages.builderAuthentication",
+          message: "agentChat.composer.uploadBuilderReconnect",
           code: "upload_builder_oauth_reauthorization_required",
           status: 503,
           retryable: false,
         });
       });
       expect(container.textContent).toContain(
-        "agentChat.errorMessages.builderAuthentication",
+        "agentChat.composer.uploadBuilderReconnect",
       );
       expect(container.textContent).not.toContain(serverMessage);
       expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();

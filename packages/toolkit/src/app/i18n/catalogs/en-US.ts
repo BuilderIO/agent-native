@@ -563,6 +563,8 @@ const messages = {
   "composer.sessionExpired":
     "Your session expired. Sign in again, then send your message.",
   "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadBuilderReconnect":
+    "Your Builder.io connection needs to be reconnected. Reconnect Builder in Settings, then try again.",
   "composer.uploadUnavailable":
     "File uploads are unavailable right now. Try again in a moment.",
   "composer.uploadOffline":
