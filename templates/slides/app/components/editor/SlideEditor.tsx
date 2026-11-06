@@ -182,6 +182,7 @@ import {
   type FloatingToolbarMoveTool,
   type FloatingToolbarTransition,
 } from "./FloatingToolbar";
+import { SLIDE_FONT_SIZE_MIN, SLIDE_FONT_SIZE_MAX } from "./font-size-scale";
 import { HandPanLayer } from "./HandPanLayer";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
@@ -217,7 +218,6 @@ import {
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
 } from "./rich-text-selection";
-import { SLIDE_FONT_SIZE_MIN, SLIDE_FONT_SIZE_MAX } from "./font-size-scale";
 import {
   createSelectionOverlayAutofitKey,
   createSelectionOverlayMeasurementIdentityKey,
@@ -10739,16 +10739,17 @@ export default function SlideEditor({
               sizeBounds,
             );
             styledRange = applied.range ?? null;
-          } else {
-            applyObjectFontSizeDelta(element, fontSizeStep, sizeBounds);
+            return applied.changed;
           }
+          return applyObjectFontSizeDelta(element, fontSizeStep, sizeBounds)
+            .changed;
         };
         const session =
           textSessionRef.current?.text.element === element
             ? textSessionRef.current.text
             : null;
-        if (session) session.apply(applyDelta);
-        else applyDelta();
+        const changed = session ? session.apply(applyDelta) : applyDelta();
+        if (!changed) return;
         result = { styledRange, rotationApplied: true };
       } else {
         result = applyStylePatchToElement(element, patch, savedRange);

@@ -632,6 +632,118 @@ describe("rich text selection", () => {
     }
   });
 
+  it.each([
+    [
+      "selected range",
+      (
+        session: ReturnType<typeof startInPlaceTextSession>,
+        block: HTMLElement,
+      ) =>
+        session.apply(
+          () =>
+            applyInlineFontSizeDelta(block, 4, { min: 10, max: 30 }).changed,
+        ),
+    ],
+    [
+      "whole object",
+      (
+        session: ReturnType<typeof startInPlaceTextSession>,
+        block: HTMLElement,
+      ) =>
+        session.apply(
+          () =>
+            applyObjectFontSizeDelta(block, 4, { min: 10, max: 30 }).changed,
+        ),
+    ],
+  ])(
+    "preserves redo when resizing a %s at its size limit",
+    (_scope, resize) => {
+      const block = editable(
+        '<span style="font-size: 30px">hello world</span>',
+      );
+      block.style.fontSize = "30px";
+      block.removeAttribute("contenteditable");
+      const session = startInPlaceTextSession(block);
+      try {
+        const text = block.firstElementChild!.firstChild as Text;
+        window.getSelection()!.setBaseAndExtent(text, 8, text, 2);
+        expect(
+          session.apply(() => {
+            applyInlineTextStyle(block, { color: "red" });
+          }),
+        ).toBe(true);
+        const changedHtml = block.outerHTML;
+        expect(session.undo()).toBe(true);
+        expect(session.historyStats()).toMatchObject({
+          undoDepth: 0,
+          redoDepth: 1,
+        });
+        const before = block.outerHTML;
+        const selection = window.getSelection()!;
+        const anchor = selection.anchorNode;
+        const focus = selection.focusNode;
+        const anchorOffset = selection.anchorOffset;
+        const focusOffset = selection.focusOffset;
+        expect(selection.toString()).toBe("llo wo");
+
+        expect.soft(resize(session, block)).toBe(false);
+        expect.soft(session.historyStats()).toMatchObject({
+          undoDepth: 0,
+          redoDepth: 1,
+        });
+        expect(block.outerHTML).toBe(before);
+        expect(selection.anchorNode).toBe(anchor);
+        expect(selection.anchorOffset).toBe(anchorOffset);
+        expect(selection.focusNode).toBe(focus);
+        expect(selection.focusOffset).toBe(focusOffset);
+        expect(selection.toString()).toBe("llo wo");
+        expect(session.redo()).toBe(true);
+        expect(block.outerHTML).toBe(changedHtml);
+        expect(selection.toString()).toBe("llo wo");
+      } finally {
+        session.end();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "selected range",
+      (block: HTMLElement) =>
+        applyInlineFontSizeDelta(block, -4, { min: 10, max: 30 }).changed,
+    ],
+    [
+      "whole object",
+      (block: HTMLElement) =>
+        applyObjectFontSizeDelta(block, -4, { min: 10, max: 30 }).changed,
+    ],
+  ])("records a changed font size step for a %s", (_scope, resize) => {
+    const block = editable('<span style="font-size: 30px">hello world</span>');
+    block.style.fontSize = "30px";
+    block.removeAttribute("contenteditable");
+    const session = startInPlaceTextSession(block);
+    try {
+      const text = block.firstElementChild!.firstChild as Text;
+      rangeFor(text, 2, text, 8);
+      const before = block.outerHTML;
+      expect(session.apply(() => resize(block))).toBe(true);
+      const changed = block.outerHTML;
+      expect(changed).not.toBe(before);
+      expect(block.innerHTML).toContain("26px");
+      expect(session.historyStats()).toMatchObject({
+        undoDepth: 1,
+        redoDepth: 0,
+      });
+      expect(session.undo()).toBe(true);
+      expect(block.outerHTML).toBe(before);
+      expect(session.redo()).toBe(true);
+      expect(block.outerHTML).toBe(changed);
+      expect(window.getSelection()!.toString()).toBe("llo wo");
+    } finally {
+      session.end();
+    }
+  });
+
   it("updates the object size and each mixed run once while keeping bounded runs unchanged", () => {
     const block = editable(
       'inherited <span style="font-size: 18px">small</span> <strong style="font-size: 30px">limited</strong>',
