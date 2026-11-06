@@ -2907,7 +2907,9 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   const defaultUploads =
-    !options.operations?.createUpload && !options.operations?.completeUpload
+    !options.operations?.createUpload &&
+    !options.operations?.completeUpload &&
+    !options.operations?.cancelUpload
       ? createAgentNativeUploadRuntime({
           url: fileUploadUrlForChatApi(apiUrl),
           fetch: fetcher,

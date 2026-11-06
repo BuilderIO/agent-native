@@ -17,7 +17,7 @@ describe("native AgentKit uploads", () => {
       ),
     ).toBe("https://chat.example.test/base/_agent-native/file-upload");
   });
-  it.each(["create", "complete"] as const)(
+  it.each(["create", "complete", "cancel"] as const)(
     "does not mix Core upload state with a custom %s operation",
     async (operation) => {
       const transport = createAgentNativeAgentKitTransport({
@@ -30,13 +30,15 @@ describe("native AgentKit uploads", () => {
                   url: "https://storage.example.test/custom",
                 }),
               }
-            : {
-                completeUpload: async () => ({
-                  type: "file",
-                  name: "custom",
-                  url: "https://storage.example.test/custom",
-                }),
-              },
+            : operation === "complete"
+              ? {
+                  completeUpload: async () => ({
+                    type: "file",
+                    name: "custom",
+                    url: "https://storage.example.test/custom",
+                  }),
+                }
+              : { cancelUpload: async () => {} },
       });
       try {
         expect(transport.upload).toBeUndefined();
