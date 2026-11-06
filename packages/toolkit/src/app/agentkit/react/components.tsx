@@ -5280,7 +5280,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const { messageSeq, requestId, runId } = position;
   const isAssistant = message.role === "assistant";
   const isLastAssistantMessage = isAssistant && position.isLast;
-  // A streaming reply keeps its work above it until the answer is complete.
+  // The reply's work row sits on this footer line, live or finished.
   const workHostRef = useAgentMessageWorkHostRef(
     isAssistant ? message.id : undefined,
   );
@@ -8378,6 +8378,12 @@ export function AgentKitChat({
       return messageId ? [messageId] : [];
     }),
   );
+  // A saved reply's reasoning before its answer joins the work group above
+  // it, so the turn shows one disclosure; the stream did not place it there.
+  const foldsLeadingReasoning = (message: AgentMessage) =>
+    message.status !== "streaming" &&
+    !groupedReasoningMessageIds.has(message.id) &&
+    leadingReasoningMessage(message) !== undefined;
   const hasRunWork = (
     runId: RunId,
     afterSequence?: number,
@@ -8483,7 +8489,11 @@ export function AgentKitChat({
   // it keeps its row in its footer.
   const liveReplies = new Map<
     RunId,
-    { replyId: string; start: { id: string; sequence: number } | undefined }
+    {
+      replyId: string;
+      start: { id: string; sequence: number } | undefined;
+      foldsReasoning: boolean;
+    }
   >();
   for (const [runId, reply] of lastAssistantMessagesByRun) {
     if (
@@ -8493,14 +8503,16 @@ export function AgentKitChat({
       continue;
     }
     const start = runSegmentStarts.get(runId);
-    const streaming =
-      thread.messages.find((message) => message.id === reply.id)?.status ===
-      "streaming";
+    const message = thread.messages.find(({ id }) => id === reply.id);
     if (
-      (streaming || pendingRuns.has(runId)) &&
+      (message?.status === "streaming" || pendingRuns.has(runId)) &&
       hasRunWork(runId, start?.sequence)
     ) {
-      liveReplies.set(runId, { replyId: reply.id, start });
+      liveReplies.set(runId, {
+        replyId: reply.id,
+        start,
+        foldsReasoning: message ? foldsLeadingReasoning(message) : false,
+      });
     }
   }
   const runRevision = (runId: RunId) =>
@@ -8656,6 +8668,9 @@ export function AgentKitChat({
             anchor: liveReply.start?.id ?? "start",
             afterSequence: liveReply.start?.sequence,
             messageId: liveReply.replyId,
+            foldedReasoningMessageId: liveReply.foldsReasoning
+              ? liveReply.replyId
+              : undefined,
             part: "row",
           }),
         );
@@ -8851,13 +8866,7 @@ export function AgentKitChat({
           isLiveReply ? undefined : sequence,
         )),
     );
-    // A saved reply's reasoning before its answer joins the work group above
-    // it, so the turn shows one disclosure; the stream did not place it there.
-    const foldsReasoning =
-      rendersRunWork &&
-      message.status !== "streaming" &&
-      !groupedReasoningMessageIds.has(message.id) &&
-      leadingReasoningMessage(message) !== undefined;
+    const foldsReasoning = rendersRunWork && foldsLeadingReasoning(message);
     if (rendersRunWork && runId) {
       transcriptItems.push(
         renderRunWork({

@@ -307,6 +307,71 @@ describe("a reply that narrates between steps", () => {
     throw new Error(`No text "${text}" on screen`);
   };
 
+  it("keeps a saved reply's leading reasoning in the live row", async () => {
+    const working = reduce([
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "reply",
+        role: "assistant",
+        text: "Looking it up.",
+      }),
+      search(3, "first", "running"),
+    ]);
+    const saved: AgentThreadState = {
+      ...working,
+      messages: [
+        {
+          id: "reply",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            { type: "reasoning", text: "Weighing the two bikes." },
+            { type: "text", text: "Looking it up." },
+          ],
+        },
+      ],
+    };
+    await render(observableController(snapshotOf(saved, 0)).controller);
+    await flush();
+
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.dataset.running).toBe("true");
+    expect(rows()[0]!.textContent).toContain("Weighing the two bikes.");
+  });
+
+  it("shows a live row for a step whose only output is a result card", async () => {
+    function SearchResult({ value }: { value: { id: string } }) {
+      return <div data-search-result={value.id}>Results</div>;
+    }
+    const carded = reduce(narrated.slice(0, 5));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <AgentKitRoot
+          controller={observableController(snapshotOf(carded, 0)).controller}
+          threadId={threadId}
+          load="manual"
+          registry={{ tools: { "web-search": SearchResult } }}
+        >
+          <AgentKitChat composer={false} />
+        </AgentKitRoot>,
+      );
+      await Promise.resolve();
+    });
+    await flush();
+
+    const reply = container.querySelector('[data-message-id="reply"]')!;
+    expect(
+      follows(reply, container.querySelector('[data-search-result="first"]')!),
+    ).toBe(true);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.dataset.running).toBe("true");
+    expect(follows(rows()[0]!, textOf("Looking"))).toBe(true);
+  });
+
   it("shows no row while narration after a step streams", async () => {
     const observable = observableController(
       snapshotOf(reduce(narrated.slice(0, 6)), 0),
