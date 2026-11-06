@@ -324,6 +324,7 @@ export default {
   common: {
     loading: "正在加载...",
     genericError: "出了点问题",
+    linkedSourceSizeLimit: "此关联组件编辑超出了源代码大小限制。",
   },
   editPanel: {
     colorInputLabel: "颜色",
@@ -1022,6 +1023,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
+    writeFailed: "无法保存该更改。",
+    selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
       title: "实时协作",
       description:
@@ -2591,6 +2595,7 @@ export default {
   },
   homeContext: {
     websiteReference: "添加网站",
+    websiteReferenceMenu: "添加网站…",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
     figmaUrlLabel: "Figma 链接",
@@ -2613,10 +2618,12 @@ export default {
     retry: "重试",
     empty: "没有匹配的参考。",
     none: "无",
-    design: "设计",
+    design: "设计参考",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "添加 Figma",
+    connectFigma: "连接 Figma",
+    figmaDisconnected: "连接 Figma 以浏览设计。",
+    figmaReference: "Figma 设计",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",

@@ -4,6 +4,7 @@ import {
   applyOptimisticBreakpointAdd,
   applyOptimisticBreakpointRemove,
 } from "../derive/design-breakpoints";
+import { designMetadataQueryKey } from "../design-query-key";
 
 type DesignQueryData = { data?: string } & Record<string, unknown>;
 
@@ -13,11 +14,7 @@ export function beginOptimisticBreakpointSetPatch(args: {
   designDataJsonRef: { current: Record<string, unknown> };
   nextData: Record<string, unknown>;
 }): { rollback: () => void } {
-  const designQueryKey = [
-    "action",
-    "get-design",
-    { id: args.designId },
-  ] as const;
+  const designQueryKey = designMetadataQueryKey(args.designId);
   const previousDesign =
     args.queryClient.getQueryData<DesignQueryData>(designQueryKey);
   const previousData = args.designDataJsonRef.current;

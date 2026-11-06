@@ -634,6 +634,10 @@ function AgentTab({
     ? t("shareDialog.agentPrompt", {
         agentContextUrl: agentLink,
         shareWithAgents: t("shareDialog.shareWithAgents"),
+        connectUrl: new URL(
+          "/mcp/connect",
+          apiBaseUrl() || window.location.origin,
+        ).toString(),
       })
     : "";
 

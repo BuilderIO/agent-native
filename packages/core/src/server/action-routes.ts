@@ -2024,9 +2024,13 @@ function ifNoneMatchIncludes(
   etag: string,
 ): boolean {
   if (!header) return false;
+  // A compressed response reaches the browser with "-df" on its tag (seen on
+  // our Netlify hosts), and the browser sends that tag back as it received it.
   return header
     .split(",")
-    .some((tag) => tag.trim().replace(/^W\//, "") === etag);
+    .some(
+      (tag) => tag.trim().replace(/^W\//, "").replace(/-df"$/, '"') === etag,
+    );
 }
 
 export function mountWebMcpActionRoutes(
