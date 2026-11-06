@@ -319,6 +319,23 @@ describe("SourceHydration", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
+  it("forgets a measured size once the source has a new version", async () => {
+    const loader = new SourceHydration(
+      async () => ({ content: "x".repeat(20), updatedAt: "1" }),
+      () => {},
+      4,
+      10,
+    );
+    loader.sync([{ id: "p", updatedAt: "1" }]);
+    loader.setWanted(["p"]);
+    await loader.request("p", "low");
+    // 20 measured bytes are past the budget, so the read was dropped.
+    expect(loader.get("p").status).toBe("unloaded");
+    expect(loader.canLoad("p")).toBe(false);
+    loader.sync([{ id: "p", updatedAt: "2" }]);
+    expect(loader.canLoad("p")).toBe(true);
+  });
+
   it("counts nearer previews still reading against the budget", async () => {
     const finishes: Array<() => void> = [];
     const read = vi.fn(

@@ -215,7 +215,10 @@ export class SourceHydration {
   }
 
   private sizeOf(id: string): number {
-    return this.lru.get(id) ?? this.sizes.get(id)?.bytes ?? 0;
+    const resident = this.lru.get(id);
+    if (resident !== undefined) return resident;
+    const known = this.sizes.get(id);
+    return known && known.version === this.versions.get(id) ? known.bytes : 0;
   }
 
   /**
