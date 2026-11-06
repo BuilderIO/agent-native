@@ -1,4 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { screenFrameTypeForCopy } from "@shared/screen-frame-type";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -38,6 +39,7 @@ export interface CopySelectionArgs {
   copiedLayerEntriesRef: RefObject<CanvasLayerClipboardEntry[]>;
   copiedLayerHtmlRef: RefObject<string | null>;
   copiedScreenEntriesRef: RefObject<DesignClipboardScreenEntry[] | undefined>;
+  designData: unknown;
   designSourceType: "inline" | "localhost" | "fusion";
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
@@ -90,6 +92,7 @@ export async function runCopySelection({
   copiedLayerEntriesRef,
   copiedLayerHtmlRef,
   copiedScreenEntriesRef,
+  designData,
   designSourceType,
   files,
   getScreenContent,
@@ -169,12 +172,18 @@ export async function runCopySelection({
               storedContent: getScreenContent(screenId) ?? file?.content,
             });
             if (!file || typeof content !== "string") return null;
+            const frameType = screenFrameTypeForCopy({
+              designData,
+              fileId: screenId,
+              content,
+            });
             return {
               filename: file.filename,
               fileType: file.fileType,
               content,
               sourceScreenId: screenId,
               canvasFrame: canvasFrameGeometryById[screenId],
+              ...(frameType ? { frameType } : {}),
             };
           })
           .filter((entry): entry is DesignClipboardScreenEntry =>
