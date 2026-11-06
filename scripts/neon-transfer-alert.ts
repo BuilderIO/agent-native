@@ -639,6 +639,10 @@ async function run(): Promise<void> {
   const projects = await listProjects();
   if (projects.size === 0) throw new Error("Neon project list was empty.");
   const fetched = await fetchTransferPoints(projects, from, throughExclusive);
+  const reporting = new Set(fetched.map(({ projectId }) => projectId)).size;
+  console.log(
+    `Checked ${projects.size} Neon projects (${reporting} with transfer data, ${fetched.length} daily data points) from ${from} through ${lastFullDay}.`,
+  );
   const { alerts, incompleteBaselines } = await publishDailyTransferAlerts(
     fetched,
     lastFullDay,
