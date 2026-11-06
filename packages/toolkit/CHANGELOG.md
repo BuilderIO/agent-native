@@ -1,5 +1,14 @@
 # @agent-native/toolkit
 
+## 0.225.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+
 ## 0.225.0
 
 ### Minor Changes
@@ -1593,11 +1602,5 @@
 ### Patch Changes
 
 - 43fa797: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.1
-
-### Patch Changes
-
-- fb18771: Keep shared composer labels theme-safe and translatable.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
