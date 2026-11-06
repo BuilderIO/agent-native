@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Fix Cloudflare module builds that load process through Node's createRequire.
+Fix Cloudflare Worker startup validation and process loading through Node's createRequire.

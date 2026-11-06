@@ -4521,52 +4521,6 @@ function hasBundledVitestRuntime(source: string): boolean {
   );
 }
 
-function walkServerJavaScriptFiles(
-  dir: string,
-  onFile: (filePath: string) => void,
-): void {
-  if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkServerJavaScriptFiles(entryPath, onFile);
-      continue;
-    }
-    if (/\.(?:[cm]?js)$/.test(entry.name)) onFile(entryPath);
-  }
-}
-
-const CF_MODULE_NODE_BUILTINS = [
-  "fs",
-  "path",
-  "os",
-  "crypto",
-  "http",
-  "https",
-  "stream",
-  "url",
-  "util",
-  "events",
-  "buffer",
-  "console",
-  "querystring",
-  "zlib",
-  "net",
-  "tls",
-  "assert",
-  "timers",
-  "child_process",
-  "module",
-  "process",
-  "worker_threads",
-  "string_decoder",
-  "diagnostics_channel",
-  "async_hooks",
-  "perf_hooks",
-  "inspector",
-  "vm",
-];
-
 const CF_PROCESS_REQUIRE_MARKER = "/*__cf_process_require_shim__*/";
 
 type CloudflareModuleAst = ReturnType<typeof parse>;
@@ -4957,6 +4911,52 @@ function ${wrapFactory}(factory, receiver, ...args) {
   edited.appendLeft(insertion, insertion ? `\n${prefix}` : prefix);
   return edited.toString();
 }
+
+function walkServerJavaScriptFiles(
+  dir: string,
+  onFile: (filePath: string) => void,
+): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkServerJavaScriptFiles(entryPath, onFile);
+      continue;
+    }
+    if (/\.(?:[cm]?js)$/.test(entry.name)) onFile(entryPath);
+  }
+}
+
+const CF_MODULE_NODE_BUILTINS = [
+  "fs",
+  "path",
+  "os",
+  "crypto",
+  "http",
+  "https",
+  "stream",
+  "url",
+  "util",
+  "events",
+  "buffer",
+  "console",
+  "querystring",
+  "zlib",
+  "net",
+  "tls",
+  "assert",
+  "timers",
+  "child_process",
+  "module",
+  "process",
+  "worker_threads",
+  "string_decoder",
+  "diagnostics_channel",
+  "async_hooks",
+  "perf_hooks",
+  "inspector",
+  "vm",
+];
 
 /**
  * Post-build patches for `cloudflare_module` server output. Recurses (via
