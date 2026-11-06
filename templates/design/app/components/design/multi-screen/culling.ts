@@ -88,11 +88,15 @@ export function resolveLiveEditorScreenIds({
 export function selectStaticPreviewScreenIds({
   candidates,
   viewport,
+  visibleViewport = null,
   retainedIds,
   budget = OVERVIEW_STATIC_PREVIEW_BUDGET,
 }: {
   candidates: readonly { id: string; geometry: FrameGeometry }[];
   viewport: OverscannedViewportBounds | null;
+  /** On-screen previews come first: center distance alone ranks a tall
+   *  on-screen screen behind short off-screen ones. */
+  visibleViewport?: OverscannedViewportBounds | null;
   retainedIds: ReadonlySet<string>;
   budget?: number;
 }): Set<string> {
@@ -100,12 +104,21 @@ export function selectStaticPreviewScreenIds({
   const nearby = candidates.filter(({ geometry }) =>
     isFrameWithinOverscannedViewport(geometry, viewport),
   );
+  const onScreen = visibleViewport
+    ? nearby.filter(({ geometry }) =>
+        isFrameWithinOverscannedViewport(geometry, visibleViewport),
+      )
+    : [];
   const retained = candidates.filter(
     (candidate) => retainedIds.has(candidate.id) && !nearby.includes(candidate),
   );
   return new Set(
     [
-      ...orderByViewportDistance(nearby, viewport),
+      ...orderByViewportDistance(onScreen, viewport),
+      ...orderByViewportDistance(
+        nearby.filter((candidate) => !onScreen.includes(candidate)),
+        viewport,
+      ),
       ...orderByViewportDistance(retained, viewport),
     ].slice(0, Math.max(0, Math.floor(budget))),
   );

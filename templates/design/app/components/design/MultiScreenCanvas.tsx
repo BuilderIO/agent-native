@@ -12204,6 +12204,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasZoom,
           OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
         ),
+        visibleViewport: getOverscannedViewportCanvasBounds(
+          surfaceSize,
+          pan,
+          canvasZoom,
+          0,
+        ),
         retainedIds: hasBeenVisibleScreenIdsRef.current,
       }),
     [canvasFrames, canvasZoom, pan, screenCullTierById, surfaceSize],
