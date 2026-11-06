@@ -148,8 +148,9 @@ const STORAGE_DOWNLOAD_QUERY_KEYS = new Set(["alt", "token", "apiKey"]);
  * download token, and it is the only URL Builder returns for non-image
  * uploads, so rejecting it fails every such attachment. `apiKey` is the
  * space's public key, which these URLs also carry. The token makes the stored
- * URL a bearer link to the file, so it may only live where access to the
- * thread itself is already scoped.
+ * URL a bearer link to the file: every store that persists it (threads, runs,
+ * resources, dispatched work) must already be access-scoped to the people
+ * allowed to read the file.
  */
 function hasDurableQuery(url: URL): boolean {
   if (!url.search) return true;
