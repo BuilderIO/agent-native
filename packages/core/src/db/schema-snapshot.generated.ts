@@ -837,6 +837,11 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["agent_harness_sessions", "agent-harness-follow-up-recovery", null],
     [
       "agent_harness_sessions",
+      "agent-harness-sessions-approval-and-expiry-columns",
+      null,
+    ],
+    [
+      "agent_harness_sessions",
       "agent-harness-sessions-approval-resolution",
       "11882889ef267cdb",
     ],
