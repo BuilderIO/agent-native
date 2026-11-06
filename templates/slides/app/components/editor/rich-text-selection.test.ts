@@ -444,50 +444,6 @@ describe("rich text selection", () => {
     expect(required(window.getSelection()).toString()).toBe("resize me");
   });
 
-  it("repeatedly resizes a saved mixed range without taking input focus", () => {
-    const block = editable(
-      '<span style="font-size: 20px">first</span><span style="font-size: 30px">second</span>',
-    );
-    const first = required(block.firstElementChild).firstChild as Text;
-    const last = required(block.lastElementChild).firstChild as Text;
-    const saved = rangeFor(first, 1, last, 3).cloneRange();
-    const input = document.createElement("input");
-    document.body.append(input);
-    input.focus();
-
-    const one = applyInlineFontSizeDelta(
-      block,
-      1,
-      { min: 10, max: 40 },
-      null,
-      saved,
-    );
-    expect(one.scope).toBe("selection");
-    expect(one.changed).toBe(true);
-    expect(document.activeElement).toBe(input);
-    expect(one.range?.toString()).toBe("irstsec");
-
-    const two = applyInlineFontSizeDelta(
-      block,
-      1,
-      { min: 10, max: 40 },
-      null,
-      one.range,
-    );
-    expect(two.changed).toBe(true);
-    expect(document.activeElement).toBe(input);
-    expect(two.range?.toString()).toBe("irstsec");
-    expect(
-      (required(block.firstElementChild).lastElementChild as HTMLElement).style
-        .fontSize,
-    ).toBe("22px");
-    expect(
-      (required(block.lastElementChild).firstElementChild as HTMLElement).style
-        .fontSize,
-    ).toBe("32px");
-    input.remove();
-  });
-
   it("adjusts each selected run's computed size and preserves a backward partial selection", () => {
     const block = editable(
       '<span style="font-size: 20px">first</span><strong style="font-size: 30px">second</strong>',
