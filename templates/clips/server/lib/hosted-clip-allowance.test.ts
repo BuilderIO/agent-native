@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -248,6 +249,160 @@ describe("hosted clip allowance", () => {
     expect(outcomes.filter((result) => !result.ok)).toEqual([
       { ok: false, reason: "global_daily_cap" },
     ]);
+  });
+
+  describe("global daily cap grant accounting", () => {
+    const capped = policy({ globalDailyClipCap: 2 });
+    const user = (n: number) => ({
+      email: `daily-${n}@example.com`,
+      userId: `daily-user-${n}`,
+    });
+    const release = (recordingId: string, n: number) =>
+      allowance.releaseHostedClipAllowance({
+        recordingId,
+        userId: user(n).userId,
+        reason: "abort",
+        now: NOW,
+      });
+    const snapshot = (n: number) =>
+      allowance.getHostedClipAllowanceSnapshot({
+        ...user(n),
+        emailVerified: true,
+        ipPrefix: null,
+        policy: capped,
+        now: NOW,
+      });
+
+    it("gives a released grant back to the daily cap", async () => {
+      await reserve({ ...user(1), recordingId: "d-1", policy: capped });
+      await reserve({ ...user(2), recordingId: "d-2", policy: capped });
+      await expect(
+        reserve({ ...user(3), recordingId: "d-3", policy: capped }),
+      ).resolves.toEqual({ ok: false, reason: "global_daily_cap" });
+
+      await release("d-1", 1);
+
+      await expect(
+        reserve({ ...user(3), recordingId: "d-3", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("keeps one account's create-and-release loop from draining the cap for others", async () => {
+      for (let i = 0; i < 5; i++) {
+        await expect(
+          reserve({ ...user(1), recordingId: `loop-${i}`, policy: capped }),
+        ).resolves.toMatchObject({ ok: true });
+        await release(`loop-${i}`, 1);
+      }
+
+      await expect(
+        reserve({ ...user(2), recordingId: "other-1", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+      await expect(
+        reserve({ ...user(3), recordingId: "other-2", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("counts today's reserved and consumed rows but not yesterday's", async () => {
+      await client.query(
+        `INSERT INTO clips_hosted_clip_allowances (recording_id, identity_key, user_id, status, created_at)
+         VALUES ('yesterday-1', 'old-1', 'old-user-1', 'consumed', '2026-10-13T23:59:59.000Z'),
+                ('yesterday-2', 'old-2', 'old-user-2', 'reserved', '2026-10-13T12:00:00.000Z')`,
+      );
+      await reserve({
+        ...user(1),
+        recordingId: "today-reserved",
+        policy: capped,
+      });
+      await reserve({
+        ...user(2),
+        recordingId: "today-consumed",
+        policy: capped,
+      });
+      await allowance.consumeHostedClipAllowance({
+        recordingId: "today-consumed",
+        userId: user(2).userId,
+        actualBytes: 10,
+        now: NOW,
+      });
+
+      await expect(
+        reserve({ ...user(3), recordingId: "today-third", policy: capped }),
+      ).resolves.toEqual({ ok: false, reason: "global_daily_cap" });
+
+      await release("today-reserved", 1);
+
+      await expect(
+        reserve({ ...user(3), recordingId: "today-third", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("reports the same cap in the status snapshot as the reserve", async () => {
+      await reserve({ ...user(1), recordingId: "s-1", policy: capped });
+      await reserve({ ...user(2), recordingId: "s-2", policy: capped });
+      await expect(snapshot(3)).resolves.toMatchObject({
+        denialReason: "global_daily_cap",
+      });
+
+      await release("s-2", 2);
+
+      await expect(snapshot(3)).resolves.toMatchObject({
+        status: "available",
+        denialReason: null,
+      });
+    });
+
+    it("denies a retry that would push today's count over the cap", async () => {
+      const oneSlot = policy({ globalDailyClipCap: 1 });
+      await client.query(
+        `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ('r-1', 'failed', 'hosted', $1)`,
+        [user(1).email],
+      );
+      await reserve({ ...user(1), recordingId: "r-1", policy: oneSlot });
+      await release("r-1", 1);
+      await reserve({ ...user(2), recordingId: "r-2", policy: oneSlot });
+
+      setHostedConfig({ globalDailyClipCap: 1 });
+      const retry = () =>
+        allowance.reacquireHostedClipAllowanceForRetry({
+          recordingId: "r-1",
+          userId: user(1).userId,
+          ownerEmail: user(1).email,
+          now: NOW,
+        });
+      await expect(retry()).resolves.toEqual({
+        ok: false,
+        reason: "global_daily_cap",
+      });
+
+      await release("r-2", 2);
+
+      await expect(retry()).resolves.toMatchObject({ ok: true });
+    });
+
+    it("lets a retry revive a grant created on an earlier day", async () => {
+      await client.query(
+        `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ('r-old', 'failed', 'hosted', $1)`,
+        [user(1).email],
+      );
+      await client.query(
+        `INSERT INTO clips_hosted_clip_allowances (recording_id, identity_key, user_id, status, created_at)
+         VALUES ('r-old', 'daily-1@example.com', $1, 'released', '2026-10-13T12:00:00.000Z')`,
+        [user(1).userId],
+      );
+      await reserve({ ...user(2), recordingId: "r-today", policy: capped });
+      await reserve({ ...user(3), recordingId: "r-today-2", policy: capped });
+
+      setHostedConfig({ globalDailyClipCap: 2 });
+      await expect(
+        allowance.reacquireHostedClipAllowanceForRetry({
+          recordingId: "r-old",
+          userId: user(1).userId,
+          ownerEmail: user(1).email,
+          now: NOW,
+        }),
+      ).resolves.toMatchObject({ ok: true });
+    });
   });
 
   it("enforces the IP-prefix daily new-identity cap while allowing a missing IP", async () => {
@@ -957,6 +1112,19 @@ describe("hosted clip allowance", () => {
     expect(mockTrack).toHaveBeenCalled();
   });
 
+  it("counts the identity's active rows once for a new reservation", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "count-seed" });
+    const statements = captureStatements();
+    await expect(reserve({ recordingId: "count-once" })).resolves.toMatchObject(
+      { ok: true, alreadyReserved: false, remainingCount: 1 },
+    );
+    const identityCounts = statements.filter(
+      (text) => /count\(\*\)/i.test(text) && /"status" in/i.test(text),
+    );
+    expect(identityCounts).toHaveLength(1);
+  });
+
   it("reads the retained-byte SUM once per capped reserve and reuses it for the level", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const statements = captureStatements();
@@ -1467,5 +1635,106 @@ describe("hosted clip allowance", () => {
         now: NOW,
       }),
     ).resolves.toMatchObject({ denialReason: "global_storage_cap" });
+  });
+
+  it("reads the status snapshot in a read-only repeatable-read transaction without the global lock", async () => {
+    type RecordedTx = { execute: (query: unknown) => Promise<unknown> };
+    await reserve({ recordingId: "snap-1" });
+    await reserve({ recordingId: "snap-2" });
+    const real = state.db;
+    const seen: { config: unknown; sql: string[] }[] = [];
+    state.db = new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return (
+          run: (tx: RecordedTx) => Promise<unknown>,
+          config?: unknown,
+        ) => {
+          const entry = { config, sql: [] as string[] };
+          seen.push(entry);
+          return target.transaction((tx: RecordedTx) => {
+            const execute = tx.execute.bind(tx);
+            tx.execute = (query) => {
+              entry.sql.push(JSON.stringify(query));
+              return execute(query);
+            };
+            return run(tx);
+          }, config);
+        };
+      },
+    });
+    const snapshot = await allowance.getHostedClipAllowanceSnapshot({
+      email: "owner@example.com",
+      emailVerified: true,
+      userId: "user-1",
+      ipPrefix: null,
+      policy: policy(),
+      now: NOW,
+    });
+    expect(snapshot).toMatchObject({
+      reservedCount: 2,
+      consumedCount: 0,
+      remainingCount: 1,
+      status: "available",
+    });
+    await reserve({ recordingId: "snap-3" });
+
+    expect(seen).toHaveLength(2);
+    const [snapshotTx, reserveTx] = seen as [
+      (typeof seen)[number],
+      (typeof seen)[number],
+    ];
+    expect(snapshotTx.config).toEqual({
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    });
+    expect(snapshotTx.sql.join("")).not.toContain("pg_advisory_xact_lock");
+    expect(reserveTx.config).toBeUndefined();
+    expect(reserveTx.sql.join("")).toContain("pg_advisory_xact_lock");
+  });
+
+  it("keeps the status snapshot read-only at the database", async () => {
+    await expect(
+      state.db.transaction(
+        (tx: { execute: (query: unknown) => Promise<unknown> }) =>
+          tx.execute(sql`DELETE FROM clips_hosted_clip_allowances`),
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("returns the identity's remaining clips from the reserve, without a second decrement for an existing reservation", async () => {
+    await expect(reserve({ recordingId: "rem-1" })).resolves.toMatchObject({
+      ok: true,
+      alreadyReserved: false,
+      remainingCount: 2,
+    });
+    await expect(reserve({ recordingId: "rem-2" })).resolves.toMatchObject({
+      alreadyReserved: false,
+      remainingCount: 1,
+    });
+    await expect(reserve({ recordingId: "rem-2" })).resolves.toMatchObject({
+      alreadyReserved: true,
+      remainingCount: 1,
+    });
+    await expect(reserve({ recordingId: "rem-3" })).resolves.toMatchObject({
+      alreadyReserved: false,
+      remainingCount: 0,
+    });
+    await expect(reserve({ recordingId: "rem-4" })).resolves.toEqual({
+      ok: false,
+      reason: "exhausted",
+    });
+  });
+
+  it("gives concurrent reserves distinct remaining counts", async () => {
+    const results = await Promise.all([
+      reserve({ recordingId: "race-1" }),
+      reserve({ recordingId: "race-2" }),
+      reserve({ recordingId: "race-3" }),
+    ]);
+    expect(results.map((r) => (r.ok ? r.remainingCount : -1)).sort()).toEqual([
+      0, 1, 2,
+    ]);
   });
 });
