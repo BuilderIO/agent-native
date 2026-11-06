@@ -45,7 +45,7 @@ Write commands are dry runs unless --apply is given. Output is counts and ids on
   plan   [--out <file>]
   apply  [--apply --confirm-snapshots] [--allow-flag-on]
   verify
-  undo   --manifest <file> [--apply] [--confirm-delete]
+  undo   --manifest <file> [--apply] [--confirm-delete] [--allow-flag-on]
   flag   --mode on|off|emails [--emails a@x.com,b@y.com] [--apply] [--allow-org-overrides | --disable-org-overrides]`;
 
 // Only messages written in this script are printed; driver errors can carry
@@ -457,6 +457,8 @@ interface Manifest {
   appLinked: Array<{ app: string; orgId: string; canonicalId: string }>;
 }
 
+class RosterChangedDuringUndo extends Error {}
+
 async function runUndo(databases: Databases, args: readonly string[]) {
   const file = flagValue(args, "--manifest");
   if (!file) throw new ScriptError("Pass --manifest <file>.");
@@ -476,8 +478,113 @@ async function runUndo(databases: Databases, args: readonly string[]) {
       "Undoing hub rows deletes them; pass --confirm-delete.",
     );
   }
+  if (!args.includes("--allow-flag-on")) {
+    for (const [app, exec] of databases) {
+      const state = await readFlagState(exec);
+      if (state.globalActive || state.overrides.some((o) => o.active)) {
+        throw new ScriptError(
+          `The federation flag is active in ${app}; undoing links while they are live can strand workspaces. Turn it off first (flag --mode off), or pass --allow-flag-on only if that is intended.`,
+        );
+      }
+    }
+  }
+
+  // Hub rows first: the set of rows that turn out to be changed decides which
+  // app links must stay, so a changed hub row never loses its workspaces.
+  const hub = requireDb(databases, HUB_APP);
+  let hubDeleted = 0;
+  const keptHubIds = new Set<string>();
+  for (const batch of chunk(manifest.hubCreated, HUB_BATCH)) {
+    if (!hub.transaction) {
+      throw new ScriptError("The hub database does not support transactions.");
+    }
+    try {
+      // Every check runs inside the transaction on locked rows, and the
+      // delete itself returns what it removed, so a roster that changed
+      // between the check and the delete rolls the whole batch back.
+      const outcome = await hub.transaction(async (tx) => {
+        const ids = batch.map((created) => created.id);
+        // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+        const owned = await tx.execute({
+          sql: `SELECT id FROM organizations WHERE id IN (${ids.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id FOR UPDATE`,
+          args: [...ids, manifest.authority],
+        });
+        const ownedIds = owned.rows.map((row) => String(row.id));
+        const rosters = new Map<
+          string,
+          Array<{ email: string; role: string }>
+        >();
+        if (ownedIds.length > 0) {
+          // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+          const members = await tx.execute({
+            sql: `SELECT org_id, LOWER(email) AS email, role FROM org_members WHERE org_id IN (${ownedIds.map(() => "?").join(", ")}) FOR UPDATE`,
+            args: ownedIds,
+          });
+          for (const row of members.rows) {
+            const list = rosters.get(String(row.org_id)) ?? [];
+            list.push({ email: String(row.email), role: String(row.role) });
+            rosters.set(String(row.org_id), list);
+          }
+        }
+        const deletable = batch.filter(
+          (created) =>
+            ownedIds.includes(created.id) &&
+            created.rosterHash !== undefined &&
+            rosterHash(rosters.get(created.id) ?? []) === created.rosterHash,
+        );
+        const deletableIds = deletable.map((created) => created.id);
+        let deleted = 0;
+        if (deletableIds.length > 0) {
+          // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+          const removed = await tx.execute({
+            sql: `DELETE FROM org_members WHERE org_id IN (${deletableIds.map(() => "?").join(", ")}) RETURNING org_id, LOWER(email) AS email, role`,
+            args: deletableIds,
+          });
+          const removedByOrg = new Map<
+            string,
+            Array<{ email: string; role: string }>
+          >();
+          for (const row of removed.rows) {
+            const list = removedByOrg.get(String(row.org_id)) ?? [];
+            list.push({ email: String(row.email), role: String(row.role) });
+            removedByOrg.set(String(row.org_id), list);
+          }
+          for (const created of deletable) {
+            if (
+              rosterHash(removedByOrg.get(created.id) ?? []) !==
+              created.rosterHash
+            ) {
+              throw new RosterChangedDuringUndo();
+            }
+          }
+          // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+          const orgs = await tx.execute({
+            sql: `DELETE FROM organizations WHERE id IN (${deletableIds.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id`,
+            args: [...deletableIds, manifest.authority],
+          });
+          deleted = orgs.rowsAffected;
+        }
+        return {
+          deleted,
+          kept: batch
+            .filter((created) => !deletableIds.includes(created.id))
+            .map((created) => created.id),
+        };
+      });
+      hubDeleted += outcome.deleted;
+      for (const id of outcome.kept) keptHubIds.add(id);
+    } catch (error) {
+      if (!(error instanceof RosterChangedDuringUndo)) throw error;
+      for (const created of batch) keptHubIds.add(created.id);
+    }
+    progress("hub-delete", hubDeleted, manifest.hubCreated.length);
+  }
+
+  const toUnlink = manifest.appLinked.filter(
+    (link) => !keptHubIds.has(link.canonicalId),
+  );
   let unlinked = 0;
-  for (const [app, links] of groupByApp(manifest.appLinked)) {
+  for (const [app, links] of groupByApp(toUnlink)) {
     const exec = requireDb(databases, app);
     for (const batch of chunk(links, LINK_BATCH)) {
       // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
@@ -489,67 +596,15 @@ async function runUndo(databases: Databases, args: readonly string[]) {
         ],
       });
       unlinked += result.rowsAffected;
-      progress("unlink", unlinked, manifest.appLinked.length);
+      progress("unlink", unlinked, toUnlink.length);
     }
-  }
-  const hub = requireDb(databases, HUB_APP);
-  let hubDeleted = 0;
-  let hubKept = 0;
-  for (const batch of chunk(manifest.hubCreated, HUB_BATCH)) {
-    if (!hub.transaction) {
-      throw new ScriptError("The hub database does not support transactions.");
-    }
-    // Every check runs inside the transaction on locked rows, so nothing that
-    // changed since apply, or between the check and the delete, is removed.
-    await hub.transaction(async (tx) => {
-      const ids = batch.map((created) => created.id);
-      // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-      const owned = await tx.execute({
-        sql: `SELECT id FROM organizations WHERE id IN (${ids.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id FOR UPDATE`,
-        args: [...ids, manifest.authority],
-      });
-      const ownedIds = owned.rows.map((row) => String(row.id));
-      const rosters = new Map<string, Array<{ email: string; role: string }>>();
-      if (ownedIds.length > 0) {
-        // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-        const members = await tx.execute({
-          sql: `SELECT org_id, LOWER(email) AS email, role FROM org_members WHERE org_id IN (${ownedIds.map(() => "?").join(", ")})`,
-          args: ownedIds,
-        });
-        for (const row of members.rows) {
-          const list = rosters.get(String(row.org_id)) ?? [];
-          list.push({ email: String(row.email), role: String(row.role) });
-          rosters.set(String(row.org_id), list);
-        }
-      }
-      const deletable = batch.filter(
-        (created) =>
-          ownedIds.includes(created.id) &&
-          created.rosterHash !== undefined &&
-          rosterHash(rosters.get(created.id) ?? []) === created.rosterHash,
-      );
-      hubKept += batch.length - deletable.length;
-      if (deletable.length === 0) return;
-      const deletableIds = deletable.map((created) => created.id);
-      // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-      await tx.execute({
-        sql: `DELETE FROM org_members WHERE org_id IN (${deletableIds.map(() => "?").join(", ")})`,
-        args: deletableIds,
-      });
-      // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-      const deleted = await tx.execute({
-        sql: `DELETE FROM organizations WHERE id IN (${deletableIds.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id`,
-        args: [...deletableIds, manifest.authority],
-      });
-      hubDeleted += deleted.rowsAffected;
-    });
-    progress("hub-delete", hubDeleted, manifest.hubCreated.length);
   }
   console.log(
     JSON.stringify({
       unlinked,
+      appLinksKept: manifest.appLinked.length - toUnlink.length,
       hubDeleted,
-      hubKeptBecauseRosterChanged: hubKept,
+      hubKeptBecauseChanged: keptHubIds.size,
     }),
   );
 }
