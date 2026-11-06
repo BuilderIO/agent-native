@@ -86,7 +86,11 @@ import {
 } from "../editor-constants";
 import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
-import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
+import {
+  runPublishAgentSelectionContext,
+  summarizeAgentSelectionScreens,
+  type ScreenFrameTypeCache,
+} from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
@@ -1673,6 +1677,16 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
+  const agentSelectionScreens = useMemo(
+    () =>
+      summarizeAgentSelectionScreens(
+        files,
+        designDataJson,
+        screenFrameTypeCacheRef.current,
+      ),
+    [designDataJson, files],
+  );
   useEffect(
     () =>
       runPublishAgentSelectionContext({
@@ -1685,7 +1699,6 @@ export function useEditorToolsAndVectors({
         designDataJson,
         layoutGrids,
         designSelectionOwnerIdRef,
-        files,
         hoveredElement,
         id,
         interactDevice: {
@@ -1709,6 +1722,7 @@ export function useEditorToolsAndVectors({
         persistedSelectionWriteTimerRef,
         responsiveEditScope,
         reviewThreadId: openReviewThreadId,
+        screens: agentSelectionScreens,
         selectedElement,
         selectedScreenIds,
         selectedStateId,
@@ -1719,7 +1733,7 @@ export function useEditorToolsAndVectors({
       id,
       design,
       activeFile,
-      files,
+      agentSelectionScreens,
       selectedScreenIds,
       selectedElement,
       hoveredElement,

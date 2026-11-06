@@ -32,6 +32,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -59,6 +60,7 @@ import {
   getOverviewScreenFileIds,
   isOverviewScreenFile,
 } from "../shared/design-files.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { DESIGN_GENERATION_ATTEMPT_QUERY_PARAM } from "../shared/generation-provenance.js";
 import {
@@ -73,8 +75,11 @@ import {
   inspectDesignHtmlDocumentIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { derivePromptTitle } from "../shared/prompt-title.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -88,6 +93,10 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import {
+  storedScreenFrameType,
+  withScreenFrameTypeLayout,
+} from "../shared/screen-frame-type.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -451,6 +460,12 @@ const designFileSchema = z.object({
     .optional()
     .default("html")
     .describe("Type of file"),
+  frameType: z
+    .literal(HUBSPOT_EMAIL_FRAME_TYPE)
+    .optional()
+    .describe(
+      "Set only on a HubSpot marketing email HTML file: the frame is 600px wide with no device variants and keeps email authoring rules on later edits. Omit for every other file.",
+    ),
 });
 
 const canvasFrameSchema = z
@@ -488,7 +503,7 @@ const promptField = z
 
 const filesDescription =
   "Files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths. " +
-  'For HubSpot email HTML author email-safe tables with `<meta name="agent-native:frame-type" content="hubspot-email">` in the head; the marker is not required for export. ' +
+  'For HubSpot email HTML author email-safe tables and set `frameType: "hubspot-email"` on the file. ' +
   "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.";
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
@@ -678,7 +693,7 @@ const generateDesignAction = defineAction({
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
-    "overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes, with the `agent-native:frame-type` meta marker in the head. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.",
+    'overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes and set `frameType: "hubspot-email"` on the file. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.',
   schema: z.object({
     designId: designIdField,
     prompt: promptField,
@@ -747,7 +762,7 @@ const generateDesignAction = defineAction({
     assertSingleCanvasOutput(canvasIntent);
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
-    await assertAccess("design", designId, "editor");
+    const designAccess = await assertAccess("design", designId, "editor");
     const rawGenerationSession = (await readAppState(
       designGenerationSessionKey(designId),
       // coercion-ok: an unreadable session means generating without plan context.
@@ -874,11 +889,36 @@ const generateDesignAction = defineAction({
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
+    const accessedDesignData = parseDesignDataBlob(
+      (designAccess.resource as { data?: unknown }).data,
+    );
+    // A legacy screen keeps its email type when it has no stored type and
+    // either its previous or its new HTML carries the meta marker.
+    const generatedFrameType = (
+      file: (typeof files)[number],
+      designData: unknown,
+      fileId = existingByName.get(file.filename)?.id,
+    ) => {
+      if (file.frameType) return file.frameType;
+      const stored =
+        fileId === undefined
+          ? undefined
+          : storedScreenFrameType(designData, fileId);
+      if (stored !== undefined) {
+        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+      }
+      const previous = existingByName.get(file.filename)?.content;
+      return isHubSpotEmailHtml(file.content) ||
+        (typeof previous === "string" && isHubSpotEmailHtml(previous))
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null;
+    };
+
     for (const file of files) {
       try {
-        assertHubSpotEmailFrameContent({
-          content: file.content,
+        assertHubSpotEmailFileType({
           fileType: file.fileType,
+          frameType: generatedFrameType(file, accessedDesignData),
         });
       } catch (error) {
         throw noWriteValidationError(error);
@@ -993,6 +1033,7 @@ const generateDesignAction = defineAction({
               file: workspaceFile,
               content: file.content,
               expectedVersionHash: live.versionHash,
+              ...(file.frameType ? { frameType: file.frameType } : {}),
             });
 
             const nextFileType = file.fileType ?? "html";
@@ -1035,8 +1076,8 @@ const generateDesignAction = defineAction({
         });
       } else {
         const fileId = nanoid();
-        await withDesignSourceMutationTransaction(designId, (tx) =>
-          tx.insert(schema.designFiles).values({
+        await withDesignSourceMutationTransaction(designId, async (tx) => {
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename: file.filename,
@@ -1047,8 +1088,30 @@ const generateDesignAction = defineAction({
             contentOperationResultHash: null,
             createdAt: now,
             updatedAt: now,
-          }),
-        );
+          });
+          // The type and its layout commit with the insert: markerless email
+          // HTML has no other record of being an email if the placement write
+          // below fails.
+          if (
+            generatedFrameType(file, accessedDesignData, fileId) ===
+            HUBSPOT_EMAIL_FRAME_TYPE
+          ) {
+            const current = await readDesignDataForUpdate(tx, designId);
+            await tx
+              .update(schema.designs)
+              .set({
+                data: JSON.stringify(
+                  withScreenFrameTypeLayout(
+                    current,
+                    fileId,
+                    HUBSPOT_EMAIL_FRAME_TYPE,
+                    null,
+                  ),
+                ),
+              })
+              .where(eq(schema.designs.id, designId));
+          }
+        });
 
         agentEnterDocument(fileId);
         agentUpdateSelection(fileId, {
@@ -1119,7 +1182,11 @@ const generateDesignAction = defineAction({
     const renderableFiles = files.filter(isRenderableDesignScreenFile);
     const emailOnlyOutput =
       renderableFiles.length > 0 &&
-      renderableFiles.every((file) => isHubSpotEmailHtml(file.content));
+      renderableFiles.every(
+        (file) =>
+          generatedFrameType(file, accessedDesignData) ===
+          HUBSPOT_EMAIL_FRAME_TYPE,
+      );
     const requestedDevices =
       emailOnlyOutput || exactFixedCanvasOutput
         ? []
@@ -1252,7 +1319,9 @@ const generateDesignAction = defineAction({
               ? (rawMetadata as Record<string, unknown>)
               : {};
           const frame = merged.canvasFrames[file.id];
-          const emailFrame = isHubSpotEmailHtml(source.content);
+          const emailFrame =
+            generatedFrameType(source, prevData, file.id) ===
+            HUBSPOT_EMAIL_FRAME_TYPE;
           const width =
             (emailFrame ? 600 : undefined) ??
             promptCanvasDimensions?.width ??
@@ -1336,6 +1405,7 @@ const generateDesignAction = defineAction({
             delete nextMetadata.breakpointWidths;
           }
           if (emailFrame) {
+            nextMetadata.frameType = HUBSPOT_EMAIL_FRAME_TYPE;
             nextMetadata.heightPinned = false;
             nextMetadata.heightMode = "hug";
             if (frame)
@@ -1492,7 +1562,9 @@ const generateDesignAction = defineAction({
           );
           if (!source || !isRenderableDesignScreenFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
-          const emailFrame = isHubSpotEmailHtml(source.content);
+          const emailFrame =
+            generatedFrameType(source, prevData, file.id) ===
+            HUBSPOT_EMAIL_FRAME_TYPE;
           if (
             preExistingFrameIds.has(file.id) &&
             !exactSizeResizedFileIds.has(file.id) &&
