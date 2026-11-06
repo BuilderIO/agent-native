@@ -567,18 +567,27 @@ function normalizeRequestUrls(text: string): string {
       boundary && followingMutation.test(text.slice(start + url.length))
         ? (boundary.index ?? url.length)
         : url.length;
-    const punctuation = url.slice(0, end).match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
+    let punctuationStart = end;
+    while (
+      punctuationStart > 0 &&
+      ".,!?;:)]}".includes(url[punctuationStart - 1])
+    ) {
+      punctuationStart -= 1;
+    }
+    const punctuation = url.slice(punctuationStart, end);
     const beforeUrl = text.slice(cursor, start);
     const target = directUrlTarget.exec(beforeUrl);
     const verb = target && DESIGN_MUTATION_VERBS.exec(target[0]);
     const beforeVerb = target ? beforeUrl.slice(0, target.index).trimEnd() : "";
     const clause =
       beforeVerb.split(/[.!?;,:\n]|\b(?:and|but|then|also)\b/i).pop() ?? "";
+    // A distant determiner may belong to an earlier object, not this word.
     const isNoun =
       !DESIGN_REQUEST_LEAD_IN.test(beforeVerb) &&
       clause
         .trim()
         .split(/\s+/)
+        .slice(-3)
         .some((word) =>
           /^(?:a|an|the|this|that|these|those|my|your|his|her|its|our|their)$/i.test(
             word,

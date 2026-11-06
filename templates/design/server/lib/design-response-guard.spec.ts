@@ -467,6 +467,7 @@ describe("Design final response guard", () => {
     "Do not edit (https://example.invalid/preview).",
     "Explain the update https://example.invalid/preview",
     "Explain the latest update https://example.invalid/preview",
+    "Explain the latest product update https://example.invalid/preview",
     "Explain this small update https://example.invalid/preview",
     "Tell me about the edit https://example.invalid/preview",
     "Could you please not edit https://example.invalid/preview",
@@ -485,6 +486,8 @@ describe("Design final response guard", () => {
     "Update the layout using https://example.invalid/reference",
     "Edit https://example.invalid/preview",
     "Could you quickly edit https://example.invalid/preview",
+    "Please use the reference to quickly edit https://example.invalid/preview",
+    "Please use a reference to edit https://example.invalid/preview",
     "Could you please update https://example.invalid/preview",
     "First edit https://example.invalid/preview",
     "Fix the button; explain this small update https://example.invalid/preview",
@@ -521,6 +524,14 @@ describe("Design final response guard", () => {
       );
     }
     expect(performance.now() - start).toBeLessThan(3_000);
+  });
+
+  it("handles long punctuation within a URL", () => {
+    expect(
+      looksLikeDesignMutationRequest(
+        `example.invalid/path${",".repeat(200_000)}x`,
+      ),
+    ).toBe(false);
   });
 
   it("retries prose-only completion for a design mutation", () => {
