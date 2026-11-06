@@ -1107,6 +1107,14 @@ export function startRun(
   let persistenceFailure: unknown;
   let persistenceFailureBlocked = false;
   const flushEventWrites = (retryAfterFailure: boolean): Promise<void> => {
+    if (
+      persistenceFailure instanceof AgentRunEventNotPersistedError &&
+      persistenceFailure.terminalRun
+    ) {
+      const failed = Promise.reject(persistenceFailure);
+      persistenceChain = failed;
+      return failed;
+    }
     if (persistenceDrain) {
       const activeDrain = persistenceDrain;
       const settledDrain = retryAfterFailure
@@ -1149,8 +1157,8 @@ export function startRun(
           const terminalRun =
             error instanceof AgentRunEventNotPersistedError &&
             error.terminalRun;
-          persistenceFailure = terminalRun ? undefined : error;
-          persistenceFailureBlocked = !terminalRun;
+          persistenceFailure = error;
+          persistenceFailureBlocked = true;
           for (const queued of pendingEventWrites) {
             for (const publication of queued.publications) {
               if (publication.settled) continue;
@@ -2046,6 +2054,15 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    if (
+      persistenceFailure instanceof AgentRunEventNotPersistedError &&
+      persistenceFailure.terminalRun
+    ) {
+      const publication = Promise.reject(persistenceFailure);
+      if (!options?.surfacePersistenceError) publication.catch(() => {});
+      void checkSqlAbort();
+      return publication;
+    }
     if (privateTurn && runEvent.event.omitFromPersistedHistory !== true) {
       runEvent = {
         ...runEvent,

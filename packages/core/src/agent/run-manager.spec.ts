@@ -8735,7 +8735,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("drops queued events and closes the open batch when the run is terminal", async () => {
+  it("rejects later events and flushes after terminal batch persistence fails", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-batch-terminal",
       0,
@@ -8784,7 +8784,7 @@ describe("run manager soft timeout", () => {
       await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
       releaseSecondPublication();
       await expect(run.finalized).rejects.toBe(terminalEventError);
-      expect(insertRunEvents).toHaveBeenCalledTimes(2);
+      expect(insertRunEvents).toHaveBeenCalledTimes(1);
       expect(publicationErrors).toEqual([
         terminalEventError,
         terminalEventError,
@@ -8797,7 +8797,7 @@ describe("run manager soft timeout", () => {
         type: "text",
         text: "also not persisted",
       });
-      await expect(run.flushEvents?.()).resolves.toBeUndefined();
+      await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
     } finally {
       if (priorInsertRunEvents) {
         vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);

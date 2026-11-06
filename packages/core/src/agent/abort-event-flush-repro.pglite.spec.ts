@@ -189,6 +189,96 @@ afterAll(async () => {
 });
 
 describe("abort with a queued, fenced event", () => {
+  it("reports a lost event when its terminal drain failed before the POST", async () => {
+    const runId = "flush-repro-completed-terminal-drain";
+    const threadId = "flush-repro-thread-completed-terminal-drain";
+    const entered = gate();
+    const eventGate = gate();
+    const driverGate = gate();
+    let publication: Promise<void> | undefined;
+    const run = startRun(
+      runId,
+      threadId,
+      async (send) => {
+        publication = send({ type: "text", text: "lost-before-stop" });
+        void publication.catch(() => {});
+        await driverGate.promise;
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+        persistEvent: async (write) => {
+          entered.resolve();
+          await eventGate.promise;
+          await write();
+        },
+      },
+    );
+    try {
+      await entered.promise;
+      if (!publication || !run.flushEvents) {
+        throw new Error("Run did not start event persistence");
+      }
+      await markRunAborted(runId, "other-worker");
+      const failedDrain = run.flushEvents();
+      eventGate.resolve();
+      await expect(failedDrain).rejects.toMatchObject({
+        name: "AgentRunEventNotPersistedError",
+        terminalRun: true,
+        cause: expect.objectContaining({
+          name: "StaleExecutionFenceError",
+          message: expect.stringContaining("generation 1"),
+        }),
+      });
+      await expect(publication).rejects.toBeInstanceOf(
+        AgentRunEventNotPersistedError,
+      );
+      harness.captured.length = 0;
+      const response = await fetch(
+        `${baseUrl}/_agent-native/agent-chat/runs/${runId}/abort`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "user" }),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      const events = await pglite.query(
+        "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+        [runId],
+      );
+      expect(
+        events.rows.map((row) => JSON.parse(String(row.event_data))),
+      ).toEqual([
+        expect.objectContaining({
+          type: "error",
+          errorCode: "aborted_other-worker",
+        }),
+      ]);
+      expect(response.status).toBe(500);
+      expect(harness.captured).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            phase: "abort-run",
+            error: expect.objectContaining({
+              name: "AgentRunEventNotPersistedError",
+              terminalRun: true,
+            }),
+          }),
+        ]),
+      );
+      await expect(run.flushEvents()).rejects.toBeInstanceOf(
+        AgentRunEventNotPersistedError,
+      );
+    } finally {
+      eventGate.resolve();
+      driverGate.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await run.finalized.catch(() => {});
+    }
+  });
   it("waits for a queued event when the abort signal terminates the driver", async () => {
     const runId = "flush-repro-signal";
     const threadId = "flush-repro-thread-signal";
@@ -278,20 +368,6 @@ describe("abort with a queued, fenced event", () => {
       const events = await pglite.query(
         "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
         [runId],
-      );
-      process.stdout.write(
-        `SIGNAL REPRO ${JSON.stringify({
-          order,
-          before: before.rows,
-          after: after.rows,
-          events: events.rows,
-          status: response.status,
-          body,
-          captured: harness.captured.map(({ error, phase }) => ({
-            name: error instanceof Error ? error.name : String(error),
-            phase,
-          })),
-        })}\n`,
       );
       expect(order.slice(0, 5)).toEqual([
         "write-gated",
@@ -397,7 +473,6 @@ describe("abort with a queued, fenced event", () => {
         const response = await stop;
         const body = await response.text();
         const result = { status: response.status, body };
-        console.log("REPRO HTTP", mode, response.status, body);
         const state = await pglite.query(
           "SELECT id, status, dispatch_mode, terminal_reason FROM agent_runs WHERE thread_id = ? ORDER BY id",
           [threadId],
@@ -419,17 +494,6 @@ describe("abort with a queued, fenced event", () => {
             text: event.text,
           };
         });
-        console.log("REPRO EVENTS", mode, JSON.stringify(eventSummary));
-        console.log(
-          "REPRO CAPTURE",
-          mode,
-          JSON.stringify(
-            harness.captured.map(({ error, phase }) => ({
-              name: error instanceof Error ? error.name : String(error),
-              phase,
-            })),
-          ),
-        );
         const turnAborted = await isTurnAborted(threadId, runId);
         const textPersisted = events.rows.some((event) =>
           String(event.event_data).includes(`queued-${mode}`),
@@ -439,17 +503,6 @@ describe("abort with a queued, fenced event", () => {
           status: row.status,
           dispatch_mode: row.dispatch_mode,
         }));
-        console.log(
-          "REPRO",
-          mode,
-          JSON.stringify({
-            result,
-            statuses,
-            eventCount: events.rows.length,
-            textPersisted,
-            turnAborted,
-          }),
-        );
         if (mode === "current") {
           expect(result.status).toBe(200);
           expect(JSON.parse(result.body)).toEqual({ ok: true });
@@ -518,8 +571,6 @@ describe("abort with a queued, fenced event", () => {
           [threadId],
         );
         const finalTurnAborted = await isTurnAborted(threadId, runId);
-        console.log("REPRO FINAL", mode, JSON.stringify(finalState.rows));
-        console.log("REPRO TURN MARKER", mode, finalTurnAborted);
         if (mode === "expired" || mode === "reclaimed") {
           expect(finalState.rows[0]).toMatchObject({ status: "running" });
           expect(finalTurnAborted).toBe(false);
