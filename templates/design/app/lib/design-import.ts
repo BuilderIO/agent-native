@@ -1,5 +1,7 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import { HUBSPOT_EMAIL_FRAME_TYPE } from "@shared/hubspot-email";
+import type { ScreenFrameType } from "@shared/screen-frame-type";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
@@ -274,6 +276,7 @@ export interface DesignClipboardScreenEntry {
   fileType?: string;
   content: string;
   sourceScreenId?: string;
+  frameType?: ScreenFrameType;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -429,7 +432,9 @@ function validateDesignClipboardPayload(
       (screen.fileType !== undefined &&
         !clipboardString(screen.fileType, 32)) ||
       (screen.sourceScreenId !== undefined &&
-        !clipboardString(screen.sourceScreenId))
+        !clipboardString(screen.sourceScreenId)) ||
+      (screen.frameType !== undefined &&
+        screen.frameType !== HUBSPOT_EMAIL_FRAME_TYPE)
     ) {
       return null;
     }

@@ -26,10 +26,18 @@ import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "../shared/hubspot-email.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import {
+  resolveScreenFrameType,
+  storedScreenFrameType,
+  type ScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const CREATED_SCREEN_WIDTH = 1440;
@@ -94,7 +102,7 @@ function screenRestoreSnapshotMatches(
 export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
-    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source. Returns the new file's ID, filename, and design URL path when the file is renderable.",
+    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source and pass frameType=hubspot-email. Returns the new file's ID, filename, frameType, and design URL path when the file is renderable.",
   schema: z.object({
     designId: z.string().describe("Design project ID to add the file to"),
     filename: z.string().describe("Filename (e.g. 'index.html', 'styles.css')"),
@@ -118,6 +126,12 @@ export default defineAction({
       .optional()
       .default("html")
       .describe("Type of file"),
+    frameType: z
+      .literal(HUBSPOT_EMAIL_FRAME_TYPE)
+      .optional()
+      .describe(
+        "Set only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. Omit for every other screen.",
+      ),
   }),
   run: async (
     {
@@ -125,6 +139,7 @@ export default defineAction({
       filename,
       content,
       fileType,
+      frameType,
       restoreClaimId,
       duplicateSourceFileId,
     },
@@ -158,7 +173,12 @@ export default defineAction({
 
     await assertAccess("design", designId, "editor");
 
-    assertHubSpotEmailFrameContent({ content, fileType });
+    assertHubSpotEmailFileType({
+      fileType,
+      frameType:
+        frameType ??
+        (isHubSpotEmailHtml(content) ? HUBSPOT_EMAIL_FRAME_TYPE : null),
+    });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
     const restoredContentHashes = screenRestoreContentHashes(
       annotatedContent,
@@ -466,6 +486,11 @@ export default defineAction({
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       createdFile.content.trim().length > 0;
 
+    let createdFrameType: ScreenFrameType | null =
+      frameType ??
+      (isHubSpotEmailHtml(createdFile.content)
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null);
     if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({
@@ -484,6 +509,19 @@ export default defineAction({
             current.canvasFrames,
           );
           if (existingFrames[id]) return current;
+          // A duplicate arrives with its source's metadata, which may already
+          // say "web" for HTML that still carries the legacy email marker.
+          createdFrameType =
+            frameType ??
+            resolveScreenFrameType({
+              designData: current,
+              fileId: id,
+              content: createdFile.content,
+            });
+          const emailFrame = createdFrameType === HUBSPOT_EMAIL_FRAME_TYPE;
+          const currentScreenMetadata = isRecord(current.screenMetadata)
+            ? current.screenMetadata
+            : {};
           const merged = mergeCanvasFramePlacements({
             existing: current.canvasFrames,
             placements: [
@@ -504,12 +542,8 @@ export default defineAction({
                     },
                   },
                 ),
-                width: isHubSpotEmailHtml(createdFile.content)
-                  ? 600
-                  : CREATED_SCREEN_WIDTH,
-                height: isHubSpotEmailHtml(createdFile.content)
-                  ? 800
-                  : CREATED_SCREEN_HEIGHT,
+                width: emailFrame ? 600 : CREATED_SCREEN_WIDTH,
+                height: emailFrame ? 800 : CREATED_SCREEN_HEIGHT,
               },
             ],
             resolveFileId: (placement) => placement.fileId,
@@ -517,18 +551,20 @@ export default defineAction({
           return {
             ...current,
             canvasFrames: merged.canvasFrames,
-            ...(isHubSpotEmailHtml(createdFile.content)
+            ...(emailFrame
               ? {
                   screenMetadata: {
-                    ...(isRecord(current.screenMetadata)
-                      ? current.screenMetadata
-                      : {}),
+                    ...currentScreenMetadata,
                     [id]: {
+                      ...(isRecord(currentScreenMetadata[id])
+                        ? currentScreenMetadata[id]
+                        : {}),
                       width: 600,
                       height: 800,
                       heightMode: "hug",
                       heightPinned: false,
                       breakpointWidths: [],
+                      frameType: HUBSPOT_EMAIL_FRAME_TYPE,
                     },
                   },
                 }
@@ -536,7 +572,9 @@ export default defineAction({
           };
         },
         isApplied: (current) =>
-          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
+          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]) &&
+          (createdFrameType !== HUBSPOT_EMAIL_FRAME_TYPE ||
+            storedScreenFrameType(current, id) === HUBSPOT_EMAIL_FRAME_TYPE),
       });
 
       trackDesign(
@@ -556,9 +594,7 @@ export default defineAction({
       designId,
       filename,
       fileType: resolvedFileType,
-      frameType: isHubSpotEmailHtml(createdFile.content)
-        ? "hubspot-email"
-        : null,
+      frameType: createdFrameType,
       createdAt: createdFile.createdAt,
       renderable,
       _receipt: designOutputWriteReceipt(designId, createdFile.created ? 1 : 0),

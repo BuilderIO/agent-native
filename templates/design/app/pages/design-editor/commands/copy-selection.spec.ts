@@ -94,6 +94,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "localhost",
       files: [file],
       getScreenContent: () => file.content!,
@@ -182,6 +183,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -266,6 +268,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -379,6 +382,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "localhost",
       files: [file],
       getScreenContent: () => liveUrl,
@@ -424,6 +428,7 @@ describe("copying a runtime-projected layer", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [],
       getScreenContent: () => "",
@@ -517,6 +522,7 @@ describe("copying a layer whose selection carries no style snapshot", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -669,6 +675,7 @@ describe("copying one instance of a repeated list", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -710,6 +717,7 @@ describe("copying one instance of a repeated list", () => {
       copiedLayerEntriesRef: ref([]),
       copiedLayerHtmlRef: ref(null),
       copiedScreenEntriesRef: ref(undefined),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content,
@@ -751,6 +759,7 @@ describe("copying one instance of a repeated list", () => {
       copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
       copiedLayerHtmlRef: ref<string | null>(null),
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -781,6 +790,53 @@ describe("copying one instance of a repeated list", () => {
       )?.screens?.[0]?.sourceScreenId,
     ).toBe("screen-a");
   });
+
+  it("carries an email screen's frame type so paste recreates an email", async () => {
+    const file: DesignFile = {
+      id: "email",
+      filename: "email.html",
+      fileType: "html",
+      content: "<!doctype html><html><body><table></table></body></html>",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef,
+      designData: { screenMetadata: { email: { frameType: "hubspot-email" } } },
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["email"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+
+    expect(copiedScreenEntriesRef.current?.[0]?.frameType).toBe(
+      "hubspot-email",
+    );
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.lastCall?.[0].html,
+        "local-clipboard-token",
+      )?.screens?.[0]?.frameType,
+    ).toBe("hubspot-email");
+  });
 });
 
 it("keeps text-derived clipboard names dynamic and authored names fixed", async () => {
@@ -803,6 +859,7 @@ it("keeps text-derived clipboard names dynamic and authored names fixed", async 
       copiedLayerEntriesRef,
       copiedLayerHtmlRef: ref(null),
       copiedScreenEntriesRef: ref(undefined),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => html,
@@ -876,6 +933,7 @@ describe("copying a layer's place on the canvas", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,

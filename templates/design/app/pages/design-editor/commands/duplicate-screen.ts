@@ -5,6 +5,7 @@ import {
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
+import { resolveScreenFrameType } from "@shared/screen-frame-type";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -679,6 +680,7 @@ export function runDuplicateScreen(
           "heightPinned",
           "heightMode",
           "breakpointHeights",
+          "frameType",
         ].flatMap((key) =>
           key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
         ),
@@ -713,12 +715,18 @@ export function runDuplicateScreen(
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
+  const frameType = resolveScreenFrameType({
+    designData: designDataJsonRef.current,
+    fileId: screenId,
+    content,
+  });
   const createFile = () =>
     createFileAsync({
       designId: id,
       filename,
       content,
       fileType,
+      ...(frameType ? { frameType } : {}),
       ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
     } as any);
   const callCreateFile = () => {

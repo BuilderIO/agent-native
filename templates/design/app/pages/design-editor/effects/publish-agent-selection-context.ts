@@ -10,6 +10,10 @@ import {
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
+import {
+  storedScreenFrameType,
+  type ScreenFrameType,
+} from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
@@ -62,39 +66,44 @@ const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
-type ScreenFrameType = typeof HUBSPOT_EMAIL_FRAME_TYPE | null;
-
 export interface AgentSelectionScreen {
   id: string;
   filename: string;
   fileType: string;
-  frameType: ScreenFrameType;
+  frameType: ScreenFrameType | null;
 }
 
 export type ScreenFrameTypeCache = Map<
   string,
-  { content: string; frameType: ScreenFrameType }
+  { content: string; frameType: ScreenFrameType | null }
 >;
 
-// Keyed by id and validated by content, not by file object or updatedAt: file
-// objects are rebuilt on every source change, and an unsaved local edit
-// changes content without moving updatedAt.
+// Stored metadata decides. Only a legacy screen with no stored type reads its
+// HTML for the meta marker, cached by id and checked against content rather
+// than file object or updatedAt: file objects are rebuilt on every source
+// change, and an unsaved local edit changes content without moving updatedAt.
 export function summarizeAgentSelectionScreens(
   files: readonly DesignFile[],
+  designData: unknown,
   cache: ScreenFrameTypeCache,
 ): AgentSelectionScreen[] {
   const ids = new Set<string>();
   const screens = files.map((file) => {
-    ids.add(file.id);
-    const cached = cache.get(file.id);
-    let frameType: ScreenFrameType;
-    if (cached && cached.content === file.content) {
-      frameType = cached.frameType;
+    const stored = storedScreenFrameType(designData, file.id);
+    let frameType: ScreenFrameType | null;
+    if (stored !== undefined) {
+      frameType = stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
     } else {
-      frameType = isHubSpotEmailHtml(file.content)
-        ? HUBSPOT_EMAIL_FRAME_TYPE
-        : null;
-      cache.set(file.id, { content: file.content, frameType });
+      ids.add(file.id);
+      const cached = cache.get(file.id);
+      if (cached && cached.content === file.content) {
+        frameType = cached.frameType;
+      } else {
+        frameType = isHubSpotEmailHtml(file.content)
+          ? HUBSPOT_EMAIL_FRAME_TYPE
+          : null;
+        cache.set(file.id, { content: file.content, frameType });
+      }
     }
     return {
       id: file.id,

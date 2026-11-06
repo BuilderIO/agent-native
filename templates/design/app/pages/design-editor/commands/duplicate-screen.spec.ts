@@ -390,6 +390,48 @@ describe("runDuplicateScreen", () => {
     ).toBe(false);
   });
 
+  it.each(["widget", "editor"])(
+    "keeps an email screen's frame type on a %s duplicate",
+    async (surface) => {
+      const args = duplicateArgs({
+        widgetEmbed: surface === "widget",
+        designDataJsonRef: {
+          current: {
+            canvasFrames: {
+              source: { x: 0, y: 0, width: 600, height: 800 },
+            },
+            screenMetadata: {
+              source: { width: 600, height: 800, frameType: "hubspot-email" },
+            },
+          },
+        },
+      });
+
+      await runDuplicateScreen(args, "source");
+
+      expect((args.createFileAsync as any).mock.calls[0]?.[0]).toMatchObject({
+        frameType: "hubspot-email",
+      });
+    },
+  );
+
+  it("does not mark a duplicate of an ordinary screen as an email", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: { source: { x: 0, y: 0, width: 640, height: 480 } },
+          screenMetadata: { source: { width: 640, height: 480 } },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect((args.createFileAsync as any).mock.calls[0]?.[0]).not.toHaveProperty(
+      "frameType",
+    );
+  });
+
   it("keeps ordinary editor duplication metadata unchanged", async () => {
     const args = duplicateArgs({
       designDataJsonRef: {

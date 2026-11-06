@@ -1032,6 +1032,64 @@ describe("create-file: canvas placement and landing URL", () => {
     );
   });
 
+  it("stores the email frame type passed as frameType on HTML without a marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "promo-email.html",
+      content:
+        '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Sale</td></tr></table></body></html>',
+      fileType: "html",
+      frameType: "hubspot-email",
+    });
+    expect(result.frameType).toBe("hubspot-email");
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [result.id]: { width: 600, height: 800 } },
+      screenMetadata: {
+        [result.id]: {
+          width: 600,
+          breakpointWidths: [],
+          frameType: "hubspot-email",
+        },
+      },
+    });
+  });
+
+  it("backfills the frame type of legacy HTML that carries the email marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "legacy-email.html",
+      content: createHubSpotEmailHtml({ title: "Legacy" }),
+      fileType: "html",
+    });
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      [result.id]: { frameType: "hubspot-email" },
+    });
+  });
+
+  it("leaves an ordinary screen without a stored frame type", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "landing.html",
+      content: "<main>Landing</main>",
+      fileType: "html",
+    });
+    expect(result.frameType).toBeNull();
+    expect(mocks.getDesignData().screenMetadata).toBeUndefined();
+  });
+
+  it("rejects an email frame type on a file that is not HTML", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "email.jsx",
+        content: "export default function Email() { return null; }",
+        fileType: "jsx",
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toMatchObject({ errorCode: "hubspot_email_html_required" });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
   // oracle-change: create-file no longer accepts frameType, so there is no requested-email marker check to reject.
   it("gives a new renderable screen a default desktop placement and an overview landing URL", async () => {
     const result = await action.run({

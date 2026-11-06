@@ -66,7 +66,7 @@ function argsFor({
     persistedSelectionWriteTimerRef: { current: null },
     responsiveEditScope: "base" as Args["responsiveEditScope"],
     reviewThreadId: null,
-    screens: summarizeAgentSelectionScreens(files, new Map()),
+    screens: summarizeAgentSelectionScreens(files, {}, new Map()),
     selectedElement: null,
     selectedScreenIds: [],
     selectedStateId: null,
@@ -228,18 +228,19 @@ describe("runPublishAgentSelectionContext frame classification", () => {
     const first = argsFor().activeFile!;
     const second = { ...first, id: "screen-2", filename: "second.html" };
 
-    const screens = summarizeAgentSelectionScreens([first, second], cache);
+    const screens = summarizeAgentSelectionScreens([first, second], {}, cache);
     expect(classify).toHaveBeenCalledTimes(2);
 
     const rebuilt = summarizeAgentSelectionScreens(
       [{ ...first }, { ...second }],
+      {},
       cache,
     );
     expect(rebuilt).toEqual(screens);
     expect(classify).toHaveBeenCalledTimes(2);
 
     const email = { ...second, content: hubspotEmail.createHubSpotEmailHtml() };
-    const edited = summarizeAgentSelectionScreens([first, email], cache);
+    const edited = summarizeAgentSelectionScreens([first, email], {}, cache);
     runPublishAgentSelectionContext(
       argsFor({ activeFile: email, screens: edited }),
     );
@@ -253,19 +254,50 @@ describe("runPublishAgentSelectionContext frame classification", () => {
     const replacement = { ...email, content: first.content };
     const replaced = summarizeAgentSelectionScreens(
       [first, replacement],
+      {},
       cache,
     );
     expect(replaced[1]?.frameType).toBeNull();
     expect(classify).toHaveBeenCalledTimes(4);
 
-    summarizeAgentSelectionScreens([first], cache);
+    summarizeAgentSelectionScreens([first], {}, cache);
     expect([...cache.keys()]).toEqual(["screen-1"]);
+  });
+
+  it("takes stored frame types from screen metadata without reading source", () => {
+    const classify = vi.spyOn(hubspotEmail, "isHubSpotEmailHtml");
+    const content = vi.fn(() => hubspotEmail.createHubSpotEmailHtml());
+    const screen = (id: string) =>
+      Object.defineProperty(
+        { id, filename: `${id}.html`, fileType: "html" },
+        "content",
+        { get: content },
+      ) as DesignFile;
+    const designData = {
+      screenMetadata: {
+        email: { width: 600, frameType: "hubspot-email" },
+        web: { frameType: "web" },
+      },
+    };
+
+    const screens = summarizeAgentSelectionScreens(
+      [screen("email"), screen("web")],
+      designData,
+      new Map(),
+    );
+
+    expect(screens).toEqual([
+      expect.objectContaining({ id: "email", frameType: "hubspot-email" }),
+      expect.objectContaining({ id: "web", frameType: null }),
+    ]);
+    expect(classify).not.toHaveBeenCalled();
+    expect(content).not.toHaveBeenCalled();
   });
 
   it("publishes a zoom change without reading any screen source", () => {
     const classify = vi.spyOn(hubspotEmail, "isHubSpotEmailHtml");
     const file = argsFor().activeFile!;
-    const screens = summarizeAgentSelectionScreens([file], new Map());
+    const screens = summarizeAgentSelectionScreens([file], {}, new Map());
     classify.mockClear();
     const content = vi.fn(() => file.content);
     const guarded = Object.defineProperty({ ...file }, "content", {

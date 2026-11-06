@@ -15,6 +15,7 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
+import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -27,11 +28,19 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  resolveScreenFrameType,
+  STORED_SCREEN_FRAME_TYPES,
+} from "../shared/screen-frame-type.js";
 import {
   applySourceContentPatch,
   sourceContentHash,
@@ -111,6 +120,12 @@ export default defineAction({
         .enum(["html", "css", "jsx", "asset"])
         .optional()
         .describe("Updated file type"),
+      frameType: z
+        .enum(STORED_SCREEN_FRAME_TYPES)
+        .optional()
+        .describe(
+          'Set "hubspot-email" to make this HTML screen a HubSpot email frame, or "web" to make an email frame an ordinary screen again. Omit to keep the current type.',
+        ),
       syncCollab: z
         .boolean()
         .optional()
@@ -241,6 +256,7 @@ export default defineAction({
       contentPatch,
       filename,
       fileType,
+      frameType,
       syncCollab,
       identityOnly,
       expectedVersionHash,
@@ -303,7 +319,24 @@ export default defineAction({
       syncCollab,
     });
 
-    await assertAccess("design", file.designId, "editor");
+    const access = await assertAccess("design", file.designId, "editor");
+    if (frameType !== undefined || fileType !== undefined) {
+      assertHubSpotEmailFileType({
+        fileType: fileType ?? file.fileType ?? "html",
+        frameType:
+          frameType === undefined
+            ? resolveScreenFrameType({
+                designData: parseDesignDataBlob(
+                  (access.resource as { data?: unknown }).data,
+                ),
+                fileId: file.id,
+                content: file.content,
+              })
+            : frameType === HUBSPOT_EMAIL_FRAME_TYPE
+              ? frameType
+              : null,
+      });
+    }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -383,6 +416,7 @@ export default defineAction({
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
+    let legacyEmail = false;
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         await lockDesignFilesTable(tx);
@@ -447,13 +481,10 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
-          assertHubSpotEmailFrameContent({
-            content: content ?? liveContent,
-            fileType: fileType ?? persistedFile.fileType ?? "html",
-            previousContent: isHubSpotEmailHtml(liveContent)
-              ? liveContent
-              : persistedFile.content,
-          });
+          legacyEmail =
+            writesContent &&
+            (isHubSpotEmailHtml(liveContent) ||
+              isHubSpotEmailHtml(persistedFile.content));
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -758,6 +789,15 @@ export default defineAction({
         );
       }
       throw error;
+    }
+
+    if (frameType !== undefined || legacyEmail) {
+      await persistScreenFrameType({
+        designId: file.designId,
+        fileId: id,
+        frameType: frameType ?? HUBSPOT_EMAIL_FRAME_TYPE,
+        onlyIfAbsent: frameType === undefined,
+      });
     }
 
     if (skippedStaleMirror) {

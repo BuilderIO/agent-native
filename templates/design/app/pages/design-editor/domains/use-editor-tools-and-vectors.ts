@@ -1680,8 +1680,12 @@ export function useEditorToolsAndVectors({
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
     () =>
-      summarizeAgentSelectionScreens(files, screenFrameTypeCacheRef.current),
-    [files],
+      summarizeAgentSelectionScreens(
+        files,
+        designDataJson,
+        screenFrameTypeCacheRef.current,
+      ),
+    [designDataJson, files],
   );
   useEffect(
     () =>

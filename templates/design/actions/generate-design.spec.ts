@@ -116,7 +116,14 @@ const mocks = vi.hoisted(() => {
     getDesignData: () => designData,
     mutateDesignData: vi.fn(),
     snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
-    assertAccess: vi.fn().mockResolvedValue(undefined),
+    designAccess: async () => ({
+      role: "editor",
+      resource: { id: "design-1", data: JSON.stringify(designData) },
+    }),
+    assertAccess: vi.fn(async () => ({
+      role: "editor",
+      resource: { id: "design-1", data: JSON.stringify(designData) },
+    })),
     and: vi.fn((...conditions) => ({ conditions })),
     inArray: vi.fn((column, values) => ({ column, values })),
     eq: vi.fn((left, right) => ({ left, right })),
@@ -420,7 +427,9 @@ describe("generate-design action tool schema", () => {
     ]);
   });
 
-  it("offers the model only filename, content, and fileType per file", () => {
+  // oracle-change: frameType is back as stored screen metadata. It no longer
+  // requires an HTML marker, so setting it can no longer fail a save.
+  it("offers the model filename, content, fileType, and frameType per file", () => {
     const fileProps = (
       parameters.properties.files?.items as {
         properties?: Record<string, unknown>;
@@ -430,9 +439,9 @@ describe("generate-design action tool schema", () => {
       "content",
       "fileType",
       "filename",
+      "frameType",
     ]);
   });
-  // oracle-change: generate-design no longer accepts frameType, so the hidden-field parse and requested-email rejection checks are gone.
 
   it("keeps the placement and routing guidance in the field descriptions", () => {
     const { files, devices } = parameters.properties;
@@ -576,7 +585,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -835,7 +844,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     setExistingFile("<html><body>old</body></html>");
 
     mocks.assertAccess
-      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(mocks.designAccess)
       .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
 
     await expect(
@@ -862,7 +871,7 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -959,7 +968,7 @@ describe("generate-design: new-file creation path", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -988,6 +997,35 @@ describe("generate-design: new-file creation path", () => {
           heightMode: "hug",
           heightPinned: false,
           breakpointWidths: [],
+          frameType: "hubspot-email",
+        },
+      },
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("stores the email frame type passed as frameType and sizes the frame for email", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a HubSpot email template",
+      files: [
+        {
+          filename: "email.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+    const fileId = result.savedFiles[0]!.id;
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [fileId]: { width: 600, height: 800 } },
+      screenMetadata: {
+        [fileId]: {
+          width: 600,
+          breakpointWidths: [],
+          frameType: "hubspot-email",
         },
       },
     });
@@ -2236,7 +2274,7 @@ describe("generate-design: new screens never stack on existing frames", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2540,7 +2578,7 @@ describe("generate-design: single-device regen clears stale breakpoints", () => 
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2622,7 +2660,7 @@ describe("generate-design: placement clears rotated existing frames", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2670,7 +2708,7 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2792,7 +2830,7 @@ describe("generate-design: explicit device request resizes an existing frame", (
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2858,7 +2896,7 @@ describe("generate-design: generation attempt tracking", () => {
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.readAppState.mockResolvedValue(null);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
@@ -2938,7 +2976,7 @@ describe("generate-design: generation attempt tracking", () => {
   it("records a failure when the design-system access check fails after start", async () => {
     const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
     mocks.assertAccess
-      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(mocks.designAccess)
       .mockRejectedValueOnce(denied);
 
     await expect(
@@ -3084,7 +3122,7 @@ describe("generate-design: rejected input in the agent loop", () => {
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.readAppState.mockResolvedValue(null);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);

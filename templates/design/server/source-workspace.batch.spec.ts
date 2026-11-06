@@ -144,6 +144,7 @@ beforeAll(async () => {
     sql.raw(`
       CREATE TABLE IF NOT EXISTS designs (
         id TEXT PRIMARY KEY,
+        data TEXT,
         updated_at TEXT
       )
     `),
@@ -195,37 +196,47 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
-  it("rejects a batch that removes an email marker before changing any file", async () => {
+  // oracle-change: the email frame type moved from the HTML meta marker to
+  // screenMetadata, so removing the marker is an ordinary edit. The legacy
+  // screen keeps its email type through the backfilled metadata instead.
+  it("keeps a legacy email frame's type in metadata when a batch removes its marker", async () => {
     const email = createHubSpotEmailHtml();
+    const unmarked = email.replace(
+      '<meta name="agent-native:frame-type" content="hubspot-email">',
+      "",
+    );
     await execute("UPDATE design_files SET content = ? WHERE id = ?", [
       email,
       DESTINATION_ID,
     ]);
     await applyText(DESTINATION_ID, email);
-    const before = await persistedFiles();
-    await expect(
-      writeInlineSourceFilesBatch({
-        designId: DESIGN_ID,
-        files: [
-          {
-            file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
-            content: SOURCE_NEXT,
-            expectedVersionHash: sourceContentHash(SOURCE_BASE),
-          },
-          {
-            file: sourceFile(DESTINATION_ID, "destination.html", email),
-            content: email.replace(
-              '<meta name="agent-native:frame-type" content="hubspot-email">',
-              "",
-            ),
-            expectedVersionHash: sourceContentHash(email),
-          },
-        ],
-      }),
-    ).rejects.toThrow("Preserve the HubSpot email frame marker");
-    expect(await persistedFiles()).toEqual(before);
-    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
-    expect(await getText(DESTINATION_ID)).toBe(email);
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: SOURCE_NEXT,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+        {
+          file: sourceFile(DESTINATION_ID, "destination.html", email),
+          content: unmarked,
+          expectedVersionHash: sourceContentHash(email),
+        },
+      ],
+    });
+
+    expect(await getText(DESTINATION_ID)).toBe(unmarked);
+    const [design] = (
+      await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+    ).rows as Array<{ data: string | null }>;
+    expect(JSON.parse(design!.data ?? "{}")).toMatchObject({
+      screenMetadata: { [DESTINATION_ID]: { frameType: "hubspot-email" } },
+    });
+    expect(JSON.parse(design!.data ?? "{}").screenMetadata).not.toHaveProperty(
+      SOURCE_ID,
+    );
   });
 
   it("rolls back prepared collaboration state with the source transaction", async () => {
