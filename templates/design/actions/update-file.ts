@@ -322,7 +322,7 @@ export default defineAction({
     const access = await assertAccess("design", file.designId, "editor");
     if (frameType !== undefined || fileType !== undefined) {
       assertHubSpotEmailFileType({
-        fileType: fileType ?? file.fileType ?? "html",
+        fileType: fileType ?? file.fileType,
         frameType:
           frameType === undefined
             ? resolveScreenFrameType({
@@ -416,7 +416,7 @@ export default defineAction({
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
-    let legacyEmail = false;
+    const legacyEmail = { found: false };
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         await lockDesignFilesTable(tx);
@@ -481,7 +481,7 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
-          legacyEmail =
+          legacyEmail.found =
             writesContent &&
             (isHubSpotEmailHtml(liveContent) ||
               isHubSpotEmailHtml(persistedFile.content));
@@ -791,7 +791,7 @@ export default defineAction({
       throw error;
     }
 
-    if (frameType !== undefined || legacyEmail) {
+    if (frameType !== undefined || legacyEmail.found) {
       await persistScreenFrameType({
         designId: file.designId,
         fileId: id,

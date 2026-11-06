@@ -608,7 +608,7 @@ async function writeInlineSourceFileContent(
       };
       legacyEmail.found =
         isHubSpotEmailHtml(current.content) ||
-        isHubSpotEmailHtml(currentFile.content ?? "");
+        isHubSpotEmailHtml(currentFile.content);
       const assertEmailCandidate = (content: string) =>
         assertHubSpotEmailFileType({
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
@@ -1069,7 +1069,7 @@ export async function writeInlineSourceFilesBatch(args: {
         assertLockedLayersPreserved(liveContent, content);
         if (
           isHubSpotEmailHtml(liveContent) ||
-          isHubSpotEmailHtml(currentFile.content ?? "")
+          isHubSpotEmailHtml(currentFile.content)
         ) {
           legacyEmailFileIds.add(file.id);
         }

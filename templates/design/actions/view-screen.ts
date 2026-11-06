@@ -477,7 +477,7 @@ export default defineAction({
           activeScreen &&
           storedScreenFrameType(data, activeScreen.id) === undefined
         ) {
-          const [activeFile] = await db
+          const activeFiles = await db
             .select({ content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, activeScreen.id))
@@ -485,7 +485,7 @@ export default defineAction({
           activeFrameType = resolveScreenFrameType({
             designData: data,
             fileId: activeScreen.id,
-            content: activeFile?.content,
+            content: activeFiles.find(Boolean)?.content,
           });
         }
         const linkedDesignSystem = await loadAgentDesignSystemContext(
