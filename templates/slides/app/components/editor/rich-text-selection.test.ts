@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { startInPlaceTextSession } from "./in-place-text-session";
 import {
   applyInlineTextStyle,
   applyInlineFontSizeDelta,
@@ -503,16 +504,130 @@ describe("rich text selection", () => {
     );
   });
 
-  it("rejects invalid bounds or a non-finite delta without changing the object", () => {
-    const block = editable('<span style="font-size: 20px">inside</span>');
+  it("resolves absolute CSS lengths and reports a run without a computed size", () => {
+    const block = editable(
+      '<span style="font-size: 12pt">one</span><span>two</span>',
+    );
+    const first = block.firstElementChild!;
+    const second = block.lastElementChild!;
+    const original = window.getComputedStyle.bind(window);
+    const spy = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((element, pseudo) => {
+        const computed = original(element, pseudo);
+        if (element !== first && element !== second) return computed;
+        return new Proxy(computed, {
+          get: (target, key) =>
+            key === "fontSize"
+              ? element === first
+                ? "12pt"
+                : ""
+              : Reflect.get(target, key, target),
+        });
+      });
+    try {
+      const result = applyObjectFontSizeDelta(block, 2, { min: 1, max: 100 });
+      expect(result).toEqual({ changed: true, unresolved: 1 });
+      expect(
+        (block.firstElementChild!.firstElementChild as HTMLElement).style
+          .fontSize,
+      ).toBe("18px");
+      expect(second.innerHTML).toBe("two");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("leaves a partial selection and its markup untouched at the size limit", () => {
+    const block = editable(
+      '<span data-slide-inline-style="true" style="font-size: 30px">hello</span><span data-slide-inline-style="true"></span>',
+    );
     const before = block.innerHTML;
-    expect(() =>
-      applyObjectFontSizeDelta(block, 2, { min: 40, max: 10 }),
-    ).toThrow(RangeError);
-    expect(() =>
-      applyObjectFontSizeDelta(block, Number.NaN, { min: 1, max: 40 }),
-    ).toThrow(RangeError);
+    const text = block.firstElementChild!.firstChild as Text;
+    rangeFor(text, 1, text, 4);
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 30 });
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: false,
+      unresolved: 0,
+    });
     expect(block.innerHTML).toBe(before);
+    expect(block.firstElementChild!.firstChild).toBe(text);
+    expect(window.getSelection()!.toString()).toBe("ell");
+  });
+
+  it("reports an unresolved valid CSS size without changing a selection", () => {
+    const block = editable('<span style="font-size: medium">hello</span>');
+    const before = block.innerHTML;
+    const text = block.firstElementChild!.firstChild as Text;
+    rangeFor(text, 1, text, 4);
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 30 });
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: false,
+      unresolved: 1,
+    });
+    expect(block.innerHTML).toBe(before);
+    expect(window.getSelection()!.toString()).toBe("ell");
+  });
+
+  it("keeps the full selected range when only some run sizes can be resolved", () => {
+    const block = editable(
+      '<span style="font-size: 20px">left</span><span style="font-size: medium">right</span>',
+    );
+    const first = block.firstElementChild!.firstChild as Text;
+    const last = block.lastElementChild!.firstChild as Text;
+    rangeFor(first, 1, last, 3);
+
+    const result = applyInlineFontSizeDelta(block, 2, { min: 10, max: 40 });
+
+    expect(result).toMatchObject({
+      scope: "selection",
+      changed: true,
+      unresolved: 1,
+    });
+    expect(
+      (block.firstElementChild!.firstElementChild as HTMLElement).style
+        .fontSize,
+    ).toBe("22px");
+    expect(block.lastElementChild!.textContent).toBe("right");
+    expect(window.getSelection()!.toString()).toBe("eftrig");
+    expect(result.range?.toString()).toBe("eftrig");
+  });
+
+  it("supports session.apply undo and redo with a backward selected range", () => {
+    const block = editable('<span style="font-size: 20px">hello world</span>');
+    block.removeAttribute("contenteditable");
+    const session = startInPlaceTextSession(block);
+    try {
+      const text = block.firstElementChild!.firstChild as Text;
+      window.getSelection()!.setBaseAndExtent(text, 8, text, 2);
+      let applied: ReturnType<typeof applyInlineFontSizeDelta> | undefined;
+      expect(
+        session.apply(() => {
+          applied = applyInlineFontSizeDelta(block, 4, { min: 10, max: 40 });
+        }),
+      ).toBe(true);
+      expect(applied?.range?.toString()).toBe("llo wo");
+      expect(
+        (block.querySelector("span > span") as HTMLElement).style.fontSize,
+      ).toBe("24px");
+      expect(session.undo()).toBe(true);
+      expect(block.innerHTML).toBe(
+        '<span style="font-size: 20px">hello world</span>',
+      );
+      expect(window.getSelection()!.toString()).toBe("llo wo");
+      expect(session.redo()).toBe(true);
+      expect(
+        (block.querySelector("span > span") as HTMLElement).style.fontSize,
+      ).toBe("24px");
+      expect(window.getSelection()!.toString()).toBe("llo wo");
+      const selection = window.getSelection()!;
+      expect(selection.anchorNode).toBe(selection.getRangeAt(0).endContainer);
+      expect(selection.anchorOffset).toBe(selection.getRangeAt(0).endOffset);
+    } finally {
+      session.end();
+    }
   });
 
   it("resizes a whole object without changing the active backward selection", () => {

@@ -456,6 +456,233 @@ describe("FontSizeField mixed relative expressions", () => {
   });
 });
 
+describe("font size arrow regressions", () => {
+  afterEach(cleanup);
+
+  it("commits repeated mixed arrow steps as relative expressions even at representative bounds", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FontSizeField
+        label="Size"
+        openLabel="Font sizes"
+        mixedLabel="Valores mixtos"
+        mixed
+        allowRelativeExpressions
+        value={30}
+        min={8}
+        max={30}
+        unit="px"
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>("Size");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
+    expect(input.value).toBe("Valores mixtos");
+    rerender(
+      <FontSizeField
+        label="Size"
+        openLabel="Font sizes"
+        mixedLabel="Valores mixtos"
+        mixed
+        allowRelativeExpressions
+        value={8}
+        min={8}
+        max={30}
+        unit="px"
+        onChange={onChange}
+      />,
+    );
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    fireEvent.blur(input);
+    expect(input.value).toBe("Valores mixtos");
+    const meta = (expression: string) => ({
+      phase: "commit",
+      relativeExpression: {
+        expression,
+        min: 8,
+        max: 30,
+        unit: "px",
+        precision: 1,
+      },
+    });
+    expect(onChange.mock.calls).toEqual([
+      [30, meta("Mixed+1")],
+      [30, meta("Mixed+1")],
+      [30, meta("Mixed+10")],
+      [8, meta("Mixed-1")],
+      [8, meta("Mixed-10")],
+    ]);
+  });
+
+  it("keeps absolute stepping for mixed selections without relative expressions and for typed numbers", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FontSizeField
+        label="Size"
+        openLabel="Font sizes"
+        mixedLabel="Mixed"
+        mixed
+        value={20}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>("Size");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenLastCalledWith(21, COMMIT);
+    rerender(
+      <FontSizeField
+        label="Size"
+        openLabel="Font sizes"
+        mixedLabel="Mixed"
+        mixed
+        allowRelativeExpressions
+        value={20}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(input, { target: { value: "25" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenLastCalledWith(24, COMMIT);
+  });
+
+  it.each([
+    { value: 40, outward: "ArrowUp" },
+    { value: 5, outward: "ArrowDown" },
+  ])(
+    "does not reverse a mixed absolute step from $value",
+    ({ value, outward }) => {
+      const { onChange, input } = renderField({
+        mixed: true,
+        value,
+        min: 8,
+        max: 30,
+      });
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: outward });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(input.value).toBe("Mixed");
+    },
+  );
+
+  it.each([
+    { value: 40, outward: "ArrowUp", inward: "ArrowDown", expected: 30 },
+    { value: 5, outward: "ArrowDown", inward: "ArrowUp", expected: 8 },
+  ])(
+    "never reverses an arrow step when $value is outside the bounds",
+    ({ value, outward, inward, expected }) => {
+      const { onChange, input } = renderField({ value, min: 8, max: 30 });
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: outward });
+      expect(onChange).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: inward });
+      expect(onChange).toHaveBeenCalledOnce();
+      expect(onChange).toHaveBeenCalledWith(expected, COMMIT);
+    },
+  );
+});
+
+describe("FontSizeField mixed relative arrow steps", () => {
+  afterEach(cleanup);
+
+  it("emits each relative step at representative bounds while retaining the mixed label", () => {
+    const { onChange, input } = renderField({
+      mixed: true,
+      mixedLabel: "Valores mixtos",
+      allowRelativeArrowSteps: true,
+      value: 30,
+      min: 8,
+      max: 30,
+    });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    fireEvent.blur(input);
+    expect(input.value).toBe("Valores mixtos");
+    expect(onChange.mock.calls).toEqual([
+      [30, { phase: "commit", relativeStep: 1 }],
+      [30, { phase: "commit", relativeStep: 1 }],
+      [30, { phase: "commit", relativeStep: 10 }],
+      [29, { phase: "commit", relativeStep: -1 }],
+      [20, { phase: "commit", relativeStep: -10 }],
+    ]);
+    cleanup();
+
+    const lower = renderField({
+      mixed: true,
+      allowRelativeArrowSteps: true,
+      value: 8,
+      min: 8,
+      max: 30,
+    });
+    fireEvent.focus(lower.input);
+    fireEvent.keyDown(lower.input, { key: "ArrowDown" });
+    fireEvent.keyDown(lower.input, { key: "ArrowDown", shiftKey: true });
+    expect(lower.input.value).toBe("Mixed");
+    expect(lower.onChange.mock.calls).toEqual([
+      [8, { phase: "commit", relativeStep: -1 }],
+      [8, { phase: "commit", relativeStep: -10 }],
+    ]);
+  });
+
+  it("does not enable typed mixed expressions and keeps typed numeric steps absolute", () => {
+    const { onChange, input } = renderField({
+      mixed: true,
+      value: 20,
+      allowRelativeArrowSteps: true,
+    });
+    typeAndEnter(input, "Mixed+2");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("Mixed");
+    fireEvent.change(input, { target: { value: "25" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenCalledWith(24, COMMIT);
+  });
+
+  it("prefers relative steps when both options are enabled, but retains typed expressions", () => {
+    const { onChange, input } = renderField({
+      mixed: true,
+      value: 20,
+      allowRelativeArrowSteps: true,
+      allowRelativeExpressions: true,
+    });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenCalledWith(21, {
+      phase: "commit",
+      relativeStep: 1,
+    });
+    typeAndEnter(input, "Mixed+2");
+    expect(onChange).toHaveBeenLastCalledWith(22, {
+      phase: "commit",
+      relativeExpression: {
+        expression: "Mixed+2",
+        min: 8,
+        max: 160,
+        unit: "px",
+        precision: 1,
+      },
+    });
+  });
+
+  it("keeps non-mixed arrow steps absolute when relative steps are enabled", () => {
+    const { onChange, input } = renderField({
+      value: 20,
+      allowRelativeArrowSteps: true,
+    });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenCalledWith(21, COMMIT);
+  });
+});
+
 describe("font size helpers", () => {
   it("parses sizes with units and rejects non-positive values", () => {
     expect(parseFontSizeInput("24px", 16, { unit: "px" })).toBe(24);

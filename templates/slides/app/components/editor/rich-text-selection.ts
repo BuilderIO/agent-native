@@ -304,21 +304,26 @@ function isStylableText(text: Text) {
   return !text.parentElement?.closest("style, script, template, svg");
 }
 
-function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
+function selectedTextParts(editable: HTMLElement, range: Range) {
   const { startContainer, startOffset, endContainer, endOffset } = range;
   const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
-  const intersecting: Text[] = [];
+  const parts: { text: Text; from: number; to: number }[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (range.intersectsNode(node)) intersecting.push(node as Text);
-  }
-  return intersecting.flatMap((text) => {
+    const text = node as Text;
+    if (!range.intersectsNode(text) || !isStylableText(text)) continue;
     const from = text === startContainer ? startOffset : 0;
     const to = text === endContainer ? endOffset : text.length;
-    if (from >= to || !isStylableText(text)) return [];
+    if (from < to) parts.push({ text, from, to });
+  }
+  return parts;
+}
+
+function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
+  return selectedTextParts(editable, range).map(({ text, from, to }) => {
     let selected = text;
     if (to < selected.length) selected.splitText(to);
     if (from > 0) selected = selected.splitText(from);
-    return [selected];
+    return selected;
   });
 }
 
@@ -389,47 +394,55 @@ export interface FontSizeBounds {
   max: number;
 }
 
-function validateFontSizeDelta(delta: number, bounds: FontSizeBounds) {
-  if (
-    !Number.isFinite(delta) ||
-    !Number.isFinite(bounds.min) ||
-    !Number.isFinite(bounds.max) ||
-    bounds.min < 0 ||
-    bounds.min > bounds.max
-  ) {
-    throw new RangeError("Invalid font size delta or bounds");
-  }
+export interface FontSizeDeltaResult {
+  changed: boolean;
+  /** Text runs skipped because their computed size could not be resolved to pixels. */
+  unresolved: number;
 }
 
-function resizeTextRuns(texts: Text[], delta: number, bounds: FontSizeBounds) {
+export type InlineFontSizeDeltaApplication = InlineTextStyleApplication &
+  FontSizeDeltaResult;
+
+const ABSOLUTE_FONT_SIZE_UNITS: Record<string, number> = {
+  px: 1,
+  pt: 96 / 72,
+  pc: 16,
+  in: 96,
+  cm: 96 / 2.54,
+  mm: 96 / 25.4,
+  q: 96 / 101.6,
+};
+
+function computedFontSize(text: Text): number | null {
+  const element = text.parentElement;
+  if (!element) return null;
+  const value = window.getComputedStyle(element).fontSize.trim().toLowerCase();
+  if (value === "0") return 0;
+  const match = /^(\d*\.?\d+)(px|pt|pc|in|cm|mm|q)$/.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * ABSOLUTE_FONT_SIZE_UNITS[match[2]];
+}
+
+function fontSizeChanges(texts: Text[], delta: number, bounds: FontSizeBounds) {
+  let unresolved = 0;
   const sizes = texts.map((text) => {
-    const parent = text.parentElement;
-    const computed = parent && window.getComputedStyle(parent).fontSize;
-    if (!computed || !/^(?:\d+\.?\d*|\.\d+)px$/.test(computed)) {
-      throw new Error(`Cannot determine computed font size: ${computed}`);
+    const size = computedFontSize(text);
+    if (size === null) {
+      unresolved++;
+      return null;
     }
-    return Number.parseFloat(computed);
+    const bounded = Math.min(bounds.max, Math.max(bounds.min, size + delta));
+    const next = delta > 0 ? Math.max(size, bounded) : Math.min(size, bounded);
+    return next === size ? null : next;
   });
-  let changed = false;
+  return { sizes, unresolved, changed: sizes.some((size) => size !== null) };
+}
+
+function resizeTextRuns(texts: Text[], sizes: (number | null)[]) {
   texts.forEach((text, index) => {
     const size = sizes[index];
-    const next =
-      delta > 0
-        ? Math.max(
-            size,
-            Math.min(bounds.max, Math.max(bounds.min, size + delta)),
-          )
-        : delta < 0
-          ? Math.min(
-              size,
-              Math.max(bounds.min, Math.min(bounds.max, size + delta)),
-            )
-          : size;
-    if (next === size) return;
-    innermostStyleSpan(text).style.fontSize = `${next}px`;
-    changed = true;
+    if (size !== null) innermostStyleSpan(text).style.fontSize = `${size}px`;
   });
-  return changed;
 }
 
 export function applyInlineFontSizeDelta(
@@ -437,30 +450,34 @@ export function applyInlineFontSizeDelta(
   delta: number,
   bounds: FontSizeBounds,
   selection: Selection | null = window.getSelection(),
-): InlineTextStyleApplication {
-  validateFontSizeDelta(delta, bounds);
-  if (delta === 0) {
-    const range = getEditableTextRange(editable, selection);
-    return range ? { scope: "selection", range } : { scope: "block" };
-  }
-  return styleSelectedText(editable, selection, (texts) => {
-    resizeTextRuns(texts, delta, bounds);
+): InlineFontSizeDeltaApplication {
+  const range = getEditableTextRange(editable, selection);
+  if (!range) return { scope: "block", changed: false, unresolved: 0 };
+  if (delta === 0)
+    return { scope: "selection", range, changed: false, unresolved: 0 };
+  const texts = selectedTextParts(editable, range).map((part) => part.text);
+  const { sizes, changed, unresolved } = fontSizeChanges(texts, delta, bounds);
+  if (!changed) return { scope: "selection", range, changed, unresolved };
+  const applied = styleSelectedText(editable, selection, (selected) => {
+    resizeTextRuns(selected, sizes);
   });
+  return { ...applied, changed, unresolved };
 }
 
 export function applyObjectFontSizeDelta(
   editable: HTMLElement,
   delta: number,
   bounds: FontSizeBounds,
-): boolean {
-  validateFontSizeDelta(delta, bounds);
-  if (delta === 0) return false;
+): FontSizeDeltaResult {
+  if (delta === 0) return { changed: false, unresolved: 0 };
   const texts: Text[] = [];
   const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node as Text;
     if (text.length && isStylableText(text)) texts.push(text);
   }
+  const { sizes, changed, unresolved } = fontSizeChanges(texts, delta, bounds);
+  if (!changed) return { changed, unresolved };
 
   const selection = window.getSelection();
   const anchor = selection?.anchorNode;
@@ -468,12 +485,11 @@ export function applyObjectFontSizeDelta(
   const preserve =
     selection &&
     anchor &&
-    focus &&
-    (editable.contains(anchor) || editable.contains(focus));
+    (editable.contains(anchor) || (focus && editable.contains(focus)));
   const anchorOffset = selection?.anchorOffset ?? 0;
   const focusOffset = selection?.focusOffset ?? 0;
-  const changed = resizeTextRuns(texts, delta, bounds);
-  if (changed && preserve) {
+  resizeTextRuns(texts, sizes);
+  if (preserve && focus) {
     if (typeof selection.setBaseAndExtent === "function") {
       selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
     } else {
@@ -481,7 +497,7 @@ export function applyObjectFontSizeDelta(
       selection.extend(focus, focusOffset);
     }
   }
-  return changed;
+  return { changed, unresolved };
 }
 
 function decorationLines(value: string) {

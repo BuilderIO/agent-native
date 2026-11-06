@@ -118,6 +118,8 @@ export interface FontSizeChangeMeta {
   phase: "preview" | "commit" | "cancel";
   /** Set when a mixed selection takes a relative expression such as `Mixed+2`. */
   relativeExpression?: ScrubRelativeExpression;
+  /** Set when a mixed selection takes an opt-in relative arrow step. */
+  relativeStep?: number;
 }
 
 type FontSizeScrubIcon = (props: {
@@ -157,6 +159,8 @@ export interface FontSizeFieldProps {
    * step with the arrow keys, reported as `meta.relativeExpression`.
    */
   allowRelativeExpressions?: boolean;
+  /** Reports mixed-label arrow steps as `meta.relativeStep`, without enabling typed expressions. */
+  allowRelativeArrowSteps?: boolean;
   disabled?: boolean;
   className?: string;
   inputClassName?: string;
@@ -194,6 +198,7 @@ export function FontSizeField({
   scrubIcon: ScrubIcon,
   scrubStep = 1,
   allowRelativeExpressions = false,
+  allowRelativeArrowSteps = false,
   disabled = false,
   className,
   inputClassName,
@@ -323,9 +328,19 @@ export function FontSizeField({
   };
 
   const step = (delta: number) => {
-    if (mixed && allowRelativeExpressions && draft === mixedLabel) {
-      commitRelativeDraft(`Mixed${delta > 0 ? "+" : ""}${delta}`);
-      return;
+    if (mixed && draft === mixedLabel) {
+      if (allowRelativeArrowSteps) {
+        const next = normalizeScrubNumber(value + delta, {
+          ...bounds,
+          precision: FONT_SIZE_PRECISION,
+        });
+        onChange(next, { phase: "commit", relativeStep: delta });
+        return;
+      }
+      if (allowRelativeExpressions) {
+        commitRelativeDraft(`Mixed${delta > 0 ? "+" : ""}${delta}`);
+        return;
+      }
     }
     const typed =
       mixed && draft === mixedLabel

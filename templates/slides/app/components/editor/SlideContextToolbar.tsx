@@ -355,7 +355,7 @@ export function SlideContextToolbar({
   canComment?: boolean;
   onComment?: () => void;
   /** False when the patch was refused: the object paints what it did before. */
-  onChange: (patch: SlideStylePatch) => boolean | void;
+  onChange: (patch: SlideStylePatch, fontSizeStep?: number) => boolean | void;
   onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
@@ -893,11 +893,14 @@ export function SlideContextToolbar({
         unit="px"
         mixed={mixedTextStyles.includes("fontSize")}
         mixedLabel={t("styleInspector.mixed")}
+        allowRelativeArrowSteps
         className={FONT_SIZE_FIELD_CLASS}
         inputClassName="!text-xs"
         contentProps={surfaceProps}
-        onChange={(fontSize) =>
-          onChange({ fontSize: `${formatValue(fontSize)}px` })
+        onChange={(fontSize, meta) =>
+          meta.relativeStep !== undefined
+            ? onChange({}, meta.relativeStep)
+            : onChange({ fontSize: `${formatValue(fontSize)}px` })
         }
       />
       <Divider />
