@@ -11894,17 +11894,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
-  const sourcePreviewDemandRef = useRef<readonly string[]>([]);
+  const sourceDemandRef = useRef<{
+    pinned: readonly string[];
+    preview: readonly string[];
+  }>({ pinned: [], preview: [] });
   const sourceDemandKey = useMemo(() => {
     // Re-ranking previews on every pan frame would re-render the editor per
     // frame; they follow the camera once it rests. A board within the live
     // budget has no settle tick and few enough screens to preview them all.
     const cameraMoving =
-      !needsLiveEditorAdmission ||
-      isPanning ||
-      wheelGestureActiveRef.current ||
-      performance.now() - lastCameraMoveAtRef.current <
-        LIVE_EDITOR_ADMIT_IDLE_MS;
+      needsLiveEditorAdmission &&
+      (isPanning ||
+        wheelGestureActiveRef.current ||
+        performance.now() - lastCameraMoveAtRef.current <
+          LIVE_EDITOR_ADMIT_IDLE_MS);
     const demand = selectSourceDemand({
       frames: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
@@ -11921,6 +11924,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           exportPreviewScreenId,
         ].filter((id): id is string => Boolean(id)),
       ),
+      paintedIds: new Set([
+        ...paintedStaticPreviewIds,
+        ...drawnEditorIdsRef.current,
+      ]),
       viewport: cameraMoving
         ? null
         : getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
@@ -11931,20 +11938,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
       ),
     });
-    if (!needsLiveEditorAdmission) {
-      sourcePreviewDemandRef.current = canvasFrames.map(
-        ({ screen }) => screen.id,
-      );
-    } else if (!cameraMoving) {
-      sourcePreviewDemandRef.current = demand.preview;
-    }
-    const pinned = new Set(demand.pinned);
-    return JSON.stringify({
-      pinned: demand.pinned,
-      preview: sourcePreviewDemandRef.current.filter((id) => !pinned.has(id)),
-    });
+    const previous = sourceDemandRef.current;
+    // Mid-gesture the new view is unknown, so every source the last view
+    // held stays held: releasing one before the view settles drops a screen
+    // that is still on screen.
+    const pinned = cameraMoving
+      ? [...new Set([...demand.pinned, ...previous.pinned])]
+      : demand.pinned;
+    const pinnedSet = new Set(pinned);
+    const preview = (
+      !needsLiveEditorAdmission
+        ? canvasFrames.map(({ screen }) => screen.id)
+        : cameraMoving
+          ? previous.preview
+          : demand.preview
+    ).filter((id) => !pinnedSet.has(id));
+    sourceDemandRef.current = { pinned, preview };
+    return JSON.stringify({ pinned, preview });
   }, [
     activeId,
+    bootStatusRevision,
     cameraSettledTick,
     canvasFrames,
     canvasZoom,
@@ -11952,6 +11965,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     interactScreenId,
     isPanning,
     needsLiveEditorAdmission,
+    paintedStaticPreviewIds,
     pan,
     protectedLiveScreenIds,
     screenCullTierById,

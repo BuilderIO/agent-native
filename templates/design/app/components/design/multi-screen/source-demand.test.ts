@@ -161,6 +161,29 @@ describe("source demand", () => {
     expect(preview).toEqual(["tall-in-view", "short-above"]);
   });
 
+  it("holds the source of every painted screen in view, even past the byte budget", () => {
+    const frames = board(500);
+    const zoom = 0.04;
+    const viewport = viewportAt(
+      zoom,
+      { x: 12 * 1600 + 720, y: 10 * 1100 + 500 },
+      { width: 480, height: 320 },
+    );
+    const painted = new Set(["screen-262", "screen-263", "screen-0"]);
+    const { pinned, preview } = selectSourceDemand({
+      frames,
+      liveIds: new Set(),
+      protectedIds: new Set(),
+      zoom,
+      paintedIds: painted,
+      viewport,
+    });
+    expect(pinned).toEqual(["screen-262", "screen-263"]);
+    expect(preview).not.toContain("screen-262");
+    // A painted screen out of view is only a preview candidate, never held.
+    expect(pinned).not.toContain("screen-0");
+  });
+
   it("previews nothing without a viewport", () => {
     expect(
       selectSourceDemand({

@@ -11,7 +11,10 @@ import type { FrameGeometry } from "./types";
 type ScreenIds = ReadonlySet<string>;
 
 export interface SourceDemand {
-  /** Sources the editor holds: required, protected and legible live screens. */
+  /**
+   * Sources the editor holds: required, protected and legible live screens,
+   * and screens painted on screen, which would blank if their source went.
+   */
   pinned: string[];
   /** Sources for static previews, nearest the viewport first; evictable. */
   preview: string[];
@@ -27,6 +30,7 @@ export function selectSourceDemand({
   protectedIds,
   zoom,
   requiredIds = new Set(),
+  paintedIds = new Set(),
   viewport = null,
   overscannedViewport = viewport,
   previewBudget = SOURCE_PREVIEW_DEMAND_BUDGET,
@@ -36,7 +40,9 @@ export function selectSourceDemand({
   protectedIds: ScreenIds;
   zoom: number;
   requiredIds?: ScreenIds;
-  /** What is on screen; none skips previews. */
+  /** Screens showing a loaded preview or editor. */
+  paintedIds?: ScreenIds;
+  /** What is on screen; none skips previews and painted screens. */
   viewport?: OverscannedViewportBounds | null;
   /** Screens near the viewport, previewed after every on-screen one. */
   overscannedViewport?: OverscannedViewportBounds | null;
@@ -55,8 +61,18 @@ export function selectSourceDemand({
     )
     .slice(0, OVERVIEW_LIVE_SCREEN_BUDGET)
     .map((frame) => frame.id);
-  const pinned = [...protectedSet, ...live];
-  if (!viewport) return { pinned, preview: [] };
+  if (!viewport) return { pinned: [...protectedSet, ...live], preview: [] };
+  const liveSet = new Set(live);
+  const painted = frames
+    .filter(
+      (frame) =>
+        paintedIds.has(frame.id) &&
+        !protectedSet.has(frame.id) &&
+        !liveSet.has(frame.id) &&
+        isFrameWithinOverscannedViewport(frame.geometry, viewport),
+    )
+    .map((frame) => frame.id);
+  const pinned = [...protectedSet, ...live, ...painted];
   const pinnedSet = new Set(pinned);
   const onScreen: (typeof frames)[number][] = [];
   const nearby: (typeof frames)[number][] = [];
