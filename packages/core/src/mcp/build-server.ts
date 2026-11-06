@@ -281,16 +281,7 @@ export interface McpDirectoryWidgetTarget {
   writeActions?: readonly string[];
 }
 
-export interface McpCallerContext {
-  credentialKind:
-    | "oauth"
-    | "connect-oauth"
-    | "connect-legacy"
-    | "a2a-deployment"
-    | "a2a-organization"
-    | "a2a-org-member"
-    | "static"
-    | "dev-open";
+export type McpCallerContext = {
   /** A signed subject is not proof of local issuance or a verified person; a connect subject also matched a local token row. */
   principal:
     | { kind: "signed-subject"; email: string }
@@ -301,9 +292,15 @@ export interface McpCallerContext {
     | { kind: "owner-hint"; email: string }
     | { kind: "organization" }
     | { kind: "anonymous" };
-  /** Undefined means no organization was established; null means Personal scope. */
-  orgId: string | null | undefined;
-  orgDomain: string | undefined;
+  /** The verifier's identity inputs, not a downstream effective organization. */
+  organization: {
+    /** Unresolved still requires the existing domain/email resolution path. */
+    scope: { kind: "identity"; orgId: string | null } | { kind: "unresolved" };
+    domain:
+      | { kind: "signed-claim"; value: string }
+      | { kind: "local-metadata"; value: string }
+      | { kind: "absent" };
+  };
   /** The verified JWT's own issue time, not the OAuth grant time. */
   issuedAt: { valueMs: number; source: "jwt-iat" } | null;
   /** The signed time selected by the existing widget logout-revocation policy. */
@@ -311,7 +308,23 @@ export interface McpCallerContext {
     valueMs: number;
     source: "signed-grant-created-at" | "jwt-iat";
   } | null;
-}
+} & (
+  | {
+      credentialKind: "oauth" | "connect-oauth";
+      oauth: { scopes: string[]; clientId: string };
+    }
+  | {
+      credentialKind:
+        | "connect-legacy"
+        | "a2a-deployment"
+        | "a2a-organization"
+        | "a2a-org-member"
+        | "static"
+        | "dev-open";
+      /** No OAuth scope restriction was supplied; this is not general authorization. */
+      oauth: null;
+    }
+);
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
@@ -4296,20 +4309,28 @@ export type VerifyAuthResult = {
  */
 type IssuedMcpCredential = {
   userEmail: string;
-  credentialKind: "oauth" | "connect-oauth" | "connect-legacy";
   /** The signed `org_id` claim; undefined when the token has none. */
   orgId: string | null | undefined;
   orgDomain: string | undefined;
   /** Set for connect tokens, whose standing lives in `mcp_connect_tokens`. */
   connect?: { jti: string | undefined };
-  oauthScopes?: string[];
-  oauthClientId?: string;
   catalogScope?: "full";
   /** Signed OAuth grant creation-time claim, in milliseconds. */
   grantCreatedAtMs?: number;
   /** `iat`, in seconds. */
   issuedAt: number | undefined;
-};
+} & (
+  | {
+      credentialKind: "connect-legacy";
+      oauthScopes?: never;
+      oauthClientId?: never;
+    }
+  | {
+      credentialKind: "oauth" | "connect-oauth";
+      oauthScopes: string[];
+      oauthClientId: string;
+    }
+);
 
 /**
  * Connect tokens minted before Connect used the MCP OAuth format: an
@@ -4489,10 +4510,20 @@ async function admitIssuedMcpCredential(
     await markConnectTokenUsed(credential.connect.jti);
   }
   if (!admitted.authed) return admitted;
+  const callerCredential =
+    credential.credentialKind === "connect-legacy"
+      ? { credentialKind: credential.credentialKind, oauth: null }
+      : {
+          credentialKind: credential.credentialKind,
+          oauth: {
+            scopes: credential.oauthScopes,
+            clientId: credential.oauthClientId,
+          },
+        };
   return {
     ...admitted,
     callerContext: {
-      credentialKind: credential.credentialKind,
+      ...callerCredential,
       principal: {
         kind:
           stored?.kind === "service"
@@ -4502,8 +4533,12 @@ async function admitIssuedMcpCredential(
               : "signed-subject",
         email: credential.userEmail,
       },
-      orgId,
-      orgDomain: credential.orgDomain,
+      organization: mcpOrganizationContext(
+        orgId,
+        credential.orgDomain === undefined
+          ? { kind: "absent" }
+          : { kind: "signed-claim", value: credential.orgDomain },
+      ),
       issuedAt: signedJwtIssuedAt(credential.issuedAt),
       revocationAnchor:
         mcpCredentialIssuedAtMs === undefined
@@ -4771,8 +4806,13 @@ export async function verifyAuth(
       callerContext: {
         credentialKind: verifiedA2AIdentity.credentialKind,
         principal,
-        orgId: admitted.identity?.orgId,
-        orgDomain: admitted.identity?.orgDomain,
+        organization: mcpOrganizationContext(
+          admitted.identity?.orgId,
+          admitted.identity?.orgDomain === undefined
+            ? { kind: "absent" }
+            : { kind: "local-metadata", value: admitted.identity.orgDomain },
+        ),
+        oauth: null,
         issuedAt: signedJwtIssuedAt(verifiedA2AIdentity.issuedAt),
         revocationAnchor: null,
       },
@@ -4795,6 +4835,19 @@ export async function verifyAuth(
   );
 }
 
+function mcpOrganizationContext(
+  orgId: string | null | undefined,
+  domain: McpCallerContext["organization"]["domain"],
+): McpCallerContext["organization"] {
+  return {
+    scope:
+      orgId === undefined
+        ? { kind: "unresolved" }
+        : { kind: "identity", orgId },
+    domain,
+  };
+}
+
 function staticCallerContext(
   credentialKind: "static" | "dev-open",
   identity: MCPCallerIdentity | undefined,
@@ -4804,8 +4857,8 @@ function staticCallerContext(
     principal: identity?.userEmail
       ? { kind: "owner-hint", email: identity.userEmail }
       : { kind: "anonymous" },
-    orgId: undefined,
-    orgDomain: undefined,
+    organization: mcpOrganizationContext(undefined, { kind: "absent" }),
+    oauth: null,
     issuedAt: null,
     revocationAnchor: null,
   };
