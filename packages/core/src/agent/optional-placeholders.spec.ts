@@ -73,6 +73,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
       write,
     );
     expect(result.error).toBeUndefined();
+    expect(result.input).toEqual({ id: "a" });
   });
 
   it("accepts a resources-shaped payload with every unused optional set to null", () => {
@@ -101,11 +102,10 @@ describe("normalizeOptionalToolPlaceholders", () => {
       write,
     );
     expect(result.error).toBeUndefined();
-    expect(result.input).toMatchObject({
+    expect(result.input).toEqual({
       action: "read",
       path: "skills/a/SKILL.md",
     });
-    expect(result.input).not.toHaveProperty("scope");
   });
 
   it("still refuses a real placeholder value beside null", () => {

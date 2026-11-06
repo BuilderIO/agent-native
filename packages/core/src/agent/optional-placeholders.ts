@@ -125,6 +125,7 @@ function stripOptionalToolPlaceholders(
     invalid: boolean;
     nullOnly: boolean;
     listsEraseNothing: boolean;
+    stripNull?: boolean;
   },
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
@@ -171,6 +172,10 @@ function stripOptionalToolPlaceholders(
       ) {
         placeholders.push(key);
       }
+      continue;
+    }
+    if (emptyValues.stripNull && entry === null && !required.has(key)) {
+      placeholders.push(key);
       continue;
     }
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
@@ -253,7 +258,15 @@ export function normalizeOptionalToolPlaceholders(
     nullOnly,
     listsEraseNothing: entry.emptyListsEraseNothing === true,
   };
-  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
+  let result = stripOptionalToolPlaceholders(schema, input, emptyValues);
+  // A padded call means its nulls are padding too, including on nullable
+  // fields where a lone null would be a deliberate clear.
+  if (emptyValues.invalid && !emptyValues.valid) {
+    result = stripOptionalToolPlaceholders(schema, input, {
+      ...emptyValues,
+      stripNull: true,
+    });
+  }
   // Only a declared read is exempt: a dynamic plan-mode effect classifies the
   // raw input, which defaults can turn into a write.
   if (
