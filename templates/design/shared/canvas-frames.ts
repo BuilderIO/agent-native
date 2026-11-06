@@ -81,6 +81,7 @@ export function getResponsiveInitialCanvasFrameGeometries(
     screenMetadataByFileId: metadataByFileId,
     breakpointWidths,
   };
+  const responsiveScreenIds = new Set(screenIds);
   const initialGeometryById = Object.fromEntries(
     screens.map((screen, index) => {
       const fallback = getInitialCanvasFrameGeometry(index, {
@@ -109,7 +110,7 @@ export function getResponsiveInitialCanvasFrameGeometries(
           rotation: undefined,
         },
         responsiveLayout,
-        new Set(screenIds),
+        responsiveScreenIds,
       );
       return [
         screen.id,
@@ -134,6 +135,18 @@ export function getResponsiveInitialCanvasFrameGeometries(
         .map((screen) => initialGeometryById[screen.id].height),
     ),
   );
+  const columnXs: number[] = [];
+  let columnX = 0;
+  for (const width of columnWidths) {
+    columnXs.push(columnX);
+    columnX = columnX + width + OVERVIEW_FRAME_GAP;
+  }
+  const rowYs: number[] = [];
+  let rowY = 0;
+  for (const height of rowHeights) {
+    rowYs.push(rowY);
+    rowY = rowY + height + OVERVIEW_FRAME_LABEL_HEIGHT + OVERVIEW_FRAME_GAP;
+  }
   return Object.fromEntries(
     screens.map((screen, index) => {
       const column = index % columnCount;
@@ -142,19 +155,8 @@ export function getResponsiveInitialCanvasFrameGeometries(
       return [
         screen.id,
         {
-          x: columnWidths
-            .slice(0, column)
-            .reduce((total, width) => total + width + OVERVIEW_FRAME_GAP, 0),
-          y: rowHeights
-            .slice(0, row)
-            .reduce(
-              (total, height) =>
-                total +
-                height +
-                OVERVIEW_FRAME_LABEL_HEIGHT +
-                OVERVIEW_FRAME_GAP,
-              0,
-            ),
+          x: columnXs[column],
+          y: rowYs[row],
           width: geometry.width ?? OVERVIEW_FRAME_WIDTH,
           height:
             geometry.height ??

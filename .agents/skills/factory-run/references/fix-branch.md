@@ -41,7 +41,12 @@ reported failure, or change anything beyond fixing it.
 3. Follow `review-latest-feedback`'s "Fix as many as you can" rules:
    reproduce first, check history, prove the fix with `scripts/fix-proof.ts`
    (a test-only change, such as a flaky-test fix, needs no proof), keep it
-   small, and get a second opinion before publishing. Add a changeset when
+   small, and get a second opinion before publishing. CI re-runs every proof
+   line, and accepts only `pnpm [--filter <pkg>] exec vitest run <test-file>`
+   or `node --test <test-file>`: one test file, no `-t` filter or other
+   flags. A `proven locally only` line is not a proof. If fix-proof fails to
+   run, quote its output and fix the cause; it never runs `git checkout` or
+   `git rm`, so no environment rule blocks it. Add a changeset when
    AGENTS.md says the touched package needs one.
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
@@ -55,7 +60,9 @@ reported failure, or change anything beyond fixing it.
    set its body with `gh pr edit <url> --body-file <file>`: what changed, why,
    how it was verified (the proof line, or that it's test-only), a `### Root cause` section (your
    ROOT CAUSE line and its evidence, no user data), then a `## Reports`
-   section with one bullet per report link. No agent labels,
+   section with one bullet per report link (a chat-health report has no
+   link: list its key, `chat-health:<app>:<date>`) and its proof line under
+   it. No agent labels,
    `Co-Authored-By`, mentions, or reviewers. If `gh pr edit` fails, say so in
    your reply.
 
@@ -64,12 +71,18 @@ reported failure, or change anything beyond fixing it.
 
 6. End with exactly these lines:
 
+   Write these lines as plain text in your own final reply: not inside a
+   plan (ExitPlanMode), a sub-agent's prompt, or a file. The factory reads
+   only your reply text.
+
    ```text
    BRANCH: <output of git branch --show-current>
    PR: <the PR URL, or none>
    PROOF: <the fix-proof line, "visual: <before> <after>", or "fix-proof: test-only">
    ROOT CAUSE: confirmed | likely | unconfirmed - <one sentence, naming the evidence or what you couldn't check>
    CHANGE: <one plain sentence about what the reporter will notice>
+   CONFIDENCE: root-cause <0-100> - <rubric rows> | fix <0-100> - <rubric rows>
+   DESIGN: none | <one question for a designer, with the options and your pick>
    ```
 
    If you could not reproduce or fix it, end with:
@@ -78,7 +91,17 @@ reported failure, or change anything beyond fixing it.
    OUTCOME: could-not-reproduce | already-fixed <sha or PR url> | blocked | not-code
    ROOT CAUSE: <as above>
    WHY: <one sentence>
+   CONFIDENCE: root-cause <0-100> - <rubric rows>
+   DESIGN: none | <as above>
    ```
+
+   Score with the rubric in
+   `git show origin/main:.agents/skills/factory-run/references/confidence.md`.
+   A fix under 70 still ships its PR, but it waits for a person's approval
+   before it merges. When the right behavior is a design, workflow, or UX
+   call rather than a bug, ship the smallest sensible default and ask the
+   question in `DESIGN`; when nothing sensible can ship without the answer,
+   end with `OUTCOME: blocked` and the question in `DESIGN`.
 
 ## Follow-ups
 

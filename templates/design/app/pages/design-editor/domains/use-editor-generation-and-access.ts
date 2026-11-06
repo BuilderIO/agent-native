@@ -55,6 +55,10 @@ import {
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
+  reportDesignWriteFailure,
+  SURFACE_MUTATION_ERROR,
+} from "@/lib/design-write-failure";
+import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
   hasFreshPendingGeneration,
@@ -79,12 +83,12 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
   createPendingLocalFileContent,
   type PendingLocalFileContent,
-  restorePendingFileContent,
 } from "../editor-state";
 import {
   formatUploadedFileContext,
@@ -98,7 +102,17 @@ import {
   applyMcpDirectoryWidgetWritePolicy,
 } from "../mcp-widget-write-capabilities";
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
-import { type DesignData, type DesignFile } from "../types";
+import { eagerSourceIds } from "../source-hydration";
+import {
+  hydrateDesignFiles,
+  type IdentityCache,
+} from "../stable-file-identity";
+import {
+  type DesignData,
+  type DesignFile,
+  type DesignFileMetadata,
+} from "../types";
+import { useDesignSourceHydration } from "../use-design-source-hydration";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorHistory } from "./use-editor-history";
 
@@ -257,8 +271,10 @@ export function useEditorGenerationAndAccess({
     ((prompt: RetryablePrompt) => void) | null
   >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  // Hashing every screen is too slow to repeat on each render of a large
+  // board, so the editor publishes a reader and a submit calls it.
   const generationOutputBaselineRef = useRef<
-    Array<{ id: string; contentHash: string }> | undefined
+    (() => Array<{ id: string; contentHash: string }>) | undefined
   >(undefined);
   const generationOutputUnknownRef = useRef<{
     designId: string;
@@ -285,6 +301,7 @@ export function useEditorGenerationAndAccess({
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(
     (autoRetry = true) => {
@@ -296,6 +313,7 @@ export function useEditorGenerationAndAccess({
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        references: pending.references,
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
@@ -566,7 +584,7 @@ export function useEditorGenerationAndAccess({
       const previousRunBaselineVerified = baseline.verified;
       const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
         pending?.outputBaselineFiles,
-        generationOutputBaselineRef.current,
+        generationOutputBaselineRef.current?.(),
       );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
@@ -702,17 +720,31 @@ export function useEditorGenerationAndAccess({
     !pendingMatchesUnknownOutputVerification &&
     !pendingQuestionsVisible;
 
+  const pendingLocalFileContentsRef = useRef<
+    Map<string, PendingLocalFileContent>
+  >(new Map());
+  const [
+    pendingLocalFileContentsRevision,
+    setPendingLocalFileContentsRevision,
+  ] = useState(0);
+
   const {
-    data: designResult,
+    data: metadataResult,
     error: designQueryError,
     isError: designQueryFailed,
     isLoading: designLoading,
     isFetching: designFetching,
     dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
-  } = useActionQuery<DesignData | string>(
+  } = useActionQuery<
+    (Omit<DesignData, "files"> & { files: DesignFileMetadata[] }) | string
+  >(
     "get-design",
-    { id: id!, ...(reviewPreview ? { reviewPreview: true } : {}) },
+    {
+      id,
+      includeFileContent: false,
+      ...(reviewPreview ? { reviewPreview: true } : {}),
+    },
     {
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
@@ -724,6 +756,100 @@ export function useEditorGenerationAndAccess({
           : false,
     },
   );
+  const sourceMetadata = useMemo(
+    () =>
+      metadataResult &&
+      typeof metadataResult === "object" &&
+      Array.isArray(metadataResult.files)
+        ? metadataResult.files
+        : [],
+    [metadataResult],
+  );
+  const [visibleSourceIds, setVisibleSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const onSourceDemandChange = useCallback((ids: readonly string[]) => {
+    setVisibleSourceIds((previous) =>
+      previous.length === ids.length &&
+      previous.every((id, index) => id === ids[index])
+        ? previous
+        : ids,
+    );
+  }, []);
+  const demandedSourceIds = useMemo(() => {
+    const board = sourceMetadata.find(
+      (file) => file.filename === "__board__.html",
+    )?.id;
+    const first = sourceMetadata.find(
+      (file) => file.fileType === "html" && file.id !== board,
+    )?.id;
+    return [
+      ...new Set(
+        [
+          overviewSelectedScreenIds.length === 1
+            ? overviewSelectedScreenIds[0]
+            : undefined,
+          activeFileId ?? first,
+          board,
+          ...visibleSourceIds,
+          ...eagerSourceIds(sourceMetadata),
+        ].filter((value): value is string => Boolean(value)),
+      ),
+    ];
+  }, [
+    activeFileId,
+    overviewSelectedScreenIds,
+    sourceMetadata,
+    visibleSourceIds,
+  ]);
+  const dirtySourceIds = useMemo(
+    () => new Set(pendingLocalFileContentsRef.current.keys()),
+    [pendingLocalFileContentsRevision],
+  );
+  const pinnedSourceIds = useMemo(
+    () => new Set([...demandedSourceIds, ...dirtySourceIds]),
+    [demandedSourceIds, dirtySourceIds],
+  );
+  const {
+    loader: sourceLoader,
+    revision: sourceRevision,
+    dependencyStatusByRoot,
+    retrySources,
+    leaseHydratedSource,
+    leaseSources,
+    awaitCommittedSources,
+  } = useDesignSourceHydration(
+    id,
+    sourceMetadata,
+    demandedSourceIds,
+    pinnedSourceIds,
+    dirtySourceIds,
+  );
+  const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
+    new Map(),
+  );
+  const hydratedDesignRef = useRef<{
+    metadata: object;
+    design: DesignData;
+  } | null>(null);
+  const designResult = useMemo<DesignData | string | undefined>(() => {
+    if (!metadataResult || typeof metadataResult !== "object")
+      return metadataResult;
+    const previous = hydratedDesignRef.current;
+    const files = hydrateDesignFiles(
+      hydratedFilesCacheRef.current,
+      previous?.design.files,
+      metadataResult.files,
+      (id) => sourceLoader?.get(id),
+      (id) => dependencyStatusByRoot.get(id),
+    );
+    const design =
+      previous?.metadata === metadataResult && previous.design.files === files
+        ? previous.design
+        : { ...metadataResult, files };
+    hydratedDesignRef.current = { metadata: metadataResult, design };
+    return design;
+  }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
     isLoading: designAccessStatusLoading,
@@ -846,14 +972,16 @@ export function useEditorGenerationAndAccess({
   const designEditorCommandVersion = useChangeVersions(
     designEditorCommandKeys.map((key) => `app-state:${key}`),
   );
+  // Every screen, loaded or not, can hold a pending rewrite proposal.
+  const designFileMetadata = shellMode ? design?.files : sourceMetadata;
   const pendingNodeRewriteStateKeys = useMemo(
     () =>
       id
-        ? (design?.files.map((file) =>
+        ? (designFileMetadata?.map((file) =>
             designRepromptPendingStateKey(id, file.id),
           ) ?? [])
         : [],
-    [design?.files, id],
+    [designFileMetadata, id],
   );
   const pendingNodeRewriteStateVersion = useChangeVersions(
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
@@ -863,7 +991,7 @@ export function useEditorGenerationAndAccess({
     designId: id,
     isOwner: !shellMode && designAccessRole === "owner",
     designLoaded: Boolean(design),
-    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+    files: designFileMetadata ?? EMPTY_READY_VIEW_FILES,
   });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -968,7 +1096,8 @@ export function useEditorGenerationAndAccess({
           const refreshed = await refetchDesign();
           if (
             refreshed.isSuccess &&
-            isDesignData(refreshed.data) &&
+            refreshed.data &&
+            typeof refreshed.data === "object" &&
             typeof refreshed.data.liveCollaborationEnabled === "boolean"
           ) {
             setLiveCollaborationOverride(null);
@@ -1169,13 +1298,6 @@ export function useEditorGenerationAndAccess({
     },
     [applySelectionChange, restoreSelectionSnapshot],
   );
-  const pendingLocalFileContentsRef = useRef<
-    Map<string, PendingLocalFileContent>
-  >(new Map());
-  const [
-    pendingLocalFileContentsRevision,
-    setPendingLocalFileContentsRevision,
-  ] = useState(0);
 
   const markPendingLocalFileContent = useCallback(
     (
@@ -1240,17 +1362,10 @@ export function useEditorGenerationAndAccess({
     (fileId: string, expectedContent: string) => {
       const pending = pendingLocalFileContentsRef.current.get(fileId);
       if (!pending || pending.content !== expectedContent) return;
-      if (id) {
-        queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-          old && typeof old === "object"
-            ? restorePendingFileContent(old, fileId, pending, expectedContent)
-            : old,
-        );
-      }
       clearPendingLocalFileContent(fileId, expectedContent);
       failPendingTextCapture(fileId);
     },
-    [clearPendingLocalFileContent, id, queryClient],
+    [clearPendingLocalFileContent],
   );
 
   useLayoutEffect(() => {
@@ -1342,6 +1457,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+    { meta: SURFACE_MUTATION_ERROR },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1387,12 +1503,16 @@ export function useEditorGenerationAndAccess({
       ) {
         return;
       }
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, designSystemId };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, designSystemId };
+        },
+      );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportDesignWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
@@ -1542,7 +1662,7 @@ export function useEditorGenerationAndAccess({
           setHasPendingGeneration,
           setRetryablePrompt,
           outputBaselineFiles:
-            generationOutputBaselineRef.current ??
+            generationOutputBaselineRef.current?.() ??
             promptState.outputBaselineFiles,
         },
         promptState,
@@ -1663,6 +1783,15 @@ export function useEditorGenerationAndAccess({
     designAccessRequestSent,
     handleRequestDesignAccess,
     design,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    retrySources,
+    dependencyStatusByRoot,
+    leaseHydratedSource,
+    leaseSources,
+    awaitCommittedSources,
+    onSourceDemandChange,
     overviewDataReady,
     activeBreakpointStateVersion,
     designEditorCommandVersion,

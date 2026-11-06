@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.225.1
+
+### Patch Changes
+
+- 1a62c08: Non-image chat attachments uploaded to Builder storage no longer fail the agent run with "An attachment has inline bytes but no durable file URL". Builder's file download URL (`/o/<object>?alt=media&token=…`) now counts as a durable reference, and the client, thread storage, and background dispatch all share one rule for it.
+- Release all public npm packages with a patch version bump.
+
+## 0.225.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.224.0
 
 ### Patch Changes

@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
+    linkedSourceSizeLimit:
+      "Cette modification de composant lié dépasse la limite de taille des sources.",
   },
   editPanel: {
     colorInputLabel: "couleur",
@@ -1050,6 +1052,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Impossible de charger cet écran.",
+    writeFailed: "Impossible d'enregistrer cette modification.",
+    selectionPublishFailed:
+      "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
     liveCollaboration: {
       title: "Collaboration en direct",
       description:
@@ -2725,6 +2731,7 @@ export default {
   },
   homeContext: {
     websiteReference: "Ajouter un site web",
+    websiteReferenceMenu: "Ajouter un site web…",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
     figmaUrlLabel: "Lien Figma",
@@ -2750,10 +2757,12 @@ export default {
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",
     none: "Aucun",
-    design: "Design",
+    design: "Références de design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
-    figmaReference: "Ajouter Figma",
+    connectFigma: "Connecter Figma",
+    figmaDisconnected: "Connectez Figma pour parcourir les designs.",
+    figmaReference: "Design Figma",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",
