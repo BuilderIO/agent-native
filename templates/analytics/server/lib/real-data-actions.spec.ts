@@ -1563,6 +1563,54 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     ).toBe(true);
   });
 
+  it.each([
+    "SELECT category FROM events WHERE category IN (1, 2, 3)",
+    "SELECT COALESCE(value, 2, 3) AS value FROM events",
+    "SELECT IF(category IN (1, 2), COALESCE(value, 3), 4) FROM events",
+    "SELECT 1 IN (1, 2) AS matches FROM events",
+    "SELECT category FROM events WHERE value IN (SELECT value FROM events WHERE category IN (1, 2))",
+    "SELECT category FROM events WHERE EXISTS (SELECT 1 FROM events)",
+    "SELECT category FROM events WHERE value IN (SELECT 1 UNION ALL SELECT 2)",
+    "WITH sample AS (SELECT 42 AS value) SELECT value FROM sample",
+    "SELECT 'text, 42' AS label FROM events",
+    "SELECT 'isn''t SELECT 42' AS label FROM events",
+    "SELECT $tag$SELECT 42$tag$ AS label FROM events",
+    'SELECT "select, 42" FROM events',
+    "SELECT `select, 42` FROM events",
+    "SELECT category /* select 42, */ FROM events",
+    "SELECT category FROM events -- select 42,\nWHERE value IN (1, 2)",
+  ])(
+    "does not treat SQL arguments, predicates, strings or comments as projections: %s",
+    (sql) => {
+      expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each([
+    "SELECT DISTINCT 42 AS value",
+    "SELECT ALL -1.5e+3 AS value",
+    "SELECT 1e3 AS value",
+    "SELECT category, .5E-2 AS value FROM events",
+    "SELECT category, ((42)) AS value FROM events",
+    "SELECT 42 + value AS result FROM events",
+    "SELECT category, 42 AS value FROM events WHERE category IN (1, 2)",
+    "SELECT category FROM events UNION ALL SELECT 42 AS category",
+  ])("detects numeric SQL result projections: %s", (sql) => {
+    expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(true);
+  });
+
+  it("preserves factual claims in SQL comments and surrounding prose", () => {
+    for (const draft of [
+      "```sql\nSELECT value FROM events WHERE value IN (1, 2) -- 42 users\n```",
+      "```sql\nSELECT value FROM events /* Signups were 42. */\n```",
+      "Signups were 42.\n```sql\nSELECT value FROM events WHERE value IN (1, 2)\n```",
+    ]) {
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    }
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),

@@ -1074,6 +1074,69 @@ function hasUnsupportedResultClaim(text: string): boolean {
   );
 }
 
+function hasNumericSqlProjection(sql: string): boolean {
+  // Keep quoted text opaque and comments out of the projection scan; the
+  // separate factual-claim check still inspects the original SQL.
+  const tokens =
+    sql.match(
+      /--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|(\$[a-z_][a-z_0-9]*\$|\$\$)[\s\S]*?\1|'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/gi,
+    ) ?? [];
+  const code = tokens.filter((token) => !/^(?:--|#|\/\*)/.test(token));
+  const numeric = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  const endProjection =
+    /^(?:from|where|group|order|having|qualify|limit|offset|fetch|union|intersect|except|window|;)$/i;
+
+  function isNumericProjection(tokens: string[]): boolean {
+    let expression = tokens;
+    if (/^(?:distinct|all)$/i.test(expression[0] ?? "")) {
+      expression = expression.slice(1);
+    }
+    if (expression.length >= 2 && /^as$/i.test(expression.at(-2) ?? "")) {
+      expression = expression.slice(0, -2);
+    } else if (
+      expression.length >= 2 &&
+      /^[a-z_][a-z_0-9$]*$/i.test(expression.at(-1) ?? "")
+    ) {
+      expression = expression.slice(0, -1);
+    }
+    while (expression[0] === "(" && expression.at(-1) === ")") {
+      expression = expression.slice(1, -1);
+    }
+    if (expression[0] === "+" || expression[0] === "-") {
+      expression = expression.slice(1);
+    }
+    return (
+      numeric.test(expression[0] ?? "") &&
+      (expression.length === 1 || /^[+*/%-]$/.test(expression[1]))
+    );
+  }
+
+  let statementDepth = 0;
+  for (let i = 0; i < code.length; i++) {
+    if (code[i] === "(") statementDepth++;
+    else if (code[i] === ")") statementDepth--;
+    if (statementDepth !== 0 || !/^select$/i.test(code[i])) continue;
+    let depth = 0;
+    let projection: string[] = [];
+    for (let j = i + 1; j < code.length; j++) {
+      const token = code[j];
+      if (depth === 0 && (token === ")" || endProjection.test(token))) {
+        break;
+      }
+      if (depth === 0 && token === ",") {
+        if (isNumericProjection(projection)) return true;
+        projection = [];
+      } else {
+        projection.push(token);
+        if (token === "(") depth++;
+        else if (token === ")") depth--;
+      }
+    }
+    if (isNumericProjection(projection)) return true;
+  }
+  return false;
+}
+
 export function draftClaimsAnalyticsMetrics(text: string): boolean {
   const lines = String(text ?? "").split("\n");
   const prose: string[] = [];
@@ -1091,14 +1154,8 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
     while (end < lines.length && !closing.test(lines[end])) end++;
     if (/^\s*sql(?:\s.*)?$/i.test(opening[2])) {
       const sql = lines.slice(i + 1, end).join("\n");
-      const resultLiteral =
-        /(?:\bselect\b|,)\s*[-+]?\d+(?:\.\d+)?(?=\s|,|;|$)/i;
-      const projections = sql.replace(
-        /\b(?:group|order)\s+by\s+\d+(?:\s+(?:asc|desc))?(?:\s*,\s*\d+(?:\s+(?:asc|desc))?)*/gi,
-        " ",
-      );
       if (
-        resultLiteral.test(projections) ||
+        hasNumericSqlProjection(sql) ||
         hasUnsupportedResultClaim(sql.replace(/\bcount\s*(?=\()/gi, ""))
       )
         return true;
