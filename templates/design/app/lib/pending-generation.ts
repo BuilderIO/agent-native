@@ -1,3 +1,4 @@
+import { parseAgentChatReferences } from "@agent-native/core/shared";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -19,6 +20,7 @@ export interface PendingGeneration {
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
   contextItems?: PromptComposerSubmitOptions["contextItems"];
+  references?: PromptComposerSubmitOptions["references"];
   autoGenerate?: boolean;
   skipQuestions?: boolean;
   attempt?: number;
@@ -203,7 +205,7 @@ export function failPendingGenerationForMissingImagePayload(
   return true;
 }
 
-export function readPendingGeneration(
+function readStoredPendingGeneration(
   id: string | undefined,
   options: { consume?: boolean; allowUntimestamped?: boolean } = {},
 ): PendingGeneration | null {
@@ -229,6 +231,18 @@ export function readPendingGeneration(
     window.sessionStorage.removeItem(key);
     return null;
   }
+}
+
+export function readPendingGeneration(
+  id: string | undefined,
+  options: { consume?: boolean; allowUntimestamped?: boolean } = {},
+): PendingGeneration | null {
+  const pending = readStoredPendingGeneration(id, options);
+  if (!pending || pending.references === undefined) return pending;
+  return {
+    ...pending,
+    references: parseAgentChatReferences(pending.references),
+  };
 }
 
 export function isPendingGenerationStale(

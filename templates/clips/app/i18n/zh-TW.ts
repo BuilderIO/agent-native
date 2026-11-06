@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用錄製內容…",
+    group: "錄製內容",
+    authentication: "登入以新增引用。",
+    invalid: "傳送前請選擇有效的引用。",
+    unavailable: "所選引用已無法使用。請移除或重新選擇。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   meetingBrowserConfirmation:
     "Clips 偵測到此瀏覽器正在使用麥克風，但無法判斷會議在哪個分頁進行。",
