@@ -3204,6 +3204,99 @@ describe("agent harness lifecycle", () => {
   });
 
   it.each([
+    { lookupError: new Error("session lookup failed"), closeFails: false },
+    { lookupError: undefined, closeFails: false },
+    { lookupError: new Error("session lookup failed"), closeFails: true },
+  ])(
+    "awaits iterator cleanup after a conflict lookup failure (close fails: $closeFails)",
+    async ({ lookupError, closeFails }) => {
+      vi.useFakeTimers();
+      let observedSignal!: AbortSignal;
+      let streamStarted!: () => void;
+      const streamReady = new Promise<void>((resolve) => {
+        streamStarted = resolve;
+      });
+      let finishClose!: () => void;
+      const closeError = new Error("iterator close failed");
+      const iterator = {
+        next: vi.fn(
+          () => new Promise<IteratorResult<AgentHarnessEvent>>(() => {}),
+        ),
+        return: vi.fn(
+          () =>
+            new Promise<IteratorResult<AgentHarnessEvent>>(
+              (resolve, reject) => {
+                finishClose = () => {
+                  if (closeFails) reject(closeError);
+                  else resolve({ done: true, value: undefined });
+                };
+              },
+            ),
+        ),
+      };
+      const session = fakeSession();
+      session.streamTurn.mockImplementation(
+        (input: { abortSignal?: AbortSignal }) => {
+          if (!input.abortSignal) throw new Error("Expected an abort signal");
+          observedSignal = input.abortSignal;
+          streamStarted();
+          return { [Symbol.asyncIterator]: () => iterator };
+        },
+      );
+      register(stored, session);
+
+      let settled = false;
+      const followUp = sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "long running work",
+        scope: ownerScope(),
+      });
+      const outcome = followUp.then(
+        (value) => {
+          settled = true;
+          return { fulfilled: true as const, value };
+        },
+        (error: unknown) => {
+          settled = true;
+          return { fulfilled: false as const, error };
+        },
+      );
+      await streamReady;
+      mocks.getByRunId.mockRejectedValue(lookupError);
+      stored = {
+        ...stored,
+        status: "stopped",
+        followUpClaimId: null,
+        generation: stored.generation + 1,
+        stoppedAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await vi.advanceTimersByTimeAsync(500);
+      expect(observedSignal.reason).toMatchObject({
+        name: "AgentHarnessSessionConflictError",
+      });
+      expect(iterator.return).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+      finishClose();
+
+      const result = await outcome;
+      expect(result.fulfilled).toBe(false);
+      if (result.fulfilled) throw new Error("Expected follow-up to reject");
+      if (closeFails) {
+        expect(result.error).toBeInstanceOf(AggregateError);
+        expect((result.error as AggregateError).errors).toEqual([
+          observedSignal.reason,
+          lookupError,
+          closeError,
+        ]);
+      } else {
+        expect(result.error).toBe(lookupError);
+      }
+      expect(session.stop).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
     { rejection: new Error("event persistence failed"), cleanup: "none" },
     { rejection: undefined, cleanup: "none" },
     { rejection: new Error("event persistence failed"), cleanup: "stop" },

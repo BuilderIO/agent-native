@@ -1482,11 +1482,12 @@ export async function sendAgentHarnessFollowUp(input: {
         const reason = followUpAbort.signal.reason;
         if (isAgentHarnessSessionConflictError(reason)) {
           const cleanupErrors: unknown[] = [];
+          let lookupFailed = false;
           let latest: StoredAgentHarnessSession | null | undefined;
           try {
             latest = await getAgentHarnessSessionByRunId(input.runId);
           } catch (lookupError) {
-            if (!finalizedRejected) throw lookupError;
+            lookupFailed = true;
             cleanupErrors.push(lookupError);
           }
           if (
@@ -1512,6 +1513,13 @@ export async function sendAgentHarnessFollowUp(input: {
             } catch (closeError) {
               cleanupErrors.push(closeError);
             }
+          }
+          if (
+            lookupFailed &&
+            !finalizedRejected &&
+            cleanupErrors.length === 1
+          ) {
+            throw cleanupErrors[0];
           }
           if (cleanupErrors.length > 0) {
             throw new AggregateError(
