@@ -12207,28 +12207,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     renderScreenContent,
     screenCullTierById,
   ]);
-  const iframeAdmissionOrder = useMemo(
-    () =>
-      orderByViewportDistance(
-        screenPaintCandidatesRef.current.filter(
-          ({ id }) =>
-            !editorScreenIds.has(id) &&
-            (liveScreenIdsRef.current.has(id) ||
-              staticPreviewScreenIds.has(id) ||
-              id === exportPreviewScreenId),
-        ),
-        getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
-      ),
-    [
-      canvasZoom,
-      editorScreenIds,
-      exportPreviewScreenId,
-      pan,
-      screenCullTierById,
-      staticPreviewScreenIds,
-      surfaceSize,
-    ],
-  );
   const staticPreviewContentById = useMemo(
     () =>
       new Map(
@@ -12267,6 +12245,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     staticPreviewContentById,
     surfaceSize,
   ]);
+  // An undrawn editor's cover is a preview iframe too, admitted like any.
+  const iframeAdmissionOrder = useMemo(
+    () =>
+      orderByViewportDistance(
+        screenPaintCandidatesRef.current.filter(
+          ({ id }) =>
+            undrawnEditorIds.includes(id) ||
+            (!editorScreenIds.has(id) &&
+              (liveScreenIdsRef.current.has(id) ||
+                staticPreviewScreenIds.has(id) ||
+                id === exportPreviewScreenId)),
+        ),
+        getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
+      ),
+    [
+      canvasZoom,
+      editorScreenIds,
+      exportPreviewScreenId,
+      pan,
+      screenCullTierById,
+      staticPreviewScreenIds,
+      surfaceSize,
+      undrawnEditorIds,
+    ],
+  );
   const undrawnEditorPreviewReady = useCallback(
     (id: string) => {
       const content = staticPreviewContentById.get(id);
@@ -12362,7 +12365,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // white until it is drawn; its static preview covers that wait.
       if (
         paintedStaticPreviewIds.has(id) ||
-        (levelOfDetail && undrawnEditorPreviewReady(id))
+        (levelOfDetail &&
+          admittedIframeIds.has(id) &&
+          undrawnEditorPreviewReady(id))
       ) {
         handoffs.set(id, "over-editor");
       }

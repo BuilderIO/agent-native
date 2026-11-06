@@ -13,11 +13,11 @@ export function createSourceDependencyIndex(
     byPath: new Map(
       files.map((file) => [file.filename.replace(/^\/+/, ""), file.id]),
     ),
-    // Every loader change rescans every scheduled root, so each version is
-    // scanned once. Keyed by version: holding the content would keep evicted
-    // sources alive past the loader's byte budget. One entry per file, dropped
-    // when a scan finds its source no longer loaded.
-    references: new Map<string, { version: string; references: string[] }>(),
+    // Every loader change rescans every scheduled root, so each loaded body is
+    // scanned once. Keyed weakly by the loader's state, which is replaced
+    // whenever the body is: a strong key would keep evicted sources alive past
+    // the loader's byte budget.
+    references: new WeakMap<SourceHydrationState, string[]>(),
   };
 }
 
@@ -57,18 +57,13 @@ export function sourceDependencyIds(
       (state.status === "ready" && state.refreshError)
     )
       failed = true;
-    if (!file || state.status !== "ready") {
-      referenceCache.delete(id);
-      continue;
-    }
+    if (!file || state.status !== "ready") continue;
     const base = file.filename.replace(/^\/+/, "").split("/").slice(0, -1);
-    const version = `${state.updatedAt}\0${state.content.length}`;
-    let cached = referenceCache.get(id);
-    if (cached?.version !== version) {
-      cached = { version, references: sourceReferences(state.content) };
-      referenceCache.set(id, cached);
+    let references = referenceCache.get(state);
+    if (!references) {
+      references = sourceReferences(state.content);
+      referenceCache.set(state, references);
     }
-    const { references } = cached;
     for (const reference of references) {
       if (/^(?:[a-z][\w+.-]*:|\/\/|#|data:)/i.test(reference)) continue;
       const raw = reference.split(/[?#]/, 1).shift();

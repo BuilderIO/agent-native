@@ -161,9 +161,15 @@ export class SourceHydration {
     this.leases.set(id, (this.leases.get(id) ?? 0) + 1);
     return () => {
       const remaining = (this.leases.get(id) ?? 1) - 1;
-      if (remaining > 0) this.leases.set(id, remaining);
-      else this.leases.delete(id);
-      if (this.release()) this.changed();
+      if (remaining > 0) {
+        this.leases.set(id, remaining);
+        return;
+      }
+      this.leases.delete(id);
+      // Even with nothing evicted, the freed bytes may fit a preview the
+      // budget turned away, and only a change makes the hook ask again.
+      this.release();
+      if (!this.disposed) this.changed();
     };
   }
 

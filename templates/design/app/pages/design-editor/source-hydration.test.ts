@@ -453,6 +453,32 @@ describe("SourceHydration", () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
+  it("notifies when a released lease frees room for a preview", async () => {
+    const changed = vi.fn();
+    const loader = new SourceHydration(
+      async (id) => ({
+        content: "x".repeat(id === "held" ? 8 : 4),
+        updatedAt: "1",
+      }),
+      changed,
+      4,
+      10,
+    );
+    loader.sync([
+      { id: "held", updatedAt: "1" },
+      { id: "p", updatedAt: "1", contentBytes: 4 },
+    ]);
+    const release = loader.lease("held");
+    await loader.request("held");
+    loader.setWanted(["p"]);
+    expect(loader.canLoad("p")).toBe(false);
+    changed.mockClear();
+    release();
+    expect(loader.get("held").status).toBe("ready");
+    expect(changed).toHaveBeenCalled();
+    expect(loader.canLoad("p")).toBe(true);
+  });
+
   it("notifies when removing a pin evicts a cached source", async () => {
     const changed = vi.fn();
     const loader = new SourceHydration(
