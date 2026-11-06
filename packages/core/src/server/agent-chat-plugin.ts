@@ -367,6 +367,9 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// A run can stay active for minutes, so a receipt behind it keeps polling for
+// this long before it is left to the recurring sweep, with a logged error.
+const QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS = 10 * 60_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
@@ -9322,7 +9325,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
-          followUpDepth?: number;
+          busySince?: number;
         } = {},
       ) => {
         const result = {
@@ -9344,22 +9347,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           result.deferred += 1;
           deferredThreads.add(threadId);
         };
-        const scheduleFollowUpDrain = (threadId: string) => {
-          const followUpDepth = drainOptions.followUpDepth ?? 0;
-          if (followUpDepth >= 2) return;
+        const deferBusyReceipt = (threadId: string) => {
+          deferReceipt(threadId);
+          const busySince = drainOptions.busySince ?? Date.now();
+          if (Date.now() - busySince >= QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS) {
+            console.error(
+              `[agent-chat] queued submission for ${threadId} stayed behind a busy thread for ${QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS}ms; leaving it to the recurring sweep`,
+            );
+            return;
+          }
           const waitUntil = getRequestRunContext()?.waitUntil;
           scheduleQueuedSubmissionInboxDrain({
             threadId,
             turnContinues: false,
             ...(waitUntil ? { waitUntil } : {}),
             drain: (input) =>
-              drainQueuedSubmissionInbox({
-                ...input,
-                followUpDepth: followUpDepth + 1,
-              }),
+              drainQueuedSubmissionInbox({ ...input, busySince }),
             onError: (error) => {
               console.error(
-                `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
+                `[agent-chat] busy-thread inbox drain failed for ${threadId}:`,
                 error,
               );
             },
@@ -9397,8 +9403,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             drainOptions.threadId &&
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
-            deferReceipt(receipt.threadId);
-            scheduleFollowUpDrain(receipt.threadId);
+            deferBusyReceipt(receipt.threadId);
             break;
           }
           let claimId: string | undefined;
@@ -9703,8 +9708,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                deferReceipt(receipt.threadId);
-                scheduleFollowUpDrain(receipt.threadId);
+                deferBusyReceipt(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -9938,8 +9942,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               claimId = undefined;
-              deferReceipt(receipt.threadId);
-              scheduleFollowUpDrain(receipt.threadId);
+              deferBusyReceipt(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }

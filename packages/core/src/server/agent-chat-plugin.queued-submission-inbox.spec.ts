@@ -2362,6 +2362,73 @@ describe("queued submission inbox recurring sweep", () => {
     }
   }, 20_000);
 
+  it("logs and leaves a receipt queued once its thread stays busy past the retry limit", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "busy-forever-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const start = Date.now();
+    let offset = 0;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => start + offset);
+    try {
+      await createSweepHandler();
+      inboxHarness.activeRun = {
+        runId: "run-busy-forever",
+        threadId,
+        turnId: "turn-busy-forever",
+        status: "running",
+        inFlight: true,
+      };
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-busy-forever",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-busy-forever",
+        },
+        threadId,
+      );
+      // Let the first busy check defer the receipt, then pass the retry limit
+      // (10 minutes, matching QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS).
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      offset = 10 * 60_000 + 1;
+
+      await vi.waitFor(
+        () => {
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("stayed behind a busy thread"),
+          );
+        },
+        { timeout: 8_000 },
+      );
+      expect(inboxHarness.admissions).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      inboxHarness.activeRun = null;
+      clock.mockRestore();
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
   it("renews a promotion claim while queued admission is pending", async () => {
     const threadId = "queued-promotion-renewal-thread";
     const messageId = "queued-promotion-renewal-message";
