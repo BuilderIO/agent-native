@@ -11353,6 +11353,7 @@ export async function runAgentLoop(opts: {
           thrown = err;
           toolReportedError = false;
           actionRaceLost =
+            // oxlint-disable-next-line typescript/no-unnecessary-condition -- invokeAction updates this through a closure.
             actionInvoked &&
             err instanceof Error &&
             interruptionErrors.has(err);
