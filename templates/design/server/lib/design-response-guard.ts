@@ -521,23 +521,39 @@ function removeDesignTestRequests(text: string): string {
   return parts.join("");
 }
 
-export function looksLikeDesignMutationRequest(text: string): boolean {
+function normalizeRequestUrls(text: string): string {
   const directUrlTarget = new RegExp(
-    `${DESIGN_MUTATION_VERBS.source}\\s*$`,
+    DESIGN_MUTATION_VERBS.source + "[\\s(\\[<\"'`]*$",
     "i",
   );
-  const normalized = text
-    .replace(
-      /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>"'`]+/gi,
-      (url, offset: number) => {
-        const punctuation = url.match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
-        const target = directUrlTarget.test(text.slice(0, offset))
-          ? "this"
-          : " ";
-        return `${target}${punctuation}`;
-      },
-    )
-    .trim();
+  const followingMutation = new RegExp(
+    "^[,;](?:(?:then|and|also|but)\\s+)?(?:(?:please|kindly)\\s+)?" +
+      DESIGN_MUTATION_VERBS.source +
+      "(?=\\s+\\S)",
+    "i",
+  );
+  let normalized = "";
+  let cursor = 0;
+  for (const match of text.matchAll(
+    /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>"'`]+/gi,
+  )) {
+    const start = match.index;
+    const url = match[0];
+    const boundary = [...url.matchAll(/[,;]/g)].find(({ index }) =>
+      followingMutation.test(text.slice(start + index)),
+    );
+    const end = boundary ? boundary.index : url.length;
+    const punctuation = url.slice(0, end).match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
+    normalized += text.slice(cursor, start);
+    normalized += directUrlTarget.test(normalized) ? "this" : " ";
+    normalized += punctuation + url.slice(end);
+    cursor = start + url.length;
+  }
+  return (normalized + text.slice(cursor)).trim();
+}
+
+export function looksLikeDesignMutationRequest(text: string): boolean {
+  const normalized = normalizeRequestUrls(text);
   if (!normalized) return false;
   if (/^\[(?:reprompt selection|selection question)\]/i.test(normalized)) {
     return false;

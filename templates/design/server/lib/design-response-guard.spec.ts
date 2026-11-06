@@ -457,6 +457,12 @@ describe("Design final response guard", () => {
     "Summarize this design at www.update.example.invalid/preview.",
     "Summarize this design at ftp://update.example.invalid/preview.",
     "Do not edit https://example.invalid/preview.",
+    "Create a report using https://example.invalid/edit https://example.invalid/reference.",
+    "Summarize this design at https://example.invalid/preview,then/fix.",
+    "Summarize this design at https://example.invalid/preview?note=edit,then.",
+    "Summarize this design at https://example.invalid/preview,fix#button.",
+    "Summarize this design at https://example.invalid/preview?note=fix,then%20edit.",
+    "Do not edit (https://example.invalid/preview).",
   ])("does not infer mutation intent from URL text: %s", (request) => {
     expect(designFinalResponseGuard(guardContext(request))).toBeNull();
   });
@@ -464,6 +470,13 @@ describe("Design final response guard", () => {
   it.each([
     "Update the layout using https://example.invalid/reference",
     "Edit https://example.invalid/preview",
+    "Edit (https://example.invalid/preview)",
+    "Edit <https://example.invalid/preview>",
+    'Edit "https://example.invalid/preview"',
+    "Edit [https://example.invalid/preview]",
+    "Edit `https://example.invalid/preview`",
+    "Review https://example.invalid/preview,then fix the button",
+    "Review https://example.invalid/preview;then fix the button",
     "Review https://example.invalid/preview, then fix the button",
     "Review this design at https://example.invalid/reference, then update the layout",
     "Review https://example.invalid/reference. Fix the button.",
