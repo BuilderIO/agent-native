@@ -232,6 +232,7 @@ describe("resolveA2ACallerAuth", () => {
           new TextEncoder().encode("global-a2a-secret"),
         );
         expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("typ");
 
         delete process.env.A2A_SECRET;
         const orgSecretOnly = await resolveA2ACallerAuth({
@@ -419,6 +420,7 @@ describe("resolveA2ACallerAuth", () => {
           sub: "alice+qa@agent-native.test",
           org_identity_authority: "identity-hub.test",
           org_identity_id: "org-hub-1",
+          typ: "agent-native-org-federation",
           aud: "https://peer.example.test",
         });
         expect(payload).not.toHaveProperty("org_domain");
@@ -483,6 +485,7 @@ describe("resolveA2ACallerAuth", () => {
         });
         expect(payload).not.toHaveProperty("org_identity_authority");
         expect(payload).not.toHaveProperty("org_identity_id");
+        expect(payload).not.toHaveProperty("typ");
       },
     );
   });
@@ -534,6 +537,7 @@ describe("resolveA2ACallerAuth", () => {
         expect(payload).not.toHaveProperty("org_identity_authority");
         expect(payload).not.toHaveProperty("org_identity_id");
         expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("typ");
       },
     );
   });

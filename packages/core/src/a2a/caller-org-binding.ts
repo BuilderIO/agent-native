@@ -1,5 +1,6 @@
 export const A2A_ORG_IDENTITY_AUTHORITY_CLAIM = "org_identity_authority";
 export const A2A_ORG_IDENTITY_ID_CLAIM = "org_identity_id";
+export const A2A_ORG_FEDERATION_TOKEN_TYPE = "agent-native-org-federation";
 
 export type CallerOrgBinding =
   | { kind: "domain"; orgDomain: string }
@@ -52,7 +53,10 @@ export function callerOrgBindingClaims(
   binding: CallerOrgBinding | undefined,
 ): Record<string, string> | undefined {
   if (binding?.kind !== "federated") return undefined;
+  // An A2A receiver that predates these claims rejects any token type it does
+  // not know, so the call fails there instead of running outside the workspace.
   return {
+    typ: A2A_ORG_FEDERATION_TOKEN_TYPE,
     [A2A_ORG_IDENTITY_AUTHORITY_CLAIM]: binding.authority,
     [A2A_ORG_IDENTITY_ID_CLAIM]: binding.id,
   };

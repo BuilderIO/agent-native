@@ -6,6 +6,7 @@ import {
   type BackfillMember,
   type BackfillOrg,
   buildBackfillPlan,
+  rosterHash,
 } from "./federation-backfill-plan.js";
 
 const AUTHORITY = "https://hub.example.test";
@@ -759,4 +760,130 @@ test("an org linked to a different authority does not reserve a slot", () => {
   assert.deepStrictEqual(result.appLinks, [
     { app: "slides", orgId: id("2"), canonicalId: id("2") },
   ]);
+});
+
+test("an interrupted multi-person apply is resumed without a second hub row", () => {
+  const CANON = id("c");
+  const result = plan([
+    snapshot(
+      HUB,
+      [
+        org({
+          id: CANON,
+          name: "Team",
+          createdAt: 100,
+          identityAuthority: AUTHORITY,
+          identityId: CANON,
+        }),
+      ],
+      [member(CANON, ALICE, "owner"), member(CANON, BOB, "member")],
+    ),
+    snapshot(
+      "design",
+      [org({ id: CANON, name: "Team", createdAt: 100 })],
+      [member(CANON, BOB, "member"), member(CANON, ALICE, "owner")],
+    ),
+  ]);
+
+  assert.deepStrictEqual(result.hubCreates, []);
+  assert.deepStrictEqual(result.appLinks, [
+    { app: "design", orgId: CANON, canonicalId: CANON },
+  ]);
+  assert.deepStrictEqual(result.skipped, [
+    { app: HUB, orgId: CANON, reason: "already-linked" },
+  ]);
+  assert.equal(result.counts.multiPersonOrgsLinked, 1);
+});
+
+test("a hub row with a different roster is still a conflict", () => {
+  const CANON = id("c");
+  const result = plan([
+    snapshot(
+      HUB,
+      [
+        org({
+          id: CANON,
+          name: "Team",
+          createdAt: 100,
+          identityAuthority: AUTHORITY,
+          identityId: CANON,
+        }),
+      ],
+      [member(CANON, ALICE, "owner")],
+    ),
+    snapshot(
+      "design",
+      [org({ id: CANON, name: "Team", createdAt: 100 })],
+      [member(CANON, ALICE, "owner"), member(CANON, BOB, "member")],
+    ),
+  ]);
+
+  assert.deepStrictEqual(result.hubCreates, []);
+  assert.deepStrictEqual(result.appLinks, []);
+  assert.deepStrictEqual(result.skipped, [
+    { app: "design", orgId: CANON, reason: "hub-id-conflict" },
+    { app: HUB, orgId: CANON, reason: "already-linked" },
+  ]);
+});
+
+test("a hub row not mapped to the authority is still a conflict", () => {
+  const CANON = id("c");
+  const hubRows = [
+    org({ id: CANON, name: "Team", createdAt: 100 }),
+    org({
+      id: CANON,
+      name: "Team",
+      createdAt: 100,
+      identityAuthority: "https://other-hub.example.test",
+      identityId: CANON,
+    }),
+  ];
+
+  for (const hubRow of hubRows) {
+    const result = plan([
+      snapshot(
+        HUB,
+        [hubRow],
+        [member(CANON, ALICE, "owner"), member(CANON, BOB, "member")],
+      ),
+      snapshot(
+        "design",
+        [org({ id: CANON, name: "Team", createdAt: 100 })],
+        [member(CANON, ALICE, "owner"), member(CANON, BOB, "member")],
+      ),
+    ]);
+
+    assert.deepStrictEqual(result.hubCreates, []);
+    assert.deepStrictEqual(
+      result.appLinks.filter((link) => link.app === "design"),
+      [],
+    );
+    assert.ok(
+      result.skipped.some(
+        (entry) =>
+          entry.app === "design" &&
+          entry.orgId === CANON &&
+          entry.reason === "hub-id-conflict",
+      ),
+    );
+  }
+});
+
+test("rosterHash is stable across email case and order and changes when a role changes", () => {
+  const roster = [
+    { email: ALICE, role: "owner" },
+    { email: BOB, role: "member" },
+  ];
+  const reordered = [
+    { email: " BOB@example.test ", role: "member" },
+    { email: "Alice@Example.test", role: "owner" },
+  ];
+  const promoted = [
+    { email: ALICE, role: "admin" },
+    { email: BOB, role: "member" },
+  ];
+
+  assert.equal(rosterHash(reordered), rosterHash(roster));
+  assert.match(rosterHash(roster), /^[0-9a-f]{64}$/);
+  assert.notEqual(rosterHash(promoted), rosterHash(roster));
 });

@@ -170,9 +170,11 @@ A workspace with no email domain is named by the identity hub's shared
 to its own organization row, then asks the hub to confirm the caller is a
 current member, recording the membership locally when it has never seen them.
 A workspace with neither a domain nor a linked identity sends no token: the call
-fails with `a2a_caller_org_domain_missing` instead of running unscoped. Deploy
-the receiving apps before turning the flag on; an older receiver ignores the
-claims and runs the call outside the workspace.
+fails with `a2a_caller_org_domain_missing` instead of running unscoped. The
+token carries its own `typ` (`agent-native-org-federation`), so an older A2A
+receiver rejects it instead of running the call outside the workspace. Older
+MCP endpoints do not check `typ`: deploy the receiving apps before turning the
+flag on.
 
 The org secret is managed at **Team page → A2A secret** (owner only), where it
 can be revealed, copied, regenerated, and pushed to discovered peers. Its

@@ -10,6 +10,7 @@ const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
+const resolveFederatedOrganizationForA2AMock = vi.hoisted(() => vi.fn());
 const setResponseStatusMock = vi.hoisted(() =>
   vi.fn((event: any, code: number) => {
     event._status = code;
@@ -79,6 +80,10 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../org/membership.js", () => ({
   isOrgMemberForA2A: isOrgMemberForA2AMock,
+}));
+
+vi.mock("../org/federation.js", () => ({
+  resolveFederatedOrganizationForA2A: resolveFederatedOrganizationForA2AMock,
 }));
 
 const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
@@ -1689,6 +1694,7 @@ describe("verifyA2AToken (exported)", () => {
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
+    resolveFederatedOrganizationForA2AMock.mockReset();
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -2442,6 +2448,51 @@ describe("verifyA2AToken (exported)", () => {
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("lets a federation-typed token through the typ gate to the organization binding", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveFederatedOrganizationForA2AMock.mockResolvedValue({
+      orgId: "local-org-1",
+      orgDomain: null,
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      typ: "agent-native-org-federation",
+      sub: "member@example.test",
+      org_identity_authority: "https://dispatch.agent-native.com",
+      org_identity_id: "dispatch-org-1",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "member@example.test",
+      orgDomain: null,
+      orgId: "local-org-1",
+    });
+    expect(resolveFederatedOrganizationForA2AMock).toHaveBeenCalledWith(
+      undefined,
+      {
+        authority: "https://dispatch.agent-native.com",
+        id: "dispatch-org-1",
+        email: "member@example.test",
+      },
+    );
+  });
+
+  it("rejects federation claims that arrive without the federation token type", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "member@example.test",
+      org_identity_authority: "https://dispatch.agent-native.com",
+      org_identity_id: "dispatch-org-1",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    expect(resolveFederatedOrganizationForA2AMock).not.toHaveBeenCalled();
   });
 });
 
