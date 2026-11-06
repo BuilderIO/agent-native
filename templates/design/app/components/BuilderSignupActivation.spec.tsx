@@ -76,7 +76,7 @@ describe("BuilderSignupActivation", () => {
     await render("user-1");
 
     expect(container.querySelector("button")?.textContent).toBe("count 1");
-    expect(container.querySelector("[aria-busy='true']")).toBeNull();
+    expect(container.querySelector("[role='status']")).toBeNull();
   });
 
   it("covers children during a pending activation without remounting them", async () => {
@@ -93,14 +93,38 @@ describe("BuilderSignupActivation", () => {
     await clickCounter();
     await render("user-2");
 
-    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+    expect(container.querySelector("[role='status']")).not.toBeNull();
     expect(container.querySelector("button")?.textContent).toBe("count 1");
+    expect(
+      container.querySelector("button")?.closest("[inert]"),
+    ).not.toBeNull();
 
     mocks.pending = false;
     await act(async () => finish("connected"));
 
-    expect(container.querySelector("[aria-busy='true']")).toBeNull();
+    expect(container.querySelector("[role='status']")).toBeNull();
     expect(container.querySelector("button")?.textContent).toBe("count 1");
+    expect(container.querySelector("[inert]")).toBeNull();
     expect(invalidate).toHaveBeenCalled();
+    invalidate.mockRestore();
+  });
+
+  it("refreshes queries when activation ends after its effect is disposed", async () => {
+    mocks.pending = true;
+    let fail: (error: Error) => void = () => {};
+    mocks.activate.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    await render("user-3");
+    await render(undefined);
+    mocks.pending = false;
+    await act(async () => fail(new Error("activation failed")));
+
+    expect(invalidate).toHaveBeenCalled();
+    invalidate.mockRestore();
   });
 });
