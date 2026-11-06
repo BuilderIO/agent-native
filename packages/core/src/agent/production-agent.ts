@@ -9357,8 +9357,7 @@ export async function runAgentLoop(opts: {
         settlementCandidate &&
         terminalStopReason === "end_turn" &&
         followUpResults.length === 0 &&
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort across awaited work.
-        !signal.aborted &&
+        !isSignalAborted(signal) &&
         !writeReceiptGuard(turnReceipts(), receiptGuardRetried);
       if (hasEmptyFinalResponse && !canSettleEmptyFinal) {
         completedFollowUpSuggestions = undefined;
@@ -11104,6 +11103,7 @@ export async function runAgentLoop(opts: {
         let fileMutation: AgentFileMutationProof | undefined;
         let receipt: WriteReceipt | undefined;
         let requestedSettlement = false;
+        const settlementWasRequested = () => requestedSettlement;
         let settlementOnReturn = false;
         let requiresNextAction = false;
         try {
@@ -11382,7 +11382,7 @@ export async function runAgentLoop(opts: {
               );
             }),
           ]);
-          settlementOnReturn = requestedSettlement;
+          settlementOnReturn = settlementWasRequested();
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
           requiresNextAction =
@@ -11617,9 +11617,7 @@ export async function runAgentLoop(opts: {
         const actionSettled = Boolean(
           !isError &&
           !toolResultLost &&
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort across awaited work.
-          !signal.aborted &&
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- An action callback can request settlement.
+          !isSignalAborted(signal) &&
           settlementOnReturn &&
           !requiresNextAction &&
           callEffect !== "unknown" &&
