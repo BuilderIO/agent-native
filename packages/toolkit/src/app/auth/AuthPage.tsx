@@ -304,6 +304,7 @@ function trackAuth(
     );
     const legacyProperties = {
       app,
+      hostname: window.location.hostname,
       ...(app === "design" ? builderSignupTelemetry : {}),
       ...properties,
     };

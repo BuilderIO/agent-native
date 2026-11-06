@@ -44,6 +44,19 @@ const assignmentSchema = z.object({
 });
 type Assignment = z.infer<typeof assignmentSchema>;
 
+function experimentProperties(
+  assignment?: Assignment,
+): Record<string, unknown> {
+  return {
+    app_name: "design",
+    template_name: "design",
+    experiment_id: BUILDER_SIGNUP_EXPERIMENT,
+    ...(assignment
+      ? { experiment_variant: assignment.variant, assignment_id: assignment.id }
+      : {}),
+  };
+}
+
 function mac(body: string): Buffer {
   return createHmac("sha256", getAuthSecret())
     .update(`${BUILDER_SIGNUP_EXPERIMENT}:${body}`)
@@ -126,43 +139,47 @@ export async function bindBuilderSignupAttempt(
     getCookie(event, BUILDER_SIGNUP_COOKIE),
   );
   if (!assignment) return false;
+  const normalizedEmail = email.trim().toLowerCase();
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) throw new Error("Signup identity store is unavailable");
+  const identity = await adapter.findUserByEmail(normalizedEmail, {
+    includeAccounts: false,
+  });
+  const createdAt = identity?.user.createdAt;
+  const createdAtMs = createdAt ? new Date(createdAt).getTime() : Number.NaN;
+  if (
+    !identity ||
+    !Number.isFinite(createdAtMs) ||
+    createdAtMs < assignment.issuedAt
+  )
+    return false;
+  track(
+    "builder_signup_experiment_enrolled",
+    { ...experimentProperties(assignment), method },
+    { authUserId: identity.user.id, userId: normalizedEmail },
+  );
   if (assignment.variant === "control") {
-    const adapter = await getBetterAuthInternalAdapter();
-    if (!adapter) throw new Error("Signup identity store is unavailable");
-    const identity = await adapter.findUserByEmail(email, {
-      includeAccounts: false,
-    });
-    const createdAt = identity?.user.createdAt;
-    const createdAtMs = createdAt ? new Date(createdAt).getTime() : Number.NaN;
-    if (
-      !identity ||
-      !Number.isFinite(createdAtMs) ||
-      createdAtMs < assignment.issuedAt
-    )
-      return false;
     const key = `${BUILDER_SIGNUP_EXPERIMENT}:${identity.user.id}`;
-    if (!(await getSetting(key))) {
-      await mutateSetting(
-        key,
-        (current) =>
-          current ?? {
-            id: assignment.id,
-            variant: "control",
-            issuedAt: assignment.issuedAt,
-            policy: assignment.policy,
-            userId: identity.user.id,
-            status: "control",
-          },
-      );
+    const record = await mutateSetting(
+      key,
+      (current) =>
+        current ?? {
+          id: assignment.id,
+          variant: "control",
+          issuedAt: assignment.issuedAt,
+          policy: assignment.policy,
+          userId: identity.user.id,
+          status: "control",
+        },
+    );
+    if (record.id === assignment.id && record.status === "control") {
       track(
         "builder_signup_experiment_outcome",
         {
-          experiment_id: BUILDER_SIGNUP_EXPERIMENT,
-          experiment_variant: "control",
-          assignment_id: assignment.id,
+          ...experimentProperties(assignment),
           status: "control",
         },
-        { authUserId: identity.user.id, userId: email },
+        { authUserId: identity.user.id, userId: normalizedEmail },
       );
     }
     return false;
@@ -175,25 +192,12 @@ export async function bindBuilderSignupAttempt(
   )
     return false;
   const key = `${BUILDER_SIGNUP_EXPERIMENT}:attempt:${attemptId}`;
-  const normalizedEmail = email.trim().toLowerCase();
   if (
     assignment.method !== method ||
     (assignment.email && assignment.email !== normalizedEmail)
   )
     return false;
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) throw new Error("Signup identity store is unavailable");
-  const identity = await adapter.findUserByEmail(normalizedEmail, {
-    includeAccounts: false,
-  });
-  const createdAt = identity?.user.createdAt;
-  const createdAtMs = createdAt ? new Date(createdAt).getTime() : Number.NaN;
-  if (
-    !identity ||
-    !Number.isFinite(createdAtMs) ||
-    createdAtMs < assignment.acceptedAt
-  )
-    return false;
+  if (createdAtMs < assignment.acceptedAt) return false;
   const bound = z
     .object({ id: z.string(), boundUserId: z.string() })
     .parse(
@@ -329,9 +333,19 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     if (!body.success) return refuse(400, "invalid_request");
     if (!assignment) {
       deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-      return body.data.operation === "activate"
-        ? { status: "fallback" as const }
-        : refuse(409, "assignment_missing");
+      if (body.data.operation === "activate") {
+        if (session?.emailVerified && session.userId)
+          track(
+            "builder_signup_experiment_unattributed",
+            {
+              ...experimentProperties(),
+              code: "assignment_missing",
+            },
+            { userId: session.email, authUserId: session.userId },
+          );
+        return { status: "fallback" as const, code: "assignment_missing" };
+      }
+      return refuse(409, "assignment_missing");
     }
     if (body.data.operation === "accept") {
       if (session || body.data.assignmentId !== assignment.id)
@@ -364,14 +378,36 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     if (!session?.emailVerified || !session.userId)
       return refuse(401, "verified_session_required");
-    const terminal = (status: "connected" | "fallback", code?: string) => {
+    const trackingSource = {
+      userId: session.email,
+      authUserId: session.userId,
+    };
+    const terminal = (
+      status: "connected" | "fallback",
+      code?: string,
+      replayed = false,
+      durationMs?: number,
+    ) => {
+      track(
+        "builder_signup_experiment_outcome",
+        {
+          ...experimentProperties(assignment),
+          status,
+          code: code ?? status,
+          replayed,
+          ...(durationMs === undefined
+            ? {}
+            : { activation_duration_ms: durationMs }),
+        },
+        trackingSource,
+      );
       deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status, ...(code ? { code } : {}) };
     };
     if (assignment.variant !== "automatic")
       return terminal("fallback", "control");
     if (!assignment.acceptedAt || !assignment.attemptId)
-      return terminal("fallback");
+      return terminal("fallback", "acceptance_missing");
     const consent = await getSetting(
       `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
     );
@@ -384,7 +420,17 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     )
       return terminal("fallback", "signup_attempt_unbound");
     const adapter = await getBetterAuthInternalAdapter();
-    if (!adapter) return refuse(503, "identity_unavailable");
+    if (!adapter) {
+      track(
+        "builder_signup_experiment_activation_unavailable",
+        {
+          ...experimentProperties(assignment),
+          code: "identity_unavailable",
+        },
+        { userId: session.email, authUserId: session.userId },
+      );
+      return refuse(503, "identity_unavailable");
+    }
     const identity = await adapter.findUserByEmail(session.email, {
       includeAccounts: false,
     });
@@ -396,14 +442,19 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       !Number.isFinite(createdAtMs) ||
       createdAtMs < assignment.acceptedAt
     )
-      return terminal("fallback");
+      return terminal("fallback", "identity_ineligible");
     const key = `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`;
     const existing = await getSetting(key);
     if (existing) {
       const status = z
         .enum(["started", "connected", "fallback"])
         .parse(existing.status);
-      if (status !== "started") return terminal(status);
+      if (status !== "started")
+        return terminal(
+          status,
+          z.string().nullable().optional().parse(existing.code) ?? undefined,
+          true,
+        );
       return { status: "pending" as const };
     }
     const attempt = randomBytes(16).toString("hex");
@@ -419,6 +470,13 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         },
     );
     if (record.attempt !== attempt) return { status: "pending" as const };
+    track(
+      "builder_signup_experiment_activation_started",
+      {
+        ...experimentProperties(assignment),
+      },
+      { userId: session.email, authUserId: session.userId },
+    );
     let result: { ok: boolean; code?: string; message?: string };
     try {
       result = await dependencies.activate(event, session);
@@ -431,17 +489,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       ...(result.message ? { message: result.message } : {}),
     });
     const status = committed.status;
-    track(
-      "builder_signup_experiment_outcome",
-      {
-        experiment_id: BUILDER_SIGNUP_EXPERIMENT,
-        experiment_variant: assignment.variant,
-        assignment_id: assignment.id,
-        status,
-        code: committed.code ?? null,
-      },
-      { userId: session.email, authUserId: session.userId },
+    return terminal(
+      status,
+      committed.code ?? undefined,
+      false,
+      Date.now() - z.number().parse(record.startedAt),
     );
-    return terminal(status, committed.code ?? undefined);
   });
 }

@@ -447,7 +447,7 @@ function PrivateRootContent() {
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
   const activatingBuilderSignup = useBuilderSignupActivation(
-    hasSession ? session?.userId : undefined,
+    hasSession && session?.emailVerified === true ? session.userId : undefined,
   );
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
