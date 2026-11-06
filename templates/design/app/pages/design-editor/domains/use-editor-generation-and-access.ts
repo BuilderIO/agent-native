@@ -104,6 +104,10 @@ import {
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
 import { eagerSourceIds } from "../source-hydration";
 import {
+  hydrateDesignFiles,
+  type IdentityCache,
+} from "../stable-file-identity";
+import {
   type DesignData,
   type DesignFile,
   type DesignFileMetadata,
@@ -821,27 +825,30 @@ export function useEditorGenerationAndAccess({
     pinnedSourceIds,
     dirtySourceIds,
   );
+  const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
+    new Map(),
+  );
+  const hydratedDesignRef = useRef<{
+    metadata: object;
+    design: DesignData;
+  } | null>(null);
   const designResult = useMemo<DesignData | string | undefined>(() => {
     if (!metadataResult || typeof metadataResult !== "object")
       return metadataResult;
-    return {
-      ...metadataResult,
-      files: metadataResult.files.flatMap((file) => {
-        const state = sourceLoader?.get(file.id);
-        return state?.status === "ready"
-          ? [
-              {
-                ...file,
-                content: state.content,
-                updatedAt: state.updatedAt,
-                sourceState: state.refreshError
-                  ? ("error" as const)
-                  : (dependencyStatusByRoot.get(file.id) ?? "ready"),
-              },
-            ]
-          : [];
-      }),
-    };
+    const previous = hydratedDesignRef.current;
+    const files = hydrateDesignFiles(
+      hydratedFilesCacheRef.current,
+      previous?.design.files,
+      metadataResult.files,
+      (id) => sourceLoader?.get(id),
+      (id) => dependencyStatusByRoot.get(id),
+    );
+    const design =
+      previous?.metadata === metadataResult && previous.design.files === files
+        ? previous.design
+        : { ...metadataResult, files };
+    hydratedDesignRef.current = { metadata: metadataResult, design };
+    return design;
   }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
