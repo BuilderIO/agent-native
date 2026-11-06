@@ -256,6 +256,7 @@ function ClipsExtensionAuthBridge() {
 
     const failExtensionSignIn = (error?: unknown) => {
       clearBridgeWait();
+      startedForRef.current = null;
       if (!isActive()) return;
       if (error)
         console.error("Could not complete Clips extension sign-in.", error);

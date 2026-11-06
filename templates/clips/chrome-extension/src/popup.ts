@@ -502,7 +502,14 @@ async function readAuthStatus(
       body,
       Boolean(headers.Authorization),
     );
-    if (result.clearStoredAuth) await clearStoredAuth();
+    // A newer sign-in may have saved a replacement token while this probe was
+    // in flight; only drop the token this probe actually sent.
+    if (
+      result.clearStoredAuth &&
+      (await authHeaders(settings)).Authorization === headers.Authorization
+    ) {
+      await clearStoredAuth();
+    }
     return result.status;
   } catch {
     return classifyAuthProbe(null, null, Boolean(headers.Authorization)).status;
@@ -1269,8 +1276,12 @@ async function init(): Promise<void> {
     void chrome.runtime.openOptionsPage();
   });
 
+  let authProbeId = 0;
   const refreshAuth = async (): Promise<void> => {
-    authStatus = await readAuthStatus(settings);
+    const probeId = ++authProbeId;
+    const nextStatus = await readAuthStatus(settings);
+    if (probeId !== authProbeId) return;
+    authStatus = nextStatus;
     renderActiveRecording(activeRecording, arming, authStatus);
     if (authStatus === "signed-out") {
       setStatus(signingIn ? SIGN_IN_PENDING_MESSAGE : "");
