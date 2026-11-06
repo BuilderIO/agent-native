@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mutate = vi.fn();
 const refetch = vi.fn();
+const listOptions = vi.fn();
 let role: string | undefined;
 let links: { token: string; createdAt: string }[] = [];
 let listFailed = false;
@@ -15,6 +16,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     options?: { enabled?: boolean },
   ) => {
     if (action === "list-resource-shares") return { data: { role } };
+    if (action === "list-deck-share-links") listOptions(options);
     if (options?.enabled === false) return { data: undefined, refetch };
     if (listFailed)
       return {
@@ -42,6 +44,7 @@ describe("SnapshotShareLinks", () => {
     links = [];
     listFailed = false;
     refetch.mockReset();
+    listOptions.mockReset();
   });
 
   it("renders nothing when the deck has no live snapshot links", () => {
@@ -91,5 +94,6 @@ describe("SnapshotShareLinks", () => {
     listFailed = true;
     const { container } = render(<SnapshotShareLinks deckId="deck-1" />);
     expect(container.innerHTML).toBe("");
+    expect(listOptions).toHaveBeenLastCalledWith({ enabled: false });
   });
 });
