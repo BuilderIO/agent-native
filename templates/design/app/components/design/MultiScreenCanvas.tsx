@@ -12527,12 +12527,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [onSourceDemandChange, sourceDemandKey]);
   const onSourceDemandChangeRef = useRef(onSourceDemandChange);
   onSourceDemandChangeRef.current = onSourceDemandChange;
+  // Sources stay cached after the overview goes, but nothing it pinned is
+  // held: the next view pins what it shows.
   useEffect(
-    () => () =>
-      onSourceDemandChangeRef.current?.({
-        pinned: [...sourceDemandRef.current.pinned],
-        preview: [],
-      }),
+    () => () => onSourceDemandChangeRef.current?.({ pinned: [], preview: [] }),
     [],
   );
   const selectedFrameEntries = useMemo(
