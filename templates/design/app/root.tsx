@@ -470,13 +470,11 @@ function PrivateRootContent() {
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
-      {hasSession && session?.userId ? (
-        <BuilderSignupActivation key={session.userId} userId={session.userId}>
-          {content}
-        </BuilderSignupActivation>
-      ) : (
-        content
-      )}
+      <BuilderSignupActivation
+        userId={hasSession ? session?.userId : undefined}
+      >
+        {content}
+      </BuilderSignupActivation>
     </>
   );
 }
