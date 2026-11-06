@@ -1102,10 +1102,11 @@ describe("AgentChat lifecycle", () => {
       runWorkAfter?.querySelector("[data-agentkit-current-activity]"),
     ).toBeNull();
     expect(runWorkAfter?.querySelector('[data-status="running"]')).toBeNull();
+    // It waits below the reply's text, where the run's next step will show.
     expect(
       runWorkAfter && response
         ? runWorkAfter.compareDocumentPosition(response) &
-            Node.DOCUMENT_POSITION_FOLLOWING
+            Node.DOCUMENT_POSITION_PRECEDING
         : 0,
     ).not.toBe(0);
 

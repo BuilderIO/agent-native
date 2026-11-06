@@ -2268,6 +2268,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   messageId,
   foldedReasoningMessageId,
   summarizesTurn = false,
+  part,
 }: {
   runId?: RunId;
   afterSequence?: number;
@@ -2280,6 +2281,8 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   foldedReasoningMessageId?: string;
   /** This segment is its run's whole turn, so it shows a row with no work. */
   summarizesTurn?: boolean;
+  /** Only the steps' result cards, or only the work row; both by default. */
+  part?: "results" | "row";
 }) {
   const {
     threadId,
@@ -2598,6 +2601,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       minute: labels.durationMinuteShort,
       second: labels.durationSecondShort,
     });
+  const resultCards =
+    durableToolResults.length && part !== "row" ? (
+      <div data-agentkit-tool-results="true">
+        {durableToolResults.map(({ tool, Renderer }) => (
+          <Renderer key={tool.id} value={tool} threadId={threadId} />
+        ))}
+      </div>
+    ) : null;
+  if (part === "results") return resultCards;
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
@@ -2732,13 +2744,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   };
   return (
     <>
-      {durableToolResults.length ? (
-        <div data-agentkit-tool-results="true">
-          {durableToolResults.map(({ tool, Renderer }) => (
-            <Renderer key={tool.id} value={tool} threadId={threadId} />
-          ))}
-        </div>
-      ) : null}
+      {resultCards}
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
           label={baseSummaryLabel}
@@ -3368,9 +3374,7 @@ function AgentWorkDisclosure({
     ? failed.split("{{summary}}")
     : ["", ""];
   const fullLabel = failed ? failed.replace("{{summary}}", () => label) : label;
-  const footer = useAgentMessageWorkHost(running ? undefined : messageId);
-  const footerHost = footer?.element ?? null;
-  const handoff = useAgentWorkHandoff(running, footer, setOpen);
+  const footerHost = useAgentMessageWorkHost(running ? undefined : messageId);
   const summaryLabel = label ? (
     <span className="agentkit-activities-label">
       {failedBefore || failedAfter ? (
@@ -3403,12 +3407,10 @@ function AgentWorkDisclosure({
   // work with nothing to expand is text, not a disabled button.
   const disclosure = (
     <div
-      ref={handoff.inPlaceRef}
       className="agentkit-activities"
       data-running={running ? "true" : undefined}
       data-expandable={expandable ? "true" : "false"}
       data-open={open ? "true" : "false"}
-      data-handoff={handoff.leavingHeight ? "enter" : undefined}
     >
       <AgentKitDisclosureSummary
         as={expandable || running ? "button" : "static"}
@@ -3437,92 +3439,8 @@ function AgentWorkDisclosure({
       </AgentKitDisclosureContent>
     </div>
   );
-  // Finished work joins its reply's controls under the reply; live work stays
-  // above it, where it is happening. On a live finish the space it left above
-  // the reply closes over the same beat as the row fades in below, so the
-  // reply glides up instead of jumping.
-  return (
-    <>
-      {handoff.leavingHeight ? (
-        <div
-          className="agentkit-work-handoff"
-          data-agentkit-work-handoff="leave"
-          aria-hidden="true"
-          inert
-          style={
-            {
-              "--agentkit-work-handoff-size": `${handoff.leavingHeight}px`,
-            } as CSSProperties
-          }
-        >
-          <AgentKitDisclosureSummary
-            as="static"
-            className="agentkit-activities-summary"
-            rowClassName="agentkit-activities-row"
-            open={false}
-            onToggle={noop}
-            expandable={false}
-            style={workedForRowSummaryStyle(workedForRowLayout)}
-            icon={icon}
-            label={summaryLabel}
-          >
-            {summaryContent}
-          </AgentKitDisclosureSummary>
-        </div>
-      ) : null}
-      {footerHost ? createPortal(disclosure, footerHost) : disclosure}
-    </>
-  );
-}
-
-const AGENT_WORK_HANDOFF_MS = 180;
-
-/**
- * Tracks a work row's move from above its reply to the reply's footer. Only
- * a finish seen live animates (the row ran, or its reply streamed): a saved
- * thread renders the row in place for one unpainted pass before its host
- * registers, and that must not read as a finish. A row opened to watch live
- * work closes as it moves, so its steps never land below the reply.
- */
-function useAgentWorkHandoff(
-  running: boolean | undefined,
-  footer: AgentMessageWorkHost | null,
-  setOpen: (open: boolean) => void,
-) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const footerHost = footer?.element ?? null;
-  const live = footer?.live ?? false;
-  const inPlaceRef = useRef<HTMLDivElement>(null);
-  const sawRunningRef = useRef(false);
-  const inPlaceHeightRef = useRef(0);
-  const previousHostRef = useRef<HTMLElement | null>(null);
-  const [leavingHeight, setLeavingHeight] = useState(0);
-  // Measured on every in-place commit, because once the row portals away
-  // its old box is gone. The placeholder keeps the row's margins from the
-  // stylesheet, so only the border box is carried over.
-  useLayoutEffect(() => {
-    if (running) sawRunningRef.current = true;
-    if (footerHost || !inPlaceRef.current) return;
-    inPlaceHeightRef.current = inPlaceRef.current.offsetHeight;
-  });
-  useLayoutEffect(() => {
-    const previousHost = previousHostRef.current;
-    previousHostRef.current = footerHost;
-    if (!footerHost || previousHost) return;
-    if (!live && !sawRunningRef.current) return;
-    setOpen(false);
-    if (prefersReducedMotion || inPlaceHeightRef.current <= 0) return;
-    setLeavingHeight(inPlaceHeightRef.current);
-  }, [footerHost, live, prefersReducedMotion, setOpen]);
-  useEffect(() => {
-    if (!leavingHeight) return;
-    const timer = setTimeout(
-      () => setLeavingHeight(0),
-      AGENT_WORK_HANDOFF_MS + 60,
-    );
-    return () => clearTimeout(timer);
-  }, [leavingHeight]);
-  return { inPlaceRef, leavingHeight: footerHost ? leavingHeight : 0 };
+  // Finished work joins its reply's controls under the reply.
+  return footerHost ? createPortal(disclosure, footerHost) : disclosure;
 }
 
 function AgentReasoningPartDisclosure({
@@ -4903,38 +4821,29 @@ function selectedRunModel(
 /**
  * A finished reply's footer offers a host under its message id, and the
  * reply's work row portals into it so it shares the line with the controls.
- * `live` says the footer saw its reply stream, so the row arriving is a
- * finish the reader watched, not a saved reply loading.
  */
-interface AgentMessageWorkHost {
-  element: HTMLElement;
-  live: boolean;
-}
-
 interface AgentMessageWorkHosts {
-  get: (messageId: string) => AgentMessageWorkHost | undefined;
-  set: (messageId: string, host: AgentMessageWorkHost) => void;
+  get: (messageId: string) => HTMLElement | undefined;
+  set: (messageId: string, element: HTMLElement) => void;
   release: (messageId: string, element: HTMLElement) => void;
   subscribe: (listener: () => void) => () => void;
 }
 
 function createAgentMessageWorkHosts(): AgentMessageWorkHosts {
-  const hosts = new Map<string, AgentMessageWorkHost>();
+  const hosts = new Map<string, HTMLElement>();
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
   };
   return {
     get: (messageId) => hosts.get(messageId),
-    set(messageId, host) {
-      const current = hosts.get(messageId);
-      if (current?.element === host.element && current.live === host.live)
-        return;
-      hosts.set(messageId, host);
+    set(messageId, element) {
+      if (hosts.get(messageId) === element) return;
+      hosts.set(messageId, element);
       notify();
     },
     release(messageId, element) {
-      if (hosts.get(messageId)?.element !== element) return;
+      if (hosts.get(messageId) !== element) return;
       hosts.delete(messageId);
       notify();
     },
@@ -4954,7 +4863,7 @@ function noopSubscribe() {
 
 function useAgentMessageWorkHost(
   messageId: string | undefined,
-): AgentMessageWorkHost | null {
+): HTMLElement | null {
   const hosts = useContext(AgentMessageWorkHostsContext);
   return useSyncExternalStore(
     hosts?.subscribe ?? noopSubscribe,
@@ -4973,11 +4882,9 @@ function useAgentMessageWorkHostRef(
 ): (element: HTMLElement | null) => void {
   const hosts = useContext(AgentMessageWorkHostsContext);
   const [element, setElement] = useState<HTMLElement | null>(null);
-  const sawStreamingRef = useRef(false);
   useLayoutEffect(() => {
-    if (streaming) sawStreamingRef.current = true;
     if (!hosts || !messageId || !element || streaming) return;
-    hosts.set(messageId, { element, live: sawStreamingRef.current });
+    hosts.set(messageId, element);
     return () => hosts.release(messageId, element);
   }, [element, hosts, messageId, streaming]);
   return setElement;
@@ -8487,7 +8394,7 @@ export function AgentKitChat({
     );
   // A message the user sent into a running turn ends the run's work so far,
   // even when no reply was written before it.
-  const { runSegmentEnds, steerSequences } = useMemo(() => {
+  const { runSegmentEnds, runSegmentStarts, steerSequences } = useMemo(() => {
     const deliveredAt = new Map<string, number>();
     for (const event of thread.events) {
       if (
@@ -8499,15 +8406,19 @@ export function AgentKitChat({
       }
     }
     const ends = new Map<RunId, { id: string; sequence: number }>();
+    const starts = new Map<RunId, { id: string; sequence: number }>();
     const steers = new Map<string, number>();
+    const endSegment = (runId: RunId, id: string, sequence: number) => {
+      const previous = ends.get(runId);
+      if (previous) starts.set(runId, previous);
+      ends.set(runId, { id, sequence });
+    };
     for (const message of thread.messages) {
       const runId = messageRunIds.get(message.id);
       if (!runId) continue;
       if (message.role === "assistant") {
         const sequence = messageBoundarySequences.get(message.id);
-        if (sequence !== undefined) {
-          ends.set(runId, { id: message.id, sequence });
-        }
+        if (sequence !== undefined) endSegment(runId, message.id, sequence);
         continue;
       }
       const sequence =
@@ -8524,9 +8435,13 @@ export function AgentKitChat({
       );
       if (!workBefore) continue;
       steers.set(message.id, sequence);
-      ends.set(runId, { id: message.id, sequence });
+      endSegment(runId, message.id, sequence);
     }
-    return { runSegmentEnds: ends, steerSequences: steers };
+    return {
+      runSegmentEnds: ends,
+      runSegmentStarts: starts,
+      steerSequences: steers,
+    };
   }, [
     messageBoundarySequences,
     messageRunIds,
@@ -8564,19 +8479,34 @@ export function AgentKitChat({
     ]),
   );
   const pendingRuns = new Set(pendingRunIds);
-  // A running turn's work after its reply's latest text joins the row above
-  // that reply. As its own row below, the work before reads as finished while
-  // the run is still working, and the turn shows two rows until it ends.
-  const liveReplyRunIds = new Set(
-    pendingRunIds.filter((runId) => {
-      const reply = lastAssistantMessagesByRun.get(runId);
-      return (
-        thread.runs[runId]?.status === "running" &&
-        reply !== undefined &&
-        runSegmentEnds.get(runId)?.id === reply.id
-      );
-    }),
-  );
+  // While a run works on its reply, the reply's work is one row below its
+  // latest text, where the newest activity is: above the reply, narration
+  // pushes it out of view, and split at that text, the work before reads as
+  // finished while the run works. Result cards stay above the reply, where
+  // they sit once it finishes. A finished reply with nothing running after
+  // it keeps its row in its footer.
+  const liveReplies = new Map<
+    RunId,
+    { replyId: string; start: { id: string; sequence: number } | undefined }
+  >();
+  for (const [runId, reply] of lastAssistantMessagesByRun) {
+    if (
+      thread.runs[runId]?.status !== "running" ||
+      runSegmentEnds.get(runId)?.id !== reply.id
+    ) {
+      continue;
+    }
+    const start = runSegmentStarts.get(runId);
+    const streaming =
+      thread.messages.find((message) => message.id === reply.id)?.status ===
+      "streaming";
+    if (
+      (streaming || pendingRuns.has(runId)) &&
+      hasRunWork(runId, start?.sequence)
+    ) {
+      liveReplies.set(runId, { replyId: reply.id, start });
+    }
+  }
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8630,6 +8560,7 @@ export function AgentKitChat({
     messageId,
     foldedReasoningMessageId,
     summarizesTurn,
+    part,
   }: {
     runId: RunId;
     anchor: string;
@@ -8638,8 +8569,9 @@ export function AgentKitChat({
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
+    part?: "results" | "row" | undefined;
   }) => {
-    const key = `run-work:${threadId}:${runId}:${anchor}`;
+    const key = `run-work:${threadId}:${runId}:${anchor}${part === "row" ? ":row" : ""}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
     return cachedRowElement(
       key,
@@ -8650,6 +8582,7 @@ export function AgentKitChat({
         messageId,
         foldedReasoningMessageId,
         summarizesTurn,
+        part,
       ],
       () =>
         renderRunWorkElement({
@@ -8661,6 +8594,7 @@ export function AgentKitChat({
           messageId,
           foldedReasoningMessageId,
           summarizesTurn,
+          part,
         }),
     );
   };
@@ -8673,6 +8607,7 @@ export function AgentKitChat({
     messageId,
     foldedReasoningMessageId,
     summarizesTurn,
+    part,
   }: {
     key: string;
     resetKey: string;
@@ -8682,18 +8617,23 @@ export function AgentKitChat({
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
+    part?: "results" | "row" | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
-      <AgentCollaborationFeed
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-      />
-      <AgentTaskGroup
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-      />
+      {part === "row" ? null : (
+        <>
+          <AgentCollaborationFeed
+            runId={runId}
+            afterSequence={afterSequence}
+            throughSequence={throughSequence}
+          />
+          <AgentTaskGroup
+            runId={runId}
+            afterSequence={afterSequence}
+            throughSequence={throughSequence}
+          />
+        </>
+      )}
       <AgentActivityGroup
         runId={runId}
         afterSequence={afterSequence}
@@ -8703,12 +8643,28 @@ export function AgentKitChat({
         messageId={messageId}
         foldedReasoningMessageId={foldedReasoningMessageId}
         summarizesTurn={summarizesTurn}
+        part={part}
       />
     </AgentKitSurfaceBoundary>
   );
   const renderRunTail = (runId: RunId) => {
     const items: ReactNode[] = [];
-    if (pendingRuns.has(runId)) {
+    const liveReply = liveReplies.get(runId);
+    if (liveReply) {
+      // It settles while the reply's text is the newest output, and is live
+      // again once work starts after it.
+      items.push(
+        renderRunWork({
+          runId,
+          anchor: liveReply.start?.id ?? "start",
+          afterSequence: liveReply.start?.sequence,
+          throughSequence: pendingRuns.has(runId)
+            ? undefined
+            : runSegmentEnds.get(runId)?.sequence,
+          part: "row",
+        }),
+      );
+    } else if (pendingRuns.has(runId)) {
       const boundary = runSegmentEnds.get(runId);
       items.push(
         renderRunWork({
@@ -8752,7 +8708,8 @@ export function AgentKitChat({
   }
   const tailRunIds = Array.from(
     new Set([
-      ...pendingRunIds.filter((runId) => !liveReplyRunIds.has(runId)),
+      ...pendingRunIds,
+      ...liveReplies.keys(),
       ...Array.from(failedRuns.keys()).filter(
         (runId) => !lastAssistantMessagesByRun.has(runId),
       ),
@@ -8886,10 +8843,8 @@ export function AgentKitChat({
       !hasRunWork(runId, sequence) &&
       !hasVisibleReasoning(message),
     );
-    const extendsLiveWork =
-      isAssistantBoundary &&
-      liveReplyRunIds.has(runId) &&
-      lastAssistantMessagesByRun.get(runId)?.id === message.id;
+    const isLiveReply =
+      isAssistantBoundary && liveReplies.get(runId)?.replyId === message.id;
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
@@ -8897,7 +8852,7 @@ export function AgentKitChat({
         hasRunWork(
           runId,
           previousAssistant?.sequence,
-          extendsLiveWork ? undefined : sequence,
+          isLiveReply ? undefined : sequence,
         )),
     );
     // A saved reply's reasoning before its answer joins the work group above
@@ -8913,10 +8868,11 @@ export function AgentKitChat({
           runId,
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
-          throughSequence: extendsLiveWork ? undefined : sequence,
+          throughSequence: isLiveReply ? undefined : sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
           summarizesTurn,
+          part: isLiveReply ? "results" : undefined,
         }),
       );
     }

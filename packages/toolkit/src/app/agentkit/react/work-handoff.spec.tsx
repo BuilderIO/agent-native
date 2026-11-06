@@ -8,7 +8,7 @@ import {
   type AgentThreadState,
 } from "@agent-native/agentkit/client";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,68 +150,45 @@ function stubReducedMotion(reduce: boolean) {
 
 const work = () =>
   container.querySelector<HTMLElement>(".agentkit-activities")!;
-const placeholder = () =>
-  container.querySelector<HTMLElement>('[data-agentkit-work-handoff="leave"]');
+const follows = (later: Node, earlier: Node) =>
+  Boolean(
+    earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
 
-describe("Worked for handoff to the reply footer", () => {
-  beforeEach(() => {
-    stubReducedMotion(false);
-    // happy-dom lays nothing out; the handoff carries the row's height over.
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(40);
-  });
+describe("Worked for row moving into the reply footer", () => {
+  beforeEach(() => stubReducedMotion(false));
 
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 
-  it("closes the row's old space while it fades in on a live finish", async () => {
+  it("stays below the reply from live work to the finished footer", async () => {
     const live = reduce(liveEvents);
     const observable = observableController(snapshotOf(live, 0));
     await render(observable.controller);
+    const reply = () => container.querySelector('[data-message-id="reply"]')!;
+    // The reply's text is the newest output, so the row waits, settled.
+    expect(work().dataset.running).toBeUndefined();
+    expect(work().textContent).toContain("Worked for");
     expect(work().closest(".agentkit-message-actions")).toBeNull();
-    // Opened to watch the live work.
-    await act(async () =>
-      work()
-        .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")!
-        .click(),
-    );
-    expect(work().dataset.open).toBe("true");
+    // oracle-change: live work now sits below the reply, so the finish no longer animates a placeholder out of the space above it.
+    expect(follows(work(), reply())).toBe(true);
 
     await act(async () =>
       observable.update(snapshotOf(reduce(finishEvents, live), 1)),
     );
     await flush();
 
-    const settled = work();
-    expect(settled.closest(".agentkit-message-actions")).not.toBeNull();
-    expect(settled.dataset.handoff).toBe("enter");
-    // It closes as it moves, so its steps never open below the reply.
-    expect(settled.dataset.open).toBe("false");
-    const leaving = placeholder();
-    expect(leaving).not.toBeNull();
-    expect(leaving!.getAttribute("aria-hidden")).toBe("true");
-    expect(
-      leaving!.style.getPropertyValue("--agentkit-work-handoff-size"),
-    ).toBe("40px");
-    expect(leaving!.textContent).toContain("Worked for");
-    // It holds the row's old place, above the reply.
-    const reply = container.querySelector('[data-message-id="reply"]')!;
-    expect(
-      leaving!.compareDocumentPosition(reply) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
-    expect(placeholder()).toBeNull();
-    expect(work().dataset.handoff).toBeUndefined();
+    expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
+    expect(work().closest(".agentkit-message-actions")).not.toBeNull();
+    expect(work().textContent).toContain("Worked for");
+    // Nothing is left holding a place above the reply.
+    expect(reply().previousElementSibling).toBeNull();
   });
 
-  it("hands off a row it saw running when the reply lands whole", async () => {
+  it("moves a row it saw running when the reply lands whole", async () => {
     const running = reduce(liveEvents.slice(0, 2));
     const observable = observableController(snapshotOf(running, 0));
     await render(observable.controller);
@@ -235,33 +212,17 @@ describe("Worked for handoff to the reply footer", () => {
       ),
     );
     await flush();
+    expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
     expect(work().closest(".agentkit-message-actions")).not.toBeNull();
-    expect(work().dataset.handoff).toBe("enter");
-    expect(placeholder()).not.toBeNull();
   });
 
-  it("does not animate a thread that loads already finished", async () => {
+  it("renders a thread that loads finished with its row in the footer", async () => {
     const finished = reduce(finishEvents, reduce(liveEvents));
     const observable = observableController(snapshotOf(finished, 0));
     await render(observable.controller);
     await flush();
+    expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
     expect(work().closest(".agentkit-message-actions")).not.toBeNull();
-    expect(work().dataset.handoff).toBeUndefined();
-    expect(placeholder()).toBeNull();
-  });
-
-  it("moves at once with reduced motion", async () => {
-    stubReducedMotion(true);
-    const live = reduce(liveEvents);
-    const observable = observableController(snapshotOf(live, 0));
-    await render(observable.controller);
-    await act(async () =>
-      observable.update(snapshotOf(reduce(finishEvents, live), 1)),
-    );
-    await flush();
-    expect(work().closest(".agentkit-message-actions")).not.toBeNull();
-    expect(work().dataset.handoff).toBeUndefined();
-    expect(placeholder()).toBeNull();
   });
 });
 
@@ -340,20 +301,27 @@ describe("a reply that narrates between steps", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps one live row above the reply while the run works", async () => {
+  const textOf = (text: string): Node => {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.includes(text)) return node;
+    }
+    throw new Error(`No text "${text}" on screen`);
+  };
+
+  it("keeps one live row below the reply's latest text while the run works", async () => {
     const live = reduce(narrated);
     const observable = observableController(snapshotOf(live, 0));
     await render(observable.controller);
     await flush();
 
     expect(rows()).toHaveLength(1);
-    expect(rows()[0]!.dataset.running).toBe("true");
+    const row = rows()[0]!;
+    expect(row.dataset.running).toBe("true");
     expect(container.textContent).not.toContain("Worked for");
+    expect(follows(row, textOf("Checking"))).toBe(true);
     const reply = container.querySelector('[data-message-id="reply"]')!;
-    expect(
-      rows()[0]!.compareDocumentPosition(reply) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(follows(row, reply)).toBe(true);
 
     await act(async () =>
       observable.update(snapshotOf(reduce(answered, live), 1)),
@@ -362,6 +330,47 @@ describe("a reply that narrates between steps", () => {
 
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.closest(".agentkit-message-actions")).not.toBeNull();
+    expect(follows(rows()[0]!, textOf("Buy the Trek."))).toBe(true);
     expect(container.textContent?.match(/Worked for/g)).toHaveLength(1);
+  });
+
+  it("keeps a step's result card above the reply through the finish", async () => {
+    const mounts = vi.fn();
+    function SearchResult({ value }: { value: { id: string } }) {
+      useEffect(() => mounts(value.id), [value.id]);
+      return <div data-search-result={value.id}>Results</div>;
+    }
+    const live = reduce(narrated);
+    const observable = observableController(snapshotOf(live, 0));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <AgentKitRoot
+          controller={observable.controller}
+          threadId={threadId}
+          load="manual"
+          registry={{ tools: { "web-search": SearchResult } }}
+        >
+          <AgentKitChat composer={false} />
+        </AgentKitRoot>,
+      );
+      await Promise.resolve();
+    });
+    await flush();
+
+    const reply = container.querySelector('[data-message-id="reply"]')!;
+    const card = () => container.querySelector('[data-search-result="first"]')!;
+    expect(follows(reply, card())).toBe(true);
+    expect(follows(rows()[0]!, reply)).toBe(true);
+
+    await act(async () =>
+      observable.update(snapshotOf(reduce(answered, live), 1)),
+    );
+    await flush();
+
+    expect(follows(reply, card())).toBe(true);
+    expect(mounts.mock.calls.filter(([id]) => id === "first")).toHaveLength(1);
   });
 });
