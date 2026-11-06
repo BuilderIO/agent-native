@@ -20,6 +20,7 @@ const authority = "https://dispatch.agent-native.com";
 const hubOrgId = "dispatch-org-1";
 const memberEmail = "member@example.test";
 const federatedPayload = {
+  typ: "agent-native-org-federation",
   org_identity_authority: authority,
   org_identity_id: hubOrgId,
   sub: memberEmail,
@@ -52,18 +53,58 @@ describe("verifyA2AOrganizationIdentity", () => {
   it("rejects a federated claim that arrives without its pair", async () => {
     await expect(
       verifyA2AOrganizationIdentity({
+        typ: "agent-native-org-federation",
         org_identity_id: hubOrgId,
         sub: memberEmail,
       }),
     ).resolves.toBeNull();
     await expect(
       verifyA2AOrganizationIdentity({
+        typ: "agent-native-org-federation",
         org_identity_authority: authority,
         sub: memberEmail,
       }),
     ).resolves.toBeNull();
     expect(resolveFederatedOrganizationForA2AMock).not.toHaveBeenCalled();
   });
+
+  it("rejects federated claims that arrive without the federation token type", async () => {
+    await expect(
+      verifyA2AOrganizationIdentity({
+        org_identity_authority: authority,
+        org_identity_id: hubOrgId,
+        sub: memberEmail,
+      }),
+    ).resolves.toBeNull();
+    expect(resolveFederatedOrganizationForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects the federation token type without federated claims", async () => {
+    await expect(
+      verifyA2AOrganizationIdentity({
+        typ: "agent-native-org-federation",
+        sub: memberEmail,
+      }),
+    ).resolves.toBeNull();
+    expect(resolveFederatedOrganizationForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { org_identity_authority: authority },
+    { org_identity_id: hubOrgId },
+  ])(
+    "rejects the federation token type with only one federated claim %#",
+    async (claims) => {
+      await expect(
+        verifyA2AOrganizationIdentity({
+          typ: "agent-native-org-federation",
+          sub: memberEmail,
+          ...claims,
+        }),
+      ).resolves.toBeNull();
+      expect(resolveFederatedOrganizationForA2AMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { ...federatedPayload, org_identity_authority: "   " },
@@ -87,7 +128,11 @@ describe("verifyA2AOrganizationIdentity", () => {
   );
 
   it.each([
-    { org_identity_authority: authority, org_identity_id: hubOrgId },
+    {
+      typ: "agent-native-org-federation",
+      org_identity_authority: authority,
+      org_identity_id: hubOrgId,
+    },
     { ...federatedPayload, sub: "   " },
     { ...federatedPayload, sub: undefined },
     { ...federatedPayload, sub: 123 },

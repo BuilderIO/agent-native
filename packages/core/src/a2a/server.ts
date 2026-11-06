@@ -47,6 +47,7 @@ import {
   isA2AProductionRuntime,
 } from "./auth-policy.js";
 import {
+  A2A_ORG_FEDERATION_TOKEN_TYPE,
   A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
   A2A_ORG_IDENTITY_ID_CLAIM,
 } from "./caller-org-binding.js";
@@ -577,7 +578,10 @@ async function verifyA2ATokenInternal(
     if (payload) {
       // Typed credentials have their own verifier. Only the managed-agent
       // confirmation verifier may accept its continuation token here.
-      if (typeof payload.typ !== "undefined") {
+      if (
+        typeof payload.typ !== "undefined" &&
+        payload.typ !== A2A_ORG_FEDERATION_TOKEN_TYPE
+      ) {
         const managedContinuation =
           payload.typ === "anthropic-managed-continuation" &&
           audienceOptions?.globalSecretOnly === true &&

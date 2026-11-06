@@ -91,6 +91,23 @@ interface Candidate {
   roster: RosterMember[];
 }
 
+/** Stable text form of a roster, so two rosters compare by email and role. */
+export function rosterKey(
+  roster: readonly { email: string; role: string }[],
+): string {
+  return roster
+    .map((member) => `${member.email.trim().toLowerCase()}|${member.role}`)
+    .sort()
+    .join("\n");
+}
+
+/** Digest of a roster: lets a manifest prove a roster is unchanged without storing emails. */
+export function rosterHash(
+  roster: readonly { email: string; role: string }[],
+): string {
+  return createHash("sha256").update(rosterKey(roster)).digest("hex");
+}
+
 function byCreation(left: Candidate, right: Candidate): number {
   return (
     left.org.createdAt - right.org.createdAt ||
@@ -122,6 +139,28 @@ export function buildBackfillPlan(
   const hub = ordered.find((snapshot) => snapshot.app === hubApp);
   if (!hub) throw new Error(`The ${hubApp} snapshot is required.`);
   const hubOrgIds = new Set(hub.orgs.map((org) => org.id));
+  const hubOrgsById = new Map(hub.orgs.map((org) => [org.id, org]));
+  const hubRosterMembers = new Map<
+    string,
+    Array<{ email: string; role: string }>
+  >();
+  for (const member of hub.members) {
+    const list = hubRosterMembers.get(member.orgId) ?? [];
+    list.push({ email: member.email, role: member.role });
+    hubRosterMembers.set(member.orgId, list);
+  }
+  // An interrupted apply leaves hub rows created but app workspaces unlinked.
+  // A hub row this script would have written (self-mapped to the authority,
+  // same roster) is resumable, not a conflict.
+  const hubRowResumes = (id: string, roster: readonly RosterMember[]) => {
+    const org = hubOrgsById.get(id);
+    return (
+      org !== undefined &&
+      org.identityAuthority?.trim() === options.authority &&
+      org.identityId?.trim() === id &&
+      rosterKey(hubRosterMembers.get(id) ?? []) === rosterKey(roster)
+    );
+  };
 
   const skipped: SkippedOrg[] = [];
   const onePerson: Candidate[] = [];
@@ -307,7 +346,8 @@ export function buildBackfillPlan(
   for (const candidate of [...multiPerson].sort(byCreation)) {
     const id = candidate.org.id;
     const inHub = candidate.app === hubApp;
-    if (!inHub && (hubOrgIds.has(id) || hubCreateIds.has(id))) {
+    const resumes = !inHub && hubRowResumes(id, candidate.roster);
+    if (!inHub && !resumes && (hubOrgIds.has(id) || hubCreateIds.has(id))) {
       skipped.push({
         app: candidate.app,
         orgId: id,
@@ -315,7 +355,7 @@ export function buildBackfillPlan(
       });
       continue;
     }
-    if (!inHub) {
+    if (!inHub && !resumes) {
       const owner = candidate.roster.find((member) => member.role === "owner");
       hubCreates.push({
         id,

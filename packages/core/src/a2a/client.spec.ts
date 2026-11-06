@@ -2142,6 +2142,7 @@ describe("A2AClient", () => {
     );
     expect(payload).toMatchObject({
       sub: "alice@example.test",
+      typ: "agent-native-org-federation",
       org_identity_authority: "identity-hub.test",
       org_identity_id: "org-hub-1",
     });

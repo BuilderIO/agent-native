@@ -153,6 +153,7 @@ describe("callerOrgBindingClaims", () => {
         id: "org-hub-1",
       }),
     ).toEqual({
+      typ: "agent-native-org-federation",
       org_identity_authority: "identity-hub.test",
       org_identity_id: "org-hub-1",
     });

@@ -7,6 +7,7 @@ import { CANONICAL_IDENTITY_SSO_HUB_URL } from "../packages/core/src/server/iden
 import {
   buildBackfillPlan,
   HUB_APP,
+  rosterHash,
   type AppSnapshot,
   type BackfillPlan,
 } from "./federation-backfill-plan.js";
@@ -45,7 +46,7 @@ Write commands are dry runs unless --apply is given. Output is counts and ids on
   apply  [--apply --confirm-snapshots] [--allow-flag-on]
   verify
   undo   --manifest <file> [--apply] [--confirm-delete]
-  flag   --mode on|off|emails [--emails a@x.com,b@y.com] [--apply] [--allow-org-overrides]`;
+  flag   --mode on|off|emails [--emails a@x.com,b@y.com] [--apply] [--allow-org-overrides | --disable-org-overrides]`;
 
 // Only messages written in this script are printed; driver errors can carry
 // connection details and are replaced with a generic line.
@@ -156,18 +157,55 @@ async function readSnapshots(databases: Databases): Promise<AppSnapshot[]> {
   return snapshots;
 }
 
-async function readFlagMode(exec: DbExec): Promise<string> {
-  const { rows } = await exec.execute({
+interface FlagOverride {
+  key: string;
+  active: boolean;
+  raw: Record<string, unknown>;
+}
+
+interface FlagState {
+  globalActive: boolean;
+  overrides: FlagOverride[];
+}
+
+function parseFlagRules(value: unknown): {
+  raw: Record<string, unknown>;
+  active: boolean;
+} {
+  const raw =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const count = (list: unknown) => (Array.isArray(list) ? list.length : 0);
+  const percentage = typeof raw.percentage === "number" ? raw.percentage : 0;
+  const active =
+    raw.mode === "on" ||
+    (raw.mode === "rules" &&
+      (count(raw.emails) > 0 || count(raw.orgIds) > 0 || percentage > 0));
+  return { raw, active };
+}
+
+// A rollout is live when the global rule is on or targets anyone, or when any
+// workspace carries its own active rule; that one beats the global value.
+async function readFlagState(exec: DbExec): Promise<FlagState> {
+  const global = await exec.execute({
     sql: `SELECT value FROM settings WHERE key = ?`,
     args: [FLAG_SETTING],
   });
-  const row = rows.length > 0 ? rows[0] : undefined;
-  if (!row) return "off";
-  const parsed: unknown = JSON.parse(String(row.value));
-  if (parsed && typeof parsed === "object" && "mode" in parsed) {
-    return String((parsed as { mode: unknown }).mode);
-  }
-  return "off";
+  const globalRow = global.rows.length > 0 ? global.rows[0] : undefined;
+  const overrideRows = await exec.execute({
+    sql: `SELECT key, value FROM settings WHERE key LIKE ?`,
+    args: [FLAG_ORG_OVERRIDE],
+  });
+  return {
+    globalActive: globalRow
+      ? parseFlagRules(JSON.parse(String(globalRow.value))).active
+      : false,
+    overrides: overrideRows.rows.map((row) => {
+      const parsed = parseFlagRules(JSON.parse(String(row.value)));
+      return { key: String(row.key), active: parsed.active, raw: parsed.raw };
+    }),
+  };
 }
 
 function describePlan(plan: BackfillPlan) {
@@ -232,16 +270,21 @@ async function runApply(databases: Databases, args: readonly string[]) {
   }
   if (!args.includes("--allow-flag-on")) {
     for (const [app, exec] of databases) {
-      if ((await readFlagMode(exec)) === "on") {
+      const state = await readFlagState(exec);
+      if (state.globalActive || state.overrides.some((o) => o.active)) {
         throw new ScriptError(
-          `The federation flag is already on in ${app}; links would go live as they are written. Pass --allow-flag-on only if that is intended.`,
+          `The federation flag is already active in ${app} (on, or a rollout for some emails or workspaces); links would go live as they are written. Pass --allow-flag-on only if that is intended.`,
         );
       }
     }
   }
 
   const startedAt = new Date().toISOString();
-  const hubCreated: Array<{ id: string; memberCount: number }> = [];
+  const hubCreated: Array<{
+    id: string;
+    memberCount: number;
+    rosterHash: string;
+  }> = [];
   const appLinked: Array<{ app: string; orgId: string; canonicalId: string }> =
     [];
   const appLinkSkipped: Array<{ app: string; orgId: string }> = [];
@@ -291,7 +334,11 @@ async function runApply(databases: Databases, args: readonly string[]) {
         });
       });
       for (const org of batch) {
-        hubCreated.push({ id: org.id, memberCount: org.members.length });
+        hubCreated.push({
+          id: org.id,
+          memberCount: org.members.length,
+          rosterHash: rosterHash(org.members),
+        });
       }
       progress("hub", hubCreated.length, plan.hubCreates.length);
     }
@@ -344,12 +391,18 @@ async function runVerify(databases: Databases) {
   const snapshots = await readSnapshots(databases);
   const hub = snapshots.find((snapshot) => snapshot.app === HUB_APP);
   if (!hub) throw new ScriptError("The hub snapshot is required.");
-  const hubRosters = new Map<string, Set<string>>();
-  for (const member of hub.members) {
-    const roster = hubRosters.get(member.orgId) ?? new Set<string>();
-    roster.add(member.email);
-    hubRosters.set(member.orgId, roster);
-  }
+  const rostersOf = (members: AppSnapshot["members"]) => {
+    const rosters = new Map<string, Map<string, string>>();
+    for (const member of members) {
+      const roster = rosters.get(member.orgId) ?? new Map<string, string>();
+      roster.set(member.email, member.role);
+      rosters.set(member.orgId, roster);
+    }
+    return rosters;
+  };
+  const sameRoster = (a: Map<string, string>, b: Map<string, string>) =>
+    a.size === b.size && [...a].every(([email, role]) => b.get(email) === role);
+  const hubRosters = rostersOf(hub.members);
   const hubOrgIds = new Set(hub.orgs.map((org) => org.id));
 
   const problems: Array<{
@@ -360,12 +413,7 @@ async function runVerify(databases: Databases) {
   }> = [];
   let linked = 0;
   for (const snapshot of snapshots) {
-    const localRosters = new Map<string, Set<string>>();
-    for (const member of snapshot.members) {
-      const roster = localRosters.get(member.orgId) ?? new Set<string>();
-      roster.add(member.email);
-      localRosters.set(member.orgId, roster);
-    }
+    const localRosters = rostersOf(snapshot.members);
     for (const org of snapshot.orgs) {
       if (
         org.identityAuthority !== CANONICAL_IDENTITY_SSO_HUB_URL ||
@@ -385,11 +433,8 @@ async function runVerify(databases: Databases) {
         });
         continue;
       }
-      const local = localRosters.get(org.id) ?? new Set<string>();
-      const same =
-        local.size === hubRoster.size &&
-        [...local].every((email) => hubRoster.has(email));
-      if (!same) {
+      const local = localRosters.get(org.id) ?? new Map<string, string>();
+      if (!sameRoster(local, hubRoster)) {
         problems.push({
           app: snapshot.app,
           orgId: org.id,
@@ -406,7 +451,9 @@ async function runVerify(databases: Databases) {
 
 interface Manifest {
   authority: string;
-  hubCreated: Array<{ id: string; memberCount: number }>;
+  // Manifests written before the roster hash existed cannot prove a roster is
+  // unchanged, so their hub rows are kept.
+  hubCreated: Array<{ id: string; memberCount: number; rosterHash?: string }>;
   appLinked: Array<{ app: string; orgId: string; canonicalId: string }>;
 }
 
@@ -449,25 +496,41 @@ async function runUndo(databases: Databases, args: readonly string[]) {
   let hubDeleted = 0;
   let hubKept = 0;
   for (const batch of chunk(manifest.hubCreated, HUB_BATCH)) {
-    const ids = batch.map((created) => created.id);
-    // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-    const counted = await hub.execute({
-      sql: `SELECT org_id, COUNT(*) AS members FROM org_members WHERE org_id IN (${ids.map(() => "?").join(", ")}) GROUP BY org_id`,
-      args: ids,
-    });
-    const memberCounts = new Map<string, number>(
-      counted.rows.map((row) => [String(row.org_id), Number(row.members)]),
-    );
-    const deletable = batch.filter(
-      (created) => memberCounts.get(created.id) === created.memberCount,
-    );
-    hubKept += batch.length - deletable.length;
-    if (deletable.length === 0) continue;
     if (!hub.transaction) {
       throw new ScriptError("The hub database does not support transactions.");
     }
-    const deletableIds = deletable.map((created) => created.id);
+    // Every check runs inside the transaction on locked rows, so nothing that
+    // changed since apply, or between the check and the delete, is removed.
     await hub.transaction(async (tx) => {
+      const ids = batch.map((created) => created.id);
+      // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+      const owned = await tx.execute({
+        sql: `SELECT id FROM organizations WHERE id IN (${ids.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id FOR UPDATE`,
+        args: [...ids, manifest.authority],
+      });
+      const ownedIds = owned.rows.map((row) => String(row.id));
+      const rosters = new Map<string, Array<{ email: string; role: string }>>();
+      if (ownedIds.length > 0) {
+        // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+        const members = await tx.execute({
+          sql: `SELECT org_id, LOWER(email) AS email, role FROM org_members WHERE org_id IN (${ownedIds.map(() => "?").join(", ")})`,
+          args: ownedIds,
+        });
+        for (const row of members.rows) {
+          const list = rosters.get(String(row.org_id)) ?? [];
+          list.push({ email: String(row.email), role: String(row.role) });
+          rosters.set(String(row.org_id), list);
+        }
+      }
+      const deletable = batch.filter(
+        (created) =>
+          ownedIds.includes(created.id) &&
+          created.rosterHash !== undefined &&
+          rosterHash(rosters.get(created.id) ?? []) === created.rosterHash,
+      );
+      hubKept += batch.length - deletable.length;
+      if (deletable.length === 0) return;
+      const deletableIds = deletable.map((created) => created.id);
       // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
       await tx.execute({
         sql: `DELETE FROM org_members WHERE org_id IN (${deletableIds.map(() => "?").join(", ")})`,
@@ -508,15 +571,18 @@ async function runFlag(databases: Databases, args: readonly string[]) {
   }
   const apply = args.includes("--apply");
 
-  const overrides: Record<string, number> = {};
+  const states = new Map<string, FlagState>();
   for (const [app, exec] of databases) {
-    const { rows } = await exec.execute({
-      sql: `SELECT COUNT(*) AS n FROM settings WHERE key LIKE ?`,
-      args: [FLAG_ORG_OVERRIDE],
-    });
-    const first = rows.length > 0 ? rows[0] : undefined;
-    const count = Number(first?.n ?? 0);
-    if (count > 0) overrides[app] = count;
+    states.set(app, await readFlagState(exec));
+  }
+  const overrides: Record<string, { total: number; active: number }> = {};
+  for (const [app, state] of states) {
+    if (state.overrides.length > 0) {
+      overrides[app] = {
+        total: state.overrides.length,
+        active: state.overrides.filter((o) => o.active).length,
+      };
+    }
   }
   console.log(
     JSON.stringify({
@@ -526,9 +592,15 @@ async function runFlag(databases: Databases, args: readonly string[]) {
       workspaceOverrides: overrides,
     }),
   );
-  if (
+  if (mode === "off") {
+    const anyActive = Object.values(overrides).some((o) => o.active > 0);
+    if (anyActive && !args.includes("--disable-org-overrides")) {
+      throw new ScriptError(
+        "Some workspaces carry an active rule of their own, which beats the global one, so turning the flag off would leave federation on for them. Review them, then pass --disable-org-overrides to switch those off too.",
+      );
+    }
+  } else if (
     Object.keys(overrides).length > 0 &&
-    mode !== "off" &&
     !args.includes("--allow-org-overrides")
   ) {
     throw new ScriptError(
@@ -549,14 +621,14 @@ async function runFlag(databases: Databases, args: readonly string[]) {
   };
   const active = mode !== "off";
   const upsert = `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`;
-  for (const [, exec] of databases) {
+  for (const [app, exec] of databases) {
     const current = await exec.execute({
       sql: `SELECT value FROM settings WHERE key = ?`,
       args: [FLAG_INDEX_SETTING],
     });
     const row = current.rows.length > 0 ? current.rows[0] : undefined;
     const parsed: unknown = row ? JSON.parse(String(row.value)) : null;
-    const orgIds =
+    const keptOrgIds =
       parsed &&
       typeof parsed === "object" &&
       Array.isArray((parsed as { orgIds?: unknown }).orgIds)
@@ -568,11 +640,33 @@ async function runFlag(databases: Databases, args: readonly string[]) {
       sql: upsert,
       args: [FLAG_SETTING, JSON.stringify(rules), now],
     });
+    if (mode === "off") {
+      for (const override of states.get(app)?.overrides ?? []) {
+        if (!override.active) continue;
+        await exec.execute({
+          sql: upsert,
+          args: [
+            override.key,
+            JSON.stringify({
+              ...override.raw,
+              mode: "off",
+              updatedAt: now,
+              updatedBy: "federation-backfill",
+            }),
+            now,
+          ],
+        });
+      }
+    }
     await exec.execute({
       sql: upsert,
       args: [
         FLAG_INDEX_SETTING,
-        JSON.stringify({ version: 1, global: active, orgIds }),
+        JSON.stringify({
+          version: 1,
+          global: active,
+          orgIds: mode === "off" ? [] : keptOrgIds,
+        }),
         now,
       ],
     });

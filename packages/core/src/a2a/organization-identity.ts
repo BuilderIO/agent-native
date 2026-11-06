@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import type { JWTPayload } from "jose";
 
 import {
+  A2A_ORG_FEDERATION_TOKEN_TYPE,
   A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
   A2A_ORG_IDENTITY_ID_CLAIM,
 } from "./caller-org-binding.js";
@@ -107,6 +108,14 @@ export async function verifyA2AOrganizationIdentity(
 
   const federation = federatedIdentityClaims(payload);
   if (federation === null) return null;
+  // The claims travel only on the typed token, which older receivers reject,
+  // and the type means nothing without them.
+  if (
+    (federation !== undefined) !==
+    (payload.typ === A2A_ORG_FEDERATION_TOKEN_TYPE)
+  ) {
+    return null;
+  }
   if (federation) {
     const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
     if (hasOrgId || hasOrgDomain || !email) return null;
