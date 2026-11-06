@@ -62,6 +62,8 @@ Organization names, email domains और browser cookies join keys नहीं 
 local organization explicit migration तक unchanged रहती है। Linked memberships target
 app के normal access checks का उपयोग जारी रखती हैं।
 
+Server-to-server A2A calls भी यही mapping उपयोग करती हैं। बिना email domain वाला linked workspace अपना <code>(identity_authority, identity_id)</code> pair भेजता है, और प्राप्त करने वाला app उसके लिए अपनी organization खोजता है और Dispatch से पूछता है कि caller वर्तमान member है या नहीं। Receiving app ऐसी membership दर्ज करता है जिसे Dispatch confirm करता है और जिसे उसने पहले नहीं देखा था।
+
 Federation हर registered source app के लिए अलग credential उपयोग करती है:
 
 - Source app में <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> सेट करें।

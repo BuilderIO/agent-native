@@ -67,6 +67,8 @@ de vínculo. Uma organização local sem mapeamento permanece inalterada até um
 migração explícita. As associações vinculadas continuam usando as verificações de
 acesso normais do aplicativo de destino.
 
+Chamadas A2A de servidor para servidor usam o mesmo mapeamento. Um workspace vinculado sem domínio de e-mail envia seu par <code>(identity_authority, identity_id)</code>, e o aplicativo receptor encontra a organização própria correspondente e pergunta ao Dispatch se o chamador é um membro atual. O aplicativo receptor registra uma associação que o Dispatch confirma e que ele ainda não tinha visto.
+
 A federação usa uma credencial separada para cada aplicativo de origem registrado:
 
 - Defina <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> no aplicativo de

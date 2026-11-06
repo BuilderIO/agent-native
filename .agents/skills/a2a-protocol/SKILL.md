@@ -163,6 +163,17 @@ the domain to its own organization row and binds authorization to that local
 ID. An ID-only token is valid only when both sides intentionally share the same
 local organization ID, such as a credential scoped to one local database.
 
+A workspace with no email domain is named by the identity hub's shared
+`(identity_authority, identity_id)` instead, carried in the
+`org_identity_authority` and `org_identity_id` token claims, and only while
+`organization.cross-app-federation` is on for it. The receiver binds that pair
+to its own organization row, then asks the hub to confirm the caller is a
+current member, recording the membership locally when it has never seen them.
+A workspace with neither a domain nor a linked identity sends no token: the call
+fails with `a2a_caller_org_domain_missing` instead of running unscoped. Deploy
+the receiving apps before turning the flag on; an older receiver ignores the
+claims and runs the call outside the workspace.
+
 The org secret is managed at **Team page → A2A secret** (owner only), where it
 can be revealed, copied, regenerated, and pushed to discovered peers. Its
 member-identity delegation setting is owner-only and defaults off.

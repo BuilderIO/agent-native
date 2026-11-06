@@ -46,6 +46,10 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import {
+  A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
+  A2A_ORG_IDENTITY_ID_CLAIM,
+} from "./caller-org-binding.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
@@ -383,6 +387,16 @@ async function diagnoseVerifiedPayload(
   if (typeof payload.sub !== "string" || !payload.sub.trim()) {
     return "missing-subject";
   }
+  // Binding a shared workspace id can record a membership; diagnosis must not.
+  if (
+    Object.prototype.hasOwnProperty.call(
+      payload,
+      A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
+    ) ||
+    Object.prototype.hasOwnProperty.call(payload, A2A_ORG_IDENTITY_ID_CLAIM)
+  ) {
+    return "org-binding";
+  }
   try {
     const organization = await verifyA2AOrganizationIdentity(payload);
     return organization === null ? "org-binding" : "undetermined";
@@ -615,7 +629,9 @@ async function verifyA2ATokenInternal(
         ReturnType<typeof verifyA2AOrganizationIdentity>
       >;
       try {
-        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload, {
+          event,
+        });
       } catch (cause) {
         throw new A2AIdentityVerificationUnavailableError(cause);
       }

@@ -609,6 +609,8 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 JWT सत्यापन (`server.ts` में `verifyA2AToken`) वैश्विक `A2A_SECRET` या टोकन के `org_domain` दावे के माध्यम से SQL से देखे गए ऑर्ग-स्कोप्ड रहस्य के साथ हस्ताक्षरित टोकन स्वीकार करता है, और मौजूद होने पर टोकन के स्वयं के `aud`/`iss` दावों को लागू करता है।
 
+जिस workspace में email domain नहीं है, उसकी पहचान इसके बजाय identity hub की shared workspace ID से होती है, जो `org_identity_authority` और `org_identity_id` दावों में भेजी जाती है। प्राप्त करने वाला app इस जोड़े को अपनी organization से map करता है और hub से पूछता है कि caller वर्तमान member है या नहीं। यह तभी लागू होता है जब workspace के लिए `organization.cross-app-federation` चालू हो। जिस workspace में न domain है और न linked identity, वह दूसरे apps को call नहीं कर सकता और उसे `a2a_caller_org_domain_missing` error मिलता है।
+
 ### संगठन सीक्रेट सिंक {#organization-secret-sync}
 
 **संगठन → क्रॉस-ऐप प्रमाणीकरण** सेटिंग, एक ही संगठन में अलग-अलग डिप्लॉय किए गए ऐप्स के बीच डेलीगेशन को प्रमाणित करने वाले संगठन-स्कोप्ड सीक्रेट को प्रबंधित करती है। यह उपयोगकर्ता साइन-इन या Cross-App SSO सेटिंग नहीं है। यह सीक्रेट डिप्लॉयमेंट के `A2A_SECRET` का पूरक है: `org_domain` क्लेम वाला A2A JWT संबंधित संगठन के सीक्रेट से सत्यापित किया जा सकता है।

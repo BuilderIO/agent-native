@@ -614,6 +614,8 @@ Esse limite é importante porque o loop do agente aceita entrada de formato livr
 
 A verificação JWT (`verifyA2AToken` em `server.ts`) aceita tokens assinados com o `A2A_SECRET` global ou com um segredo no escopo da organização consultado em SQL por meio da declaração `org_domain` do token e impõe as declarações `aud`/`iss` do próprio token, quando presentes.
 
+Um workspace sem domínio de e-mail é identificado pelo ID de workspace compartilhado do hub de identidade, enviado nas declarações `org_identity_authority` e `org_identity_id`. O aplicativo receptor mapeia esse par para a sua própria organização e pergunta ao hub se o chamador é um membro atual. Isso se aplica somente enquanto `organization.cross-app-federation` estiver ativada para o workspace. Um workspace sem domínio e sem identidade vinculada não pode chamar outros aplicativos e recebe o erro `a2a_caller_org_domain_missing`.
+
 ### Sincronização do segredo da organização {#organization-secret-sync}
 
 A configuração **Organização → Autenticação entre aplicativos** gerencia o segredo com escopo da organização que autentica a delegação entre aplicativos implantados separadamente na mesma organização. Não é uma configuração de login de usuário nem de Cross-App SSO. O segredo complementa o `A2A_SECRET` da implantação: um JWT A2A com uma declaração `org_domain` pode ser verificado com o segredo da organização correspondente.

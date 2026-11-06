@@ -651,6 +651,8 @@ This boundary matters because the agent loop accepts free-form input from a remo
 
 JWT verification (`verifyA2AToken` in `server.ts`) accepts tokens signed with either the global `A2A_SECRET` or an org-scoped secret looked up from SQL via the token's `org_domain` claim, and enforces the token's own `aud`/`iss` claims when present.
 
+A workspace without an email domain is identified by the identity hub's shared workspace ID instead, sent in the `org_identity_authority` and `org_identity_id` claims. The receiving app maps that pair to its own organization and asks the hub whether the caller is a current member. This applies only while `organization.cross-app-federation` is on for the workspace. A workspace with neither a domain nor a linked identity cannot call other apps and gets the `a2a_caller_org_domain_missing` error.
+
 ### Organization secret sync {#organization-secret-sync}
 
 The **Organization → Cross-app authentication** setting manages the org-scoped secret used to authenticate delegation between separately deployed apps in the same organization. It is not a user sign-in or Cross-App SSO setting. The secret supplements a deployment's `A2A_SECRET`: an A2A JWT with an `org_domain` claim can be verified against the matching organization's secret.

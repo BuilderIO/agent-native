@@ -69,6 +69,8 @@ des clés de rapprochement. Une organisation locale sans mappage reste inchangé
 jusqu'à une migration explicite. Les appartenances liées utilisent toujours les
 contrôles d'accès normaux de l'application cible.
 
+Les appels A2A de serveur à serveur utilisent la même correspondance. Un espace de travail lié sans domaine de messagerie envoie son couple <code>(identity_authority, identity_id)</code>, et l'application réceptrice trouve l'organisation locale correspondante et demande à Dispatch si l'appelant en est membre actuel. L'application réceptrice enregistre une appartenance que Dispatch confirme et qu'elle n'avait pas encore vue.
+
 La fédération utilise une identifiant distinct pour chaque application source:
 
 - Définissez <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> dans
