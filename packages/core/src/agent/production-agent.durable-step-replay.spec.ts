@@ -14,6 +14,16 @@ import type { AgentLoopFinalResponseGuardContext } from "./production-agent.js";
 import type { AgentExecutionStepIntent } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
+const captureErrorMock = vi.hoisted(() => vi.fn());
+const recordLateOutcomeMock = vi.hoisted(() =>
+  vi.fn(async (_intent: AgentExecutionStepIntent, _resultJson: string) => {}),
+);
+
+vi.mock("../server/capture-error.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/capture-error.js")>()),
+  captureError: captureErrorMock,
+}));
+
 const durableStep = vi.hoisted(() => ({
   resultJson: undefined as string | undefined,
   priorEvents: [] as AgentChatEvent[],
@@ -52,6 +62,8 @@ vi.mock("./run-store.js", async (importOriginal) => {
     markAgentExecutionStepDispatched: vi.fn(async () => {}),
     resetAgentExecutionStepBeforeInvocation: vi.fn(async () => {}),
     markAgentExecutionStepUnknown: vi.fn(async () => {}),
+    recordThreadPrivateRun: vi.fn(async () => {}),
+    recordLateAgentExecutionStepOutcome: recordLateOutcomeMock,
     completeAgentExecutionStep: vi.fn(
       async (intent: AgentExecutionStepIntent, resultJson: string) => {
         durableStep.resultJson = resultJson;
@@ -141,6 +153,267 @@ beforeEach(() => {
   durableStep.resultJson = undefined;
   durableStep.priorEvents = [];
   durableStep.completedSteps = [];
+});
+
+describe("late action outcomes", () => {
+  beforeEach(() => {
+    captureErrorMock.mockReset();
+    recordLateOutcomeMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  function startAction(options: {
+    run: () => Promise<string>;
+    signal: AbortSignal;
+    private?: boolean;
+    timeoutMs?: number;
+    readOnly?: boolean;
+    withoutThread?: boolean;
+  }) {
+    const events: AgentChatEvent[] = [];
+    const run = withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall()], [text("Done.")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [text("Create a deck.")] }],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            readOnly: options.readOnly ?? false,
+            ...(options.private ? { persistInChatHistory: false } : {}),
+            ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+            run: options.run,
+          },
+        },
+        ...(options.withoutThread
+          ? {}
+          : {
+              threadId: fence.threadId,
+              turnId: fence.turnId,
+              runId: fence.runId,
+            }),
+        send: (event) => events.push(event),
+        signal: options.signal,
+      }),
+    );
+    return { run, events };
+  }
+
+  it.each(["upstream refused", "Tool call timed out after 5 seconds"])(
+    "reports an on-time rejection normally without late telemetry: %s",
+    async (message) => {
+      const { run, events } = startAction({
+        run: async () => {
+          throw new Error(message);
+        },
+        signal: new AbortController().signal,
+        readOnly: true,
+      });
+      await run;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          isError: true,
+          result: expect.stringContaining(message),
+        }),
+      );
+      expect(captureErrorMock).not.toHaveBeenCalled();
+      expect(recordLateOutcomeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { interruption: "abort", withoutThread: false },
+    { interruption: "timeout", withoutThread: false },
+    { interruption: "abort", withoutThread: true },
+  ] as const)(
+    "captures a late action rejection after $interruption (withoutThread=$withoutThread)",
+    async ({ interruption, withoutThread }) => {
+      const controller = new AbortController();
+      let rejectAction!: (error: Error) => void;
+      let started!: () => void;
+      const actionStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const actionResult = new Promise<string>((_resolve, reject) => {
+        rejectAction = reject;
+      });
+      const { run, events } = startAction({
+        run: () => {
+          started();
+          return actionResult;
+        },
+        signal: controller.signal,
+        withoutThread,
+        ...(interruption === "timeout" ? { timeoutMs: 20 } : {}),
+      });
+      await actionStarted;
+      if (interruption === "abort") {
+        controller.abort();
+        // Rejection can arrive before the race's catch sets its lost-result flag.
+        rejectAction(new Error("late action failed"));
+      } else {
+        await run;
+        rejectAction(new Error("late action failed"));
+      }
+      await run;
+      await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+      expect(captureErrorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "late action failed" }),
+        expect.objectContaining({
+          tags: expect.objectContaining({ phase: "late-action-failure" }),
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          isError: true,
+          outcomeUnknown: true,
+        }),
+      );
+      expect(recordLateOutcomeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns an on-time success without late persistence or telemetry", async () => {
+    const { run, events } = startAction({
+      run: async () => "saved deck",
+      signal: new AbortController().signal,
+    });
+    await run;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        result: "saved deck",
+        completedSideEffect: true,
+      }),
+    );
+    expect(recordLateOutcomeMock).not.toHaveBeenCalled();
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("persists a late success without reporting an error", async () => {
+    const controller = new AbortController();
+    let resolveAction!: (result: string) => void;
+    let started!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const actionResult = new Promise<string>((resolve) => {
+      resolveAction = resolve;
+    });
+    const { run } = startAction({
+      run: () => {
+        started();
+        return actionResult;
+      },
+      signal: controller.signal,
+    });
+    await actionStarted;
+    controller.abort();
+    resolveAction("saved deck");
+    await run;
+    await vi.waitFor(() =>
+      expect(recordLateOutcomeMock).toHaveBeenCalledOnce(),
+    );
+    expect(recordLateOutcomeMock.mock.calls[0]?.[1]).toContain("saved deck");
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "reports a late persistence failure with privacy=%s",
+    async (isPrivate) => {
+      recordLateOutcomeMock.mockRejectedValueOnce(
+        new Error("private persistence detail"),
+      );
+      const controller = new AbortController();
+      let resolveAction!: (result: string) => void;
+      let started!: () => void;
+      const actionStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const actionResult = new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      });
+      const { run } = startAction({
+        run: () => {
+          started();
+          return actionResult;
+        },
+        signal: controller.signal,
+        private: isPrivate,
+      });
+      await actionStarted;
+      controller.abort();
+      await run;
+      resolveAction("private saved content");
+      await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+      expect(captureErrorMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: isPrivate
+            ? "Private content omitted"
+            : "private persistence detail",
+        }),
+        expect.objectContaining({
+          ...(isPrivate ? { errorMessagePolicy: "omit" } : {}),
+          tags: expect.objectContaining({ phase: "late-outcome-persistence" }),
+        }),
+      );
+      if (isPrivate) {
+        expect(recordLateOutcomeMock.mock.calls[0]?.[1]).toContain(
+          "[Private content omitted]",
+        );
+        expect(recordLateOutcomeMock.mock.calls[0]?.[1]).not.toContain(
+          "private saved content",
+        );
+        expect(JSON.stringify(captureErrorMock.mock.calls)).not.toContain(
+          "private persistence detail",
+        );
+      }
+    },
+  );
+
+  it("redacts a private late action rejection", async () => {
+    const controller = new AbortController();
+    let rejectAction!: (error: Error) => void;
+    let started!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const actionResult = new Promise<string>((_resolve, reject) => {
+      rejectAction = reject;
+    });
+    const { run } = startAction({
+      run: () => {
+        started();
+        return actionResult;
+      },
+      signal: controller.signal,
+      private: true,
+    });
+    await actionStarted;
+    controller.abort();
+    await run;
+    rejectAction(new Error("private action detail"));
+    await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Private content omitted" }),
+      expect.objectContaining({
+        errorMessagePolicy: "omit",
+        tags: expect.objectContaining({ phase: "late-action-failure" }),
+      }),
+    );
+    expect(JSON.stringify(captureErrorMock.mock.calls)).not.toContain(
+      "private action detail",
+    );
+    expect(recordLateOutcomeMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("durable execution step replay", () => {
