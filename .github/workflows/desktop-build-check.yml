@@ -6,10 +6,18 @@ name: Desktop Build Check
 on:
   pull_request:
     branches: [main]
+    # Not packages/core and the other workspace packages the app imports:
+    # about half of all PRs touch them, and CI's typecheck already covers the
+    # app as their dependent. Install inputs can swap Electron, electron-builder
+    # or a native module, which only a packaging build catches.
     paths:
       - "packages/desktop-app/**"
       - "packages/agent-chrome-extension/**"
       - "scripts/build-branding-assets.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
       - ".github/actions/setup-pnpm/**"
       - ".github/actions/build-agent-native-desktop/**"
       - ".github/workflows/desktop-build-check.yml"

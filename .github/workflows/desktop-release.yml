@@ -192,14 +192,10 @@ jobs:
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
+      # Signing credentials and the token go in as inputs: as env they would
+      # reach every dependency's install script.
       - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
@@ -211,6 +207,11 @@ jobs:
           version: ${{ needs.resolve-version.outputs.version }}
           sign: "true"
           publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          apple-certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple-certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
   build-windows:
     needs: [resolve-version, prepare-release]
@@ -222,7 +223,6 @@ jobs:
 
       - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
@@ -233,6 +233,7 @@ jobs:
           channel: ${{ env.RELEASE_CHANNEL }}
           version: ${{ needs.resolve-version.outputs.version }}
           publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     needs: [resolve-version, prepare-release]
@@ -244,7 +245,6 @@ jobs:
 
       - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
@@ -255,6 +255,7 @@ jobs:
           channel: ${{ env.RELEASE_CHANNEL }}
           version: ${{ needs.resolve-version.outputs.version }}
           publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
     needs: [resolve-version, build-mac, build-windows, build-linux]

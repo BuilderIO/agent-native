@@ -51,11 +51,6 @@ jobs:
       - name: Build signed and notarized canary
         uses: ./.github/actions/build-agent-native-desktop
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
@@ -65,6 +60,10 @@ jobs:
           platform: mac
           version: ${{ steps.canary.outputs.version }}
           sign: "true"
+          apple-certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple-certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
       - name: Verify candidate provenance and trust
         working-directory: packages/desktop-app
