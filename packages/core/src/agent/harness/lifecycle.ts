@@ -1523,7 +1523,7 @@ export async function sendAgentHarnessFollowUp(input: {
         }
 
         const failures: unknown[] = [
-          reason,
+          reason ?? error,
           ...(finalizedRejected ? [error] : []),
         ];
         let failedSession: StoredAgentHarnessSession | null = null;
