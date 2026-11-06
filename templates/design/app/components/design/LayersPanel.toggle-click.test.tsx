@@ -868,6 +868,32 @@ describe("sidebar text edit safety", () => {
     },
   );
 
+  it.each([
+    "data-agent-native-component-id",
+    "data-agent-native-component-ref",
+  ])(
+    "does not start an unconfirmed linked component text edit for %s",
+    (attribute) => {
+      const { args, node, handleScreenTextContentChange } = textTarget(
+        `<section ${attribute}="component"><p data-agent-native-node-id="text">Hello</p></section>`,
+      );
+      expect(beginLayerTextEdit(args, node.id)).toBeNull();
+      expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a text commit if the target becomes a linked component", () => {
+    const { args, node, setContent, handleScreenTextContentChange } =
+      textTarget('<p data-agent-native-node-id="text">Hello</p>');
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Text session missing");
+    setContent(
+      '<section data-agent-native-component-ref="component"><p data-agent-native-node-id="text">Hello</p></section>',
+    );
+    expect(commitLayerTextEdit(args, session, "Changed")).toBe("stale");
+    expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+  });
+
   it("allows empty text elements but not empty containers", () => {
     const text = textTarget('<p data-agent-native-node-id="text"></p>');
     expect(beginLayerTextEdit(text.args, text.node.id)?.originalValue).toBe("");

@@ -275,6 +275,90 @@ describe("LayersPanel double-click editing", () => {
   });
 });
 
+describe("LayersPanel disappearing text rows", () => {
+  it.each(["removed", "filtered", "collapsed"] as const)(
+    "allows editing another row when the draft row is %s",
+    async (reason) => {
+      const onTextEdit = vi.fn(() => false);
+      const child = { id: "text", name: "Text", type: "text" as const };
+      const group = {
+        id: "group",
+        name: "Group",
+        type: "frame" as const,
+        children: [child],
+      };
+      const other = { id: "other", name: "Other", type: "element" as const };
+      const panel = await renderPanel({
+        layers: [group, other],
+        expandedIds: ["group"],
+        onRename: () => {},
+        onStartTextEdit: (id) => (id === "text" ? "Before" : "Other text"),
+        onTextEdit,
+      });
+      await act(async () =>
+        rowButton(panel.host, "text").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const input = panel.host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!input) throw new Error("Text input missing");
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!setter) throw new Error("Input setter missing");
+      await act(async () => {
+        setter.call(input, "Unsaved draft");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      if (reason !== "removed") {
+        await pressKey(input, "Enter");
+        expect(onTextEdit).toHaveBeenCalledWith(
+          "text",
+          "Unsaved draft",
+          "Before",
+        );
+      }
+      if (reason === "removed") await panel.render({ layers: [other] });
+      else if (reason === "filtered")
+        await panel.render({ searchQuery: "Other" });
+      else await panel.render({ expandedIds: [] });
+      await act(async () =>
+        rowButton(panel.host, "other").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const otherInput = rowButton(
+        panel.host,
+        "other",
+      ).querySelector<HTMLInputElement>("input[data-layer-row-name]");
+      expect(otherInput?.value).toBe("Other text");
+      if (!otherInput) throw new Error("Other text editor missing");
+      await pressKey(otherInput, "Escape");
+      await panel.render({
+        layers: [group, other],
+        expandedIds: ["group"],
+        searchQuery: "",
+      });
+      await act(async () =>
+        rowButton(panel.host, "text").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const restored = panel.host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      expect(restored?.value).toBe("Unsaved draft");
+      if (!restored) throw new Error("Draft was not restored");
+      await pressKey(restored, "Enter");
+      expect(onTextEdit).toHaveBeenCalledTimes(reason === "removed" ? 0 : 1);
+      expect(restored.value).toBe("Unsaved draft");
+    },
+  );
+});
+
 describe("LayersPanel text edit rejection", () => {
   it("retains a refused draft so it can be copied or corrected", async () => {
     const onTextEdit = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);

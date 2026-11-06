@@ -47,6 +47,7 @@ import {
   type RefObject,
 } from "react";
 import { flushSync } from "react-dom";
+import { toast } from "sonner";
 
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { Button } from "@/components/ui/button";
@@ -953,8 +954,13 @@ function LayersPanelImpl(
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameOriginalNameRef = useRef<string>("");
-  const textEditRef = useRef<{ id: string; originalValue: string } | null>(
-    null,
+  const textEditRef = useRef<{
+    id: string;
+    originalValue: string;
+    suspended?: boolean;
+  } | null>(null);
+  const suspendedTextDraftsRef = useRef(
+    new Map<string, { draft: string; originalValue: string }>(),
   );
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
@@ -1102,27 +1108,34 @@ function LayersPanelImpl(
   renameDraftRef.current = renameDraft;
   onRenameRef.current = onRename;
   onTextEditRef.current = onTextEdit;
-  const commitRename = useCallback((id: string) => {
-    const textEdit = textEditRef.current;
-    if (textEdit?.id === id) {
-      if (
-        renameDraftRef.current !== textEdit.originalValue &&
-        onTextEditRef.current?.(
-          id,
-          renameDraftRef.current,
-          textEdit.originalValue,
-        ) === false
-      )
-        return;
-      textEditRef.current = null;
-    } else {
-      const nextName = renameDraftRef.current.trim();
-      if (nextName) onRenameRef.current?.(id, nextName);
-    }
-    setRenamingId(null);
-    setRenameDraft("");
-    renameOriginalNameRef.current = "";
-  }, []);
+  const commitRename = useCallback(
+    (id: string) => {
+      const textEdit = textEditRef.current;
+      if (textEdit?.id === id) {
+        if (textEdit.suspended) {
+          toast.error(t("designEditor.toasts.saveConflict"));
+          return;
+        }
+        if (
+          renameDraftRef.current !== textEdit.originalValue &&
+          onTextEditRef.current?.(
+            id,
+            renameDraftRef.current,
+            textEdit.originalValue,
+          ) === false
+        )
+          return;
+        textEditRef.current = null;
+      } else {
+        const nextName = renameDraftRef.current.trim();
+        if (nextName) onRenameRef.current?.(id, nextName);
+      }
+      setRenamingId(null);
+      setRenameDraft("");
+      renameOriginalNameRef.current = "";
+    },
+    [t],
+  );
 
   const pendingRenameFocusIdRef = useRef<string | null>(null);
 
@@ -1156,9 +1169,15 @@ function LayersPanelImpl(
         startRename(node);
         return;
       }
-      textEditRef.current = { id: node.id, originalValue: value };
+      const suspended = suspendedTextDraftsRef.current.get(node.id);
+      textEditRef.current = {
+        id: node.id,
+        originalValue: suspended?.originalValue ?? value,
+        suspended: Boolean(suspended),
+      };
       setRenamingId(node.id);
-      setRenameDraft(value);
+      setRenameDraft(suspended?.draft ?? value);
+      suspendedTextDraftsRef.current.delete(node.id);
       pendingRenameFocusIdRef.current = node.id;
     },
     [onStartTextEdit, onTextEdit, startRename],
@@ -1217,6 +1236,21 @@ function LayersPanelImpl(
     beginRename,
     focusSearch,
   ]);
+
+  useLayoutEffect(() => {
+    const edit = textEditRef.current;
+    if (!edit || visibleRows.some((row) => row.node.id === edit.id)) return;
+    if (renameDraftRef.current !== edit.originalValue) {
+      suspendedTextDraftsRef.current.set(edit.id, {
+        draft: renameDraftRef.current,
+        originalValue: edit.originalValue,
+      });
+    }
+    textEditRef.current = null;
+    pendingRenameFocusIdRef.current = null;
+    setRenamingId(null);
+    setRenameDraft("");
+  }, [visibleRows]);
 
   useEffect(() => {
     const pendingId = pendingRenameFocusIdRef.current;

@@ -3,6 +3,7 @@ import {
   type CodeLayerNode,
   type CodeLayerProjection,
 } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import { replaceLinkedScreenPreviewContent } from "@/components/design/multi-screen/linked-screen-preview";
@@ -124,7 +125,7 @@ export function beginLayerTextEdit(
     source: { kind: "design-file", fileId: owner.fileId },
   });
   const node = projection.nodes.find((candidate) => candidate.id === layerId);
-  if (!node) return null;
+  if (!node || linkedComponentRootForNode(node, projection)) return null;
   const value = sidebarEditableLayerText(content, projection, node);
   const durableId = node.dataAttributes["data-agent-native-node-id"];
   if (
