@@ -202,13 +202,17 @@ export async function processWebContent(
       options.saveContentFormat);
   // Gate Markdown conversion on the selected corpus / response path. Explicit
   // source:"raw" searches the original body and must not load optional Turndown.
-  // Extracted (default) searches and markdown/matches/save still convert so
-  // raw+search and matches share one corpus (link targets included).
+  // Markdown display/save, matches, and raw+extracted search still convert so
+  // those paths share one corpus (link targets included). Text-mode search
+  // uses the displayed plain-text corpus and must not convert just to match
+  // Markdown-only tokens.
   const includeMarkdown =
     mode === "markdown" ||
     options.saveContentFormat === "markdown" ||
     (mode === "matches" && search?.source !== "raw") ||
-    (hasWebContentSearch(search) && search?.source !== "raw");
+    (mode !== "text" &&
+      hasWebContentSearch(search) &&
+      search?.source !== "raw");
   const extracted = shouldExtract
     ? await safeExtractHtml(options.body, options.url, extract, includeMarkdown)
     : null;
@@ -220,10 +224,14 @@ export async function processWebContent(
   const hasRealExtractedContent = realExtractedText.length > 0;
   // Turndown escapes literals (snake_case → snake\_case). Unescape only for
   // the search corpus so page-literal queries still match; display/save keep
-  // real Markdown.
-  const extractedSearchCorpus = extractedMarkdown
-    ? unescapeMarkdownLiterals(extractedMarkdown)
-    : extractedPlainText;
+  // real Markdown. Text mode searches the same plain text it displays.
+  const extractedSearchCorpus =
+    mode === "text"
+      ? extractedPlainText
+      : extractedMarkdown
+        ? unescapeMarkdownLiterals(extractedMarkdown)
+        : extractedPlainText;
+  const hasExtractedSearchContent = extractedSearchCorpus.length > 0;
   // A non-null extraction with empty markdown and text is not success: text
   // mode would keep `""` (`??` does not fall through), and save would write
   // an empty file while still labeling text/markdown.
@@ -322,10 +330,12 @@ export async function processWebContent(
     }
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: hasRealExtractedContent ? extractedSearchCorpus : baseContent,
+      extracted: hasExtractedSearchContent
+        ? extractedSearchCorpus
+        : baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent: hasRealExtractedContent,
+      hasExtractedContent: hasExtractedSearchContent,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -340,10 +350,12 @@ export async function processWebContent(
   if (hasWebContentSearch(search)) {
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: hasRealExtractedContent ? extractedSearchCorpus : baseContent,
+      extracted: hasExtractedSearchContent
+        ? extractedSearchCorpus
+        : baseContent,
       search,
       fallbackSearchSource,
-      hasExtractedContent: hasRealExtractedContent,
+      hasExtractedContent: hasExtractedSearchContent,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;

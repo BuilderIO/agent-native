@@ -567,6 +567,44 @@ describe("processWebContent", () => {
     }
   });
 
+  it("does not return markdown-only link targets from a text-mode search", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body = `<!doctype html><html><head><title>Parity</title></head><body>
+<article><p>See <a href="https://example.com/target-unique">click here</a>.</p></article>
+</body></html>`;
+
+    const text = await processWebContent({
+      url: "https://example.com/parity",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+      search: { query: "target-unique" },
+    });
+    expect(text.content).not.toContain("target-unique");
+    expect(text.content).toContain("click here");
+    expect(text.matches ?? []).toHaveLength(0);
+    expect(text.totalMatches).toBe(0);
+
+    const visible = await processWebContent({
+      url: "https://example.com/parity",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+      search: { query: "click here" },
+    });
+    expect(visible.totalMatches).toBeGreaterThan(0);
+
+    const markdown = await processWebContent({
+      url: "https://example.com/parity",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+      search: { query: "target-unique" },
+    });
+    expect(markdown.content).toContain("target-unique");
+    expect(markdown.totalMatches).toBeGreaterThan(0);
+  });
+
   it("labels searchSource raw when extraction yields no text and the search falls back to raw markup", async () => {
     const { processWebContent } = await import("./web-content.js");
     const body =
