@@ -37,6 +37,13 @@ export type SourceHydrationRead = (
   id: string,
 ) => Promise<{ content: string; updatedAt: string }>;
 
+/** The demand and file metadata a render is about to hand the loader. */
+export interface UpcomingSourceDemand {
+  pinned: ReadonlySet<string>;
+  wantedRank: ReadonlyMap<string, number>;
+  files: ReadonlyMap<string, SourceHydrationFile>;
+}
+
 interface QueuedRead {
   low: boolean;
   start: () => void;
@@ -214,30 +221,40 @@ export class SourceHydration {
     this.pump();
   }
 
-  private sizeOf(id: string): number {
+  private sizeOf(id: string, file?: SourceHydrationFile): number {
     const resident = this.lru.get(id);
     if (resident !== undefined) return resident;
     const known = this.sizes.get(id);
-    return known && known.version === this.versions.get(id) ? known.bytes : 0;
+    const version = file ? file.updatedAt : this.versions.get(id);
+    if (known && known.version === version) return known.bytes;
+    return typeof file?.contentBytes === "number" ? file.contentBytes : 0;
   }
 
   /**
    * A held source, or a wanted one that fits in the budget behind every held
    * source and nearer wanted one, loaded or still reading. A wanted source
-   * bigger than the whole budget never loads.
+   * bigger than the whole budget never loads. A render passes the demand and
+   * metadata its effects are about to hand over, so its answer matches the
+   * one the loader gives once they have run.
    */
-  canLoad(id: string): boolean {
-    if (this.isHeld(id)) return true;
-    const rank = this.wantedRank.get(id);
+  canLoad(id: string, upcoming?: UpcomingSourceDemand): boolean {
+    const pinned = upcoming?.pinned ?? this.pinned;
+    const wantedRank = upcoming?.wantedRank ?? this.wantedRank;
+    const held = (target: string) =>
+      pinned.has(target) || this.dirty.has(target) || this.leases.has(target);
+    const size = (target: string) =>
+      this.sizeOf(target, upcoming?.files.get(target));
+    if (held(id)) return true;
+    const rank = wantedRank.get(id);
     if (rank === undefined) return false;
     let bytesAhead = 0;
     for (const aheadId of new Set([...this.lru.keys(), ...this.reading])) {
       if (aheadId === id) continue;
-      const aheadRank = this.wantedRank.get(aheadId);
-      if (this.isHeld(aheadId) || (aheadRank !== undefined && aheadRank < rank))
-        bytesAhead += this.sizeOf(aheadId);
+      const aheadRank = wantedRank.get(aheadId);
+      if (held(aheadId) || (aheadRank !== undefined && aheadRank < rank))
+        bytesAhead += size(aheadId);
     }
-    return bytesAhead + this.sizeOf(id) <= this.maxBytes;
+    return bytesAhead + size(id) <= this.maxBytes;
   }
 
   setDirty(ids: ReadonlySet<string>): void {

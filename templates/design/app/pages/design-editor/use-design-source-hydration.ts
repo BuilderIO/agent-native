@@ -160,6 +160,10 @@ export function useDesignSourceHydration(
           },
     [demandedIds, files, loader, revision, dependencyIndex],
   );
+  const demandPinned = useMemo(
+    () => new Set([...pinnedIds, ...dependencies.ids]),
+    [dependencies, pinnedIds],
+  );
   const previews = useMemo(() => {
     const demanded = new Set(dependencies.ids);
     const roots = previewIds.filter((id) => !demanded.has(id));
@@ -174,17 +178,31 @@ export function useDesignSourceHydration(
       { readRootsPastBudget: false },
     );
     const ids = scheduled.ids.filter((id) => !demanded.has(id));
+    const upcoming = {
+      pinned: demandPinned,
+      wantedRank: new Map(ids.map((id, index) => [id, index])),
+      files: new Map(files.map((file) => [file.id, file])),
+    };
     // A preview the budget cannot reach, or one whose dependencies it cannot,
     // is never read and would otherwise report loading forever.
     for (const [root, status] of scheduled.statusByRoot) {
       if (status !== "loading") continue;
       const blocked = [root, ...(scheduled.idsByRoot.get(root) ?? [])].some(
-        (id) => loader.get(id).status === "unloaded" && !loader.canLoad(id),
+        (id) =>
+          loader.get(id).status === "unloaded" && !loader.canLoad(id, upcoming),
       );
       if (blocked) scheduled.statusByRoot.set(root, "deferred");
     }
     return { ...scheduled, ids };
-  }, [dependencies, dependencyIndex, files, loader, previewIds, revision]);
+  }, [
+    demandPinned,
+    dependencies,
+    dependencyIndex,
+    files,
+    loader,
+    previewIds,
+    revision,
+  ]);
   const statusByRoot = useMemo(
     () => new Map([...previews.statusByRoot, ...dependencies.statusByRoot]),
     [dependencies, previews],
@@ -194,11 +212,8 @@ export function useDesignSourceHydration(
     [dependencies, previews],
   );
   useEffect(() => {
-    loader?.setDemand(
-      new Set([...pinnedIds, ...dependencies.ids]),
-      previews.ids,
-    );
-  }, [dependencies, loader, pinnedIds, previews.ids]);
+    loader?.setDemand(demandPinned, previews.ids);
+  }, [demandPinned, loader, previews.ids]);
   useEffect(() => {
     if (!loader) return;
     const requestable = (id: string) => {

@@ -771,3 +771,35 @@ it("reports a preview the budget cannot reach as deferred, not loading", async (
   expect(callAction).not.toHaveBeenCalled();
   await act(async () => root.unmount());
 });
+
+it("never reports a preview that fits the budget as deferred before it starts loading", async () => {
+  const files = [
+    { id: "small", filename: "small.html", updatedAt: "1", contentBytes: 4 },
+  ];
+  callAction.mockReset();
+  callAction.mockReturnValue(new Promise(() => {}));
+  const empty = new Set<string>();
+  const none: string[] = [];
+  const previews = ["small"];
+  const statuses: (string | undefined)[] = [];
+  function Harness() {
+    const hydration = useDesignSourceHydration(
+      "design",
+      files,
+      none,
+      empty,
+      empty,
+      previews,
+    );
+    statuses.push(hydration.dependencyStatusByRoot.get("small"));
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Harness));
+  });
+  expect(statuses).toContain("loading");
+  expect(statuses).not.toContain("deferred");
+  await act(async () => root.unmount());
+});
