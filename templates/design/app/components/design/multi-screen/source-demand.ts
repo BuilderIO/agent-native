@@ -36,11 +36,9 @@ export function selectSourceDemand({
   previewBudget = SOURCE_PREVIEW_DEMAND_BUDGET,
   previewOrder = "distance",
 }: {
-  /** `previewable: false` marks a screen that paints without its source. */
   frames: readonly {
     id: string;
     geometry: FrameGeometry;
-    previewable?: boolean;
   }[];
   liveIds: ScreenIds;
   protectedIds: ScreenIds;
@@ -88,7 +86,7 @@ export function selectSourceDemand({
   const onScreen: (typeof frames)[number][] = [];
   const nearby: (typeof frames)[number][] = [];
   for (const frame of frames) {
-    if (pinnedSet.has(frame.id) || frame.previewable === false) continue;
+    if (pinnedSet.has(frame.id)) continue;
     // Center distance alone ranks a tall on-screen screen behind short
     // off-screen ones, and the byte budget then sheds what is in view.
     if (isFrameWithinOverscannedViewport(frame.geometry, viewport)) {

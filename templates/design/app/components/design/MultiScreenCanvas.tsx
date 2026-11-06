@@ -12470,11 +12470,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
     );
     const demand = selectSourceDemand({
-      frames: canvasFrames.map(({ screen, geometry, metadata }) => ({
+      frames: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
         geometry,
-        previewable:
-          !metadata.previewUrl && !isRunningAppSourceType(metadata.source),
       })),
       liveIds: liveScreenIdsRef.current,
       protectedIds: protectedLiveScreenIds,

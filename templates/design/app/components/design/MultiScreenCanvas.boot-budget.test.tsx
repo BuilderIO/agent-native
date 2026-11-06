@@ -255,6 +255,58 @@ describe("MultiScreenCanvas live boot budget", () => {
     });
   });
 
+  it("demands the source of a zoomed-out large board's preview-URL screens", async () => {
+    const screens = Array.from(
+      { length: LARGE_BOARD_SCREEN_COUNT },
+      (_, index) => ({
+        id: `url-${index}`,
+        filename: `url-${index}.html`,
+        content: "",
+        source: "localhost",
+        sourceType: "localhost",
+        previewUrl: `http://127.0.0.1:8084/route-${index}`,
+        sourceState: "unloaded" as const,
+      }),
+    );
+    const demands: { pinned: readonly string[]; preview: readonly string[] }[] =
+      [];
+
+    await act(async () => {
+      renderWithQueryClient(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={5}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                {
+                  x: (index % 8) * 400,
+                  y: Math.floor(index / 8) * 700,
+                  width: 320,
+                  height: 640,
+                },
+              ]),
+            ),
+          }}
+          renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+          onSourceDemandChange={(demand) => demands.push(demand)}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    // At 5% every screen is far below the legible width, so none is pinned
+    // as a live editor; an unloaded one paints only its placeholder.
+    await vi.waitFor(() => {
+      const demand = demands[demands.length - 1];
+      expect(
+        new Set([...(demand?.pinned ?? []), ...(demand?.preview ?? [])]),
+      ).toEqual(new Set(screens.map((screen) => screen.id)));
+    });
+  });
+
   it("renders a large board's zoomed-out inline screens as static previews, except the active one", async () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
     const renderCalls: string[] = [];

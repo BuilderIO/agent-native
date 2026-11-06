@@ -184,20 +184,6 @@ describe("source demand", () => {
     expect(pinned).not.toContain("screen-0");
   });
 
-  it("skips screens that paint without their source", () => {
-    const frames = board(3).map((frame) =>
-      frame.id === "screen-1" ? { ...frame, previewable: false } : frame,
-    );
-    const { preview } = selectSourceDemand({
-      frames,
-      liveIds: new Set(),
-      protectedIds: new Set(),
-      zoom: 0.1,
-      viewport: { left: 0, top: 0, right: 5000, bottom: 1000 },
-    });
-    expect(preview).toEqual(["screen-2", "screen-0"]);
-  });
-
   it("keeps board order in each band when asked, on-screen first", () => {
     const frames = board(4);
     const demand = (left: number) =>
