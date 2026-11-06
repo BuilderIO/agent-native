@@ -68,6 +68,8 @@ son claves de unión. Una organización local sin correspondencia no cambia hast
 una migración explícita. Las membresías vinculadas siguen usando los controles
 de acceso normales de la aplicación destino.
 
+Las llamadas A2A de servidor a servidor usan la misma correspondencia. Un espacio de trabajo vinculado sin dominio de correo envía su par <code>(identity_authority, identity_id)</code>, y la aplicación receptora encuentra su propia organización para él y pregunta a Dispatch si el llamante es miembro actual. La aplicación receptora registra una membresía que Dispatch confirma y que no había visto antes.
+
 La federación usa una credencial separada para cada aplicación de origen:
 
 - Configura <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code> en la aplicación

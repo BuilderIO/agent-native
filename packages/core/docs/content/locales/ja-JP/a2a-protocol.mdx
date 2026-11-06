@@ -619,6 +619,8 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 JWT 検証 (`server.ts` の `verifyA2AToken`) は、グローバル `A2A_SECRET` またはトークンの `org_domain` クレームを介して SQL からルックアップされた組織スコープのシークレットで署名されたトークンを受け入れ、トークン独自の `aud`/`iss` クレームが存在する場合は強制します。
 
+メールドメインを持たないワークスペースは、代わりに ID ハブの共有ワークスペース ID で識別されます。この ID は `org_identity_authority` と `org_identity_id` クレームで送信されます。受信側のアプリはこの組み合わせを自身の組織にマッピングし、呼び出し元が現在のメンバーかどうかをハブに問い合わせます。これは、ワークスペースで `organization.cross-app-federation` が有効な間だけ適用されます。ドメインも連携済み ID もないワークスペースは他のアプリを呼び出せず、`a2a_caller_org_domain_missing` エラーになります。
+
 ### 組織シークレットの同期 {#organization-secret-sync}
 
 **組織 → アプリ間認証** の設定は、同じ組織で別々にデプロイされたアプリ間の委任を認証する組織スコープのシークレットを管理します。これはユーザーのサインインや Cross-App SSO の設定ではありません。このシークレットはデプロイの `A2A_SECRET` を補完します。`org_domain` クレームを持つ A2A JWT は、対応する組織のシークレットで検証できます。

@@ -1,4 +1,11 @@
+import type { H3Event } from "h3";
 import type { JWTPayload } from "jose";
+
+import {
+  A2A_ORG_FEDERATION_TOKEN_TYPE,
+  A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
+  A2A_ORG_IDENTITY_ID_CLAIM,
+} from "./caller-org-binding.js";
 
 export const A2A_ORG_MEMBER_DELEGATION_TYPE =
   "agent-native-org-member-delegation";
@@ -56,12 +63,40 @@ export function organizationPrincipalClaims(
   return claims;
 }
 
+function federatedIdentityClaims(
+  payload: Record<string, unknown>,
+): { authority: string; id: string } | null | undefined {
+  const hasAuthority = Object.prototype.hasOwnProperty.call(
+    payload,
+    A2A_ORG_IDENTITY_AUTHORITY_CLAIM,
+  );
+  const hasId = Object.prototype.hasOwnProperty.call(
+    payload,
+    A2A_ORG_IDENTITY_ID_CLAIM,
+  );
+  if (!hasAuthority && !hasId) return undefined;
+  const authority = payload[A2A_ORG_IDENTITY_AUTHORITY_CLAIM];
+  const id = payload[A2A_ORG_IDENTITY_ID_CLAIM];
+  if (
+    typeof authority !== "string" ||
+    typeof id !== "string" ||
+    !authority.trim() ||
+    !id.trim()
+  ) {
+    return null;
+  }
+  return { authority: authority.trim(), id: id.trim() };
+}
+
 /**
  * Bind deployment-secret organization claims to this receiver's organization
- * metadata before they can become request or action scope.
+ * metadata before they can become request or action scope. A claim naming the
+ * identity hub's shared workspace id additionally proves the caller is a
+ * current member of the workspace it binds to.
  */
 export async function verifyA2AOrganizationIdentity(
   payload: Record<string, unknown>,
+  options: { event?: H3Event | undefined } = {},
 ): Promise<VerifiedA2AOrganizationIdentity | null | undefined> {
   const hasOrgId = Object.prototype.hasOwnProperty.call(payload, "org_id");
   const hasOrgDomain = Object.prototype.hasOwnProperty.call(
@@ -70,6 +105,27 @@ export async function verifyA2AOrganizationIdentity(
   );
   const rawOrgId = payload.org_id;
   const rawOrgDomain = payload.org_domain;
+
+  const federation = federatedIdentityClaims(payload);
+  if (federation === null) return null;
+  // The claims travel only on the typed token, which older receivers reject,
+  // and the type means nothing without them.
+  if (
+    (federation !== undefined) !==
+    (payload.typ === A2A_ORG_FEDERATION_TOKEN_TYPE)
+  ) {
+    return null;
+  }
+  if (federation) {
+    const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
+    if (hasOrgId || hasOrgDomain || !email) return null;
+    const { resolveFederatedOrganizationForA2A } =
+      await import("../org/federation.js");
+    return resolveFederatedOrganizationForA2A(options.event, {
+      ...federation,
+      email,
+    });
+  }
 
   if (!hasOrgId && !hasOrgDomain) return undefined;
   if (

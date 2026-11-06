@@ -611,6 +611,8 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 JWT 확인(`server.ts`의 `verifyA2AToken`)은 전역 `A2A_SECRET` 또는 토큰의 `org_domain` 클레임을 통해 SQL에서 조회된 조직 범위 비밀로 서명된 토큰을 허용하고 토큰의 자체 `aud`/`iss` 클레임이 있는 경우 이를 시행합니다.
 
+이메일 도메인이 없는 workspace는 대신 identity hub의 공유 workspace ID로 식별되며, 이 ID는 `org_identity_authority` 및 `org_identity_id` 클레임으로 전송됩니다. 받는 앱은 이 쌍을 자체 조직에 매핑하고, 호출자가 현재 멤버인지 hub에 묻습니다. 이는 workspace에 대해 `organization.cross-app-federation`이 켜져 있는 동안에만 적용됩니다. 도메인도 연결된 ID도 없는 workspace는 다른 앱을 호출할 수 없으며 `a2a_caller_org_domain_missing` 오류를 받습니다.
+
 ### 조직 시크릿 동기화 {#organization-secret-sync}
 
 **조직 → 앱 간 인증** 설정은 같은 조직에서 별도로 배포된 앱 간 위임을 인증하는 조직 범위 시크릿을 관리합니다. 이는 사용자 로그인이나 Cross-App SSO 설정이 아닙니다. 이 시크릿은 배포의 `A2A_SECRET`를 보완합니다. `org_domain` 클레임이 있는 A2A JWT는 일치하는 조직의 시크릿으로 검증할 수 있습니다.

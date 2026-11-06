@@ -55,6 +55,8 @@ Dispatch 注册本地组织，并保存精确的
 组织名称、邮箱域名和浏览器 Cookie 不是关联键。没有映射的本地组织在显式
 迁移前保持不变。已关联的成员关系仍使用目标应用的普通访问检查。
 
+服务器到服务器的 A2A 调用使用相同的映射。没有电子邮件域名的已关联工作区会发送其 <code>(identity_authority, identity_id)</code> 对，接收方应用为其找到自己的组织，并向 Dispatch 查询调用方是否为当前成员。接收方应用会记录 Dispatch 确认的、此前未见过的成员关系。
+
 组织联邦为每个已注册源应用使用独立凭据：
 
 - 在源应用设置 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>。

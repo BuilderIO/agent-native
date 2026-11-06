@@ -12,6 +12,10 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
 import { canonicalA2AAudience } from "./audience.js";
+import {
+  callerOrgBindingClaims,
+  resolveCallerOrgBinding,
+} from "./caller-org-binding.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
 import { RemoteAgentCredentialRejectedError } from "./remote-agent-auth.js";
@@ -2176,16 +2180,25 @@ async function buildA2AApiKeyAttempts(
   const globalSecret = getGlobalA2ASecret();
   const isOrgMemberDelegation =
     getRequestContext()?.a2aIdentityAssurance === "org-member";
+  const orgBinding = opts?.orgId
+    ? await resolveCallerOrgBinding({
+        orgId: opts.orgId,
+        orgDomain: opts.orgDomain,
+        userEmail: opts.userEmail,
+      })
+    : undefined;
   if (
     opts?.userEmail &&
     !isOrgMemberDelegation &&
     globalSecret &&
-    (!opts.orgId || opts.orgDomain?.trim())
+    (!orgBinding || orgBinding.kind !== "unlinked")
   ) {
+    const extraClaims = callerOrgBindingClaims(orgBinding);
     add(
       await signA2AToken(opts.userEmail, opts.orgDomain, undefined, {
         preferGlobalSecret: true,
         audience,
+        ...(extraClaims ? { extraClaims } : {}),
       }),
     );
   }

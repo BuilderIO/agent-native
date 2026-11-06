@@ -7,11 +7,19 @@ import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
 
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
+const getOrgFederatedIdentityMock = vi.hoisted(() => vi.fn());
+const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   getOrgDomain: getOrgDomainMock,
   getOrgA2ASecret: getOrgA2ASecretMock,
+  getOrgFederatedIdentity: getOrgFederatedIdentityMock,
+}));
+
+vi.mock("../feature-flags/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../feature-flags/store.js")>()),
+  evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 
 vi.mock("../oauth-tokens/store.js", () => ({
@@ -26,6 +34,8 @@ describe("resolveA2ACallerAuth", () => {
     vi.clearAllMocks();
     getOrgDomainMock.mockResolvedValue("builder.io");
     getOrgA2ASecretMock.mockResolvedValue("org-a2a-secret");
+    getOrgFederatedIdentityMock.mockResolvedValue(null);
+    evaluateFeatureFlagStrictMock.mockResolvedValue(false);
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       { tokens: { access_token: "google-access-token" } },
     ]);
@@ -222,6 +232,7 @@ describe("resolveA2ACallerAuth", () => {
           new TextEncoder().encode("global-a2a-secret"),
         );
         expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("typ");
 
         delete process.env.A2A_SECRET;
         const orgSecretOnly = await resolveA2ACallerAuth({
@@ -374,6 +385,159 @@ describe("resolveA2ACallerAuth", () => {
           "alice+qa@agent-native.test",
         );
         expect(auth.metadata.googleToken).toBe("google-access-token");
+      },
+    );
+  });
+
+  it("signs a linked domainless organization with its federated identity claims", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.orgBinding).toEqual({
+          kind: "federated",
+          authority: "identity-hub.test",
+          id: "org-hub-1",
+        });
+        expect(auth.apiKey).toBeTruthy();
+        const apiKey = String(auth.apiKey);
+        const { payload } = await jose.jwtVerify(
+          apiKey,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          org_identity_authority: "identity-hub.test",
+          org_identity_id: "org-hub-1",
+          typ: "agent-native-org-federation",
+          aud: "https://peer.example.test",
+        });
+        expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("org_id");
+      },
+    );
+  });
+
+  it("does not mint a token for a linked domainless organization when the federation flag is off", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(false);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.orgBinding).toEqual({ kind: "unlinked" });
+        expect(auth.apiKey).toBeUndefined();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+      },
+    );
+  });
+
+  it("uses the org domain and omits federation claims when the org has both", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.orgBinding).toEqual({
+          kind: "domain",
+          orgDomain: "builder.io",
+        });
+        expect(getOrgFederatedIdentityMock).not.toHaveBeenCalled();
+        expect(auth.apiKey).toBeTruthy();
+        const apiKey = String(auth.apiKey);
+        const { payload } = await jose.jwtVerify(
+          apiKey,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
+        });
+        expect(payload).not.toHaveProperty("org_identity_authority");
+        expect(payload).not.toHaveProperty("org_identity_id");
+        expect(payload).not.toHaveProperty("typ");
+      },
+    );
+  });
+
+  it("rejects when the organization federated identity lookup fails", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    getOrgFederatedIdentityMock.mockRejectedValueOnce(
+      new Error("organization identity lookup unavailable"),
+    );
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        await expect(
+          resolveA2ACallerAuth({ audience: "https://peer.example.test" }),
+        ).rejects.toThrow("organization identity lookup unavailable");
+      },
+    );
+  });
+
+  it("keeps org_id and omits federation claims for identity-only tokens even when the org is linked", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+          userIdentityOnly: true,
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        const apiKey = String(auth.apiKey);
+        const { payload } = await jose.jwtVerify(
+          apiKey,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          org_id: "org-qa",
+          aud: "https://peer.example.test",
+        });
+        expect(payload).not.toHaveProperty("org_identity_authority");
+        expect(payload).not.toHaveProperty("org_identity_id");
+        expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("typ");
       },
     );
   });

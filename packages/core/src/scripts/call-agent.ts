@@ -7,6 +7,7 @@ import {
   type AnthropicManagedAgentConfirmation,
   type AnthropicManagedAgentContinuation,
 } from "../a2a/anthropic-managed-agents.js";
+import { resolveCallerOrgBinding } from "../a2a/caller-org-binding.js";
 import {
   A2ATaskTimeoutError,
   getGlobalA2ASecret,
@@ -517,20 +518,39 @@ function formatDownstreamLlmCredentialFailure(
     : null;
 }
 
-function remoteAgentAuthFailure(
+async function isCallerWorkspaceUnlinked(callerWorkspace?: {
+  orgId?: string;
+  orgDomain?: string;
+}): Promise<boolean> {
+  if (!callerWorkspace?.orgId) return false;
+  try {
+    const binding = await resolveCallerOrgBinding({
+      orgId: callerWorkspace.orgId,
+      orgDomain: callerWorkspace.orgDomain,
+      userEmail: getRequestUserEmail(),
+    });
+    return binding.kind === "unlinked";
+  } catch (error) {
+    // The rejection itself is still reported; only the explanation degrades.
+    void error;
+    return false;
+  }
+}
+
+async function remoteAgentAuthFailure(
   agentName: string,
   value: unknown,
   hostedAuthConfigured = false,
   callerWorkspace?: { orgId?: string; orgDomain?: string },
-): { message: string; errorCode: string } | null {
+): Promise<{ message: string; errorCode: string } | null> {
   if (value instanceof RemoteAgentCredentialRejectedError) {
     if (!hostedAuthConfigured) {
-      if (callerWorkspace?.orgId && !callerWorkspace.orgDomain?.trim()) {
+      if (await isCallerWorkspaceUnlinked(callerWorkspace)) {
         return {
           message:
             `Error: The ${agentName} agent rejected the A2A request (HTTP ${value.statusCode}). ` +
-            "This workspace has no domain configured, so the caller could not send a workspace-scoped identity. " +
-            "Set the workspace domain or configure explicit credentials for this agent, then retry.",
+            "This workspace has no company domain and is not linked across apps, so the caller could not send a workspace-scoped identity. " +
+            "Cross-app calls from it are not available until it is linked or a workspace domain is set.",
           errorCode: "a2a_caller_org_domain_missing",
         };
       }
@@ -1063,7 +1083,7 @@ export async function run(
       return output;
     } catch (error) {
       terminalStatus = "error";
-      const authFailure = remoteAgentAuthFailure(
+      const authFailure = await remoteAgentAuthFailure(
         agent.name,
         error,
         Boolean(agent.auth),
@@ -1355,7 +1375,7 @@ export async function run(
                 : "");
         } else {
           terminalStatus = "error";
-          const authFailure = remoteAgentAuthFailure(
+          const authFailure = await remoteAgentAuthFailure(
             agent.name,
             pollErr,
             Boolean(agent.auth),
@@ -1472,7 +1492,7 @@ export async function run(
     return expanded;
   } catch (err: any) {
     if (err instanceof A2AInvocationError) throw err;
-    const authFailure = remoteAgentAuthFailure(
+    const authFailure = await remoteAgentAuthFailure(
       agent.name,
       err,
       Boolean(agent.auth || agent.kind),
@@ -1644,7 +1664,7 @@ async function invokeReadOnlyAppAction(
       ? invocation.result.output
       : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
   } catch (error) {
-    const authFailure = remoteAgentAuthFailure(
+    const authFailure = await remoteAgentAuthFailure(
       agent.name,
       error,
       hostedAuthConfigured,

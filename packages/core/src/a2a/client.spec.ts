@@ -39,6 +39,19 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   };
 });
 
+const getOrgFederatedIdentityMock = vi.hoisted(() => vi.fn());
+const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  getOrgFederatedIdentity: getOrgFederatedIdentityMock,
+}));
+
+vi.mock("../feature-flags/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../feature-flags/store.js")>()),
+  evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
+}));
+
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
   const authenticatedJwt = [
@@ -51,6 +64,8 @@ describe("A2AClient", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    getOrgFederatedIdentityMock.mockReset().mockResolvedValue(null);
+    evaluateFeatureFlagStrictMock.mockReset().mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -2092,6 +2107,76 @@ describe("A2AClient", () => {
         orgId: "sender-org-row",
       }),
     ).resolves.toBe("unscoped");
+    expect(authorizationHeaders.filter(Boolean)).toEqual([]);
+  });
+
+  it("signs a linked domainless org with federated identity claims when the flag is on", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    const postAuthorizations: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAuthorizations.push(new Headers(init.headers).get("authorization"));
+        return completedResponse(JSON.parse(String(init.body)), "federated");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice@example.test",
+        orgId: "sender-org-row",
+      }),
+    ).resolves.toBe("federated");
+    expect(postAuthorizations).toHaveLength(1);
+    const payload = jose.decodeJwt(
+      String(postAuthorizations[0]).replace(/^Bearer\s+/i, ""),
+    );
+    expect(payload).toMatchObject({
+      sub: "alice@example.test",
+      typ: "agent-native-org-federation",
+      org_identity_authority: "identity-hub.test",
+      org_identity_id: "org-hub-1",
+    });
+    expect(payload).not.toHaveProperty("org_domain");
+  });
+
+  it("sends no bearer token for a linked domainless org when the flag is off", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(false);
+    const authorizationHeaders: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        authorizationHeaders.push(
+          new Headers(init?.headers).get("authorization"),
+        );
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return completedResponse(JSON.parse(String(init.body)), "unlinked");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice@example.test",
+        orgId: "sender-org-row",
+      }),
+    ).resolves.toBe("unlinked");
     expect(authorizationHeaders.filter(Boolean)).toEqual([]);
   });
 

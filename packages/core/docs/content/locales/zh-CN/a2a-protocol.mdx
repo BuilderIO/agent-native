@@ -597,6 +597,8 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 JWT 验证（`server.ts` 中的 `verifyA2AToken`）接受使用全局 `A2A_SECRET` 或通过令牌的 `org_domain` 声明从 SQL 查找的组织范围秘密签名的令牌，并在存在时强制执行令牌自己的 `aud`/`iss` 声明。
 
+没有电子邮件域名的工作区，则改用身份中心的共享工作区 ID 来标识，该 ID 通过 `org_identity_authority` 和 `org_identity_id` 声明发送。接收方应用将这对值映射到其自身的组织，并向身份中心查询调用方是否为当前成员。这仅在工作区启用了 `organization.cross-app-federation` 时适用。既没有域名也没有关联身份的工作区无法调用其他应用，并会收到 `a2a_caller_org_domain_missing` 错误。
+
 ### 组织密钥同步 {#organization-secret-sync}
 
 **组织 → 跨应用身份验证**设置管理组织范围的密钥，用于验证同一组织中单独部署的应用之间的委派。它不是用户登录或 Cross-App SSO 设置。该密钥补充部署的 `A2A_SECRET`：带有 `org_domain` 声明的 A2A JWT 可以使用匹配组织的密钥验证。

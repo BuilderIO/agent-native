@@ -4,6 +4,7 @@ import type { H3Event } from "h3";
 
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
+import { registerFeatureFlags } from "../feature-flags/registry.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { iconValueSchema, type IconValue } from "../icons/index.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -168,6 +169,8 @@ async function federationRolloutState(
   orgId: string | null | undefined,
 ): Promise<FederationRolloutState> {
   try {
+    // An unregistered flag evaluates to off, which would read as "disabled".
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     return (await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: email,
       userKey: email,
@@ -530,39 +533,14 @@ export async function validateFederatedOrganizationMembership(
     );
   }
 
-  const sent = await sendFederationAssertion(
-    event,
-    {
-      authority,
-      id: identityId,
-      name: String(org.name ?? ""),
-      role: localRole,
-      email,
-    },
-    {
-      federation_operation: "check-member",
-      federation_member_email: email,
-    },
-  );
-  if (!sent) throw new Error("Identity authority is not configured.");
-  if (!sent.response.ok) {
-    throw new Error(
-      `Identity authority membership check failed (${sent.response.status}).`,
-    );
-  }
-  const body = (await sent.response.json().catch((error) => {
-    void error;
-    return null;
-  })) as Record<string, unknown> | null;
-  if (
-    body?.orgId !== identityId ||
-    String(body.memberEmail ?? "")
-      .trim()
-      .toLowerCase() !== email
-  ) {
-    throw new Error("Identity authority returned an invalid membership check.");
-  }
-  if (body.memberPresent === false) {
+  const checked = await checkMemberWithHub(event, {
+    authority,
+    id: identityId,
+    name: String(org.name ?? ""),
+    role: localRole,
+    email,
+  });
+  if (!checked.present) {
     await exec.execute({
       sql: `UPDATE org_members SET federation_removal_pending_at = ?
             WHERE org_id = ? AND LOWER(email) = ?
@@ -580,19 +558,135 @@ export async function validateFederatedOrganizationMembership(
     invalidateMemberOrgCaches();
     return { active: false, role: null };
   }
-  if (body.memberPresent !== true || !isOrgRole(body.memberRole)) {
-    throw new Error("Identity authority returned an invalid membership check.");
-  }
-  if (body.memberRole !== localRole) {
+  if (checked.role !== localRole) {
     await exec.execute({
       sql: `UPDATE org_members SET role = ?
             WHERE org_id = ? AND LOWER(email) = ?
               AND federation_removal_pending_at IS NULL`,
-      args: [body.memberRole, input.orgId, email],
+      args: [checked.role, input.orgId, email],
     });
     invalidateMemberOrgCaches();
   }
-  return { active: true, role: body.memberRole };
+  return { active: true, role: checked.role };
+}
+
+type HubMemberCheck = { present: false } | { present: true; role: OrgRole };
+
+async function checkMemberWithHub(
+  event: H3Event,
+  identity: FederatedOrganizationIdentity,
+): Promise<HubMemberCheck> {
+  const sent = await sendFederationAssertion(event, identity, {
+    federation_operation: "check-member",
+    federation_member_email: identity.email,
+  });
+  if (!sent) throw new Error("Identity authority is not configured.");
+  if (!sent.response.ok) {
+    throw new Error(
+      `Identity authority membership check failed (${sent.response.status}).`,
+    );
+  }
+  const body = (await sent.response.json().catch((error) => {
+    void error;
+    return null;
+  })) as Record<string, unknown> | null;
+  if (
+    body?.orgId !== identity.id ||
+    String(body.memberEmail ?? "")
+      .trim()
+      .toLowerCase() !== identity.email
+  ) {
+    throw new Error("Identity authority returned an invalid membership check.");
+  }
+  if (body.memberPresent === false) return { present: false };
+  if (body.memberPresent !== true || !isOrgRole(body.memberRole)) {
+    throw new Error("Identity authority returned an invalid membership check.");
+  }
+  return { present: true, role: body.memberRole };
+}
+
+/**
+ * Binds an inbound A2A call that names its workspace by the hub's shared
+ * `(authority, id)` to this app's own workspace row and proves the caller is a
+ * current member. A caller that has never opened this app has no local member
+ * row, so a membership the hub confirms is recorded locally, as sign-in
+ * provisioning does. Returns null for anything that does not bind.
+ */
+export async function resolveFederatedOrganizationForA2A(
+  event: H3Event | undefined,
+  input: { authority: string; id: string; email: string },
+): Promise<{ orgId: string; orgDomain: string | null } | null> {
+  const email = input.email.trim().toLowerCase();
+  const authority = normalizeAuthority(input.authority);
+  if (!email.includes("@") || !authority || !ORG_ID_PATTERN.test(input.id)) {
+    return null;
+  }
+
+  const exec = getDbExec();
+  const mapped = await exec.execute({
+    sql: `SELECT id, name, allowed_domain FROM organizations
+          WHERE identity_authority = ? AND identity_id = ? LIMIT 1`,
+    args: [authority, input.id],
+  });
+  const org:
+    | { id?: unknown; name?: unknown; allowed_domain?: unknown }
+    | undefined = mapped.rows.length > 0 ? mapped.rows[0] : undefined;
+  if (!org) return null;
+  const orgId = String(org.id);
+  const orgDomain =
+    String(org.allowed_domain ?? "")
+      .trim()
+      .toLowerCase() || null;
+
+  const rollout = await federationRolloutState(email, orgId);
+  if (rollout === "unavailable") {
+    throw new Error(
+      "Cross-app organization federation rollout is unavailable.",
+    );
+  }
+  if (rollout === "disabled") return null;
+
+  const member = await exec.execute({
+    sql: `SELECT federation_removal_pending_at FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    args: [orgId, email],
+  });
+  const row: { federation_removal_pending_at?: unknown } | undefined =
+    member.rows.length > 0 ? member.rows[0] : undefined;
+  if (row && !row.federation_removal_pending_at) {
+    const validation = await validateFederatedOrganizationMembership(event, {
+      orgId,
+      email,
+    });
+    return validation.active ? { orgId, orgDomain } : null;
+  }
+
+  if (!event) {
+    throw new Error(
+      "Federated membership validation requires a request origin.",
+    );
+  }
+  const currentOrigin = normalizeAuthority(
+    (await import("../server/google-oauth.js")).getOrigin(event),
+  );
+  if (currentOrigin === authority) return null;
+  const hub = normalizeAuthority(resolveIdentityHubUrl(event) ?? "");
+  if (!hub || hub !== authority) {
+    throw new Error(
+      "Organization is linked to an unavailable identity authority.",
+    );
+  }
+  const identity = {
+    authority,
+    id: input.id,
+    name: String(org.name ?? ""),
+    role: "member" as const,
+    email,
+  };
+  const checked = await checkMemberWithHub(event, identity);
+  if (!checked.present) return null;
+  await ensureLocalMembership(orgId, { ...identity, role: checked.role });
+  return { orgId, orgDomain };
 }
 
 export async function validateFederatedOrganizationMembershipForCurrentRequest(

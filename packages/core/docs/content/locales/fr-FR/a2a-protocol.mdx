@@ -619,6 +619,8 @@ Cette limite est importante car la boucle d'agent accepte les entrées de forme 
 
 La vérification JWT (`verifyA2AToken` dans `server.ts`) accepte les jetons signés soit avec le `A2A_SECRET` global, soit avec un secret d'organisation recherché à partir de SQL via la revendication `org_domain` du jeton, et applique les propres revendications `aud`/`iss` du jeton lorsqu'elles sont présentes.
 
+Un espace de travail sans domaine de messagerie est identifié à la place par l'ID d'espace de travail partagé du hub d'identité, transmis dans les revendications `org_identity_authority` et `org_identity_id`. L'application réceptrice associe ce couple à sa propre organisation et demande au hub si l'appelant en est membre actuel. Cela ne s'applique que tant que `organization.cross-app-federation` est activé pour l'espace de travail. Un espace de travail sans domaine ni identité liée ne peut pas appeler d'autres applications et reçoit l'erreur `a2a_caller_org_domain_missing`.
+
 ### Synchronisation du secret d'organisation {#organization-secret-sync}
 
 Le réglage **Organisation → Authentification inter-applications** gère le secret défini au niveau de l'organisation qui authentifie la délégation entre des applications déployées séparément dans la même organisation. Il ne s'agit pas d'un réglage de connexion utilisateur ni de Cross-App SSO. Le secret complète l'`A2A_SECRET` du déploiement : un JWT A2A contenant une revendication `org_domain` peut être vérifié avec le secret de l'organisation correspondante.
