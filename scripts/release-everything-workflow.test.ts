@@ -10,6 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -17,6 +18,11 @@ import { describe, it } from "node:test";
 import { parse } from "yaml";
 
 import { RELEASE_COORDINATOR_STEP_NAME } from "./release-coordinator.ts";
+import {
+  getRemoteTagSha,
+  nextStableVersion,
+  reserveStableVersion as reserveStableVersionInModule,
+} from "./stable-release-version.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -423,14 +429,17 @@ describe("release everything workflow", () => {
   it("waits for accepted sibling releases when one dispatch is unconfirmed", async () => {
     const source = String((coordinator.with as Workflow).script);
     const fanoutStart = source.indexOf(
-      "const downstream = await Promise.allSettled([",
+      "const siteReleases = Promise.allSettled([",
     );
     const fanoutEnd = source.indexOf("]);", fanoutStart);
     assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
     const fanout = source.slice(fanoutStart, fanoutEnd);
     assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 1);
-    assert.equal((fanout.match(/publishStagedBuild\(/g) ?? []).length, 2);
     assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
+    const lanesStart = source.indexOf(
+      "const desktopReleases = Promise.all(desktopApps.map(releaseDesktopApp));",
+    );
+    assert(lanesStart >= 0 && lanesStart < fanoutStart);
     assert(
       source.indexOf("async function dispatchDocsAndReconcile()") < fanoutStart,
     );
@@ -592,7 +601,7 @@ describe("release everything workflow", () => {
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("let reconciledDocsRun = null;");
     const fanoutStart = source.indexOf(
-      "const downstream = await Promise.allSettled([",
+      "const siteReleases = Promise.allSettled([",
       helperStart,
     );
     assert(helperStart >= 0 && fanoutStart > helperStart);
@@ -609,16 +618,9 @@ describe("release everything workflow", () => {
       "core",
       "siteWorkflowRef",
       "releaseSha",
-      "workflowRef",
-      "desktopVersion",
-      "clipsVersion",
       "productionSites",
-      "publicationUnavailable",
-      "publishStagedBuild",
-      "desktopStage",
-      "clipsStage",
       `${source.slice(helperStart, fanoutEnd + "]);".length)}
-return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
+return { siteReleases: await siteReleases, getReconciledDocsRun: () => reconciledDocsRun };`,
     ) as (
       dispatchAndWait: (
         workflow: string,
@@ -631,16 +633,9 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       core: { warning: (message: string) => void },
       siteWorkflowRef: string,
       releaseSha: string,
-      workflowRef: string,
-      desktopVersion: string,
-      clipsVersion: string,
       productionSites: string[],
-      publicationUnavailable: Error | null,
-      publishStagedBuild: (staged: { workflow: string }) => Promise<Workflow>,
-      desktopStage: { workflow: string },
-      clipsStage: { workflow: string },
     ) => Promise<{
-      downstream: PromiseSettledResult<Workflow>[];
+      siteReleases: PromiseSettledResult<Workflow>[];
       getReconciledDocsRun: () => Workflow | null;
     }>;
 
@@ -657,9 +652,8 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     const reconciliationStarted = new Promise<void>((resolve) => {
       markReconciliationStarted = resolve;
     });
-    let dispatchSibling!: (workflow: string) => Promise<Workflow>;
     const fanoutPromise = createFanout(
-      (dispatchSibling = async (workflow) => {
+      async (workflow) => {
         if (workflow === "deploy-docs-production.yml") {
           return {
             run: {
@@ -682,7 +676,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
             }),
           );
         });
-      }),
+      },
       async () => {
         siblingCountAtReconciliation = siblingWorkflows.length;
         siblingsFinishedAtReconciliation = siblingWaitsFinished;
@@ -692,14 +686,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       { warning: () => {} },
       "main",
       "release-sha",
-      "v1.2.3",
-      "1.2.3",
-      "1.2.3",
       ["chat", "design"],
-      null,
-      (staged) => dispatchSibling(staged.workflow),
-      { workflow: "desktop-release.yml" },
-      { workflow: "clips-desktop-release.yml" },
     );
 
     let timedOut = false;
@@ -716,19 +703,17 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     if (timeout) clearTimeout(timeout);
     siblingWaitsFinished = true;
     for (const release of releaseSiblingWaits) release();
-    const { downstream, getReconciledDocsRun } = await fanoutPromise;
+    const { siteReleases, getReconciledDocsRun } = await fanoutPromise;
 
     assert.equal(timedOut, false);
     assert.deepEqual(siblingWorkflows, [
-      "desktop-release.yml",
-      "clips-desktop-release.yml",
       "deploy-production-sites-prebuilt.yml",
     ]);
-    assert.equal(siblingCountAtReconciliation, 3);
+    assert.equal(siblingCountAtReconciliation, 1);
     assert.equal(siblingsFinishedAtReconciliation, false);
     assert.equal(getReconciledDocsRun(), reconciledRun);
-    assert.equal(downstream.length, 4);
-    const docsResult = downstream[3];
+    assert.equal(siteReleases.length, 2);
+    const docsResult = siteReleases[1];
     assert.equal(docsResult.status, "fulfilled");
     if (docsResult.status === "fulfilled") {
       assert.deepEqual(docsResult.value, { run: reconciledRun, error: null });
@@ -841,22 +826,34 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       source,
       /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
     );
-    assert.match(source, /async function getRemoteTagSha\(tag\)/);
-    assert.match(source, /github\.rest\.git\.getTag/);
+    // Version picking lives in scripts/stable-release-version.ts, which a
+    // stable desktop release run by hand imports too.
+    const checkout = steps[0];
+    assert.equal(
+      checkout.uses,
+      "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    assert.deepEqual(checkout.with, {
+      "sparse-checkout": "scripts",
+      "persist-credentials": false,
+    });
     assert.match(
       source,
-      /async function nextStableVersion\(tagPrefix, baseVersion\)/,
+      /await import\(\s*`\$\{process\.env\.GITHUB_WORKSPACE\}\/scripts\/stable-release-version\.ts`/,
+    );
+    assert.match(
+      source,
+      /stableReleases\.getRemoteTagSha\(github, repoRef, tag\)/,
+    );
+    assert.match(
+      source,
+      /stableReleases\.reserveStableVersion\(github, repoRef, \{/,
+    );
+    assert.doesNotMatch(
+      source,
+      /async function (?:nextStableVersion|reserveStableVersion)/,
     );
     assert.match(source, /github\.paginate\(github\.rest\.repos\.listReleases/);
-    assert.match(source, /release\.tag_name\.startsWith\(tagPrefix\)/);
-    assert.match(source, /candidate\[2\] \+= 1/);
-    assert.match(
-      source,
-      /async function reserveStableVersion\(tagPrefix, baseVersion, sourceSha\)/,
-    );
-    assert.match(source, /github\.rest\.git\.createRef/);
-    assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
-    assert.match(source, /if \(error\.status === 422\)/);
     assert.match(source, /const tagSha = await getRemoteTagSha\(tag\)/);
     assert.match(source, /const reservedTags = new Map\(\)/);
     assert.match(
@@ -865,7 +862,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(source, /github\.rest\.repos\.deleteRelease/);
     assert.match(source, /github\.rest\.git\.deleteRef/);
-    assert.match(source, /await cleanupReservedTags\(\)/);
+    assert.match(source, /if \(tag\) await cleanupReservedTags\(\[tag\]\)/);
     assert.match(source, /Downstream workflows own these reserved tags/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
@@ -901,18 +898,20 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(
       source,
-      /stageDesktopBuild\(\s*"desktop-release\.yml",\s*`v\$\{desktopVersion\}`,\s*desktopVersion,/,
+      /workflow: "desktop-release\.yml",\s*tagPrefix: "v",\s*packagePath: "packages\/desktop-app\/package\.json",/,
     );
     assert.match(
       source,
-      /stageDesktopBuild\(\s*"clips-desktop-release\.yml",\s*`clips-v\$\{clipsVersion\}`,\s*clipsVersion,/,
+      /workflow: "clips-desktop-release\.yml",\s*tagPrefix: "clips-v",\s*packagePath: "templates\/clips\/desktop\/package\.json",/,
     );
-    const lastStageAt = source.indexOf("const clipsStage = stageDesktopBuild(");
-    assert(
-      lastStageAt >= 0 &&
-        lastStageAt <
-          source.indexOf("await waitForStablePackagePublish(releaseSha"),
+    const publicationStart = source.indexOf(
+      "const stablePublication = verifyStablePublication();",
     );
+    const lanesStart = source.indexOf(
+      "const desktopReleases = Promise.all(desktopApps.map(releaseDesktopApp));",
+    );
+    assert(publicationStart >= 0 && lanesStart > publicationStart);
+    assert(lanesStart < source.indexOf("await stablePublication;", lanesStart));
     assert.doesNotMatch(
       source,
       /desktopAlreadyPublished|clipsAlreadyPublished/,
@@ -924,60 +923,36 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
 
   it("reconciles ambiguous stable tag reservations before cleanup", async () => {
     const source = String((coordinator.with as Workflow).script);
-    const functionSource = (signature: string, nextSignature: string) => {
-      const start = source.indexOf(signature);
-      const end = source.indexOf(`\n\n${nextSignature}`, start);
-      assert(start >= 0 && end > start);
-      return source.slice(start, end);
-    };
-    const helpersSource = [
-      functionSource(
-        "async function getRemoteTagSha(tag)",
-        "// GET releases/tags/{tag} answers 404",
-      ),
-      functionSource(
-        "async function listReleasesByTag(tag)",
-        "function parseStableVersion(value, label)",
-      ),
-      functionSource(
-        "async function reserveStableVersion(tagPrefix, baseVersion, sourceSha)",
-        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
-      ),
-      functionSource(
-        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
-        "async function getFirstParentSha(ref)",
-      ),
-    ].join("\n\n");
+    const cleanupStart = source.indexOf(
+      "// GET releases/tags/{tag} answers 404",
+    );
+    const cleanupEnd = source.indexOf(
+      "\n\nasync function getFirstParentSha(ref)",
+      cleanupStart,
+    );
+    assert(cleanupStart >= 0 && cleanupEnd > cleanupStart);
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
     type TagObject = { type: string; sha: string };
-    type Helpers = {
-      reserveStableVersion: (
-        tagPrefix: string,
-        baseVersion: string,
-        sourceSha: string,
-      ) => Promise<string>;
-      cleanupReservedTags: () => Promise<void>;
-    };
+    type ReleaseRow = { id: number; tag_name: string; draft: boolean };
     type HarnessOptions = {
       createRef: (
         request: { ref: string; sha: string },
         remoteTags: Map<string, TagObject>,
       ) => Promise<void>;
-      versions?: string[];
+      // Tag reads fail only after createRef, so version selection still works.
       getRefError?: Error & { status?: number };
-      releases?: { id: number; tag_name: string; draft: boolean }[];
     };
 
-    const createHelpers = new AsyncFunction(
+    const createCleanup = new AsyncFunction(
       "github",
       "owner",
       "repo",
       "core",
       "reservedTags",
-      "nextStableVersion",
-      `${helpersSource}\nreturn { reserveStableVersion, cleanupReservedTags };`,
+      "getRemoteTagSha",
+      `${source.slice(cleanupStart, cleanupEnd)}\nreturn cleanupReservedTags;`,
     ) as (
       github: unknown,
       owner: string,
@@ -987,37 +962,32 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
         info: (message: string) => void;
       },
       reservedTags: Map<string, string>,
-      nextStableVersion: () => Promise<string>,
-    ) => Promise<Helpers>;
+      getRemoteTagSha: (tag: string) => Promise<string | null>,
+    ) => Promise<() => Promise<void>>;
 
-    const makeHarness = async ({
-      createRef,
-      versions = ["1.2.4"],
-      getRefError,
-      releases = [],
-    }: HarnessOptions) => {
+    const makeHarness = async ({ createRef, getRefError }: HarnessOptions) => {
       const remoteTags = new Map<string, TagObject>();
       const reservedTags = new Map<string, string>();
+      const releases: ReleaseRow[] = [];
       const deletedRefs: string[] = [];
       const deletedReleases: number[] = [];
       const warnings: string[] = [];
-      let versionIndex = 0;
+      let createRefCalled = false;
       const notFound = () =>
         Object.assign(new Error("Not found"), { status: 404 });
       const github = {
-        paginate: async (
-          method: () => Promise<{ data: unknown[] }>,
-          options: Workflow,
-        ) => {
+        paginate: async (_method: unknown, options: { per_page: number }) => {
           assert.equal(options.per_page, 100);
-          return (await method()).data;
+          return releases.map((release) => ({ prerelease: false, ...release }));
         },
         rest: {
           git: {
-            createRef: async (request: { ref: string; sha: string }) =>
-              createRef(request, remoteTags),
+            createRef: async (request: { ref: string; sha: string }) => {
+              createRefCalled = true;
+              return createRef(request, remoteTags);
+            },
             getRef: async ({ ref }: { ref: string }) => {
-              if (getRefError) throw getRefError;
+              if (getRefError && createRefCalled) throw getRefError;
               const object = remoteTags.get(ref);
               if (!object) throw notFound();
               return { data: { object } };
@@ -1038,21 +1008,36 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
           },
         },
       };
-      const helpers = await createHelpers(
+      const repoRef = { owner: "BuilderIO", repo: "agent-native" };
+      const cleanupReservedTags = await createCleanup(
         github,
-        "BuilderIO",
-        "agent-native",
+        repoRef.owner,
+        repoRef.repo,
         {
           warning: (message) => warnings.push(message),
           info: () => {},
         },
         reservedTags,
-        async () => versions[versionIndex++],
+        (tag) => getRemoteTagSha(github, repoRef, tag),
       );
+      const reserveStableVersion = (
+        tagPrefix: string,
+        baseVersion: string,
+        sourceSha: string,
+      ) =>
+        reserveStableVersionInModule(github, repoRef, {
+          tagPrefix,
+          baseVersion,
+          sourceSha,
+          warn: (message) => warnings.push(message),
+          onReserved: (tag) => reservedTags.set(tag, sourceSha),
+        });
       return {
-        ...helpers,
+        reserveStableVersion,
+        cleanupReservedTags,
         deletedRefs,
         deletedReleases,
+        releases,
         remoteTags,
         reservedTags,
         warnings,
@@ -1130,7 +1115,6 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       status: 422,
     });
     const collisionHarness = await makeHarness({
-      versions: ["1.2.4", "1.2.5"],
       createRef: async ({ ref, sha }, remoteTags) => {
         if (ref.endsWith("v1.2.4")) {
           remoteTags.set(ref.replace(/^refs\//, ""), {
@@ -1156,16 +1140,17 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
 
     // A staged build leaves a draft, sometimes two from an older run, that
     // only a listing finds.
-    const reserveAndClean = async (
-      releases: { id: number; tag_name: string; draft: boolean }[],
-    ) => {
+    const reserveAndClean = async (releases: ReleaseRow[]) => {
       const harness = await makeHarness({
-        releases,
         createRef: async ({ ref, sha }, remoteTags) => {
           remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
         },
       });
-      await harness.reserveStableVersion("v", "1.2.3", sourceSha);
+      assert.equal(
+        await harness.reserveStableVersion("v", "1.2.3", sourceSha),
+        "1.2.4",
+      );
+      harness.releases.push(...releases);
       await harness.cleanupReservedTags();
       return harness;
     };
@@ -1218,7 +1203,10 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       /docs production prebuilt deploy \/ production fw prebuilt deploy/,
     );
     assert.match(source, /docsSourceHasCurrentInputs\(sourceSha, mainSha\)/);
-    assert.match(source, /index === 3 && reconciledDocsRun/);
+    assert.match(
+      source,
+      /const docs = siteOutcome\("Agent-Native docs production site", docsResult\)/,
+    );
     const readPaths = (text: string, declaration: string) => {
       const start = text.indexOf(`const ${declaration} = [`);
       const arrayStart = text.indexOf("[", start);
@@ -1256,7 +1244,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(
       source,
-      /\["Docs site", `\$\{outcomes\[3\]\}: \$\{docsSite\.host\}`\]/,
+      /\["Docs site", `\$\{docs\.outcome\}: \$\{docsSite\.host\}`\]/,
     );
     assert.deepEqual(docsWorkflow.permissions, {
       contents: "read",
@@ -1645,7 +1633,14 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
     assert.equal(comparisons, 1);
 
     assert.match(source, /async function dispatchDocsAndReconcile\(\)/);
-    assert.match(source, /index === 3 && reconciledDocsRun/);
+    assert.equal(
+      (
+        source.match(
+          /return \{ (?:\.\.\.docsResult, )?run: reconciledDocsRun, error: null \};/g,
+        ) ?? []
+      ).length,
+      2,
+    );
   });
 
   it("waits through the observed stable release review and CI delay", async () => {
@@ -1759,7 +1754,7 @@ return waitForReleaseMerge;`,
       packageTagCheck,
     );
     const downstreamSettled = source.indexOf(
-      "const downstream = await Promise.allSettled",
+      "const [productionResult, docsResult] = await siteReleases;",
     );
     const notificationFailure = source.indexOf(
       "if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError)",
@@ -1818,17 +1813,26 @@ return waitForReleaseMerge;`,
       stablePublishStart,
     );
     const publicationStart = source.indexOf(
-      "let publicationError = null;",
+      "async function verifyStablePublication()",
       stablePublishEnd,
     );
     const publicationEnd = source.indexOf(
-      "\n\n// Each child waits independently",
+      "\n\nconst desktopApps",
       publicationStart,
+    );
+    const verdictStart = source.indexOf(
+      "\nconst { publicationError, publicationStatusUnknownError } =",
+      publicationEnd,
+    );
+    const verdictEnd = source.indexOf(
+      "\n\n// Each child waits independently",
+      verdictStart,
     );
     assert.ok(stablePublishStart >= 0 && stablePublishEnd > stablePublishStart);
     assert.ok(
       publicationStart > stablePublishEnd && publicationEnd > publicationStart,
     );
+    assert.ok(verdictStart > publicationEnd && verdictEnd > verdictStart);
 
     const mergeSha = "a".repeat(40);
     const workflowRun = {
@@ -1859,6 +1863,7 @@ return waitForReleaseMerge;`,
       "downstreamNotificationRecoveryError",
       `${source.slice(stablePublishStart, stablePublishEnd)}
 ${source.slice(publicationStart, publicationEnd)}
+${source.slice(verdictStart, verdictEnd)}
 return { publicationError, publicationStatusUnknownError, publicationUnavailable, siteWorkflowRef, downstreamNotificationFailureUrl, downstreamNotificationRecoveryUrl, downstreamNotificationRecoveryError };`,
     ) as (...args: unknown[]) => Promise<{
       publicationError: Error | null;
@@ -1903,7 +1908,10 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
       undefined,
     );
 
+    // Desktop lanes publish whenever neither publication error is set.
     assert.equal(result.publicationError, null);
+    assert.equal(result.publicationStatusUnknownError, null);
+    assert.equal(result.publicationUnavailable, null);
     assert.equal(result.siteWorkflowRef, "@agent-native/core@1.2.3");
     assert.match(
       result.downstreamNotificationRecoveryError?.message ?? "",
@@ -1954,130 +1962,24 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
     );
     assert.equal(unknownResult.siteWorkflowRef, "main");
     assert.match(unknownErrors[0] ?? "", /publication status is unknown/);
-
-    const publishStart = source.indexOf(
-      "async function publishStagedBuild(staged)",
-    );
-    const publishEnd = source.indexOf("\n\nconst desktopStage", publishStart);
-    const downstreamStart = source.indexOf(
-      "const downstream = await Promise.allSettled",
-    );
-    const downstreamEnd = source.indexOf("const failures =", downstreamStart);
-    assert.ok(publishStart >= 0 && publishEnd > publishStart);
-    assert.ok(downstreamStart >= 0 && downstreamEnd > downstreamStart);
-    const releaseDownstream = new AsyncFunction(
-      "publicationUnavailable",
-      "releaseSha",
-      "siteWorkflowRef",
-      "productionSites",
-      "dispatchAndWait",
-      "dispatchDocsAndReconcile",
-      "cleanupReservedTags",
-      "desktopStage",
-      "clipsStage",
-      `${source.slice(publishStart, publishEnd)}
-${source.slice(downstreamStart, downstreamEnd)}
-return downstream;`,
-    ) as (...args: unknown[]) => Promise<unknown>;
-    const stagedBuild = (workflow: string, tag: string) =>
-      Promise.resolve({
-        run: { id: 10, url: `https://example.test/${tag}` },
-        error: null,
-        workflow,
-        tag,
-        inputs: {
-          channel: "production",
-          version: "1.2.3",
-          source_ref: mergeSha,
-        },
-        label: `${workflow} release`,
-      });
-    const releaseWith = async (publication: {
-      publicationUnavailable?: Error | null;
-      siteWorkflowRef: string;
-    }) => {
-      const dispatches: { workflow: string; ref: string; mode?: unknown }[] =
-        [];
-      const cleaned: string[] = [];
-      await releaseDownstream(
-        publication.publicationUnavailable,
-        mergeSha,
-        publication.siteWorkflowRef,
-        ["design"],
-        async (workflow: string, ref: string, inputs: Workflow) => {
-          dispatches.push({ workflow, ref, mode: inputs.mode });
-          return { run: { id: dispatches.length }, error: null };
-        },
-        async () => ({ run: { id: 4 }, error: null }),
-        async (tags: string[]) => {
-          cleaned.push(...tags);
-        },
-        stagedBuild("desktop-release.yml", "v1.2.3"),
-        stagedBuild("clips-desktop-release.yml", "clips-v1.2.3"),
-      );
-      return { dispatches, cleaned };
-    };
-
-    const published = await releaseWith(result);
-    assert.deepEqual(published.dispatches, [
-      {
-        workflow: "deploy-production-sites-prebuilt.yml",
-        ref: "@agent-native/core@1.2.3",
-        mode: undefined,
-      },
-      { workflow: "desktop-release.yml", ref: "v1.2.3", mode: "publish" },
-      {
-        workflow: "clips-desktop-release.yml",
-        ref: "clips-v1.2.3",
-        mode: "publish",
-      },
-    ]);
-    assert.deepEqual(published.cleaned, []);
-
-    const unverified = await releaseWith(unknownResult);
-    assert.deepEqual(unverified.dispatches, [
-      {
-        workflow: "deploy-production-sites-prebuilt.yml",
-        ref: "main",
-        mode: undefined,
-      },
-    ]);
-    assert.deepEqual(unverified.cleaned, ["v1.2.3", "clips-v1.2.3"]);
   });
 
-  it("stages desktop builds at merge and publishes them only after npm is verified", async () => {
+  it("runs each desktop app in its own lane from merge to publish or discard", async () => {
     const source = String((coordinator.with as Workflow).script);
-    const stagingStart = source.indexOf(
-      "const desktopPackage = await readJsonAt(",
+    const lanesStart = source.indexOf("const desktopApps = [");
+    const lanesEnd = source.indexOf(
+      "\n\n// Lanes catch their own failures",
+      lanesStart,
     );
-    const stagingEnd = source.indexOf(
-      "\n\nlet publicationError = null;",
-      stagingStart,
-    );
-    assert.ok(stagingStart >= 0 && stagingEnd > stagingStart);
+    const recoveryStart = source.indexOf("function desktopRecovery(lane)");
+    const recoveryEnd = source.indexOf("\nconst failedPhases", recoveryStart);
+    assert.ok(lanesStart >= 0 && lanesEnd > lanesStart);
+    assert.ok(recoveryStart >= 0 && recoveryEnd > recoveryStart);
 
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
-    const startStaging = new AsyncFunction(
-      "publicationUnavailable",
-      "releaseSha",
-      "readJsonAt",
-      "stableVersion",
-      "reserveStableVersion",
-      "cleanupReservedTags",
-      "dispatchAndWait",
-      "core",
-      `${source.slice(stagingStart, stagingEnd)}
-return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBuild };`,
-    ) as (...args: unknown[]) => Promise<{
-      desktopVersion: string;
-      clipsVersion: string;
-      desktopStage: Promise<Workflow>;
-      clipsStage: Promise<Workflow>;
-      publishStagedBuild: (staged: Promise<Workflow>) => Promise<Workflow>;
-    }>;
-
+    type Run = { id: number; url: string };
     type Dispatch = {
       workflow: string;
       ref: string;
@@ -2086,25 +1988,91 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       timeoutMs: number;
       reservedTag?: string;
     };
+    type Lane = {
+      app: { workflow: string; label: string };
+      phase: string;
+      version: string | null;
+      stageRun: Run | null;
+      run: Run | null;
+      error: unknown;
+      skipped: boolean;
+    };
+    type Publication = {
+      publicationError: Error | null;
+      publicationStatusUnknownError: Error | null;
+    };
+    const loadLanes = new AsyncFunction(
+      "releaseSha",
+      "readJsonAt",
+      "stableVersion",
+      "stableReleases",
+      "github",
+      "repoRef",
+      "core",
+      "reservedTags",
+      "cleanupReservedTags",
+      "dispatchAndWait",
+      "stablePublication",
+      `${source.slice(lanesStart, lanesEnd)}
+${source.slice(recoveryStart, recoveryEnd)}
+return { desktopApps, releaseDesktopApp, desktopRecovery };`,
+    ) as (...args: unknown[]) => Promise<{
+      desktopApps: { workflow: string }[];
+      releaseDesktopApp: (app: unknown) => Promise<Lane>;
+      desktopRecovery: (lane: Lane) => string;
+    }>;
+
     const releaseSha = "b".repeat(40);
-    const stage = async (
-      publicationUnavailable: Error | null,
-      stageResult: (dispatch: Dispatch) => Promise<Workflow>,
-    ) => {
+    const runLanes = async ({
+      publication = Promise.resolve({
+        publicationError: null,
+        publicationStatusUnknownError: null,
+      }),
+      reserveFails = [] as string[],
+      dispatch = async (request: Dispatch) => ({
+        run: { id: 1, url: `${request.inputs.mode}-${request.ref}` },
+        error: null as unknown,
+      }),
+    }: {
+      publication?: Promise<Publication>;
+      reserveFails?: string[];
+      dispatch?: (request: Dispatch) => Promise<{ run: Run; error: unknown }>;
+    } = {}) => {
       const dispatches: Dispatch[] = [];
-      const reservations: string[] = [];
       const cleaned: string[] = [];
-      const staging = await startStaging(
-        publicationUnavailable,
+      const reservedTags = new Map<string, string>();
+      const lanes = await loadLanes(
         releaseSha,
-        async (_sha: string, filePath: string) => ({
-          version: filePath.includes("clips") ? "2.3.4" : "1.2.3",
-        }),
-        (version: string) => version,
-        async (prefix: string, version: string, sha: string) => {
-          reservations.push(`${prefix}${version}@${sha}`);
-          return version;
+        async (sha: string, filePath: string) => {
+          assert.equal(sha, releaseSha);
+          return { version: filePath.includes("clips") ? "2.3.3" : "1.2.2" };
         },
+        (version: string) => version,
+        {
+          reserveStableVersion: async (
+            _github: unknown,
+            _repoRef: unknown,
+            options: {
+              tagPrefix: string;
+              baseVersion: string;
+              sourceSha: string;
+              onReserved: (tag: string) => void;
+            },
+          ) => {
+            assert.equal(options.sourceSha, releaseSha);
+            const [major, minor, patch] = options.baseVersion.split(".");
+            const version = `${major}.${minor}.${Number(patch) + 1}`;
+            options.onReserved(`${options.tagPrefix}${version}`);
+            if (reserveFails.includes(options.tagPrefix)) {
+              throw new Error("GitHub returned HTTP 502 after createRef");
+            }
+            return version;
+          },
+        },
+        {},
+        { owner: "BuilderIO", repo: "agent-native" },
+        { info: () => {}, warning: () => {} },
+        reservedTags,
         async (tags: string[]) => {
           cleaned.push(...tags);
         },
@@ -2116,7 +2084,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
           timeoutMs: number,
           reservedTag?: string,
         ) => {
-          const dispatch = {
+          const request = {
             workflow,
             ref,
             inputs,
@@ -2124,39 +2092,57 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
             timeoutMs,
             reservedTag,
           };
-          dispatches.push(dispatch);
-          return inputs.mode === "stage"
-            ? stageResult(dispatch)
-            : Promise.resolve({
-                run: { id: dispatches.length, url: `published-${ref}` },
-                error: null,
-              });
+          dispatches.push(request);
+          return dispatch(request);
         },
-        { info: () => {} },
+        publication,
       );
-      return { ...staging, dispatches, reservations, cleaned };
+      const results = await Promise.all(
+        lanes.desktopApps.map(lanes.releaseDesktopApp),
+      );
+      return { ...lanes, results, dispatches, cleaned, reservedTags };
     };
-    const stagedRun = async (dispatch: Dispatch) => ({
-      run: { id: 1, url: `staged-${dispatch.ref}` },
-      error: null,
+    const stageInputs = (version: string) => ({
+      channel: "production",
+      version,
+      source_ref: releaseSha,
+      mode: "stage",
     });
 
-    const verified = await stage(null, stagedRun);
-    assert.deepEqual(verified.reservations, [
-      `v1.2.3@${releaseSha}`,
-      `clips-v2.3.4@${releaseSha}`,
+    // Both builds start before npm's result is known.
+    let settlePublication!: (publication: Publication) => void;
+    const pendingPublication = new Promise<Publication>((resolve) => {
+      settlePublication = resolve;
+    });
+    const dispatchedBeforeNpm: string[] = [];
+    let npmKnown = false;
+    const verifiedRun = runLanes({
+      publication: pendingPublication,
+      dispatch: async (request) => {
+        if (!npmKnown)
+          dispatchedBeforeNpm.push(`${request.inputs.mode} ${request.ref}`);
+        return {
+          run: { id: 1, url: `${request.inputs.mode}-${request.ref}` },
+          error: null,
+        };
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(dispatchedBeforeNpm, [
+      "stage v1.2.3",
+      "stage clips-v2.3.4",
     ]);
-    // Both builds are dispatched before the coordinator reads npm's status.
+    npmKnown = true;
+    settlePublication({
+      publicationError: null,
+      publicationStatusUnknownError: null,
+    });
+    const verified = await verifiedRun;
     assert.deepEqual(verified.dispatches, [
       {
         workflow: "desktop-release.yml",
         ref: "v1.2.3",
-        inputs: {
-          channel: "production",
-          version: "1.2.3",
-          source_ref: releaseSha,
-          mode: "stage",
-        },
+        inputs: stageInputs("1.2.3"),
         label: "Agent-Native desktop stable release build",
         timeoutMs: 120 * 60_000,
         reservedTag: "v1.2.3",
@@ -2164,87 +2150,179 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       {
         workflow: "clips-desktop-release.yml",
         ref: "clips-v2.3.4",
-        inputs: {
-          channel: "production",
-          version: "2.3.4",
-          source_ref: releaseSha,
-          mode: "stage",
-        },
+        inputs: stageInputs("2.3.4"),
         label: "Clips desktop stable release build",
         timeoutMs: 120 * 60_000,
         reservedTag: "clips-v2.3.4",
       },
-    ]);
-    assert.deepEqual(await verified.publishStagedBuild(verified.desktopStage), {
-      stageRun: { id: 1, url: "staged-v1.2.3" },
-      run: { id: 3, url: "published-v1.2.3" },
-      error: null,
-    });
-    // A rejected publish dispatch must leave the built draft and its tag.
-    assert.deepEqual(verified.dispatches[2], {
-      workflow: "desktop-release.yml",
-      ref: "v1.2.3",
-      inputs: {
-        channel: "production",
-        version: "1.2.3",
-        source_ref: releaseSha,
-        mode: "publish",
+      // A rejected publish dispatch must leave the built draft and its tag.
+      {
+        workflow: "desktop-release.yml",
+        ref: "v1.2.3",
+        inputs: { ...stageInputs("1.2.3"), mode: "publish" },
+        label: "Agent-Native desktop stable release",
+        timeoutMs: 30 * 60_000,
+        reservedTag: undefined,
       },
-      label: "Agent-Native desktop stable release",
-      timeoutMs: 30 * 60_000,
-      reservedTag: undefined,
-    });
+      {
+        workflow: "clips-desktop-release.yml",
+        ref: "clips-v2.3.4",
+        inputs: { ...stageInputs("2.3.4"), mode: "publish" },
+        label: "Clips desktop stable release",
+        timeoutMs: 30 * 60_000,
+        reservedTag: undefined,
+      },
+    ]);
+    assert.deepEqual(
+      verified.results.map(
+        ({ phase, version, stageRun, run, error, skipped }) => ({
+          phase,
+          version,
+          stageRun: stageRun?.url,
+          run: run?.url,
+          error,
+          skipped,
+        }),
+      ),
+      [
+        {
+          phase: "publish",
+          version: "1.2.3",
+          stageRun: "stage-v1.2.3",
+          run: "publish-v1.2.3",
+          error: null,
+          skipped: false,
+        },
+        {
+          phase: "publish",
+          version: "2.3.4",
+          stageRun: "stage-clips-v2.3.4",
+          run: "publish-clips-v2.3.4",
+          error: null,
+          skipped: false,
+        },
+      ],
+    );
+    assert.deepEqual(
+      [...verified.reservedTags],
+      [
+        ["v1.2.3", releaseSha],
+        ["clips-v2.3.4", releaseSha],
+      ],
+    );
     assert.deepEqual(verified.cleaned, []);
 
-    const unavailable = await stage(
-      new Error("npm publication status is unknown"),
-      stagedRun,
-    );
+    // npm unverified: the built drafts and their tags are discarded.
+    const unverified = await runLanes({
+      publication: Promise.resolve({
+        publicationError: null,
+        publicationStatusUnknownError: new Error("npm status unknown"),
+      }),
+    });
     assert.deepEqual(
-      await unavailable.publishStagedBuild(unavailable.clipsStage),
-      {
-        stageRun: { id: 1, url: "staged-clips-v2.3.4" },
-        run: null,
-        error: null,
-        skipped: true,
-      },
+      unverified.dispatches.map((request) => request.inputs.mode),
+      ["stage", "stage"],
     );
-    assert.deepEqual(unavailable.cleaned, ["clips-v2.3.4"]);
-    assert.equal(unavailable.dispatches.length, 2);
-
-    const buildFailure = new Error("Clips build ended failure");
-    const failedBuild = await stage(null, async (dispatch) => ({
-      run: { id: 1, url: `staged-${dispatch.ref}` },
-      error: dispatch.workflow.startsWith("clips") ? buildFailure : null,
-    }));
+    assert.deepEqual(unverified.cleaned, ["v1.2.3", "clips-v2.3.4"]);
     assert.deepEqual(
-      await failedBuild.publishStagedBuild(failedBuild.clipsStage),
-      {
-        stageRun: { id: 1, url: "staged-clips-v2.3.4" },
-        run: null,
-        error: buildFailure,
-      },
+      unverified.results.map((lane) => [lane.skipped, lane.error]),
+      [
+        [true, null],
+        [true, null],
+      ],
     );
-    assert.equal(failedBuild.dispatches.length, 2);
-    assert.deepEqual(failedBuild.cleaned, []);
+    assert.equal(
+      unverified.desktopRecovery(unverified.results[0]),
+      `Once npm is published, run desktop-release.yml with channel production and source_ref ${releaseSha}, leaving version blank.`,
+    );
 
-    const unhandled: unknown[] = [];
-    const recordUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on("unhandledRejection", recordUnhandled);
-    try {
-      const rejected = await stage(null, async () => {
+    // A desktop reservation failure stops only desktop: Clips still ships.
+    const reservationFailure = await runLanes({ reserveFails: ["v"] });
+    const [failedDesktop, shippedClips] = reservationFailure.results;
+    assert.equal(failedDesktop.phase, "reserve");
+    assert.match(String(failedDesktop.error), /HTTP 502 after createRef/);
+    assert.deepEqual(reservationFailure.cleaned, ["v1.2.3"]);
+    assert.equal(shippedClips.run?.url, "publish-clips-v2.3.4");
+    assert.deepEqual(
+      reservationFailure.dispatches.map((request) => request.ref),
+      ["clips-v2.3.4", "clips-v2.3.4"],
+    );
+    assert.equal(
+      reservationFailure.desktopRecovery(failedDesktop),
+      `To release it on its own, run desktop-release.yml with channel production and source_ref ${releaseSha}, leaving version blank.`,
+    );
+
+    // A failed build is neither published nor cleaned up.
+    const buildFailure = await runLanes({
+      dispatch: async (request) => ({
+        run: { id: 1, url: `${request.inputs.mode}-${request.ref}` },
+        error:
+          request.workflow === "clips-desktop-release.yml"
+            ? new Error("Clips build ended failure")
+            : null,
+      }),
+    });
+    const failedClips = buildFailure.results[1];
+    assert.equal(failedClips.phase, "build");
+    assert.equal(failedClips.run, null);
+    assert.deepEqual(buildFailure.cleaned, []);
+    assert.equal(
+      buildFailure.dispatches.filter(
+        (request) => request.workflow === "clips-desktop-release.yml",
+      ).length,
+      1,
+    );
+    assert.equal(
+      buildFailure.desktopRecovery(failedClips),
+      `Re-run the failed jobs of stage-clips-v2.3.4, then run clips-desktop-release.yml with mode publish, version 2.3.4 and source_ref ${releaseSha}.`,
+    );
+
+    // A failed publish run is re-run; a rejected publish dispatch is redone.
+    const publishFailure = await runLanes({
+      dispatch: async (request) => {
+        if (
+          request.inputs.mode === "publish" &&
+          request.workflow === "desktop-release.yml"
+        ) {
+          throw new Error("HTTP 422: Unexpected inputs provided");
+        }
+        return {
+          run: { id: 1, url: `${request.inputs.mode}-${request.ref}` },
+          error:
+            request.inputs.mode === "publish"
+              ? new Error("publish ended failure")
+              : null,
+        };
+      },
+    });
+    const [rejectedPublish, failedPublish] = publishFailure.results;
+    assert.equal(rejectedPublish.phase, "publish");
+    assert.equal(
+      publishFailure.desktopRecovery(rejectedPublish),
+      `To publish its build, run desktop-release.yml with mode publish, version 1.2.3 and source_ref ${releaseSha}.`,
+    );
+    assert.equal(
+      publishFailure.desktopRecovery(failedPublish),
+      "Re-run the failed jobs of publish-clips-v2.3.4.",
+    );
+
+    // A rejected build dispatch fails the lane instead of rejecting it.
+    const rejectedBuild = await runLanes({
+      dispatch: async () => {
         throw new Error("HTTP 404: workflow unavailable");
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.deepEqual(unhandled, []);
-      await assert.rejects(
-        rejected.publishStagedBuild(rejected.desktopStage),
-        /HTTP 404: workflow unavailable/,
-      );
-      await assert.rejects(rejected.clipsStage, /HTTP 404/);
-    } finally {
-      process.off("unhandledRejection", recordUnhandled);
-    }
+      },
+    });
+    assert.deepEqual(
+      rejectedBuild.results.map((lane) => [lane.phase, lane.stageRun]),
+      [
+        ["build", null],
+        ["build", null],
+      ],
+    );
+    assert.match(
+      rejectedBuild.desktopRecovery(rejectedBuild.results[0]),
+      /^If its build has no run in the Actions history, run desktop-release\.yml/,
+    );
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
@@ -2540,11 +2618,11 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     );
     assert.match(
       source,
-      /publishStagedBuild\(desktopStage\),\s*publishStagedBuild\(clipsStage\),\s*dispatchAndWait\(\s*"deploy-production-sites-prebuilt\.yml"/,
+      /const siteReleases = Promise\.allSettled\(\[\s*dispatchAndWait\(\s*"deploy-production-sites-prebuilt\.yml"/,
     );
     assert.match(
       source,
-      /if \(publicationUnavailable\) \{\s*await cleanupReservedTags\(\[stage\.tag\]\);/,
+      /if \(publicationError \|\| publicationStatusUnknownError\) \{\s*await cleanupReservedTags\(\[tag\]\);/,
     );
     assert.match(
       source,
@@ -2955,6 +3033,278 @@ esac
     );
     assert.match(unsignedRelease.result.stdout, /writing no updater manifest/);
     assert.equal(unsignedRelease.uploads, "");
+  });
+
+  it("picks one patch past the newest published stable release", async () => {
+    const repoRef = { owner: "BuilderIO", repo: "agent-native" };
+    const clientWith = (
+      releases: string[],
+      drafts: string[],
+      tags: string[],
+    ) => ({
+      paginate: async () => [
+        ...releases.map((tag_name) => ({
+          tag_name,
+          draft: false,
+          prerelease: tag_name.includes("-nightly."),
+        })),
+        ...drafts.map((tag_name) => ({
+          tag_name,
+          draft: true,
+          prerelease: false,
+        })),
+      ],
+      rest: {
+        git: {
+          getRef: async ({ ref }: { ref: string }) => {
+            if (!tags.includes(ref.replace(/^tags\//, ""))) {
+              throw Object.assign(new Error("Not Found"), { status: 404 });
+            }
+            return {
+              data: { object: { type: "commit", sha: "c".repeat(40) } },
+            };
+          },
+          getTag: async () => ({ data: { object: { sha: "c".repeat(40) } } }),
+          createRef: async () => ({}),
+        },
+        repos: { listReleases: {} },
+      },
+    });
+    const releases = [
+      "v0.1.292",
+      "v0.1.150-nightly.431",
+      "v0.1.99",
+      "clips-v0.1.500",
+      "v-preview",
+    ];
+
+    assert.equal(
+      await nextStableVersion(
+        clientWith(releases, ["v0.1.300"], []),
+        repoRef,
+        "v",
+        "0.1.200",
+      ),
+      "0.1.293",
+    );
+    // A newer package version wins over older releases.
+    assert.equal(
+      await nextStableVersion(
+        clientWith(releases, [], []),
+        repoRef,
+        "v",
+        "0.2.0",
+      ),
+      "0.2.1",
+    );
+    // Tags without a published release (reserved, or a draft's) are skipped.
+    assert.equal(
+      await nextStableVersion(
+        clientWith(releases, ["v0.1.293"], ["v0.1.293", "v0.1.294"]),
+        repoRef,
+        "v",
+        "0.1.200",
+      ),
+      "0.1.295",
+    );
+    assert.equal(
+      await nextStableVersion(
+        clientWith(releases, [], []),
+        repoRef,
+        "clips-v",
+        "0.1.80",
+      ),
+      "0.1.501",
+    );
+    await assert.rejects(
+      nextStableVersion(clientWith([], [], []), repoRef, "v", "0.1.2-beta"),
+      /v base version has no exact stable semver: 0\.1\.2-beta/,
+    );
+  });
+
+  it("reserves the next stable version when a stable desktop release has none", async () => {
+    const releaseSha = "d".repeat(40);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const reserveSteps = [
+      {
+        workflow: desktopWorkflow,
+        job: "resolve-version",
+        tagPrefix: "v",
+        packagePath: "packages/desktop-app",
+      },
+      {
+        workflow: clipsWorkflow,
+        job: "prepare-release",
+        tagPrefix: "clips-v",
+        packagePath: "templates/clips/desktop",
+      },
+    ];
+    const workspace = mkdtempSync(path.join(tmpdir(), "desktop-version-"));
+    const environment = {
+      GITHUB_WORKSPACE: process.env.GITHUB_WORKSPACE,
+      RELEASE_SOURCE_REF: process.env.RELEASE_SOURCE_REF,
+      TAURI_APP_PATH: process.env.TAURI_APP_PATH,
+    };
+    try {
+      // The step imports the script from a checkout of the workflow's revision.
+      symlinkSync(process.cwd(), path.join(workspace, "workflow-revision"));
+      for (const { workflow, job, tagPrefix, packagePath } of reserveSteps) {
+        const jobSteps = ((workflow.jobs as Workflow)[job] as Workflow)
+          .steps as Workflow[];
+        const reserveIndex = jobSteps.findIndex(
+          (step) => step.id === "reserve",
+        );
+        const reserve = jobSteps[reserveIndex];
+        const checkout = jobSteps[reserveIndex - 1];
+        assert.equal(reserve.name, "Reserve the next stable version");
+        assert.equal(checkout.if, reserve.if);
+        assert.deepEqual(checkout.with, {
+          path: "workflow-revision",
+          "sparse-checkout": "scripts",
+          "persist-credentials": false,
+        });
+
+        mkdirSync(path.join(workspace, packagePath), { recursive: true });
+        writeFileSync(
+          path.join(workspace, packagePath, "package.json"),
+          JSON.stringify({ version: "0.1.80" }),
+        );
+        process.env.GITHUB_WORKSPACE = workspace;
+        process.env.RELEASE_SOURCE_REF = releaseSha;
+        process.env.TAURI_APP_PATH = "templates/clips/desktop";
+        const created: { ref: string; sha: string }[] = [];
+        const outputs: Record<string, string> = {};
+        await new AsyncFunction(
+          "github",
+          "context",
+          "core",
+          "require",
+          String((reserve.with as Workflow).script),
+        )(
+          {
+            paginate: async () => [
+              {
+                tag_name: `${tagPrefix}0.1.90`,
+                draft: false,
+                prerelease: false,
+              },
+            ],
+            rest: {
+              git: {
+                getRef: async () => {
+                  throw Object.assign(new Error("Not Found"), { status: 404 });
+                },
+                getTag: async () => ({}),
+                createRef: async (request: { ref: string; sha: string }) => {
+                  created.push({ ref: request.ref, sha: request.sha });
+                },
+              },
+              repos: { listReleases: {} },
+            },
+          },
+          { repo: { owner: "BuilderIO", repo: "agent-native" } },
+          {
+            info: () => {},
+            warning: () => {},
+            setOutput: (name: string, value: string) => {
+              outputs[name] = value;
+            },
+          },
+          createRequire(import.meta.url),
+        );
+        assert.deepEqual(created, [
+          { ref: `refs/tags/${tagPrefix}0.1.91`, sha: releaseSha },
+        ]);
+        assert.deepEqual(outputs, { version: "0.1.91" });
+      }
+    } finally {
+      for (const [name, value] of Object.entries(environment)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(workspace, { recursive: true, force: true });
+    }
+
+    // Desktop reserves only when its version step chose none, and never for
+    // a publish run, which needs the staged draft's version.
+    const resolveJob = (desktopWorkflow.jobs as Workflow)[
+      "resolve-version"
+    ] as Workflow;
+    const resolveSteps = resolveJob.steps as Workflow[];
+    assert.equal(
+      resolveSteps.find((step) => step.id === "reserve")?.if,
+      "${{ steps.v.outputs.version == '' }}",
+    );
+    assert.equal(
+      (resolveJob.outputs as Workflow).version,
+      "${{ steps.v.outputs.version || steps.reserve.outputs.version }}",
+    );
+    // macOS ships bash 3.2, which has no ${var,,}; runners have bash 5.
+    const resolveVersion = String(
+      resolveSteps.find((step) => step.id === "v")?.run,
+    ).replace(
+      "${SOURCE_REF,,}",
+      "$(printf '%s' \"$SOURCE_REF\" | tr '[:upper:]' '[:lower:]')",
+    );
+    assert.doesNotMatch(resolveVersion, /,,\}/);
+    const runResolve = (mode: string, version = "") => {
+      const outputDirectory = mkdtempSync(
+        path.join(tmpdir(), "desktop-resolve-"),
+      );
+      const outputFile = path.join(outputDirectory, "output");
+      writeFileSync(outputFile, "");
+      try {
+        const result = spawnSync(
+          "bash",
+          ["-eo", "pipefail", "-c", resolveVersion],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GITHUB_OUTPUT: outputFile,
+              GITHUB_SHA: releaseSha,
+              RELEASE_CHANNEL: "production",
+              RELEASE_MODE: mode,
+              RELEASE_VERSION_INPUT: version,
+              RELEASE_SOURCE_REF_INPUT: "",
+            },
+          },
+        );
+        return { result, output: readFileSync(outputFile, "utf8") };
+      } finally {
+        rmSync(outputDirectory, { recursive: true, force: true });
+      }
+    };
+    for (const mode of ["release", "stage"]) {
+      const { result, output } = runResolve(mode);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(output, `source_ref=${releaseSha}\n`);
+    }
+    const blankPublish = runResolve("publish");
+    assert.equal(blankPublish.result.status, 1);
+    assert.match(
+      blankPublish.result.stdout,
+      /Publish mode needs the version of the staged draft to publish/,
+    );
+    assert.equal(
+      runResolve("publish", "0.1.91").output,
+      `source_ref=${releaseSha}\nversion=0.1.91\n`,
+    );
+
+    const clipsSteps = (
+      (clipsWorkflow.jobs as Workflow)["prepare-release"] as Workflow
+    ).steps as Workflow[];
+    assert.equal(
+      clipsSteps.find((step) => step.id === "reserve")?.if,
+      "${{ env.RELEASE_CHANNEL == 'production' && !inputs.version && inputs.mode != 'publish' }}",
+    );
+    assert.equal(
+      (clipsSteps.find((step) => step.id === "version")?.env as Workflow)
+        .RELEASE_VERSION_INPUT,
+      "${{ inputs.version || steps.reserve.outputs.version }}",
+    );
   });
 
   it("checks out the coordinated release commit for desktop builds", () => {
