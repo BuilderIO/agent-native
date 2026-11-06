@@ -36,12 +36,10 @@ import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
-import {
-  HUBSPOT_EMAIL_FRAME_TYPE,
-  isHubSpotEmailHtml,
-} from "../shared/hubspot-email.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
+  frameTypeFromStored,
   resolveScreenFrameType,
   STORED_SCREEN_FRAME_TYPES,
 } from "../shared/screen-frame-type.js";
@@ -325,9 +323,12 @@ export default defineAction({
     });
 
     const access = await assertAccess("design", file.designId, "editor");
-    if (frameType !== undefined || fileType !== undefined) {
+    // Only a non-HTML file can fail the check, so HTML saves skip parsing the
+    // design data.
+    const targetFileType = fileType ?? file.fileType;
+    if (targetFileType !== "html") {
       assertHubSpotEmailFileType({
-        fileType: fileType ?? file.fileType,
+        fileType: targetFileType,
         frameType:
           frameType === undefined
             ? resolveScreenFrameType({
@@ -335,11 +336,9 @@ export default defineAction({
                   (access.resource as { data?: unknown }).data,
                 ),
                 fileId: file.id,
-                content: file.content,
+                content: requestedContent ?? file.content,
               })
-            : frameType === HUBSPOT_EMAIL_FRAME_TYPE
-              ? frameType
-              : null,
+            : frameTypeFromStored(frameType),
       });
     }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
@@ -427,9 +426,11 @@ export default defineAction({
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         // An explicit frame type commits with the content write, so a failed
         // write leaves neither behind.
-        const touchDesign = async (previousContent: string) => {
+        // A stale operation passes null: its request lost to a newer write, so
+        // its frame type must not land either.
+        const touchDesign = async (previousContent: string | null) => {
           const data =
-            frameType === undefined
+            frameType === undefined || previousContent === null
               ? undefined
               : await designDataWithFrameTypeChange(tx, {
                   designId: file.designId,
@@ -752,7 +753,7 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await touchDesign(liveContent);
+                await touchDesign(null);
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -776,7 +777,7 @@ export default defineAction({
             applyTextToYDoc(lease.doc, "content", content, "agent");
             await lease.persist(getDesignSourceMutationExec(tx), content);
           }
-          await touchDesign(liveContent);
+          await touchDesign(skippedStaleOperation ? null : liveContent);
           persistedUpdatedAt = now;
           return;
         }

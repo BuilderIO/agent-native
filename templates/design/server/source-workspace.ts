@@ -13,17 +13,19 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import {
   assertDesignHtmlEditIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
 import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
-import {
-  HUBSPOT_EMAIL_FRAME_TYPE,
-  isHubSpotEmailHtml,
-} from "../shared/hubspot-email.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  sourceWriteFrameType,
+  storedScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
 import {
@@ -568,7 +570,7 @@ async function writeInlineSourceFileContent(
 }> {
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
-      await assertAccess("design", args.designId, "editor");
+      const access = await assertAccess("design", args.designId, "editor");
       const [currentFile] = await tx
         .select({
           id: schema.designFiles.id,
@@ -608,19 +610,32 @@ async function writeInlineSourceFileContent(
         content: liveContent,
         versionHash: sourceContentHash(liveContent),
       };
-      const legacyEmail =
-        isHubSpotEmailHtml(current.content) ||
-        isHubSpotEmailHtml(currentFile.content);
-      if (legacyEmail && !storedLegacyEmailIds.has(args.file.id)) {
+      let storedFrameType:
+        | { value: ReturnType<typeof storedScreenFrameType> }
+        | undefined;
+      const readStoredFrameType = () =>
+        (storedFrameType ??= {
+          value: storedScreenFrameType(
+            parseDesignDataBlob(access.resource.data),
+            args.file.id,
+          ),
+        }).value;
+      const frameTypeFor = (content: string) =>
+        sourceWriteFrameType({
+          readStored: readStoredFrameType,
+          previousContents: [current.content, currentFile.content],
+          nextContent: content,
+        });
+      if (
+        frameTypeFor(args.content).unstoredLegacyMarker &&
+        !storedLegacyEmailIds.has(args.file.id)
+      ) {
         throw new LegacyEmailFrameTypeNotStoredError(args.file.id);
       }
       const assertEmailCandidate = (content: string) =>
         assertHubSpotEmailFileType({
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
-          frameType:
-            legacyEmail || isHubSpotEmailHtml(content)
-              ? HUBSPOT_EMAIL_FRAME_TYPE
-              : null,
+          frameType: frameTypeFor(content).frameType,
         });
       const validatePreparedNoop = async () => {
         const preparedCollaboration = await lockPreparedSourceCollaboration(
@@ -1028,8 +1043,11 @@ async function writeInlineSourceFilesBatchContent(
   };
 
   return withLocks(0, async () => {
-    const legacyEmailFileIds = new Set<string>();
+    const previousContentsById = new Map<string, Array<string | null>>();
     const access = await assertAccess("design", args.designId, "editor");
+    let parsedDesignData: Record<string, unknown> | undefined;
+    const designData = () =>
+      (parsedDesignData ??= parseDesignDataBlob(access.resource.data));
     if (
       parseDesignDataSourceType(
         (access.resource as { data?: unknown }).data,
@@ -1087,21 +1105,19 @@ async function writeInlineSourceFilesBatchContent(
           );
         }
         assertLockedLayersPreserved(liveContent, content);
-        if (
-          isHubSpotEmailHtml(liveContent) ||
-          isHubSpotEmailHtml(currentFile.content)
-        ) {
-          if (!stored.has(file.id)) {
-            throw new LegacyEmailFrameTypeNotStoredError(file.id);
-          }
-          legacyEmailFileIds.add(file.id);
+        const previousContents = [liveContent, currentFile.content];
+        previousContentsById.set(file.id, previousContents);
+        const frameType = sourceWriteFrameType({
+          readStored: () => storedScreenFrameType(designData(), file.id),
+          previousContents,
+          nextContent: content,
+        });
+        if (frameType.unstoredLegacyMarker && !stored.has(file.id)) {
+          throw new LegacyEmailFrameTypeNotStoredError(file.id);
         }
         assertHubSpotEmailFileType({
           fileType: currentFile.fileType ?? file.fileType ?? "html",
-          frameType:
-            legacyEmailFileIds.has(file.id) || isHubSpotEmailHtml(content)
-              ? HUBSPOT_EMAIL_FRAME_TYPE
-              : null,
+          frameType: frameType.frameType,
         });
         assertDesignHtmlEditIntegrity({
           previousContent: liveContent,
@@ -1182,11 +1198,12 @@ async function writeInlineSourceFilesBatchContent(
           assertLockedLayersPreserved(liveContent, item.content);
           assertHubSpotEmailFileType({
             fileType: current.fileType ?? "html",
-            frameType:
-              legacyEmailFileIds.has(item.fileId) ||
-              isHubSpotEmailHtml(item.content)
-                ? HUBSPOT_EMAIL_FRAME_TYPE
-                : null,
+            frameType: sourceWriteFrameType({
+              readStored: () =>
+                storedScreenFrameType(designData(), item.fileId),
+              previousContents: previousContentsById.get(item.fileId) ?? [],
+              nextContent: item.content,
+            }).frameType,
           });
           assertDesignHtmlEditIntegrity({
             previousContent: liveContent,

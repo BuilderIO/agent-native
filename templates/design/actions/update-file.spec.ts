@@ -270,6 +270,7 @@ import {
   persistScreenFrameType,
 } from "../server/lib/screen-frame-type-store.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   sourceContentHash,
   sourceContentPatch,
@@ -1124,6 +1125,41 @@ describe("update-file: frame type", () => {
 
     expect(designsStore.data.has(DESIGN_ID)).toBe(false);
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("drops the frame type of a stale content operation", async () => {
+    const before = buildDoc(" newer-");
+    seedFile(before);
+    Object.assign(designFilesStore.rows.get(FILE_ID)!, {
+      contentOperationSource: "tab-a",
+      contentOperationRevision: 5,
+    });
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" older-"),
+      expectedVersionHash: sourceContentHash(before),
+      operationSource: "tab-a",
+      operationRevision: 3,
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("rejects email content saved into a file that is not HTML", async () => {
+    Object.assign(designFilesStore.rows.get(FILE_ID)!, { fileType: "css" });
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: createHubSpotEmailHtml(),
+      } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
   });
 
   it("stores a legacy email type before an edit that removes the marker", async () => {

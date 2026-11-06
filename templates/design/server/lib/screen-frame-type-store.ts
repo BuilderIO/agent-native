@@ -75,8 +75,9 @@ export async function designDataWithFrameTypeChange(
     .from(schema.designs)
     .where(eq(schema.designs.id, designId))
     .for("update");
-  if (rows.length === 0) throw new Error(`Design "${designId}" not found.`);
-  const current = parseStoredDesignData(designId, rows[0].data);
+  const row = rows.find(Boolean);
+  if (!row) throw new Error(`Design "${designId}" not found.`);
+  const current = parseStoredDesignData(designId, row.data);
   if (storedScreenFrameType(current, fileId) === frameType) return undefined;
   return JSON.stringify(
     withScreenFrameTypeLayout(

@@ -347,6 +347,43 @@ describe("create-file: node-id annotation", () => {
     });
   });
 
+  it("gives a web copy of an email source the design's breakpoints again", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "email.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        source: {
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+          frameType: "hubspot-email",
+        },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "email copy.html",
+      content: "<main>Copy</main>",
+      fileType: "html",
+      duplicateSourceFileId: "source",
+      frameType: "web",
+    });
+
+    expect(result.frameType).toBeNull();
+    const copied = (
+      mocks.getDesignData().screenMetadata as Record<string, unknown>
+    )[result.id];
+    expect(copied).toMatchObject({ frameType: "web" });
+    expect(copied).not.toHaveProperty("breakpointWidths");
+  });
+
   it("rejects a duplicate source from a different design", async () => {
     mocks.setExistingRows([
       {

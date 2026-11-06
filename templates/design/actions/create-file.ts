@@ -38,6 +38,7 @@ import {
   resolveScreenFrameType,
   STORED_SCREEN_FRAME_TYPES,
   storedScreenFrameType,
+  withScreenFrameTypeLayout,
   withStoredScreenFrameType,
   type ScreenFrameType,
 } from "../shared/screen-frame-type.js";
@@ -583,8 +584,19 @@ export default defineAction({
                 }
               : {}),
           };
+          // A web copy of an email source arrives with the source's email
+          // layout metadata, which the web type must not keep.
           return frameType === "web"
-            ? withStoredScreenFrameType(placed, id, frameType)
+            ? withScreenFrameTypeLayout(
+                placed,
+                id,
+                frameType,
+                resolveScreenFrameType({
+                  designData: current,
+                  fileId: id,
+                  content: createdFile.content,
+                }),
+              )
             : placed;
         },
         isApplied: (current) =>

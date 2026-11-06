@@ -61,6 +61,42 @@ export function resolveScreenFrameType({
 }
 
 /**
+ * How a source write must treat a screen's frame type. A stored type wins;
+ * without one, the legacy marker in the previous content makes the screen an
+ * email whose type must be stored before the write (`unstoredLegacyMarker`),
+ * and a marker in the next content makes it an email for validation.
+ * `readStored` is only called when some content carries the marker, so
+ * ordinary saves never read the design data.
+ */
+export function sourceWriteFrameType({
+  readStored,
+  previousContents,
+  nextContent,
+}: {
+  readStored: () => StoredScreenFrameType | undefined;
+  previousContents: ReadonlyArray<string | null | undefined>;
+  nextContent: string;
+}): { frameType: ScreenFrameType | null; unstoredLegacyMarker: boolean } {
+  const previouslyMarked = previousContents.some(
+    (content) => typeof content === "string" && isHubSpotEmailHtml(content),
+  );
+  if (!previouslyMarked && !isHubSpotEmailHtml(nextContent)) {
+    return { frameType: null, unstoredLegacyMarker: false };
+  }
+  const stored = readStored();
+  if (stored !== undefined) {
+    return {
+      frameType: frameTypeFromStored(stored),
+      unstoredLegacyMarker: false,
+    };
+  }
+  return {
+    frameType: HUBSPOT_EMAIL_FRAME_TYPE,
+    unstoredLegacyMarker: previouslyMarked,
+  };
+}
+
+/**
  * The frame type a copy of a screen must be created with. A stored "web" is
  * kept: the copied HTML may still carry the legacy email marker, and the copy
  * would read as an email without it.

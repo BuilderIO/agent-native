@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createHubSpotEmailHtml } from "./hubspot-email.js";
 import {
   resolveScreenFrameType,
   screenFrameTypeForCopy,
+  sourceWriteFrameType,
   storedScreenFrameType,
   withStoredScreenFrameType,
 } from "./screen-frame-type.js";
@@ -52,6 +53,45 @@ describe("screen frame type", () => {
     expect(
       screenFrameTypeForCopy({ designData: {}, fileId: "a", content: plain }),
     ).toBeUndefined();
+  });
+
+  it("never reads stored data for a source write without the marker", () => {
+    const readStored = vi.fn(() => "hubspot-email" as const);
+    expect(
+      sourceWriteFrameType({
+        readStored,
+        previousContents: [plain],
+        nextContent: plain,
+      }),
+    ).toEqual({ frameType: null, unstoredLegacyMarker: false });
+    expect(readStored).not.toHaveBeenCalled();
+  });
+
+  it("lets a stored web type override a leftover marker in a source write", () => {
+    expect(
+      sourceWriteFrameType({
+        readStored: () => "web",
+        previousContents: [marked],
+        nextContent: marked,
+      }),
+    ).toEqual({ frameType: null, unstoredLegacyMarker: false });
+  });
+
+  it("flags a marked screen with no stored type as a legacy email", () => {
+    expect(
+      sourceWriteFrameType({
+        readStored: () => undefined,
+        previousContents: [plain, marked],
+        nextContent: plain,
+      }),
+    ).toEqual({ frameType: "hubspot-email", unstoredLegacyMarker: true });
+    expect(
+      sourceWriteFrameType({
+        readStored: () => undefined,
+        previousContents: [plain],
+        nextContent: marked,
+      }),
+    ).toEqual({ frameType: "hubspot-email", unstoredLegacyMarker: false });
   });
 
   it("ignores values that are not a known frame type", () => {
