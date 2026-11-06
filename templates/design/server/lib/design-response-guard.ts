@@ -43,7 +43,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 const DESIGN_MUTATION_VERBS =
   /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
+  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|frame|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
@@ -523,7 +523,7 @@ function removeDesignTestRequests(text: string): string {
 
 function normalizeRequestUrls(text: string): string {
   const directUrlTarget = new RegExp(
-    DESIGN_MUTATION_VERBS.source + "[\\s:(\\[<\"'`]*$",
+    DESIGN_MUTATION_VERBS.source + "[\\s:(\\[<\"'`–—-]*$",
     "i",
   );
   const followingMutation = new RegExp(
@@ -538,23 +538,24 @@ function normalizeRequestUrls(text: string): string {
     const schemeEnd = value.indexOf("://");
     if (schemeEnd !== -1) {
       let start = schemeEnd;
-      while (start > 0 && /[a-z\d+.-]/i.test(value[start - 1])) start -= 1;
+      while (start > 0 && /[a-z\d+.-]/i.test(value.charAt(start - 1)))
+        start -= 1;
       if (/[a-z]/i.test(value[start] ?? "")) urlStart = start;
     }
     const wwwStart = value.toLowerCase().indexOf("www.");
     if (
       wwwStart !== -1 &&
-      (wwwStart === 0 || !/\w/.test(value[wwwStart - 1])) &&
+      (wwwStart === 0 || !/\w/.test(value.charAt(wwwStart - 1))) &&
       (urlStart === -1 || wwwStart < urlStart)
     ) {
       urlStart = wwwStart;
     }
-    // Requiring a path avoids masking ordinary prose and standalone filenames.
-    if (urlStart === -1 && value.includes("/")) {
-      const bareUrl = /^[([{]*((?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?\/)/i.exec(
+    // Requiring a URL delimiter avoids masking prose and standalone filenames.
+    if (urlStart === -1 && /[/?#]/.test(value)) {
+      const bareUrl = /^[([{]*(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]/i.exec(
         value,
       );
-      if (bareUrl) urlStart = bareUrl[0].length - bareUrl[1].length;
+      if (bareUrl) urlStart = bareUrl[0].search(/[a-z\d]/i);
     }
     if (urlStart === -1) continue;
 
@@ -570,7 +571,7 @@ function normalizeRequestUrls(text: string): string {
     let punctuationStart = end;
     while (
       punctuationStart > 0 &&
-      ".,!?;:)]}".includes(url[punctuationStart - 1])
+      ".,!?;:)]}".includes(url.charAt(punctuationStart - 1))
     ) {
       punctuationStart -= 1;
     }
