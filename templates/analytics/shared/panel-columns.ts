@@ -15,30 +15,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function isValidColumn(column: unknown): boolean {
-  if (!isRecord(column)) return false;
-  if (typeof column.key !== "string" || column.key === "") return false;
-  if (
-    column.format !== undefined &&
-    !(
-      typeof column.format === "string" &&
-      Object.prototype.hasOwnProperty.call(COLUMN_FORMATS, column.format)
-    )
-  ) {
-    return false;
-  }
-  if (column.label !== undefined && typeof column.label !== "string") {
-    return false;
-  }
-  if (column.linkKey !== undefined && typeof column.linkKey !== "string") {
-    return false;
-  }
-  if (column.hidden !== undefined && typeof column.hidden !== "boolean") {
-    return false;
-  }
+const OPTIONAL_COLUMN_FIELDS: Record<string, (value: unknown) => boolean> = {
+  format: (value) =>
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(COLUMN_FORMATS, value),
+  label: (value) => typeof value === "string",
+  linkKey: (value) => typeof value === "string",
+  hidden: (value) => typeof value === "boolean",
+  width: (value) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0,
+};
+
+function isKeyedColumn(
+  column: unknown,
+): column is Record<string, unknown> & { key: string } {
   return (
-    column.width === undefined ||
-    (typeof column.width === "number" && Number.isFinite(column.width))
+    isRecord(column) && typeof column.key === "string" && column.key !== ""
+  );
+}
+
+function isValidColumn(column: unknown): boolean {
+  return (
+    isKeyedColumn(column) &&
+    Object.entries(OPTIONAL_COLUMN_FIELDS).every(
+      ([field, valid]) => column[field] === undefined || valid(column[field]),
+    )
   );
 }
 
@@ -53,5 +54,18 @@ export function readPanelColumns<T extends { key: string }>(
   value: T[] | undefined,
 ): T[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  return value.filter(isValidColumn);
+  const columns: T[] = [];
+  const seen = new Set<string>();
+  for (const column of value) {
+    if (!isKeyedColumn(column) || seen.has(column.key)) continue;
+    seen.add(column.key);
+    const normalized: Record<string, unknown> & { key: string } = { ...column };
+    for (const [field, valid] of Object.entries(OPTIONAL_COLUMN_FIELDS)) {
+      if (normalized[field] !== undefined && !valid(normalized[field])) {
+        delete normalized[field];
+      }
+    }
+    columns.push(normalized as T);
+  }
+  return columns;
 }

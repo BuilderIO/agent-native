@@ -247,10 +247,14 @@ export function SqlChartCard({
   // While viewing, dragging a column edge sizes it for this person only. A
   // table offers rename, reorder, and format whenever it gets onSaveColumns,
   // so only edit mode passes it on.
+  const configColumns = useMemo(
+    () => readPanelColumns(panel.config?.columns),
+    [panel.config?.columns],
+  );
   const personalColumnWidths = usePersonalColumnWidths(
     dashboardId,
     panel.id,
-    readPanelColumns(panel.config?.columns),
+    configColumns,
   );
   const tableColumnProps = editable
     ? { onSaveColumns }

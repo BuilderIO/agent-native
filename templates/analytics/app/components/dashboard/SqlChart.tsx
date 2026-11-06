@@ -2821,7 +2821,10 @@ function TableRenderer({
   const resizable = editable || personalResize;
   const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
-  const configColumns = readPanelColumns(config?.columns);
+  const configColumns = useMemo(
+    () => readPanelColumns(config?.columns),
+    [config?.columns],
+  );
   const savedColumns = useMemo<TableColumnConfig[]>(() => {
     if (configColumns?.length) {
       const configured = configColumns.filter(
