@@ -595,6 +595,32 @@ describe("captureError flood control", () => {
     expect(getCaptureErrorStats().floodSuppressed).toBe(1);
   });
 
+  it("aggregates double-wrapped transient database failures", () => {
+    const databaseError = Object.assign(new Error("connection unavailable"), {
+      code: "08006",
+    });
+    const wrapped = new CredentialStoreUnavailableError(
+      new Error("database request failed", { cause: databaseError }),
+    );
+    const route = "/connections";
+
+    for (let i = 0; i < 3; i += 1) captureError(wrapped, { route });
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider.mock.calls[0][1]).toMatchObject({
+      tags: { failureClass: "transient-database" },
+      extra: { failureContext: { failureClass: "transient-database" } },
+    });
+    expect(getCaptureErrorStats().floodSuppressed).toBe(2);
+
+    vi.advanceTimersByTime(60_000);
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider.mock.calls[1][1]).toMatchObject({
+      tags: { failureClass: "transient-database", aggregated: "true" },
+      extra: { suppressedCount: 2, aggregationWindowMs: 60_000 },
+    });
+  });
+
   it("leaves the caller's own handled flag alone", () => {
     captureError(new Error("boom"), { handled: false });
     expect(provider.mock.calls[0][1]).toMatchObject({ handled: false });
