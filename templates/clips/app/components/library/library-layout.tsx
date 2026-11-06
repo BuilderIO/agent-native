@@ -38,6 +38,7 @@ import {
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -915,6 +916,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </aside>
 
       <AgentSidebar
+        composerContextProvider={ClipsComposerContextProvider}
         position="right"
         defaultOpen={false}
         enabled={!isRecordingRoute}

@@ -1208,7 +1208,7 @@ export function useEditorActiveScreenAndGeometry({
       )
     : null;
   generationOutputBaselineRef.current = designDataReady
-    ? snapshotGenerationOutputBaseline(files)
+    ? () => snapshotGenerationOutputBaseline(files)
     : undefined;
 
   useEffect(() => {

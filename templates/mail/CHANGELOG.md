@@ -3,12 +3,22 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Mail action more often when you describe a task in your own words, such as auto-archive rules or send later.
+
 ## 2026-11-03
 
 ### Improved
 
 - Opening Gmail messages is faster.
 - Opening Gmail threads is faster.
+
+### Fixed
+
+- AI rule backfills now wait out Gmail rate limits and retry instead of failing right after you create or edit a rule.
 
 ## 2026-11-02
 

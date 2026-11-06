@@ -91,6 +91,7 @@ import {
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { RecordingEditorBoundary } from "@/components/editor/recording-editor-boundary";
@@ -3146,6 +3147,7 @@ export default function RecordingPage() {
           ref={agentPanelContentRef}
         >
           <AgentPanel
+            composerContextProvider={ClipsComposerContextProvider}
             emptyStateText={t("recordingPage.askAboutClip")}
             dynamicSuggestions={false}
             scope={{ type: "recording", id: recording.id }}

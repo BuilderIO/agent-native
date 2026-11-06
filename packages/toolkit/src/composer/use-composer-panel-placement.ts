@@ -1,8 +1,6 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 
-// Keep the compact menu's actions reachable in short viewports.
-const MIN_USABLE_PANEL_HEIGHT = 120;
-const MAX_COMPOSER_PANEL_HEIGHT = 280;
+const MAX_COMPOSER_PANEL_HEIGHT = 480;
 
 export function useComposerPanelPlacement(
   triggerRef: RefObject<HTMLElement | null>,
@@ -32,7 +30,7 @@ export function useComposerPanelPlacement(
       const spaceAbove = Math.max(0, button.top - viewportTop - 24);
       const spaceBelow = Math.max(0, viewportBottom - button.bottom - 24);
       const side =
-        spaceAbove < MIN_USABLE_PANEL_HEIGHT && spaceBelow > spaceAbove
+        spaceAbove < MAX_COMPOSER_PANEL_HEIGHT && spaceBelow > spaceAbove
           ? "bottom"
           : "top";
       setPlacement({

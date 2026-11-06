@@ -1,3 +1,15 @@
+## 0.4.6
+
+### Patch Changes
+
+- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
+
+## 0.4.5
+
+### Patch Changes
+
+- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
+
 ## 0.4.4
 
 ### Patch Changes

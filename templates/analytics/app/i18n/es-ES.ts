@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "No se pudo cargar el archivo seleccionado.",
+    reference: "Referenciar un panel…",
+    group: "Paneles",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   root: {
     whatsNew: "Novedades",
   },
