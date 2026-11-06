@@ -120,6 +120,9 @@ const messages = {
     noAssetsYet: "अभी कोई एसेट नहीं है.",
     assetUploadFailed: "कुछ अपलोड विफल हुए",
     assetDeleteFailed: "एसेट हटाने में विफल",
+    assetLoadFailed: "एसेट लोड नहीं हो सके",
+    assetSelectNoChange: "यह इमेज इस स्लाइड पर लागू नहीं हो सकी",
+    retry: "फिर से प्रयास करें",
     assetDeleteInUse: "यह एसेट एक प्रेजेंटेशन में उपयोग हो रहा है। पहले इसे प्रेजेंटेशन से हटाएँ",
     assetDeleteStorageRemains:
       "लाइब्रेरी से हटा दिया गया, लेकिन संग्रहीत फ़ाइल नहीं हटाई जा सकी",

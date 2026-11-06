@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-11-05
 
+### Improved
+
+- Attach Google Slides, decks, and websites as chat context directly from the composer, with workspace integrations grouped separately.
+
 ### Fixed
 
 - Fixed a crash when selecting slide text after the editor updates.
