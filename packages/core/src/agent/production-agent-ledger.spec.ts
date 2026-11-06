@@ -538,6 +538,7 @@ describe("tool-call result ledger", () => {
               component: "agent-execution-step",
               phase: "late-action-rejection",
               tool: "test-action",
+              reportExpected: "true",
             },
             ...(scenario.private ? { errorMessagePolicy: "omit" } : {}),
           });
@@ -568,6 +569,145 @@ describe("tool-call result ledger", () => {
         expect(writeLedgerMock).not.toHaveBeenCalled();
       } finally {
         capture.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    {
+      name: "forbidden",
+      errorName: "ForbiddenError",
+      late: true,
+      private: false,
+      readOnly: false,
+    },
+    {
+      name: "HTTP 403",
+      errorName: "HTTPError",
+      late: true,
+      private: false,
+      readOnly: false,
+    },
+    {
+      name: "private forbidden",
+      errorName: "ForbiddenError",
+      late: true,
+      private: true,
+      readOnly: false,
+    },
+    {
+      name: "ordinary forbidden",
+      errorName: "ForbiddenError",
+      late: false,
+      private: false,
+      readOnly: false,
+    },
+    {
+      name: "read-only forbidden",
+      errorName: "ForbiddenError",
+      late: true,
+      private: false,
+      readOnly: true,
+    },
+  ])(
+    "delivers $name late write failures to the capture provider only when lost",
+    async (scenario) => {
+      const provider = vi.fn(
+        (_error: unknown, _context: errorCapture.CaptureErrorContext) =>
+          "event-id",
+      );
+      const unregister = errorCapture.registerErrorCaptureProvider(
+        "late-expected-rejection-test",
+        provider,
+      );
+      const started = Promise.withResolvers<void>();
+      const result = Promise.withResolvers<string>();
+      const action = {
+        ...makeWriteAction(),
+        readOnly: scenario.readOnly,
+        run: () => {
+          started.resolve();
+          return result.promise;
+        },
+      };
+      const controller = new AbortController();
+      const failure = Object.assign(new Error("sensitive forbidden detail"), {
+        name: scenario.errorName,
+        statusCode: 403,
+      });
+      const events: import("./types.js").AgentChatEvent[] = [];
+
+      try {
+        const request = runAgentLoop({
+          engine: singleToolEngine("save-data"),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "save" }] },
+          ],
+          actions: { "save-data": action },
+          send: (event) => events.push(event),
+          signal: controller.signal,
+          threadId: "thread-late-expected-rejection",
+          ...(scenario.private
+            ? { historyPrivacyState: { private: true, recorded: true } }
+            : {}),
+        });
+        await started.promise;
+        if (scenario.late) {
+          controller.abort();
+          await request;
+        }
+        result.reject(failure);
+        if (!scenario.late) await request;
+        if (scenario.late && !scenario.readOnly) {
+          await vi.waitFor(() => expect(provider).toHaveBeenCalledOnce());
+          const [reported, context] = provider.mock.calls[0]!;
+          if (scenario.private) {
+            expect(reported).toMatchObject({
+              message: "Internal Server Error",
+            });
+            expect(reported).toBeInstanceOf(Error);
+            const reportedError = reported as Error;
+            expect(
+              JSON.stringify({
+                message: reportedError.message,
+                stack: reportedError.stack,
+                context,
+              }),
+            ).not.toContain(failure.message);
+            expect(context).toMatchObject({ errorMessagePolicy: "omit" });
+          } else {
+            expect(reported).toBe(failure);
+          }
+          expect(context).toMatchObject({
+            route: "/_agent-native/agent-chat",
+            tags: {
+              component: "agent-execution-step",
+              phase: "late-action-rejection",
+              tool: "save-data",
+              reportExpected: "true",
+            },
+          });
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(provider).not.toHaveBeenCalled();
+        }
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "save-data",
+            isError: true,
+            ...(scenario.late && !scenario.readOnly
+              ? { outcomeUnknown: true }
+              : {}),
+          }),
+        );
+        expect(writeLedgerMock).not.toHaveBeenCalled();
+      } finally {
+        unregister();
       }
     },
   );
@@ -633,6 +773,7 @@ describe("tool-call result ledger", () => {
               component: "agent-execution-step",
               phase: "late-action-rejection",
               tool: "save-data",
+              reportExpected: "true",
             },
           }),
         ),

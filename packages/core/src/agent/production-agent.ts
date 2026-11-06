@@ -228,6 +228,7 @@ import {
 } from "../shared/context-status.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
+import { REPORT_EXPECTED_FAILURE_TAG } from "../shared/error-noise.js";
 import {
   DurableAttachmentReferenceRequiredError,
   stripInlineBytes,
@@ -11120,6 +11121,7 @@ export async function runAgentLoop(opts: {
                         component: "agent-execution-step",
                         phase: "late-action-rejection",
                         tool: toolCall.name,
+                        [REPORT_EXPECTED_FAILURE_TAG]: "true",
                       },
                     },
                   );
