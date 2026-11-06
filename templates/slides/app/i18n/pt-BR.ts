@@ -902,9 +902,6 @@ const messages = {
     newSlideSaveFailed:
       "Não foi possível salvar o novo slide. Tente novamente.",
     addSlides: "Adicionar slides",
-    addEmptySlide: "Adicionar slide vazio",
-    noAi: "sem IA",
-    duplicateCurrentSlide: "Duplicar slide atual",
     promptPlaceholder: "Descreva os slides que você quer...",
     newSlide: "Novo slide",
     slidesHeading: "Slides",
@@ -1344,7 +1341,26 @@ const messages = {
     },
     importDeck: "Importar apresentação",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Não foi possível verificar sua conexão com o Google Drive. Tente novamente.",
+        attach: "Anexar",
+        reading: "Lendo…",
+        authentication: "Entre para anexar o Google Slides.",
+        invalid: "Insira um URL válido de uma apresentação do Google Slides.",
+        connect: "Conecte o Google Drive para ler esta apresentação.",
+        denied:
+          "Esta apresentação não está disponível. Verifique o acesso ou reconecte o Google Drive.",
+        failed: "Não foi possível ler esta apresentação. Tente novamente.",
+        tooLarge:
+          "Esta apresentação é grande demais para ser lida como contexto.",
+        truncated:
+          "Trecho da referência truncado; o conteúdo restante não foi incluído.",
+      },
       websiteReference: "Adicionar site",
+      connectFigma: "Conectar Figma",
+      figmaDisconnected: "Conecte o Figma para explorar designs.",
+      websiteReferenceMenu: "Adicionar site…",
       websiteUrlLabel: "URL do site",
       websiteUrl: "Cole a URL de um site",
       figmaUrlLabel: "Link do Figma",
@@ -1359,9 +1375,9 @@ const messages = {
       searchPresentations: "Buscar apresentações…",
       menu: {
         system: "Usar um sistema de design",
-        figma: "Adicionar Figma",
+        figma: "Design do Figma",
         design: "Usar um design como referência",
-        deck: "Usar uma apresentação como referência",
+        deck: "Usar uma apresentação como referência…",
         searchDesign: "Pesquisar design…",
       },
       loadFailed: "Não foi possível carregar esta referência. Tente novamente.",
@@ -1386,7 +1402,7 @@ const messages = {
         "O Design não conseguiu ler esta referência do Figma. Confira o token de acesso do Figma salvo no Design e se a conta vinculada consegue abrir o arquivo; depois tente novamente.",
       tooMany: "Escolha até 20 referências.",
       search: "Buscar referências",
-      designCategory: "Criação",
+      designCategory: "Referências de design",
     },
     quickStart: {
       invalidUrl: "Insira uma URL HTTP ou HTTPS válida.",

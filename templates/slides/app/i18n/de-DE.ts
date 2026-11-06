@@ -910,9 +910,6 @@ const messages = {
     newSlideSaveFailed:
       "Die neue Folie konnte nicht gespeichert werden. Bitte versuche es erneut.",
     addSlides: "Folien hinzufügen",
-    addEmptySlide: "Leere Folie hinzufügen",
-    noAi: "ohne KI",
-    duplicateCurrentSlide: "Aktuelle Folie duplizieren",
     promptPlaceholder: "Beschreibe die gewünschten Folien...",
     newSlide: "Neue Folie",
     slidesHeading: "Folien",
@@ -1358,7 +1355,27 @@ const messages = {
     },
     importDeck: "Präsentation importieren",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Deine Google Drive-Verbindung konnte nicht geprüft werden. Versuche es erneut.",
+        attach: "Anhängen",
+        reading: "Wird gelesen…",
+        authentication: "Melde dich an, um Google Slides anzuhängen.",
+        invalid: "Gib eine gültige URL einer Google Slides-Präsentation ein.",
+        connect: "Verbinde Google Drive, um diese Präsentation zu lesen.",
+        denied:
+          "Diese Präsentation ist nicht verfügbar. Prüfe den Zugriff oder verbinde Google Drive erneut.",
+        failed:
+          "Diese Präsentation konnte nicht gelesen werden. Versuche es erneut.",
+        tooLarge:
+          "Diese Präsentation ist zu groß, um sie als Kontext zu lesen.",
+        truncated:
+          "Referenzauszug gekürzt; der restliche Inhalt wurde nicht einbezogen.",
+      },
       websiteReference: "Website hinzufügen",
+      connectFigma: "Figma verbinden",
+      figmaDisconnected: "Verbinde Figma, um Designs zu durchsuchen.",
+      websiteReferenceMenu: "Website hinzufügen…",
       websiteUrlLabel: "Website-URL",
       websiteUrl: "Website-URL einfügen",
       figmaUrlLabel: "Figma-Link",
@@ -1373,9 +1390,9 @@ const messages = {
       searchPresentations: "Präsentationen suchen…",
       menu: {
         system: "Ein Designsystem verwenden",
-        figma: "Figma hinzufügen",
+        figma: "Figma-Design",
         design: "Ein Design als Referenz verwenden",
-        deck: "Eine Präsentation als Referenz verwenden",
+        deck: "Auf eine Präsentation verweisen…",
         searchDesign: "Design durchsuchen…",
       },
       loadFailed: "Referenz konnte nicht geladen werden. Versuche es erneut.",
@@ -1400,7 +1417,7 @@ const messages = {
         "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
-      designCategory: "Gestaltung",
+      designCategory: "Designreferenzen",
     },
     quickStart: {
       invalidUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",

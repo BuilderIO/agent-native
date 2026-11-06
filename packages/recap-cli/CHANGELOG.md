@@ -1,5 +1,17 @@
 # @agent-native/recap-cli
 
+## 0.5.98
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.97
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.96
 
 ### Patch Changes
@@ -651,17 +663,5 @@
 ### Patch Changes
 
 - 687fefc: Bundle the visual recap workflow as a package asset instead of an escaped source string.
-
-## 0.4.6
-
-### Patch Changes
-
-- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
-
-## 0.4.5
-
-### Patch Changes
-
-- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
