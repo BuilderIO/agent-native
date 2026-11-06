@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
@@ -14,7 +15,20 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 }));
 
-import { BuilderSignupActivation } from "./BuilderSignupActivation";
+import {
+  BuilderSignupActivationCover,
+  useBuilderSignupActivation,
+} from "./BuilderSignupActivation";
+function Activation({ verified }: { verified: boolean }) {
+  const activating = useBuilderSignupActivation(
+    verified ? "verification-transition" : undefined,
+  );
+  return (
+    <BuilderSignupActivationCover activating={activating}>
+      <input aria-label="Prompt" defaultValue="" />
+    </BuilderSignupActivationCover>
+  );
+}
 
 it("waits for verification without replacing an in-progress prompt when activation starts", async () => {
   let finish: () => void = () => {};
@@ -27,14 +41,12 @@ it("waits for verification without replacing an in-progress prompt when activati
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const queryClient = new QueryClient();
   const render = (verified: boolean) =>
     root.render(
-      <BuilderSignupActivation
-        userId="verification-transition"
-        emailVerified={verified}
-      >
-        <input aria-label="Prompt" defaultValue="" />
-      </BuilderSignupActivation>,
+      <QueryClientProvider client={queryClient}>
+        <Activation verified={verified} />
+      </QueryClientProvider>,
     );
   try {
     await act(async () => render(false));
