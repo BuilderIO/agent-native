@@ -319,7 +319,7 @@ export function renderPromptPopovers({
           canRestore={canEditDesign}
           onRestored={() => {
             void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design", { id }],
+              queryKey: ["action", "get-design"],
             });
           }}
         />

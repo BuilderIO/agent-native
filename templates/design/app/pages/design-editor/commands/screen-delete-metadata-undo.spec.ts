@@ -306,7 +306,11 @@ describe("screen deletion metadata history", () => {
 
     await vi.waitFor(() =>
       expect(cancelQueries).toHaveBeenCalledWith({
-        queryKey: ["action", "get-design", { id: "design" }],
+        queryKey: [
+          "action",
+          "get-design",
+          { id: "design", includeFileContent: false },
+        ],
         exact: true,
       }),
     );

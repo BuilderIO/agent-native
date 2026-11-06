@@ -546,6 +546,30 @@ describe("outsideChangesFor", () => {
     expect(outsideChangesFor(before, after).changes).toEqual([]);
   });
 
+  it("measures a centred reflow from unrounded edges, not rounded records", () => {
+    const exact = (y: number, height: number) => ({
+      x: 72,
+      y,
+      width: 432,
+      height,
+    });
+    const before = {
+      ...edited([sibling(0, 207)], { x: 72, y: 104, width: 432, height: 90 }),
+      editedExactRect: exact(103.65, 90),
+    };
+    const after = {
+      ...edited([sibling(0, 230)], { x: 72, y: 81, width: 432, height: 134 }),
+      editedExactRect: exact(81.45, 134.4),
+    };
+    expect(outsideChangesFor(before, after).changes).toEqual([]);
+    expect(
+      outsideChangesFor(before, {
+        ...after,
+        records: [sibling(0, 233)],
+      }).changes,
+    ).not.toEqual([]);
+  });
+
   it("keeps independent and unverified geometry changes as failures", () => {
     const before = edited([sibling(0, 20)], {
       x: 0,
@@ -1028,6 +1052,69 @@ describe("outsideChangesFor", () => {
         ).changes,
       ).toHaveLength(1);
     }
+  });
+
+  describe("bottom-anchored wrapper centred with translateY(-50%)", () => {
+    const wrapper = (height: number, top: number, bottomEdge = 462) => ({
+      ...rec("box:div#0", {
+        top: `${top}px`,
+        bottom: "3.3125px",
+        transform: `matrix(1, 0, 0, 1, 0, ${-height / 2})`,
+        "transform-origin": `135px ${height / 2}px`,
+      }),
+      rect: { x: 48, y: bottomEdge - height, width: 270, height },
+    });
+    const withTarget = (record: SnapRecord, targetHeight: number) => ({
+      ...snap([record]),
+      editedRect: { x: 48, y: 380, width: 270, height: targetHeight },
+      editedInFlow: false,
+    });
+    const before = withTarget(wrapper(150, 387), 70);
+
+    it("accepts a wrapper that grows exactly with the block edited inside it", () => {
+      const after = withTarget(wrapper(248, 288.5, 412.25), 168);
+      expect(outsideChangesFor(before, after).changes).toEqual([]);
+    });
+
+    it("accepts a wrapper that grows less than its block when a trailing margin collapses", () => {
+      const after = withTarget(wrapper(169, 368, 452), 101);
+      expect(outsideChangesFor(before, after).changes).toEqual([]);
+    });
+
+    it("accepts wrapper content above the edited block only when it rides with the wrapper", () => {
+      const label = (y: number): SnapRecord => ({
+        ...rec("text:Anchored label#0", {}),
+        rect: { x: 48, y, width: 120, height: 19 },
+      });
+      const withLabel = (
+        record: SnapRecord,
+        y: number,
+        targetHeight: number,
+      ) => {
+        const base = withTarget(record, targetHeight);
+        return { ...base, records: [...base.records, label(y)] };
+      };
+      const grown = wrapper(248, 288.5, 412.25);
+      expect(
+        outsideChangesFor(
+          withLabel(wrapper(150, 387), 314, 70),
+          withLabel(grown, 166.25, 168),
+        ).changes,
+      ).toEqual([]);
+      expect(
+        outsideChangesFor(
+          withLabel(wrapper(150, 387), 314, 70),
+          withLabel(grown, 250, 168),
+        ).changes,
+      ).not.toEqual([]);
+    });
+
+    it("rejects a wrapper that moves more or less than the block's growth", () => {
+      const drifted = withTarget(wrapper(248, 300, 412.25), 168);
+      const resizedMore = withTarget(wrapper(260, 288.5, 412.25), 168);
+      expect(outsideChangesFor(before, drifted).changes).not.toEqual([]);
+      expect(outsideChangesFor(before, resizedMore).changes).not.toEqual([]);
+    });
   });
 });
 

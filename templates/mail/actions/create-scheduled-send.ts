@@ -46,6 +46,7 @@ const sendLaterPayloadSchema = z.object({
 });
 
 export default defineAction({
+  searchHints: ["send later", "schedule send"],
   description:
     "Schedule an email send for a future timestamp. The payload must include to, subject, and body; it may also include recipients, a connected account, reply/thread metadata, and uploaded attachments. Interactive and external calls require approval; automations may opt in through Mail settings.",
   schema: z.object({

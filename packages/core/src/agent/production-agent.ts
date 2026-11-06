@@ -1380,6 +1380,8 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` in `defineAction`. Read only by `tool-search`. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   /** See `emptyListsEraseNothing` in `defineAction`. */
   emptyListsEraseNothing?: boolean;

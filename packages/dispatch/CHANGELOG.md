@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.42.1
+
+### Patch Changes
+
+- 484471d: Show the Workspace apps rail for organizations that have no domain yet, such as a newly created Builder.io account, instead of a "Couldn't load data" error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
 ## 0.42.0
 
 ### Minor Changes
@@ -1477,11 +1491,5 @@
 ### Patch Changes
 
 - 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
-
-## 0.31.5
-
-### Patch Changes
-
-- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

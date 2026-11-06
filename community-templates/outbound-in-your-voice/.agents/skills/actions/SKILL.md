@@ -66,7 +66,7 @@ Every agent-exposed action is a tool in the model's context window; more tools d
 
 ## Key Actions — One Index, Every Surface
 
-Document the app's primary actions in the `AGENTS.md` action table. For first-turn loading, add those action names to the plugin's `initialToolNames` (`INITIAL_TOOL_NAMES` in some templates), or mark the full starter set `deferLoading: false` on the actions. When one action opts into per-action eager loading, unmarked actions are deferred; the remaining actions stay discoverable through `tool-search`.
+Document the app's primary actions in the `AGENTS.md` action table. For first-turn loading, add those action names to the plugin's `initialToolNames` (`INITIAL_TOOL_NAMES` in some templates), or mark the full starter set `deferLoading: false` on the actions. When one action opts into per-action eager loading, unmarked actions are deferred; the remaining actions stay discoverable through `tool-search`. When users name an action's job in words its name and description lack ("auto-archive rule", "canned reply"), add those words as `searchHints`: `tool-search` ranks them just below the name and never shows them to the model.
 
 When MCP is enabled, its `Key tools` line is generated from `mcp.keyToolNames ?? initialToolNames` and filtered to the actions served on that surface. A configured `mcp.keyToolNames` overrides the advertised MCP/WebMCP key list; it does not change the in-app agent's first-turn list. Keep the advertised subset consistent with the primary actions in the `AGENTS.md` table and the external catalog; the table may also document other in-app actions. Do not hand-write another action list in `mcp.instructions`, a skill, or an external skill; describe when to use actions there.
 

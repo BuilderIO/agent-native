@@ -208,7 +208,15 @@ import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
 
-function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
+function loadOptimisticCreatedFileInsertion(
+  queryClient: QueryClient,
+  historyFilesRef: { current: Array<{ id: string; content: string }> } = {
+    current: [],
+  },
+  sourceLoader: {
+    prime: (id: string, file: { content: string; updatedAt: string }) => void;
+  } = { prime: () => {} },
+) {
   const source = readDesignEditorSource();
   const start = source.indexOf(
     "const optimisticallyInsertCreatedFile = useCallback(",
@@ -228,6 +236,8 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "annotateScreenHtmlForPersist",
     "insertAtFileOrderIndex",
     "historyFilesRef",
+    "designMetadataQueryKey",
+    "sourceLoader",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
   return create(
@@ -236,7 +246,9 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     queryClient,
     annotateScreenHtmlForPersist,
     insertAtFileOrderIndex,
-    { current: [] },
+    historyFilesRef,
+    (id: string) => ["action", "get-design", { id, includeFileContent: false }],
+    sourceLoader,
   ) as (args: {
     fileId: string;
     filename: string;
@@ -778,12 +790,22 @@ describe("create-file: node-id annotation", () => {
       content: string;
     };
     const queryClient = new QueryClient();
-    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const queryKey = [
+      "action",
+      "get-design",
+      { id: "design-1", includeFileContent: false },
+    ] as const;
     queryClient.setQueryData(queryKey, {
       files: [] as Array<Record<string, unknown>>,
     });
-    const insertOptimistically =
-      loadOptimisticCreatedFileInsertion(queryClient);
+    const historyFilesRef: { current: Array<{ id: string; content: string }> } =
+      { current: [] };
+    const sourceLoader = { prime: vi.fn() };
+    const insertOptimistically = loadOptimisticCreatedFileInsertion(
+      queryClient,
+      historyFilesRef,
+      sourceLoader,
+    );
 
     try {
       insertOptimistically({
@@ -796,14 +818,24 @@ describe("create-file: node-id annotation", () => {
       const optimistic = queryClient
         .getQueryData<{ files: Array<Record<string, unknown>> }>(queryKey)
         ?.files.find((file) => file.id === result.id);
-      expect(optimistic?.content).toBe(persisted.content);
+      expect(optimistic).not.toHaveProperty("content");
+      expect(
+        historyFilesRef.current.find((file) => file.id === result.id)?.content,
+      ).toBe(persisted.content);
+      expect(sourceLoader.prime).toHaveBeenCalledWith(
+        result.id,
+        expect.objectContaining({ content: persisted.content }),
+      );
       expect(mocks.seedFromText).toHaveBeenCalledWith(
         result.id,
         persisted.content,
       );
 
       const preparedForSourceIdentity = ensureCodeLayerNodeIdsInHtml(
-        String(optimistic?.content),
+        String(
+          historyFilesRef.current.find((file) => file.id === result.id)
+            ?.content,
+        ),
         { source: { kind: "design-file", fileId: result.id } },
       );
       expect(preparedForSourceIdentity).toEqual({
@@ -828,7 +860,11 @@ describe("create-file: node-id annotation", () => {
         queries: { retry: false, gcTime: Infinity, staleTime: 0 },
       },
     });
-    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const queryKey = [
+      "action",
+      "get-design",
+      { id: "design-1", includeFileContent: false },
+    ] as const;
     const staleResult = {
       id: "design-1",
       files: [{ id: "old-file", filename: "index.html", content: "old" }],
