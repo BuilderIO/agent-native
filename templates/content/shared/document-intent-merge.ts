@@ -561,6 +561,28 @@ export function mergeDocumentBodyIntents(args: {
   const candidate = parseStableBlocks(args.authoredCandidateContent);
   const current = parseStableBlocks(args.currentContent);
   if (baseContent === null || !base || !candidate || !current) {
+    // A current body stored as an agent's blank-line Markdown can't lend its
+    // blocks to a merge, but when it already holds the candidate's changes,
+    // such as a suggestion accepted while the editor saved the same text, it
+    // stays as stored with nothing lost.
+    const currentForm = current ? null : parsedForm(args.currentContent);
+    if (
+      base &&
+      candidate &&
+      currentForm !== null &&
+      bodyHoldsChanges(
+        args.authoredBaseContent,
+        currentForm,
+        args.authoredCandidateContent,
+      )
+    ) {
+      return {
+        status: "resolved",
+        content: args.currentContent,
+        changedBlockIndexes: [],
+        displaced: false,
+      };
+    }
     return { status: "preservation-required", reason: "structure" };
   }
   const baseKeys = base.map(stableBlock);
