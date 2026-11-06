@@ -164,48 +164,23 @@ describe("Worked for row moving into the reply footer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps one place on the reply's footer line from live work to finished", async () => {
+  it("lets the streaming reply be the focus, then puts the row in its footer", async () => {
     const live = reduce(liveEvents);
     const observable = observableController(snapshotOf(live, 0));
     await render(observable.controller);
     const reply = () => container.querySelector('[data-message-id="reply"]')!;
-    const line = () => work().closest(".agentkit-message-work-host");
-    const liveLine = line();
-    // The reply's text is the newest output, so the row waits, settled at
-    // its last step.
-    expect(work().dataset.running).toBeUndefined();
-    expect(work().textContent).toContain("Worked for 2s");
-    // oracle-change: live work now sits on the reply's footer line, so the finish no longer animates a placeholder out of the space above the reply.
-    expect(liveLine).not.toBeNull();
-    expect(reply().contains(liveLine)).toBe(true);
+    // oracle-change: the reply's text is the newest output, so no work row shows while it streams, and the finish no longer animates a placeholder out of the space above the reply.
+    expect(container.querySelector(".agentkit-activities")).toBeNull();
 
-    const writing = reduce(
-      [
-        event(5, {
-          type: "message.delta",
-          messageId: "reply",
-          role: "assistant",
-          text: " the answer.",
-        }),
-      ],
-      live,
-    );
-    await act(async () => observable.update(snapshotOf(writing, 1)));
-    // Text streaming is not work, so the duration holds.
-    expect(work().textContent).toContain("Worked for 2s");
-
-    const finish = finishEvents.map((finished, index) => ({
-      ...finished,
-      id: `event-finish-${index}`,
-      sequence: 6 + index,
-    }));
     await act(async () =>
-      observable.update(snapshotOf(reduce(finish, writing), 2)),
+      observable.update(snapshotOf(reduce(finishEvents, live), 1)),
     );
     await flush();
 
     expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
-    expect(line()).toBe(liveLine);
+    expect(
+      reply().contains(work().closest(".agentkit-message-work-host")),
+    ).toBe(true);
     expect(work().textContent).toContain("Worked for");
     // Nothing is left holding a place above the reply.
     expect(reply().previousElementSibling).toBeNull();
@@ -331,6 +306,17 @@ describe("a reply that narrates between steps", () => {
     }
     throw new Error(`No text "${text}" on screen`);
   };
+
+  it("shows no row while narration after a step streams", async () => {
+    const observable = observableController(
+      snapshotOf(reduce(narrated.slice(0, 6)), 0),
+    );
+    await render(observable.controller);
+    await flush();
+
+    expect(rows()).toHaveLength(0);
+    expect(textOf("Checking")).toBeTruthy();
+  });
 
   it("keeps one live row below the reply's latest text while the run works", async () => {
     const live = reduce(narrated);

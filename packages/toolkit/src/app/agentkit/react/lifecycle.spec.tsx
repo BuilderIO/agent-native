@@ -1093,23 +1093,9 @@ describe("AgentChat lifecycle", () => {
         ?.querySelector(".agentkit-message-actions")
         ?.getAttribute("data-streaming"),
     ).toBe("true");
-    expect(runWorkAfter).not.toBeNull();
-    // oracle-change: while the run is live the row settles at its last step (3s), so streaming text does not count up its duration.
-    expect(
-      runWorkAfter?.querySelector(".agentkit-activities-label")?.textContent,
-    ).toBe("Worked for 3s");
-    expect(runWorkAfter?.textContent).not.toContain("Thinking");
-    expect(
-      runWorkAfter?.querySelector("[data-agentkit-current-activity]"),
-    ).toBeNull();
-    expect(runWorkAfter?.querySelector('[data-status="running"]')).toBeNull();
-    // It waits below the reply's text, where the run's next step will show.
-    expect(
-      runWorkAfter && response
-        ? runWorkAfter.compareDocumentPosition(response) &
-            Node.DOCUMENT_POSITION_PRECEDING
-        : 0,
-    ).not.toBe(0);
+    // oracle-change: while the reply streams after the run's work, the text is the focus, so no work row shows until the run finishes.
+    expect(runWorkAfter).toBeNull();
+    expect(tree.container.textContent).not.toContain("Thinking");
 
     observable.update({
       connection: "connected",
@@ -1568,7 +1554,8 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
     ).toBe("Rendered widget");
-    expect(tree.container.textContent).toContain("Reading components.tsx");
+    // oracle-change: the streaming reply is the focus, so its finished step waits for the footer row instead of a live row.
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     expect(
       tree.container.querySelector("[data-agentkit-current-activity]"),
     ).toBeNull();

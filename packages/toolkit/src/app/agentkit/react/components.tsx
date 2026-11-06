@@ -8476,7 +8476,7 @@ export function AgentKitChat({
   );
   const pendingRuns = new Set(pendingRunIds);
   // While a run works on its reply, the reply's work is one row below its
-  // latest text, where the newest activity is: above the reply, narration
+  // latest text, shown while work runs there: above the reply, narration
   // pushes it out of view, and split at that text, the work before reads as
   // finished while the run works. Result cards stay above the reply, where
   // they sit once it finishes. A finished reply with nothing running after
@@ -8503,13 +8503,6 @@ export function AgentKitChat({
       liveReplies.set(runId, { replyId: reply.id, start });
     }
   }
-  const lastWorkSequence = (runId: RunId) => {
-    const events = eventIndex.byRun.get(runId) ?? [];
-    return (
-      events.findLast((event) => workEventIdentity(event) !== undefined)
-        ?.sequence ?? runSegmentEnds.get(runId)?.sequence
-    );
-  };
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8654,21 +8647,19 @@ export function AgentKitChat({
     const items: ReactNode[] = [];
     const liveReply = liveReplies.get(runId);
     if (liveReply) {
-      // While the reply's text is the newest output the row settles at its
-      // last step, so its duration holds while the text streams. It is live
-      // again once work starts after the text.
-      items.push(
-        renderRunWork({
-          runId,
-          anchor: liveReply.start?.id ?? "start",
-          afterSequence: liveReply.start?.sequence,
-          throughSequence: pendingRuns.has(runId)
-            ? undefined
-            : lastWorkSequence(runId),
-          messageId: liveReply.replyId,
-          part: "row",
-        }),
-      );
+      // While the reply's text is the newest output the text is the focus,
+      // so the row shows only while work runs after it.
+      if (pendingRuns.has(runId)) {
+        items.push(
+          renderRunWork({
+            runId,
+            anchor: liveReply.start?.id ?? "start",
+            afterSequence: liveReply.start?.sequence,
+            messageId: liveReply.replyId,
+            part: "row",
+          }),
+        );
+      }
     } else if (pendingRuns.has(runId)) {
       const boundary = runSegmentEnds.get(runId);
       items.push(
