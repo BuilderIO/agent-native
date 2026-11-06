@@ -413,8 +413,20 @@ jobs:
           # fails when the file already exists.
           mkdir -p updater/signatures
           gh release view "$RELEASE_TAG" --json assets,body > updater/release.json
+          # The DMG is the macOS download and has no signature, so the
+          # manifest script below never checks for it.
+          if ! jq -e 'any(.assets[].name; endswith(".dmg"))' updater/release.json > /dev/null; then
+            echo "::error::$RELEASE_TAG has no .dmg, so the macOS build did not finish."
+            exit 1
+          fi
           SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' updater/release.json)
           if [ "$SIGNATURES" -eq 0 ]; then
+            # A publish run never saw the builds, so a draft without signatures
+            # may hold no builds at all.
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::$RELEASE_TAG has no .sig files, so no build reached it. Build it again with mode stage before publishing."
+              exit 1
+            fi
             echo "⚠️ No .sig files in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured; writing no updater manifest."
             exit 0
           fi

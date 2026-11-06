@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2766,6 +2768,8 @@ esac
       ...Object.keys(manifests),
       ...Object.values(manifests).flat(),
       "Agent-Native-x64.dmg",
+      "Agent-Native-x64.tar.xz",
+      "Agent-Native-arm64.tar.xz",
     ];
 
     const published = runCheck(complete);
@@ -2801,6 +2805,156 @@ esac
       unrecognized.stdout,
       /latest\.yml in v0\.1\.292 lists no files/,
     );
+
+    // The docs site offers the Linux archives, which no manifest lists.
+    const noArchive = runCheck(
+      complete.filter((name) => name !== "Agent-Native-arm64.tar.xz"),
+    );
+    assert.equal(noArchive.status, 1);
+    assert.match(noArchive.stdout, /is missing \*-arm64\.tar\.xz,/);
+  });
+
+  it("refuses to publish a Clips draft without its DMG, or with no builds", () => {
+    const publishSteps = (
+      (clipsWorkflow.jobs as Workflow)["publish-release"] as Workflow
+    ).steps as Workflow[];
+    const manifestStep = publishSteps.find(
+      (step) =>
+        step.name ===
+        "Write the updater manifest from every build's signatures",
+    );
+    assert.ok(manifestStep);
+    const flipIndex = publishSteps.findIndex(
+      (step) => step.name === "Mark versioned release as published",
+    );
+    assert(publishSteps.indexOf(manifestStep) < flipIndex);
+
+    // clips-v0.1.343 as published.
+    const releaseAssets = [
+      "Clips-0.1.343-1.x86_64.rpm",
+      "Clips-0.1.343-1.x86_64.rpm.sig",
+      "Clips_0.1.343_amd64.AppImage",
+      "Clips_0.1.343_amd64.AppImage.sig",
+      "Clips_0.1.343_amd64.deb",
+      "Clips_0.1.343_amd64.deb.sig",
+      "Clips_0.1.343_universal.app.tar.gz",
+      "Clips_0.1.343_universal.app.tar.gz.sig",
+      "Clips_0.1.343_universal.dmg",
+      "Clips_0.1.343_x64_en-US.msi",
+      "Clips_0.1.343_x64_en-US.msi.sig",
+    ];
+    const runManifestStep = (assets: string[], mode: string) => {
+      const workspace = mkdtempSync(path.join(tmpdir(), "clips-publish-"));
+      const binDirectory = path.join(workspace, "bin");
+      const uploadsPath = path.join(workspace, "uploads.txt");
+      mkdirSync(binDirectory);
+      symlinkSync(
+        path.join(process.cwd(), "scripts"),
+        path.join(workspace, "scripts"),
+      );
+      writeFileSync(
+        path.join(workspace, "release.json"),
+        JSON.stringify({
+          body: "Clips release notes",
+          assets: assets.map((name) => ({
+            name,
+            apiUrl: `https://api.github.com/assets/${name}`,
+          })),
+        }),
+      );
+      // `gh release download --pattern '*.sig' --dir <dir>` writes every
+      // signature; `gh release upload` records the manifest it was given.
+      writeFileSync(
+        path.join(binDirectory, "gh"),
+        `#!/bin/sh
+case "$1 $2" in
+  "release view") cat "$WORKSPACE/release.json" ;;
+  "release download")
+    for name in $SIGNATURE_FILES; do printf 'signature of %s' "$name" > "$7/$name"; done ;;
+  "release upload") echo "$4" >> "$UPLOADS" ;;
+  *) exit 1 ;;
+esac
+`,
+      );
+      chmodSync(path.join(binDirectory, "gh"), 0o755);
+      try {
+        const result = spawnSync(
+          "bash",
+          ["-eo", "pipefail", "-c", String(manifestStep.run)],
+          {
+            cwd: workspace,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+              WORKSPACE: workspace,
+              UPLOADS: uploadsPath,
+              SIGNATURE_FILES: assets
+                .filter((name) => name.endsWith(".sig"))
+                .join(" "),
+              RELEASE_TAG_PREFIX: "clips-v",
+              RELEASE_VERSION: "0.1.343",
+              RELEASE_MODE: mode,
+            },
+          },
+        );
+        const uploads = existsSync(uploadsPath)
+          ? readFileSync(uploadsPath, "utf8")
+          : "";
+        const manifestPath = path.join(workspace, "updater", "latest.json");
+        const manifest =
+          existsSync(manifestPath) && result.status === 0
+            ? (JSON.parse(readFileSync(manifestPath, "utf8")) as {
+                platforms: Record<string, unknown>;
+              })
+            : null;
+        return { result, uploads, manifest };
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+      }
+    };
+
+    for (const mode of ["release", "publish"]) {
+      const complete = runManifestStep(releaseAssets, mode);
+      assert.equal(complete.result.status, 0, complete.result.stderr);
+      assert.equal(complete.uploads, "updater/latest.json\n");
+      assert.deepEqual(
+        Object.keys(complete.manifest?.platforms ?? {})
+          .filter((key) =>
+            ["darwin-universal", "windows-x86_64", "linux-x86_64"].includes(
+              key,
+            ),
+          )
+          .sort(),
+        ["darwin-universal", "linux-x86_64", "windows-x86_64"],
+      );
+
+      const noDmg = runManifestStep(
+        releaseAssets.filter((name) => !name.endsWith(".dmg")),
+        mode,
+      );
+      assert.equal(noDmg.result.status, 1);
+      assert.match(noDmg.result.stdout, /clips-v0\.1\.343 has no \.dmg/);
+      assert.equal(noDmg.uploads, "");
+    }
+
+    // Without signatures a publish run cannot tell a build from an empty
+    // draft; a full release keeps publishing builds made without a key.
+    const unsigned = releaseAssets.filter((name) => !name.endsWith(".sig"));
+    const unsignedPublish = runManifestStep(unsigned, "publish");
+    assert.equal(unsignedPublish.result.status, 1);
+    assert.match(
+      unsignedPublish.result.stdout,
+      /clips-v0\.1\.343 has no \.sig files, so no build reached it/,
+    );
+    const unsignedRelease = runManifestStep(unsigned, "release");
+    assert.equal(
+      unsignedRelease.result.status,
+      0,
+      unsignedRelease.result.stderr,
+    );
+    assert.match(unsignedRelease.result.stdout, /writing no updater manifest/);
+    assert.equal(unsignedRelease.uploads, "");
   });
 
   it("checks out the coordinated release commit for desktop builds", () => {
