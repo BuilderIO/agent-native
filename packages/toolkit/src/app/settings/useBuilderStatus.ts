@@ -1623,15 +1623,13 @@ export function useBuilderConnectFlow(
             return;
           }
 
+          const isCurrentHostAttempt = () =>
+            mountedRef.current &&
+            connectAttemptIdRef.current === connectAttemptId &&
+            cancelledConnectAttemptIdRef.current !== connectAttemptId;
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
-            if (
-              !mountedRef.current ||
-              connectAttemptIdRef.current !== connectAttemptId ||
-              cancelledConnectAttemptIdRef.current === connectAttemptId
-            ) {
-              return;
-            }
+            if (!isCurrentHostAttempt()) return;
             if (s) markStatusAvailable();
             else markStatusUnavailable();
             if (s) {
@@ -1668,13 +1666,7 @@ export function useBuilderConnectFlow(
             });
             const openedByHost =
               await openBuilderConnectViaMcpHost(trackedHostUrl);
-            if (
-              !mountedRef.current ||
-              openedByHost ||
-              connectAttemptIdRef.current !== connectAttemptId ||
-              cancelledConnectAttemptIdRef.current === connectAttemptId
-            )
-              return;
+            if (!isCurrentHostAttempt() || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
             if (!s) restoreExistingAccount();
@@ -1987,6 +1979,9 @@ export function useBuilderConnectFlow(
         started,
         cancel: cancelConfirmation,
       };
+      const isActiveConfirmation = () =>
+        callbackSuccessCancelRef.current?.cancel === cancelConfirmation;
+      const wasPopupClosed = () => popupClosedAtRef.current !== null;
       try {
         for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
           const controller =
@@ -2041,7 +2036,7 @@ export function useBuilderConnectFlow(
           }
         }
       } finally {
-        if (callbackSuccessCancelRef.current?.cancel === cancelConfirmation) {
+        if (isActiveConfirmation()) {
           callbackSuccessCancelRef.current = null;
           if (
             callbackSuccessRequestControllerRef.current?.started === started
@@ -2052,7 +2047,7 @@ export function useBuilderConnectFlow(
           if (callbackSuccessInFlightAtRef.current === started) {
             callbackSuccessInFlightAtRef.current = null;
             if (
-              popupClosedAtRef.current !== null &&
+              wasPopupClosed() &&
               !(s && isBuilderConnectComplete(s, connectTargetRef.current))
             ) {
               popupClosedAtRef.current = Date.now();
@@ -2071,8 +2066,8 @@ export function useBuilderConnectFlow(
       if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError =
           cancelledConnectAttemptIdRef.current !== attemptId &&
-          isCurrentConnectError(s?.connectError, started)
-            ? s?.connectError
+          isCurrentConnectError(s.connectError, started)
+            ? s.connectError
             : null;
         setHasFetchedStatus(true);
         if (s) {
