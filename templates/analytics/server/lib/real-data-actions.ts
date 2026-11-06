@@ -1078,7 +1078,7 @@ function hasNumericSqlProjection(sql: string): boolean {
   // Keep quoted text opaque and comments out of the projection scan; the
   // separate factual-claim check still inspects the original SQL.
   const tokenPattern =
-    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
+    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|e'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|'(?:''|[^'])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
   const code: string[] = [];
   let position = 0;
   while (position < sql.length) {
@@ -1113,13 +1113,39 @@ function hasNumericSqlProjection(sql: string): boolean {
     ) {
       expression = expression.slice(0, -1);
     }
-    while (expression[0] === "(" && expression.at(-1) === ")") {
-      expression = expression.slice(1, -1);
+    let expectOperand = true;
+    let depth = 0;
+    for (const token of expression) {
+      if (expectOperand) {
+        if (token === "+" || token === "-") continue;
+        if (token === "(") {
+          depth++;
+        } else if (numeric.test(token)) {
+          expectOperand = false;
+        } else {
+          return false;
+        }
+      } else if (token === ")" && depth > 0) {
+        depth--;
+      } else if (/^[+*/%-]$/.test(token)) {
+        expectOperand = true;
+      } else {
+        return false;
+      }
     }
-    if (expression[0] === "+" || expression[0] === "-") {
-      expression = expression.slice(1);
+    return !expectOperand && depth === 0;
+  }
+
+  const closingParens = new Map<number, number>();
+  const openParens: number[] = [];
+  const selects = [0];
+  for (let i = 0; i < code.length; i++) {
+    selects.push(selects[i] + (/^select$/i.test(code[i]) ? 1 : 0));
+    if (code[i] === "(") openParens.push(i);
+    else if (code[i] === ")") {
+      const open = openParens.pop();
+      if (open !== undefined) closingParens.set(open, i);
     }
-    return expression.length === 1 && numeric.test(expression[0] ?? "");
   }
 
   for (let i = 0; i < code.length; i++) {
@@ -1134,10 +1160,18 @@ function hasNumericSqlProjection(sql: string): boolean {
       if (depth === 0 && token === ",") {
         if (isNumericProjection(projection)) return true;
         projection = [];
+      } else if (token === "(") {
+        const close = closingParens.get(j) ?? code.length;
+        if (selects[close] > selects[j + 1]) {
+          projection.push("subquery");
+          j = close;
+        } else {
+          projection.push(token);
+          depth++;
+        }
       } else {
         projection.push(token);
-        if (token === "(") depth++;
-        else if (token === ")") depth--;
+        if (token === ")") depth--;
       }
     }
     if (isNumericProjection(projection)) return true;
