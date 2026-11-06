@@ -110,6 +110,7 @@ describe("update-deck-aspect-ratio action", () => {
 
   it("notifies SSE clients", async () => {
     await action.run({ deckId: "deck-1", aspectRatio: "9:16" });
+    // oracle-change: the action no longer writes the refresh-signal app state; SSE notifyClients is the refresh path now
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
