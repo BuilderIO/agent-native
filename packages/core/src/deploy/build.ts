@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
 
 import { parse } from "@babel/parser";
-import traverse, { type NodePath } from "@babel/traverse";
+import traverse, { type Binding, type NodePath } from "@babel/traverse";
 import MagicString from "magic-string";
 import { loadEnv } from "vite";
 
@@ -4571,6 +4571,7 @@ const CF_PROCESS_REQUIRE_MARKER = "/*__cf_process_require_shim__*/";
 
 type CloudflareModuleAst = ReturnType<typeof parse>;
 type CloudflareImportKind = "factory" | "module" | { namespace: string };
+type CloudflareBindingUse = "factory" | "object";
 
 function patchCloudflareProcessRequire(
   filePath: string,
@@ -4590,6 +4591,7 @@ function patchCloudflareProcessRequire(
     source: string,
     name: string,
     seen: Set<string>,
+    use: CloudflareBindingUse,
   ): CloudflareImportKind | undefined => {
     if (source === "node:module" || source === "module") {
       if (name === "createRequire") return "factory";
@@ -4618,34 +4620,23 @@ function patchCloudflareProcessRequire(
             ? specifier.local.name
             : specifier.local.value;
         if (statement.source)
-          return resolveImport(target, statement.source.value, local, nextSeen);
-        for (const item of targetAst.program.body) {
-          if (item.type !== "ImportDeclaration") continue;
-          for (const imported of item.specifiers) {
-            if (imported.local.name !== local) continue;
-            const importedName =
-              imported.type === "ImportNamespaceSpecifier"
-                ? "*"
-                : imported.type === "ImportDefaultSpecifier"
-                  ? "default"
-                  : imported.imported.type === "Identifier"
-                    ? imported.imported.name
-                    : imported.imported.value;
-            return resolveImport(
-              target,
-              item.source.value,
-              importedName,
-              nextSeen,
-            );
-          }
-        }
-        return undefined;
+          return resolveImport(
+            target,
+            statement.source.value,
+            local,
+            nextSeen,
+            use,
+          );
+        const binding = getModuleBinding(targetAst, local);
+        return binding
+          ? resolveBinding(binding, target, nextSeen, new Set(), use)
+          : undefined;
       }
     }
     const starExports = targetAst.program.body.filter(
       (statement) => statement.type === "ExportAllDeclaration",
     );
-    if (name === "default" || starExports.length !== 1) return undefined;
+    if (name === "default" || starExports.length === 0) return undefined;
     const declaresName = (node: unknown): boolean => {
       if (!node || typeof node !== "object") return false;
       if (Array.isArray(node)) return node.some(declaresName);
@@ -4668,7 +4659,21 @@ function patchCloudflareProcessRequire(
       } else if ("id" in declaration && declaresName(declaration.id))
         return undefined;
     }
-    return resolveImport(target, starExports[0].source.value, name, nextSeen);
+    for (const star of starExports) {
+      const resolved = resolveImport(
+        target,
+        star.source.value,
+        name,
+        nextSeen,
+        use,
+      );
+      if (
+        resolved &&
+        (use === "factory" ? resolved === "factory" : resolved !== "factory")
+      )
+        return resolved;
+    }
+    return undefined;
   };
 
   const edited = new MagicString(code);
@@ -4680,9 +4685,44 @@ function patchCloudflareProcessRequire(
     receiver: string;
   }> = [];
   let shadowsGlobalThis = false;
+  const getModuleBinding = (
+    moduleAst: CloudflareModuleAst,
+    name: string,
+  ): Binding | undefined => {
+    let binding: Binding | undefined;
+    traverse(moduleAst as unknown as Parameters<typeof traverse>[0], {
+      Program(program) {
+        binding = program.scope.getBinding(name);
+        program.stop();
+      },
+    });
+    return binding;
+  };
+  const resolveProperty = (
+    object: CloudflareImportKind | undefined,
+    name: string,
+    seenExports: Set<string>,
+    use: CloudflareBindingUse,
+  ): CloudflareImportKind | undefined => {
+    if (object === "module")
+      return name === "createRequire" ? "factory" : undefined;
+    if (object && typeof object === "object") {
+      return resolveImport(
+        object.namespace,
+        "./" + path.basename(object.namespace),
+        name,
+        seenExports,
+        use,
+      );
+    }
+    return undefined;
+  };
   const resolveExpression = (
     expression: NodePath,
-    seen: Set<object>,
+    from: string,
+    seenExports: Set<string>,
+    seenBindings: Set<Binding>,
+    use: CloudflareBindingUse,
   ): CloudflareImportKind | undefined => {
     if (expression.isMemberExpression()) {
       const property = expression.node.property;
@@ -4693,26 +4733,34 @@ function patchCloudflareProcessRequire(
             ? property.value
             : undefined;
       if (!name) return undefined;
-      const object = resolveExpression(
-        expression.get("object") as NodePath,
-        seen,
+      return resolveProperty(
+        resolveExpression(
+          expression.get("object") as NodePath,
+          from,
+          seenExports,
+          seenBindings,
+          "object",
+        ),
+        name,
+        seenExports,
+        use,
       );
-      if (object === "module")
-        return name === "createRequire" ? "factory" : undefined;
-      if (object && typeof object === "object") {
-        return resolveImport(
-          object.namespace,
-          "./" + path.basename(object.namespace),
-          name,
-          new Set(),
-        );
-      }
-      return undefined;
     }
     if (!expression.isIdentifier()) return undefined;
     const binding = expression.scope.getBinding(expression.node.name);
-    if (!binding || seen.has(binding)) return undefined;
-    const nextSeen = new Set(seen).add(binding);
+    return binding
+      ? resolveBinding(binding, from, seenExports, seenBindings, use)
+      : undefined;
+  };
+  const resolveBinding = (
+    binding: Binding,
+    from: string,
+    seenExports: Set<string>,
+    seenBindings: Set<Binding>,
+    use: CloudflareBindingUse,
+  ): CloudflareImportKind | undefined => {
+    if (seenBindings.has(binding)) return undefined;
+    const nextBindings = new Set(seenBindings).add(binding);
     if (binding.path.parentPath?.isImportDeclaration()) {
       const specifier = binding.path.node;
       if (
@@ -4730,18 +4778,63 @@ function patchCloudflareProcessRequire(
               ? specifier.imported.name
               : specifier.imported.value;
       return resolveImport(
-        filePath,
+        from,
         binding.path.parentPath.node.source.value,
         name,
-        new Set(),
+        seenExports,
+        use,
       );
     }
-    if (
-      binding.kind === "const" &&
-      binding.constant &&
-      binding.path.isVariableDeclarator()
-    ) {
-      return resolveExpression(binding.path.get("init") as NodePath, nextSeen);
+    if (!binding.path.isVariableDeclarator()) return undefined;
+    const init = binding.path.get("init") as NodePath;
+    const matchesUse = (kind: CloudflareImportKind | undefined) =>
+      kind && (use === "factory" ? kind === "factory" : kind !== "factory");
+    let initial: CloudflareImportKind | undefined;
+    if (binding.path.node.id.type === "ObjectPattern") {
+      for (const property of binding.path.node.id.properties) {
+        if (property.type !== "ObjectProperty") continue;
+        const value =
+          property.value.type === "AssignmentPattern"
+            ? property.value.left
+            : property.value;
+        if (
+          value.type !== "Identifier" ||
+          value.name !== binding.identifier.name
+        )
+          continue;
+        const name =
+          !property.computed && property.key.type === "Identifier"
+            ? property.key.name
+            : property.key.type === "StringLiteral"
+              ? property.key.value
+              : undefined;
+        if (name)
+          initial = resolveProperty(
+            resolveExpression(init, from, seenExports, nextBindings, "object"),
+            name,
+            seenExports,
+            use,
+          );
+      }
+    } else {
+      initial = resolveExpression(init, from, seenExports, nextBindings, use);
+    }
+    if (matchesUse(initial)) return initial;
+    for (const violation of binding.constantViolations) {
+      if (
+        !violation.isAssignmentExpression({ operator: "=" }) ||
+        violation.node.left.type !== "Identifier" ||
+        violation.node.left.name !== binding.identifier.name
+      )
+        continue;
+      const assigned = resolveExpression(
+        violation.get("right") as NodePath,
+        from,
+        seenExports,
+        nextBindings,
+        use,
+      );
+      if (matchesUse(assigned)) return assigned;
     }
     return undefined;
   };
@@ -4761,8 +4854,13 @@ function patchCloudflareProcessRequire(
           : undefined;
       if (callee.type !== "Identifier" && !member) return;
       if (
-        resolveExpression(call.get("callee") as NodePath, new Set()) !==
-        "factory"
+        resolveExpression(
+          call.get("callee") as NodePath,
+          filePath,
+          new Set(),
+          new Set(),
+          "factory",
+        ) !== "factory"
       )
         return;
       if (call.node.start == null || callee.end == null) {

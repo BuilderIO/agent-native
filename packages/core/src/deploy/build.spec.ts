@@ -1483,6 +1483,31 @@ describe("patchCloudflareModuleServerOutput", () => {
       'f(import.meta.url)("process")',
     ],
     [
+      "destructured alias",
+      'import * as module from "node:module"; const {createRequire: factory} = module;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "let alias",
+      'import {createRequire} from "node:module"; let factory = createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "assigned let alias",
+      'import {createRequire} from "node:module"; let factory; factory = createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "let alias changed from module",
+      'import * as module from "node:module"; let factory = module; factory = module.createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "multiple star relay",
+      'import {createRequire} from "./multi.mjs";',
+      'createRequire(import.meta.url)("process")',
+    ],
+    [
       "computed member",
       'import * as module from "node:module";',
       'module["createRequire"](import.meta.url)("process")',
@@ -1530,6 +1555,11 @@ describe("patchCloudflareModuleServerOutput", () => {
         path.join(dir, "relay.mjs"),
         'export * from "node:module";',
       );
+      fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
+      fs.writeFileSync(
+        path.join(dir, "multi.mjs"),
+        'export * from "./other.mjs"; export * from "./relay.mjs";',
+      );
       const entry = path.join(dir, "worker.mjs");
       fs.writeFileSync(
         entry,
@@ -1572,10 +1602,12 @@ describe("patchCloudflareModuleServerOutput", () => {
       };
     };
     const dir = makeTempDir();
+    fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
     fs.writeFileSync(
       path.join(dir, "relay.mjs"),
       `
       export * from "node:module";
+      export * from "./other.mjs";
       export const createRequire = () => (name) => "custom:" + name;
     `,
     );
@@ -1584,8 +1616,15 @@ describe("patchCloudflareModuleServerOutput", () => {
       entry,
       `
       import {createRequire} from "./relay.mjs";
+      import {createRequire as native} from "node:module";
+      import process from "node:process";
       const alias = createRequire;
-      export default {fetch() {return Response.json({value: alias("base")("process")});}};
+      let mutable = native;
+      mutable = () => (name) => "reassigned:" + name;
+      const reassigned = mutable("base")("process");
+      mutable = native;
+      const restored = mutable(import.meta.url)("process") === process;
+      export default {fetch() {return Response.json({value: alias("base")("process"), reassigned, restored});}};
     `,
     );
     patchCloudflareModuleServerOutput(dir);
@@ -1599,7 +1638,11 @@ describe("patchCloudflareModuleServerOutput", () => {
     try {
       const response = await worker.dispatchFetch("http://localhost/");
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ value: "custom:process" });
+      expect(await response.json()).toEqual({
+        value: "custom:process",
+        reassigned: "reassigned:process",
+        restored: true,
+      });
     } finally {
       await worker.dispose();
     }
@@ -1774,62 +1817,75 @@ describe("patchCloudflareModuleServerOutput", () => {
     }
   });
 
-  it("loads process through a require function exported from an esbuild split chunk", async () => {
-    const requireFromWrangler = createRequire(
-      createRequire(import.meta.url).resolve("wrangler/package.json"),
-    );
-    const { Miniflare } = requireFromWrangler("miniflare") as {
-      Miniflare: new (options: {
-        modules: boolean;
-        scriptPath: string;
-        modulesRoot: string;
-        compatibilityDate: string;
-        compatibilityFlags: string[];
-      }) => {
-        dispatchFetch(url: string): Promise<Response>;
-        dispose(): Promise<void>;
+  it.each([
+    [
+      "require function",
+      'import {createRequire} from "node:module"; export const factory = createRequire(import.meta.url);',
+      'factory("process")',
+      'factory("node:process")',
+    ],
+    [
+      "factory alias",
+      'import {createRequire} from "node:module"; export const factory = createRequire;',
+      'factory(import.meta.url)("process")',
+      'factory(import.meta.url)("node:process")',
+    ],
+  ])(
+    "loads process through a %s exported from an esbuild split chunk",
+    async (_name, shared, bare, node) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
       };
-    };
-    const dir = makeTempDir();
-    fs.writeFileSync(
-      path.join(dir, "shared.mjs"),
-      'import {createRequire} from "node:module"; export const requireFromApp = createRequire(import.meta.url);',
-    );
-    fs.writeFileSync(
-      path.join(dir, "one.mjs"),
-      'import {requireFromApp} from "./shared.mjs"; import process from "node:process"; export default {fetch() {return Response.json({process: requireFromApp("process") === process});}};',
-    );
-    fs.writeFileSync(
-      path.join(dir, "two.mjs"),
-      'import {requireFromApp} from "./shared.mjs"; export const value = () => requireFromApp("node:process");',
-    );
-    const output = path.join(dir, "output");
-    await esbuildBuild({
-      entryPoints: [path.join(dir, "one.mjs"), path.join(dir, "two.mjs")],
-      outdir: output,
-      outExtension: { ".js": ".mjs" },
-      bundle: true,
-      splitting: true,
-      format: "esm",
-      platform: "node",
-      minify: true,
-    });
-    patchCloudflareModuleServerOutput(output);
-    const worker = new Miniflare({
-      modules: true,
-      scriptPath: path.join(output, "one.mjs"),
-      modulesRoot: output,
-      compatibilityDate: "2026-04-01",
-      compatibilityFlags: ["nodejs_compat"],
-    });
-    try {
-      const response = await worker.dispatchFetch("http://localhost/");
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ process: true });
-    } finally {
-      await worker.dispose();
-    }
-  });
+      const dir = makeTempDir();
+      fs.writeFileSync(path.join(dir, "shared.mjs"), shared);
+      fs.writeFileSync(
+        path.join(dir, "one.mjs"),
+        `import {factory} from "./shared.mjs"; import process from "node:process"; export default {fetch() {return Response.json({process: ${bare} === process});}};`,
+      );
+      fs.writeFileSync(
+        path.join(dir, "two.mjs"),
+        `import {factory} from "./shared.mjs"; export const value = () => ${node};`,
+      );
+      const output = path.join(dir, "output");
+      await esbuildBuild({
+        entryPoints: [path.join(dir, "one.mjs"), path.join(dir, "two.mjs")],
+        outdir: output,
+        outExtension: { ".js": ".mjs" },
+        bundle: true,
+        splitting: true,
+        format: "esm",
+        platform: "node",
+        minify: true,
+      });
+      patchCloudflareModuleServerOutput(output);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: path.join(output, "one.mjs"),
+        modulesRoot: output,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ process: true });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
 
   it("preserves native require properties and escaped identifiers", async () => {
     const serverDir = makeTempDir();
