@@ -19,7 +19,7 @@ import {
 import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getSetting, mutateSetting, putSetting } from "../settings/store.js";
+import { getSetting, mutateSetting } from "../settings/store.js";
 import { track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
 import {
@@ -242,6 +242,38 @@ export async function getBuilderSignupConnectError(
   };
 }
 
+async function finishSignupActivation(
+  key: string,
+  attempt: string,
+  outcome: {
+    status: "connected" | "fallback";
+    code?: string;
+    message?: string;
+  },
+) {
+  const committed = await mutateSetting(key, (current) => {
+    if (!current || current.attempt !== attempt)
+      throw new Error("Signup activation reservation ownership changed");
+    const status = z
+      .enum(["started", "connected", "fallback"])
+      .parse(current.status);
+    if (status !== "started") return current;
+    return {
+      ...current,
+      status: outcome.status,
+      code: outcome.code ?? null,
+      message: outcome.message ?? null,
+      completedAt: Date.now(),
+    };
+  });
+  return z
+    .object({
+      status: z.enum(["connected", "fallback"]),
+      code: z.string().nullable().optional(),
+    })
+    .parse(committed);
+}
+
 export function createBuilderSignupExperimentHandler(dependencies: {
   getSession: (event: H3Event) => Promise<AuthSession | null>;
   sameOrigin: (event: H3Event) => boolean;
@@ -374,23 +406,12 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       if (status !== "started") return terminal(status);
       const startedAt = z.number().finite().parse(existing.startedAt);
       if (Date.now() - startedAt < 45000) return { status: "pending" as const };
-      await mutateSetting(key, (current) =>
-        current &&
-        current.attempt === existing.attempt &&
-        current.status === "started"
-          ? {
-              ...current,
-              status: "fallback",
-              code: "activation_interrupted",
-              completedAt: Date.now(),
-            }
-          : (current ?? {
-              ...existing,
-              status: "fallback",
-              code: "activation_interrupted",
-            }),
+      const recovered = await finishSignupActivation(
+        key,
+        z.string().parse(existing.attempt),
+        { status: "fallback", code: "activation_interrupted" },
       );
-      return terminal("fallback", "activation_interrupted");
+      return terminal(recovered.status, recovered.code ?? undefined);
     }
     const attempt = randomBytes(16).toString("hex");
     const record = await mutateSetting(
@@ -411,14 +432,12 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     } catch {
       result = { ok: false, code: "activation_interrupted" };
     }
-    const status = result.ok ? "connected" : "fallback";
-    await putSetting(key, {
-      ...record,
-      status,
-      code: result.code ?? null,
-      message: result.message ?? null,
-      completedAt: Date.now(),
+    const committed = await finishSignupActivation(key, attempt, {
+      status: result.ok ? "connected" : "fallback",
+      ...(result.code ? { code: result.code } : {}),
+      ...(result.message ? { message: result.message } : {}),
     });
+    const status = committed.status;
     track(
       "builder_signup_experiment_outcome",
       {
@@ -426,10 +445,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         experiment_variant: assignment.variant,
         assignment_id: assignment.id,
         status,
-        code: result.code ?? null,
+        code: committed.code ?? null,
       },
       { userId: session.email, authUserId: session.userId },
     );
-    return terminal(status, result.code);
+    return terminal(status, committed.code ?? undefined);
   });
 }

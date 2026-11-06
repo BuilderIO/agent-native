@@ -5634,7 +5634,7 @@ async function mountBetterAuthRoutes(
           desktopBrowserBindingHash,
           builderSignupAttemptId:
             typeof q.builder_signup_attempt === "string" &&
-            q.builder_signup_attempt === flowId
+            q.builder_signup_attempt.length <= 128
               ? q.builder_signup_attempt
               : undefined,
           signupAttribution,

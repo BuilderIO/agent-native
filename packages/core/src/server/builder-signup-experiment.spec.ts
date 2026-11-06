@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
+  beforeMutate: undefined as (() => void) | undefined,
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
@@ -30,6 +31,9 @@ vi.mock("../settings/store.js", () => ({
       current: Record<string, unknown> | null,
     ) => Record<string, unknown>,
   ) => {
+    const hook = mocks.beforeMutate;
+    mocks.beforeMutate = undefined;
+    hook?.();
     const result = update(mocks.settings.get(key) ?? null);
     mocks.settings.set(key, result);
     return result;
@@ -115,6 +119,7 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.enabled = true;
   mocks.override = undefined;
+  mocks.beforeMutate = undefined;
   mocks.identity = { user: { id: "new-user", createdAt: new Date() } };
   mocks.settings.clear();
   mocks.settings.set("design_builder_signup_v1:consent:new-user", {
@@ -226,6 +231,78 @@ describe("pre-signup Builder experiment", () => {
       at: testTime,
     });
     expect(await getBuilderSignupConnectError("another-user")).toBeUndefined();
+  });
+
+  it("does not activate on a later original-browser login after cross-device magic completion failed to bind", async () => {
+    mocks.settings.clear();
+    const originalCookie = encodeBuilderSignupAssignment({
+      ...accepted(),
+      method: "magic-link",
+      email: "new@example.com",
+    });
+    expect(
+      await (
+        await bindRequest("", ATTEMPT, "magic-link", "new@example.com")
+      ).json(),
+    ).toEqual({ bound: false });
+    session = signedSession();
+    expect(
+      await (await request({ operation: "activate" }, originalCookie)).json(),
+    ).toEqual({ status: "fallback", code: "signup_attempt_unbound" });
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("does not let a late activation overwrite a recovered terminal reservation", async () => {
+    session = signedSession();
+    let finish: (value: { ok: boolean }) => void = () => {
+      throw new Error("Activation has not started");
+    };
+    activate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const cookie = encodeBuilderSignupAssignment(accepted());
+    const first = request({ operation: "activate" }, cookie);
+    await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
+    const key = "design_builder_signup_v1:new-user";
+    const running = mocks.settings.get(key);
+    if (!running) throw new Error("Reservation missing");
+    mocks.settings.set(key, { ...running, startedAt: Date.now() - 60000 });
+    expect(
+      await (await request({ operation: "activate" }, cookie)).json(),
+    ).toEqual({ status: "fallback", code: "activation_interrupted" });
+    finish({ ok: true });
+    expect(await (await first).json()).toEqual({
+      status: "fallback",
+      code: "activation_interrupted",
+    });
+    expect(mocks.settings.get(key)?.status).toBe("fallback");
+  });
+
+  it("returns connected when completion wins the stale-recovery race", async () => {
+    session = signedSession();
+    const key = "design_builder_signup_v1:new-user";
+    const running = {
+      status: "started",
+      startedAt: Date.now() - 60000,
+      attempt: "running",
+    };
+    mocks.settings.set(key, running);
+    mocks.beforeMutate = () => {
+      mocks.settings.set(key, { ...running, status: "connected" });
+    };
+    expect(
+      await (
+        await request(
+          { operation: "activate" },
+          encodeBuilderSignupAssignment(accepted()),
+        )
+      ).json(),
+    ).toEqual({ status: "connected" });
+    expect(mocks.settings.get(key)?.status).toBe("connected");
+    expect(activate).not.toHaveBeenCalled();
   });
 
   it("honors a deployment override even when the app opts in", async () => {
