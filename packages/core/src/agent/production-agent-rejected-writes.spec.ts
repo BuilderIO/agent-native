@@ -36,6 +36,7 @@ import {
 } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
+import * as errorCapture from "../server/capture-error.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -148,6 +149,70 @@ beforeEach(() => {
 });
 
 describe("a write rejected before it wrote", () => {
+  it("reports a rejected read to the agent without capturing a late persistence error", async () => {
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const engine = scriptedEngine([{ name: "web-request", input: {} }]);
+    const stream = engine.stream.bind(engine);
+    const modelMessages: EngineMessage[][] = [];
+    engine.stream = (options) => {
+      modelMessages.push(structuredClone(options.messages));
+      return stream(options);
+    };
+    const events: AgentChatEvent[] = [];
+    const action: ActionEntry = {
+      tool: {
+        description: "Request a page.",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: true,
+      run: async () => {
+        throw new Error("HTTP 403 Forbidden");
+      },
+    };
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Read." }] },
+        ],
+        actions: { "web-request": action },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        threadId: "thread-rejected-read",
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(toolDones(events)[0]).toMatchObject({
+        tool: "web-request",
+        isError: true,
+        result: expect.stringContaining("HTTP 403 Forbidden"),
+      });
+      expect(
+        modelMessages.at(-1)?.flatMap((message) => message.content),
+      ).toContainEqual(
+        expect.objectContaining({
+          type: "tool-result",
+          toolName: "web-request",
+          isError: true,
+          content: expect.stringContaining("HTTP 403 Forbidden"),
+        }),
+      );
+      expect(capture).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          tags: expect.objectContaining({ phase: "late-outcome-persistence" }),
+        }),
+      );
+    } finally {
+      capture.mockRestore();
+    }
+  });
   it("runs the corrected import after a file path that is not an upload reference", async () => {
     const imported: string[] = [];
     const importFile = defineAction({

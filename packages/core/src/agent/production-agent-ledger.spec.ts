@@ -10,6 +10,7 @@ import {
 } from "../db/request-pool-context.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { assembleA2AFinalResponse } from "../server/agent-chat/action-filters-a2a.js";
+import * as errorCapture from "../server/capture-error.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -291,6 +292,76 @@ describe("tool-call result ledger", () => {
 
     releaseLedgerWrite();
     await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
+  });
+
+  it("captures a late ledger persistence failure after an interrupted write resolves", async () => {
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const persistenceError = new Error("ledger unavailable");
+    writeLedgerMock.mockRejectedValue(persistenceError);
+    const started = Promise.withResolvers<void>();
+    const actionResult = Promise.withResolvers<string>();
+    const action = makeWriteAction();
+    action.run = vi.fn(() => {
+      started.resolve();
+      return actionResult.promise;
+    });
+    const controller = new AbortController();
+    const events: unknown[] = [];
+
+    try {
+      const request = runAgentLoop({
+        engine: singleToolEngine("save-data", { content: "slow" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "save this" }] },
+        ],
+        actions: { "save-data": action },
+        send: (event) => events.push(event),
+        signal: controller.signal,
+        threadId: "thread-late-ledger-failure",
+      }).catch(() => {});
+      await started.promise;
+      controller.abort();
+      await request;
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "save-data",
+          isError: true,
+          result: "Interrupted before this tool returned a result.",
+        }),
+      );
+      actionResult.resolve("write-result");
+
+      await vi.waitFor(() =>
+        expect(capture).toHaveBeenCalledWith(
+          persistenceError,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: {
+              component: "agent-execution-step",
+              phase: "late-outcome-persistence",
+              tool: "save-data",
+            },
+          }),
+        ),
+      );
+      expect(writeLedgerMock).toHaveBeenCalledWith(
+        "thread-late-ledger-failure",
+        ledgerKey("save-data", { content: "slow" }),
+        "write-result",
+        [],
+        true,
+        undefined,
+        actionArgumentsHash({ content: "slow" }),
+      );
+    } finally {
+      capture.mockRestore();
+    }
   });
 
   it("does not write a ledger entry for resolved MCP error results", async () => {
