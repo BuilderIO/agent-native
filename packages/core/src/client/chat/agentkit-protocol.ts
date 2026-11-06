@@ -199,6 +199,7 @@ interface ProtocolRun {
   phase: RunPhase;
   pendingApprovalId?: string;
   pendingConnectionRequestId?: string;
+  pendingConnectionResponses?: number;
   listeners: Set<() => void>;
 }
 
@@ -3947,7 +3948,9 @@ export function createAgentKitProtocolAdapter(
         if (
           run.phase.type === "disposed" ||
           run.phase.type === "terminal" ||
-          (run.phase.type === "awaitingContinuation" && run.phase.streamClosed)
+          (run.phase.type === "awaitingContinuation" &&
+            run.phase.streamClosed &&
+            !run.pendingConnectionResponses)
         )
           return;
         await notifyWhenChanged(run, signal);
@@ -4635,8 +4638,21 @@ export function createAgentKitProtocolAdapter(
         await run.pumpPromise;
       }
       touchRun(run);
-      while (isRunCancelling(run)) await notifyWhenChanged(run, readers.signal);
-      if (isRunTerminal(run)) return;
+      if (isRunCancelling(run)) {
+        run.pendingConnectionResponses =
+          (run.pendingConnectionResponses ?? 0) + 1;
+        try {
+          while (isRunCancelling(run))
+            await notifyWhenChanged(run, readers.signal);
+        } finally {
+          run.pendingConnectionResponses -= 1;
+          for (const listener of run.listeners) listener();
+        }
+      }
+      if (isRunTerminal(run)) {
+        if (input.response.status === "declined") return;
+        throw new Error("The AgentKit run is already terminal.");
+      }
       if (run.pendingConnectionRequestId !== input.requestId) {
         const staleDecline =
           input.response.status === "declined" &&

@@ -1677,8 +1677,9 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("settles an excluded decline when its pending run was cancelled", async () => {
+  it("only ignores a stale decline when its pending run was cancelled", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    const continueTurn = vi.fn();
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
         type: "connection-request",
@@ -1703,6 +1704,7 @@ describe("createAgentKitProtocolAdapter", () => {
         events: events(),
         cancel,
       }),
+      continueTurn,
     });
     const transport = createAgentKitProtocolAdapter(runtime);
     const { runId } = await transport.startRun({
@@ -1728,6 +1730,17 @@ describe("createAgentKitProtocolAdapter", () => {
         response: { status: "declined" },
       }),
     ).resolves.toBeUndefined();
+    for (const status of ["connected", "failed"] as const) {
+      await expect(
+        transport.resolveConnectionRequest?.({
+          threadId: "thread-1",
+          runId,
+          requestId: "cancelled-request",
+          response: { status },
+        }),
+      ).rejects.toThrow("already terminal");
+    }
+    expect(continueTurn).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledWith({ reason: "user" });
     await transport.dispose();
   });
@@ -1784,7 +1797,6 @@ describe("createAgentKitProtocolAdapter", () => {
             },
           });
         const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
-        const resolution = resolveConnection();
         const cancellationResult = cancelling.then(
           () => "cancelled",
           () => "failed",
@@ -1800,6 +1812,10 @@ describe("createAgentKitProtocolAdapter", () => {
           readerFinished = true;
           return events;
         });
+        const resolution = resolveConnection().then(
+          () => "resolved",
+          (error: unknown) => error,
+        );
         await new Promise<void>((resolve) => setImmediate(resolve));
         const finishedBeforeStop = readerFinished;
         if (stopOutcome === "succeeds") stop.resolve({ status: "cancelled" });
@@ -1807,21 +1823,20 @@ describe("createAgentKitProtocolAdapter", () => {
         expect(await cancellationResult).toBe(
           stopOutcome === "succeeds" ? "cancelled" : "failed",
         );
-        await resolution;
-        const observed = await remaining;
-        const replay =
-          stopOutcome === "fails"
-            ? await drain(
-                transport.subscribeToRun({
-                  threadId: "thread-1",
-                  runId,
-                  afterSequence:
-                    observed.at(-1)?.sequence ?? paused.at(-1)?.sequence,
-                }),
-              )
-            : [];
-        const terminal = [...observed, ...replay];
+        const resolutionResult = await resolution;
+        if (stopOutcome === "succeeds") {
+          expect(resolutionResult).toBeInstanceOf(Error);
+          expect(String(resolutionResult)).toContain("already terminal");
+        } else {
+          expect(resolutionResult).toBe("resolved");
+        }
+        const terminal = await remaining;
         expect(finishedBeforeStop).toBe(false);
+        expect(terminal.map((event) => event.type)).toEqual(
+          stopOutcome === "succeeds"
+            ? ["run.status", "run.cancelled"]
+            : ["connection.updated", "run.status", "run.failed"],
+        );
         expect(terminal.at(-1)).toMatchObject(
           stopOutcome === "succeeds"
             ? { type: "run.cancelled" }
