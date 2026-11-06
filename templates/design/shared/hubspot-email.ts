@@ -4,7 +4,14 @@ import { scanHubLInterpolations } from "./hubl-tokens.js";
 
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
+// Gates the full parse, so it must match every spelling parse5 decodes to the
+// marker name, including a character reference for the colon. A false
+// positive only costs a parse.
+const FRAME_TYPE_MARKER_CANDIDATE =
+  /agent-native(?::|&[#a-z0-9]+;?)frame-type/i;
+
 export function isHubSpotEmailHtml(content: string): boolean {
+  if (!FRAME_TYPE_MARKER_CANDIDATE.test(content)) return false;
   // HubL string literals may contain HTML attribute delimiters or closing braces.
   const scanned = scanHubLInterpolations(content);
   if (scanned.unclosedAt !== undefined) return false;

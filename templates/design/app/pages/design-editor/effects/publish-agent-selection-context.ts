@@ -3,7 +3,10 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { stripInlineBytes } from "@agent-native/core/shared";
-import { isHubSpotEmailHtml } from "@shared/hubspot-email";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
@@ -58,17 +61,52 @@ const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
-const frameTypeByFile = new WeakMap<
-  DesignFile,
-  { content: string; frameType: "hubspot-email" | null }
->();
 
-function frameTypeForFile(file: DesignFile): "hubspot-email" | null {
-  const cached = frameTypeByFile.get(file);
-  if (cached && cached.content === file.content) return cached.frameType;
-  const frameType = isHubSpotEmailHtml(file.content) ? "hubspot-email" : null;
-  frameTypeByFile.set(file, { content: file.content, frameType });
-  return frameType;
+type ScreenFrameType = typeof HUBSPOT_EMAIL_FRAME_TYPE | null;
+
+export interface AgentSelectionScreen {
+  id: string;
+  filename: string;
+  fileType: string;
+  frameType: ScreenFrameType;
+}
+
+export type ScreenFrameTypeCache = Map<
+  string,
+  { content: string; frameType: ScreenFrameType }
+>;
+
+// Keyed by id and validated by content, not by file object or updatedAt: file
+// objects are rebuilt on every source change, and an unsaved local edit
+// changes content without moving updatedAt.
+export function summarizeAgentSelectionScreens(
+  files: readonly DesignFile[],
+  cache: ScreenFrameTypeCache,
+): AgentSelectionScreen[] {
+  const ids = new Set<string>();
+  const screens = files.map((file) => {
+    ids.add(file.id);
+    const cached = cache.get(file.id);
+    let frameType: ScreenFrameType;
+    if (cached && cached.content === file.content) {
+      frameType = cached.frameType;
+    } else {
+      frameType = isHubSpotEmailHtml(file.content)
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null;
+      cache.set(file.id, { content: file.content, frameType });
+    }
+    return {
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      frameType,
+    };
+  });
+  for (const id of cache.keys()) {
+    if (!ids.has(id)) cache.delete(id);
+  }
+  return screens;
 }
 
 // The agent targets an element by these ids; its subtree style snapshot stays
@@ -123,7 +161,6 @@ export interface PublishAgentSelectionContextArgs {
   designDataJson: Record<string, unknown>;
   layoutGrids: LayoutGridById;
   designSelectionOwnerIdRef: RefObject<string>;
-  files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
   interactDevice: { name: string; width: number; height: number };
@@ -147,6 +184,7 @@ export interface PublishAgentSelectionContextArgs {
   persistedSelectionWriteTimerRef: RefObject<number | null>;
   responsiveEditScope: ResponsiveEditScope;
   reviewThreadId: string | null;
+  screens: readonly AgentSelectionScreen[];
   selectedElement: ElementInfo | null;
   selectedScreenIds: string[];
   selectedStateId: string | null;
@@ -164,7 +202,6 @@ export function runPublishAgentSelectionContext({
   designDataJson,
   layoutGrids,
   designSelectionOwnerIdRef,
-  files,
   hoveredElement,
   id,
   interactDevice,
@@ -184,6 +221,7 @@ export function runPublishAgentSelectionContext({
   persistedSelectionWriteTimerRef,
   responsiveEditScope,
   reviewThreadId,
+  screens,
   selectedElement,
   selectedScreenIds,
   selectedStateId,
@@ -196,15 +234,13 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
-    activeFrameType: activeFile ? frameTypeForFile(activeFile) : null,
+    activeFrameType: activeFile
+      ? (screens.find((screen) => screen.id === activeFile.id)?.frameType ??
+        null)
+      : null,
     viewMode,
     zoom,
-    screens: files.map((file) => ({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      frameType: frameTypeForFile(file),
-    })),
+    screens,
     selectedScreenIds,
     selectedElement,
     hoveredElement,

@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { parse } from "parse5";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHubSpotEmailHtml, isHubSpotEmailHtml } from "./hubspot-email.js";
+
+vi.mock("parse5", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("parse5")>();
+  return { ...actual, parse: vi.fn(actual.parse) };
+});
 
 const MARKER = '<meta name="agent-native:frame-type" content="hubspot-email">';
 
@@ -50,7 +56,7 @@ describe("HubSpot email frame classification", () => {
   });
 
   it("classifies many unclosed HubL openers within the interaction budget", () => {
-    const source = "{{".repeat(40_000);
+    const source = MARKER + "{{".repeat(40_000);
     const start = performance.now();
     expect(isHubSpotEmailHtml(source)).toBe(false);
     expect(performance.now() - start).toBeLessThan(2_000);
@@ -61,5 +67,28 @@ describe("HubSpot email frame classification", () => {
       '<meta name="viewport" content="width=600">',
     );
     expect(isHubSpotEmailHtml(source)).toBe(false);
+  });
+
+  describe("marker precheck", () => {
+    beforeEach(() => {
+      vi.mocked(parse).mockClear();
+    });
+
+    it("skips the parse for a document that never names the marker", () => {
+      const body = '<div data-agent-native-locked="true">Row</div>'.repeat(
+        5_000,
+      );
+      expect(isHubSpotEmailHtml(documentWithHead("", body))).toBe(false);
+      expect(parse).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      MARKER,
+      '<meta name="agent-native&#58;frame-type" content="hubspot-email">',
+      '<meta name="Agent-Native&colon;Frame-Type" content="hubspot-email">',
+    ])("parses when the marker name is spelled %s", (marker) => {
+      expect(isHubSpotEmailHtml(documentWithHead(marker))).toBe(true);
+      expect(parse).toHaveBeenCalledTimes(1);
+    });
   });
 });
