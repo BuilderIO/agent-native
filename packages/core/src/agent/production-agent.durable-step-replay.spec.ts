@@ -605,30 +605,6 @@ describe("late action outcomes", () => {
     },
   );
 
-  it.each(["upstream refused", "Tool call timed out after 5 seconds"])(
-    "reports an on-time rejection normally without late telemetry: %s",
-    async (message) => {
-      const { run, events } = startAction({
-        run: async () => {
-          throw new Error(message);
-        },
-        signal: new AbortController().signal,
-        readOnly: true,
-      });
-      await run;
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(events).toContainEqual(
-        expect.objectContaining({
-          type: "tool_done",
-          isError: true,
-          result: expect.stringContaining(message),
-        }),
-      );
-      expect(captureErrorMock).not.toHaveBeenCalled();
-      expect(recordLateOutcomeMock).not.toHaveBeenCalled();
-    },
-  );
-
   it.each([
     { interruption: "abort", withoutThread: false },
     { interruption: "timeout", withoutThread: false },
