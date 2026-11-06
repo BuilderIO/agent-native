@@ -12,6 +12,7 @@
 // HEAD, or the check still passes without the fix). Exit 2: could not run
 // (dirty tree, no source changes, git failure, check missing on base).
 // A test-only change has nothing to prove; the feedback gate passes it.
+// Only a command the gate can re-run gets a `fix-proof: proven` line.
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -26,7 +27,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-import { TEST_PATH } from "./feedback-fix-proof.ts";
+import { parseProofCommand, TEST_PATH } from "./feedback-fix-proof.ts";
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
@@ -249,6 +250,11 @@ if (isTestCommand() && !hasTestFailureEvidence(red.output))
   couldNotRun(
     `the red test run did not report a test failure; this is not proof the fix caused the result\n${red.tail}`,
   );
+// The feedback gate re-runs only test commands; a `proven` line for any other
+// check fails CI, so it gets a line the gate doesn't read as proof.
+const verdict = parseProofCommand(command.join(" "))
+  ? "fix-proof: proven"
+  : "fix-proof: proven locally only (CI's feedback gate re-runs just `pnpm [--filter <pkg>] exec vitest run <test-file>` or `node --test <test-file>`, so this is not a PR proof line; prove the fix with a test)";
 console.log(
-  `fix-proof: proven, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
+  `${verdict}, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
 );
