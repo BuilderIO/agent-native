@@ -6970,7 +6970,7 @@ function TiptapComposerSurface({
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                hidden={hasDraft || voiceChat}
+                hidden={hasDraft || voiceChat !== null}
                 className="flex shrink-0"
               >
                 {stopButton}
