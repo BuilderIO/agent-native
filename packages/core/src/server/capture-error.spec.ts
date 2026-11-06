@@ -569,6 +569,7 @@ describe("captureError flood control", () => {
       Object.assign(new Error("authentication rejected"), { code: "28P01" }),
     ],
     ["message", new Error("password authentication failed for user")],
+    ["missing role message", new Error('role "app" does not exist')],
   ])("classifies wrapped database authentication by %s", (_evidence, cause) => {
     const wrapped = new CredentialStoreUnavailableError(cause);
     captureError(wrapped, { route: "/connections" });
