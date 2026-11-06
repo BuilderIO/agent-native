@@ -10740,31 +10740,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
+            const incompleteSteps = [
+              staleRunReapIncomplete && "staleRunsReaped",
+              agentHarnessFollowUpRecoveryIncomplete &&
+                "expiredAgentHarnessFollowUps",
+              agentHarnessApprovalRecoveryIncomplete &&
+                "expiredAgentHarnessApprovals",
+              appSweepHandlers.failed.length > 0 && "appSweepHandlers",
+              automationFailureAlerts === null && "automationFailureAlerts",
+              (queuedSubmissionDrain === null ||
+                queuedSubmissionDrain.failed > 0) &&
+                "queuedSubmissionDrain",
+              (staleAgentTeamRuns === null || staleAgentTeamRuns.failed > 0) &&
+                "staleAgentTeamRuns",
+            ].filter((step): step is string => typeof step === "string");
+            if (incompleteSteps.length > 0) {
+              console.error("[recurring-jobs] Sweep incomplete:", {
+                incompleteSteps,
+                staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
+                staleAgentTeamRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
+            }
             if (!triggerAvailability.available) {
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
               }
               return {
-                ok:
-                  !staleRunReapIncomplete &&
-                  !agentHarnessFollowUpRecoveryIncomplete &&
-                  !agentHarnessApprovalRecoveryIncomplete &&
-                  appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null &&
-                  queuedSubmissionDrain !== null &&
-                  queuedSubmissionDrain.failed === 0 &&
-                  staleAgentTeamRuns !== null &&
-                  staleAgentTeamRuns.failed === 0,
+                ok: incompleteSteps.length === 0,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
                 expiredAgentHarnessApprovals,
@@ -10780,17 +10787,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             try {
               await processRecurringJobs(schedulerDeps);
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
