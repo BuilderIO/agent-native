@@ -32,6 +32,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -92,7 +93,10 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
-import { storedScreenFrameType } from "../shared/screen-frame-type.js";
+import {
+  storedScreenFrameType,
+  withStoredScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -1071,8 +1075,8 @@ const generateDesignAction = defineAction({
         });
       } else {
         const fileId = nanoid();
-        await withDesignSourceMutationTransaction(designId, (tx) =>
-          tx.insert(schema.designFiles).values({
+        await withDesignSourceMutationTransaction(designId, async (tx) => {
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename: file.filename,
@@ -1083,8 +1087,28 @@ const generateDesignAction = defineAction({
             contentOperationResultHash: null,
             createdAt: now,
             updatedAt: now,
-          }),
-        );
+          });
+          // The type commits with the insert: markerless email HTML has no
+          // other record of being an email if the layout write below fails.
+          if (
+            generatedFrameType(file, accessedDesignData, fileId) ===
+            HUBSPOT_EMAIL_FRAME_TYPE
+          ) {
+            const current = await readDesignDataForUpdate(tx, designId);
+            await tx
+              .update(schema.designs)
+              .set({
+                data: JSON.stringify(
+                  withStoredScreenFrameType(
+                    current,
+                    fileId,
+                    HUBSPOT_EMAIL_FRAME_TYPE,
+                  ),
+                ),
+              })
+              .where(eq(schema.designs.id, designId));
+          }
+        });
 
         agentEnterDocument(fileId);
         agentUpdateSelection(fileId, {

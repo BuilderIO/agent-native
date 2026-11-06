@@ -4,11 +4,13 @@ const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
+      for: (strength: string) => Promise<unknown[]>;
       orderBy: (...columns: unknown[]) => {
         limit: (n: number) => Promise<unknown[]>;
       };
     };
     promise.limit = vi.fn().mockResolvedValue(rows);
+    promise.for = vi.fn().mockResolvedValue(rows);
     promise.orderBy = vi.fn().mockReturnValue(promise);
     return promise;
   }
@@ -1030,6 +1032,33 @@ describe("generate-design: new-file creation path", () => {
       },
     });
     expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("stores a new email file's type in its insert transaction", async () => {
+    mocks.designUpdateChain.set.mockClear();
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a HubSpot email template",
+      files: [
+        {
+          filename: "email.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+    const fileId = result.savedFiles[0]!.id;
+    const insertWrites = mocks.designUpdateChain.set.mock.calls
+      .map(([values]) => (values as { data?: string }).data)
+      .filter((data): data is string => typeof data === "string")
+      .map((data) => JSON.parse(data) as Record<string, unknown>);
+    expect(insertWrites).toContainEqual(
+      expect.objectContaining({
+        screenMetadata: { [fileId]: { frameType: "hubspot-email" } },
+      }),
+    );
   });
 
   it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {

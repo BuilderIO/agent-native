@@ -436,16 +436,18 @@ export default defineAction({
         const touchDesign = async (
           previousContent: string | null,
           nextContent: string,
+          persistedFileType: string | null,
         ) => {
+          const lockedFileType = fileType ?? persistedFileType ?? file.fileType;
           const changesType =
             frameType !== undefined && previousContent !== null;
           const current =
-            changesType || targetFileType !== "html"
+            changesType || lockedFileType !== "html"
               ? await readDesignDataForUpdate(tx, file.designId)
               : undefined;
-          if (current && targetFileType !== "html") {
+          if (current && lockedFileType !== "html") {
             assertHubSpotEmailFileType({
-              fileType: targetFileType,
+              fileType: lockedFileType,
               frameType:
                 frameType === undefined
                   ? resolveScreenFrameType({
@@ -779,7 +781,11 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await touchDesign(null, confirmed.content);
+                await touchDesign(
+                  null,
+                  confirmed.content,
+                  persistedFile.fileType,
+                );
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -806,6 +812,7 @@ export default defineAction({
           await touchDesign(
             skippedStaleOperation || skippedStaleMirror ? null : liveContent,
             content !== undefined && !skipContentWrite ? content : liveContent,
+            persistedFile.fileType,
           );
           persistedUpdatedAt = now;
           return;

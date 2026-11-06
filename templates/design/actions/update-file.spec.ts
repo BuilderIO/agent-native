@@ -1185,6 +1185,25 @@ describe("update-file: frame type", () => {
     expect(designsStore.updatedAt.has(DESIGN_ID)).toBe(false);
   });
 
+  it("rechecks with the file type read under the lock", async () => {
+    lockedDesignData.value = {
+      screenMetadata: { [FILE_ID]: { frameType: "hubspot-email" } },
+    };
+    vi.mocked(assertAccess).mockImplementationOnce(async () => {
+      Object.assign(designFilesStore.rows.get(FILE_ID)!, { fileType: "css" });
+      return { role: "editor", resource: {} } as never;
+    });
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" saved-"),
+      } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+  });
+
   it("rejects email content saved into a file that is not HTML", async () => {
     Object.assign(designFilesStore.rows.get(FILE_ID)!, { fileType: "css" });
 

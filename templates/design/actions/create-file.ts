@@ -13,7 +13,7 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
-import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
+import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
@@ -355,6 +355,7 @@ export default defineAction({
         }
 
         let duplicateDesignData: string | undefined;
+        let copiedDesignData: Record<string, unknown> | undefined;
         if (duplicateSourceFileId) {
           if (fileType !== "html" && fileType !== "jsx") {
             fail("Only a Screen can be duplicated.", {
@@ -429,7 +430,37 @@ export default defineAction({
             };
             copiedMetadata = true;
           }
-          if (copiedMetadata) duplicateDesignData = JSON.stringify(nextData);
+          if (copiedMetadata) {
+            copiedDesignData = nextData;
+            duplicateDesignData = JSON.stringify(nextData);
+          }
+        }
+        // The type commits with the insert: markerless email HTML has no
+        // other record of being an email if the placement write below fails.
+        const insertedFrameType =
+          frameType ??
+          (isHubSpotEmailHtml(annotatedContent)
+            ? HUBSPOT_EMAIL_FRAME_TYPE
+            : undefined);
+        if (insertedFrameType !== undefined) {
+          const base =
+            copiedDesignData ?? (await readDesignDataForUpdate(tx, designId));
+          // A web copy of an email source arrives with the source's email
+          // layout metadata, which the web type must not keep.
+          duplicateDesignData = JSON.stringify(
+            insertedFrameType === "web"
+              ? withScreenFrameTypeLayout(
+                  base,
+                  id,
+                  insertedFrameType,
+                  resolveScreenFrameType({
+                    designData: base,
+                    fileId: id,
+                    content: annotatedContent,
+                  }),
+                )
+              : withStoredScreenFrameType(base, id, insertedFrameType),
+          );
         }
 
         const createdAt =
@@ -585,20 +616,7 @@ export default defineAction({
                 }
               : {}),
           };
-          // A web copy of an email source arrives with the source's email
-          // layout metadata, which the web type must not keep.
-          return frameType === "web"
-            ? withScreenFrameTypeLayout(
-                placed,
-                id,
-                frameType,
-                resolveScreenFrameType({
-                  designData: current,
-                  fileId: id,
-                  content: createdFile.content,
-                }),
-              )
-            : placed;
+          return placed;
         },
         isApplied: (current) =>
           Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]) &&
@@ -618,10 +636,6 @@ export default defineAction({
         },
         context,
       );
-    } else if (createdFile.created && frameType !== undefined) {
-      // A screen with nothing to render yet gets no placement, but it keeps
-      // the type it was created as, which this response reports.
-      await persistScreenFrameType({ designId, fileId: id, frameType });
     }
 
     return {

@@ -1103,6 +1103,25 @@ describe("create-file: canvas placement and landing URL", () => {
     });
   });
 
+  it("keeps the frame type of a created screen when its placement fails", async () => {
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("placement failed"));
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "promo-email.html",
+        content: "<main>Sale</main>",
+        fileType: "html",
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toThrow("placement failed");
+    expect(
+      Object.values(
+        mocks.getDesignData().screenMetadata as Record<string, unknown>,
+      ),
+    ).toEqual([{ frameType: "hubspot-email" }]);
+  });
+
   it("keeps a copy ordinary when frameType is web despite a legacy marker", async () => {
     const result = await action.run({
       designId: "design-1",
