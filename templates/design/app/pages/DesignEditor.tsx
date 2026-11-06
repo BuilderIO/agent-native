@@ -231,6 +231,7 @@ function DesignEditor() {
     editorLayoutAndStructure,
     editorEditCommands,
     editorLayerModels,
+    editorScreenChangeHandlers,
   });
   const editorSourceAndSync = useEditorSourceAndSync({
     editorCore,

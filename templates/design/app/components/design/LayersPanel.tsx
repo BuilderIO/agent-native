@@ -194,6 +194,8 @@ export interface LayersPanelProps {
     intent: LayersPanelSelectionIntent,
   ) => void;
   onRename?: (id: string, name: string) => void;
+  onStartTextEdit?: (id: string) => string | null;
+  onTextEdit?: (id: string, value: string, originalValue: string) => void;
   onToggleLocked?: (id: string, locked: boolean) => void;
   onToggleHidden?: (id: string, hidden: boolean) => void;
   onHoverLayer?: (id: string) => void;
@@ -898,6 +900,8 @@ function LayersPanelImpl(
     onExpandedIdsChange,
     onSelectionChange,
     onRename,
+    onStartTextEdit,
+    onTextEdit,
     onToggleLocked,
     onToggleHidden,
     onHoverLayer,
@@ -945,6 +949,9 @@ function LayersPanelImpl(
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameOriginalNameRef = useRef<string>("");
+  const textEditRef = useRef<{ id: string; originalValue: string } | null>(
+    null,
+  );
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
@@ -1087,12 +1094,24 @@ function LayersPanelImpl(
 
   const renameDraftRef = useRef(renameDraft);
   const onRenameRef = useRef(onRename);
+  const onTextEditRef = useRef(onTextEdit);
   renameDraftRef.current = renameDraft;
   onRenameRef.current = onRename;
+  onTextEditRef.current = onTextEdit;
   const commitRename = useCallback((id: string) => {
-    const nextName = renameDraftRef.current.trim();
-    if (nextName) {
-      onRenameRef.current?.(id, nextName);
+    const textEdit = textEditRef.current;
+    textEditRef.current = null;
+    if (textEdit?.id === id) {
+      if (renameDraftRef.current !== textEdit.originalValue) {
+        onTextEditRef.current?.(
+          id,
+          renameDraftRef.current,
+          textEdit.originalValue,
+        );
+      }
+    } else {
+      const nextName = renameDraftRef.current.trim();
+      if (nextName) onRenameRef.current?.(id, nextName);
     }
     setRenamingId(null);
     setRenameDraft("");
@@ -1104,12 +1123,29 @@ function LayersPanelImpl(
   const startRename = useCallback(
     (node: LayersPanelNode) => {
       if (!onRename || node.renamable === false) return;
+      textEditRef.current = null;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
       pendingRenameFocusIdRef.current = node.id;
     },
     [onRename],
+  );
+
+  const startRowEdit = useCallback(
+    (node: LayersPanelNode) => {
+      if (node.type !== "text" || !onStartTextEdit || !onTextEdit) {
+        startRename(node);
+        return;
+      }
+      const value = node.locked ? null : onStartTextEdit(node.id);
+      if (value == null) return;
+      textEditRef.current = { id: node.id, originalValue: value };
+      setRenamingId(node.id);
+      setRenameDraft(value);
+      pendingRenameFocusIdRef.current = node.id;
+    },
+    [onStartTextEdit, onTextEdit, startRename],
   );
 
   const registerRowElement = useCallback(
@@ -1144,6 +1180,7 @@ function LayersPanelImpl(
       if (!found || found.node.renamable === false) return false;
       const { node, ancestorIds } = found;
 
+      textEditRef.current = null;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
@@ -1199,6 +1236,7 @@ function LayersPanelImpl(
   );
 
   const handleCancelRename = useCallback(() => {
+    textEditRef.current = null;
     setRenamingId(null);
   }, []);
 
@@ -1640,6 +1678,12 @@ function LayersPanelImpl(
                     onRenameAdjacent={renameAdjacentRow}
                     onCancelRename={handleCancelRename}
                     onStartRename={startRename}
+                    onStartRowEdit={startRowEdit}
+                    textEditLabel={
+                      textEditRef.current?.id === row.node.id
+                        ? t("designEditor.tools.text")
+                        : undefined
+                    }
                     onRename={onRename}
                     onSelect={selectNode}
                     onToggleExpanded={handleToggleExpanded}
@@ -1694,6 +1738,8 @@ interface LayerRowProps {
   onRenameAdjacent: (id: string, step: 1 | -1) => void;
   onCancelRename: (id: string) => void;
   onStartRename: (node: LayersPanelNode) => void;
+  onStartRowEdit: (node: LayersPanelNode) => void;
+  textEditLabel?: string;
   onRename?: (id: string, name: string) => void;
   onSelect: (
     id: string,
@@ -1796,6 +1842,8 @@ const LayerRow = memo(function LayerRow({
   onRenameAdjacent,
   onCancelRename,
   onStartRename,
+  onStartRowEdit,
+  textEditLabel,
   onRename,
   onSelect,
   onToggleExpanded,
@@ -2252,7 +2300,7 @@ const LayerRow = memo(function LayerRow({
             selectable ? "cursor-default" : "cursor-default opacity-80",
           )}
           onClick={handlePointerSelect}
-          onDoubleClick={() => onStartRename(node)}
+          onDoubleClick={() => onStartRowEdit(node)}
           onKeyDown={handleKeyDown}
         >
           <span
@@ -2299,7 +2347,7 @@ const LayerRow = memo(function LayerRow({
                 }
               }}
               className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
-              aria-label={labels.rename}
+              aria-label={textEditLabel ?? labels.rename}
             />
           ) : (
             <span
