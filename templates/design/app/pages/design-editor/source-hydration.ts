@@ -136,8 +136,7 @@ export class SourceHydration {
   }
 
   setPinned(ids: ReadonlySet<string>): void {
-    this.pinned = new Set(ids);
-    if (this.release()) this.changed();
+    this.setDemand(ids, [...this.wantedRank.keys()]);
   }
 
   lease(id: string): () => void {
@@ -165,19 +164,29 @@ export class SourceHydration {
    * They load after every held request and are evicted farthest first.
    */
   setWanted(ids: readonly string[]): void {
-    if (
-      ids.length === this.wantedRank.size &&
-      ids.every((id, index) => this.wantedRank.get(id) === index)
-    )
-      return;
-    this.wantedRank = new Map(ids.map((id, index) => [id, index]));
+    this.setDemand(this.pinned, ids);
+  }
+
+  /**
+   * Pinned and wanted change together: a source moving from one to the other
+   * is in neither between two separate updates, and is evicted while still
+   * on screen.
+   */
+  setDemand(pinned: ReadonlySet<string>, wanted: readonly string[]): void {
+    this.pinned = new Set(pinned);
     let changed = false;
-    for (const [id, entry] of this.lowQueue) {
-      if (this.wantedRank.has(id)) continue;
-      entry.cancel();
-      changed = true;
+    if (
+      wanted.length !== this.wantedRank.size ||
+      wanted.some((id, index) => this.wantedRank.get(id) !== index)
+    ) {
+      this.wantedRank = new Map(wanted.map((id, index) => [id, index]));
+      for (const [id, entry] of this.lowQueue) {
+        if (this.wantedRank.has(id)) continue;
+        entry.cancel();
+        changed = true;
+      }
     }
-    if (this.evict() || changed) this.changed();
+    if (this.release() || changed) this.changed();
     this.pump();
   }
 

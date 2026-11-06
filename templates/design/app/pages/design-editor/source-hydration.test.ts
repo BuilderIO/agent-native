@@ -278,6 +278,31 @@ describe("SourceHydration", () => {
     expect(loader.get("p1").status).toBe("unloaded");
   });
 
+  it("keeps a source that moves from wanted to pinned over the budget", async () => {
+    const read = vi.fn(async (id: string) => ({
+      content: "x".repeat(4),
+      updatedAt: id,
+    }));
+    const loader = new SourceHydration(read, () => {}, 4, 10);
+    loader.sync(["a", "b", "c"].map((id) => ({ id, updatedAt: id })));
+    loader.setDemand(new Set(["a"]), ["b", "c"]);
+    await Promise.all([
+      loader.request("a"),
+      loader.request("b", "low"),
+      loader.request("c", "low"),
+    ]);
+    expect(loader.get("c").status).toBe("ready");
+    // A preview that paints becomes pinned; for a moment it is in neither set
+    // unless both change together.
+    loader.setDemand(new Set(["a", "c"]), ["b"]);
+    expect(["a", "b", "c"].map((id) => loader.get(id).status)).toEqual([
+      "ready",
+      "ready",
+      "ready",
+    ]);
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
   it("cancels queued previews that stop being wanted", async () => {
     let finish!: () => void;
     const read = vi.fn(

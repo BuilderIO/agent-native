@@ -192,14 +192,12 @@ export function useDesignSourceHydration(
     () => new Map([...previews.idsByRoot, ...dependencies.idsByRoot]),
     [dependencies, previews],
   );
-  // Wanted first: a source moving from pinned to wanted would otherwise be
-  // evicted in between, blanking a screen that is still on screen.
   useEffect(() => {
-    loader?.setWanted(previews.ids);
-  }, [loader, previews.ids]);
-  useEffect(() => {
-    loader?.setPinned(new Set([...pinnedIds, ...dependencies.ids]));
-  }, [dependencies, loader, pinnedIds]);
+    loader?.setDemand(
+      new Set([...pinnedIds, ...dependencies.ids]),
+      previews.ids,
+    );
+  }, [dependencies, loader, pinnedIds, previews.ids]);
   useEffect(() => {
     if (!loader) return;
     const requestable = (id: string) => {
