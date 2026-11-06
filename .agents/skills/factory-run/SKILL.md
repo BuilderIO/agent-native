@@ -428,8 +428,12 @@ competing PRs".
 ### Duplicate and competing PRs
 
 The factory's own PRs are the ones recorded as a report's `prUrl`; confirm
-that record (and that the PR's author is the factory's bot) before closing
-anything, and close nothing without it. Before replying on a report, and for
+that record, and that the PR is the factory's, before closing anything, and
+close nothing without both. A PR is the factory's when the factory's bot
+opened it, or when `builder-io-integration[bot]` opened it from a git branch
+one of the factory's own Builder branches started (a report's `gitBranch` or a
+cloud worker's). That app opens PRs for every Builder user, with the same
+`ai_main_*` names, so its PR from any other branch is never the factory's. Before replying on a report, and for
 each `patrol` item, check its PR against merged and open PRs for the same
 problem (`factory-state active`,
 `gh pr list --state all --search "<app> <symptom>"`). Duplicates are never a
