@@ -268,8 +268,9 @@ describe("MultiScreenCanvas live boot budget", () => {
         sourceState: "unloaded" as const,
       }),
     );
-    const demands: { pinned: readonly string[]; preview: readonly string[] }[] =
-      [];
+    const reported: {
+      latest?: { pinned: readonly string[]; preview: readonly string[] };
+    } = {};
 
     await act(async () => {
       renderWithQueryClient(
@@ -291,7 +292,9 @@ describe("MultiScreenCanvas live boot budget", () => {
             ),
           }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
-          onSourceDemandChange={(demand) => demands.push(demand)}
+          onSourceDemandChange={(demand) => {
+            reported.latest = demand;
+          }}
           onPick={() => {}}
         />,
       );
@@ -300,11 +303,13 @@ describe("MultiScreenCanvas live boot budget", () => {
     // At 5% every screen is far below the legible width, so none is pinned
     // as a live editor; an unloaded one paints only its placeholder.
     await vi.waitFor(() => {
-      expect(demands.length).toBeGreaterThan(0);
-      const { pinned, preview } = demands[demands.length - 1];
-      expect(new Set([...pinned, ...preview])).toEqual(
-        new Set(screens.map((screen) => screen.id)),
-      );
+      expect(reported.latest).toBeDefined();
+      expect(
+        new Set([
+          ...(reported.latest?.pinned ?? []),
+          ...(reported.latest?.preview ?? []),
+        ]),
+      ).toEqual(new Set(screens.map((screen) => screen.id)));
     });
   });
 
