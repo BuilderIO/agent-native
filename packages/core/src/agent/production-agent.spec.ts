@@ -1659,6 +1659,38 @@ describe("serializeDurableDispatchPayload", () => {
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
+
+  it("keeps the download URL Builder storage returns for a non-image upload", () => {
+    const attachment = {
+      type: "file",
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      url: "https://cdn.builder.io/o/assets%2Ffake-space%2F0123456789abcdef0123456789abcdef?alt=media&token=fake-download-token&apiKey=fake-space",
+      fileId: "0123456789abcdef0123456789abcdef",
+    };
+
+    const payload = serializeDurableDispatchPayload({
+      attachments: [attachment],
+    });
+
+    expect(JSON.parse(payload).attachments[0]).toEqual(attachment);
+  });
+
+  it.each([
+    "https://cdn.builder.io/o/assets%2Fspace%2Ffile?alt=media&token=fake&X-Amz-Signature=fake",
+    "https://cdn.builder.io/o/assets%2Fspace%2Ffile?token=fake",
+    "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Ffile?alt=media&token=fake",
+    "https://files.example.test/o/file?alt=media&token=fake",
+  ])(
+    "still rejects a query that is not a storage download token: %s",
+    (url) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [{ type: "file", name: "report.pdf", url }],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
 });
 
 describe("queuedPromotionAttachments", () => {
