@@ -37,8 +37,11 @@ function isKeyedColumn(
 function isValidColumn(column: unknown): boolean {
   return (
     isKeyedColumn(column) &&
-    Object.entries(OPTIONAL_COLUMN_FIELDS).every(
-      ([field, valid]) => column[field] === undefined || valid(column[field]),
+    Object.entries(column).every(
+      ([field, value]) =>
+        field === "key" ||
+        (Object.prototype.hasOwnProperty.call(OPTIONAL_COLUMN_FIELDS, field) &&
+          (value === undefined || OPTIONAL_COLUMN_FIELDS[field](value))),
     )
   );
 }
@@ -59,10 +62,12 @@ export function readPanelColumns<T extends { key: string }>(
   for (const column of value) {
     if (!isKeyedColumn(column) || seen.has(column.key)) continue;
     seen.add(column.key);
-    const normalized: Record<string, unknown> & { key: string } = { ...column };
+    const normalized: Record<string, unknown> & { key: string } = {
+      key: column.key,
+    };
     for (const [field, valid] of Object.entries(OPTIONAL_COLUMN_FIELDS)) {
-      if (normalized[field] !== undefined && !valid(normalized[field])) {
-        delete normalized[field];
+      if (column[field] !== undefined && valid(column[field])) {
+        normalized[field] = column[field];
       }
     }
     columns.push(normalized as T);

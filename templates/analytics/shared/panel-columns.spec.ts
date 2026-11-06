@@ -40,6 +40,8 @@ describe("panel columns strictness", () => {
     { columns: [{ key: "a", width: "wide", hidden: true }] },
     { columns: [{ key: "a", width: 0, hidden: true }] },
     { columns: [{ key: "a", width: -10, hidden: true }] },
+    { columns: [{ key: "rate", formatt: "percent" }] },
+    { columns: [{ key: "a", constructor: "unexpected" }] },
   ])("flags malformed columns in the save contract", ({ columns }) => {
     expect(
       unknownPanelConfigKeys({
@@ -58,7 +60,13 @@ describe("panel columns strictness", () => {
   it("retains valid settings when malformed optional properties are removed", () => {
     const stored = [
       { key: "visible", label: 4, format: "pct", linkKey: {}, hidden: "yes" },
-      { key: "hidden", width: "wide", hidden: true, label: "Private" },
+      {
+        key: "hidden",
+        width: "wide",
+        hidden: true,
+        label: "Private",
+        formatt: "percent",
+      },
       { key: "infinite", width: Infinity, format: "number" },
       { key: "zero", width: 0, hidden: true },
       { key: "negative", width: -10, label: "Negative" },
@@ -77,6 +85,7 @@ describe("panel columns strictness", () => {
       width: "wide",
       hidden: true,
       label: "Private",
+      formatt: "percent",
     });
   });
 
