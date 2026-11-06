@@ -1,5 +1,26 @@
 # @agent-native/toolkit
 
+## 0.226.0
+
+### Patch Changes
+
+- 5e251c0: Preserve Builder connection cancellation checks across asynchronous operations.
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+
+## 0.225.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+
 ## 0.225.0
 
 ### Minor Changes
@@ -1587,17 +1608,5 @@
 ### Patch Changes
 
 - 81fb79e: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.2
-
-### Patch Changes
-
-- 43fa797: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.1
-
-### Patch Changes
-
-- fb18771: Keep shared composer labels theme-safe and translatable.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

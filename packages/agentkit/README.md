@@ -511,8 +511,11 @@ thread.release();
 - **transport**: the only owner of remote thread and run operations.
 - **transportOwnership**: `"borrowed"` by default; use `"owned"` only when the
   client exclusively owns the transport lifecycle.
-- **upload**: an optional binary upload driver. Binary bodies never enter the
-  event protocol.
+- **upload**: an optional binary upload driver. It overrides `transport.upload`;
+  otherwise the client uses the transport driver or its generic HTTP uploader.
+  A transport can provide `upload` alongside `createUpload` and `completeUpload`
+  when its storage response needs custom interpretation. Binary bodies never
+  enter the event protocol.
 - **createId** and **now**: injectable deterministic primitives for tests.
 - **reconnect**: the retry count and delay for reattaching to resumable streams.
 - **retainActiveRunsOnThreadRelease**: keeps accepted run subscriptions alive

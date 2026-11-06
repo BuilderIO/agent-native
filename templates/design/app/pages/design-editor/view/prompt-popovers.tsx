@@ -135,7 +135,7 @@ export function renderPromptPopovers({
             return;
           }
           if (!canEditDesign) return;
-          const outputBaselineFiles = generationOutputBaselineRef.current;
+          const outputBaselineFiles = generationOutputBaselineRef.current?.();
           if (outputBaselineFiles === undefined) {
             throw new Error(t("promptDialog.failedToSubmitPrompt"));
           }

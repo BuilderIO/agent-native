@@ -1307,7 +1307,25 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Couldn’t check your Google Drive connection. Try again.",
+        attach: "Attach",
+        reading: "Reading…",
+        authentication: "Sign in to attach Google Slides.",
+        invalid: "Enter a valid Google Slides presentation URL.",
+        connect: "Connect Google Drive to read this presentation.",
+        denied:
+          "This presentation is unavailable. Check access or reconnect Google Drive.",
+        failed: "Couldn’t read this presentation. Try again.",
+        tooLarge: "This presentation is too large to read as context.",
+        truncated:
+          "Reference excerpt truncated; remaining content was not included.",
+      },
       websiteReference: "Add website",
+      connectFigma: "Connect Figma",
+      figmaDisconnected: "Connect Figma to browse designs.",
+      websiteReferenceMenu: "Add website…",
       websiteUrlLabel: "Website URL",
       websiteUrl: "Paste a website URL",
       figmaUrlLabel: "Figma link",
@@ -1321,9 +1339,9 @@ const messages = {
       searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
-        figma: "Add Figma",
+        figma: "Figma design",
         design: "Reference a design",
-        deck: "Reference a presentation",
+        deck: "Reference a deck…",
         searchDesign: "Search design…",
       },
       loadFailed: "Couldn't load this reference. Try again.",
@@ -1348,7 +1366,7 @@ const messages = {
         "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
-      designCategory: "Design",
+      designCategory: "Design references",
     },
     quickStart: {
       invalidUrl: "Enter a valid HTTP or HTTPS URL.",

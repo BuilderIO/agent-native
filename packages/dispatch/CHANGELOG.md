@@ -1,5 +1,25 @@
 # @agent-native/dispatch
 
+## 0.42.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
+## 0.42.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 930602e: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies
+  - @agent-native/toolkit@0.225.1
+
 ## 0.42.1
 
 ### Patch Changes
@@ -1479,17 +1499,5 @@
 ### Patch Changes
 
 - 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.7
-
-### Patch Changes
-
-- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.6
-
-### Patch Changes
-
-- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

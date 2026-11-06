@@ -110,7 +110,13 @@ import {
   forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
 } from "../source-publication";
+import {
+  buildById,
+  reuseIdenticalList,
+  type IdentityCache,
+} from "../stable-file-identity";
 import { shouldAskOnNewDesignArrival } from "../tool-state";
+import type { DesignFile, DesignFileMetadata } from "../types";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -919,30 +925,45 @@ export function useEditorFilesAndSaving({
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     }
   }, [serverFiles, shellMode, sourceMetadata]);
-  const files = useMemo(
-    () =>
-      serverFiles.map((file) => {
-        const pending = pendingLocalFileContentsSnapshot.get(file.id);
-        const sourceContent =
-          (pending?.deferCollabReconcile ? undefined : pending?.content) ??
-          file.content ??
-          "";
-        const prepared = prepareCanonicalSourceContent(sourceContent, {
-          fileId: file.id,
-          fileType: file.fileType,
-          source: codeLayerSourceForDesignFile({
-            designData: designDataJson,
-            designId: id,
-            fileId: file.id,
-            filename: file.filename,
-          }),
-        });
-        return prepared.content === file.content
-          ? file
-          : { ...file, content: prepared.content };
-      }),
-    [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
-  );
+  const preparedFilesCacheRef = useRef<IdentityCache<DesignFile>>(new Map());
+  const preparedFilesRef = useRef<DesignFile[] | undefined>(undefined);
+  const files = useMemo(() => {
+    const sourceContentOf = (file: DesignFile) => {
+      const pending = pendingLocalFileContentsSnapshot.get(file.id);
+      return (
+        (pending?.deferCollabReconcile ? undefined : pending?.content) ??
+        file.content
+      );
+    };
+    const next = reuseIdenticalList(
+      preparedFilesRef.current,
+      buildById(
+        preparedFilesCacheRef.current,
+        serverFiles,
+        (file) => [file, sourceContentOf(file), designDataJson, id],
+        (file) => {
+          const prepared = prepareCanonicalSourceContent(
+            sourceContentOf(file),
+            {
+              fileId: file.id,
+              fileType: file.fileType,
+              source: codeLayerSourceForDesignFile({
+                designData: designDataJson,
+                designId: id,
+                fileId: file.id,
+                filename: file.filename,
+              }),
+            },
+          );
+          return prepared.content === file.content
+            ? file
+            : { ...file, content: prepared.content };
+        },
+      ),
+    );
+    preparedFilesRef.current = next;
+    return next;
+  }, [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles]);
   const getComponentExpectedFiles = useCallback(async () => {
     const hashes = (list: readonly (typeof files)[number][]) =>
       list
@@ -1309,22 +1330,34 @@ export function useEditorFilesAndSaving({
   const overviewScreensRef = useRef<
     (OverviewScreen & { codeLayerSource: CodeLayerSource })[]
   >([]);
+  const overviewFilesCacheRef = useRef<IdentityCache<DesignFile>>(new Map());
+  const overviewFilesRef = useRef<DesignFile[] | undefined>(undefined);
   const overviewFiles = useMemo(() => {
     if (shellMode) return files;
     const readyById = new Map(files.map((file) => [file.id, file]));
-    return sourceMetadata.map((metadata) => {
-      const ready = readyById.get(metadata.id);
-      if (ready) return ready;
-      const state = sourceLoader?.get(metadata.id);
-      return {
-        ...metadata,
-        content: "",
-        sourceState:
-          dependencyStatusByRoot.get(metadata.id) === "deferred"
-            ? ("deferred" as const)
-            : (state?.status ?? ("unloaded" as const)),
-      };
-    });
+    const placeholderState = (metadata: DesignFileMetadata) =>
+      dependencyStatusByRoot.get(metadata.id) === "deferred"
+        ? ("deferred" as const)
+        : (sourceLoader?.get(metadata.id).status ?? ("unloaded" as const));
+    const next = reuseIdenticalList(
+      overviewFilesRef.current,
+      buildById(
+        overviewFilesCacheRef.current,
+        sourceMetadata,
+        (metadata) => {
+          const ready = readyById.get(metadata.id);
+          return ready ? [ready] : [metadata, placeholderState(metadata)];
+        },
+        (metadata) =>
+          readyById.get(metadata.id) ?? {
+            ...metadata,
+            content: "",
+            sourceState: placeholderState(metadata),
+          },
+      ),
+    );
+    overviewFilesRef.current = next;
+    return next;
   }, [
     files,
     shellMode,
