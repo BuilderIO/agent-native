@@ -372,6 +372,33 @@ describe("a reply that narrates between steps", () => {
     expect(follows(rows()[0]!, textOf("Looking"))).toBe(true);
   });
 
+  it("keeps a row opened to watch the steps open across narration", async () => {
+    const searching = reduce(narrated.slice(0, 5));
+    const observable = observableController(snapshotOf(searching, 0));
+    await render(observable.controller);
+    await flush();
+    const visible = () => rows().filter((row) => !row.hidden);
+    expect(visible()).toHaveLength(1);
+    await act(async () =>
+      visible()[0]!
+        .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")!
+        .click(),
+    );
+    expect(visible()[0]!.dataset.open).toBe("true");
+
+    const narrating = reduce(narrated.slice(5, 6), searching);
+    await act(async () => observable.update(snapshotOf(narrating, 1)));
+    await flush();
+    expect(visible()).toHaveLength(0);
+
+    await act(async () =>
+      observable.update(snapshotOf(reduce(narrated.slice(6), narrating), 2)),
+    );
+    await flush();
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0]!.dataset.open).toBe("true");
+  });
+
   it("shows no row while narration after a step streams", async () => {
     const observable = observableController(
       snapshotOf(reduce(narrated.slice(0, 6)), 0),

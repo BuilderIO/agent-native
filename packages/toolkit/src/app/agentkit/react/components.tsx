@@ -2269,6 +2269,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   foldedReasoningMessageId,
   summarizesTurn = false,
   part,
+  hidden = false,
 }: {
   runId?: RunId;
   afterSequence?: number;
@@ -2283,6 +2284,8 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   summarizesTurn?: boolean;
   /** Only the steps' result cards, or only the work row; both by default. */
   part?: "results" | "row";
+  /** Kept mounted but not shown, so the row returns as it was left. */
+  hidden?: boolean;
 }) {
   const {
     threadId,
@@ -2748,6 +2751,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
           label={baseSummaryLabel}
+          hidden={hidden}
           failedCount={failedCount}
           icon={summaryIcon}
           running={visiblyRunning}
@@ -3342,9 +3346,11 @@ function AgentWorkDisclosure({
   currentLabel,
   runId,
   messageId,
+  hidden,
   children,
 }: {
   label: string;
+  hidden?: boolean;
   failedCount?: number;
   icon?: ReactNode;
   running?: boolean;
@@ -3408,6 +3414,7 @@ function AgentWorkDisclosure({
   const disclosure = (
     <div
       className="agentkit-activities"
+      hidden={hidden}
       data-running={running ? "true" : undefined}
       data-expandable={expandable ? "true" : "false"}
       data-open={open ? "true" : "false"}
@@ -8548,6 +8555,8 @@ export function AgentKitChat({
     new Map<string, { deps: readonly unknown[]; element: ReactElement }>(),
   );
   const usedRowElementKeys = new Set<string>();
+  const shownLiveRowsRef = useRef(new Set<string>());
+  const shownLiveRows = new Set<string>();
   const cachedRowElement = (
     key: string,
     deps: readonly unknown[],
@@ -8569,6 +8578,7 @@ export function AgentKitChat({
     foldedReasoningMessageId,
     summarizesTurn,
     part,
+    hidden,
   }: {
     runId: RunId;
     anchor: string;
@@ -8578,6 +8588,7 @@ export function AgentKitChat({
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
     part?: "results" | "row" | undefined;
+    hidden?: boolean | undefined;
   }) => {
     const key = `run-work:${threadId}:${runId}:${anchor}${part === "row" ? ":row" : ""}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
@@ -8591,6 +8602,7 @@ export function AgentKitChat({
         foldedReasoningMessageId,
         summarizesTurn,
         part,
+        hidden,
       ],
       () =>
         renderRunWorkElement({
@@ -8603,6 +8615,7 @@ export function AgentKitChat({
           foldedReasoningMessageId,
           summarizesTurn,
           part,
+          hidden,
         }),
     );
   };
@@ -8616,6 +8629,7 @@ export function AgentKitChat({
     foldedReasoningMessageId,
     summarizesTurn,
     part,
+    hidden,
   }: {
     key: string;
     resetKey: string;
@@ -8626,6 +8640,7 @@ export function AgentKitChat({
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
     part?: "results" | "row" | undefined;
+    hidden?: boolean | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
       {part === "row" ? null : (
@@ -8652,6 +8667,7 @@ export function AgentKitChat({
         foldedReasoningMessageId={foldedReasoningMessageId}
         summarizesTurn={summarizesTurn}
         part={part}
+        hidden={hidden}
       />
     </AgentKitSurfaceBoundary>
   );
@@ -8660,18 +8676,25 @@ export function AgentKitChat({
     const liveReply = liveReplies.get(runId);
     if (liveReply) {
       // While the reply's text is the newest output the text is the focus,
-      // so the row shows only while work runs after it.
-      if (pendingRuns.has(runId)) {
+      // so the row shows only while work runs after it. Once shown it stays
+      // mounted, so a row opened to watch the steps is still open when they
+      // resume.
+      const anchor = liveReply.start?.id ?? "start";
+      const shownKey = `${runId}:${anchor}`;
+      const shown = pendingRuns.has(runId);
+      if (shown || shownLiveRowsRef.current.has(shownKey)) {
+        shownLiveRows.add(shownKey);
         items.push(
           renderRunWork({
             runId,
-            anchor: liveReply.start?.id ?? "start",
+            anchor,
             afterSequence: liveReply.start?.sequence,
             messageId: liveReply.replyId,
             foldedReasoningMessageId: liveReply.foldsReasoning
               ? liveReply.replyId
               : undefined,
             part: "row",
+            hidden: !shown,
           }),
         );
       }
@@ -8981,6 +9004,7 @@ export function AgentKitChat({
       displayMessageCache.delete(messageId);
     }
   }
+  shownLiveRowsRef.current = shownLiveRows;
   for (const key of rowElementCacheRef.current.keys()) {
     if (!usedRowElementKeys.has(key)) rowElementCacheRef.current.delete(key);
   }

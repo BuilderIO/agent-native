@@ -1246,6 +1246,10 @@
     display: contents;
   }
 
+  .agentkit-message-work-host > .agentkit-activities[hidden] {
+    display: none;
+  }
+
   .agentkit-message-work-host .agentkit-activities-row {
     grid-column: 1;
     grid-row: 1;
