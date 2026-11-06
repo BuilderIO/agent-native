@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "読み込み中...",
     genericError: "何か問題が発生しました",
+    linkedSourceSizeLimit:
+      "このリンクされたコンポーネントの編集はソースのサイズ制限を超えています。",
   },
   editPanel: {
     colorInputLabel: "色",
@@ -1048,6 +1050,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "この画面を読み込めませんでした。",
+    selectionPublishFailed:
+      "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:

@@ -129,6 +129,8 @@ export interface PublishAgentSelectionContextArgs {
   interactDevice: { name: string; width: number; height: number };
   interactTheme: InteractThemeMode;
   isSignedIn: boolean;
+  /** Already translated: tells the person to select again, since the agent may not see the selection. */
+  selectionPublishFailedLabel: string;
   mode: EditorMode;
   motionAutoKeyframeEnabled: boolean;
   motionDockOpen: boolean;
@@ -170,6 +172,7 @@ export function runPublishAgentSelectionContext({
   interactDevice,
   interactTheme,
   isSignedIn,
+  selectionPublishFailedLabel,
   mode,
   motionAutoKeyframeEnabled,
   motionDockOpen,
@@ -375,7 +378,7 @@ export function runPublishAgentSelectionContext({
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
       if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
-        reportWriteFailure(failure);
+        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
         return;
       }
       if (persistedSelectionWriteTimerRef.current !== null) return;

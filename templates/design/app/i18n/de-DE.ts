@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
+    linkedSourceSizeLimit:
+      "Diese Bearbeitung der verknüpften Komponente überschreitet das Größenlimit der Quelldaten.",
   },
   editPanel: {
     colorInputLabel: "Farbe",
@@ -1053,6 +1055,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
+    selectionPublishFailed:
+      "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
       title: "Live-Zusammenarbeit",
       description:

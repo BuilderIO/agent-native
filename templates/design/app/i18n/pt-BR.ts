@@ -343,6 +343,8 @@ export default {
   common: {
     loading: "Carregando...",
     genericError: "Algo deu errado",
+    linkedSourceSizeLimit:
+      "Esta edição do componente vinculado excede o limite de tamanho das fontes.",
   },
   editPanel: {
     colorInputLabel: "cor",
@@ -1046,6 +1048,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Não foi possível carregar esta tela.",
+    selectionPublishFailed:
+      "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
     liveCollaboration: {
       title: "Colaboração ao vivo",
       description:

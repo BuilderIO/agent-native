@@ -82,6 +82,7 @@ import {
   nextLocalhostScreenPosition,
   parseDesignDataJson,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { createEditorSaveOperationSource } from "../editor-session";
 import {
   type FileContentSaveRequest,
@@ -103,6 +104,7 @@ import {
   designSaveErrorMessage,
   reportDesignSaveFailure,
 } from "../save-failure";
+import { SOURCE_HYDRATION_MAX_BYTES } from "../source-hydration";
 import {
   designFileCodeLayerSource,
   forgetPreparedSourcesExcept,
@@ -175,6 +177,11 @@ export function useEditorFilesAndSaving({
   const {
     setRetryablePrompt,
     design,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    dependencyStatusByRoot,
+    leaseSources,
     pendingNodeRewriteStateVersion,
     canShareDesign,
     canEditDesign,
@@ -817,23 +824,26 @@ export function useEditorFilesAndSaving({
     const next = titleDraft.trim();
     if (!next || next === design?.title) return;
 
-    const designQueryKey = ["action", "get-design", { id }];
+    const designQueryKey = designMetadataQueryKey(id);
     const previousDesign = queryClient.getQueryData(designQueryKey);
     const previousListDesignsQueries = queryClient.getQueriesData({
       queryKey: ["action", "list-designs"],
     });
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object") return old;
-      return { ...old, title: next };
-    });
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, title: next };
+      },
+    );
     queryClient.setQueriesData(
       { queryKey: ["action", "list-designs"] },
-      (old: any) => {
+      (old: Record<string, unknown> | undefined) => {
         if (!old) return old;
         return {
           ...old,
-          designs: (old.designs ?? []).map((d: any) =>
-            d.id === id ? { ...d, title: next } : d,
+          designs: (Array.isArray(old.designs) ? old.designs : []).map(
+            (d: { id: string }) => (d.id === id ? { ...d, title: next } : d),
           ),
         };
       },
@@ -890,8 +900,12 @@ export function useEditorFilesAndSaving({
     serverFiles.map((file) => [file.id, file]),
   );
   useEffect(() => {
-    forgetPreparedSourcesExcept(new Set(serverFiles.map((file) => file.id)));
-  }, [serverFiles]);
+    forgetPreparedSourcesExcept(
+      new Set(
+        (shellMode ? serverFiles : sourceMetadata).map((file) => file.id),
+      ),
+    );
+  }, [serverFiles, shellMode, sourceMetadata]);
   useEffect(() => {
     if (pendingLocalFileContentsRef.current.size === 0) return;
     let changed = false;
@@ -904,7 +918,7 @@ export function useEditorFilesAndSaving({
     if (changed) {
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     }
-  }, [serverFiles]);
+  }, [serverFiles, shellMode, sourceMetadata]);
   const files = useMemo(
     () =>
       serverFiles.map((file) => {
@@ -929,16 +943,39 @@ export function useEditorFilesAndSaving({
       }),
     [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
   );
-  const getComponentExpectedFiles = useCallback(
-    () =>
-      files
+  const getComponentExpectedFiles = useCallback(async () => {
+    const hashes = (list: readonly (typeof files)[number][]) =>
+      list
         .filter((file) => file.fileType === "html")
         .map((file) => ({
           fileId: file.id,
           versionHash: sourceContentHash(file.content),
-        })),
-    [files],
-  );
+        }));
+    if (shellMode) return hashes(files);
+    const htmlFiles = sourceMetadata.filter((file) => file.fileType === "html");
+    const estimatedBytes = htmlFiles.reduce(
+      (total, file) => total + (file.contentBytes ?? 0),
+      0,
+    );
+    if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
+      throw new Error(t("common.linkedSourceSizeLimit"));
+    const ids = htmlFiles.map((file) => file.id);
+    const release = await leaseSources(ids).catch((error: unknown) => {
+      throw Object.assign(new Error(t("designEditor.sourceLoadFailed")), {
+        cause: error,
+      });
+    });
+    try {
+      const current = historyFilesRef.current.filter((file) =>
+        ids.includes(file.id),
+      );
+      if (current.length !== ids.length)
+        throw new Error(t("common.genericError"));
+      return hashes(current);
+    } finally {
+      release();
+    }
+  }, [files, historyFilesRef, leaseSources, shellMode, sourceMetadata, t]);
   historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(
@@ -957,7 +994,9 @@ export function useEditorFilesAndSaving({
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
-  const proposalFileIdsKey = files.map((file) => file.id).join("\u0000");
+  const proposalFileIdsKey = (shellMode ? files : sourceMetadata)
+    .map((file) => file.id)
+    .join("\u0000");
   const proposalFileIds = useMemo(
     () => (proposalFileIdsKey ? proposalFileIdsKey.split("\u0000") : []),
     [proposalFileIdsKey],
@@ -1048,7 +1087,9 @@ export function useEditorFilesAndSaving({
     runtimeLayerSnapshotsByIdRef.current = runtimeLayerSnapshotsById;
   }, [runtimeLayerSnapshotsById]);
   useEffect(() => {
-    const liveFileIds = new Set(serverFiles.map((file) => file.id));
+    const liveFileIds = new Set(
+      (shellMode ? serverFiles : sourceMetadata).map((file) => file.id),
+    );
     setLiveScreenSnapshotsById((current) => {
       let changed = false;
       const next: Record<string, LiveScreenSnapshot> = {};
@@ -1096,7 +1137,7 @@ export function useEditorFilesAndSaving({
         screenRootStyleCallbacksRef.current.delete(key);
       }
     }
-  }, [serverFiles]);
+  }, [serverFiles, shellMode, sourceMetadata]);
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
@@ -1215,7 +1256,7 @@ export function useEditorFilesAndSaving({
     migrateBoardObjectsMutation.mutate({ designId: id } as any, {
       onSuccess: () => {
         void queryClient.invalidateQueries({
-          queryKey: ["action", "get-design", { id }],
+          queryKey: designMetadataQueryKey(id),
         });
       },
     });
@@ -1268,12 +1309,36 @@ export function useEditorFilesAndSaving({
   const overviewScreensRef = useRef<
     (OverviewScreen & { codeLayerSource: CodeLayerSource })[]
   >([]);
+  const overviewFiles = useMemo(() => {
+    if (shellMode) return files;
+    const readyById = new Map(files.map((file) => [file.id, file]));
+    return sourceMetadata.map((metadata) => {
+      const ready = readyById.get(metadata.id);
+      if (ready) return ready;
+      const state = sourceLoader?.get(metadata.id);
+      return {
+        ...metadata,
+        content: "",
+        sourceState:
+          dependencyStatusByRoot.get(metadata.id) === "deferred"
+            ? ("deferred" as const)
+            : (state?.status ?? ("unloaded" as const)),
+      };
+    });
+  }, [
+    files,
+    shellMode,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    dependencyStatusByRoot,
+  ]);
   const overviewScreens = useMemo(() => {
     const next = reuseUnchangedOverviewScreens(
       overviewScreensRef.current,
       deriveOverviewScreens({
         designDataJson,
-        files,
+        files: overviewFiles,
         activeBreakpointWidthState,
         breakpointFramesHidden,
         locallyPinnedHeightIds: locallyPinnedHeightIdsRef.current,
@@ -1286,7 +1351,7 @@ export function useEditorFilesAndSaving({
     return next;
   }, [
     designDataJson,
-    files,
+    overviewFiles,
     codeLayerSourceForScreen,
     activeBreakpointWidthState,
     boardFileId,
@@ -1571,40 +1636,43 @@ export function useEditorFilesAndSaving({
         ...prev,
         ...resolvedCssVars,
       }));
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        let currentData: Record<string, unknown> = {};
-        if (typeof old.data === "string" && old.data) {
-          try {
-            const parsed = JSON.parse(old.data);
-            if (
-              parsed &&
-              typeof parsed === "object" &&
-              !Array.isArray(parsed)
-            ) {
-              currentData = parsed;
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          let currentData: Record<string, unknown> = {};
+          if (typeof old.data === "string" && old.data) {
+            try {
+              const parsed = JSON.parse(old.data);
+              if (
+                parsed &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              ) {
+                currentData = parsed;
+              }
+            } catch {
+              currentData = {};
             }
-          } catch {
-            currentData = {};
           }
-        }
-        const currentSelections =
-          currentData.tweakSelections &&
-          typeof currentData.tweakSelections === "object" &&
-          !Array.isArray(currentData.tweakSelections)
-            ? currentData.tweakSelections
-            : {};
-        return {
-          ...old,
-          data: JSON.stringify({
-            ...currentData,
-            tweakSelections: {
-              ...currentSelections,
-              ...resolvedCssVars,
-            },
-          }),
-        };
-      });
+          const currentSelections =
+            currentData.tweakSelections &&
+            typeof currentData.tweakSelections === "object" &&
+            !Array.isArray(currentData.tweakSelections)
+              ? currentData.tweakSelections
+              : {};
+          return {
+            ...old,
+            data: JSON.stringify({
+              ...currentData,
+              tweakSelections: {
+                ...currentSelections,
+                ...resolvedCssVars,
+              },
+            }),
+          };
+        },
+      );
     },
     [canEditDesign, id, queryClient],
   );
@@ -1668,6 +1736,7 @@ export function useEditorFilesAndSaving({
     handleTitleInputKeyDown,
     serverFiles,
     files,
+    overviewFiles,
     getComponentExpectedFiles,
     codeLayerSourceForScreen,
     pendingNodeRewriteProposals,

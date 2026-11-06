@@ -3,6 +3,7 @@ import {
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
 import type { ReviewComment } from "@agent-native/core/review";
+import { useT } from "@agent-native/core/client/i18n";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   buildReviewThreads,
@@ -240,6 +241,7 @@ export function useEditorToolsAndVectors({
     tweaks,
     handleTweakPromptOpenChange,
     files,
+    overviewFiles,
     codeLayerSourceForScreen,
     designDataJson,
     layoutGrids,
@@ -1426,7 +1428,7 @@ export function useEditorToolsAndVectors({
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(getOverviewScreenFileIds(files));
+      const fileIds = new Set(getOverviewScreenFileIds(overviewFiles));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (intent?.screenSelectionToggle) {
         explicitOverviewScreenSelectionRef.current =
@@ -1537,7 +1539,7 @@ export function useEditorToolsAndVectors({
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      files,
+      overviewFiles,
       handleBreakpointBarSelect,
     ],
   );
@@ -1672,6 +1674,8 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const t = useT();
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   useEffect(
     () =>
       runPublishAgentSelectionContext({
@@ -1694,6 +1698,7 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
         motionAutoKeyframeEnabled,
         motionDockOpen,
@@ -1743,6 +1748,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,

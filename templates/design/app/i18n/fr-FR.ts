@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
+    linkedSourceSizeLimit:
+      "Cette modification de composant lié dépasse la limite de taille des sources.",
   },
   editPanel: {
     colorInputLabel: "couleur",
@@ -1050,6 +1052,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Impossible de charger cet écran.",
+    selectionPublishFailed:
+      "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
     liveCollaboration: {
       title: "Collaboration en direct",
       description:

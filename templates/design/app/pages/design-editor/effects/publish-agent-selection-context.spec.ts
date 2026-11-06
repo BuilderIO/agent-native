@@ -42,6 +42,8 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     interactDevice: { name: 'MacBook Air 13"', width: 1440, height: 900 },
     interactTheme: "light",
     isSignedIn: true,
+    selectionPublishFailedLabel:
+      "The agent may not see your latest selection. Select it again.",
     mode: "edit" as Args["mode"],
     motionAutoKeyframeEnabled: false,
     motionDockOpen: false,

@@ -24,7 +24,7 @@ import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
 } from "@agent-native/creative-context/types";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -106,6 +106,11 @@ function designDeepLink(
     },
   });
 }
+
+// PostgreSQL trim and [:space:] do not match String.prototype.trim, so the
+// class lists exactly the characters trim removes.
+const NON_WHITESPACE_SOURCE_PATTERN =
+  "[^\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]";
 
 function isRenderableDesignFile(file: {
   fileType?: string | null;
@@ -800,14 +805,41 @@ const generateDesignAction = defineAction({
     }> = [];
     attempt.savedFileCount = () => savedFiles.length;
 
+    const requestedFilenames = files.map((file) => file.filename);
     const existingFiles = await db
-      .select()
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: sql<
+          string | null
+        >`case when ${inArray(schema.designFiles.filename, requestedFilenames)} then ${schema.designFiles.content} else null end`,
+        contentOperationSource: schema.designFiles.contentOperationSource,
+        contentOperationRevision: schema.designFiles.contentOperationRevision,
+        contentOperationResultHash:
+          schema.designFiles.contentOperationResultHash,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
+      })
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
 
-    const hasRenderableFile =
-      files.some(isRenderableDesignFile) ||
-      existingFiles.some(isRenderableDesignFile);
+    let hasRenderableFile = files.some(isRenderableDesignFile);
+    if (!hasRenderableFile) {
+      const renderable = await db
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.fileType, ["html", "jsx"]),
+            sql`${schema.designFiles.content} ~ ${NON_WHITESPACE_SOURCE_PATTERN}`,
+          ),
+        )
+        .limit(1);
+      hasRenderableFile = renderable.length > 0;
+    }
     if (!hasRenderableFile) {
       throw new NoWriteError(
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
@@ -865,6 +897,11 @@ const generateDesignAction = defineAction({
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (!existing) continue;
+      if (existing.content === null) {
+        throw new NoWriteError(
+          `Requested source was not loaded for ${existing.filename}`,
+        );
+      }
       const workspaceFile: SourceWorkspaceFile = {
         id: existing.id,
         designId: existing.designId,
@@ -934,22 +971,22 @@ const generateDesignAction = defineAction({
 
         try {
           try {
-            const workspaceFile: SourceWorkspaceFile = {
-              id: existing.id,
-              designId: existing.designId,
-              filename: existing.filename ?? "",
-              fileType: existing.fileType ?? "html",
-              content: existing.content,
-              createdAt: null,
-              updatedAt: null,
-            };
             const live = liveFilesById.get(existing.id);
-            if (!live) {
-              // guard:allow-bare-error — invariant: every existing file is inserted during the preflight loop before this write phase.
+            if (!live || existing.content === null) {
+              // guard:allow-bare-error — every replacement must have a loaded preflight source before writes begin.
               throw new Error(
                 `Missing preflight source version for ${existing.filename}`,
               );
             }
+            const workspaceFile: SourceWorkspaceFile = {
+              id: existing.id,
+              designId: existing.designId,
+              filename: existing.filename,
+              fileType: existing.fileType,
+              content: existing.content,
+              createdAt: null,
+              updatedAt: null,
+            };
 
             await writeInlineSourceFile({
               designId: existing.designId,
