@@ -1,10 +1,7 @@
 import { isPersistableAttachmentReferenceUrl } from "@agent-native/agentkit/protocol";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 
-import {
-  estimateAttachmentBodyBytes,
-  MAX_ESTIMATED_BODY_BYTES,
-} from "../../composer/attachment-accept.js";
+import { MAX_ESTIMATED_BODY_BYTES } from "../../composer/attachment-accept.js";
 import { isPastedTextAttachmentName } from "../../composer/pasted-text.js";
 
 function readFile(file: File): Promise<string> {
@@ -93,13 +90,11 @@ async function prepareHandoff(
     }
   }
   const metadata = [
-    JSON.stringify(attachments),
-    ...Array.from(pending, (file) =>
-      JSON.stringify({ name: file.name, type: file.type }),
-    ),
+    ...attachments,
+    ...Array.from(pending, (file) => ({ name: file.name, type: file.type })),
   ];
   const estimatedBytes =
-    estimateAttachmentBodyBytes(metadata) +
+    new TextEncoder().encode(JSON.stringify(metadata)).byteLength * 1.15 +
     Array.from(pending).reduce(
       (sum, file) => sum + (4 * Math.ceil(file.size / 3) + 64) * 1.15,
       0,

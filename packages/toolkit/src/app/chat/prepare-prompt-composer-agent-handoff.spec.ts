@@ -4,6 +4,22 @@ import { describe, expect, it, vi } from "vitest";
 import { preparePromptComposerAgentHandoff } from "./prepare-prompt-composer-agent-handoff.js";
 
 describe("prompt composer agent handoff", () => {
+  it("counts serialized metadata only once near the body budget", async () => {
+    const name = '"\\é'.repeat(450_000);
+    const result = await preparePromptComposerAgentHandoff(
+      [],
+      {
+        attachments: [
+          {
+            name,
+            content: [{ type: "file", url: "https://example.test/file" }],
+          },
+        ],
+      },
+      "Upload failed",
+    );
+    expect(result.attachments?.[0]?.name).toBe(name);
+  });
   it.each([[3 * 1024 * 1024], [2 * 1024 * 1024, 2 * 1024 * 1024]])(
     "rejects oversized raw files before reading any",
     async (...sizes) => {

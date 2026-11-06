@@ -117,6 +117,7 @@ import type {
 import {
   useMentionSearch,
   loadWorkspaceMentionItems,
+  MentionSearchError,
 } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
@@ -6493,6 +6494,7 @@ function TiptapComposerSurface({
                   filter?.source,
                 ).catch((cause: unknown) => {
                   if (signal.aborted) throw cause;
+                  if (cause instanceof MentionSearchError) throw cause;
                   throw new Error(
                     t("agentChat.composer.contextLoadFailed", {
                       defaultValue: "Could not load context.",

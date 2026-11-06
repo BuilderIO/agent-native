@@ -3,6 +3,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem } from "./types.js";
 
+export class MentionSearchError extends Error {
+  constructor(message: string, details: { code?: string; source?: string }) {
+    super(message);
+    Object.assign(this, details);
+  }
+}
+
 function parseMentionBatch(
   line: string,
 ): { items: MentionItem[] } | { error: Error } {
@@ -17,7 +24,7 @@ function parseMentionBatch(
     typeof data.error.message === "string"
   )
     return {
-      error: Object.assign(new Error(data.error.message), {
+      error: new MentionSearchError(data.error.message, {
         ...("code" in data.error && typeof data.error.code === "string"
           ? { code: data.error.code }
           : {}),

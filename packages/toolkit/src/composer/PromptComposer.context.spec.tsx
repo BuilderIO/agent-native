@@ -864,6 +864,51 @@ describe("controlled composer context", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
+  it("shows localized source errors in the reference picker", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "mention_source_unavailable",
+                message: "Impossible de charger les références.",
+                source: "dashboards",
+              },
+            }),
+            { status: 503 },
+          ),
+      ),
+    );
+    await mount({
+      contextMenuItems: [
+        {
+          id: "dashboards",
+          label: "Reference a dashboard…",
+          section: "context",
+          referenceType: "dashboard",
+          referencePicker: { source: "dashboards", referenceType: "dashboard" },
+        },
+      ],
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>('button[aria-label="Add context"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find((item) => item.textContent === "Reference a dashboard…")!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.body.textContent).toContain(
+      "Impossible de charger les références.",
+    );
+  });
   it("opens scoped native references in one dialog and excludes them from workspace search", async () => {
     const fetch = vi.fn(
       async () =>
