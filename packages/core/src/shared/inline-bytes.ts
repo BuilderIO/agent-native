@@ -213,11 +213,10 @@ function sanitize(
   const fallbackUrl =
     ownUrl ?? (hasAttachmentContext ? inheritedUrl : undefined);
   const inline = hasAttachmentContext ? inlineKeys(item) : [];
-  const unreferenced =
-    isAttachment &&
-    inline.length > 0 &&
-    !fallbackUrl &&
-    !(typeof item.fileId === "string" && item.fileId);
+  // A `fileId` names the attachment; nothing resolves it back to bytes, so it
+  // never stands in for bytes that need a URL. The dispatch serializer agrees
+  // for parts that carry bytes.
+  const unreferenced = isAttachment && inline.length > 0 && !fallbackUrl;
 
   if (unreferenced && policy === "reject") {
     throw new DurableAttachmentReferenceRequiredError();

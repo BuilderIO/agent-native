@@ -12765,13 +12765,14 @@ async function queueableAttachments(
           ? { fileId: record.id }
           : {}),
     });
+    let uploadAttempted = false;
     if (
-      !part.fileId &&
       inlineData &&
       (!part.url || !record.uploadProvider || record.storageUploadFailed)
     ) {
       const parsedData = parseBase64DataUrl(inlineData);
       if (parsedData) {
+        uploadAttempted = true;
         const uploaded = await uploadFile({
           data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
           filename: attachment.name,
@@ -12786,6 +12787,7 @@ async function queueableAttachments(
             name: attachment.name,
             ...(mediaType ? { mediaType } : {}),
             url: uploaded.url,
+            ...(part.fileId ? { fileId: part.fileId } : {}),
           });
         }
       }
@@ -12804,7 +12806,12 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url && !part.fileId) return null;
+    if (!part.url) {
+      // A failed upload is transient (null -> retryable); an id with no
+      // uploadable bytes can never become a reference.
+      if (uploadAttempted) return null;
+      throw new DurableAttachmentReferenceRequiredError();
+    }
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
@@ -14463,11 +14470,24 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 404);
         return { error: "Thread not found" };
       }
-      const attachmentsForQueue = await queueableAttachments(
-        requestAttachments,
-        ownerEmail,
-        submissionRequestAttachmentIndexes,
-      );
+      let attachmentsForQueue: Awaited<ReturnType<typeof queueableAttachments>>;
+      try {
+        attachmentsForQueue = await queueableAttachments(
+          requestAttachments,
+          ownerEmail,
+          submissionRequestAttachmentIndexes,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
       if (!attachmentsForQueue) {
         if (
           requestAttachments.some(

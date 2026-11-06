@@ -116,13 +116,19 @@ describe("stripInlineBytes", () => {
     expect(() => assertNoInlineImageBytes(stored)).not.toThrow();
   });
 
-  it("drops bytes beside a durable file id without a placeholder", () => {
-    expect(
-      stripInlineBytes(
-        { type: "file", name: "a.png", url: PIXELS, fileId: "file_1" },
-        "reject",
-      ),
-    ).toEqual({ type: "file", name: "a.png", fileId: "file_1" });
+  it("does not let a file id stand in for the bytes it names", () => {
+    const part = { type: "file", name: "a.png", url: PIXELS, fileId: "file_1" };
+
+    expect(() => stripInlineBytes(part, "reject")).toThrow(
+      DurableAttachmentReferenceRequiredError,
+    );
+    expect(stripInlineBytes(part, "placeholder")).toEqual({
+      type: "file",
+      name: "a.png",
+      mediaType: "image/png",
+      fileId: "file_1",
+      omitted: "inline-bytes",
+    });
   });
 
   it("rejects bytes with no durable URL under the reject policy", () => {
