@@ -12766,7 +12766,6 @@ async function queueableAttachments(
           : {}),
     });
     if (
-      !part.fileId &&
       inlineData &&
       (!part.url || !record.uploadProvider || record.storageUploadFailed)
     ) {
@@ -12786,6 +12785,7 @@ async function queueableAttachments(
             name: attachment.name,
             ...(mediaType ? { mediaType } : {}),
             url: uploaded.url,
+            ...(part.fileId ? { fileId: part.fileId } : {}),
           });
         }
       }
@@ -12804,7 +12804,7 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url && !part.fileId) return null;
+    if (!part.url) return null;
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
