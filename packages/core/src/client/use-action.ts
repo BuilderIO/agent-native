@@ -383,10 +383,11 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then((res) => {
-      // The capability is the Set-Cookie header; an unread body keeps the
-      // request open and the page never reaches network idle.
-      res.body?.cancel().catch(() => {});
+    }).then(async (res) => {
+      // The capability is the Set-Cookie header, but the body must still be
+      // read: an unread body keeps the request open so the page never reaches
+      // network idle, and a cancelled one is reported as an aborted request.
+      await res.arrayBuffer();
       if (!res.ok) {
         throw new Error("Could not establish the browser UI capability.");
       }
