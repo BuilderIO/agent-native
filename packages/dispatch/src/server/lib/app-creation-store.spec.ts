@@ -209,6 +209,20 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   return {
     ...actual,
     resolveAccess: (...args: any[]) => mocks.resolveAccess(...args),
+    // core's own tests prove resolveAccessMany agrees with resolveAccess, so
+    // this double answers through the same per-app mock the cases configure.
+    resolveAccessMany: async (
+      resourceType: string,
+      resourceIds: string[],
+      ...rest: any[]
+    ) => {
+      const access = new Map<string, unknown>();
+      for (const id of resourceIds) {
+        const resolved = await mocks.resolveAccess(resourceType, id, ...rest);
+        if (resolved) access.set(id, resolved);
+      }
+      return access;
+    },
   };
 });
 
@@ -1462,29 +1476,55 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("does not make an unauthenticated local gateway read when the org domain is unavailable", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://localhost:3000");
-    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
-    mocks.getOrgDomain.mockResolvedValueOnce(null);
+  it.each(["http://localhost:3000", "https://agent-workspace.builder.io"])(
+    "lists domainless deployment apps read-only with access checks (%s)",
+    async (gatewayUrl) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", gatewayUrl);
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+        { id: "unknown", name: "Unknown", path: "/unknown" },
+      ]);
+      mocks.getOrgDomain.mockResolvedValueOnce(null);
+      mocks.state.workspaceApps = [
+        {
+          id: "clips",
+          owner_email: "owner@example.test",
+          org_id: "org-without-domain",
+          visibility: "org",
+          org_enabled: 1,
+          name: "Old name",
+          path: "/old-path",
+        },
+      ];
+      mocks.resolveAccess.mockImplementation(async (_type, id) =>
+        id === "clips" ? { role: "viewer", resource: {} } : null,
+      );
 
-    await expect(
-      runWithRequestContext(
+      const apps = await runWithRequestContext(
         { userEmail: "dev@example.test", orgId: "org-without-domain" },
         () => listWorkspaceApps({ includeAgentCards: false }),
-      ),
-    ).rejects.toMatchObject({
-      name: "WorkspaceAppsGatewayAuthorizationError",
-      statusCode: 401,
-      errorCode: "workspace_gateway_org_domain_missing",
-      message:
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        mocks.executedSql.filter((sql) =>
+          /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
+        ),
+      ).toEqual([]);
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(mocks.resolveAccess).toHaveBeenCalledWith(
+        "workspace-app",
+        "unknown",
+        { userEmail: "dev@example.test", orgId: "org-without-domain" },
+        { skipResourceBody: true },
+      );
+    },
+  );
 
   it("binds hosted registry tokens to the workspace domain, not its local org id", async () => {
     const fetchMock = vi

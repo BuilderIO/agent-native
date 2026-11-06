@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
@@ -571,6 +579,13 @@ const messages = {
     desktopHint:
       "To start notes, open Clips Desktop from the menu bar and choose Start Meeting Notes, or click Start notes when the reminder appears. Clips captures mic + system audio and writes the transcript here.",
     getDesktopApp: "Get desktop app",
+    earlierAudioAdded_one: "Added {{count}} minute from before you started",
+    earlierAudioAdded_other: "Added {{count}} minutes from before you started",
+    earlierAudioUnreadable: "Couldn't check this transcript for earlier audio",
+    removeEarlierAudioTitle: "Remove earlier audio?",
+    removeEarlierAudioDescription:
+      "This takes it out of the transcript and rebuilds the summary, action items, and Clip description, even if you wrote that description yourself. A generated title is rebuilt too; one you chose stays. Any chapters are deleted too.",
+    couldNotRemoveEarlierAudio: "Couldn't remove earlier audio",
     generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",
     attendee_other: "{{count}} attendees",
@@ -621,6 +636,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    partialTranscript:
+      "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
       "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.",
     backupNotSetup:
@@ -725,7 +742,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If your tool cannot return images or open these links, say that your tool has this limit; it is not a Clips error.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If you can't open the frame URLs as images, call the Clips get-recording-frames tool with the recording id from this context URL if it's available. If not, tell the user that connecting Clips at {{connectUrl}} lets you see frames.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -1445,6 +1462,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Listening…",
     noTranscript: "No transcript yet.",
+    unreadable: "Couldn't read this transcript.",
     liveTranscriptDescription:
       "The live transcript will appear here once notes start.",
     me: "Me",

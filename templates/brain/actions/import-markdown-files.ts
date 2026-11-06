@@ -9,6 +9,7 @@ import {
   serializeSource,
 } from "../server/lib/brain.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
+import { documentImportFormat } from "../shared/document-import.js";
 
 const MAX_MARKDOWN_FILES = 100;
 const MAX_MARKDOWN_FILE_CHARS = 250_000;
@@ -56,15 +57,18 @@ function normalizeMarkdownPath(value: string) {
     return { path: null, error: "The file path contains an invalid segment." };
   }
   const path = segments.join("/");
-  if (!/\.(?:md|markdown)$/i.test(path)) {
-    return { path: null, error: "Only .md and .markdown files are supported." };
+  if (!documentImportFormat(path)) {
+    return {
+      path: null,
+      error: "Only .md, .markdown, and .txt files are supported.",
+    };
   }
   return { path, error: null };
 }
 
 export default defineAction({
   description:
-    "Import a bounded folder or batch of Markdown files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default.",
+    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default.",
   schema: z.object({
     sourceId: z.string().min(1).optional(),
     sourceTitle: z
@@ -95,7 +99,7 @@ export default defineAction({
           path: file.path,
           normalizedPath: normalized.path,
           status: "failed" as const,
-          error: "The Markdown file is empty.",
+          error: "The file has no text.",
         };
       }
       return {
@@ -167,7 +171,7 @@ export default defineAction({
           content: file.input.content,
           metadata: {
             path: normalizedPath,
-            sourceFormat: "markdown",
+            sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
           },
         });
         let distillation: "queued" | "existing" | "skipped" | "failed" =
