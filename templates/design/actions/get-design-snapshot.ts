@@ -10,8 +10,9 @@ import {
   parseDesignTemplateData,
   readDesignTemplateSource,
 } from "../server/lib/design-template-data.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
+import { resolveScreenFrameType } from "../shared/screen-frame-type.js";
 import getDesignSystem from "./get-design-system.js";
 import "../server/db/index.js";
 
@@ -84,6 +85,7 @@ export default defineAction({
     );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
+    const designData = parseDesignDataBlob(design.data);
     const templateSource = readDesignTemplateSource(
       parseDesignTemplateData(design.data),
     );
@@ -134,7 +136,11 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        frameType: isHubSpotEmailHtml(f.content) ? "hubspot-email" : null,
+        frameType: resolveScreenFrameType({
+          designData,
+          fileId: f.id,
+          content: f.content,
+        }),
         content: f.content,
         source: f.source,
       })),
@@ -161,7 +167,7 @@ export default defineAction({
             },
             nextRequiredAction:
               `For an in-place refinement, Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
-              'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file, including `<meta name="agent-native:frame-type" content="hubspot-email">` in its head, and preserve the original. ' +
+              'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file and frameType "hubspot-email", and preserve the original. ' +
               "Do not call delete-file or get-design-snapshot again unless edit-design fails with a concrete missing context error.",
           }
         : {}),

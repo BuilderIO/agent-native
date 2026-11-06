@@ -46,6 +46,13 @@ import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
 
+/** The suggestion reply sent last, or a failed test saying there is none. */
+function lastReply() {
+  const call = replyMutate.mock.lastCall;
+  if (!call) throw new Error("No reply sent");
+  return { request: call[0], handlers: call[1] };
+}
+
 it("isolates comment AI model selection by organization and user", () => {
   expect(
     commentAiModelStorageKey(" Reviewer@Example.test ", "workspace-a"),
@@ -1889,6 +1896,95 @@ it("keeps decided suggestion history readable and replies only to pending thread
     expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
       firstOperationId,
     );
+    const refused = Object.assign(new Error("Too many requests"), {
+      status: 429,
+    });
+    await act(async () => {
+      lastReply().handlers.onError(refused);
+      lastReply().handlers.onSettled();
+    });
+    await act(async () => submit?.click());
+    expect(replyMutate).toHaveBeenCalledTimes(3);
+    expect(lastReply().request.clientOperationId).toBe(firstOperationId);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("keeps a suggestion reply's key when its card remounts", async () => {
+  replyMutate.mockClear();
+  const suggestions = [
+    suggestionFixture({
+      id: "pending-suggestion",
+      revision: 1,
+      threadId: "thread-pending-suggestion",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "original" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    }),
+  ];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness({ mount }: { mount: number }) {
+    drafts = useCommentReplyDrafts("document-reply-remount");
+    return (
+      <CommentsSidebar
+        key={mount}
+        replyDrafts={drafts}
+        documentId="document-reply-remount"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const button = (matches: (button: HTMLButtonElement) => boolean) =>
+    [...container.querySelectorAll("button")].find(matches);
+  const reply = () =>
+    act(async () => {
+      button((b) => b.textContent === "comments.reply")?.click();
+    });
+  const send = () =>
+    act(async () => {
+      button(
+        (b) => b.getAttribute("aria-label") === "comments.submit",
+      )?.click();
+    });
+  try {
+    await act(async () => root.render(<Harness mount={0} />));
+    await reply();
+    await act(async () => {
+      drafts.setText("thread-pending-suggestion", "Pending reply");
+    });
+    await send();
+    const key = lastReply().request.clientOperationId;
+    await act(async () => {
+      lastReply().handlers.onError(
+        Object.assign(new Error("Request timed out"), { timedOut: true }),
+      );
+      lastReply().handlers.onSettled();
+    });
+
+    await act(async () => root.render(<Harness mount={1} />));
+    if (!button((b) => b.getAttribute("aria-label") === "comments.submit"))
+      await reply();
+    await send();
+    expect(replyMutate).toHaveBeenCalledTimes(2);
+    expect(lastReply().request.clientOperationId).toBe(key);
   } finally {
     await act(async () => root.unmount());
     container.remove();

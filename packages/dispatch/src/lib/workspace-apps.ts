@@ -47,6 +47,7 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
   workspaceSso?: boolean;
   source?: WorkspaceAppSource;
+  hiddenFromLaunchers?: boolean;
 }
 
 export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
@@ -168,9 +169,13 @@ export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
 }
 
 export function isWorkspaceAppVisibleInDefaultLaunchers(
-  app: Pick<WorkspaceAppSummary, "id" | "isDispatch">,
+  app: Pick<WorkspaceAppSummary, "id" | "isDispatch" | "hiddenFromLaunchers">,
 ): boolean {
-  return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
+  return (
+    !app.isDispatch &&
+    !app.hiddenFromLaunchers &&
+    !isDefaultWorkspaceAppHiddenId(app.id)
+  );
 }
 
 const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
@@ -519,6 +524,7 @@ export function mergeChatFirstWorkspaceApps(
     description?: string | null;
     url?: string | null;
     source?: WorkspaceAppSource;
+    hiddenFromLaunchers?: boolean;
   }[] = [],
 ): WorkspaceAppSummary[] {
   const enabledBuiltins = new Set(
@@ -567,6 +573,7 @@ export function mergeChatFirstWorkspaceApps(
           name: app.name.trim() || existing.name,
           description: app.description ?? existing.description,
           url: app.url?.trim() || existing.url,
+          ...(app.hiddenFromLaunchers ? { hiddenFromLaunchers: true } : {}),
         });
       }
       continue;
@@ -579,6 +586,7 @@ export function mergeChatFirstWorkspaceApps(
       url: app.url?.trim() || null,
       status: "ready",
       source: app.source ?? "connected",
+      ...(app.hiddenFromLaunchers ? { hiddenFromLaunchers: true } : {}),
     });
   }
 

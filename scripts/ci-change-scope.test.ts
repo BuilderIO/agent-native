@@ -4677,6 +4677,8 @@ test("mutation-tests Core source only, never specs, declarations, templates, or 
     "packages/core/src/templates/chat/actions/x.ts",
     "packages/core/src/cli/create.ts",
     "packages/core/src/testing.ts",
+    "packages/core/src/client/agentkit-chat/transport.ts",
+    "packages/core/src/client/uploads/index.ts",
     "templates/chat/actions/x.ts",
   ]) {
     assert.equal(
@@ -4720,6 +4722,7 @@ test(
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",

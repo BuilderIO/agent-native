@@ -83,6 +83,13 @@ Never label a current partial-month snapshot as last month's completed usage.
 | `query-dbt-semantic-metric --metricName <exact dbt name>` | Run an owner-defined dbt Semantic Layer metric before warehouse SQL. |
 | `get-dbt-connection`                                      | Check each `connections[].readiness` and its missing setup step.        |
 
+## Saved Dashboard Cost Estimates
+
+External connectors can call `estimate-dashboard-cost` with a saved dashboard ID,
+an optional panel ID, and filter values. It uses the existing free dry-run path
+and requires read access to the saved dashboard. It cannot accept raw SQL or
+change a saved query. Partial and unpriced results are not zero-cost results.
+
 ## Check Cost Before Big Queries
 
 Before running a query over a large event or pageview table, call

@@ -303,7 +303,11 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 />
 ```
 
-內容脈絡來源透過 `ComposerContextMenuItem` 的 `picker` 註冊。`ComposerContextMenu` 管理相互連接的 shadcn/Radix 級聯子選單，而非替換目前面板：根選單先提供檔案上傳，再提供新增內容脈絡 → 宿主分類 → 來源選擇器。沒有宿主項目時，不顯示新增內容脈絡。方向鍵和 Escape 用於瀏覽選單階層。連結選擇器中的返回操作只會在同一個子選單內從結果返回連結輸入。共用選擇器負責搜尋、清單列、載入、空白與錯誤狀態、重試、分頁及連結輸入。應用程式提供已授權資料和選取回呼，而不是自行繪製選擇器 JSX。
+內容脈絡來源在 `ComposerContextMenuItem` 上註冊具有明確名稱的直接操作。共用選單將新增內容脈絡、整合和命令分別呈現為可存取群組。選擇一次選單操作即可開啟來源選擇對話框。工作區整合位於獨立群組，命令包含不常用的工作模式。來源資料在對話框中載入，根選單項目保持穩定。選單支援方向鍵、鍵入尋找和 Escape。對話框負責搜尋、分組結果、載入、空結果、錯誤、重試及焦點還原。
+
+貢獻項目使用 `section: "context" | "integrations" | "commands"` 和遞增 `order`，同序時依標籤和 id 排序。`renderLink(children)` 保留原生連結導覽。具有範圍限制提及提供者的應用程式可註冊 `referencePicker: { source, referenceType }`，選取後插入標準編輯器參照。`referenceType` 從共用搜尋工作區對話框中排除應用程式專屬資源類型，避免重複。工作區透過 `resources.useWorkspaceMenu({ enabled, onSelectIntegration })` 註冊。身分變更時，其 `scopeKey` 會重設選擇器並中止要求。提供者失敗仍為錯誤，不會顯示為空結果。
+
+Figma 等來源在檢查存取權限時保持可見。其對話框顯示載入狀態或可重試的錯誤，未連線時顯示真正的連線連結，已連線時顯示已授權的 URL 選擇器。建立技能會直接選取技能模式。上傳技能檔案在原生檔案選擇器後開啟檢閱和儲存對話框。
 
 選擇器設定支援：
 
@@ -326,6 +330,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -399,7 +404,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 選用的 `footerAction` 始終保留在結果下方，包括載入中、錯誤或清單為空時。它接受本地化的 `label`、選用的 `icon` 和 `disabled`，以及 `onSelect()` 或 `renderLink(children)` 其中之一。強制回應視窗等有狀態流程使用回呼：`false` 保持選單開啟，`true` 或 `void` 關閉選單，Promise 拒絕時顯示錯誤和重試操作。單純導覽應由 `renderLink` 傳回真正的 React Router `Link` 或 HTML 連結；共用選單透過 `asChild` 提供選單列，保留其 `href` 和瀏覽器原生導覽行為。應連接既有且經過授權的流程，不要新增占位操作。
 
-將 `addAttachment` 傳入 `ComposerContextMenu` 會把標準上傳操作放在首位，並保留宿主的檔案處理回呼。
+將 `addAttachment` 傳入 `ComposerContextMenu` 會在附件區域新增「檔案與圖片」，並保留宿主的檔案處理回呼。
 
 `PromptComposer` 和 `AgentKitComposer` 接受 `attachmentAdapter`，使用 `@assistant-ui/react` 的公開型別 `AttachmentAdapter`。透過此介面卡提供宿主的可接受檔案類型、大小驗證和附件暫存策略；省略時保留預設介面卡。上傳控制項、檔案選擇器、內容脈絡選擇器和附件標籤仍由共用編輯器管理。不要為了自訂檔案暫存行為而替換這些控制項。
 

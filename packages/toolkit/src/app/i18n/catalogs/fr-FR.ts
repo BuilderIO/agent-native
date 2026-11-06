@@ -1219,7 +1219,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Planifier une tâche",
   "composer.menu.scheduleTaskDescription":
     "Exécuter quelque chose selon un calendrier",
-  "composer.menu.uploadFile": "Télécharger le fichier",
+  "composer.menu.uploadFile": "Fichiers et images",
+  "composer.menu.searchWorkspace": "Rechercher dans l’espace de travail…",
+  "composer.menu.references": "Références",
+  "composer.menu.referenceFile": "Référencer un fichier",
+  "composer.menu.attachToMessage": "Ajouter du contexte",
+  "composer.menu.commands": "Commandes",
   "composer.menu.uploadFileDescription": "Images, PDFs, texte/code, JSON, CSV",
   "composer.messageAgent": "Écrire à l’agent...",
   "composer.model": "Modèle",
@@ -3630,6 +3635,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Retirer l’application de l’espace de travail",
   "chatFirst.showMore": "Afficher plus",
   "chatFirst.showLess": "Afficher moins",
+  "chatFirst.showMoreCount": "Afficher {{count}} de plus",
   "chatFirst.appOrderUnavailable":
     "Impossible d’enregistrer l’ordre des applications sur cet appareil.",
   "chatFirst.openSideSurfaces": "Ouvrir les panneaux latéraux",

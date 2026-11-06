@@ -21,6 +21,10 @@ import {
   forgetAwarenessClientSequence,
   postAwarenessState,
 } from "./awareness-post.js";
+import {
+  COLLAB_OUTBOX_PREFIX as OUTBOX_PREFIX,
+  COLLAB_VERSIONED_OUTBOX_PREFIX as VERSIONED_OUTBOX_PREFIX,
+} from "./outbox-keys.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -317,8 +321,6 @@ function readUpdateAck(body: unknown): CollabUpdateAck {
 // Unacknowledged updates kept in localStorage, one entry per connection. Yjs
 // integrates an update once, so sending one the server already holds again
 // changes nothing.
-const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
-const VERSIONED_OUTBOX_PREFIX = "agent-native-collab-outbox-v2:";
 const OUTBOX_ORIGIN = "collab-outbox";
 const OUTBOX_OWNER_LOCK_PREFIX = "agent-native-collab-outbox-owner:";
 

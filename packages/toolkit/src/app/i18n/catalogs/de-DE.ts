@@ -1217,7 +1217,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Aufgabe planen",
   "composer.menu.scheduleTaskDescription":
     "Etwas nach einem Zeitplan ausführen",
-  "composer.menu.uploadFile": "Datei hochladen",
+  "composer.menu.uploadFile": "Dateien und Bilder",
+  "composer.menu.searchWorkspace": "Arbeitsbereich durchsuchen…",
+  "composer.menu.references": "Referenzen",
+  "composer.menu.referenceFile": "Datei referenzieren",
+  "composer.menu.attachToMessage": "Kontext hinzufügen",
+  "composer.menu.commands": "Befehle",
   "composer.menu.uploadFileDescription": "Bilder, PDFs, Text/Code, JSON, CSV",
   "composer.messageAgent": "Nachricht an den Agenten...",
   "composer.model": "Modell",
@@ -3576,6 +3581,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "App aus dem Workspace entfernen",
   "chatFirst.showMore": "Mehr anzeigen",
   "chatFirst.showLess": "Weniger anzeigen",
+  "chatFirst.showMoreCount": "{{count}} weitere anzeigen",
   "chatFirst.appOrderUnavailable":
     "Die App-Reihenfolge konnte auf diesem Gerät nicht gespeichert werden.",
   "chatFirst.openSideSurfaces": "Seitenbereiche öffnen",
