@@ -416,7 +416,8 @@ describe("release everything workflow", () => {
     const fanoutEnd = source.indexOf("]);", fanoutStart);
     assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
     const fanout = source.slice(fanoutStart, fanoutEnd);
-    assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 3);
+    assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 1);
+    assert.equal((fanout.match(/publishStagedBuild\(/g) ?? []).length, 2);
     assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
     assert(
       source.indexOf("async function dispatchDocsAndReconcile()") < fanoutStart,
@@ -601,6 +602,9 @@ describe("release everything workflow", () => {
       "clipsVersion",
       "productionSites",
       "publicationUnavailable",
+      "publishStagedBuild",
+      "desktopStage",
+      "clipsStage",
       `${source.slice(helperStart, fanoutEnd + "]);".length)}
 return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     ) as (
@@ -620,6 +624,9 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       clipsVersion: string,
       productionSites: string[],
       publicationUnavailable: Error | null,
+      publishStagedBuild: (staged: { workflow: string }) => Promise<Workflow>,
+      desktopStage: { workflow: string },
+      clipsStage: { workflow: string },
     ) => Promise<{
       downstream: PromiseSettledResult<Workflow>[];
       getReconciledDocsRun: () => Workflow | null;
@@ -638,8 +645,9 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     const reconciliationStarted = new Promise<void>((resolve) => {
       markReconciliationStarted = resolve;
     });
+    let dispatchSibling!: (workflow: string) => Promise<Workflow>;
     const fanoutPromise = createFanout(
-      async (workflow) => {
+      (dispatchSibling = async (workflow) => {
         if (workflow === "deploy-docs-production.yml") {
           return {
             run: {
@@ -662,7 +670,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
             }),
           );
         });
-      },
+      }),
       async () => {
         siblingCountAtReconciliation = siblingWorkflows.length;
         siblingsFinishedAtReconciliation = siblingWaitsFinished;
@@ -677,6 +685,9 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       "1.2.3",
       ["chat", "design"],
       null,
+      (staged) => dispatchSibling(staged.workflow),
+      { workflow: "desktop-release.yml" },
+      { workflow: "clips-desktop-release.yml" },
     );
 
     let timedOut = false;
@@ -878,14 +889,18 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(
       source,
-      /dispatchAndWait\(\s*"desktop-release\.yml",\s*workflowRef/,
+      /stageDesktopBuild\(\s*"desktop-release\.yml",\s*`v\$\{desktopVersion\}`,\s*desktopVersion,/,
     );
-    assert.match(source, /version: desktopVersion/);
     assert.match(
       source,
-      /dispatchAndWait\(\s*"clips-desktop-release\.yml",\s*workflowRef/,
+      /stageDesktopBuild\(\s*"clips-desktop-release\.yml",\s*`clips-v\$\{clipsVersion\}`,\s*clipsVersion,/,
     );
-    assert.match(source, /version: clipsVersion/);
+    const lastStageAt = source.indexOf("const clipsStage = stageDesktopBuild(");
+    assert(
+      lastStageAt >= 0 &&
+        lastStageAt <
+          source.indexOf("await waitForStablePackagePublish(releaseSha"),
+    );
     assert.doesNotMatch(
       source,
       /desktopAlreadyPublished|clipsAlreadyPublished/,
@@ -906,10 +921,10 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     const helpersSource = [
       functionSource(
         "async function getRemoteTagSha(tag)",
-        "async function getReleaseByTag(tag)",
+        "// GET releases/tags/{tag} answers 404",
       ),
       functionSource(
-        "async function getReleaseByTag(tag)",
+        "async function listReleasesByTag(tag)",
         "function parseStableVersion(value, label)",
       ),
       functionSource(
@@ -940,6 +955,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       ) => Promise<void>;
       versions?: string[];
       getRefError?: Error & { status?: number };
+      releases?: { id: number; tag_name: string; draft: boolean }[];
     };
 
     const createHelpers = new AsyncFunction(
@@ -966,15 +982,24 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       createRef,
       versions = ["1.2.4"],
       getRefError,
+      releases = [],
     }: HarnessOptions) => {
       const remoteTags = new Map<string, TagObject>();
       const reservedTags = new Map<string, string>();
       const deletedRefs: string[] = [];
+      const deletedReleases: number[] = [];
       const warnings: string[] = [];
       let versionIndex = 0;
       const notFound = () =>
         Object.assign(new Error("Not found"), { status: 404 });
       const github = {
+        paginate: async (
+          method: () => Promise<{ data: unknown[] }>,
+          options: Workflow,
+        ) => {
+          assert.equal(options.per_page, 100);
+          return (await method()).data;
+        },
         rest: {
           git: {
             createRef: async (request: { ref: string; sha: string }) =>
@@ -994,10 +1019,10 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
             },
           },
           repos: {
-            getReleaseByTag: async () => {
-              throw notFound();
+            listReleases: async () => ({ data: releases }),
+            deleteRelease: async ({ release_id }: { release_id: number }) => {
+              deletedReleases.push(release_id);
             },
-            deleteRelease: async () => {},
           },
         },
       };
@@ -1012,7 +1037,14 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
         reservedTags,
         async () => versions[versionIndex++],
       );
-      return { ...helpers, deletedRefs, remoteTags, reservedTags, warnings };
+      return {
+        ...helpers,
+        deletedRefs,
+        deletedReleases,
+        remoteTags,
+        reservedTags,
+        warnings,
+      };
     };
     const sourceSha = "release-source-sha";
     const acceptedThenFailed = Object.assign(
@@ -1109,6 +1141,37 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     await collisionHarness.cleanupReservedTags();
     assert.deepEqual(collisionHarness.deletedRefs, ["tags/v1.2.5"]);
     assert.equal(collisionHarness.remoteTags.has("tags/v1.2.4"), true);
+
+    // A staged build leaves a draft, sometimes two from an older run, that
+    // only a listing finds.
+    const reserveAndClean = async (
+      releases: { id: number; tag_name: string; draft: boolean }[],
+    ) => {
+      const harness = await makeHarness({
+        releases,
+        createRef: async ({ ref, sha }, remoteTags) => {
+          remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+        },
+      });
+      await harness.reserveStableVersion("v", "1.2.3", sourceSha);
+      await harness.cleanupReservedTags();
+      return harness;
+    };
+    const drafts = await reserveAndClean([
+      { id: 7, tag_name: "v1.2.4", draft: true },
+      { id: 8, tag_name: "v1.2.40", draft: true },
+      { id: 9, tag_name: "v1.2.4", draft: true },
+    ]);
+    assert.deepEqual(drafts.deletedReleases, [7, 9]);
+    assert.deepEqual(drafts.deletedRefs, ["tags/v1.2.4"]);
+
+    const published = await reserveAndClean([
+      { id: 7, tag_name: "v1.2.4", draft: true },
+      { id: 9, tag_name: "v1.2.4", draft: false },
+    ]);
+    assert.deepEqual(published.deletedReleases, []);
+    assert.deepEqual(published.deletedRefs, []);
+    assert.equal(published.remoteTags.has("tags/v1.2.4"), true);
   });
 
   it("uses the docs publisher for www instead of the app-site fleet", () => {
@@ -1747,7 +1810,7 @@ return waitForReleaseMerge;`,
       stablePublishEnd,
     );
     const publicationEnd = source.indexOf(
-      "\n\nconst sitesManifest",
+      "\n\n// Each child waits independently",
       publicationStart,
     );
     assert.ok(stablePublishStart >= 0 && stablePublishEnd > stablePublishStart);
@@ -1880,160 +1943,296 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
     assert.equal(unknownResult.siteWorkflowRef, "main");
     assert.match(unknownErrors[0] ?? "", /publication status is unknown/);
 
+    const publishStart = source.indexOf(
+      "async function publishStagedBuild(staged)",
+    );
+    const publishEnd = source.indexOf("\n\nconst desktopStage", publishStart);
     const downstreamStart = source.indexOf(
       "const downstream = await Promise.allSettled",
     );
     const downstreamEnd = source.indexOf("const failures =", downstreamStart);
+    assert.ok(publishStart >= 0 && publishEnd > publishStart);
     assert.ok(downstreamStart >= 0 && downstreamEnd > downstreamStart);
-    const dispatches: string[] = [];
     const releaseDownstream = new AsyncFunction(
       "publicationUnavailable",
       "releaseSha",
-      "workflowRef",
       "siteWorkflowRef",
-      "desktopVersion",
-      "clipsVersion",
       "productionSites",
       "dispatchAndWait",
       "dispatchDocsAndReconcile",
-      `${source.slice(downstreamStart, downstreamEnd)}
+      "cleanupReservedTags",
+      "desktopStage",
+      "clipsStage",
+      `${source.slice(publishStart, publishEnd)}
+${source.slice(downstreamStart, downstreamEnd)}
 return downstream;`,
     ) as (...args: unknown[]) => Promise<unknown>;
-    await releaseDownstream(
-      result.publicationUnavailable,
-      mergeSha,
-      "@agent-native/core@1.2.3",
-      result.siteWorkflowRef,
-      "1.2.3",
-      "1.2.3",
-      ["design"],
-      async (workflow: string) => {
-        dispatches.push(workflow);
-        return { run: { id: dispatches.length }, error: null };
-      },
-      async () => ({ run: { id: 4 }, error: null }),
-    );
-    assert.deepEqual(dispatches, [
-      "desktop-release.yml",
-      "clips-desktop-release.yml",
-      "deploy-production-sites-prebuilt.yml",
-    ]);
+    const stagedBuild = (workflow: string, tag: string) =>
+      Promise.resolve({
+        run: { id: 10, url: `https://example.test/${tag}` },
+        error: null,
+        workflow,
+        tag,
+        inputs: {
+          channel: "production",
+          version: "1.2.3",
+          source_ref: mergeSha,
+        },
+        label: `${workflow} release`,
+      });
+    const releaseWith = async (publication: {
+      publicationUnavailable?: Error | null;
+      siteWorkflowRef: string;
+    }) => {
+      const dispatches: { workflow: string; ref: string; mode?: unknown }[] =
+        [];
+      const cleaned: string[] = [];
+      await releaseDownstream(
+        publication.publicationUnavailable,
+        mergeSha,
+        publication.siteWorkflowRef,
+        ["design"],
+        async (workflow: string, ref: string, inputs: Workflow) => {
+          dispatches.push({ workflow, ref, mode: inputs.mode });
+          return { run: { id: dispatches.length }, error: null };
+        },
+        async () => ({ run: { id: 4 }, error: null }),
+        async (tags: string[]) => {
+          cleaned.push(...tags);
+        },
+        stagedBuild("desktop-release.yml", "v1.2.3"),
+        stagedBuild("clips-desktop-release.yml", "clips-v1.2.3"),
+      );
+      return { dispatches, cleaned };
+    };
 
-    const unknownDispatches: string[] = [];
-    await releaseDownstream(
-      unknownResult.publicationUnavailable,
-      mergeSha,
-      "@agent-native/core@1.2.3",
-      unknownResult.siteWorkflowRef,
-      "1.2.3",
-      "1.2.3",
-      ["design"],
-      async (workflow: string) => {
-        unknownDispatches.push(workflow);
-        return { run: { id: unknownDispatches.length }, error: null };
+    const published = await releaseWith(result);
+    assert.deepEqual(published.dispatches, [
+      {
+        workflow: "deploy-production-sites-prebuilt.yml",
+        ref: "@agent-native/core@1.2.3",
+        mode: undefined,
       },
-      async () => ({ run: { id: 4 }, error: null }),
-    );
-    assert.deepEqual(unknownDispatches, [
-      "deploy-production-sites-prebuilt.yml",
+      { workflow: "desktop-release.yml", ref: "v1.2.3", mode: "publish" },
+      {
+        workflow: "clips-desktop-release.yml",
+        ref: "clips-v1.2.3",
+        mode: "publish",
+      },
     ]);
+    assert.deepEqual(published.cleaned, []);
+
+    const unverified = await releaseWith(unknownResult);
+    assert.deepEqual(unverified.dispatches, [
+      {
+        workflow: "deploy-production-sites-prebuilt.yml",
+        ref: "main",
+        mode: undefined,
+      },
+    ]);
+    assert.deepEqual(unverified.cleaned, ["v1.2.3", "clips-v1.2.3"]);
   });
 
-  it("does not reserve desktop release tags when npm publication is unavailable", async () => {
+  it("stages desktop builds at merge and publishes them only after npm is verified", async () => {
     const source = String((coordinator.with as Workflow).script);
-    const reservationStart = source.indexOf("let desktopVersion;");
-    const reservationEnd = source.indexOf(
-      "// Downstream workflows own these reserved tags after dispatch.",
-      reservationStart,
+    const stagingStart = source.indexOf(
+      "const desktopPackage = await readJsonAt(",
     );
-    assert.ok(reservationStart >= 0 && reservationEnd > reservationStart);
+    const stagingEnd = source.indexOf(
+      "\n\nlet publicationError = null;",
+      stagingStart,
+    );
+    assert.ok(stagingStart >= 0 && stagingEnd > stagingStart);
 
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
-    const selectDesktopVersions = new AsyncFunction(
+    const startStaging = new AsyncFunction(
       "publicationUnavailable",
-      "publicationError",
       "releaseSha",
       "readJsonAt",
       "stableVersion",
       "reserveStableVersion",
       "cleanupReservedTags",
+      "dispatchAndWait",
       "core",
-      `${source.slice(reservationStart, reservationEnd)}
-return { desktopVersion, clipsVersion };`,
-    ) as (
-      publicationUnavailable: Error | null,
-      releaseSha: string,
-      readJsonAt: (sha: string, path: string) => Promise<{ version: string }>,
-      stableVersion: (version: string, label: string) => string,
-      reserveStableVersion: (
-        prefix: string,
-        version: string,
-        sha: string,
-      ) => Promise<string>,
-      cleanupReservedTags: () => Promise<void>,
-      core: { info: (message: string) => void },
-    ) => Promise<{
-      desktopVersion: string | undefined;
-      clipsVersion: string | undefined;
+      `${source.slice(stagingStart, stagingEnd)}
+return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBuild };`,
+    ) as (...args: unknown[]) => Promise<{
+      desktopVersion: string;
+      clipsVersion: string;
+      desktopStage: Promise<Workflow>;
+      clipsStage: Promise<Workflow>;
+      publishStagedBuild: (staged: Promise<Workflow>) => Promise<Workflow>;
     }>;
 
-    const reads: string[] = [];
-    const reservations: { prefix: string; version: string; sha: string }[] = [];
-    const dependencies = {
-      readJsonAt: async (sha: string, filePath: string) => {
-        reads.push(`${sha}:${filePath}`);
-        return { version: filePath.includes("clips") ? "2.3.4" : "1.2.3" };
-      },
-      stableVersion: (version: string) => version,
-      reserveStableVersion: async (
-        prefix: string,
-        version: string,
-        sha: string,
-      ) => {
-        reservations.push({ prefix, version, sha });
-        return version;
-      },
-      cleanupReservedTags: async () => {},
-      core: { info: () => {} },
+    type Dispatch = {
+      workflow: string;
+      ref: string;
+      inputs: Workflow;
+      label: string;
+      timeoutMs: number;
+      reservedTag?: string;
     };
-
-    const unavailable = await selectDesktopVersions(
-      new Error("npm publication status is unknown"),
-      null,
-      "a".repeat(40),
-      dependencies.readJsonAt,
-      dependencies.stableVersion,
-      dependencies.reserveStableVersion,
-      dependencies.cleanupReservedTags,
-      dependencies.core,
-    );
-    assert.deepEqual(unavailable, {
-      desktopVersion: undefined,
-      clipsVersion: undefined,
+    const releaseSha = "b".repeat(40);
+    const stage = async (
+      publicationUnavailable: Error | null,
+      stageResult: (dispatch: Dispatch) => Promise<Workflow>,
+    ) => {
+      const dispatches: Dispatch[] = [];
+      const reservations: string[] = [];
+      const cleaned: string[] = [];
+      const staging = await startStaging(
+        publicationUnavailable,
+        releaseSha,
+        async (_sha: string, filePath: string) => ({
+          version: filePath.includes("clips") ? "2.3.4" : "1.2.3",
+        }),
+        (version: string) => version,
+        async (prefix: string, version: string, sha: string) => {
+          reservations.push(`${prefix}${version}@${sha}`);
+          return version;
+        },
+        async (tags: string[]) => {
+          cleaned.push(...tags);
+        },
+        (
+          workflow: string,
+          ref: string,
+          inputs: Workflow,
+          label: string,
+          timeoutMs: number,
+          reservedTag?: string,
+        ) => {
+          const dispatch = {
+            workflow,
+            ref,
+            inputs,
+            label,
+            timeoutMs,
+            reservedTag,
+          };
+          dispatches.push(dispatch);
+          return inputs.mode === "stage"
+            ? stageResult(dispatch)
+            : Promise.resolve({
+                run: { id: dispatches.length, url: `published-${ref}` },
+                error: null,
+              });
+        },
+        { info: () => {} },
+      );
+      return { ...staging, dispatches, reservations, cleaned };
+    };
+    const stagedRun = async (dispatch: Dispatch) => ({
+      run: { id: 1, url: `staged-${dispatch.ref}` },
+      error: null,
     });
-    assert.deepEqual(reads, []);
-    assert.deepEqual(reservations, []);
 
-    const verified = await selectDesktopVersions(
-      null,
-      null,
-      "b".repeat(40),
-      dependencies.readJsonAt,
-      dependencies.stableVersion,
-      dependencies.reserveStableVersion,
-      dependencies.cleanupReservedTags,
-      dependencies.core,
-    );
-    assert.deepEqual(verified, {
-      desktopVersion: "1.2.3",
-      clipsVersion: "2.3.4",
-    });
-    assert.deepEqual(reservations, [
-      { prefix: "v", version: "1.2.3", sha: "b".repeat(40) },
-      { prefix: "clips-v", version: "2.3.4", sha: "b".repeat(40) },
+    const verified = await stage(null, stagedRun);
+    assert.deepEqual(verified.reservations, [
+      `v1.2.3@${releaseSha}`,
+      `clips-v2.3.4@${releaseSha}`,
     ]);
+    // Both builds are dispatched before the coordinator reads npm's status.
+    assert.deepEqual(verified.dispatches, [
+      {
+        workflow: "desktop-release.yml",
+        ref: "v1.2.3",
+        inputs: {
+          channel: "production",
+          version: "1.2.3",
+          source_ref: releaseSha,
+          mode: "stage",
+        },
+        label: "Agent-Native desktop stable release build",
+        timeoutMs: 120 * 60_000,
+        reservedTag: "v1.2.3",
+      },
+      {
+        workflow: "clips-desktop-release.yml",
+        ref: "clips-v2.3.4",
+        inputs: {
+          channel: "production",
+          version: "2.3.4",
+          source_ref: releaseSha,
+          mode: "stage",
+        },
+        label: "Clips desktop stable release build",
+        timeoutMs: 120 * 60_000,
+        reservedTag: "clips-v2.3.4",
+      },
+    ]);
+    assert.deepEqual(await verified.publishStagedBuild(verified.desktopStage), {
+      stageRun: { id: 1, url: "staged-v1.2.3" },
+      run: { id: 3, url: "published-v1.2.3" },
+      error: null,
+    });
+    // A rejected publish dispatch must leave the built draft and its tag.
+    assert.deepEqual(verified.dispatches[2], {
+      workflow: "desktop-release.yml",
+      ref: "v1.2.3",
+      inputs: {
+        channel: "production",
+        version: "1.2.3",
+        source_ref: releaseSha,
+        mode: "publish",
+      },
+      label: "Agent-Native desktop stable release",
+      timeoutMs: 30 * 60_000,
+      reservedTag: undefined,
+    });
+    assert.deepEqual(verified.cleaned, []);
+
+    const unavailable = await stage(
+      new Error("npm publication status is unknown"),
+      stagedRun,
+    );
+    assert.deepEqual(
+      await unavailable.publishStagedBuild(unavailable.clipsStage),
+      {
+        stageRun: { id: 1, url: "staged-clips-v2.3.4" },
+        run: null,
+        error: null,
+        skipped: true,
+      },
+    );
+    assert.deepEqual(unavailable.cleaned, ["clips-v2.3.4"]);
+    assert.equal(unavailable.dispatches.length, 2);
+
+    const buildFailure = new Error("Clips build ended failure");
+    const failedBuild = await stage(null, async (dispatch) => ({
+      run: { id: 1, url: `staged-${dispatch.ref}` },
+      error: dispatch.workflow.startsWith("clips") ? buildFailure : null,
+    }));
+    assert.deepEqual(
+      await failedBuild.publishStagedBuild(failedBuild.clipsStage),
+      {
+        stageRun: { id: 1, url: "staged-clips-v2.3.4" },
+        run: null,
+        error: buildFailure,
+      },
+    );
+    assert.equal(failedBuild.dispatches.length, 2);
+    assert.deepEqual(failedBuild.cleaned, []);
+
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", recordUnhandled);
+    try {
+      const rejected = await stage(null, async () => {
+        throw new Error("HTTP 404: workflow unavailable");
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(unhandled, []);
+      await assert.rejects(
+        rejected.publishStagedBuild(rejected.desktopStage),
+        /HTTP 404: workflow unavailable/,
+      );
+      await assert.rejects(rejected.clipsStage, /HTTP 404/);
+    } finally {
+      process.off("unhandledRejection", recordUnhandled);
+    }
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
@@ -2329,11 +2528,11 @@ return { desktopVersion, clipsVersion };`,
     );
     assert.match(
       source,
-      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
+      /publishStagedBuild\(desktopStage\),\s*publishStagedBuild\(clipsStage\),\s*dispatchAndWait\(\s*"deploy-production-sites-prebuilt\.yml"/,
     );
     assert.match(
       source,
-      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
+      /if \(publicationUnavailable\) \{\s*await cleanupReservedTags\(\[stage\.tag\]\);/,
     );
     assert.match(
       source,
@@ -2347,6 +2546,122 @@ return { desktopVersion, clipsVersion };`,
       source,
       /await summary\.write\(\);\s*if \(failures\.length > 0\) \{\s*throw/,
     );
+  });
+
+  it("builds without publishing in stage mode and publishes without building in publish mode", () => {
+    // Covers the subset of GitHub expressions these jobs use.
+    const evaluate = (
+      expression: string,
+      mode: string | undefined,
+      results: Record<string, string>,
+    ) => {
+      const js = expression
+        .replace(/^\$\{\{([\s\S]*)\}\}$/, "$1")
+        .replace(/!cancelled\(\)/g, "true")
+        .replace(/inputs\.mode/g, "mode")
+        .replace(
+          /needs\.([\w-]+)\.result/g,
+          (_match, job: string) => `results[${JSON.stringify(job)}]`,
+        )
+        .replace(/!=/g, "!==")
+        .replace(/([^!=])==([^=])/g, "$1===$2");
+      return Boolean(
+        new Function("mode", "results", `return (${js});`)(mode, results),
+      );
+    };
+    const simulate = (
+      childWorkflow: Workflow,
+      mode: string | undefined,
+      failing: string[] = [],
+    ) => {
+      const results: Record<string, string> = {};
+      for (const [name, childJob] of Object.entries(
+        childWorkflow.jobs as Record<string, Workflow>,
+      )) {
+        const needs = [childJob.needs ?? []].flat() as string[];
+        for (const need of needs)
+          assert.ok(need in results, `${name} needs ${need}`);
+        const expression = String(childJob.if ?? "true").trim();
+        const checksStatus = /\b(?:always|cancelled|failure|success)\(\)/.test(
+          expression,
+        );
+        const runs =
+          (checksStatus ||
+            needs.every((need) => results[need] === "success")) &&
+          evaluate(expression, mode, results);
+        results[name] = !runs
+          ? "skipped"
+          : failing.includes(name)
+            ? "failure"
+            : "success";
+      }
+      return results;
+    };
+
+    for (const [childWorkflow, builds] of [
+      [desktopWorkflow, ["build-mac", "build-windows", "build-linux"]],
+      [clipsWorkflow, ["build-tauri"]],
+    ] as const) {
+      const modeInput = (
+        ((childWorkflow.on as Workflow).workflow_dispatch as Workflow)
+          .inputs as Workflow
+      ).mode as Workflow;
+      assert.deepEqual(modeInput.options, ["release", "stage", "publish"]);
+      assert.equal(modeInput.default, "release");
+      assert.equal(
+        (childWorkflow.env as Workflow).RELEASE_MODE,
+        "${{ inputs.mode || 'release' }}",
+      );
+      assert.match(String(childWorkflow["run-name"]), /inputs\.mode/);
+
+      const ran = (results: Record<string, string>, jobs: readonly string[]) =>
+        jobs.map((name) => results[name]);
+      // A push to main (Nightly) has no inputs and must still publish.
+      for (const mode of [undefined, "release"]) {
+        const results = simulate(childWorkflow, mode);
+        assert.deepEqual(
+          Object.values(results).filter((result) => result !== "success"),
+          [],
+        );
+      }
+      const staged = simulate(childWorkflow, "stage");
+      assert.deepEqual(
+        ran(staged, builds),
+        builds.map(() => "success"),
+      );
+      assert.equal(staged["publish-release"], "skipped");
+
+      const published = simulate(childWorkflow, "publish");
+      assert.equal(published["prepare-release"], "success");
+      assert.deepEqual(
+        ran(published, builds),
+        builds.map(() => "skipped"),
+      );
+      assert.equal(published["publish-release"], "success");
+
+      for (const mode of [undefined, "release"]) {
+        assert.equal(
+          simulate(childWorkflow, mode, [builds[0]])["publish-release"],
+          "skipped",
+        );
+      }
+      assert.equal(
+        simulate(childWorkflow, "publish", ["prepare-release"])[
+          "publish-release"
+        ],
+        "skipped",
+      );
+    }
+
+    for (const file of [
+      ".github/workflows/desktop-release.yml",
+      ".github/workflows/clips-desktop-release.yml",
+    ]) {
+      assert.match(
+        readFileSync(file, "utf8"),
+        /if \[ "\$RELEASE_MODE" = "publish" \]; then\s*echo "::error::There is no draft release \$TAG to publish/,
+      );
+    }
   });
 
   it("checks out the coordinated release commit for desktop builds", () => {
@@ -2366,7 +2681,7 @@ return { desktopVersion, clipsVersion };`,
     );
     assert.match(desktopSourceText, /SOURCE_REF,,/);
     assert.match(desktopSourceText, /get_tag_sha\(\)/);
-    assert.match(desktopSourceText, /\.draft/);
+    assert.match(desktopSourceText, /gh release view "\$TAG" --json isDraft/);
     assert.match(desktopSourceText, /TAG_SHA[\s\S]*needs\.resolve-version/);
     assert.match(clipsSourceText, /\.isDraft/);
     assert.match(clipsSourceText, /get_tag_sha\(\)/);

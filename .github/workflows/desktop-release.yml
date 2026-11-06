@@ -1,6 +1,6 @@
 name: Desktop App Release
 run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
+  ${{ github.event.inputs.coordinator_run_id && format('{0} ({1}) [release:{2}]', github.workflow, github.event.inputs.mode, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -28,6 +28,15 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      mode:
+        description: "release builds and publishes; stage builds into the draft release without publishing it; publish publishes a draft that a stage run built"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - stage
+          - publish
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -43,6 +52,7 @@ concurrency:
 
 env:
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  RELEASE_MODE: ${{ inputs.mode || 'release' }}
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -124,22 +134,38 @@ jobs:
             fi
           }
           RELEASE_ERROR=$(mktemp)
-          if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
-            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
-            if [ "$IS_DRAFT" != "true" ]; then
+          TAG_ERROR=$(mktemp)
+          # gh release view finds drafts; GET releases/tags/{tag} answers 404
+          # for them even when the tag exists.
+          if RELEASE_JSON=$(gh release view "$TAG" --json isDraft,targetCommitish -R "$GITHUB_REPOSITORY" 2>"$RELEASE_ERROR"); then
+            if [ "$(jq -r '.isDraft' <<< "$RELEASE_JSON")" != "true" ]; then
               echo "::error::Release $TAG is already published. Choose a new version instead of rebuilding it."
-              rm -f "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
               exit 1
             fi
-            EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
+            # A draft gets its tag only when it publishes, unless one was
+            # reserved first, so fall back to the commit it targets.
+            if EXISTING_TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+              :
+            elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+              EXISTING_TAG_SHA=$(jq -r '.targetCommitish' <<< "$RELEASE_JSON")
+            else
+              cat "$TAG_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+              exit 1
+            fi
             if [ "$EXISTING_TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
               echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
-              rm -f "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
               exit 1
             fi
             echo "Draft release $TAG already points to the coordinated source; build jobs will upload to it."
-          elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
-            TAG_ERROR=$(mktemp)
+          elif grep -q 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::There is no draft release $TAG to publish. Build it first with mode stage."
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+              exit 1
+            fi
             if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
               if [ "$TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
                 echo "::error::Existing tag $TAG points to $TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
@@ -175,13 +201,14 @@ jobs:
             fi
           else
             cat "$RELEASE_ERROR"
-            rm -f "$RELEASE_ERROR"
+            rm -f "$RELEASE_ERROR" "$TAG_ERROR"
             exit 1
           fi
-          rm -f "$RELEASE_ERROR"
+          rm -f "$RELEASE_ERROR" "$TAG_ERROR"
 
   build-mac:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: macos-latest
     # A normal build takes 12-20 minutes. Without a bound, one stalled signing
     # step held a macOS runner for the 6-hour default and kept Release everything
@@ -215,6 +242,7 @@ jobs:
 
   build-windows:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -237,6 +265,7 @@ jobs:
 
   build-linux:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -258,7 +287,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
-    needs: [resolve-version, build-mac, build-windows, build-linux]
+    needs: [resolve-version, prepare-release, build-mac, build-windows, build-linux]
+    # A publish run skips the builds, so the default success() check would skip
+    # this job too.
+    if: >-
+      ${{ !cancelled() && inputs.mode != 'stage' &&
+      needs.prepare-release.result == 'success' &&
+      (inputs.mode == 'publish' || (needs.build-mac.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-linux.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish draft release

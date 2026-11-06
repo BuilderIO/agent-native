@@ -1,6 +1,6 @@
 name: Clips Desktop Release
 run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
+  ${{ github.event.inputs.coordinator_run_id && format('{0} ({1}) [release:{2}]', github.workflow, github.event.inputs.mode, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -26,6 +26,15 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      mode:
+        description: "release builds and publishes; stage builds into the draft release without publishing it; publish publishes a draft that a stage run built"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - stage
+          - publish
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -42,6 +51,7 @@ concurrency:
 env:
   TAURI_APP_PATH: templates/clips/desktop
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  RELEASE_MODE: ${{ inputs.mode || 'release' }}
   RELEASE_TAG_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-v' || 'clips-v' }}
   RELEASE_POINTER_TAG: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest' || 'clips-latest' }}
   RELEASE_MANIFEST_NAME: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest.json' || 'clips-latest.json' }}
@@ -168,6 +178,10 @@ jobs:
             fi
             echo "Draft release $TAG already points to $RELEASE_SOURCE_REF; the builds will upload to it."
           elif grep -q 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::There is no draft release $TAG to publish. Build it first with mode stage."
+              exit 1
+            fi
             if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
               if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
                 echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
@@ -204,6 +218,7 @@ jobs:
 
   build-tauri:
     needs: [resolve-source-ref, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     strategy:
       fail-fast: false
       matrix:
@@ -365,6 +380,12 @@ jobs:
 
   publish-release:
     needs: [prepare-release, build-tauri]
+    # A publish run skips the builds, so the default success() check would skip
+    # this job too.
+    if: >-
+      ${{ !cancelled() && inputs.mode != 'stage' &&
+      needs.prepare-release.result == 'success' &&
+      (inputs.mode == 'publish' || needs.build-tauri.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       # The manifest script comes from this workflow's revision, not the

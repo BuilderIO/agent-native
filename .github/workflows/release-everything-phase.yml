@@ -344,17 +344,15 @@ jobs:
               }
             }
 
-            async function getReleaseByTag(tag) {
-              try {
-                return (await github.rest.repos.getReleaseByTag({
-                  owner,
-                  repo,
-                  tag,
-                })).data;
-              } catch (error) {
-                if (error.status === 404) return null;
-                throw error;
-              }
+            // GET releases/tags/{tag} answers 404 for a draft even when its tag
+            // exists, so only a listing finds the drafts a build uploaded to.
+            async function listReleasesByTag(tag) {
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+              return releases.filter((release) => release.tag_name === tag);
             }
 
             function parseStableVersion(value, label) {
@@ -451,12 +449,12 @@ jobs:
                     core.warning(`Keeping changed stable tag ${tag}; it is not owned by this run.`);
                     return;
                   }
-                  const release = await getReleaseByTag(tag);
-                  if (release && !release.draft) {
+                  const releases = await listReleasesByTag(tag);
+                  if (releases.some((release) => !release.draft)) {
                     core.info(`Keeping published stable release ${tag}.`);
                     return;
                   }
-                  if (release) {
+                  for (const release of releases) {
                     try {
                       await github.rest.repos.deleteRelease({
                         owner,
@@ -1205,29 +1203,6 @@ jobs:
             // predates the coordinated source_ref input. Every build still checks
             // out the exact release commit below.
             const workflowRef = coreVersionChanged ? packageRef : "main";
-            let publicationError = null;
-            let publicationStatusUnknownError = null;
-            try {
-              await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
-            } catch (error) {
-              const publicationFailure = error instanceof Error
-                ? error
-                : new Error(String(error));
-              if (publicationFailure.publicationOutcome === "failed") {
-                publicationError = publicationFailure;
-              } else {
-                publicationStatusUnknownError = publicationFailure;
-              }
-              const publicationStatus = publicationError ? "failed" : "status is unknown";
-              core.error(
-                `Stable npm publication ${publicationStatus}: ${publicationFailure.message}\nProduction sites still release from ${releaseSha}; desktop apps are skipped until publication is verified.`,
-              );
-            }
-            const publicationUnavailable = publicationError || publicationStatusUnknownError;
-            // Sites build from the release commit, not npm. Use main's workflow
-            // definition when the package tag is absent or publication is unverified.
-            const siteWorkflowRef = publicationUnavailable ? "main" : workflowRef;
-
             const sitesManifest = await readJsonAt(
               releaseSha,
               "scripts/netlify-production-sites.json",
@@ -1247,37 +1222,115 @@ jobs:
               throw new Error("The production site manifest contains no *.agent-native.com sites.");
             }
 
+            const desktopPackage = await readJsonAt(
+              releaseSha,
+              "packages/desktop-app/package.json",
+            );
+            const clipsPackage = await readJsonAt(
+              releaseSha,
+              "templates/clips/desktop/package.json",
+            );
             let desktopVersion;
             let clipsVersion;
-            if (!publicationUnavailable) {
-              const desktopPackage = await readJsonAt(
+            try {
+              // Private desktop packages do not advance in the npm release commit.
+              desktopVersion = await reserveStableVersion(
+                "v",
+                stableVersion(desktopPackage.version, "Desktop app"),
                 releaseSha,
-                "packages/desktop-app/package.json",
               );
-              const clipsPackage = await readJsonAt(
+              clipsVersion = await reserveStableVersion(
+                "clips-v",
+                stableVersion(clipsPackage.version, "Clips desktop app"),
                 releaseSha,
-                "templates/clips/desktop/package.json",
               );
-              try {
-                // Private desktop packages do not advance in the npm release commit.
-                desktopVersion = await reserveStableVersion(
-                  "v",
-                  stableVersion(desktopPackage.version, "Desktop app"),
-                  releaseSha,
-                );
-                clipsVersion = await reserveStableVersion(
-                  "clips-v",
-                  stableVersion(clipsPackage.version, "Clips desktop app"),
-                  releaseSha,
-                );
-              } catch (error) {
-                await cleanupReservedTags();
-                throw error;
-              }
-              core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
+            } catch (error) {
+              await cleanupReservedTags();
+              throw error;
+            }
+            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
+
+            // Desktop apps build into draft releases while npm publishes, and
+            // only their publish step waits for npm. Each reserved tag points at
+            // the release commit, so dispatching on it runs that commit's
+            // workflow before the npm package tag exists.
+            // Downstream workflows own these reserved tags after dispatch,
+            // except that a build npm never verified is discarded.
+            function stageDesktopBuild(workflow, tag, version, label) {
+              const inputs = {
+                channel: "production",
+                version,
+                source_ref: releaseSha,
+              };
+              const staged = dispatchAndWait(
+                workflow,
+                tag,
+                { ...inputs, mode: "stage" },
+                `${label} build`,
+                120 * 60_000,
+                tag,
+              ).then((stage) => ({ ...stage, workflow, tag, inputs, label }));
+              // A dispatch failure rejects while the coordinator is still
+              // waiting for npm; unhandled, it would end the script there.
+              staged.catch(() => {});
+              return staged;
             }
 
-            // Downstream workflows own these reserved tags after dispatch.
+            async function publishStagedBuild(staged) {
+              const stage = await staged;
+              if (stage.error) {
+                return { stageRun: stage.run, run: null, error: stage.error };
+              }
+              if (publicationUnavailable) {
+                await cleanupReservedTags([stage.tag]);
+                return { stageRun: stage.run, run: null, error: null, skipped: true };
+              }
+              const published = await dispatchAndWait(
+                stage.workflow,
+                stage.tag,
+                { ...stage.inputs, mode: "publish" },
+                stage.label,
+                30 * 60_000,
+              );
+              return { stageRun: stage.run, ...published };
+            }
+
+            const desktopStage = stageDesktopBuild(
+              "desktop-release.yml",
+              `v${desktopVersion}`,
+              desktopVersion,
+              "Agent-Native desktop stable release",
+            );
+            const clipsStage = stageDesktopBuild(
+              "clips-desktop-release.yml",
+              `clips-v${clipsVersion}`,
+              clipsVersion,
+              "Clips desktop stable release",
+            );
+
+            let publicationError = null;
+            let publicationStatusUnknownError = null;
+            try {
+              await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
+            } catch (error) {
+              const publicationFailure = error instanceof Error
+                ? error
+                : new Error(String(error));
+              if (publicationFailure.publicationOutcome === "failed") {
+                publicationError = publicationFailure;
+              } else {
+                publicationStatusUnknownError = publicationFailure;
+              }
+              const publicationStatus = publicationError ? "failed" : "status is unknown";
+              core.error(
+                `Stable npm publication ${publicationStatus}: ${publicationFailure.message}\nProduction sites still release from ${releaseSha}; desktop builds are discarded unpublished.`,
+              );
+            }
+            const publicationUnavailable = publicationError || publicationStatusUnknownError;
+            // Sites build from the release commit, not npm. Use main's workflow
+            // definition when the package tag is absent or publication is unverified.
+            const siteWorkflowRef = publicationUnavailable ? "main" : workflowRef;
+
             // Each child waits independently so one ambiguous dispatch cannot
             // abandon siblings that GitHub already accepted.
             let reconciledDocsRun = null;
@@ -1325,34 +1378,8 @@ jobs:
             }
 
             const downstream = await Promise.allSettled([
-              publicationUnavailable
-                ? Promise.resolve(null)
-                : dispatchAndWait(
-                    "desktop-release.yml",
-                    workflowRef,
-                    {
-                      channel: "production",
-                      version: desktopVersion,
-                      source_ref: releaseSha,
-                    },
-                    "Agent-Native desktop stable release",
-                    120 * 60_000,
-                    `v${desktopVersion}`,
-                  ),
-              publicationUnavailable
-                ? Promise.resolve(null)
-                : dispatchAndWait(
-                    "clips-desktop-release.yml",
-                    workflowRef,
-                    {
-                      channel: "production",
-                      version: clipsVersion,
-                      source_ref: releaseSha,
-                    },
-                    "Clips desktop stable release",
-                    120 * 60_000,
-                    `clips-v${clipsVersion}`,
-                  ),
+              publishStagedBuild(desktopStage),
+              publishStagedBuild(clipsStage),
               dispatchAndWait(
                 "deploy-production-sites-prebuilt.yml",
                 siteWorkflowRef,
@@ -1391,21 +1418,20 @@ jobs:
                 failures.push(`${targetLabels[index]} dispatch failed: ${error}`);
                 return { run: null, error, dispatchFailed: true, skipped: false };
               }
-              if (result.value === null) {
-                return { run: null, error: null, dispatchFailed: false, skipped: true };
+              const stageRun = result.value.stageRun ?? null;
+              if (result.value.skipped) {
+                return { run: null, stageRun, error: null, dispatchFailed: false, skipped: true };
               }
               if (result.value.error) {
                 const error = result.value.error instanceof Error
                   ? result.value.error.message
                   : String(result.value.error);
                 failures.push(`${targetLabels[index]} failed: ${error}`);
-                return { run: result.value.run, error, dispatchFailed: false, skipped: false };
+                return { run: result.value.run, stageRun, error, dispatchFailed: false, skipped: false };
               }
-              return { run: result.value.run, error: null, dispatchFailed: false, skipped: false };
+              return { run: result.value.run, stageRun, error: null, dispatchFailed: false, skipped: false };
             });
-            const [desktop, clips, production, docs] = childResults.map(
-              (result) => result.run,
-            );
+            const [desktop, clips, production, docs] = childResults;
             const outcomes = childResults.map((result) => {
               if (result.skipped) {
                 return publicationError
@@ -1451,18 +1477,20 @@ jobs:
                           ? `not delivered: ${downstreamNotificationFailureUrl}`
                           : "delivered",
                 ],
-                ["Agent-Native desktop", desktop ? `${outcomes[0]}: stable v${desktopVersion}` : outcomes[0]],
-                ["Clips desktop", clips ? `${outcomes[1]}: stable v${clipsVersion}` : outcomes[1]],
+                ["Agent-Native desktop", desktop.skipped ? outcomes[0] : `${outcomes[0]}: stable v${desktopVersion}`],
+                ["Clips desktop", clips.skipped ? outcomes[1] : `${outcomes[1]}: stable v${clipsVersion}`],
                 ["Production sites", `${outcomes[2]}: ${productionSites.length} *.agent-native.com apps`],
                 ["Docs site", `${outcomes[3]}: ${docsSite.host}`],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url);
             for (const [label, run] of [
-              ["Desktop release run", desktop],
-              ["Clips release run", clips],
-              ["Production fleet run", production],
-              ["Docs production run", docs],
+              ["Desktop build run", desktop.stageRun],
+              ["Desktop release run", desktop.run],
+              ["Clips build run", clips.stageRun],
+              ["Clips release run", clips.run],
+              ["Production fleet run", production.run],
+              ["Docs production run", docs.run],
             ]) {
               if (run) summary.addBreak().addLink(label, run.url);
             }
