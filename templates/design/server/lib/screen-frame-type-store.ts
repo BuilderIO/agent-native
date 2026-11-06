@@ -49,26 +49,13 @@ export async function persistScreenFrameType({
 }
 
 /**
- * The serialized design data with an explicit frame type change and its
- * layout applied, read under a row lock inside the caller's transaction so the
- * change commits with the caller's source write. Undefined when the type is
- * already stored. `previousContent` is the screen's HTML before the write,
- * which decides the previous type of a legacy screen with no stored type.
+ * The design data, read under a row lock inside the caller's transaction so
+ * a frame type decided from it holds until the caller commits.
  */
-export async function designDataWithFrameTypeChange(
+export async function readDesignDataForUpdate(
   tx: DesignDataMutationTransaction,
-  {
-    designId,
-    fileId,
-    frameType,
-    previousContent,
-  }: {
-    designId: string;
-    fileId: string;
-    frameType: StoredScreenFrameType;
-    previousContent: string;
-  },
-): Promise<string | undefined> {
+  designId: string,
+): Promise<Record<string, unknown>> {
   await assertAccess("design", designId, "editor");
   const rows = await tx
     .select({ data: schema.designs.data })
@@ -77,7 +64,27 @@ export async function designDataWithFrameTypeChange(
     .for("update");
   const row = rows.find(Boolean);
   if (!row) throw new Error(`Design "${designId}" not found.`);
-  const current = parseStoredDesignData(designId, row.data);
+  return parseStoredDesignData(designId, row.data);
+}
+
+/**
+ * The serialized design data with an explicit frame type change and its
+ * layout applied, or undefined when the type is already stored.
+ * `previousContent` is the screen's HTML before the write, which decides the
+ * previous type of a legacy screen with no stored type.
+ */
+export function serializeFrameTypeChange(
+  current: Record<string, unknown>,
+  {
+    fileId,
+    frameType,
+    previousContent,
+  }: {
+    fileId: string;
+    frameType: StoredScreenFrameType;
+    previousContent: string;
+  },
+): string | undefined {
   if (storedScreenFrameType(current, fileId) === frameType) return undefined;
   return JSON.stringify(
     withScreenFrameTypeLayout(
@@ -90,6 +97,25 @@ export async function designDataWithFrameTypeChange(
         content: previousContent,
       }),
     ),
+  );
+}
+
+/** Both steps above, for a caller that only changes the type. */
+export async function designDataWithFrameTypeChange(
+  tx: DesignDataMutationTransaction,
+  {
+    designId,
+    ...change
+  }: {
+    designId: string;
+    fileId: string;
+    frameType: StoredScreenFrameType;
+    previousContent: string;
+  },
+): Promise<string | undefined> {
+  return serializeFrameTypeChange(
+    await readDesignDataForUpdate(tx, designId),
+    change,
   );
 }
 

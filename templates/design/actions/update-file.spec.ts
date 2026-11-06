@@ -109,7 +109,8 @@ const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
 );
 vi.mock("../server/lib/screen-frame-type-store.js", () => ({
   persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
-  designDataWithFrameTypeChange: vi.fn(async () => '{"frameTypeChanged":true}'),
+  readDesignDataForUpdate: vi.fn(async () => lockedDesignData.value),
+  serializeFrameTypeChange: vi.fn(() => '{"frameTypeChanged":true}'),
 }));
 
 vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
@@ -131,6 +132,9 @@ interface FileRow {
 
 const designFilesStore = vi.hoisted(() => ({
   rows: new Map<string, FileRow>(),
+}));
+const lockedDesignData = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
 }));
 const designsStore = vi.hoisted(() => ({
   updatedAt: new Map<string, string>(),
@@ -266,8 +270,9 @@ import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import {
-  designDataWithFrameTypeChange,
   persistScreenFrameType,
+  readDesignDataForUpdate,
+  serializeFrameTypeChange,
 } from "../server/lib/screen-frame-type-store.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
@@ -1067,7 +1072,9 @@ describe("update-file: typed filename refusals", () => {
 describe("update-file: frame type", () => {
   beforeEach(() => {
     vi.mocked(persistScreenFrameType).mockClear();
-    vi.mocked(designDataWithFrameTypeChange).mockClear();
+    vi.mocked(readDesignDataForUpdate).mockClear();
+    vi.mocked(serializeFrameTypeChange).mockClear();
+    lockedDesignData.value = {};
   });
 
   it("stores an explicit frame type change without rewriting content", async () => {
@@ -1075,14 +1082,9 @@ describe("update-file: frame type", () => {
     await updateFileAction.run({ id: FILE_ID, frameType: "web" } as never);
 
     // oracle-change: an explicit change now commits in the write transaction with the type's layout.
-    expect(designDataWithFrameTypeChange).toHaveBeenCalledWith(
-      expect.anything(),
-      {
-        designId: DESIGN_ID,
-        fileId: FILE_ID,
-        frameType: "web",
-        previousContent: before,
-      },
+    expect(serializeFrameTypeChange).toHaveBeenCalledWith(
+      {},
+      { fileId: FILE_ID, frameType: "web", previousContent: before },
     );
     expect(designsStore.data.get(DESIGN_ID)).toBe('{"frameTypeChanged":true}');
     expect(persistScreenFrameType).not.toHaveBeenCalled();
@@ -1097,8 +1099,8 @@ describe("update-file: frame type", () => {
       frameType: "hubspot-email",
     } as never);
 
-    expect(designDataWithFrameTypeChange).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(serializeFrameTypeChange).toHaveBeenCalledWith(
+      {},
       expect.objectContaining({
         frameType: "hubspot-email",
         previousContent: before,
@@ -1144,9 +1146,43 @@ describe("update-file: frame type", () => {
       frameType: "hubspot-email",
     } as never);
 
-    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
     expect(designsStore.data.has(DESIGN_ID)).toBe(false);
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("drops the frame type of a stale mirror write", async () => {
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = buildDoc(" mirror-advanced-");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" caller-stale-mirror-"),
+      syncCollab: false,
+      expectedVersionHash: sourceContentHash(buildDoc()),
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(result).toMatchObject({ skippedStaleMirror: true });
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+  });
+
+  it("rechecks the stored type under the row lock before a non-HTML write", async () => {
+    lockedDesignData.value = {
+      screenMetadata: { [FILE_ID]: { frameType: "hubspot-email" } },
+    };
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({ id: FILE_ID, fileType: "css" } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+    expect(readDesignDataForUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      DESIGN_ID,
+    );
+    expect(designsStore.updatedAt.has(DESIGN_ID)).toBe(false);
   });
 
   it("rejects email content saved into a file that is not HTML", async () => {
@@ -1205,7 +1241,7 @@ describe("update-file: frame type", () => {
     );
 
     expect(error).toMatchObject({ paths: ["identityOnly"] });
-    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
   });
 
   it("does not touch the frame type of an ordinary content save", async () => {
@@ -1227,6 +1263,6 @@ describe("update-file: frame type", () => {
     );
 
     expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
-    expect(designDataWithFrameTypeChange).not.toHaveBeenCalled();
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
   });
 });

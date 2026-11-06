@@ -19,7 +19,10 @@ import {
   LegacyEmailFrameTypeNotStoredError,
   writeWithLegacyEmailFrameTypes,
 } from "../server/lib/legacy-email-frame-type.js";
-import { designDataWithFrameTypeChange } from "../server/lib/screen-frame-type-store.js";
+import {
+  readDesignDataForUpdate,
+  serializeFrameTypeChange,
+} from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -425,19 +428,42 @@ export default defineAction({
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         // An explicit frame type commits with the content write, so a failed
-        // write leaves neither behind.
-        // A stale operation passes null: its request lost to a newer write, so
-        // its frame type must not land either.
-        const touchDesign = async (previousContent: string | null) => {
+        // write leaves neither behind. A skipped write passes null for
+        // previousContent: its request lost to a newer one, so its type must
+        // not land either. A non-HTML file rechecks the type here, under the
+        // row lock, so a concurrent switch to email cannot slip past the
+        // check made before the transaction.
+        const touchDesign = async (
+          previousContent: string | null,
+          nextContent: string,
+        ) => {
+          const changesType =
+            frameType !== undefined && previousContent !== null;
+          const current =
+            changesType || targetFileType !== "html"
+              ? await readDesignDataForUpdate(tx, file.designId)
+              : undefined;
+          if (current && targetFileType !== "html") {
+            assertHubSpotEmailFileType({
+              fileType: targetFileType,
+              frameType:
+                frameType === undefined
+                  ? resolveScreenFrameType({
+                      designData: current,
+                      fileId: id,
+                      content: nextContent,
+                    })
+                  : frameTypeFromStored(frameType),
+            });
+          }
           const data =
-            frameType === undefined || previousContent === null
-              ? undefined
-              : await designDataWithFrameTypeChange(tx, {
-                  designId: file.designId,
+            current && changesType
+              ? serializeFrameTypeChange(current, {
                   fileId: id,
                   frameType,
                   previousContent,
-                });
+                })
+              : undefined;
           await tx
             .update(schema.designs)
             .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })
@@ -753,7 +779,7 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await touchDesign(null);
+                await touchDesign(null, confirmed.content);
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -777,7 +803,10 @@ export default defineAction({
             applyTextToYDoc(lease.doc, "content", content, "agent");
             await lease.persist(getDesignSourceMutationExec(tx), content);
           }
-          await touchDesign(skippedStaleOperation ? null : liveContent);
+          await touchDesign(
+            skippedStaleOperation || skippedStaleMirror ? null : liveContent,
+            content !== undefined && !skipContentWrite ? content : liveContent,
+          );
           persistedUpdatedAt = now;
           return;
         }
