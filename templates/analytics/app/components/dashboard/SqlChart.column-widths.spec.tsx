@@ -233,7 +233,9 @@ describe("SqlChart table column widths", () => {
       );
     });
 
-    await drag(separators()[0], 200);
+    const separator = separators()[0];
+    if (!separator) throw new Error("Expected a resize handle");
+    await drag(separator, 200);
     expect(onSaveColumns).toHaveBeenCalledWith([
       { key: "name", width: 200 },
       { key: "count" },

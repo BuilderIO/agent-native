@@ -41,7 +41,8 @@ function isValidColumn(column: unknown): boolean {
       ([field, value]) =>
         field === "key" ||
         (Object.prototype.hasOwnProperty.call(OPTIONAL_COLUMN_FIELDS, field) &&
-          (value === undefined || OPTIONAL_COLUMN_FIELDS[field](value))),
+          (value === undefined ||
+            OPTIONAL_COLUMN_FIELDS[field]?.(value) === true)),
     )
   );
 }
