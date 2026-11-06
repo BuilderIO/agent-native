@@ -9,7 +9,11 @@ export {
   buildLinkArtifacts,
   getMcpDirectoryWidgetResourceUri,
 } from "./build-server.js";
-export type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
+export type {
+  MCPCallerIdentity,
+  MCPRequestMeta,
+  McpCallerContext,
+} from "./build-server.js";
 export type { ExternalAgentPolicy } from "./external-agent-policy.js";
 export { handleMcpFetchRequest } from "./framework-fetch-handler.js";
 export type { MCPFetchHandlerOptions } from "./framework-fetch-handler.js";

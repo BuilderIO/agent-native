@@ -77,6 +77,12 @@ async function sign(
   return jwt.sign(new TextEncoder().encode(secret));
 }
 
+function signedIssuedAtMs(token: string): number {
+  const issuedAt = jose.decodeJwt(token).iat;
+  if (typeof issuedAt !== "number") throw new Error("Test token has no iat");
+  return issuedAt * 1000;
+}
+
 describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -107,6 +113,14 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`);
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("a@example.com");
+    expect(res.callerContext).toEqual({
+      credentialKind: "a2a-deployment",
+      principal: { kind: "asserted-user", email: "a@example.com" },
+      orgId: undefined,
+      orgDomain: undefined,
+      issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
+      revocationAnchor: null,
+    });
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
@@ -167,6 +181,14 @@ describe("verifyAuth — connect-token revoke check", () => {
       identityAssurance: "organization",
       orgId: "org-builder",
       orgDomain: "builder.io",
+    });
+    expect(res.callerContext).toEqual({
+      credentialKind: "a2a-organization",
+      principal: { kind: "organization" },
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
+      revocationAnchor: null,
     });
     expect(res.fullSurface).toBe(true);
     expect(resolveA2AOrganizationCredentialsByDomainMock).toHaveBeenCalledWith(
@@ -312,6 +334,14 @@ describe("verifyAuth — connect-token revoke check", () => {
         identityAssurance: "organization",
         orgId: "org-builder",
         orgDomain: "builder.io",
+      },
+      callerContext: {
+        credentialKind: "a2a-organization",
+        principal: { kind: "organization" },
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
+        revocationAnchor: null,
       },
       fullSurface: true,
       fullCatalog: false,
@@ -487,6 +517,15 @@ describe("verifyAuth — connect-token revoke check", () => {
       orgId: null,
       orgDomain: undefined,
     });
+    const issuedAtMs = signedIssuedAtMs(token);
+    expect(res.callerContext).toEqual({
+      credentialKind: "connect-legacy",
+      principal: { kind: "issued-subject", email: "ci@example.com" },
+      orgId: null,
+      orgDomain: undefined,
+      issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
+      revocationAnchor: { valueMs: issuedAtMs, source: "jwt-iat" },
+    });
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-personal");
   });
 
@@ -541,6 +580,17 @@ describe("verifyAuth — connect-token revoke check", () => {
       userEmail: "svc-mcp-client@service.org_123",
       orgId: "org_123",
       firstPartyMcp: true,
+    });
+    expect(res.callerContext).toEqual({
+      credentialKind: "a2a-deployment",
+      principal: {
+        kind: "asserted-user",
+        email: "svc-mcp-client@service.org_123",
+      },
+      orgId: "org_123",
+      orgDomain: undefined,
+      issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
+      revocationAnchor: null,
     });
   });
 
@@ -601,6 +651,15 @@ describe("verifyAuth — connect-token revoke check", () => {
       mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: "org_123",
       orgDomain: undefined,
+    });
+    const issuedAtMs = signedIssuedAtMs(token);
+    expect(res.callerContext).toEqual({
+      credentialKind: "connect-legacy",
+      principal: { kind: "service", email: "svc-ci@service.org_123" },
+      orgId: "org_123",
+      orgDomain: undefined,
+      issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
+      revocationAnchor: { valueMs: issuedAtMs, source: "jwt-iat" },
     });
     expect(res.fullSurface).toBe(true);
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-svc");
@@ -751,6 +810,15 @@ describe("verifyAuth — connect-token revoke check", () => {
       oauthScopes: ["mcp:read", "mcp:apps"],
       oauthClientId: "client-123",
     });
+    const issuedAtMs = signedIssuedAtMs(token);
+    expect(res.callerContext).toEqual({
+      credentialKind: "oauth",
+      principal: { kind: "issued-subject", email: "oauth@example.com" },
+      orgId: "org_123",
+      orgDomain: "builder.io",
+      issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
+      revocationAnchor: { valueMs: issuedAtMs, source: "jwt-iat" },
+    });
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
@@ -770,6 +838,45 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.authed).toBe(true);
     expect(res.identity?.mcpCredentialIssuedAtMs).toBe(grantCreatedAtMs);
+    expect(res.callerContext).toEqual({
+      credentialKind: "oauth",
+      principal: { kind: "issued-subject", email: "oauth@example.com" },
+      orgId: undefined,
+      orgDomain: undefined,
+      issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
+      revocationAnchor: {
+        valueMs: grantCreatedAtMs,
+        source: "grant-created-at",
+      },
+    });
+  });
+
+  it("does not invent an issue time or revocation anchor for a legacy token without iat", async () => {
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "ci@example.com",
+      orgId: null,
+    });
+    const token = await new jose.SignJWT({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-no-iat",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode(SECRET));
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity?.mcpCredentialIssuedAtMs).toBeUndefined();
+    expect(res.callerContext).toEqual({
+      credentialKind: "connect-legacy",
+      principal: { kind: "issued-subject", email: "ci@example.com" },
+      orgId: null,
+      orgDomain: undefined,
+      issuedAt: null,
+      revocationAnchor: null,
+    });
   });
 
   it("rejects a standard MCP OAuth access token for another resource", async () => {
@@ -811,6 +918,15 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toMatchObject({
       userEmail: "oauth-connect@example.com",
       oauthClientId: "agent-native-connect",
+    });
+    const issuedAtMs = signedIssuedAtMs(token);
+    expect(res.callerContext).toEqual({
+      credentialKind: "connect-oauth",
+      principal: { kind: "issued-subject", email: "oauth-connect@example.com" },
+      orgId: null,
+      orgDomain: undefined,
+      issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
+      revocationAnchor: { valueMs: issuedAtMs, source: "jwt-iat" },
     });
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-oauth-active");
@@ -973,6 +1089,12 @@ describe("verifyAuth — connect-token revoke check", () => {
       authed: true,
       identity: { userEmail: "owner@example.com" },
     });
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "static",
+      principal: { kind: "owner-hint", email: "owner@example.com" },
+      issuedAt: null,
+      revocationAnchor: null,
+    });
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 });
@@ -1037,6 +1159,14 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
     expect(res.identity?.userEmail).toBe("owner@example.com");
+    expect(res.callerContext).toEqual({
+      credentialKind: "static",
+      principal: { kind: "owner-hint", email: "owner@example.com" },
+      orgId: undefined,
+      orgDomain: undefined,
+      issuedAt: null,
+      revocationAnchor: null,
+    });
   });
 
   it("accepts bearer auth scheme case-insensitively with flexible spacing", async () => {
@@ -1053,12 +1183,24 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     const res = await verifyAuth(undefined, "owner@example.com");
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "dev-open",
+      principal: { kind: "owner-hint", email: "owner@example.com" },
+      issuedAt: null,
+      revocationAnchor: null,
+    });
   });
 
   it("no auth configured + no owner header (bare dev probe) → authed, fullSurface false (sparse)", async () => {
     const res = await verifyAuth(undefined, undefined);
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(false);
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "dev-open",
+      principal: { kind: "anonymous" },
+      issuedAt: null,
+      revocationAnchor: null,
+    });
   });
 
   it("no auth configured but allowDevOpen:false (deployed, no secret) → rejected", async () => {
@@ -1322,6 +1464,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
           : await signMcpOAuthAccessToken({
               ownerEmail: stored.ownerEmail,
               orgId: stored.orgId,
+              service: true,
               clientId: "agent-native-connect",
               jti: "jti-service-provenance",
               scope: "mcp:read",
@@ -1329,13 +1472,16 @@ describe("verifyAuth — the token's organization must still be the user's", () 
               issuer: "https://mail.agent-native.com",
             });
 
-      expect(
-        (
-          await verifyAuth(`Bearer ${token}`, undefined, {
-            resourceUrl: resource,
-          })
-        ).authed,
-      ).toBe(true);
+      const res = await verifyAuth(`Bearer ${token}`, undefined, {
+        resourceUrl: resource,
+      });
+      expect(res.authed).toBe(true);
+      expect(res.callerContext).toMatchObject({
+        credentialKind:
+          transport === "legacy" ? "connect-legacy" : "connect-oauth",
+        principal: { kind: "service", email: stored.ownerEmail },
+        orgId: stored.orgId,
+      });
       expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
         "jti-service-provenance",
       );
@@ -1652,6 +1798,14 @@ describe("verifyAuth — organization-member delegation for MCP", () => {
         orgId: "receiver-org",
         orgDomain: "example.test",
       },
+    });
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "a2a-org-member",
+      principal: { kind: "org-member", email: "member@example.test" },
+      orgId: "receiver-org",
+      orgDomain: "example.test",
+      issuedAt: { valueMs: expect.any(Number), source: "jwt-iat" },
+      revocationAnchor: null,
     });
     expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
       "receiver-org",

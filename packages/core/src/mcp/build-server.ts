@@ -281,6 +281,37 @@ export interface McpDirectoryWidgetTarget {
   writeActions?: readonly string[];
 }
 
+export interface McpCallerContext {
+  credentialKind:
+    | "oauth"
+    | "connect-oauth"
+    | "connect-legacy"
+    | "a2a-deployment"
+    | "a2a-organization"
+    | "a2a-org-member"
+    | "static"
+    | "dev-open";
+  /** An issued subject is not necessarily a person; assertions and hints are not verified users. */
+  principal:
+    | { kind: "issued-subject"; email: string }
+    | { kind: "service"; email: string }
+    | { kind: "org-member"; email: string }
+    | { kind: "asserted-user"; email: string }
+    | { kind: "owner-hint"; email: string }
+    | { kind: "organization" }
+    | { kind: "anonymous" };
+  /** Undefined means no organization was established; null means Personal scope. */
+  orgId: string | null | undefined;
+  orgDomain: string | undefined;
+  /** The verified JWT's own issue time, not the OAuth grant time. */
+  issuedAt: { valueMs: number; source: "jwt-iat" } | null;
+  /** The local credential time used to anchor logout revocation for widgets. */
+  revocationAnchor: {
+    valueMs: number;
+    source: "grant-created-at" | "jwt-iat";
+  } | null;
+}
+
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   identityAssurance?: "user" | "org-member" | "organization" | "service";
@@ -4010,6 +4041,8 @@ export class McpIdentityVerificationRefusedError extends Error {
 
 interface VerifiedMcpA2AIdentity {
   payload: Record<string, unknown>;
+  credentialKind: "a2a-deployment" | "a2a-organization" | "a2a-org-member";
+  issuedAt: number | undefined;
   identityAssurance?: "org-member";
 }
 
@@ -4045,6 +4078,7 @@ async function verifyA2AJwtForMcp(
       delegatedIdentity = await verifyA2AToken(token, event, {
         expectedAudience: audiences,
         requireAudience: true,
+        includeClaims: true,
       });
     } catch (error) {
       if (isA2AIdentityVerificationUnavailableError(error)) {
@@ -4068,6 +4102,8 @@ async function verifyA2AJwtForMcp(
           : {}),
       },
       identityAssurance: "org-member",
+      credentialKind: "a2a-org-member",
+      issuedAt: delegatedIdentity.claims?.iat,
     };
   }
 
@@ -4110,7 +4146,14 @@ async function verifyA2AJwtForMcp(
             payload as JWTPayload,
             organization,
           ) as Record<string, unknown> | null;
-          return claims ? { payload: claims } : null;
+          return claims
+            ? {
+                payload: claims,
+                credentialKind: "a2a-organization",
+                issuedAt:
+                  typeof payload.iat === "number" ? payload.iat : undefined,
+              }
+            : null;
         }
       }
 
@@ -4126,7 +4169,11 @@ async function verifyA2AJwtForMcp(
         !hasOrganizationClaim &&
         !hasOrganizationDomainClaim
       ) {
-        return { payload };
+        return {
+          payload,
+          credentialKind: "a2a-deployment",
+          issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
+        };
       }
 
       let verifiedOrganization:
@@ -4146,6 +4193,8 @@ async function verifyA2AJwtForMcp(
               org_domain: verifiedOrganization.orgDomain,
             }
           : payload,
+        credentialKind: "a2a-deployment",
+        issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
       };
     }
   }
@@ -4171,7 +4220,13 @@ async function verifyA2AJwtForMcp(
     payload as JWTPayload,
     organization,
   ) as Record<string, unknown> | null;
-  return claims ? { payload: claims } : null;
+  return claims
+    ? {
+        payload: claims,
+        credentialKind: "a2a-organization",
+        issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
+      }
+    : null;
 }
 
 async function isOrgMemberDelegationToken(token: string): Promise<boolean> {
@@ -4216,6 +4271,8 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
 export type VerifyAuthResult = {
   authed: boolean;
   identity?: MCPCallerIdentity;
+  /** Present only after successful authentication and admission. */
+  callerContext?: McpCallerContext;
   fullSurface?: boolean;
   fullCatalog?: boolean;
   /**
@@ -4238,6 +4295,7 @@ export type VerifyAuthResult = {
  */
 type IssuedMcpCredential = {
   userEmail: string;
+  credentialKind: "oauth" | "connect-oauth" | "connect-legacy";
   /** The signed `org_id` claim; undefined when the token has none. */
   orgId: string | null | undefined;
   orgDomain: string | undefined;
@@ -4280,6 +4338,7 @@ async function verifyLegacyConnectToken(
   }
   return {
     userEmail: payload.sub,
+    credentialKind: "connect-legacy",
     orgId: orgIdClaim.orgId,
     orgDomain:
       typeof payload.org_domain === "string" ? payload.org_domain : undefined,
@@ -4320,6 +4379,10 @@ async function verifyIssuedMcpCredential(
   if (!oauth) return "unverified";
   return {
     userEmail: oauth.userEmail,
+    credentialKind:
+      oauth.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+        ? "connect-oauth"
+        : "oauth",
     orgId: oauth.orgId,
     orgDomain: oauth.orgDomain,
     ...(oauth.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
@@ -4333,6 +4396,15 @@ async function verifyIssuedMcpCredential(
       : {}),
     issuedAt: oauth.issuedAt,
   };
+}
+
+function signedJwtIssuedAt(
+  issuedAt: number | undefined,
+): McpCallerContext["issuedAt"] {
+  if (typeof issuedAt !== "number" || !Number.isSafeInteger(issuedAt))
+    return null;
+  const valueMs = issuedAt * 1000;
+  return Number.isSafeInteger(valueMs) ? { valueMs, source: "jwt-iat" } : null;
 }
 
 /**
@@ -4414,7 +4486,30 @@ async function admitIssuedMcpCredential(
   if (admitted.authed && credential.connect) {
     await markConnectTokenUsed(credential.connect.jti);
   }
-  return admitted;
+  if (!admitted.authed) return admitted;
+  return {
+    ...admitted,
+    callerContext: {
+      credentialKind: credential.credentialKind,
+      principal: {
+        kind: stored?.kind === "service" ? "service" : "issued-subject",
+        email: credential.userEmail,
+      },
+      orgId,
+      orgDomain: credential.orgDomain,
+      issuedAt: signedJwtIssuedAt(credential.issuedAt),
+      revocationAnchor:
+        mcpCredentialIssuedAtMs === undefined
+          ? null
+          : {
+              valueMs: mcpCredentialIssuedAtMs,
+              source:
+                credential.grantCreatedAtMs !== undefined
+                  ? "grant-created-at"
+                  : "jwt-iat",
+            },
+    },
+  };
 }
 
 /**
@@ -4581,9 +4676,11 @@ export async function verifyAuth(
     if (options.allowDevOpen === false) {
       return { authed: false };
     }
+    const identity = deriveStaticTokenIdentity(ownerEmailHeader);
     return {
       authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
+      identity,
+      callerContext: staticCallerContext("dev-open", identity),
       fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
     };
   }
@@ -4627,7 +4724,7 @@ export async function verifyAuth(
         : tokenScope === MCP_CONNECT_SCOPE
           ? null
           : undefined;
-    return admitServicePrincipal({
+    const admitted = await admitServicePrincipal({
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -4649,6 +4746,30 @@ export async function verifyAuth(
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     });
+    if (!admitted.authed) return admitted;
+    const email = admitted.identity?.userEmail;
+    const principal: McpCallerContext["principal"] = email
+      ? {
+          kind:
+            verifiedA2AIdentity.credentialKind === "a2a-org-member"
+              ? "org-member"
+              : "asserted-user",
+          email,
+        }
+      : verifiedA2AIdentity.credentialKind === "a2a-organization"
+        ? { kind: "organization" }
+        : { kind: "anonymous" };
+    return {
+      ...admitted,
+      callerContext: {
+        credentialKind: verifiedA2AIdentity.credentialKind,
+        principal,
+        orgId: admitted.identity?.orgId,
+        orgDomain: admitted.identity?.orgDomain,
+        issuedAt: signedJwtIssuedAt(verifiedA2AIdentity.issuedAt),
+        revocationAnchor: null,
+      },
+    };
   }
 
   // A token that declares the member-delegation type must pass that verifier;
@@ -4665,6 +4786,22 @@ export async function verifyAuth(
       refusal: "invalid",
     }
   );
+}
+
+function staticCallerContext(
+  credentialKind: "static" | "dev-open",
+  identity: MCPCallerIdentity | undefined,
+): McpCallerContext {
+  return {
+    credentialKind,
+    principal: identity?.userEmail
+      ? { kind: "owner-hint", email: identity.userEmail }
+      : { kind: "anonymous" },
+    orgId: undefined,
+    orgDomain: undefined,
+    issuedAt: null,
+    revocationAnchor: null,
+  };
 }
 
 /**
@@ -4691,9 +4828,11 @@ async function matchStaticAccessToken(
     );
   });
   if (!matched) return null;
+  const identity = deriveStaticTokenIdentity(ownerEmailHeader);
   return {
     authed: true,
-    identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    identity,
+    callerContext: staticCallerContext("static", identity),
     fullSurface: true,
   };
 }
