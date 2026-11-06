@@ -431,6 +431,47 @@ describe("view-screen", () => {
     });
   });
 
+  it("reads the active screen's stored frame type without loading its source", async () => {
+    mocks.contentSelectChain.limit.mockClear();
+    mocks.resolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        title: "Newsletter",
+        data: JSON.stringify({
+          canvasFrames: [],
+          screenMetadata: { file_index: { frameType: "hubspot-email" } },
+        }),
+      },
+    });
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.activeScreen).toMatchObject({
+      id: "file_index",
+      frameType: "hubspot-email",
+    });
+    expect(mocks.contentSelectChain.limit).not.toHaveBeenCalled();
+  });
+
   it("does not report JSX support files as overview screens", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({

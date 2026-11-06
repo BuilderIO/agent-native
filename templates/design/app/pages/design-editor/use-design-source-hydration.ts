@@ -170,12 +170,15 @@ export function useDesignSourceHydration(
     }
   }, [dependencies, dirtyIds, files, loader]);
 
+  const dependenciesRef = useRef(dependencies);
+  dependenciesRef.current = dependencies;
+  // Every canvas Screen receives this; a new identity per source arrival re-renders all of them.
   const retrySources = useCallback(
     (id: string) => {
       if (!loader) return;
       for (const target of new Set([
         id,
-        ...(dependencies.idsByRoot.get(id) ?? []),
+        ...(dependenciesRef.current.idsByRoot.get(id) ?? []),
       ])) {
         const state = loader.get(target);
         if (
@@ -186,7 +189,7 @@ export function useDesignSourceHydration(
           void loader.request(target);
       }
     },
-    [dependencies, loader],
+    [loader],
   );
 
   const leaseHydratedSource = useCallback(
