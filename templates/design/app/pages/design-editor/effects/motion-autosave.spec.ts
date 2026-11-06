@@ -1,6 +1,12 @@
+import {
+  compileMotionCode,
+  MOTION_SOURCE_WRITE_UNAVAILABLE,
+} from "@shared/motion-code";
+import { injectManagedMotionCss } from "@shared/motion-compiler";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import type { MotionTextDocument } from "@shared/motion-text-code";
 import { createMotionTrack } from "@shared/motion-timeline";
+import { sourceContentHash } from "@shared/source-workspace";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -439,7 +445,7 @@ describe("runMotionAutosave", () => {
     });
   });
 
-  it("persists native styles and compiles their CSS instead of deleting an empty-track timeline", () => {
+  it("publishes the exact saved native-style source instead of reconstructing its marker", () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", globalThis);
     const refs = {
@@ -506,6 +512,21 @@ describe("runMotionAutosave", () => {
         onSuccess: (result: unknown) => void;
       }
     ).onSuccess;
+    const savedCss = compileMotionCode({
+      id: "timeline-1",
+      designId: "design-1",
+      sourceRef: "file-1",
+      filePath: null,
+      tracks: [],
+      nativeStyles: [nativeStyle],
+      durationMs: args.motionDurationMs,
+      playbackMode: args.motionPlaybackMode,
+      defaultEase: args.motionDefaultEase,
+      compiledHash: null,
+      createdAt: "",
+      updatedAt: "",
+    }).css;
+    const savedContent = injectManagedMotionCss(args.activeContent, savedCss);
     onSuccess({
       fileId: "file-1",
       timelineId: "timeline-1",
@@ -513,6 +534,7 @@ describe("runMotionAutosave", () => {
       compiledHash: "compiled-native-style",
       contentPatched: true,
       versionHash: "b".repeat(64),
+      patchedContent: savedContent,
     });
 
     expect(applyFileContentUpdate).toHaveBeenCalledOnce();
@@ -522,9 +544,23 @@ describe("runMotionAutosave", () => {
     expect(applyFileContentUpdate.mock.calls[0]?.[1]).toContain(
       "agent-native-motion-source",
     );
+    expect(applyFileContentUpdate.mock.calls[0]?.[1]).toBe(savedContent);
+    expect(sourceContentHash(applyFileContentUpdate.mock.calls[0]?.[1])).toBe(
+      sourceContentHash(savedContent),
+    );
+    expect(applyFileContentUpdate.mock.calls[0]?.[2]).toMatchObject({
+      persist: false,
+      serverAccepted: true,
+      updatedAt: "2026-10-11T00:00:01.000Z",
+    });
     expect(args.setMotionHydrationFingerprint).toHaveBeenCalledWith(
       expect.stringContaining("b".repeat(64)),
     );
+    applyFileContentUpdate.mockClear();
+    expect(() => onSuccess({ fileId: "file-1", contentPatched: true })).toThrow(
+      MOTION_SOURCE_WRITE_UNAVAILABLE,
+    );
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
   });
 
   it("requests consent and retries the same still-pending source revision once", () => {

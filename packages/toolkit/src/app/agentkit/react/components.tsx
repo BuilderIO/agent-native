@@ -124,12 +124,14 @@ import {
   snapshotComposerValue,
   type AgentKitComposerSubmission,
 } from "./composer-submission.js";
+import { CoreFileStorageSetupContext } from "./core-file-storage.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
+  AgentKitUploadError,
   hasActiveAgentRuns,
   isCurrentAgentSuggestion,
   selectAgentSuggestions,
@@ -6506,6 +6508,100 @@ export function AgentKitComposer({
     () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
     [attachmentAdapter, composerTranslate],
   );
+  const formatUploadError = (error: unknown): string => {
+    const formatFailure = (failure: unknown): string => {
+      const code =
+        failure && typeof failure === "object" && "code" in failure
+          ? failure.code
+          : undefined;
+      const key =
+        code === "upload_too_large"
+          ? "agentChat.composer.fileTooLarge"
+          : code === "upload_session_expired"
+            ? "agentChat.composer.sessionExpired"
+            : code === "upload_unsupported_type"
+              ? "agentChat.composer.unsupportedFileType"
+              : code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : code === "upload_unavailable"
+                  ? "agentChat.composer.uploadUnavailable"
+                  : code === "upload_invalid_response"
+                    ? "agentChat.composer.uploadFailed"
+                    : undefined;
+      return key
+        ? composerTranslate(key, { size: 25 })
+        : formatAttachmentError(failure, labels.dropFileFailed);
+    };
+    return error instanceof AgentKitUploadError
+      ? error.failures
+          .map((failure) => `${failure.name}: ${formatFailure(failure.error)}`)
+          .join("\n")
+      : formatFailure(error);
+  };
+  const coreFileStorageSetup = useContext(CoreFileStorageSetupContext);
+  const storageAnchorRef = useRef<HTMLDivElement>(null);
+  const [storageState, setStorageState] = useState<
+    "unknown" | "pending" | "ready" | "missing" | "unavailable"
+  >("unknown");
+  const [storageOpen, setStorageOpen] = useState(false);
+  const storageOpenRef = useRef(false);
+  const changeStorageOpen = useCallback((open: boolean) => {
+    storageOpenRef.current = open;
+    setStorageOpen(open);
+  }, []);
+  const storageScope = useMemo(
+    () => ({ current: true }),
+    [controller, threadId, canUpload, coreFileStorageSetup?.scopeKey],
+  );
+  useEffect(() => {
+    storageScope.current = true;
+    return () => {
+      storageScope.current = false;
+    };
+  }, [storageScope, changeStorageOpen]);
+  useEffect(() => {
+    changeStorageOpen(false);
+    setStorageState("unknown");
+  }, [storageScope, changeStorageOpen]);
+  const storageReadRef = useRef<{
+    scope: typeof storageScope;
+    pending: Promise<{ configured: boolean }>;
+  } | null>(null);
+  const requestCoreAttachment = useCallback(async () => {
+    const isCurrentScope = () => storageScope.current;
+    if (!canUpload || !isCurrentScope() || !coreFileStorageSetup)
+      return "stale" as const;
+    setStorageState("pending");
+    changeStorageOpen(false);
+    const previous = storageReadRef.current;
+    const sharedRead =
+      previous?.scope === storageScope ? previous.pending : null;
+    const pending = sharedRead ?? coreFileStorageSetup.readStatus();
+    storageReadRef.current = { scope: storageScope, pending };
+    try {
+      const status = await pending;
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState(status.configured ? "ready" : "missing");
+      changeStorageOpen(!status.configured);
+      return status.configured ? ("ready" as const) : ("missing" as const);
+    } catch (error) {
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState("unavailable");
+      changeStorageOpen(true);
+      onAttachmentError?.(formatAttachmentError(error, labels.dropFileFailed));
+      return "unavailable" as const;
+    } finally {
+      const currentRead = () => storageReadRef.current;
+      if (currentRead()?.pending === pending) storageReadRef.current = null;
+    }
+  }, [
+    canUpload,
+    coreFileStorageSetup,
+    storageScope,
+    onAttachmentError,
+    labels.dropFileFailed,
+    changeStorageOpen,
+  ]);
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
   const composerInitialText = editingMessage
@@ -6538,10 +6634,12 @@ export function AgentKitComposer({
     return true;
   };
   const focusComposer = useCallback(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || storageOpenRef.current) return;
     composerRef.current?.focus();
     if (typeof globalThis.requestAnimationFrame === "function") {
-      globalThis.requestAnimationFrame(() => composerRef.current?.focus());
+      globalThis.requestAnimationFrame(() => {
+        if (!storageOpenRef.current) composerRef.current?.focus();
+      });
     }
   }, [autoFocus]);
   const reportAttachmentError = useCallback(
@@ -6650,6 +6748,25 @@ export function AgentKitComposer({
     const onLocalSubmit = () => {
       options.onLocalSubmit?.();
     };
+    if (files.length && !uploadGateRef.current.enabled) {
+      throw new AgentKitCapabilityError(
+        "uploads",
+        "unavailable",
+        uploadGateRef.current.reason ?? labels.error,
+      );
+    }
+    if (files.length && coreFileStorageSetup) {
+      const status = await requestCoreAttachment();
+      if (status !== "ready") {
+        throw new Error(
+          composerTranslate(
+            status === "missing"
+              ? "onboarding.fileStorage.title"
+              : "onboarding.fileStorage.statusUnavailable",
+          ),
+        );
+      }
+    }
     if (!editingMessage && onSubmitOverride) {
       const readinessEngine = options.engine ?? selectedEngine;
       await controller.assertAiSetupReady({
@@ -6662,13 +6779,6 @@ export function AgentKitComposer({
       };
       await onSubmitOverride(text, files, references, submitOptions);
       return;
-    }
-    if (files.length && !uploadGateRef.current.enabled) {
-      throw new AgentKitCapabilityError(
-        "uploads",
-        "unavailable",
-        uploadGateRef.current.reason ?? labels.error,
-      );
     }
     const effort = options.effort;
     const executionMode = options.requestMode ?? "act";
@@ -6911,7 +7021,40 @@ export function AgentKitComposer({
   const suggestions = selectAgentSuggestions(thread);
   return (
     <ComposerNoticeScope>
-      <div className={`agentkit-composer-stack ${className ?? ""}`}>
+      <div
+        ref={storageAnchorRef}
+        className={`agentkit-composer-stack ${className ?? ""}`}
+      >
+        {coreFileStorageSetup && canUpload && (
+          <>
+            <coreFileStorageSetup.Setup
+              open={storageOpen}
+              anchorRef={storageAnchorRef}
+              onOpenChange={(open) => {
+                changeStorageOpen(open);
+                if (!open) composerRef.current?.focus();
+              }}
+              onConnected={() => {
+                void requestCoreAttachment();
+              }}
+              {...(storageState === "unavailable"
+                ? {
+                    status: "unavailable" as const,
+                    onRetry: () => {
+                      void requestCoreAttachment();
+                    },
+                  }
+                : { status: "missing" as const })}
+            />
+            {storageState === "pending" && (
+              <span role="status" className="text-sm text-foreground">
+                {composerTranslate("agentChat.common.loading", {
+                  defaultValue: "Loading...",
+                })}
+              </span>
+            )}
+          </>
+        )}
         {announcePendingSubmission && submissionPending ? (
           <span
             className="agentkit-visually-hidden"
@@ -7134,6 +7277,10 @@ export function AgentKitComposer({
           stopButton={stopButton === undefined ? defaultStopButton : stopButton}
           noticeOutlet
           attachmentsEnabled={canUpload}
+          onAttachmentRequest={onAttachmentRequest}
+          contextButtonTooltipDisabled={
+            contextButtonTooltipDisabled || storageOpen
+          }
           includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}
           includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}
           plusMenuMode={plusMenuMode ?? "full"}
@@ -7170,7 +7317,7 @@ export function AgentKitComposer({
             dismissLabel={labels.dismissNotice}
           >
             <span {...SESSION_REPLAY_MASK_PROPS}>
-              {sendOrCommandError.message}
+              {formatUploadError(sendOrCommandError)}
             </span>
           </ComposerNotice>
         ) : null}

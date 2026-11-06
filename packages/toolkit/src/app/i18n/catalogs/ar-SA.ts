@@ -497,7 +497,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "استخدم أدوات {{integration}}",
   "composer.menu.scheduleTask": "جدولة مهمة",
   "composer.menu.scheduleTaskDescription": "تشغيل مهمة وفق جدول زمني",
-  "composer.menu.uploadFile": "رفع ملف",
+  "composer.menu.uploadFile": "الملفات والصور",
+  "composer.menu.searchWorkspace": "البحث في مساحة العمل…",
+  "composer.menu.references": "المراجع",
+  "composer.menu.referenceFile": "الإشارة إلى ملف",
+  "composer.menu.attachToMessage": "إضافة سياق",
+  "composer.menu.commands": "الأوامر",
   "composer.menu.uploadFileDescription":
     "صور وPDFs ونصوص/تعليمات برمجية وJSON وCSV",
   "composer.messageAgent": "مراسلة الوكيل...",

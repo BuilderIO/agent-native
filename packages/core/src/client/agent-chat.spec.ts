@@ -170,6 +170,33 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("hello");
   });
 
+  it("preserves integration handoff references and rejects malformed references", () => {
+    const reference = {
+      type: "mention" as const,
+      path: "github",
+      name: "GitHub",
+      source: "workspace-integration",
+      refType: "integration",
+      refId: "github",
+    };
+    sendToAgentChat({ message: "Use GitHub", references: [reference] });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)?.references,
+    ).toEqual([reference]);
+    expect(() =>
+      parseSubmitChatMessage({
+        data: {
+          ...payload,
+          data: {
+            ...payload.data,
+            references: [{ ...reference, type: "unsupported" }],
+          },
+        },
+      } as MessageEvent),
+    ).toThrow();
+  });
+
   it("carries usageLabel through the postMessage payload and back out", () => {
     sendToAgentChat({
       message: "enrich this record",
