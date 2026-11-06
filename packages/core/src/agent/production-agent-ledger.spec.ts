@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction } from "../action.js";
+import { getDbExec } from "../db/client.js";
 import {
   getOrCreateRequestDbPool,
   getRequestDbPool,
@@ -12,6 +13,10 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { assembleA2AFinalResponse } from "../server/agent-chat/action-filters-a2a.js";
 import * as errorCapture from "../server/capture-error.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import {
+  StaleExecutionFenceError,
+  withExecutionFence,
+} from "./execution-fence.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   runAgentLoop,
@@ -71,31 +76,39 @@ vi.mock("../org/app-roles.js", async (importOriginal) => ({
   resolveAppAuthorizationContext: resolveAppAuthorizationContextMock,
 }));
 
-vi.mock("./run-store.js", () => ({
-  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
-  writeLedgerEntry: writeLedgerMock,
-  readLedgerEntry: readLedgerMock,
-  clearLedgerForThread: clearLedgerMock,
-  getCurrentTurnEventsForThread: currentTurnEventsMock,
-  insertRun: vi.fn(),
-  updateRunHeartbeat: vi.fn(),
-  getRunAbortState: vi.fn(async () => ({ aborted: false, reason: null })),
-  insertRunEvent: vi.fn(),
-  updateRunStatusIfRunning: vi.fn(),
-  markRunAborted: vi.fn(),
-  reapIfStale: vi.fn(async () => false),
-  bumpRunProgress: vi.fn(),
-  ensureTerminalRunEvent: vi.fn(),
-  setRunError: vi.fn(),
-  setRunTerminalReason: vi.fn(),
-  STALE_RUN_ERROR_EVENT: {
-    type: "error",
-    error: "stale",
-    errorCode: "stale_run",
-    recoverable: true,
-    details: "",
-  },
-}));
+vi.mock("./run-store.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./run-store.js")>();
+  return {
+    BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
+    beginAgentExecutionStep: original.beginAgentExecutionStep,
+    markAgentExecutionStepDispatched: original.markAgentExecutionStepDispatched,
+    markAgentExecutionStepUnknown: original.markAgentExecutionStepUnknown,
+    recordLateAgentExecutionStepOutcome:
+      original.recordLateAgentExecutionStepOutcome,
+    writeLedgerEntry: writeLedgerMock,
+    readLedgerEntry: readLedgerMock,
+    clearLedgerForThread: clearLedgerMock,
+    getCurrentTurnEventsForThread: currentTurnEventsMock,
+    insertRun: vi.fn(),
+    updateRunHeartbeat: vi.fn(),
+    getRunAbortState: vi.fn(async () => ({ aborted: false, reason: null })),
+    insertRunEvent: vi.fn(),
+    updateRunStatusIfRunning: vi.fn(),
+    markRunAborted: vi.fn(),
+    reapIfStale: vi.fn(async () => false),
+    bumpRunProgress: vi.fn(),
+    ensureTerminalRunEvent: vi.fn(),
+    setRunError: vi.fn(),
+    setRunTerminalReason: vi.fn(),
+    STALE_RUN_ERROR_EVENT: {
+      type: "error",
+      error: "stale",
+      errorCode: "stale_run",
+      recoverable: true,
+      details: "",
+    },
+  };
+});
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -294,12 +307,17 @@ describe("tool-call result ledger", () => {
     await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
   });
 
-  it("captures a late ledger persistence failure after an interrupted write resolves", async () => {
+  it("captures a stale fence when an interrupted write resolves after its lease is released", async () => {
+    const store =
+      await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
+    const fence = await store.claimTaskExecutionLease(
+      "thread-late-step-failure",
+      "turn-late-step-failure",
+      "run-late-step-failure",
+    );
     const capture = vi
       .spyOn(errorCapture, "captureError")
       .mockImplementation(() => {});
-    const persistenceError = new Error("ledger unavailable");
-    writeLedgerMock.mockRejectedValue(persistenceError);
     const started = Promise.withResolvers<void>();
     const actionResult = Promise.withResolvers<string>();
     const action = makeWriteAction();
@@ -308,22 +326,25 @@ describe("tool-call result ledger", () => {
       return actionResult.promise;
     });
     const controller = new AbortController();
-    const events: unknown[] = [];
+    const events: import("./types.js").AgentChatEvent[] = [];
 
     try {
-      const request = runAgentLoop({
-        engine: singleToolEngine("save-data", { content: "slow" }),
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [
-          { role: "user", content: [{ type: "text", text: "save this" }] },
-        ],
-        actions: { "save-data": action },
-        send: (event) => events.push(event),
-        signal: controller.signal,
-        threadId: "thread-late-ledger-failure",
-      }).catch(() => {});
+      const request = withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: singleToolEngine("save-data", { content: "slow" }),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "save this" }] },
+          ],
+          actions: { "save-data": action },
+          send: (event) => events.push(event),
+          signal: controller.signal,
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+        }),
+      );
       await started.promise;
       controller.abort();
       await request;
@@ -335,11 +356,22 @@ describe("tool-call result ledger", () => {
           result: "Interrupted before this tool returned a result.",
         }),
       );
+      const toolStart = events.find((event) => event.type === "tool_start");
+      expect(toolStart?.executionStepId).toEqual(expect.any(String));
+      const readStep = () =>
+        getDbExec().execute({
+          sql: "SELECT status, result_json FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ? AND step_id = ?",
+          args: [fence.threadId, fence.turnId, toolStart?.executionStepId],
+        });
+      expect((await readStep()).rows).toEqual([
+        expect.objectContaining({ status: "unknown", result_json: null }),
+      ]);
+      await store.releaseTurnExecutionLease(fence);
       actionResult.resolve("write-result");
 
       await vi.waitFor(() =>
         expect(capture).toHaveBeenCalledWith(
-          persistenceError,
+          expect.any(StaleExecutionFenceError),
           expect.objectContaining({
             route: "/_agent-native/agent-chat",
             tags: {
@@ -350,15 +382,10 @@ describe("tool-call result ledger", () => {
           }),
         ),
       );
-      expect(writeLedgerMock).toHaveBeenCalledWith(
-        "thread-late-ledger-failure",
-        ledgerKey("save-data", { content: "slow" }),
-        "write-result",
-        [],
-        true,
-        undefined,
-        actionArgumentsHash({ content: "slow" }),
-      );
+      expect((await readStep()).rows).toEqual([
+        expect.objectContaining({ status: "unknown", result_json: null }),
+      ]);
+      expect(writeLedgerMock).not.toHaveBeenCalled();
     } finally {
       capture.mockRestore();
     }
