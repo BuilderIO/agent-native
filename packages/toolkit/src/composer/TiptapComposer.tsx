@@ -1278,9 +1278,10 @@ export interface TiptapComposerProps {
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control rendered beside send while a run is active, whatever the
-   * draft holds. Pass it only while there is something to stop; Escape in the
-   * editor clicks it when it is enabled.
+   * Stop control for an active run. It takes the primary slot while the
+   * composer is empty and gives it to Send once a draft exists; it stays
+   * mounted, so Escape in the editor still clicks it when it is enabled. Pass
+   * it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */

@@ -1048,11 +1048,20 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
 }
 
 // The CTE is materialized so the previous value is read before set_config
-// replaces it; inlined, both calls share one projection with no order.
+// replaces it; inlined, both calls share one projection with no order. A
+// stricter cap the transaction already holds is kept; 0 means none.
 const BOUND_STATEMENT_TIMEOUT_SQL = `WITH previous AS MATERIALIZED (
-    SELECT current_setting('statement_timeout') AS value
+    SELECT current_setting('statement_timeout') AS value,
+           setting::bigint AS ms
+    FROM pg_settings
+    WHERE name = 'statement_timeout'
   )
-  SELECT value AS previous, set_config('statement_timeout', ?, true)
+  SELECT value AS previous, ms AS previous_ms,
+         set_config(
+           'statement_timeout',
+           CASE WHEN ms > 0 AND ms <= CAST(? AS BIGINT) THEN value ELSE ? END,
+           true
+         )
   FROM previous
   LIMIT 1`;
 const SET_STATEMENT_TIMEOUT_SQL =
@@ -1079,19 +1088,25 @@ async function withTransactionStatementTimeout<T>(
   const serverTimeout = () => postgresStatementTimeoutMs(remainingMs());
   const applied = serverTimeout();
   const bound = await runSetting(
-    { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [`${applied}ms`] },
+    { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [applied, `${applied}ms`] },
     remainingMs(),
   );
-  const previous = (bound[0] as { previous?: unknown } | undefined)?.previous;
-  if (typeof previous !== "string") {
+  const row = bound[0] as
+    | { previous?: unknown; previous_ms?: unknown }
+    | undefined;
+  const previous = row?.previous;
+  const previousMs = Number(row?.previous_ms);
+  if (typeof previous !== "string" || !Number.isFinite(previousMs)) {
     throw new Error(
       "Could not read the transaction's statement_timeout before bounding a statement",
     );
   }
+  const effective =
+    previousMs > 0 && previousMs <= applied ? previousMs : applied;
   // A slow round trip above leaves less of the budget than the server was
   // given, so the statement could outlive its caller holding its locks.
   const tightened = serverTimeout();
-  if (applied - tightened > POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS) {
+  if (effective - tightened > POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS) {
     await runSetting(
       { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${tightened}ms`] },
       remainingMs(),

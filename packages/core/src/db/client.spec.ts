@@ -2002,7 +2002,7 @@ describe("Neon foreground statement budgets", () => {
         throw new Error("multi-command queries require the simple protocol");
       }
       if (sql.includes("current_setting")) {
-        return { rows: [{ previous: "0" }], rowCount: 1 };
+        return { rows: [{ previous: "0", previous_ms: "0" }], rowCount: 1 };
       }
       return sql === "SELECT 1"
         ? { rows: [{ value: 1 }], rowCount: 1 }
@@ -2048,7 +2048,7 @@ describe("Neon foreground statement budgets", () => {
       ],
       [
         expect.stringContaining("current_setting('statement_timeout')"),
-        ["900ms"],
+        [900, "900ms"],
       ],
       ["SELECT 1", []],
       ["SELECT set_config('statement_timeout', $1, true)", ["0"]],
@@ -2446,7 +2446,9 @@ describe("db/client postgres-js request pool recovery", () => {
         statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
         return Promise.resolve(
           Object.assign(
-            query.includes("current_setting") ? [{ previous: "2s" }] : [],
+            query.includes("current_setting")
+              ? [{ previous: "2s", previous_ms: "2000" }]
+              : [],
             { count: 1 },
           ),
         );
@@ -2480,7 +2482,7 @@ describe("db/client postgres-js request pool recovery", () => {
 
     expect(statements).toEqual([
       expect.stringMatching(
-        /current_setting\('statement_timeout'\)[\s\S]*set_config\('statement_timeout', \$1, true\)[\s\S]* \[3750ms\]$/,
+        /current_setting\('statement_timeout'\)[\s\S]*set_config\([\s\S]*CAST\(\$1 AS BIGINT\)[\s\S]* \[3750, 3750ms\]$/,
       ),
       "UPDATE agent_execution_leases SET updated_at = now()",
       "SELECT set_config('statement_timeout', $1, true) [2s]",
