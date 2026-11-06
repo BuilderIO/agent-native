@@ -222,6 +222,7 @@ a.b { color: inherit; text-decoration: none; }
   <span class="grow"></span>
   <button class="chip" id="ann-btn">Announcement</button>
   <button class="chip" id="fig-btn" aria-pressed="false" title="Switch the sidebar card and the announcement to Figma import only">Figma only</button>
+  <button class="chip" id="bld-btn" aria-pressed="false" title="Switch the sidebar card to the Builder.io card, shown while Builder.io isn't connected">Builder.io card</button>
   <button class="chip" id="fail-btn" aria-pressed="false" title="Imports stop with an error on the second step">Import fails</button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
@@ -323,7 +324,13 @@ document.head.insertAdjacentHTML("beforeend", `<style>${NEBULA_CSS}</style>`);
 // teal. It sits on the page background like that header, so it follows the theme. The card draws the same
 // markup inside the dashboard frame, which names its colors differently (the --f* variables).
 const MELD = `<div class="meld" aria-hidden="true">${"<i></i>".repeat(8)}</div><div class="grain" aria-hidden="true"></div>`;
-const FIG_PAIR = `<span class="fig-pair" aria-hidden="true"><span class="ft">${logo("figma")}</span><span class="fd"><i></i><i></i><i></i></span><span class="ft">${MARK}</span></span>`;
+const pairHTML = (from) => `<span class="fig-pair" aria-hidden="true"><span class="ft">${from}</span><span class="fd"><i></i><i></i><i></i></span><span class="ft">${MARK}</span></span>`;
+const FIG_PAIR = pairHTML(logo("figma"));
+// Builder.io's B mark, from packages/core/src/client/builder-mark.tsx. It is one color, so the Builder.io
+// card's wash uses the Agent-Native blues and teal alone.
+const BUILDER_MARK = `<svg class="lg" viewBox="0 0 116 130" aria-hidden="true"><path d="M115.14 39C115.14 17.36 97.58 0 76.14 0H10.27C4.58002 0 0 4.62002 0 10.27C0 20.79 22.2899 28.78 22.2899 65C22.2899 101.22 0 109.21 0 119.73C0 125.38 4.58002 130 10.27 130H76.14C97.58 130 115.14 112.64 115.14 91C115.14 75.1 105.59 65.41 105.21 65C105.58 64.59 115.14 54.9 115.14 39ZM13.58 11.1504H76.14C83.58 11.1504 90.58 14.0501 95.84 19.3101C101.1 24.5701 104 31.5703 104 39.0103C104 46.4503 101.26 53.0102 96.38 58.1602L13.59 11.1504H13.58ZM95.83 110.7C90.57 115.96 83.57 118.86 76.13 118.86H13.5699L96.36 71.8501C101.24 77.0001 103.98 83.8 103.98 91C103.98 98.2 101.08 105.44 95.8199 110.7H95.83ZM25.7 99.1602C26.36 97.7802 33.4199 84.08 33.4199 65C33.4199 45.92 26.36 32.2203 25.7 30.8403L85.86 65L25.7 99.1602Z"/></svg>`;
+const BUILDER_PAIR = pairHTML(BUILDER_MARK);
+const MELD_AN = MELD.replace('class="meld"', 'class="meld an"');
 const MELD_CSS = `
 .fig { --fb: var(--color-background); --fbd: var(--color-border); --ffg: var(--color-foreground); --fmuted: var(--color-muted-foreground); background: var(--fb); }
 .fig::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; background: linear-gradient(to bottom, transparent 50%, color-mix(in srgb, var(--fb) 70%, transparent)); box-shadow: var(--fig-edge, inset 0 -1px 0 var(--fbd)); }
@@ -337,11 +344,15 @@ const MELD_CSS = `
 .meld i:nth-child(6) { left: 52%; top: 0%; width: 48%; height: 60%; background: radial-gradient(closest-side, var(--c-blue-600), transparent); }
 .meld i:nth-child(7) { left: 56%; top: 30%; width: 44%; height: 60%; background: radial-gradient(closest-side, var(--c-blue-500), transparent); }
 .meld i:nth-child(8) { left: 64%; top: 52%; width: 40%; height: 52%; background: radial-gradient(closest-side, var(--c-green-400), transparent); }
+.meld.an i:nth-child(1), .meld.an i:nth-child(5) { background: radial-gradient(closest-side, var(--c-blue-600), transparent); }
+.meld.an i:nth-child(2), .meld.an i:nth-child(8) { background: radial-gradient(closest-side, var(--c-blue-300), transparent); }
+.meld.an i:nth-child(3), .meld.an i:nth-child(6) { background: radial-gradient(closest-side, var(--c-blue-500), transparent); }
+.meld.an i:nth-child(4), .meld.an i:nth-child(7) { background: radial-gradient(closest-side, var(--c-green-400), transparent); }
 .grain { position: absolute; inset: 0; z-index: -1; opacity: .1; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 /* The upload header's tiles and dots, scaled by --t from its 56px tile. */
 .fig-pair { --k: calc(var(--t, 80px) / 56px); position: absolute; left: 50%; top: 50%; z-index: 2; transform: translate(-50%, -50%); display: flex; align-items: center; gap: calc(24px * var(--k)); }
 .ft { width: var(--t, 80px); height: var(--t, 80px); flex: none; border-radius: calc(10px * var(--k)); display: grid; place-items: center; color: var(--ffg); background: var(--fb); border: 1px solid var(--fbd); box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 calc(12px * var(--k)) calc(32px * var(--k)) calc(-8px * var(--k)) rgb(0 0 0 / 18%); }
-.ft svg.lg { width: calc(24px * var(--k)); height: calc(24px * var(--k)); display: block; }
+.ft svg.lg { width: calc(24px * var(--k)); height: calc(24px * var(--k)); display: block; fill: currentColor; }
 .ft svg.an { width: calc(30px * var(--k)); height: calc(18px * var(--k)); display: block; fill: currentColor; }
 .fd { display: flex; gap: calc(8px * var(--k)); }
 .fd i { width: calc(6px * var(--k)); height: calc(6px * var(--k)); border-radius: 50%; background: var(--fmuted); opacity: .35; animation: fd-relay 1.8s ease-in-out infinite; }
@@ -410,18 +421,22 @@ function viewProgress() {
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 // The sidebar card and the dialog share their title and button. The Figma variant announces Figma import
-// alone, and its button goes straight to the Figma upload instead of the picker.
+// alone, and its button goes straight to the Figma upload instead of the picker. The Builder.io variant is a
+// card only, shown while Builder.io isn't connected: the card and its button run the one-click Builder.io
+// setup (it creates or reuses the account and turns on its free credits), using the app's own labels.
 const ANNS = {
   all: { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", lead: "Bring a project from another tool into Agent‑Native Design.", cta: "Import project", act: "import-now", proto: "import",
     checks: ["Move a project from Lovable, v0, Bolt, Replit, and more", "Import a Figma file or a GitHub repository", "Keep building your project as an agentic app"] },
   figma: { title: "Import from Figma", desc: "Bring your Figma designs into your project and keep building.", lead: "Bring your Figma designs into Agent‑Native Design.", cta: "Import from Figma", act: "import-figma", proto: "import-figma",
     checks: ["Import Figma files into Agent‑Native Design", "Start with the designs you already have", "Continue building as an agentic app"] },
+  builder: { title: "Get free AI credits", desc: "Run the agent, build full apps, and store files without API keys.", cta: "Use Builder.io", proto: "builder", cardOnly: true },
 };
+const dialogKind = () => ANNS[annKind].cardOnly ? "all" : annKind;
 let annKind = "all";
 const RINGS = '<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg>';
 function viewAnnouncement() {
-  const a = ANNS[annKind];
-  const hero = annKind === "figma"
+  const kind = dialogKind(), a = ANNS[kind];
+  const hero = kind === "figma"
     ? `<div class="hero fig">${MELD}${FIG_PAIR}</div>`
     : `<div class="hero">${NEBULA}${RINGS}<div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>`;
   return `${hero}
@@ -453,7 +468,7 @@ function render({ focus = true, animate = true } = {}) {
   const view = ov.querySelector(".view");
   const keep = view.dataset.key === key();
   dlg.classList.toggle("ann", S.view === "announcement");
-  dlg.classList.toggle("ann-light", S.view === "announcement" && annKind === "figma");
+  dlg.classList.toggle("ann-light", S.view === "announcement" && dialogKind() === "figma");
   // Re-rendering the same view (typing, progress ticks) keeps the field focused and skips the fade.
   const active = document.activeElement?.id, caret = active === "imp-url" ? document.activeElement.selectionStart : null;
   const fresh = document.createElement("div");
@@ -744,6 +759,7 @@ addEventListener("message", (e) => {
   if (e.source !== dash.contentWindow) return;
   if (e.data?.proto === "import") open("picker");
   else if (e.data?.proto === "import-figma") open("upload", { src: "figma" });
+  else if (e.data?.proto === "builder-done") toast("Builder.io account created and connected.");
   else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
 });
@@ -770,16 +786,24 @@ const CARD_CSS = `${NEBULA_CSS}${MELD_CSS}
 .an-cta:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring)); }`;
 function cardHTML(kind) {
   const a = ANNS[kind];
-  const hero = kind === "figma"
-    ? `<span class="an-hero fig">${MELD}${FIG_PAIR}</span>`
+  const hero = kind === "figma" ? `<span class="an-hero fig">${MELD}${FIG_PAIR}</span>`
+    : kind === "builder" ? `<span class="an-hero fig">${MELD_AN}${BUILDER_PAIR}</span>`
     : `<span class="an-hero">${NEBULA}${RINGS}<span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span>`;
-  return `<div class="an-card"><button type="button" class="an-open" data-proto="announce">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
+  return `<div class="an-card"><button type="button" class="an-open" data-proto="${a.cardOnly ? a.proto : "announce"}">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
 }
 // Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
 const ORBITS = ${JSON.stringify(ORBITS)}, ORBIT_PERIOD = ${ORBIT_PERIOD}, TAU = Math.PI * 2;
 ${slotAngle.toString()}
 addEventListener("click", (e) => {
+  if (e.target.closest('[data-proto="builder"]')) {
+    e.preventDefault();
+    const cta = document.querySelector('.an-cta[data-proto="builder"]');
+    if (!cta || cta.disabled) return;
+    cta.textContent = "Setting up Builder.io…"; cta.disabled = true;
+    setTimeout(() => { slot.innerHTML = ""; parent.postMessage({ proto: "builder-done" }, "*"); }, 1600);
+    return;
+  }
   if (e.target.closest('[data-proto="import-figma"]')) { e.preventDefault(); parent.postMessage({ proto: "import-figma" }, "*"); return; }
   if (e.target.closest('[data-proto="import"]')) { e.preventDefault(); parent.postMessage({ proto: "import" }, "*"); return; }
   if (e.target.closest('[data-proto="announce"]')) { e.preventDefault(); parent.postMessage({ proto: "announce" }, "*"); return; }
@@ -818,12 +842,15 @@ $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
 function syncCard() { dash.contentWindow?.postMessage({ protoCard: cardHTML(annKind) }, "*"); }
 dash.addEventListener("load", () => { if (annKind !== "all") syncCard(); });
-$("#fig-btn").addEventListener("click", (e) => {
-  annKind = annKind === "figma" ? "all" : "figma";
-  e.currentTarget.setAttribute("aria-pressed", String(annKind === "figma"));
+function setKind(kind) {
+  annKind = annKind === kind ? "all" : kind;
+  $("#fig-btn").setAttribute("aria-pressed", String(annKind === "figma"));
+  $("#bld-btn").setAttribute("aria-pressed", String(annKind === "builder"));
   syncCard();
   if (S.open && S.view === "announcement") { stopOrbit(); render({ animate: false }); }
-});
+}
+$("#fig-btn").addEventListener("click", () => setKind("figma"));
+$("#bld-btn").addEventListener("click", () => setKind("builder"));
 $("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
 kitChangesInit($("#changes-btn"));
 addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); if (S.view === "picker") placeBelt(); });
