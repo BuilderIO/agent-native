@@ -264,6 +264,9 @@
       "default": "./dist/guards/index.js"
     },
     "./application-state": "./dist/application-state/index.js",
+    "./client/experience-profiles": "./dist/client/experience-profiles.js",
+    "./experience-profiles": "./dist/experience-profiles/index.js",
+    "./experience-profiles/server": "./dist/experience-profiles/server.js",
     "./settings": "./dist/settings/index.js",
     "./user-profile": "./dist/user-profile/index.js",
     "./user-profile/server": "./dist/user-profile/store.js",
