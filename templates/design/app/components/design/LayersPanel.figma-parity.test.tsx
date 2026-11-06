@@ -20,6 +20,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 type PanelProps = ComponentProps<typeof LayersPanel>;
 
+function textSession(layerId: string, originalValue: string) {
+  return {
+    layerId,
+    originalValue,
+    screenId: "screen",
+    selector: layerId,
+    sourceHash: "source",
+    durableId: layerId,
+    tag: "p",
+  };
+}
+
 let cleanup: (() => Promise<void>) | null = null;
 
 afterEach(async () => {
@@ -215,7 +227,7 @@ describe("LayersPanel double-click editing", () => {
   it("edits text content for text layers and renames other layers", async () => {
     const onRename = vi.fn();
     const onStartTextEdit = vi.fn((id: string) =>
-      id === "text" ? "Canvas text" : null,
+      id === "text" ? textSession(id, "Canvas text") : null,
     );
     const onTextEdit = vi.fn();
     const { host } = await renderPanel({
@@ -251,7 +263,7 @@ describe("LayersPanel double-click editing", () => {
     expect(onTextEdit).toHaveBeenCalledWith(
       "text",
       "Changed text",
-      "Canvas text",
+      textSession("text", "Canvas text"),
     );
     expect(onRename).not.toHaveBeenCalled();
 
@@ -292,7 +304,8 @@ describe("LayersPanel disappearing text rows", () => {
         layers: [group, other],
         expandedIds: ["group"],
         onRename: () => {},
-        onStartTextEdit: (id) => (id === "text" ? "Before" : "Other text"),
+        onStartTextEdit: (id) =>
+          textSession(id, id === "text" ? "Before" : "Other text"),
         onTextEdit,
       });
       await act(async () =>
@@ -318,7 +331,7 @@ describe("LayersPanel disappearing text rows", () => {
         expect(onTextEdit).toHaveBeenCalledWith(
           "text",
           "Unsaved draft",
-          "Before",
+          textSession("text", "Before"),
         );
       }
       if (reason === "removed") await panel.render({ layers: [other] });
@@ -353,7 +366,7 @@ describe("LayersPanel disappearing text rows", () => {
       expect(restored?.value).toBe("Unsaved draft");
       if (!restored) throw new Error("Draft was not restored");
       await pressKey(restored, "Enter");
-      expect(onTextEdit).toHaveBeenCalledTimes(reason === "removed" ? 0 : 1);
+      expect(onTextEdit).toHaveBeenCalledTimes(reason === "removed" ? 1 : 2);
       expect(restored.value).toBe("Unsaved draft");
     },
   );
@@ -368,7 +381,7 @@ describe("LayersPanel text edit rejection", () => {
         { id: "other", name: "Other", type: "element" },
       ],
       onRename: () => {},
-      onStartTextEdit: () => "Before",
+      onStartTextEdit: (id) => textSession(id, "Before"),
       onTextEdit,
     });
     await act(async () =>
@@ -390,7 +403,11 @@ describe("LayersPanel text edit rejection", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await pressKey(input, "Enter");
-    expect(onTextEdit).toHaveBeenCalledWith("text", "Unsaved draft", "Before");
+    expect(onTextEdit).toHaveBeenCalledWith(
+      "text",
+      "Unsaved draft",
+      textSession("text", "Before"),
+    );
     expect(
       host.querySelector<HTMLInputElement>("input[data-layer-row-name]")?.value,
     ).toBe("Unsaved draft");
@@ -407,7 +424,11 @@ describe("LayersPanel text edit rejection", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await pressKey(input, "Enter");
-    expect(onTextEdit).toHaveBeenLastCalledWith("text", "Corrected", "Before");
+    expect(onTextEdit).toHaveBeenLastCalledWith(
+      "text",
+      "Corrected",
+      textSession("text", "Before"),
+    );
     expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
   });
 });
@@ -424,7 +445,7 @@ describe("LayersPanel text editing with Tab", () => {
           { id: "b", name: "Bravo", type: "text" },
         ],
         onRename,
-        onStartTextEdit: () => "Canvas text",
+        onStartTextEdit: (id) => textSession(id, "Canvas text"),
         onTextEdit,
       });
       const first = host.querySelector<HTMLElement>("[data-layer-row-button]");
@@ -457,7 +478,12 @@ describe("LayersPanel text editing with Tab", () => {
       await act(async () =>
         input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
       );
-      expect(onTextEdit).toHaveBeenCalledWith(id, "Changed", "Canvas text");
+      if (!id) throw new Error("Missing layer id");
+      expect(onTextEdit).toHaveBeenCalledWith(
+        id,
+        "Changed",
+        textSession(id, "Canvas text"),
+      );
       expect(onRename).not.toHaveBeenCalled();
       expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
     },

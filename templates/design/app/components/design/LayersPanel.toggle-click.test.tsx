@@ -579,9 +579,11 @@ describe("LayersPanel text editing", () => {
     { nextText: "", active: true },
     { nextText: "Updated text", active: false },
     { nextText: "", active: false },
+    { nextText: "Restored text", active: true, restored: true },
+    { nextText: "Restored text", active: false, restored: true },
   ])(
-    "edits sidebar text to $nextText on active=$active without removing its layer",
-    async ({ nextText, active }) => {
+    "edits sidebar text to $nextText on active=$active restored=$restored without removing its layer",
+    async ({ nextText, active, restored }) => {
       const onRename = vi.fn();
       let content =
         '<body><p data-agent-native-node-id="text" data-agent-native-layer-name="Custom name">Canvas text</p></body>';
@@ -725,34 +727,35 @@ describe("LayersPanel text editing", () => {
             details,
           ),
       };
-      let session: LayerTextEditSession | null = null;
-      const onTextEdit = vi.fn((_id: string, value: string) => {
-        if (!session) throw new Error("Text session missing");
-        return commitLayerTextEdit(textArgs, session, value) === "accepted";
-      });
+      const onTextEdit = vi.fn(
+        (_id: string, value: string, session: LayerTextEditSession) =>
+          commitLayerTextEdit(textArgs, session, value) === "accepted",
+      );
       const host = document.createElement("div");
       document.body.appendChild(host);
       const root = createRoot(host);
+      const render = (visible: boolean) => {
+        root.render(
+          <LayersPanel
+            layers={
+              visible
+                ? [{ id: node.id, name: "Custom name", type: "text" }]
+                : []
+            }
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+            onStartTextEdit={(id) => beginLayerTextEdit(textArgs, id)}
+            onTextEdit={onTextEdit}
+          />,
+        );
+      };
       try {
-        await act(async () => {
-          root.render(
-            <LayersPanel
-              layers={[{ id: node.id, name: "Custom name", type: "text" }]}
-              selectedIds={[]}
-              expandedIds={[]}
-              searchQuery=""
-              onSearchQueryChange={() => {}}
-              onExpandedIdsChange={() => {}}
-              onSelectionChange={() => {}}
-              onRename={onRename}
-              onStartTextEdit={(id) => {
-                session = beginLayerTextEdit(textArgs, id);
-                return session?.originalValue ?? null;
-              }}
-              onTextEdit={onTextEdit}
-            />,
-          );
-        });
+        await act(async () => render(true));
         const row = host.querySelector<HTMLElement>("[data-layer-row-button]");
         if (!row) throw new Error("Text row not found");
         await act(async () => {
@@ -770,14 +773,39 @@ describe("LayersPanel text editing", () => {
         await act(async () => {
           setValue.call(input, nextText);
           input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(
+        });
+        let commitInput = input;
+        if (restored) {
+          await act(async () => render(false));
+          await act(async () => render(true));
+          const restoredRow = host.querySelector<HTMLElement>(
+            "[data-layer-row-button]",
+          );
+          if (!restoredRow) throw new Error("Restored text row missing");
+          await act(async () =>
+            restoredRow.dispatchEvent(
+              new MouseEvent("dblclick", { bubbles: true }),
+            ),
+          );
+          const restoredInput = host.querySelector<HTMLInputElement>(
+            "input[data-layer-row-name]",
+          );
+          if (!restoredInput) throw new Error("Restored text editor missing");
+          expect(restoredInput.value).toBe(nextText);
+          commitInput = restoredInput;
+        }
+        await act(async () => {
+          commitInput.dispatchEvent(
             new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
           );
         });
         expect(onTextEdit).toHaveBeenCalledWith(
           node.id,
           nextText,
-          "Canvas text",
+          expect.objectContaining({
+            layerId: node.id,
+            originalValue: "Canvas text",
+          }),
         );
         expect(onTextEdit.mock.results[0]?.value).toBe(true);
         const savedNode = buildCodeLayerProjection(content, {
@@ -1104,6 +1132,101 @@ describe("sidebar text edit safety", () => {
     expect(handleScreenTextContentChange).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      name: "unchanged",
+      source: '<p data-agent-native-node-id="text">Hello</p>',
+      saved: true,
+    },
+    {
+      name: "changed",
+      source: '<p data-agent-native-node-id="text">Changed elsewhere</p>',
+      saved: false,
+    },
+    {
+      name: "replaced",
+      source: '<h1 data-agent-native-node-id="text">Hello</h1>',
+      saved: false,
+    },
+  ])(
+    "revalidates a restored draft when the target is $name",
+    async ({ source, saved }) => {
+      const target = textTarget(
+        '<p data-agent-native-node-id="text">Hello</p>',
+      );
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      const render = (visible: boolean) =>
+        root.render(
+          <LayersPanel
+            layers={
+              visible
+                ? [{ id: target.node.id, name: "Text", type: "text" }]
+                : []
+            }
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={() => {}}
+            onStartTextEdit={(id) => beginLayerTextEdit(target.args, id)}
+            onTextEdit={(_id, value, session) =>
+              commitLayerTextEdit(target.args, session, value) === "accepted"
+            }
+          />,
+        );
+      try {
+        await act(async () => render(true));
+        const open = async () => {
+          const row = host.querySelector<HTMLElement>(
+            "[data-layer-row-button]",
+          );
+          if (!row) throw new Error("Text row missing");
+          await act(async () =>
+            row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+          );
+          const input = host.querySelector<HTMLInputElement>(
+            "input[data-layer-row-name]",
+          );
+          if (!input) throw new Error("Text editor missing");
+          return input;
+        };
+        const input = await open();
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (!setter) throw new Error("Input setter missing");
+        await act(async () => {
+          setter.call(input, "Unsaved draft");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => render(false));
+        target.setContent(source);
+        await act(async () => render(true));
+        const restored = await open();
+        expect(restored.value).toBe("Unsaved draft");
+        await act(async () =>
+          restored.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          ),
+        );
+        expect(target.handleScreenTextContentChange).toHaveBeenCalledTimes(
+          saved ? 1 : 0,
+        );
+        expect(host.querySelector("input[data-layer-row-name]") === null).toBe(
+          saved,
+        );
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
   it("falls back to rename for unsupported text", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1195,9 +1318,7 @@ describe("sidebar text edit safety", () => {
               onExpandedIdsChange={() => {}}
               onSelectionChange={() => {}}
               onRename={() => {}}
-              onStartTextEdit={(id) =>
-                beginLayerTextEdit(target.args, id)?.originalValue ?? null
-              }
+              onStartTextEdit={(id) => beginLayerTextEdit(target.args, id)}
               onTextEdit={() => {}}
             />,
           ),
@@ -1225,7 +1346,15 @@ describe("sidebar text edit safety", () => {
 
   it("keeps F2 rename and non-text double-click as layer naming", async () => {
     const onRename = vi.fn();
-    const onStartTextEdit = vi.fn(() => "Canvas text");
+    const onStartTextEdit = vi.fn(() => ({
+      layerId: "text",
+      originalValue: "Canvas text",
+      screenId: "screen",
+      selector: "text",
+      sourceHash: "source",
+      durableId: "text",
+      tag: "p",
+    }));
     const onTextEdit = vi.fn();
     const host = document.createElement("div");
     document.body.appendChild(host);

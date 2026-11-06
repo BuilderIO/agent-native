@@ -329,7 +329,6 @@ export function useEditorLayerActions({
     canEditSelectedLiveLayer,
   } = editorLayerModels;
 
-  const sidebarTextTargetRef = useRef<LayerTextEditSession | null>(null);
   const layerTextEditArgs = {
     activeFileId: activeFile?.id,
     canEditDesign,
@@ -345,22 +344,14 @@ export function useEditorLayerActions({
     requestPreviewRefresh: () =>
       setContentRenderRevision((revision) => revision + 1),
   };
-  const handleStartLayerTextEdit = (layerId: string) => {
-    const session = beginLayerTextEdit(layerTextEditArgs, layerId);
-    sidebarTextTargetRef.current = session;
-    return session?.originalValue ?? null;
-  };
+  const handleStartLayerTextEdit = (layerId: string) =>
+    beginLayerTextEdit(layerTextEditArgs, layerId);
   const handleLayerTextEdit = (
     layerId: string,
     value: string,
-    originalValue: string,
+    session: LayerTextEditSession,
   ) => {
-    const session = sidebarTextTargetRef.current;
-    if (
-      !session ||
-      session.layerId !== layerId ||
-      session.originalValue !== originalValue
-    ) {
+    if (session.layerId !== layerId) {
       toast.error(t("designEditor.toasts.saveConflict"));
       return false;
     }
@@ -373,7 +364,6 @@ export function useEditorLayerActions({
     }
     if (status === "refused") toast.error(t("common.genericError"));
     if (status !== "accepted") return false;
-    sidebarTextTargetRef.current = null;
     return true;
   };
 

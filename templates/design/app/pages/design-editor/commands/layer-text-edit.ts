@@ -64,7 +64,7 @@ function sidebarEditableLayerText(
     )
   )
     return null;
-  const value = template.content.textContent ?? "";
+  const value = template.content.textContent;
   return /\{\{|\$\{|[\r\n]/.test(value) ? null : value;
 }
 
@@ -127,7 +127,12 @@ export function beginLayerTextEdit(
   const node = projection.nodes.find((candidate) => candidate.id === layerId);
   if (!node || linkedComponentRootForNode(node, projection)) return null;
   const value = sidebarEditableLayerText(content, projection, node);
-  const durableId = node.dataAttributes["data-agent-native-node-id"];
+  const durableId = Object.prototype.hasOwnProperty.call(
+    node.dataAttributes,
+    "data-agent-native-node-id",
+  )
+    ? node.dataAttributes["data-agent-native-node-id"]
+    : null;
   if (
     durableId &&
     projection.nodes.filter(
@@ -144,7 +149,7 @@ export function beginLayerTextEdit(
         selector: preferredCodeLayerSelector(node),
         originalValue: value,
         sourceHash: sourceContentHash(content),
-        durableId: durableId ?? null,
+        durableId,
         tag: node.tag,
       };
 }
