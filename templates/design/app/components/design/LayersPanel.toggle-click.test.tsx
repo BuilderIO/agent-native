@@ -1157,6 +1157,8 @@ describe("sidebar text edit safety", () => {
       const host = document.createElement("div");
       document.body.appendChild(host);
       const root = createRoot(host);
+      let legacySession: LayerTextEditSession | null = null;
+      let legacyCallbacks = false;
       const render = (visible: boolean) =>
         root.render(
           <LayersPanel
@@ -1172,10 +1174,23 @@ describe("sidebar text edit safety", () => {
             onExpandedIdsChange={() => {}}
             onSelectionChange={() => {}}
             onRename={() => {}}
-            onStartTextEdit={(id) => beginLayerTextEdit(target.args, id)}
-            onTextEdit={(_id, value, session) =>
-              commitLayerTextEdit(target.args, session, value) === "accepted"
-            }
+            onStartTextEdit={(id) => {
+              const session = beginLayerTextEdit(target.args, id);
+              if (!legacyCallbacks) return session;
+              legacySession = session;
+              return (session?.originalValue ??
+                null) as unknown as LayerTextEditSession | null;
+            }}
+            onTextEdit={(_id, value, session) => {
+              const original =
+                typeof (session as unknown) === "string"
+                  ? legacySession
+                  : session;
+              if (!original) throw new Error("Text session missing");
+              return (
+                commitLayerTextEdit(target.args, original, value) === "accepted"
+              );
+            }}
           />,
         );
       try {
@@ -1194,7 +1209,15 @@ describe("sidebar text edit safety", () => {
           if (!input) throw new Error("Text editor missing");
           return input;
         };
-        const input = await open();
+        let input = await open();
+        // Before sessions were passed through the panel, this callback returned a string.
+        if (input.value === "[object Object]") {
+          legacyCallbacks = true;
+          await act(async () => root.render(null));
+          await act(async () => render(true));
+          input = await open();
+        }
+        expect(input.value).toBe("Hello");
         const setter = Object.getOwnPropertyDescriptor(
           HTMLInputElement.prototype,
           "value",
