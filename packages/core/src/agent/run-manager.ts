@@ -1107,6 +1107,14 @@ export function startRun(
   let persistenceFailure: unknown;
   let persistenceFailureBlocked = false;
   const flushEventWrites = (retryAfterFailure: boolean): Promise<void> => {
+    if (
+      persistenceFailure instanceof AgentRunEventNotPersistedError &&
+      persistenceFailure.terminalRun
+    ) {
+      const failed = Promise.reject(persistenceFailure);
+      persistenceChain = failed;
+      return failed;
+    }
     if (persistenceDrain) {
       const activeDrain = persistenceDrain;
       const settledDrain = retryAfterFailure
@@ -1149,8 +1157,8 @@ export function startRun(
           const terminalRun =
             error instanceof AgentRunEventNotPersistedError &&
             error.terminalRun;
-          persistenceFailure = terminalRun ? undefined : error;
-          persistenceFailureBlocked = !terminalRun;
+          persistenceFailure = error;
+          persistenceFailureBlocked = true;
           for (const queued of pendingEventWrites) {
             for (const publication of queued.publications) {
               if (publication.settled) continue;
@@ -2046,6 +2054,15 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    if (
+      persistenceFailure instanceof AgentRunEventNotPersistedError &&
+      persistenceFailure.terminalRun
+    ) {
+      const publication = Promise.reject(persistenceFailure);
+      if (!options?.surfacePersistenceError) publication.catch(() => {});
+      void checkSqlAbort();
+      return publication;
+    }
     if (privateTurn && runEvent.event.omitFromPersistedHistory !== true) {
       runEvent = {
         ...runEvent,
@@ -2245,7 +2262,7 @@ export function startRun(
       completionInProgress = true;
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
-      let eventPersistenceError: unknown = null;
+      let eventPersistenceFailure: { error: unknown } | null = null;
       let runTerminalErrorCode: string | undefined;
       let runTerminalBlockedTool: string | undefined;
       let runTerminalBlockedBy: UnknownWriteCause | undefined;
@@ -2254,20 +2271,24 @@ export function startRun(
       let suppressContinuationEvent = false;
       try {
         await persistenceChain;
+      } catch (error) {
+        eventPersistenceFailure = { error };
+      }
+      try {
         await run.abortPersistencePromise;
       } catch (error) {
-        eventPersistenceError = error;
-        if (run.status !== "aborted") {
-          run.status = "errored";
-          pendingTerminalEvent = {
-            seq: allocateRunEventSeq(run),
-            event: {
-              type: "error",
-              error: "Agent run ended unexpectedly",
-              errorCode: "run_event_persistence_failed",
-            },
-          };
-        }
+        eventPersistenceFailure ??= { error };
+      }
+      if (eventPersistenceFailure && run.status !== "aborted") {
+        run.status = "errored";
+        pendingTerminalEvent = {
+          seq: allocateRunEventSeq(run),
+          event: {
+            type: "error",
+            error: "Agent run ended unexpectedly",
+            errorCode: "run_event_persistence_failed",
+          },
+        };
       }
       if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
         const event = checkpointStatusReadFailed
@@ -2277,7 +2298,7 @@ export function startRun(
           run.status === "aborted" && run.abortReason !== undefined;
         if (!abortAlreadyWon) {
           run.status = "errored";
-          if (!eventPersistenceError) {
+          if (!eventPersistenceFailure) {
             pendingTerminalEvent = {
               seq: peekRunEventSeq(run),
               event: { ...event },
@@ -2295,7 +2316,7 @@ export function startRun(
       const resolveTerminalEventForCompletion = () => {
         if (run.status === "aborted" && run.abortReason !== undefined)
           return null;
-        if (eventPersistenceError) {
+        if (eventPersistenceFailure) {
           return pendingTerminalEvent
             ? { ...pendingTerminalEvent, seq: run.events.length }
             : null;
@@ -2437,7 +2458,7 @@ export function startRun(
         terminalEvent = unfinishedTurnContinuationEvent;
       }
       const terminalReason =
-        eventPersistenceError && finalStatus !== "aborted"
+        eventPersistenceFailure && finalStatus !== "aborted"
           ? "error:run_event_persistence_failed"
           : privateTurn && terminalEvent?.type === "error"
             ? "error:private_content_omitted"
@@ -2562,7 +2583,7 @@ export function startRun(
       };
 
       if (finalStatus === "completed" || finalStatus === "errored") {
-        const terminalEventToEmit: AgentChatEvent = eventPersistenceError
+        const terminalEventToEmit: AgentChatEvent = eventPersistenceFailure
           ? {
               type: "error",
               error: "Agent run ended unexpectedly",
@@ -2620,7 +2641,7 @@ export function startRun(
               ? { ...terminalEventToEmit, omitFromPersistedHistory: true }
               : terminalEventToEmit,
           };
-          if (eventPersistenceError) {
+          if (eventPersistenceFailure) {
             volatileTerminalEvent = terminal;
           } else {
             try {
@@ -2680,8 +2701,10 @@ export function startRun(
         ) {
           terminalPersistenceEstablished = false;
         } else {
+          let abortStatusAttempted = false;
           try {
             await insertRunPromise;
+            abortStatusAttempted = true;
             const persistAtomicAbort = () =>
               markRunAborted(
                 runId,
@@ -2696,6 +2719,15 @@ export function startRun(
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
+            if (
+              eventPersistenceFailure &&
+              (abortStatusAttempted || eventPersistenceFailure.error !== error)
+            ) {
+              throw new AggregateError(
+                [eventPersistenceFailure.error, error],
+                "Run event and abort status persistence both failed",
+              );
+            }
             throw error;
           }
         }
@@ -2720,7 +2752,7 @@ export function startRun(
           }
           if (
             !continuationStatusPersistedBeforeEvent &&
-            (!terminalPersistenceError || eventPersistenceError)
+            (!terminalPersistenceError || eventPersistenceFailure)
           ) {
             let statusUpdated = false;
             try {
@@ -2806,7 +2838,7 @@ export function startRun(
       }
 
       if (terminalPersistenceError) {
-        const reconciled = eventPersistenceError
+        const reconciled = eventPersistenceFailure
           ? false
           : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
@@ -2840,8 +2872,8 @@ export function startRun(
           attemptCount: options?.attemptCount,
         });
       }
-      if (eventPersistenceError && finalStatus !== "aborted") {
-        throw eventPersistenceError;
+      if (eventPersistenceFailure) {
+        throw eventPersistenceFailure.error;
       }
     })
     .finally(async () => {
@@ -3893,7 +3925,6 @@ export async function abortRunDurably(
         }
       }
       if (run) run.abortPersistenceManaged = abortPersistedDurably;
-      if (eventFlushFailure) throw eventFlushFailure;
     } catch (error) {
       if (run) run.abortPersistenceManaged = abortPersistedDurably;
       captureError(error, {
@@ -3914,8 +3945,15 @@ export async function abortRunDurably(
         "[run-manager] durable abort persistence failed:",
         error instanceof Error ? error.message : error,
       );
+      if (eventFlushFailure) {
+        throw new AggregateError(
+          [eventFlushFailure, error],
+          "Run abort event flush and marker persistence failed",
+        );
+      }
       throw error;
     }
+    if (eventFlushFailure) throw eventFlushFailure;
     return abortedInMemory;
   })();
   if (run) {
@@ -3987,10 +4025,14 @@ export async function abortRunAtSafeBoundaryDurably(
   return result.aborted;
 }
 
-export async function abortTurnByRefDurably(
+async function abortTurnByRefDurablyInternal(
   threadId: string,
   turnId: string,
-  reason: string = "user",
+  reason: string,
+  reportedFlushFailure?: {
+    runId: string;
+    error: AgentRunEventNotPersistedError;
+  },
 ): Promise<"aborted" | "already_terminal"> {
   const fence = currentExecutionFence();
   if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
@@ -4007,30 +4049,72 @@ export async function abortTurnByRefDurably(
       runsToFlush.push(run);
     }
   }
-  const flushFailures = await Promise.all(
+  const flushResults = await Promise.allSettled(
     runsToFlush.map((run) => flushRunEventsBeforeAbort(run)),
   );
+  // Only the same run's repeated flush is already reported by the caller;
+  // a marker write can fail with the very same error object independently.
+  const unreportedFlushFailures: unknown[] = [];
+  let hasRejectedFlush = false;
+  for (const [index, result] of flushResults.entries()) {
+    if (result.status === "rejected") {
+      hasRejectedFlush = true;
+      unreportedFlushFailures.push(result.reason);
+    } else if (
+      result.value &&
+      !(
+        reportedFlushFailure &&
+        runsToFlush[index]?.runId === reportedFlushFailure.runId &&
+        result.value === reportedFlushFailure.error
+      )
+    ) {
+      unreportedFlushFailures.push(result.value);
+    }
+  }
+  if (hasRejectedFlush) {
+    if (unreportedFlushFailures.length === 1) throw unreportedFlushFailures[0];
+    throw new AggregateError(
+      unreportedFlushFailures,
+      "Turn abort event flushes failed",
+    );
+  }
   let result: "aborted" | "already_terminal";
   try {
     result = await markTurnAborted(threadId, turnId, reason);
   } catch (error) {
-    const eventFlushFailure = flushFailures.find(Boolean);
-    if (eventFlushFailure) {
+    if (unreportedFlushFailures.length) {
       throw new AggregateError(
-        [eventFlushFailure, error],
+        [...unreportedFlushFailures, error],
         "Turn abort event flush and marker persistence failed",
       );
     }
     throw error;
   }
-  const eventFlushFailure = flushFailures.find(Boolean);
-  if (eventFlushFailure) throw eventFlushFailure;
+  if (unreportedFlushFailures.length === 1) throw unreportedFlushFailures[0];
+  if (unreportedFlushFailures.length > 1) {
+    throw new AggregateError(
+      unreportedFlushFailures,
+      "Turn abort event flushes failed",
+    );
+  }
   return result;
 }
 
-export async function abortTurnDurably(
-  runId: string,
+export async function abortTurnByRefDurably(
+  threadId: string,
+  turnId: string,
   reason: string = "user",
+): Promise<"aborted" | "already_terminal"> {
+  return abortTurnByRefDurablyInternal(threadId, turnId, reason);
+}
+
+async function abortTurnDurablyInternal(
+  runId: string,
+  reason: string,
+  reportedFlushFailure?: {
+    runId: string;
+    error: AgentRunEventNotPersistedError;
+  },
 ): Promise<"aborted" | "already_terminal"> {
   const memRun = activeRuns.get(runId);
   try {
@@ -4040,7 +4124,12 @@ export async function abortTurnDurably(
     if (!ref) {
       throw new Error(`Cannot durably abort turn for missing run ${runId}`);
     }
-    return await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
+    return await abortTurnByRefDurablyInternal(
+      ref.threadId,
+      ref.turnId,
+      reason,
+      reportedFlushFailure,
+    );
   } catch (error) {
     captureError(error, {
       route: "/_agent-native/agent-chat/runs/:id/abort",
@@ -4050,6 +4139,13 @@ export async function abortTurnDurably(
     });
     throw error;
   }
+}
+
+export async function abortTurnDurably(
+  runId: string,
+  reason: string = "user",
+): Promise<"aborted" | "already_terminal"> {
+  return abortTurnDurablyInternal(runId, reason);
 }
 
 /** Persist a Stop's turn marker even when a terminal event flush must be reported. */
@@ -4080,7 +4176,13 @@ export async function abortRunAndTurnDurably(
 
   if (!options?.safeBoundary || abortedInMemory) {
     try {
-      await abortTurnDurably(runId, reason);
+      await abortTurnDurablyInternal(
+        runId,
+        reason,
+        terminalFlushFailure
+          ? { runId, error: terminalFlushFailure }
+          : undefined,
+      );
     } catch (error) {
       if (terminalFlushFailure) {
         throw new AggregateError(

@@ -1,23 +1,30 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import {
-  listAgentKitCapabilities,
-  type AgentKitCapabilityAppId,
-} from "../../agentkit/capabilities.js";
+import { listAgentKitCapabilities } from "../../agentkit/capabilities.js";
 
 export default defineAction({
   description:
-    "Read the signed-in user's AgentKit context-source and integration capabilities for Design, Slides, or Slides 2. Returns only supported, connected capability labels and availability; never returns credentials or connection details.",
+    "Read context-source availability and connected workspace integrations usable by the authenticated caller in the current app. Returns scoped capability labels, never credentials or connection details.",
   schema: z.object({}),
+  outputSchema: z.object({
+    sources: z.object({ figma: z.object({ available: z.boolean() }) }),
+    integrations: z.array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        kind: z.enum(["provider-api", "mcp"]),
+      }),
+    ),
+  }),
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
   toolCallable: false,
   run: async (_args, ctx) => {
-    const appId = ctx?.appId;
-    if (appId !== "design" && appId !== "slides") {
-      fail("AgentKit capabilities are only available in Design and Slides.", {
+    const appId = ctx?.appId?.trim();
+    if (!appId) {
+      fail("An app context is required to read workspace integrations.", {
         errorCode: "agentkit_capabilities_unsupported_app",
         statusCode: 400,
       });
@@ -29,7 +36,7 @@ export default defineAction({
         statusCode: 401,
       });
     }
-    return listAgentKitCapabilities(appId as AgentKitCapabilityAppId, {
+    return listAgentKitCapabilities(appId, {
       userEmail,
       orgId: ctx?.orgId ?? null,
       ...(ctx?.credentialScope === "org"

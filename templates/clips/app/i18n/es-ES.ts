@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar una grabación…",
+    group: "Grabaciones",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },

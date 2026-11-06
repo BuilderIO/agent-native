@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  getAppConfig,
+  resetAppConfigForTests,
+} from "./index.js";
 import { onboardingConfig } from "./onboarding.js";
 
 describe("onboarding configuration", () => {
@@ -9,6 +14,19 @@ describe("onboarding configuration", () => {
       onboardingConfig.parse({ firstRunCreditsExperiment: "v2" })
         .firstRunCreditsExperiment,
     ).toBe("v2");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetAppConfigForTests();
+  });
+
+  it("resolves the Builder signup rollback independently of the app opt-in", () => {
+    defineAppConfig({ onboarding: { builderSignupExperiment: true } });
+    vi.stubEnv("BUILDER_SIGNUP_EXPERIMENT", "0");
+    const config = getAppConfig().onboarding;
+    expect(config.builderSignupExperiment).toBe(true);
+    expect(config.builderSignupExperimentOverride).toBe(false);
   });
 
   it("validates the deployment override", () => {
