@@ -12432,13 +12432,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const sourceDemandKey = useMemo(() => {
     // Re-ranking previews on every pan frame would re-render the editor per
     // frame; they follow the camera once it rests. A board within the live
-    // budget has no settle tick and few enough screens to preview them all.
+    // budget has no settle tick, so it previews what is near the view in
+    // board order, which changes only as screens come and go.
     const cameraMoving =
       needsLiveEditorAdmission &&
       (isPanning ||
         wheelGestureActiveRef.current ||
         performance.now() - lastCameraMoveAtRef.current <
           LIVE_EDITOR_ADMIT_IDLE_MS);
+    const nearby = getOverscannedViewportCanvasBounds(
+      surfaceSize,
+      pan,
+      canvasZoom,
+      OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
+    );
     const demand = selectSourceDemand({
       frames: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
@@ -12472,12 +12479,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       viewport: cameraMoving
         ? null
         : getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
-      overscannedViewport: getOverscannedViewportCanvasBounds(
-        surfaceSize,
-        pan,
-        canvasZoom,
-        OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
-      ),
+      overscannedViewport: nearby,
     });
     const previous = sourceDemandRef.current;
     // Mid-gesture the new view is unknown, so every source the last view
@@ -12489,7 +12491,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const pinnedSet = new Set(pinned);
     const preview = (
       !needsLiveEditorAdmission
-        ? canvasFrames.map(({ screen }) => screen.id)
+        ? canvasFrames
+            .filter(
+              ({ geometry }) =>
+                nearby !== null &&
+                isFrameWithinOverscannedViewport(geometry, nearby),
+            )
+            .map(({ screen }) => screen.id)
         : cameraMoving
           ? previous.preview
           : demand.preview
