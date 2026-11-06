@@ -1476,6 +1476,135 @@ describe("publicRecurringJobsSweepPath", () => {
 });
 
 describe("patchCloudflareModuleServerOutput", () => {
+  it.each([
+    [
+      "const alias",
+      'import {createRequire} from "node:module"; const f = createRequire;',
+      'f(import.meta.url)("process")',
+    ],
+    [
+      "computed member",
+      'import * as module from "node:module";',
+      'module["createRequire"](import.meta.url)("process")',
+    ],
+    [
+      "star relay",
+      'import {createRequire} from "./relay.mjs";',
+      'createRequire(import.meta.url)("process")',
+    ],
+    [
+      "parenthesized callee",
+      'import {createRequire} from "node:module";',
+      '(createRequire)(import.meta.url)("process")',
+    ],
+    [
+      "chained member alias",
+      'import * as module from "node:module"; const m = module; const f = m["createRequire"]; const g = f;',
+      'g(import.meta.url)("process")',
+    ],
+    [
+      "parenthesized computed member",
+      'import * as module from "node:module";',
+      '((module["createRequire"])) /* separator */ (import.meta.url)("process")',
+    ],
+  ])(
+    "loads process through %s in workerd",
+    async (_name, imports, expression) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      fs.writeFileSync(
+        path.join(dir, "relay.mjs"),
+        'export * from "node:module";',
+      );
+      const entry = path.join(dir, "worker.mjs");
+      fs.writeFileSync(
+        entry,
+        `${imports}
+      import process from "node:process";
+      export default {fetch() {return Response.json({same: ${expression} === process});}};`,
+      );
+      patchCloudflareModuleServerOutput(dir);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ same: true });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
+  it("preserves a custom factory that overrides a star export in workerd", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    fs.writeFileSync(
+      path.join(dir, "relay.mjs"),
+      `
+      export * from "node:module";
+      export const createRequire = () => (name) => "custom:" + name;
+    `,
+    );
+    const entry = path.join(dir, "worker.mjs");
+    fs.writeFileSync(
+      entry,
+      `
+      import {createRequire} from "./relay.mjs";
+      const alias = createRequire;
+      export default {fetch() {return Response.json({value: alias("base")("process")});}};
+    `,
+    );
+    patchCloudflareModuleServerOutput(dir);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: entry,
+      modulesRoot: dir,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ value: "custom:process" });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
   it("loads process through createRequire without changing other require behavior in workerd", async () => {
     const requireFromWrangler = createRequire(
       createRequire(import.meta.url).resolve("wrangler/package.json"),

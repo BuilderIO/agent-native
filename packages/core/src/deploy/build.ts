@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
 
 import { parse } from "@babel/parser";
-import traverse from "@babel/traverse";
+import traverse, { type NodePath } from "@babel/traverse";
 import MagicString from "magic-string";
 import { loadEnv } from "vite";
 
@@ -4642,7 +4642,33 @@ function patchCloudflareProcessRequire(
         return undefined;
       }
     }
-    return undefined;
+    const starExports = targetAst.program.body.filter(
+      (statement) => statement.type === "ExportAllDeclaration",
+    );
+    if (name === "default" || starExports.length !== 1) return undefined;
+    const declaresName = (node: unknown): boolean => {
+      if (!node || typeof node !== "object") return false;
+      if (Array.isArray(node)) return node.some(declaresName);
+      if (
+        "type" in node &&
+        node.type === "Identifier" &&
+        "name" in node &&
+        node.name === name
+      )
+        return true;
+      return Object.values(node).some(declaresName);
+    };
+    for (const statement of targetAst.program.body) {
+      if (statement.type !== "ExportNamedDeclaration" || !statement.declaration)
+        continue;
+      const declaration = statement.declaration;
+      if (declaration.type === "VariableDeclaration") {
+        if (declaration.declarations.some((item) => declaresName(item.id)))
+          return undefined;
+      } else if ("id" in declaration && declaresName(declaration.id))
+        return undefined;
+    }
+    return resolveImport(target, starExports[0].source.value, name, nextSeen);
   };
 
   const edited = new MagicString(code);
@@ -4654,6 +4680,71 @@ function patchCloudflareProcessRequire(
     receiver: string;
   }> = [];
   let shadowsGlobalThis = false;
+  const resolveExpression = (
+    expression: NodePath,
+    seen: Set<object>,
+  ): CloudflareImportKind | undefined => {
+    if (expression.isMemberExpression()) {
+      const property = expression.node.property;
+      const name =
+        !expression.node.computed && property.type === "Identifier"
+          ? property.name
+          : expression.node.computed && property.type === "StringLiteral"
+            ? property.value
+            : undefined;
+      if (!name) return undefined;
+      const object = resolveExpression(
+        expression.get("object") as NodePath,
+        seen,
+      );
+      if (object === "module")
+        return name === "createRequire" ? "factory" : undefined;
+      if (object && typeof object === "object") {
+        return resolveImport(
+          object.namespace,
+          "./" + path.basename(object.namespace),
+          name,
+          new Set(),
+        );
+      }
+      return undefined;
+    }
+    if (!expression.isIdentifier()) return undefined;
+    const binding = expression.scope.getBinding(expression.node.name);
+    if (!binding || seen.has(binding)) return undefined;
+    const nextSeen = new Set(seen).add(binding);
+    if (binding.path.parentPath?.isImportDeclaration()) {
+      const specifier = binding.path.node;
+      if (
+        specifier.type !== "ImportSpecifier" &&
+        specifier.type !== "ImportNamespaceSpecifier" &&
+        specifier.type !== "ImportDefaultSpecifier"
+      )
+        return undefined;
+      const name =
+        specifier.type === "ImportNamespaceSpecifier"
+          ? "*"
+          : specifier.type === "ImportDefaultSpecifier"
+            ? "default"
+            : specifier.imported.type === "Identifier"
+              ? specifier.imported.name
+              : specifier.imported.value;
+      return resolveImport(
+        filePath,
+        binding.path.parentPath.node.source.value,
+        name,
+        new Set(),
+      );
+    }
+    if (
+      binding.kind === "const" &&
+      binding.constant &&
+      binding.path.isVariableDeclarator()
+    ) {
+      return resolveExpression(binding.path.get("init") as NodePath, nextSeen);
+    }
+    return undefined;
+  };
   traverse(ast as unknown as Parameters<typeof traverse>[0], {
     Program(program) {
       shadowsGlobalThis = program.scope.hasOwnBinding("globalThis");
@@ -4665,50 +4756,15 @@ function patchCloudflareProcessRequire(
       const callee = call.node.callee;
       const member =
         callee.type === "MemberExpression" &&
-        !callee.computed &&
-        callee.object.type === "Identifier" &&
-        callee.property.type === "Identifier"
+        callee.object.type === "Identifier"
           ? callee
           : undefined;
-      const identifier = callee.type === "Identifier" ? callee : member?.object;
-      if (!identifier || identifier.type !== "Identifier") return;
-      const binding = call.scope.getBinding(identifier.name);
-      if (!binding || !binding.path.parentPath?.isImportDeclaration()) return;
-      const specifier = binding.path.node;
+      if (callee.type !== "Identifier" && !member) return;
       if (
-        specifier.type !== "ImportSpecifier" &&
-        specifier.type !== "ImportNamespaceSpecifier" &&
-        specifier.type !== "ImportDefaultSpecifier"
+        resolveExpression(call.get("callee") as NodePath, new Set()) !==
+        "factory"
       )
         return;
-      const importedName =
-        specifier.type === "ImportNamespaceSpecifier"
-          ? "*"
-          : specifier.type === "ImportDefaultSpecifier"
-            ? "default"
-            : specifier.imported.type === "Identifier"
-              ? specifier.imported.name
-              : specifier.imported.value;
-      let kind = resolveImport(
-        filePath,
-        binding.path.parentPath.node.source.value,
-        importedName,
-        new Set(),
-      );
-      if (member && member.property.type === "Identifier") {
-        if (kind === "module")
-          kind =
-            member.property.name === "createRequire" ? "factory" : undefined;
-        else if (kind && typeof kind === "object")
-          kind = resolveImport(
-            kind.namespace,
-            "./" + path.basename(kind.namespace),
-            member.property.name,
-            new Set(),
-          );
-        else kind = undefined;
-      }
-      if (kind !== "factory") return;
       if (call.node.start == null || callee.end == null) {
         throw new Error("Missing factory call offsets in Cloudflare output");
       }
@@ -4746,7 +4802,7 @@ function patchCloudflareProcessRequire(
     prefix: string,
     extra: string,
   ) => {
-    const opening = /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\(/.exec(
+    const opening = /^(?:\s|\)|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\(/.exec(
       code.slice(calleeEnd),
     );
     if (!opening)
