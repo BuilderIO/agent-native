@@ -1,5 +1,5 @@
 ---
-type: fixed
+type: added
 date: 2026-11-05
 ---
 
