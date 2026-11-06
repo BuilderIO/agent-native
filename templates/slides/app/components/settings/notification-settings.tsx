@@ -24,6 +24,7 @@ function CommentEmailsControl({ label }: { label: string }): ReactNode {
   const query = useActionQuery<SlidesNotificationPreferences>(
     "get-slides-notification-prefs",
     undefined,
+    // request-storm-allow: one preferences read, not a fan-out; refetch on focus picks up changes made in another tab or from email
     { retry: false, refetchOnWindowFocus: true },
   );
   const mutation = useActionMutation<
