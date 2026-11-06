@@ -1258,6 +1258,27 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
   return domain || null;
 }
 
+export async function getOrgFederatedIdentity(
+  orgId: string,
+): Promise<{ authority: string; id: string } | null> {
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT identity_authority, identity_id FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  const row:
+    | { identity_authority?: unknown; identity_id?: unknown }
+    | undefined = rows.length > 0 ? rows[0] : undefined;
+  if (!row) return null;
+  const authority = String(row.identity_authority ?? "").trim();
+  const id = String(row.identity_id ?? "").trim();
+  if (!authority && !id) return null;
+  if (!authority || !id) {
+    throw new Error("Organization has an invalid identity mapping.");
+  }
+  return { authority, id };
+}
+
 export async function getOrgWorkspaceUrl(
   orgId: string,
 ): Promise<string | null> {

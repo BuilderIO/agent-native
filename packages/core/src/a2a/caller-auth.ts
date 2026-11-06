@@ -4,6 +4,11 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import {
+  callerOrgBindingClaims,
+  resolveCallerOrgBinding,
+  type CallerOrgBinding,
+} from "./caller-org-binding.js";
+import {
   getGlobalA2ASecret,
   signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
@@ -19,6 +24,7 @@ export interface A2ACallerAuth {
   orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
+  orgBinding?: CallerOrgBinding;
   metadata: Record<string, unknown>;
 }
 
@@ -44,6 +50,10 @@ export async function resolveA2ACallerAuth(options?: {
     if (orgDomain) metadata.orgDomain = orgDomain;
     orgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
   }
+  const orgBinding =
+    orgId && !options?.userIdentityOnly
+      ? await resolveCallerOrgBinding({ orgId, orgDomain, userEmail })
+      : undefined;
 
   const apiKeyAttempts: string[] = [];
   const addApiKeyAttempt = (token: string | undefined) => {
@@ -55,8 +65,12 @@ export async function resolveA2ACallerAuth(options?: {
     !isOrgMemberDelegation &&
     options?.audience &&
     globalSecret &&
-    (options?.userIdentityOnly || !orgId || orgDomain?.trim())
+    (options.userIdentityOnly || !orgBinding || orgBinding.kind !== "unlinked")
   ) {
+    const extraClaims =
+      options.userIdentityOnly && orgId
+        ? { org_id: orgId }
+        : callerOrgBindingClaims(orgBinding);
     addApiKeyAttempt(
       await signA2AToken(
         userEmail,
@@ -66,9 +80,7 @@ export async function resolveA2ACallerAuth(options?: {
           expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
           preferGlobalSecret: true,
           audience: options?.audience,
-          ...(options?.userIdentityOnly && orgId
-            ? { extraClaims: { org_id: orgId } }
-            : {}),
+          ...(extraClaims ? { extraClaims } : {}),
         },
       ),
     );
@@ -110,6 +122,7 @@ export async function resolveA2ACallerAuth(options?: {
     orgId,
     orgDomain,
     orgSecret,
+    ...(orgBinding ? { orgBinding } : {}),
     metadata,
   };
 }

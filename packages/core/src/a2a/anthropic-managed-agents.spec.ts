@@ -217,6 +217,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
     requests.length = 0;
     vi.spyOn(orgContext, "getOrgDomain").mockResolvedValue(null);
     vi.spyOn(orgContext, "getOrgA2ASecret").mockResolvedValue(null);
+    vi.spyOn(orgContext, "getOrgFederatedIdentity").mockResolvedValue(null);
     vi.spyOn(
       orgContext,
       "resolveA2AOrganizationMetadataById",

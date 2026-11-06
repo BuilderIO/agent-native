@@ -660,6 +660,8 @@ Diese Grenze ist wichtig, da die Agentenschleife Freiformeingaben von einem Remo
 
 Die JWT-Verifizierung (`verifyA2AToken` in `server.ts`) akzeptiert Token, die entweder mit dem globalen `A2A_SECRET` oder einem organisationsweiten Geheimnis signiert sind, das von SQL über den `org_domain`-Anspruch des Tokens gesucht wird, und erzwingt die eigenen `aud`/`iss`-Ansprüche des Tokens, sofern vorhanden.
 
+Ein Workspace ohne E-Mail-Domain wird stattdessen über die gemeinsame Workspace-ID des Identity-Hubs identifiziert, die in den Ansprüchen `org_identity_authority` und `org_identity_id` übertragen wird. Die empfangende App ordnet dieses Paar ihrer eigenen Organisation zu und fragt den Hub, ob der Aufrufer ein aktuelles Mitglied ist. Dies gilt nur, solange `organization.cross-app-federation` für den Workspace aktiviert ist. Ein Workspace ohne Domain und ohne verknüpfte Identität kann keine anderen Apps aufrufen und erhält den Fehler `a2a_caller_org_domain_missing`.
+
 ### Synchronisierung des Organisationsgeheimnisses {#organization-secret-sync}
 
 Die Einstellung **Organisation → App-übergreifende Authentifizierung** verwaltet das organisationsweite Geheimnis, das die Delegation zwischen getrennt bereitgestellten Apps derselben Organisation authentifiziert. Sie ist keine Einstellung für die Benutzeranmeldung oder Cross-App SSO. Das Geheimnis ergänzt das `A2A_SECRET` der Bereitstellung: Ein A2A-JWT mit einem `org_domain`-Claim kann mit dem Geheimnis der passenden Organisation überprüft werden.

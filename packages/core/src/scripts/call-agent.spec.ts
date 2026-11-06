@@ -26,6 +26,8 @@ const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn(async () => "builder.io"));
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn(async () => "org-secret"));
+const getOrgFederatedIdentityMock = vi.hoisted(() => vi.fn());
+const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const originalA2ASecret = process.env.A2A_SECRET;
 
 const slackIntegrationContext = {
@@ -83,6 +85,12 @@ vi.mock("../a2a/client.js", async (importOriginal) => ({
 vi.mock("../org/context.js", () => ({
   getOrgDomain: getOrgDomainMock,
   getOrgA2ASecret: getOrgA2ASecretMock,
+  getOrgFederatedIdentity: getOrgFederatedIdentityMock,
+}));
+
+vi.mock("../feature-flags/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../feature-flags/store.js")>()),
+  evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -182,6 +190,8 @@ describe("call-agent action", () => {
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
     getOrgDomainMock.mockReset().mockResolvedValue("builder.io");
     getOrgA2ASecretMock.mockReset().mockResolvedValue("org-secret");
+    getOrgFederatedIdentityMock.mockReset().mockResolvedValue(null);
+    evaluateFeatureFlagStrictMock.mockReset().mockResolvedValue(false);
     managedHandlerMock.mockReset();
     clearHostedRuntimeEnv();
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
@@ -378,7 +388,29 @@ describe("call-agent action", () => {
       run({ agent: "slides", message: "make a deck" }),
     ).rejects.toMatchObject({
       errorCode: "a2a_caller_org_domain_missing",
-      message: expect.stringContaining("workspace has no domain configured"),
+      message: expect.stringContaining(
+        "no company domain and is not linked across apps",
+      ),
+    });
+  });
+
+  it("reports ordinary peer auth rejection for a linked workspace without a domain", async () => {
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    getOrgFederatedIdentityMock.mockResolvedValue({
+      authority: "identity-hub.test",
+      id: "org-hub-1",
+    });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    callAgentMock.mockRejectedValueOnce(
+      new RemoteAgentCredentialRejectedError({ status: 401 }),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toMatchObject({
+      errorCode: "a2a_auth_rejected",
+      message: expect.not.stringContaining("not linked across apps"),
     });
   });
 

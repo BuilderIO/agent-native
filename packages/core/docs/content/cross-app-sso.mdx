@@ -82,6 +82,12 @@ existing local organization without a mapping remains unchanged until an
 explicit migration links it. Linked memberships continue to use the target
 app's normal access checks.
 
+Server-to-server A2A calls use the same mapping. A linked workspace without an
+email domain sends its <code>(identity_authority, identity_id)</code> pair, and
+the receiving app finds its own organization for it and asks Dispatch whether
+the caller is a current member. The receiving app records a membership that
+Dispatch confirms and it has not seen before.
+
 Organization federation uses a separate credential for each registered source
 app:
 

@@ -60,6 +60,8 @@ assertion은 서버 간 교환으로만 반환됩니다. 브라우저 URL에 나
 조직은 명시적인 마이그레이션 전까지 변경되지 않습니다. 연결된 멤버십은 대상 앱의
 일반 접근 검사를 계속 사용합니다.
 
+서버 간 A2A 호출도 같은 매핑을 사용합니다. 이메일 도메인이 없는 연결된 workspace는 <code>(identity_authority, identity_id)</code> 쌍을 보내고, 받는 앱은 이에 해당하는 자체 조직을 찾아 호출자가 현재 멤버인지 Dispatch에 묻습니다. 받는 앱은 Dispatch가 확인한, 이전에 보지 못했던 멤버십을 기록합니다.
+
 조직 페더레이션은 등록된 소스 앱마다 별도 자격 증명을 사용합니다.
 
 - 소스 앱에 <code>AGENT_NATIVE_IDENTITY_FEDERATION_SECRET</code>를 설정합니다.

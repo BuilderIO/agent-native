@@ -7,6 +7,7 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
+import type { H3Event } from "h3";
 import type { JWTPayload } from "jose";
 
 import {
@@ -4133,7 +4134,9 @@ async function verifyA2AJwtForMcp(
         | Awaited<ReturnType<typeof verifyA2AOrganizationIdentity>>
         | undefined;
       try {
-        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload, {
+          event: event as H3Event | undefined,
+        });
       } catch (error) {
         throw new McpIdentityVerificationUnavailableError(error);
       }
