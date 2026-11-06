@@ -211,6 +211,11 @@ function isRunCancelling(run: ProtocolRun): boolean {
   return run.phase.type === "cancelling";
 }
 
+// The phase can change during awaits and event handling, despite local narrowing.
+function isRunPhase(run: ProtocolRun, phase: RunPhase["type"]): boolean {
+  return run.phase.type === phase;
+}
+
 function isTerminalRunStatus(
   status: AgentRunStatus,
 ): status is "completed" | "failed" | "cancelled" {
@@ -3847,7 +3852,7 @@ export function createAgentKitProtocolAdapter(
     run.pumpPromise = (async () => {
       try {
         let stream: { failed: boolean; error?: unknown } = { failed: false };
-        while (true) {
+        for (;;) {
           while (isRunCancelling(run))
             await notifyWhenChanged(run, readers.signal);
           if (run.phase.type === "streaming") {
@@ -3856,7 +3861,7 @@ export function createAgentKitProtocolAdapter(
               for await (const event of run.turn.events) {
                 while (isRunCancelling(run))
                   await notifyWhenChanged(run, readers.signal);
-                if (run.phase.type !== "streaming") break;
+                if (!isRunPhase(run, "streaming")) break;
                 const sequence = event.metadata?.seq;
                 if (
                   typeof sequence === "number" &&
@@ -3873,14 +3878,14 @@ export function createAgentKitProtocolAdapter(
                 )) {
                   append(run, protocolEvent);
                 }
-                if (run.phase.type !== "streaming") break;
+                if (!isRunPhase(run, "streaming")) break;
               }
             } catch (error) {
               stream = { failed: true, error };
             }
             while (isRunCancelling(run))
               await notifyWhenChanged(run, readers.signal);
-            if (run.phase.type === "streaming") {
+            if (isRunPhase(run, "streaming")) {
               run.pipeClosedBeforeTerminal = true;
               run.phase = transition(run.phase, {
                 type: stream.failed ? "streamFailed" : "streamEnded",
@@ -3900,8 +3905,8 @@ export function createAgentKitProtocolAdapter(
             await notifyWhenChanged(run, readers.signal);
           if (!resumed) {
             if (
-              run.phase.type === "followingSuccessor" ||
-              run.phase.type === "holdingInterruption"
+              isRunPhase(run, "followingSuccessor") ||
+              isRunPhase(run, "holdingInterruption")
             )
               continue;
             break;
@@ -4433,7 +4438,7 @@ export function createAgentKitProtocolAdapter(
         });
         while (isRunCancelling(run))
           await notifyWhenChanged(run, readers.signal);
-        if (run.phase.type !== "awaitingContinuation") {
+        if (!isRunPhase(run, "awaitingContinuation")) {
           await closeDiscardedTurnEvents(nextTurn);
           throw new Error("The AgentKit run is already terminal.");
         }
@@ -4678,7 +4683,7 @@ export function createAgentKitProtocolAdapter(
           });
         if (input.response.status === "failed") {
           update("failed");
-          run.pendingConnectionRequestId = undefined;
+          delete run.pendingConnectionRequestId;
           run.phase = transition(run.phase, { type: "terminal" });
           run.terminalSource = "local";
           append(run, { type: "run.status", status: "failed" });
@@ -4694,7 +4699,8 @@ export function createAgentKitProtocolAdapter(
           pruneRetainedRuns(run.terminalAtMs);
           return;
         }
-        if (!run.session.continueTurn) {
+        const continueTurn = run.session.continueTurn?.bind(run.session);
+        if (!continueTurn) {
           throw new Error(
             "The Core runtime does not support connection continuation.",
           );
@@ -4711,16 +4717,20 @@ export function createAgentKitProtocolAdapter(
           if (isRunTerminal(run)) {
             throw new Error("The AgentKit run is already terminal.");
           }
-          const nextTurn = await run.session.continueTurn!({
-            turnId: run.turn.id,
+          const nextTurn = await continueTurn({
+            ...(run.turn.id === undefined ? {} : { turnId: run.turn.id }),
             connection: {
               id: pendingEvent.request.provider,
               status:
                 input.response.status === "connected"
                   ? "connected"
                   : "declined",
-              connectionId: input.response.connectionId,
-              message: input.response.message,
+              ...(input.response.connectionId === undefined
+                ? {}
+                : { connectionId: input.response.connectionId }),
+              ...(input.response.message === undefined
+                ? {}
+                : { message: input.response.message }),
             },
             abortSignal: readers.signal,
           });
@@ -4730,7 +4740,7 @@ export function createAgentKitProtocolAdapter(
             await closeDiscardedTurnEvents(nextTurn);
             throw new Error("The AgentKit run is already terminal.");
           }
-          run.pendingConnectionRequestId = undefined;
+          delete run.pendingConnectionRequestId;
           run.turn = nextTurn;
           indexRun(run, nextTurn.runId);
           run.phase = transition(run.phase, { type: "continuationResumed" });
