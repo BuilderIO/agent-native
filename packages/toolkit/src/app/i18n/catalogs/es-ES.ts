@@ -1211,7 +1211,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "Usar las herramientas de {{integration}}",
   "composer.menu.scheduleTask": "Programar tarea",
   "composer.menu.scheduleTaskDescription": "Ejecutar algo según un horario",
-  "composer.menu.uploadFile": "Cargar archivo",
+  "composer.menu.uploadFile": "Archivos e imágenes",
+  "composer.menu.searchWorkspace": "Buscar en el espacio de trabajo…",
+  "composer.menu.references": "Referencias",
+  "composer.menu.referenceFile": "Referenciar un archivo",
+  "composer.menu.attachToMessage": "Añadir contexto",
+  "composer.menu.commands": "Comandos",
   "composer.menu.uploadFileDescription":
     "Imágenes, PDFs, texto/código, JSON, CSV",
   "composer.messageAgent": "Escribe al agente...",

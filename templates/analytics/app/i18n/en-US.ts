@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Could not upload the selected file.",
+    reference: "Reference a dashboard…",
+    group: "Dashboards",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   creativeContext: {
     title: "Library",
     description:

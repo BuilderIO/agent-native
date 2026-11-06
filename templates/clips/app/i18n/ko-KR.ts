@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "녹화 참조…",
+    group: "녹화",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   meetingBrowserConfirmation:
     "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
@@ -695,6 +703,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    partialTranscript:
+      "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:
       "로컬에서 음성이 캡처되지 않았으며 백업 기록이 완료되지 않았습니다. 다시 시도하거나 마이크 및 음성 권한을 확인하세요.",
     backupNotSetup:

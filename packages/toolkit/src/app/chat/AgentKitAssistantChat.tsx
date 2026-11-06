@@ -26,7 +26,6 @@ import type {
   AgentTransport,
   AgentThreadSnapshot,
   AgentToolCall,
-  AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
@@ -70,6 +69,10 @@ import {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "@agent-native/core/client/agentkit-chat/transport";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
@@ -1948,80 +1951,73 @@ export const AgentKitAssistantChat = forwardRef<
     }),
     [formatDate, props.composerPlaceholder, t],
   );
-  const uploadedFilesRef = useRef(new Map<string, FilePart>());
+  const { session: uploadSession } = useSession();
+  const uploadScopeKey = JSON.stringify([
+    uploadSession?.email ?? null,
+    uploadSession?.orgId ?? null,
+    uploadSession?.authUserId ?? null,
+  ]);
+  const uploadRuntime = useMemo(
+    () =>
+      createAgentNativeUploadRuntime({
+        url: fileUploadUrlForChatApi(
+          props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        ),
+      }),
+    [props.apiUrl],
+  );
+  useEffect(
+    () => () => uploadRuntime.dispose(),
+    [uploadRuntime, uploadScopeKey],
+  );
   const upload: AgentKitUploadDriver = useCallback(
-    async (target, file, context) => {
-      if (file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES) {
-        throw attachmentTooLargeError(
-          uploadTooLargeMessage(translatorRef.current),
-        );
-      }
-      const form = new FormData();
-      for (const [key, value] of Object.entries(target.fields ?? {})) {
-        form.set(key, value);
-      }
-      form.set("file", file.body, file.name);
-      let response: Response;
+    async (...args) => {
       try {
-        response = await fetch(target.url, {
-          method: target.method,
-          headers: target.headers,
-          body: form,
-          signal: context?.signal,
-        });
-      } catch (error) {
-        if (context?.signal?.aborted) throw error;
-        throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadOffline")),
-          { code: "upload_network_error", retryable: true, cause: error },
-        );
-      }
-      // The server's error text is never shown: it is untranslated.
-      if (!response.ok) {
-        if (response.status === 503) {
-          let result: unknown;
-          try {
-            result = await response.json();
-          } catch (error) {
-            if (context?.signal?.aborted) throw error;
-          }
-          if (
-            asRecord(result)?.errorCode ===
-            "builder_oauth_reauthorization_required"
-          ) {
-            throw Object.assign(
-              new Error(
-                translatorRef.current(
-                  "agentChat.composer.uploadBuilderReconnect",
-                ),
+        await uploadRuntime.upload(...args);
+      } catch (cause) {
+        if (args[2]?.signal?.aborted) throw cause;
+        const status =
+          cause && typeof cause === "object" && "status" in cause
+            ? cause.status
+            : undefined;
+        if (
+          status === 503 &&
+          "code" in (cause as object) &&
+          (cause as { code: unknown }).code ===
+            "upload_builder_oauth_reauthorization_required"
+        ) {
+          throw Object.assign(
+            new Error(
+              translatorRef.current(
+                "agentChat.composer.uploadBuilderReconnect",
               ),
-              {
-                code: "upload_builder_oauth_reauthorization_required",
-                status: response.status,
-                retryable: false,
-              },
-            );
-          }
+            ),
+            {
+              code: "upload_builder_oauth_reauthorization_required",
+              status,
+              retryable: false,
+            },
+          );
         }
-        throw uploadHttpError(response.status, translatorRef.current);
-      }
-      const result: unknown = await response.json();
-      const uploaded = asRecord(result);
-      if (typeof uploaded?.url !== "string" || !uploaded.url) {
+        if (typeof status === "number")
+          throw uploadHttpError(status, translatorRef.current);
+        const code =
+          cause && typeof cause === "object" && "code" in cause
+            ? cause.code
+            : undefined;
         throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadFailed")),
-          { code: "upload_invalid_response", retryable: false },
+          new Error(
+            translatorRef.current(
+              code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : "agentChat.composer.uploadFailed",
+            ),
+          ),
+          { code, cause, retryable: code === "upload_network_error" },
         );
       }
-      uploadedFilesRef.current.set(target.uploadId, {
-        type: "file",
-        name: file.name,
-        mediaType: file.mediaType,
-        url: uploaded.url,
-        ...(typeof uploaded.id === "string" ? { fileId: uploaded.id } : {}),
-      });
     },
-    [],
+    [uploadRuntime],
   );
   const transportThreadIdRef = useRef(threadId);
   const tabIdRef = useRef(props.tabId);
@@ -2061,21 +2057,7 @@ export const AgentKitAssistantChat = forwardRef<
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
     > = {
-      createUpload: async () =>
-        ({
-          uploadId: createAgentUploadId(),
-          method: "POST",
-          url: agentNativePath("/_agent-native/file-upload"),
-          fields: {},
-        }) satisfies AgentUploadTarget,
-      completeUpload: async ({ uploadId }) => {
-        const uploaded = uploadedFilesRef.current.get(uploadId);
-        if (!uploaded) {
-          throw new Error(`Upload ${uploadId} did not complete.`);
-        }
-        uploadedFilesRef.current.delete(uploadId);
-        return uploaded;
-      },
+      ...uploadRuntime.operations,
       invokeAction: async ({ invocation }) => {
         try {
           const result = await callAction(
@@ -3725,10 +3707,13 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { agentNativeInternalContinuation: true }
             : {}),
           ...(contextScope ? { chatScope: contextScope } : {}),
-          ...(references.length || options.recoveryReferences?.length
+          ...(references.length ||
+          options.references?.length ||
+          options.recoveryReferences?.length
             ? {
                 references: [
                   ...references,
+                  ...(options.references ?? []),
                   ...(options.recoveryReferences ?? []),
                 ],
               }
@@ -5836,12 +5821,11 @@ function AgentKitComposerSurface({
       mounted.current = false;
     };
   }, []);
+  const visibleProviderContextItems = composerContext?.contextItems ?? [];
   const providerContextKeys = new Set(
-    composerContext?.contextItems.map((item) => item.key),
+    visibleProviderContextItems.map((item) => item.key),
   );
-  const visibleContextItems = composerContext
-    ? [...contextItems, ...composerContext.contextItems]
-    : contextItems;
+  const visibleContextItems = [...contextItems, ...visibleProviderContextItems];
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -6298,7 +6282,9 @@ function AgentKitComposerSurface({
             props.availableModels === undefined
           }
           attachmentsEnabled={fileStorageConfigured}
-          onAttachmentRequest={requestFileStorage}
+          {...(!fileStorageConfigured
+            ? { onAttachmentRequest: requestFileStorage }
+            : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
           onSubmit={submitComposer}

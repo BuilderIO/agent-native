@@ -1,3 +1,15 @@
+## 0.1.10
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+
+## 0.1.9
+
+### Patch Changes
+
+- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
+
 ## 0.1.8
 
 ### Patch Changes

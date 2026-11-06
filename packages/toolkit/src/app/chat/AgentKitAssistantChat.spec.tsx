@@ -1332,6 +1332,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
   });
 
+  it("renders a menu-only provider without optional context items", async () => {
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) =>
+      children({
+        menuItems: [
+          {
+            id: "native-reference",
+            label: "Native reference",
+            onSelect: vi.fn(),
+          },
+        ],
+      });
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+    expect(ref.current).not.toBeNull();
+  });
+
   it("counts provider-owned context against the prefill capacity", async () => {
     const providerItem = {
       key: "provider-reference",
@@ -5174,7 +5192,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     try {
       await expect(
         chatMocks.rootProps.clientOptions.upload(
-          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          await chatMocks.transportOptions.operations.createUpload({
+            threadId: "test-thread",
+            descriptor: {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              purpose: "message",
+            },
+          }),
           {
             name: "reference.pdf",
             mediaType: "application/pdf",
@@ -5350,7 +5376,15 @@ describe("AgentKitAssistantChat host behavior", () => {
       try {
         const error = await chatMocks.rootProps.clientOptions
           .upload(
-            { uploadId: "upload-1", method: "POST", url: "/uploads" },
+            await chatMocks.transportOptions.operations.createUpload({
+              threadId: "test-thread",
+              descriptor: {
+                name: "reference.png",
+                mediaType: "image/png",
+                size: 4,
+                purpose: "message",
+              },
+            }),
             {
               name: "reference.png",
               mediaType: "image/png",
@@ -5396,7 +5430,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     if (!chat) throw new Error("Chat did not mount");
     chatMocks.control.uploadFiles.mockImplementationOnce(async (files) => {
       await chatMocks.rootProps.clientOptions.upload(
-        { uploadId: "upload-1", method: "POST", url: "/uploads" },
+        await chatMocks.transportOptions.operations.createUpload({
+          threadId: "test-thread",
+          descriptor: {
+            name: files[0].name,
+            mediaType: files[0].mediaType,
+            size: files[0].size,
+            purpose: "message",
+          },
+        }),
         files[0],
       );
       return [];
@@ -5440,7 +5482,15 @@ describe("AgentKitAssistantChat host behavior", () => {
       try {
         await expect(
           chatMocks.rootProps.clientOptions.upload(
-            { uploadId: "upload-1", method: "POST", url: "/uploads" },
+            await chatMocks.transportOptions.operations.createUpload({
+              threadId: "test-thread",
+              descriptor: {
+                name: "reference.png",
+                mediaType: "image/png",
+                size: 4,
+                purpose: "message",
+              },
+            }),
             {
               name: "reference.png",
               mediaType: "image/png",
@@ -5472,7 +5522,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     try {
       await expect(
         chatMocks.rootProps.clientOptions.upload(
-          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          await chatMocks.transportOptions.operations.createUpload({
+            threadId: "test-thread",
+            descriptor: {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              purpose: "message",
+            },
+          }),
           {
             name: "reference.png",
             mediaType: "image/png",
@@ -6902,6 +6960,16 @@ describe("AgentKitAssistantChat host behavior", () => {
       await ref.current!.sendMessage("Sent by the app", undefined, {
         submitMessageId: "submit-app",
         surface: "deck-outline",
+        references: [
+          {
+            type: "mention",
+            path: "github",
+            name: "GitHub",
+            source: "workspace-integration",
+            refType: "integration",
+            refId: "github",
+          },
+        ],
       });
     });
     await act(async () => {
@@ -6923,6 +6991,16 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(metadata[1]).toMatchObject({
       submitMessageId: "submit-app",
       agentNativeSurface: "deck-outline",
+      references: [
+        {
+          type: "mention",
+          path: "github",
+          name: "GitHub",
+          source: "workspace-integration",
+          refType: "integration",
+          refId: "github",
+        },
+      ],
     });
   });
 
