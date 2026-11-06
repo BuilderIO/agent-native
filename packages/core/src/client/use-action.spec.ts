@@ -1721,6 +1721,18 @@ describe("the UI capability on writes from the signed-in app", () => {
     },
   );
 
+  it("mints from a response that has no body", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => new Response(null, { status: 204 }));
+
+    await callAction("delete-file", { id: "file-1" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
   it("presents the capability on the first write", async () => {
     signIn();
     const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
