@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { defineAction, NoWriteError, noteExternalWrite } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type {
   AgentEngine,
@@ -10,7 +11,10 @@ import type {
   EngineMessage,
 } from "./engine/types.js";
 import { withExecutionFence } from "./execution-fence.js";
-import type { AgentLoopFinalResponseGuardContext } from "./production-agent.js";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuardContext,
+} from "./production-agent.js";
 import type { AgentExecutionStepIntent } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -168,6 +172,7 @@ describe("late action outcomes", () => {
     timeoutMs?: number;
     readOnly?: boolean;
     withoutThread?: boolean;
+    action?: ActionEntry;
   }) {
     const events: AgentChatEvent[] = [];
     const run = withExecutionFence(fence, () =>
@@ -178,7 +183,7 @@ describe("late action outcomes", () => {
         tools: [],
         messages: [{ role: "user", content: [text("Create a deck.")] }],
         actions: {
-          "create-deck": {
+          "create-deck": options.action ?? {
             tool: {
               description: "Create a deck",
               parameters: { type: "object" as const, properties: {} },
@@ -202,6 +207,225 @@ describe("late action outcomes", () => {
     );
     return { run, events };
   }
+
+  async function rejectAfterInterrupt(options: {
+    error: Error;
+    cancelWithError?: boolean;
+    readOnly?: boolean;
+    nestedWrite?: boolean;
+    write?: boolean;
+    retrySafe?: boolean;
+    private?: boolean;
+  }) {
+    const controller = new AbortController();
+    let started!: () => void;
+    let release!: () => void;
+    let settled!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const actionSettled = new Promise<void>((resolve) => {
+      settled = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const child = defineAction({
+      description: "Save a deck.",
+      schema: z.object({}),
+      run: async () => {
+        noteExternalWrite("test-write");
+        return "saved";
+      },
+    });
+    const action = defineAction({
+      description: "Create a deck.",
+      schema: z.object({}),
+      readOnly: options.readOnly,
+      retrySafe: options.retrySafe,
+      persistInChatHistory: options.private ? false : undefined,
+      run: async (_args, ctx) => {
+        started();
+        await gate;
+        if (options.nestedWrite) await child.run({}, ctx);
+        if (options.write) noteExternalWrite("test-write");
+        throw options.error;
+      },
+    });
+    const trackedAction = {
+      ...action,
+      run: async (...args: Parameters<typeof action.run>) => {
+        try {
+          return await action.run(...args);
+        } finally {
+          settled();
+        }
+      },
+    } as unknown as ActionEntry;
+    const { run, events } = startAction({
+      run: async () => "unused",
+      action: trackedAction,
+      signal: controller.signal,
+      withoutThread: true,
+    });
+    await actionStarted;
+    controller.abort(options.cancelWithError ? options.error : undefined);
+    await run;
+    release();
+    await actionSettled;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return events;
+  }
+
+  it.each([
+    { readOnly: true, noWriteError: false, cancelWithError: false },
+    { readOnly: true, noWriteError: false, cancelWithError: true },
+    { readOnly: false, noWriteError: false, cancelWithError: true },
+    { readOnly: false, noWriteError: true, cancelWithError: true },
+  ])(
+    "does not report a settled no-write cancellation: $readOnly / $noWriteError / $cancelWithError",
+    async ({ readOnly, noWriteError, cancelWithError }) => {
+      const error = noWriteError
+        ? new NoWriteError("cancelled before saving")
+        : new DOMException("cancelled", "AbortError");
+      await rejectAfterInterrupt({ error, readOnly, cancelWithError });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      readOnly: false,
+      write: true,
+      nestedWrite: false,
+      noWriteError: false,
+      retrySafe: false,
+    },
+    {
+      readOnly: false,
+      write: true,
+      nestedWrite: false,
+      noWriteError: false,
+      retrySafe: true,
+    },
+    {
+      readOnly: false,
+      write: true,
+      nestedWrite: false,
+      noWriteError: true,
+      retrySafe: false,
+    },
+    {
+      readOnly: true,
+      write: false,
+      nestedWrite: true,
+      noWriteError: false,
+      retrySafe: false,
+    },
+    {
+      readOnly: false,
+      write: false,
+      nestedWrite: true,
+      noWriteError: true,
+      retrySafe: false,
+    },
+  ])(
+    "reports cancellation after possible writes: $readOnly / $nestedWrite / $noWriteError / $retrySafe",
+    async ({ readOnly, write, nestedWrite, noWriteError, retrySafe }) => {
+      const error = noWriteError
+        ? new NoWriteError("cancelled after nested save")
+        : new DOMException("cancelled", "AbortError");
+      await rejectAfterInterrupt({
+        error,
+        readOnly,
+        write,
+        nestedWrite,
+        retrySafe,
+        cancelWithError: true,
+      });
+      await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+      expect(captureErrorMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            phase: "late-action-failure",
+            reportExpected: "true",
+          }),
+        }),
+      );
+    },
+  );
+
+  it("redacts a private cancellation after a nested write", async () => {
+    const error = new DOMException("private cancellation detail", "AbortError");
+    await rejectAfterInterrupt({
+      error,
+      readOnly: true,
+      nestedWrite: true,
+      private: true,
+      cancelWithError: true,
+    });
+    await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Private content omitted" }),
+      expect.objectContaining({
+        errorMessagePolicy: "omit",
+        tags: expect.objectContaining({
+          phase: "late-action-failure",
+          reportExpected: "true",
+        }),
+      }),
+    );
+    expect(JSON.stringify(captureErrorMock.mock.calls)).not.toContain(
+      "private cancellation detail",
+    );
+  });
+
+  it("preserves a genuine late failure even when it made no write", async () => {
+    await rejectAfterInterrupt({
+      error: new NoWriteError("validation failed"),
+      readOnly: false,
+    });
+    await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "validation failed" }),
+      expect.objectContaining({
+        tags: expect.objectContaining({ reportExpected: "true" }),
+      }),
+    );
+  });
+
+  it("delivers a late HTTP 403 after a write through the real capture filter", async () => {
+    const capture = await vi.importActual<
+      typeof import("../server/capture-error.js")
+    >("../server/capture-error.js");
+    const provider = vi.fn();
+    const unregister = capture.registerErrorCaptureProvider(
+      "late-action-test",
+      provider,
+    );
+    captureErrorMock.mockImplementation(capture.captureError);
+    try {
+      const error = Object.assign(new Error("Forbidden"), {
+        name: "HTTPError",
+        statusCode: 403,
+      });
+      await rejectAfterInterrupt({ error, write: true });
+      await vi.waitFor(() => expect(captureErrorMock).toHaveBeenCalledOnce());
+      expect(provider).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            phase: "late-action-failure",
+            reportExpected: "true",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
+  });
 
   it.each(["upstream refused", "Tool call timed out after 5 seconds"])(
     "reports an on-time rejection normally without late telemetry: %s",
@@ -362,7 +586,10 @@ describe("late action outcomes", () => {
         }),
         expect.objectContaining({
           ...(isPrivate ? { errorMessagePolicy: "omit" } : {}),
-          tags: expect.objectContaining({ phase: "late-outcome-persistence" }),
+          tags: expect.objectContaining({
+            phase: "late-outcome-persistence",
+            reportExpected: "true",
+          }),
         }),
       );
       if (isPrivate) {
@@ -406,7 +633,10 @@ describe("late action outcomes", () => {
       expect.objectContaining({ message: "Private content omitted" }),
       expect.objectContaining({
         errorMessagePolicy: "omit",
-        tags: expect.objectContaining({ phase: "late-action-failure" }),
+        tags: expect.objectContaining({
+          phase: "late-action-failure",
+          reportExpected: "true",
+        }),
       }),
     );
     expect(JSON.stringify(captureErrorMock.mock.calls)).not.toContain(

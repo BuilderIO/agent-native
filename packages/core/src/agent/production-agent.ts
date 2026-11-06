@@ -11089,6 +11089,17 @@ export async function runAgentLoop(opts: {
                 // that arrives in the same turn as an abort or deadline.
                 await new Promise<void>((resolve) => setTimeout(resolve, 0));
                 if (!raceInterrupted || !actionInvoked) return;
+                const cancellation =
+                  (signal.aborted && error === signal.reason) ||
+                  (error instanceof Error && error.name === "AbortError");
+                // Retry safety permits replay; it does not prove no write occurred.
+                if (
+                  cancellation &&
+                  !actionExecutionOutcome.evidence?.writeObserved &&
+                  ranEffect({ retrySafe: false, failed: { error } }).effect ===
+                    "none"
+                )
+                  return;
                 captureError(
                   isPrivateCall()
                     ? new Error("Private content omitted")
@@ -11102,6 +11113,7 @@ export async function runAgentLoop(opts: {
                     tags: {
                       component: "agent-execution-step",
                       phase: "late-action-failure",
+                      reportExpected: "true",
                       tool: toolCall.name,
                     },
                   },
@@ -11120,6 +11132,7 @@ export async function runAgentLoop(opts: {
                   tags: {
                     component: "agent-execution-step",
                     phase: "late-outcome-persistence",
+                    reportExpected: "true",
                     tool: toolCall.name,
                   },
                 },
