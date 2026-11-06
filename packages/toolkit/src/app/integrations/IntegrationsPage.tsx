@@ -14,8 +14,6 @@ import {
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import type { McpServer } from "@agent-native/core/client/resources/use-mcp-servers";
-
-import { connectedServerIntegrationId } from "./connected-server-id.js";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import {
   matchesMcpConnectHost,
@@ -81,6 +79,7 @@ import {
 } from "../settings/shell/context.js";
 import { settingsPageHref } from "../settings/shell/routing.js";
 import { useBuilderStatus } from "../settings/useBuilderStatus.js";
+import { connectedServerIntegrationId } from "./connected-server-id.js";
 import {
   startMcpOAuthReconnect,
   useMcpIntegrationsController,
@@ -308,27 +307,29 @@ function ConnectedServerTile({
         data-connected-server-link={server.name}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-start transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-      {logo}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {server.name}
-        </span>
-        <span className="block truncate text-xs leading-5 text-muted-foreground">
-          {detail}
-        </span>
-        {server.status.state !== "unknown" && server.status.error ? (
-          <span
-            className="block truncate text-xs leading-5 text-destructive"
-            title={server.status.error}
-          >
-            {reconnectError
-              ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
-              : t("mcpIntegrations.connectionErrorReason", {
-                  reason: server.status.error,
-                })}
+        {logo}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {server.name}
           </span>
-        ) : null}
-      </span>
+          <span className="block truncate text-xs leading-5 text-muted-foreground">
+            {detail}
+          </span>
+          {server.status.state !== "unknown" && server.status.error ? (
+            <span
+              className="block truncate text-xs leading-5 text-destructive"
+              title={server.status.error}
+            >
+              {reconnectError
+                ? t("mcpIntegrations.reconnectFailed", {
+                    error: reconnectError,
+                  })
+                : t("mcpIntegrations.connectionErrorReason", {
+                    reason: server.status.error,
+                  })}
+            </span>
+          ) : null}
+        </span>
       </a>
       {hasError || canRemove ? (
         <DropdownMenu>

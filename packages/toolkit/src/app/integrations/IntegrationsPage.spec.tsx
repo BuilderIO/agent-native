@@ -308,7 +308,9 @@ describe("IntegrationsPage", () => {
     expect(link).not.toBeNull();
     expect(link?.getAttribute("href")).toContain("/integrations/notion");
     await act(async () => {
-      link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
     });
     expect(navigate).toHaveBeenCalledWith("integrations", "notion");
   });
@@ -341,7 +343,9 @@ describe("IntegrationsPage", () => {
     );
     expect(link?.getAttribute("href")).toContain("/integrations/internal-docs");
     await act(async () => {
-      link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
     });
     expect(navigate).toHaveBeenCalledWith("integrations", "internal-docs");
   });

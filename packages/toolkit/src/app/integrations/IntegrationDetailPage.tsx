@@ -1,5 +1,4 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { connectedServerIntegrationId } from "./connected-server-id.js";
 import { useT } from "@agent-native/core/client/i18n";
 import { integrationBrand } from "@agent-native/core/client/integrations/brand/integration-brands";
 import { listChannelsForSettings } from "@agent-native/core/client/integrations/channel-setup";
@@ -76,6 +75,7 @@ import {
 } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
 import { submitToAgent } from "../shared/index.js";
+import { connectedServerIntegrationId } from "./connected-server-id.js";
 import {
   BrandMark,
   BreadcrumbTitle,
