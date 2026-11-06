@@ -308,8 +308,11 @@ export function buildBackfillPlan(
     const canonical = hubMember ?? members[0];
     if (!canonical) continue;
     const canonicalId = canonical.org.id;
+    const soleOwner: RosterMember[] = [{ email: person, role: "owner" }];
+    const resumes = !hubMember && hubRowResumes(canonicalId, soleOwner);
     if (
       !hubMember &&
+      !resumes &&
       (hubOrgIds.has(canonicalId) || hubCreateIds.has(canonicalId))
     ) {
       for (const candidate of members) {
@@ -321,13 +324,13 @@ export function buildBackfillPlan(
       }
       continue;
     }
-    if (!hubMember) {
+    if (!hubMember && !resumes) {
       hubCreates.push({
         id: canonicalId,
         name: canonical.org.name,
         createdBy: person,
         createdAt: canonical.org.createdAt,
-        members: [{ email: person, role: "owner" }],
+        members: soleOwner,
       });
       hubCreateIds.add(canonicalId);
     }

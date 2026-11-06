@@ -339,6 +339,74 @@ test("hub-id-conflict skips every org in a one-person group whose canonical id i
   ]);
 });
 
+test("an interrupted one-person apply is resumed without a second hub row", () => {
+  const result = plan([
+    snapshot(
+      HUB,
+      [
+        org({
+          id: id("1"),
+          name: "Alice design",
+          createdAt: 100,
+          identityAuthority: AUTHORITY,
+          identityId: id("1"),
+        }),
+      ],
+      [member(id("1"), ALICE, "owner")],
+    ),
+    snapshot(
+      "design",
+      [org({ id: id("1"), name: "Alice design", createdAt: 100 })],
+      [member(id("1"), ALICE, "owner")],
+    ),
+    snapshot(
+      "slides",
+      [org({ id: id("2"), name: "Alice slides", createdAt: 200 })],
+      [member(id("2"), ALICE, "owner")],
+    ),
+  ]);
+
+  assert.deepStrictEqual(result.hubCreates, []);
+  assert.deepStrictEqual(byApp(result.appLinks), [
+    { app: "design", orgId: id("1"), canonicalId: id("1") },
+    { app: "slides", orgId: id("2"), canonicalId: id("1") },
+  ]);
+  assert.deepStrictEqual(result.skipped, [
+    { app: HUB, orgId: id("1"), reason: "already-linked" },
+  ]);
+  assert.equal(result.counts.peopleLinked, 1);
+});
+
+test("a self-mapped hub row owned by someone else is still a one-person conflict", () => {
+  const result = plan([
+    snapshot(
+      HUB,
+      [
+        org({
+          id: id("1"),
+          name: "Carol hub",
+          createdAt: 10,
+          identityAuthority: AUTHORITY,
+          identityId: id("1"),
+        }),
+      ],
+      [member(id("1"), CAROL, "owner")],
+    ),
+    snapshot(
+      "design",
+      [org({ id: id("1"), name: "Alice design", createdAt: 100 })],
+      [member(id("1"), ALICE, "owner")],
+    ),
+  ]);
+
+  assert.deepStrictEqual(result.hubCreates, []);
+  assert.deepStrictEqual(result.appLinks, []);
+  assert.deepStrictEqual(byApp(result.skipped), [
+    { app: "design", orgId: id("1"), reason: "hub-id-conflict" },
+    { app: HUB, orgId: id("1"), reason: "already-linked" },
+  ]);
+});
+
 test("hub-id-conflict skips a multi-person org whose own id is already a hub org", () => {
   const result = plan([
     snapshot(
