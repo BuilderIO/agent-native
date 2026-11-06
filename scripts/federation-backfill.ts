@@ -25,7 +25,6 @@ const APPS = [
   "mail",
   "plan",
   "slides",
-  "workspace",
 ] as const;
 
 const FLAG_SETTING = "feature-flag:organization.cross-app-federation";
@@ -43,7 +42,7 @@ Each app database comes from <APP>_DATABASE_URL (${APPS.join(", ")}).
 Write commands are dry runs unless --apply is given. Output is counts and ids only.
 
   plan   [--out <file>]
-  apply  [--apply --confirm-snapshots] [--allow-flag-on]
+  apply  [--apply] [--allow-flag-on]
   verify
   undo   --manifest <file> [--apply] [--confirm-delete] [--allow-flag-on]
   flag   --mode on|off|emails [--emails a@x.com,b@y.com] [--apply] [--allow-org-overrides | --disable-org-overrides]`;
@@ -263,11 +262,6 @@ async function runApply(databases: Databases, args: readonly string[]) {
     }),
   );
   if (!apply) return;
-  if (!args.includes("--confirm-snapshots")) {
-    throw new ScriptError(
-      "Take a Neon snapshot of every database, then pass --confirm-snapshots.",
-    );
-  }
   if (!args.includes("--allow-flag-on")) {
     for (const [app, exec] of databases) {
       const state = await readFlagState(exec);
@@ -280,6 +274,9 @@ async function runApply(databases: Databases, args: readonly string[]) {
   }
 
   const startedAt = new Date().toISOString();
+  // Neon restores to a timestamp only while it is inside the project's history
+  // window, which differs per project.
+  console.log(JSON.stringify({ restorePoint: startedAt }));
   const hubCreated: Array<{
     id: string;
     memberCount: number;
