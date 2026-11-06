@@ -909,9 +909,6 @@ const messages = {
     newSlideSaveFailed:
       "No se pudo guardar la nueva diapositiva. Inténtalo de nuevo.",
     addSlides: "Añadir diapositivas",
-    addEmptySlide: "Añadir diapositiva vacía",
-    noAi: "sin AI",
-    duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
     newSlide: "Nueva diapositiva",
     slidesHeading: "Diapositivas",

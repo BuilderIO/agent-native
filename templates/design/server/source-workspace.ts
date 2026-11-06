@@ -29,6 +29,7 @@ import {
   sourceContentHash,
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
+import { failOnSourceInputError } from "./lib/fail-on-source-input-error.js";
 import "./db/index.js";
 
 export interface SourceWorkspaceFile {
@@ -342,7 +343,11 @@ export function findSourceWorkspaceFile(
   target: { fileId?: string; path?: string },
 ): SourceWorkspaceFile {
   const normalizedPath =
-    target.path !== undefined ? normalizeInlineSourcePath(target.path) : null;
+    target.path !== undefined
+      ? failOnSourceInputError(() =>
+          normalizeInlineSourcePath(target.path as string),
+        )
+      : null;
   const file = target.fileId
     ? files.find((candidate) => candidate.id === target.fileId)
     : files.find((candidate) => candidate.filename === normalizedPath);

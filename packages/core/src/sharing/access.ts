@@ -21,7 +21,14 @@ import {
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "./registry.js";
-import { ROLE_RANK, type ShareRole, type Visibility } from "./schema.js";
+import {
+  LINK_PRINCIPAL_ID,
+  LINK_PRINCIPAL_TYPE,
+  LINK_ROLES,
+  ROLE_RANK,
+  type ShareRole,
+  type Visibility,
+} from "./schema.js";
 
 function findRegistrationByTable(
   resourceTable: any,
@@ -469,6 +476,39 @@ async function publicAccessRoleForResource(
     : roleResolver;
 }
 
+/** The "Anyone with the link" role, for signed-in callers only. */
+async function linkShareRole(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  ctx: AccessContext,
+  batch?: AccessBatch,
+): Promise<ShareRole | null> {
+  if (!normalizeEmailForAccess(ctx.userEmail)) return null;
+  const row = batch
+    ? batch.shares
+        .get(resourceId)
+        ?.find((share) => share.principalType === LINK_PRINCIPAL_TYPE)
+    : (
+        await reg
+          .getDb()
+          .select({ role: reg.sharesTable.role })
+          .from(reg.sharesTable)
+          .where(
+            and(
+              eq(reg.sharesTable.resourceId, resourceId),
+              eq(reg.sharesTable.principalType, LINK_PRINCIPAL_TYPE),
+              eq(reg.sharesTable.principalId, LINK_PRINCIPAL_ID),
+            ),
+          )
+          .limit(1)
+      )[0];
+  if (!row) return null;
+  const role = row.role as ShareRole;
+  return (LINK_ROLES as readonly ShareRole[]).includes(role)
+    ? role
+    : "commenter";
+}
+
 function higherShareRole(a: ShareRole, b: ShareRole | null): ShareRole {
   if (!b) return a;
   return ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
@@ -797,6 +837,11 @@ async function loadSharesForAccess(
   if (reg.supportsGroupShares && normalizedUserEmail) {
     principalClauses.push(eq(reg.sharesTable.principalType, "group"));
   }
+  if (normalizedUserEmail) {
+    principalClauses.push(
+      eq(reg.sharesTable.principalType, LINK_PRINCIPAL_TYPE),
+    );
+  }
   if (resourceIds.length === 0 || principalClauses.length === 0) {
     return byResource;
   }
@@ -964,7 +1009,10 @@ async function accessToResource(
   );
   const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
-    const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
+    const publicRole = higherShareRole(
+      await publicAccessRoleForResource(reg, resource, ctx),
+      await linkShareRole(reg, resourceId, ctx, batch),
+    );
     const effectivePublicRole =
       publicRole === "admin" && reg.canManageAccess ? "editor" : publicRole;
     return { role: higherShareRole(effectivePublicRole, shareRole), resource };

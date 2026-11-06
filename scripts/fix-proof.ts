@@ -11,11 +11,22 @@
 // Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
 // HEAD, or the check still passes without the fix). Exit 2: could not run
 // (dirty tree, no source changes, git failure, check missing on base).
+// A test-only change has nothing to prove; the feedback gate passes it.
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmdirSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
 
-const TEST_PATH =
-  /(^|\/)(__tests__|e2e|tests?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|\.md$|^\.changeset\//;
+import { TEST_PATH } from "./feedback-fix-proof.ts";
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
@@ -137,36 +148,60 @@ const source = changes.filter(
   ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
 );
 if (source.length === 0)
-  couldNotRun(`no non-test changes between ${base.slice(0, 9)} and HEAD`);
+  couldNotRun(
+    `no non-test changes between ${base.slice(0, 9)} and HEAD; a test-only change needs no fix proof`,
+  );
 const all = source.map(({ path }) => path);
 
-// git checkout and git rm replace symlinks instead of writing through them.
-// Every step uses tryGit so a failure still reaches the restore at the end.
+function removePath(path: string) {
+  if (!lstatSync(path, { throwIfNoEntry: false })) return;
+  unlinkSync(path);
+  for (let dir = dirname(path); dir !== "."; dir = dirname(dir)) {
+    if (readdirSync(dir).length) break;
+    rmdirSync(dir);
+  }
+}
+
+// Files are written from git's blobs with fs, never `git checkout` or
+// `git rm`, so the index stays at HEAD and sandboxes that block those
+// commands can still run the proof. Unlinking first replaces a symlink
+// instead of writing through it. Every failure is recorded rather than
+// thrown so the restore at the end still runs.
 const gitErrors: string[] = [];
 function putAt(ref: string): boolean {
-  const listed = tryGit("ls-tree", "-r", "--name-only", ref, "--", ...all);
+  const listed = tryGit("ls-tree", "-r", "-z", ref, "--", ...all);
   if (listed.status !== 0) {
     gitErrors.push(`git ls-tree ${ref}: ${listed.stderr.trim()}`);
     return false;
   }
-  const present = new Set(listed.stdout.split("\n"));
-  for (const args of [
-    ["checkout", ref, "--", ...all.filter((path) => present.has(path))],
-    [
-      "rm",
-      "-q",
-      "-f",
-      "--ignore-unmatch",
-      "--",
-      ...all.filter((path) => !present.has(path)),
-    ],
-  ]) {
-    if (args.at(-1) === "--") continue;
-    const r = tryGit(...args);
-    if (r.status !== 0) {
-      gitErrors.push(`git ${args[0]}: ${r.stderr.trim()}`);
-      return false;
+  const entries = new Map<string, { mode: string; oid: string }>();
+  for (const record of listed.stdout.split("\0").filter(Boolean)) {
+    const tab = record.indexOf("\t");
+    const [mode, type, oid] = record.slice(0, tab).split(" ");
+    if (type === "blob") entries.set(record.slice(tab + 1), { mode, oid });
+  }
+  try {
+    for (const path of all) {
+      const entry = entries.get(path);
+      removePath(path);
+      if (!entry) continue;
+      const blob = spawnSync("git", ["cat-file", "blob", entry.oid], {
+        maxBuffer: 256 << 20,
+      });
+      if (blob.status !== 0) {
+        gitErrors.push(`git cat-file ${entry.oid}: ${blob.stderr}`.trim());
+        return false;
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      if (entry.mode === "120000") symlinkSync(blob.stdout.toString(), path);
+      else {
+        writeFileSync(path, blob.stdout);
+        chmodSync(path, entry.mode === "100755" ? 0o755 : 0o644);
+      }
     }
+  } catch (error) {
+    gitErrors.push(`writing ${ref}'s files: ${(error as Error).message}`);
+    return false;
   }
   return true;
 }

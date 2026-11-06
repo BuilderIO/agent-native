@@ -917,9 +917,6 @@ const messages = {
     newSlideSaveFailed:
       "Impossible d'enregistrer la nouvelle diapositive. Veuillez réessayer.",
     addSlides: "Ajouter des diapositives",
-    addEmptySlide: "Ajouter une diapositive vide",
-    noAi: "sans IA",
-    duplicateCurrentSlide: "Dupliquer la diapositive actuelle",
     promptPlaceholder: "Décrivez les diapositives souhaitées...",
     newSlide: "Nouvelle diapositive",
     slidesHeading: "Diapositives",

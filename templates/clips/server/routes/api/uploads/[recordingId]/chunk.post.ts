@@ -948,6 +948,7 @@ export async function handleRecordingChunk(
           recordingId,
           userId: authUserId,
           ownerEmail,
+          reason: "upload_failed",
         });
       }
       await reconcileMeetingOnRecordingFailedBestEffort({
@@ -1048,6 +1049,7 @@ export async function handleRecordingChunk(
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
+          reason: "upload_failed",
         });
       }
       await deleteRecordingChunks(
@@ -1736,6 +1738,7 @@ async function handleResumableChunk(
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
+          reason: "upload_failed",
         });
       }
     } else if (storageMode === "hosted") {

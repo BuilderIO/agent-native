@@ -880,9 +880,6 @@ const messages = {
     newSlideSaveFailed:
       "새 슬라이드를 저장하지 못했습니다. 다시 시도해 주세요.",
     addSlides: "슬라이드 추가",
-    addEmptySlide: "빈 슬라이드 추가",
-    noAi: "AI 없음",
-    duplicateCurrentSlide: "현재 슬라이드 복제",
     promptPlaceholder: "원하는 슬라이드를 설명하세요...",
     newSlide: "새 슬라이드",
     slidesHeading: "슬라이드",

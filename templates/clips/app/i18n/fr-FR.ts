@@ -731,6 +731,8 @@ const messages = {
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
     noTranscriptCaptured: "Aucune transcription n’a été capturée.",
+    partialTranscript:
+      "Transcription partielle : l’enregistrement a été coupé, il peut donc manquer des passages.",
     backupFailed:
       "Aucune parole n’a été capturée localement et la transcription de sauvegarde n’a pas été terminée. Réessayez ou vérifiez les autorisations du microphone et de la parole.",
     backupNotSetup:

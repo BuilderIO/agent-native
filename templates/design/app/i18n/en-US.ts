@@ -268,6 +268,8 @@ export default {
   common: {
     loading: "Loading...",
     genericError: "Something went wrong",
+    linkedSourceSizeLimit:
+      "This linked component edit exceeds the source size limit.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -967,6 +969,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Could not load this screen.",
+    writeFailed: "Couldn't save that change.",
+    selectionPublishFailed:
+      "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
       title: "Live collaboration",
       description:

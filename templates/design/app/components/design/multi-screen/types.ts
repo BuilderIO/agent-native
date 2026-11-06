@@ -36,6 +36,7 @@ export interface ScreenFile {
   id: string;
   filename: string;
   content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   source?: string;
   sourceType?: string;
   lod?: string;
@@ -175,6 +176,8 @@ export interface ScreenContentRenderOptions {
 
 export interface MultiScreenCanvasProps {
   screens: ScreenFile[];
+  onSourceDemandChange?: (screenIds: readonly string[]) => void;
+  onSourceRetry?: (screenId: string) => void;
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];

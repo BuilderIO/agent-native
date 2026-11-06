@@ -714,6 +714,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    partialTranscript:
+      "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:
       "ローカルで音声がキャプチャされておらず、バックアップの文字起こしが完了していません。再試行するか、マイクと音声の許可を確認してください。",
     backupNotSetup:

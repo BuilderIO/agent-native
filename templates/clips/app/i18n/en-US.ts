@@ -636,6 +636,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    partialTranscript:
+      "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
       "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.",
     backupNotSetup:
