@@ -35,8 +35,8 @@ export function designBuilderSignupQueries(scopedEventsCte: string) {
   WHERE event_name = 'auth.builder_signup_experiment_exposed' AND assignment_id IS NOT NULL
 ), raw_exposures AS (
   SELECT assignment_id, variant, exposed_at, environment FROM ranked_exposures WHERE position = 1
-), signup_links AS (
-  SELECT x.assignment_id, MIN(e.funnel_user_key) AS person_key, MIN(e.event_at) AS enrolled_at, MIN(e.funnel_user_email) AS person_email
+), signup_candidates AS (
+  SELECT x.assignment_id, e.funnel_user_key, e.funnel_user_email, e.event_at
   FROM raw_exposures x JOIN experiment_events e ON e.assignment_id = x.assignment_id
     AND e.variant = x.variant AND e.event_at >= x.exposed_at
   WHERE e.funnel_user_key IS NOT NULL
@@ -44,7 +44,10 @@ export function designBuilderSignupQueries(scopedEventsCte: string) {
       OR (e.event_name = 'builder_signup_experiment_outcome'
         AND COALESCE(e.properties::jsonb ->> 'code', '') NOT IN ('signup_attempt_unbound', 'acceptance_missing', 'identity_ineligible', 'control')
         AND e.properties::jsonb ->> 'status' IN ('control', 'connected', 'fallback')))
-  GROUP BY x.assignment_id HAVING COUNT(DISTINCT e.funnel_user_key) = 1
+), signup_links AS (
+  SELECT assignment_id, MIN(funnel_user_key) AS person_key, MIN(event_at) AS enrolled_at, MIN(funnel_user_email) AS person_email
+  FROM signup_candidates
+  GROUP BY assignment_id HAVING COUNT(DISTINCT funnel_user_key) = 1
 ), ranked_links AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY person_key ORDER BY enrolled_at, assignment_id) AS person_assignment
   FROM signup_links
@@ -115,9 +118,8 @@ SELECT 'Exposed visitor assignments' AS metric, COUNT(*) AS count FROM exposures
 UNION ALL SELECT 'Signed-up assignments linked to one person', COUNT(*) FROM linked_exposures WHERE person_key IS NOT NULL
 UNION ALL SELECT 'Exposures without a signup link (includes abandonment)', COUNT(*) FROM linked_exposures WHERE person_key IS NULL
 UNION ALL SELECT 'Assignments linked to multiple people (excluded from signup milestones)', COUNT(*)
-  FROM (SELECT x.assignment_id FROM exposures x JOIN experiment_events e ON e.assignment_id = x.assignment_id AND e.variant = x.variant
-    WHERE e.event_name = 'builder_signup_experiment_enrolled' AND e.event_at >= x.exposed_at
-    GROUP BY x.assignment_id HAVING COUNT(DISTINCT e.funnel_user_key) > 1) ambiguous
+  FROM (SELECT c.assignment_id FROM signup_candidates c JOIN exposures x ON x.assignment_id = c.assignment_id
+    GROUP BY c.assignment_id HAVING COUNT(DISTINCT c.funnel_user_key) > 1) ambiguous
 UNION ALL SELECT 'Activation attempts without a recorded outcome', COUNT(DISTINCT s.assignment_id)
   FROM experiment_events s WHERE s.event_name = 'builder_signup_experiment_activation_started'
     AND NOT EXISTS (SELECT 1 FROM experiment_events o WHERE o.assignment_id = s.assignment_id AND o.variant = s.variant AND o.event_name = 'builder_signup_experiment_outcome' AND o.event_at >= s.event_at)

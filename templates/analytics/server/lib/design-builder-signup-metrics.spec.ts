@@ -94,6 +94,30 @@ afterEach(async () => {
 });
 
 describe("Design Builder signup experiment metrics", () => {
+  it("surfaces ambiguous historical outcome links using the enrollment eligibility rules", async () => {
+    await event(
+      "auth.builder_signup_experiment_exposed",
+      48,
+      "legacy-ambiguous",
+    );
+    for (const user of ["person-a", "person-b"]) {
+      await event(
+        "builder_signup_experiment_outcome",
+        47,
+        "legacy-ambiguous",
+        "automatic",
+        user,
+        { status: "fallback", code: "account_exists" },
+      );
+    }
+    const quality = (await db.query(sql(KEYS[2]))).rows;
+    expect(quality).toContainEqual({
+      metric:
+        "Assignments linked to multiple people (excluded from signup milestones)",
+      count: 1,
+    });
+  });
+
   it("does not mature historical cohorts beyond the selected observation window", async () => {
     const end = new Date(now - 5 * 86400000).toISOString().slice(0, 10);
     await event(
@@ -101,10 +125,9 @@ describe("Design Builder signup experiment metrics", () => {
       9 * 24 + 1,
       "historical",
     );
-    const query = sql("design-builder-signup-ab").replaceAll(
-      new Date(now).toISOString().slice(0, 10),
-      end,
-    );
+    const query = sql("design-builder-signup-ab")
+      .split(new Date(now).toISOString().slice(0, 10))
+      .join(end);
     const result = await db.query(query);
     const row = result.rows.find(
       (value: Record<string, unknown>) =>
