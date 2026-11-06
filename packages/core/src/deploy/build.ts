@@ -4756,6 +4756,57 @@ function patchCloudflareProcessRequire(
         use,
       );
     }
+    if (binding.kind === "param") {
+      if (use !== "factory") return undefined;
+      const fn = binding.scope.path;
+      if (
+        !fn.isFunctionDeclaration() &&
+        !fn.isFunctionExpression() &&
+        !fn.isArrowFunctionExpression()
+      )
+        return undefined;
+      const index = fn.node.params.findIndex(
+        (param) => param === binding.identifier,
+      );
+      if (index < 0) return undefined;
+      const parent = fn.parentPath;
+      const functionBinding =
+        fn.isFunctionDeclaration() && fn.node.id
+          ? fn.scope.parent?.getBinding(fn.node.id.name)
+          : parent.isVariableDeclarator() &&
+              parent.node.init === fn.node &&
+              parent.node.id.type === "Identifier"
+            ? parent.scope.getBinding(parent.node.id.name)
+            : undefined;
+      if (
+        !functionBinding ||
+        functionBinding.path.node !==
+          (fn.isFunctionDeclaration() ? fn.node : parent.node)
+      )
+        return undefined;
+      for (const reference of functionBinding.referencePaths) {
+        const call = reference.parentPath;
+        if (!call.isCallExpression() || call.node.callee !== reference.node)
+          continue;
+        if (
+          call.node.arguments
+            .slice(0, index + 1)
+            .some((arg) => arg.type === "SpreadElement")
+        )
+          continue;
+        const argument = call.get("arguments")[index] as NodePath | undefined;
+        if (!argument) continue;
+        const resolved = resolveExpression(
+          argument,
+          from,
+          seenExports,
+          nextBindings,
+          use,
+        );
+        if (resolved === "factory") return resolved;
+      }
+      return undefined;
+    }
     if (!binding.path.isVariableDeclarator()) return undefined;
     const init = binding.path.get("init") as NodePath;
     const matchesUse = (kind: CloudflareImportKind | undefined) =>
