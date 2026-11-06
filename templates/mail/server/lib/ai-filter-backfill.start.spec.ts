@@ -187,6 +187,7 @@ const mocks = vi.hoisted(() => ({
   gmailBatchGetThreads: vi.fn(),
   gmailGetThread: vi.fn(),
   gmailListThreads: vi.fn(),
+  gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
   syncInboxLabelDelta: vi.fn(),
   evaluateAiFilterBackfillRules: vi.fn(),
@@ -249,7 +250,7 @@ vi.mock("./google-api.js", async (importOriginal) => ({
   gmailBatchGetThreads: mocks.gmailBatchGetThreads,
   gmailGetThread: mocks.gmailGetThread,
   gmailListThreads: mocks.gmailListThreads,
-  gmailModifyMessage: vi.fn(),
+  gmailModifyMessage: mocks.gmailModifyMessage,
   gmailModifyThread: mocks.gmailModifyThread,
 }));
 vi.mock("./google-auth.js", () => ({
@@ -871,6 +872,54 @@ describe("startMailAiFilterBackfill", () => {
     },
   );
 
+  it.each(["outer", "part"] as const)(
+    "retries a Gmail capture after a %s batch 503",
+    async (failure) => {
+      const activeRule = rule("rule-a");
+      mocks.rules = [activeRule];
+      const state: any = backfillState([activeRule]);
+      state.candidates = [];
+      state.evaluations = {};
+      const row = runningRow([activeRule]);
+      row.stateJson = JSON.stringify(state);
+      database.rows.push(row);
+      mocks.getClientsWithErrors.mockResolvedValue({
+        clients: [{ email: "account@example.test", accessToken: "token" }],
+        errors: [],
+      });
+      mocks.gmailListThreads.mockResolvedValue({
+        threads: [{ id: "thread-a" }],
+      });
+      mocks.gmailBatchGetThreads.mockReset();
+      if (failure === "outer") {
+        mocks.gmailBatchGetThreads.mockRejectedValueOnce(
+          Object.assign(new Error("Gmail batch unavailable"), { status: 503 }),
+        );
+      } else {
+        mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+          { id: "thread-a", data: null, error: "unavailable", status: 503 },
+        ]);
+      }
+      mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+        { id: "thread-a", data: { id: "thread-a", messages: [] } },
+      ]);
+
+      await processMailAiFilterBackfills(ownerEmail);
+
+      const retry = JSON.parse(row.stateJson);
+      expect(row.status).toBe("queued");
+      expect(retry.retryCount).toBe(1);
+      expect(retry.retryAfterAt).toBeGreaterThan(Date.now());
+      expect(retry.candidates).toEqual([]);
+      retry.retryAfterAt = Date.now() - 1;
+      row.stateJson = JSON.stringify(retry);
+      await processMailAiFilterBackfills(ownerEmail);
+
+      expect(row.status).toBe("completed");
+      expect(mocks.gmailBatchGetThreads).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("retries partial Gmail refresh failures before capturing candidates", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
@@ -1083,6 +1132,74 @@ describe("startMailAiFilterBackfill", () => {
       "thread-shared",
       ["label-id"],
       [],
+    );
+  });
+
+  it("continues undoing other snapshots after a persistent per-thread 503", async () => {
+    const activeRule = rule("rule-a");
+    const state = backfillState([activeRule]);
+    const accountEmail = "account@example.test";
+    for (const threadId of ["thread-failed", "thread-healthy"]) {
+      const key = `${accountEmail}:${threadId}`;
+      Object.assign(state.snapshots, {
+        [key]: {
+          key,
+          accountEmail,
+          threadId,
+          local: false,
+          messages: [
+            {
+              id: `message-${threadId}`,
+              labels: { INBOX: false },
+              afterLabels: { INBOX: true },
+            },
+          ],
+        },
+      });
+    }
+    const row = runningRow([activeRule]);
+    row.status = "undoing";
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: accountEmail, accessToken: "token" }],
+      errors: [],
+    });
+    let healthyLabels = ["INBOX"];
+    mocks.gmailGetThread.mockReset();
+    mocks.gmailGetThread.mockImplementation(async (_token, threadId) => {
+      if (threadId === "thread-failed") {
+        throw Object.assign(new Error("Thread unavailable"), { status: 503 });
+      }
+      return {
+        messages: [{ id: "message-thread-healthy", labelIds: healthyLabels }],
+      };
+    });
+    mocks.gmailModifyMessage
+      .mockReset()
+      .mockImplementation(async (_token, _id, add, remove) => {
+        healthyLabels = [
+          ...healthyLabels.filter((label) => !remove.includes(label)),
+          ...add,
+        ];
+        return {};
+      });
+    mocks.syncInboxLabelDelta.mockReset().mockResolvedValue(undefined);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.undoFailedKeys).toEqual([`${accountEmail}:thread-failed`]);
+    expect(saved.undoProcessedIds).toEqual([`${accountEmail}:thread-healthy`]);
+    expect(saved.restoredThreads).toBe(1);
+    expect(saved.error).toContain("Thread unavailable");
+    expect(healthyLabels).toEqual([]);
+    expect(mocks.gmailModifyMessage).toHaveBeenCalledWith(
+      "token",
+      "message-thread-healthy",
+      [],
+      ["INBOX"],
     );
   });
 

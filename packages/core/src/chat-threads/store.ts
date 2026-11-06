@@ -1018,6 +1018,7 @@ export function registerChatThreadsShareable(): void {
       `/?thread=${encodeURIComponent(String(thread.id ?? ""))}`,
     getDb: () => getChatThreadsDb(),
     allowPublic: false,
+    confirmOrgVisibility: true,
     ownerAccessIgnoresOrg: true,
   });
 }

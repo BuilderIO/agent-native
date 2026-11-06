@@ -457,7 +457,7 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((button) => button.textContent?.trim() === "Add context")
+        .find((button) => button.textContent?.trim() === "Commands")
         ?.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
@@ -820,10 +820,6 @@ describe("createTiptapComposerExtensions", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const addContextItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "Add context");
-    await act(async () => addContextItem?.click());
     const clickMenuItem = async (label: string) => {
       const item = Array.from(
         document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
@@ -3387,7 +3383,7 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer storage gate", () => {
-  it("opens storage setup from Upload File without exposing a file picker", async () => {
+  it("opens storage setup from Files and images without exposing a file picker", async () => {
     const onAttachmentRequest = vi.fn();
 
     function Harness() {
@@ -3432,9 +3428,11 @@ describe("TiptapComposer storage gate", () => {
     const uploadItem = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     ).at(0);
-    expect(uploadItem).toBeDefined();
+    expect(uploadItem?.textContent).toBe("Files and images");
     await act(async () => uploadItem?.click());
-    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() => expect(onAttachmentRequest).toHaveBeenCalledOnce()),
+    );
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 });
@@ -5691,4 +5689,86 @@ describe("voice composer insertion", () => {
       }),
     ).toBe(false);
   });
+});
+
+describe("TiptapComposer editor updates", () => {
+  it.each(["draft scope switch", "insertText"])(
+    "reports an identical inline reference after a silent clear via %s",
+    async (clearMethod) => {
+      const onReferencesChange = vi.fn();
+      const onTextChange = vi.fn();
+      const focusRef = React.createRef<TiptapComposerHandle>();
+      const reference = {
+        label: "Document",
+        refType: "file",
+        refId: "one",
+      };
+
+      function Harness({ scope }: { scope: string }) {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              focusRef,
+              draftScope: scope,
+              onReferencesChange,
+              onTextChange,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              voiceEnabled: false,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness, { scope: "scope-a" }));
+      });
+      await act(async () => focusRef.current?.insertReference(reference));
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      onReferencesChange.mockClear();
+      onTextChange.mockClear();
+
+      if (clearMethod === "draft scope switch") {
+        await act(async () => {
+          root.render(React.createElement(Harness, { scope: "scope-b" }));
+        });
+        expect(onTextChange).toHaveBeenLastCalledWith("");
+      } else {
+        const execCommand = Object.getOwnPropertyDescriptor(
+          document,
+          "execCommand",
+        );
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: vi.fn(() => false),
+        });
+        try {
+          await act(async () => focusRef.current?.insertText("Replacement"));
+        } finally {
+          if (execCommand)
+            Object.defineProperty(document, "execCommand", execCommand);
+          else Reflect.deleteProperty(document, "execCommand");
+        }
+        expect(onTextChange).toHaveBeenLastCalledWith("Replacement");
+      }
+      expect(focusRef.current?.getDraftSnapshot?.().referenceKeys).toEqual([]);
+      const afterClear = [...onReferencesChange.mock.calls];
+      await act(async () => focusRef.current?.insertReference(reference));
+
+      expect(afterClear).toEqual([[[]]]);
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+      await act(async () => focusRef.current?.setSelection(1));
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+    },
+  );
 });

@@ -158,6 +158,7 @@ export function useEditorExportAndHandoff({
     canEditDesign,
     exportHtmlMutation,
     exportZipMutation,
+    leaseHydratedSource,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -1128,6 +1129,7 @@ export function useEditorExportAndHandoff({
         exportTracking,
         fallbackExportName,
         overviewScreens,
+        leaseHydratedSource,
         prepareScreenForExport: markScreenForExport,
         resolveSnapshotExportSource,
         releaseScreenFromExport,
@@ -1145,6 +1147,7 @@ export function useEditorExportAndHandoff({
       fallbackExportName,
       pngExportingRef,
       overviewScreens,
+      leaseHydratedSource,
       markScreenForExport,
       resolveSnapshotExportSource,
       releaseScreenFromExport,

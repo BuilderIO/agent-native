@@ -11200,7 +11200,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       resumableRuns: true,
       threadForking: true,
       threadHistory: true,
-      uploads: false,
+      uploads: true,
     });
   });
 });

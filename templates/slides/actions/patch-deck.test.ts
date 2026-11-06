@@ -5368,6 +5368,11 @@ describe("run() — client write ordering", () => {
     ).rejects.toMatchObject({
       errorCode: "slide_content_stale",
       statusCode: 409,
+      details: {
+        slideId: "slide-1",
+        currentContent: "remote edit",
+        currentContentHash: hashSlideContent("remote edit"),
+      },
     });
 
     expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(

@@ -9,6 +9,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
+
 // Must match the key `useActionQuery` builds for `get-view-settings`.
 const VIEW_SETTINGS_QUERY_KEY = ["action", "get-view-settings", undefined];
 
@@ -25,6 +27,7 @@ export function useViewSettings({ enabled }: { enabled: boolean }) {
   const pendingSavesRef = useRef(0);
   const { mutate } = useActionMutation("update-view-settings", {
     method: "PUT",
+    meta: SURFACE_MUTATION_ERROR,
     skipActionQueryInvalidation: true,
     onSuccess: (saved) => {
       // The server returns the full merged value, so a toggle made before the
