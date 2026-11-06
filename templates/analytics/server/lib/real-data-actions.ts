@@ -1075,22 +1075,61 @@ function hasUnsupportedResultClaim(text: string): boolean {
 }
 
 function hasNumericSqlProjection(sql: string): boolean {
+  const standard = scanNumericSqlProjection(sql, false);
+  if (!sql.includes("\\")) return standard.claim;
+  const escaped = scanNumericSqlProjection(sql, true);
+  if (standard.complete !== escaped.complete) {
+    return standard.complete ? standard.claim : escaped.claim;
+  }
+  // Without a dialect, two complete interpretations can disagree on whether
+  // the apparent projection is inside a string.
+  return standard.complete
+    ? standard.claim && escaped.claim
+    : standard.claim || escaped.claim;
+}
+
+function scanNumericSqlProjection(
+  sql: string,
+  backslashEscapes: boolean,
+): { claim: boolean; complete: boolean } {
   // Keep quoted text opaque and comments out of the projection scan; the
   // separate factual-claim check still inspects the original SQL.
   const tokenPattern =
-    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|e'(?:''|\\[\s\S]|[^'\\])*(?:'|$)|'(?:''|[^'])*(?:'|$)|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
+    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|e'|'|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
   const code: string[] = [];
   let position = 0;
+  let complete = true;
   while (position < sql.length) {
     tokenPattern.lastIndex = position;
     const match = tokenPattern.exec(sql);
     if (!match) break;
     const token = match[0];
     position = tokenPattern.lastIndex;
-    if (/^\$(?:[a-z_][a-z_0-9]*)?\$$/i.test(token)) {
+    if (token === "'" || /^e'$/i.test(token)) {
+      const escapes = backslashEscapes || token.length === 2;
+      let closed = false;
+      while (position < sql.length) {
+        if (escapes && sql[position] === "\\") {
+          position += 2;
+        } else if (sql[position] === "'" && sql[position + 1] === "'") {
+          position += 2;
+        } else if (sql[position++] === "'") {
+          closed = true;
+          break;
+        }
+      }
+      code.push("'quoted'");
+      if (!closed) {
+        complete = false;
+        break;
+      }
+    } else if (/^\$(?:[a-z_][a-z_0-9]*)?\$$/i.test(token)) {
       const end = sql.indexOf(token, position);
       code.push("'quoted'");
-      if (end === -1) break;
+      if (end === -1) {
+        complete = false;
+        break;
+      }
       position = end + token.length;
     } else if (!/^(?:\s|--|#|\/\*)/.test(token)) {
       code.push(token);
@@ -1158,7 +1197,7 @@ function hasNumericSqlProjection(sql: string): boolean {
         break;
       }
       if (depth === 0 && token === ",") {
-        if (isNumericProjection(projection)) return true;
+        if (isNumericProjection(projection)) return { claim: true, complete };
         projection = [];
       } else if (token === "(") {
         const close = closingParens.get(j) ?? code.length;
@@ -1174,9 +1213,9 @@ function hasNumericSqlProjection(sql: string): boolean {
         if (token === ")") depth--;
       }
     }
-    if (isNumericProjection(projection)) return true;
+    if (isNumericProjection(projection)) return { claim: true, complete };
   }
-  return false;
+  return { claim: false, complete };
 }
 
 export function draftClaimsAnalyticsMetrics(text: string): boolean {
