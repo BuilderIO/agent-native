@@ -88,7 +88,7 @@ it("refuses mixed placeholders without touching persisted metadata, then accepts
     { rewriteSource: null },
   );
   expect(refused.status).toBe("failed");
-  expect(refused.output).toContain("Invalid action parameters");
+  expect(refused.output).toContain("No action was run");
   expect(await read()).toEqual(before);
 
   const renamed = await invoke("sparse", { title: "Renamed fixture" });
