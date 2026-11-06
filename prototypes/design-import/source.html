@@ -421,23 +421,24 @@ function viewProgress() {
   return headPair(j.src, !j.failed) + `<div class="imb ${j.failed ? "bad" : ""}"><h2 id="imd-title">${j.failed ? `We couldn't import ${esc(j.name)}` : `Importing ${esc(j.name)}`}</h2><p class="lead">${j.failed ? "Nothing was added to your designs." : "You can close this. We'll let you know when it's ready."}</p><div class="prog-bar" role="progressbar" aria-label="Import progress" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><ul class="prog" style="padding:0;margin-bottom:0">${rows}</ul>${err}${foot}</div>`;
 }
 // The sidebar card and the dialog share their title and button. The Figma variant announces Figma import
-// alone, and its button goes straight to the Figma upload instead of the picker. The Builder.io variant is a
-// card only, shown while Builder.io isn't connected: the card and its button run the one-click Builder.io
-// setup (it creates or reuses the account and turns on its free credits), using the app's own labels.
+// alone, and its button goes straight to the Figma upload instead of the picker. The Builder.io variant shows
+// while Builder.io isn't connected: the card opens its announcement, and both buttons run the one-click
+// Builder.io setup (it creates or reuses the account and turns on its free credits), using the app's own labels.
 const ANNS = {
   all: { title: "Import an existing project", desc: "Bring a project from another tool and keep building.", lead: "Bring a project from another tool into Agent‑Native Design.", cta: "Import project", act: "import-now", proto: "import",
     checks: ["Move a project from Lovable, v0, Bolt, Replit, and more", "Import a Figma file or a GitHub repository", "Keep building your project as an agentic app"] },
   figma: { title: "Import from Figma", desc: "Bring your Figma designs into your project and keep building.", lead: "Bring your Figma designs into Agent‑Native Design.", cta: "Import from Figma", act: "import-figma", proto: "import-figma",
     checks: ["Import Figma files into Agent‑Native Design", "Start with the designs you already have", "Continue building as an agentic app"] },
-  builder: { title: "Get free AI credits", desc: "Run the agent, build full apps, and store files without API keys.", cta: "Use Builder.io", proto: "builder", cardOnly: true },
+  builder: { title: "Get free AI credits", desc: "Run the agent, build full apps, and store files without API keys.", lead: "Use your Builder.io account, or create a free one in one click.", cta: "Use Builder.io", act: "builder-connect", proto: "builder", learn: "Opens the Builder.io setup guide in the docs",
+    checks: ["Chat with the agent without adding API keys", "Build working apps from your designs", "Store images and files for free"] },
 };
-const dialogKind = () => ANNS[annKind].cardOnly ? "all" : annKind;
+const dialogKind = () => annKind;
 let annKind = "all";
 const RINGS = '<svg class="rings" viewBox="0 0 560 288" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><ellipse cx="280" cy="144" rx="240" ry="104"/><ellipse cx="280" cy="144" rx="154" ry="70"/></svg>';
 function viewAnnouncement() {
   const kind = dialogKind(), a = ANNS[kind];
-  const hero = kind === "figma"
-    ? `<div class="hero fig">${MELD}${FIG_PAIR}</div>`
+  const hero = kind === "figma" ? `<div class="hero fig">${MELD}${FIG_PAIR}</div>`
+    : kind === "builder" ? `<div class="hero fig">${MELD_AN}${BUILDER_PAIR}</div>`
     : `<div class="hero">${NEBULA}${RINGS}<div class="orbit" id="orbit" aria-hidden="true"></div><div class="core" aria-hidden="true">${MARK}</div><button class="pause" id="pause" aria-label="Pause animation">${ic("player-pause-filled")}</button></div>`;
   return `${hero}
   <div class="imb"><h2 id="imd-title">${a.title}</h2><p class="lead">${a.lead}</p>
@@ -468,7 +469,7 @@ function render({ focus = true, animate = true } = {}) {
   const view = ov.querySelector(".view");
   const keep = view.dataset.key === key();
   dlg.classList.toggle("ann", S.view === "announcement");
-  dlg.classList.toggle("ann-light", S.view === "announcement" && dialogKind() === "figma");
+  dlg.classList.toggle("ann-light", S.view === "announcement" && dialogKind() !== "all");
   // Re-rendering the same view (typing, progress ticks) keeps the field focused and skips the fade.
   const active = document.activeElement?.id, caret = active === "imp-url" ? document.activeElement.selectionStart : null;
   const fresh = document.createElement("div");
@@ -584,7 +585,11 @@ root.addEventListener("click", (e) => {
   else if (act === "back") back();
   else if (act === "import-now") go("picker");
   else if (act === "import-figma") go("upload", { src: "figma", from: null, file: null });
-  else if (act === "learn") toast("Opens the import guide in the Design docs");
+  else if (act === "learn") toast(ANNS[dialogKind()].learn || "Opens the import guide in the Design docs");
+  else if (act === "builder-connect") {
+    t.textContent = "Setting up Builder.io…"; t.disabled = true;
+    setTimeout(() => { close(); builderConnected(); }, 1600);
+  }
   else if (act === "copy") copyText(SRC.manus.prompt, "Prompt copied");
   else if (act === "to-upload") go("upload", { from: S.src, src: "upload", file: null });
   else if (act === "choose") root.querySelector("#imp-file")?.click();
@@ -759,7 +764,7 @@ addEventListener("message", (e) => {
   if (e.source !== dash.contentWindow) return;
   if (e.data?.proto === "import") open("picker");
   else if (e.data?.proto === "import-figma") open("upload", { src: "figma" });
-  else if (e.data?.proto === "builder-done") toast("Builder.io account created and connected.");
+  else if (e.data?.proto === "builder-done") builderConnected();
   else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
 });
@@ -789,7 +794,7 @@ function cardHTML(kind) {
   const hero = kind === "figma" ? `<span class="an-hero fig">${MELD}${FIG_PAIR}</span>`
     : kind === "builder" ? `<span class="an-hero fig">${MELD_AN}${BUILDER_PAIR}</span>`
     : `<span class="an-hero">${NEBULA}${RINGS}<span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span>`;
-  return `<div class="an-card"><button type="button" class="an-open" data-proto="${a.cardOnly ? a.proto : "announce"}">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
+  return `<div class="an-card"><button type="button" class="an-open" data-proto="announce">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
 }
 // Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
@@ -801,7 +806,7 @@ addEventListener("click", (e) => {
     const cta = document.querySelector('.an-cta[data-proto="builder"]');
     if (!cta || cta.disabled) return;
     cta.textContent = "Setting up Builder.io…"; cta.disabled = true;
-    setTimeout(() => { slot.innerHTML = ""; parent.postMessage({ proto: "builder-done" }, "*"); }, 1600);
+    setTimeout(() => parent.postMessage({ proto: "builder-done" }, "*"), 1600);
     return;
   }
   if (e.target.closest('[data-proto="import-figma"]')) { e.preventDefault(); parent.postMessage({ proto: "import-figma" }, "*"); return; }
@@ -811,7 +816,7 @@ addEventListener("click", (e) => {
 });
 addEventListener("submit", (e) => e.preventDefault());
 addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
-addEventListener("message", (e) => { if (e.data && e.data.protoCard && slot) { slot.innerHTML = e.data.protoCard; if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
+addEventListener("message", (e) => { if (e.data && "protoCard" in e.data && slot) { slot.innerHTML = e.data.protoCard; if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
 const slot = document.querySelector('section[aria-label="Getting started"]');
 if (slot) { slot.setAttribute("aria-label", "What's new"); slot.innerHTML = ${JSON.stringify(cardHTML("all"))}; }
 // The card's galaxy: the dialog's orbit, scaled to the card as a whole so its spacing holds.
@@ -841,6 +846,8 @@ function toggleTheme() { document.documentElement.dataset.theme = themeNow() ===
 $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
 function syncCard() { dash.contentWindow?.postMessage({ protoCard: cardHTML(annKind) }, "*"); }
+// Once Builder.io is connected its card has nothing left to offer, so the slot empties.
+function builderConnected() { dash.contentWindow?.postMessage({ protoCard: "" }, "*"); toast("Builder.io account created and connected."); }
 dash.addEventListener("load", () => { if (annKind !== "all") syncCard(); });
 function setKind(kind) {
   annKind = annKind === kind ? "all" : kind;
