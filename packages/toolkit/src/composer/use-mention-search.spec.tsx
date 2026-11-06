@@ -4,7 +4,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useMentionSearch } from "./use-mention-search.js";
+import {
+  useMentionSearch,
+  loadWorkspaceMentionItems,
+} from "./use-mention-search.js";
 
 const resolvePath = (path: string) => `/design${path}`;
 const file = {
@@ -45,6 +48,28 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("shared launcher mention discovery", () => {
+  it("rejects a failed source after earlier batches instead of returning a partial workspace result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ items: [file] }) +
+              "\n" +
+              JSON.stringify({
+                error: {
+                  code: "mention_source_unavailable",
+                  message: "Could not load workspace references.",
+                  source: "dashboards",
+                },
+              }),
+          ),
+      ),
+    );
+    await expect(
+      loadWorkspaceMentionItems("", resolvePath, new AbortController().signal),
+    ).rejects.toThrow("Could not load workspace references.");
+  });
   it("does not load until the launcher opens", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

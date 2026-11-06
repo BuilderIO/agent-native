@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import type { AssistantChatComposerContext } from "@agent-native/toolkit/app/chat/chat";
-import { snapshotComposerContextItems } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  writeAssistantChatComposerContextDraft,
+  snapshotComposerContextItems,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -133,7 +136,9 @@ function picker(
   controller: ReturnType<typeof useHomePromptContext>,
   id = "figma-reference",
 ) {
-  const item = controller.menuItems[0].children!.find((item) => item.id === id);
+  const item = controller.menuItems
+    .flatMap((item) => item.children ?? [item])
+    .find((item) => item.id === id);
   if (!item || !("picker" in item) || !item.picker)
     throw new Error("Missing picker");
   return item.picker;
@@ -216,6 +221,69 @@ afterEach(() => {
 });
 
 describe("home prompt context", () => {
+  it("rejects unsupported app source IDs before partially hydrating references or changing the system", async () => {
+    const scope = "design-source-scope";
+    writeAssistantChatComposerContextDraft(scope, {
+      designSystemId: "saved-system",
+      references: [
+        { source: "design", id: "first", title: "First design" },
+        { source: "google-slides", id: "unsupported", title: "Google source" },
+      ],
+    });
+    const key = `agent-chat-composer-context:${scope}`;
+    const stored = window.localStorage.getItem(key);
+    const { result } = renderHook(() =>
+      useHomePromptContext({ ...defaults, draftScope: scope }),
+    );
+    await waitFor(() =>
+      expect(result.current.contextItems).toEqual([
+        expect.objectContaining({
+          key: "design-context-draft",
+          status: "error",
+          statusMessage: "homeContext.loadFailed",
+        }),
+      ]),
+    );
+    expect(mocks.call).not.toHaveBeenCalled();
+    expect(mocks.select).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(key)).toBe(stored);
+  });
+  it.each(["design", "slides", "figma", "website", "integration"])(
+    "still hydrates supported %s draft references",
+    async (source) => {
+      const scope = `design-known-${source}`;
+      writeAssistantChatComposerContextDraft(scope, {
+        designSystemId: null,
+        references: [
+          {
+            source,
+            id: "one",
+            title: "Saved source",
+            url: website,
+            ...(source === "figma" ? { figmaUrl: url } : {}),
+          },
+        ],
+      });
+      const { result } = renderHook(() =>
+        useHomePromptContext({ ...defaults, draftScope: scope }),
+      );
+      await waitFor(() =>
+        expect(
+          result.current.contextItems.some(
+            (item) =>
+              item.status === "ready" &&
+              item.context === "Bounded visual context",
+          ),
+        ).toBe(true),
+      );
+      expect(mocks.call).toHaveBeenCalledWith(
+        "read-composer-source",
+        expect.objectContaining({ source }),
+        { method: "GET" },
+      );
+    },
+  );
+
   it("restores only reference metadata across same-thread surface remounts and re-reads its content", async () => {
     let model!: AssistantChatComposerContext;
     const provider = (threadId: string, tabId: string) => (
@@ -227,10 +295,10 @@ describe("home prompt context", () => {
       </DesignComposerContextProvider>
     );
     const view = render(provider("thread", "sidebar-tab"));
-    const action = model.menuItems[0].children!.find(
-      (item) => item.id === "website-reference",
-    )!;
-    if (!("picker" in action) || !action.picker?.onSelect)
+    const action = model.menuItems
+      .flatMap((item) => item.children ?? [item])
+      .find((item) => item.id === "website-reference");
+    if (!action || !("picker" in action) || !action.picker?.onSelect)
       throw new Error("Missing website picker");
     await act(async () =>
       action.picker!.onSelect!({ id: website, title: "Website" }, request()),
@@ -297,7 +365,8 @@ describe("home prompt context", () => {
     const view = render(providers("one"));
     const action = models
       .get("one")!
-      .menuItems[0].children!.find((item) => item.id === "design-reference")!;
+      .menuItems.flatMap((item) => item.children ?? [item])
+      .find((item) => item.id === "design-reference")!;
     if (
       !("picker" in action) ||
       !action.picker ||
@@ -324,7 +393,8 @@ describe("home prompt context", () => {
     expect(models.get("two")!.contextItems).toEqual([]);
     const newAction = models
       .get("one")!
-      .menuItems[0].children!.find((item) => item.id === "website-reference")!;
+      .menuItems.flatMap((item) => item.children ?? [item])
+      .find((item) => item.id === "website-reference");
     if (!("picker" in newAction) || !newAction.picker?.onSelect)
       throw new Error("Missing website action");
     await act(async () =>
@@ -431,60 +501,17 @@ describe("home prompt context", () => {
     expect(result.current.contextItems).toHaveLength(1);
     expect(result.current.contextItems[0].status).toBe("error");
   });
-  it("blocks submission and retains an error selection when an attached integration is revoked", async () => {
-    const integration = {
-      id: "provider-api:figma",
-      label: "Figma",
-      kind: "provider-api" as const,
-    };
-    mocks.capabilities.data.integrations = [integration];
-    const { result, rerender } = renderHook(() =>
-      useHomePromptContext(defaults),
-    );
-    await act(async () =>
-      picker(result.current, "integrations").onSelect!(
-        { id: integration.id, title: integration.label },
-        request(),
-      ),
-    );
-    const captured = snapshotComposerContextItems(result.current.contextItems);
-    expect(captured[0].status).toBe("ready");
-    mocks.capabilities.data.integrations = [];
-    rerender();
-    mocks.call.mockRejectedValueOnce(
-      Object.assign(new Error("Integration is no longer available"), {
-        status: 403,
-      }),
-    );
-    const send = vi.fn();
-    await act(async () => {
-      await expect(
-        result.current.prepareSubmission(captured).then(send),
-      ).rejects.toThrow("Integration is no longer available");
-    });
-    expect(send).not.toHaveBeenCalled();
-    expect(result.current.contextItems).toEqual([
-      expect.objectContaining({
-        key: captured[0].key,
-        status: "error",
-        context: "",
-        statusMessage: "Integration is no longer available",
-      }),
-    ]);
-  });
+  // oracle-change: workspace integration selection and revocation are owned by the shared composer.
+
   it("keeps references available with design systems disabled, with no hidden system read", () => {
     mocks.enabled = false;
     const { result } = renderHook(() =>
       useHomePromptContext({ ...defaults, systemId: "saved-system" }),
     );
-    expect(result.current.menuItems.map((item) => item.id)).toEqual(["design"]);
-    expect(
-      result.current.menuItems[0].children?.map((item) => item.id),
-    ).toEqual([
-      "design-reference",
+    expect(result.current.menuItems.map((item) => item.id)).toEqual([
       "figma-reference",
+      "design-reference",
       "website-reference",
-      "integrations",
     ]);
     expect(result.current.contextItems).toEqual([]);
     expect(mocks.call).not.toHaveBeenCalled();
@@ -494,7 +521,24 @@ describe("home prompt context", () => {
     const source = "design";
     mocks.enabled = false;
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    expect(result.current.menuItems[0].children).toContainEqual(
+    const referenceMenu = result.current.menuItems.find(
+      (entry) => entry.id === "design-reference",
+    );
+    expect(referenceMenu).toMatchObject({ order: 20 });
+    const figmaEntry = result.current.menuItems.find(
+      (entry) => entry.id === "figma-reference",
+    );
+    expect(figmaEntry).toMatchObject({ order: 10 });
+    expect(figmaEntry?.icon).toMatchObject({
+      type: "img",
+      props: {
+        alt: "",
+        src: expect.stringMatching(/^data:image\/svg\+xml;base64,/),
+      },
+    });
+    expect(
+      result.current.menuItems.flatMap((item) => item.children ?? [item]),
+    ).toContainEqual(
       expect.objectContaining({
         id,
         label: "homeContext.referenceDesign",
@@ -594,41 +638,71 @@ describe("home prompt context", () => {
     });
     expect(picker(result.current, "website-reference").load).toBeUndefined();
     expect(
-      result.current.menuItems[0].children?.every(
-        (entry) => !("render" in entry),
-      ),
+      result.current.menuItems.every((entry) => !("render" in entry)),
     ).toBe(true);
   });
-  it("gates Figma on backend readiness and exposes connected integrations as invocation intents", async () => {
+  it("keeps the actual Figma action in a dialog across pending, unavailable, disconnected, and connected capabilities", () => {
+    Object.assign(mocks.capabilities, {
+      data: undefined,
+      integrationsLoading: true,
+      integrationsError: undefined,
+    });
+    const { result, rerender } = renderHook(() =>
+      useHomePromptContext(defaults),
+    );
+    expect(picker(result.current, "figma-reference")).toMatchObject({
+      presentation: { type: "dialog", mode: "action" },
+      loading: true,
+    });
+    Object.assign(mocks.capabilities, {
+      integrationsLoading: false,
+      integrationsError: new Error("read failed"),
+    });
+    rerender();
+    expect(picker(result.current, "figma-reference")).toMatchObject({
+      error: "homeContext.loadFailed",
+    });
+    Object.assign(mocks.capabilities, { integrationsError: undefined });
+    rerender();
+    expect(picker(result.current, "figma-reference")).toMatchObject({
+      error: "homeContext.loadFailed",
+    });
+    Object.assign(mocks.capabilities, {
+      data: { sources: { figma: { available: false } }, integrations: [] },
+    });
+    rerender();
+    expect(
+      picker(result.current, "figma-reference").footerAction,
+    ).toBeDefined();
+    Object.assign(mocks.capabilities, {
+      data: { sources: { figma: { available: true } }, integrations: [] },
+    });
+    rerender();
+    expect(picker(result.current, "figma-reference").link).toBeDefined();
+    expect(picker(result.current, "figma-reference").load).toBeTypeOf(
+      "function",
+    );
+  });
+  it("keeps disconnected Figma available through the existing integration setup link without duplicating workspace integrations", () => {
     mocks.capabilities = {
-      data: {
-        sources: { figma: { available: false } },
-        integrations: [
-          { id: "github", label: "GitHub", kind: "provider-api" },
-          { id: "mcp:org_team-1_notion", label: "notion", kind: "mcp" },
-        ],
-      },
+      data: { sources: { figma: { available: false } }, integrations: [] },
     };
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    const entries = result.current.menuItems[0].children!;
-    expect(entries.some((entry) => entry.id === "figma-reference")).toBe(false);
-    const integrations = entries.find((entry) => entry.id === "integrations");
-    expect(integrations).toMatchObject({ intent: "invoke-integration" });
-    const integrationPicker = picker(result.current, "integrations");
-    expect(integrationPicker.items).toEqual([
-      { id: "github", title: "GitHub" },
-      { id: "mcp:org_team-1_notion", title: "notion" },
-    ]);
-    await act(async () =>
-      integrationPicker.onSelect!({ id: "github", title: "GitHub" }, request()),
+    const entry = result.current.menuItems.find(
+      (item) => item.id === "figma-reference",
     );
-    expect(mocks.call).toHaveBeenCalledWith(
-      "read-composer-source",
-      { source: "integration", operation: "read", id: "github", page: 1 },
-      { method: "GET" },
-    );
-    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(entry).toMatchObject({ referenceType: "figma" });
+    const fallback = picker(result.current, "figma-reference");
+    expect(
+      fallback.footerAction &&
+        "renderLink" in fallback.footerAction &&
+        fallback.footerAction.renderLink?.("Figma"),
+    ).toMatchObject({ props: { to: "/settings/integrations/figma" } });
+    expect(
+      result.current.menuItems.some((item) => item.id === "integrations"),
+    ).toBe(false);
   });
+
   it("lists without staging, then attaches two canonical per-frame URLs together", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
     const other = "https://www.figma.com/design/example-two/Frame?node-id=1-2";

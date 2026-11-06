@@ -457,7 +457,7 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((button) => button.textContent?.trim() === "Add context")
+        .find((button) => button.textContent?.trim() === "Commands")
         ?.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
@@ -820,10 +820,6 @@ describe("createTiptapComposerExtensions", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const addContextItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "Add context");
-    await act(async () => addContextItem?.click());
     const clickMenuItem = async (label: string) => {
       const item = Array.from(
         document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
@@ -3387,7 +3383,7 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer storage gate", () => {
-  it("opens storage setup from Upload File without exposing a file picker", async () => {
+  it("opens storage setup from Files and images without exposing a file picker", async () => {
     const onAttachmentRequest = vi.fn();
 
     function Harness() {
@@ -3432,9 +3428,11 @@ describe("TiptapComposer storage gate", () => {
     const uploadItem = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     ).at(0);
-    expect(uploadItem).toBeDefined();
+    expect(uploadItem?.textContent).toBe("Files and images");
     await act(async () => uploadItem?.click());
-    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() => expect(onAttachmentRequest).toHaveBeenCalledOnce()),
+    );
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 });

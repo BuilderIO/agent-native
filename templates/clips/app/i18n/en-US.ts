@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",

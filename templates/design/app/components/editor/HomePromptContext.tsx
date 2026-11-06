@@ -5,6 +5,8 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
   composerSourceListSchema,
   composerSourceReferenceSchema,
@@ -15,7 +17,6 @@ import {
   readAssistantChatComposerContextDraft,
   writeAssistantChatComposerContextDraft,
   useAgentKitCapabilities,
-  useAgentKitIntegrationMenu,
   type ComposerContextSnapshot,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
@@ -24,8 +25,10 @@ import {
   type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import { IconLayoutGrid, IconPalette, IconWorld } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import { z } from "zod";
 
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import type {
@@ -39,7 +42,14 @@ import {
 } from "@/lib/composer-context";
 
 type SourceItem = { id: string; title: string; url?: string };
-type Source = "design" | "slides" | "figma" | "website" | "integration";
+const sourceSchema = z.enum([
+  "design",
+  "slides",
+  "figma",
+  "website",
+  "integration",
+]);
+type Source = z.infer<typeof sourceSchema>;
 type BrowseSource = Exclude<Source, "website" | "integration">;
 type Reference = SourceItem & { source: Source; figmaUrl?: string };
 
@@ -232,10 +242,15 @@ export function useHomePromptContext({
     setDraftHydrated(false);
     try {
       const draft = readAssistantChatComposerContextDraft(draftScope);
+      const references =
+        draft?.references.map((reference) => ({
+          ...reference,
+          source: sourceSchema.parse(reference.source),
+        })) ?? [];
       requests.current.clear();
       setItems([]);
       onSystemChange(draft?.designSystemId ?? null);
-      for (const reference of draft?.references ?? []) attach(reference);
+      for (const reference of references) attach(reference);
       setDraftError(undefined);
       setDraftHydrated(true);
     } catch {
@@ -455,152 +470,188 @@ export function useHomePromptContext({
       },
     };
   };
-  const integrationMenu = useAgentKitIntegrationMenu({
-    capabilities,
-    scopeKey: identity,
-    onSelect: (integration) => {
-      attachBatch([
-        {
-          id: integration.id,
-          title: integration.label,
-          source: "integration",
-        },
-      ]);
-    },
-  });
   const menuItems: ComposerContextMenuItem[] = [
     {
-      id: "design",
-      label: t("homeContext.design"),
-      searchPlaceholder: t("homeContext.searchDesign"),
-      children: [
-        {
-          id: "design-reference",
-          label: t("homeContext.referenceDesign"),
-          intent: "add-context",
-          picker: {
-            ...referencePicker("design"),
-            load: async ({ search, page, signal }) => {
-              const result = await callAction<{
-                designs: Array<{
-                  id: string;
-                  title: string;
-                  description?: string | null;
-                  previewHtml?: string | null;
-                  updatedAt: string;
-                }>;
-                hasMore: boolean;
-              }>(
-                "list-designs",
-                { includePreview: "true", pageSize: 12, search, page },
-                { method: "GET", signal },
-              );
-              return {
-                hasMore: result.hasMore,
-                items: result.designs.map((design) => ({
-                  id: design.id,
-                  title: design.title,
-                  description: design.description,
-                  preview: (
-                    <DesignThumbnail
-                      html={design.previewHtml ?? null}
-                      designId={design.id}
-                      className="h-full w-full"
-                    />
-                  ),
-                  metadata: (
-                    <time dateTime={design.updatedAt}>
-                      {formatters.formatDate(design.updatedAt, {
-                        dateStyle: "medium",
-                      })}
-                    </time>
-                  ),
-                })),
-              };
+      id: "figma-reference",
+      order: 10,
+      referenceType: "figma",
+      icon: (
+        <img
+          src={mcpIntegrationLogo("figma")}
+          className="size-4 object-contain"
+          alt=""
+        />
+      ),
+      label: t("homeContext.figmaReference"),
+      intent: "add-context",
+      ...(capabilities.integrationsLoading ||
+      capabilities.integrationsError ||
+      !capabilities.data
+        ? {
+            picker: {
+              presentation: { type: "dialog", mode: "action" },
+              searchable: false,
+              scopeKey: identity,
+              searchPlaceholder: t("homeContext.searchFrames"),
+              items: [],
+              loading: capabilities.integrationsLoading,
+              error:
+                capabilities.integrationsError ||
+                (!capabilities.data && !capabilities.integrationsLoading)
+                  ? t("homeContext.loadFailed")
+                  : undefined,
+              onRetry: capabilities.refetchIntegrations,
+              emptyMessage: t("homeContext.empty"),
+              onSelect: () => {
+                throw new Error(t("homeContext.loadFailed"));
+              },
             },
-          },
-        },
-        ...(systemsEnabled
-          ? [
-              {
-                id: "system",
-                label: t("homeContext.useDesignSystem"),
-                picker: {
-                  presentation: { type: "dialog", mode: "single" },
-                  scopeKey: identity,
-                  searchPlaceholder: t("homeContext.searchSystems"),
-                  selectedIds: systemId ? [systemId] : [],
-                  items: systems.map((system) => ({
-                    id: system.id,
-                    title: system.title,
-                    disabled: !system.ready,
-                  })),
-                  loading: systemsLoading,
-                  error: systemsError
-                    ? (actionErrorMessage(systemsError) ?? loadFailed)
-                    : undefined,
-                  onRetry: retrySystems,
-                  emptyMessage: systems.length
-                    ? t("homeContext.empty")
-                    : t("homeContext.noSystems"),
-                  footerAction: {
-                    label: t("homeContext.createSystem"),
-                    renderLink: (children) => (
-                      <Link to="/design-systems/setup">{children}</Link>
-                    ),
-                  },
-                  clearSelection: systemId
-                    ? {
-                        label: t("homeContext.none"),
-                        onSelect: () => onSystemChange(null),
-                      }
-                    : undefined,
-                  onSelect: (item) => {
-                    if (!activeRef.current || identityRef.current !== identity)
-                      throw new Error(loadFailed);
-                    onSystemChange(item.id);
-                  },
+          }
+        : capabilities.data?.sources.figma.available
+          ? { picker: referencePicker("figma") }
+          : {
+              picker: {
+                scopeKey: identity,
+                presentation: { type: "dialog", mode: "action" },
+                searchable: false,
+                searchPlaceholder: t("homeContext.searchFrames"),
+                items: [],
+                emptyMessage: t("homeContext.figmaDisconnected"),
+                footerAction: {
+                  label: t("homeContext.connectFigma"),
+                  renderLink: (children) => (
+                    <Link to={buildSettingsRoute("integrations", "figma")}>
+                      {children}
+                    </Link>
+                  ),
                 },
-              } satisfies ComposerContextMenuItem,
-            ]
-          : []),
-        ...(capabilities.data?.sources.figma.available
-          ? [
-              {
-                id: "figma-reference",
-                label: t("homeContext.figmaReference"),
-                intent: "add-context" as const,
-                picker: referencePicker("figma"),
-              } satisfies ComposerContextMenuItem,
-            ]
-          : []),
-        {
-          id: "website-reference",
-          label: t("homeContext.websiteReference"),
-          intent: "add-context",
-          picker: {
-            scopeKey: identity,
-            presentation: { type: "dialog", mode: "url" },
-            searchPlaceholder: t("homeContext.websiteUrl"),
-            link: {
-              label: t("homeContext.websiteUrlLabel"),
-              placeholder: t("homeContext.websiteUrl"),
-              submitLabel: t("homeContext.websiteReference"),
-              validate: (url) =>
-                url.trim().length <= 2048 &&
-                !new URL(url).username &&
-                !new URL(url).password
-                  ? undefined
-                  : t("homeContext.invalidWebsiteUrl"),
-            },
-            onSelect: (item) =>
-              attachBatch([
-                { ...item, source: "website", url: item.url ?? item.id },
-              ]),
-          },
+                onSelect: () => {
+                  throw new Error(t("homeContext.loadFailed"));
+                },
+              },
+            }),
+    },
+    {
+      id: "design-reference",
+      referenceType: "design",
+      order: 20,
+      icon: <IconPalette />,
+      label: t("homeContext.referenceDesign"),
+      intent: "add-context",
+      picker: {
+        ...referencePicker("design"),
+        load: async ({ search, page, signal }) => {
+          const result = await callAction<{
+            designs: Array<{
+              id: string;
+              title: string;
+              description?: string | null;
+              previewHtml?: string | null;
+              updatedAt: string;
+            }>;
+            hasMore: boolean;
+          }>(
+            "list-designs",
+            { includePreview: "true", pageSize: 12, search, page },
+            { method: "GET", signal },
+          );
+          return {
+            hasMore: result.hasMore,
+            items: result.designs.map((design) => ({
+              id: design.id,
+              title: design.title,
+              description: design.description,
+              preview: (
+                <DesignThumbnail
+                  html={design.previewHtml ?? null}
+                  designId={design.id}
+                  className="h-full w-full"
+                />
+              ),
+              metadata: (
+                <time dateTime={design.updatedAt}>
+                  {formatters.formatDate(design.updatedAt, {
+                    dateStyle: "medium",
+                  })}
+                </time>
+              ),
+            })),
+          };
         },
-        integrationMenu,
-      ],
+      },
+    },
+    ...(systemsEnabled
+      ? [
+          {
+            id: "system",
+            order: 30,
+            icon: <IconLayoutGrid />,
+            label: t("homeContext.useDesignSystem"),
+            picker: {
+              presentation: { type: "dialog", mode: "single" },
+              scopeKey: identity,
+              searchPlaceholder: t("homeContext.searchSystems"),
+              selectedIds: systemId ? [systemId] : [],
+              items: systems.map((system) => ({
+                id: system.id,
+                title: system.title,
+                disabled: !system.ready,
+              })),
+              loading: systemsLoading,
+              error: systemsError
+                ? (actionErrorMessage(systemsError) ?? loadFailed)
+                : undefined,
+              onRetry: retrySystems,
+              emptyMessage: systems.length
+                ? t("homeContext.empty")
+                : t("homeContext.noSystems"),
+              footerAction: {
+                label: t("homeContext.createSystem"),
+                renderLink: (children) => (
+                  <Link to="/design-systems/setup">{children}</Link>
+                ),
+              },
+              clearSelection: systemId
+                ? {
+                    label: t("homeContext.none"),
+                    onSelect: () => onSystemChange(null),
+                  }
+                : undefined,
+              onSelect: (item) => {
+                if (!activeRef.current || identityRef.current !== identity)
+                  throw new Error(loadFailed);
+                onSystemChange(item.id);
+              },
+            },
+          } satisfies ComposerContextMenuItem,
+        ]
+      : []),
+    {
+      id: "website-reference",
+      order: 30,
+      icon: <IconWorld />,
+      label: t("homeContext.websiteReferenceMenu"),
+      intent: "add-context",
+      picker: {
+        scopeKey: identity,
+        presentation: { type: "dialog", mode: "url" },
+        searchPlaceholder: t("homeContext.websiteUrl"),
+        link: {
+          label: t("homeContext.websiteUrlLabel"),
+          placeholder: t("homeContext.websiteUrl"),
+          submitLabel: t("homeContext.websiteReference"),
+          validate: (url) =>
+            url.trim().length <= 2048 &&
+            !new URL(url).username &&
+            !new URL(url).password
+              ? undefined
+              : t("homeContext.invalidWebsiteUrl"),
+        },
+        onSelect: (item) =>
+          attachBatch([
+            { ...item, source: "website", url: item.url ?? item.id },
+          ]),
+      },
     },
   ];
   const remove = (key: string) => {

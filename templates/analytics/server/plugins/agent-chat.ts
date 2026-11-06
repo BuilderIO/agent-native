@@ -1,4 +1,4 @@
-import "../register-secrets.js";
+import { searchDashboardMentions, validateDashboardReferences } from "../lib/composer-references.js";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
@@ -11,6 +11,8 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+
+import "../register-secrets.js";
 import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
@@ -5361,45 +5363,7 @@ export function realDataFinalGuard(
   };
 }
 
-export async function searchDashboardMentions(query: string, event?: any) {
-  if (!event) return [];
-  try {
-    const { getOrgContext } = await import("@agent-native/core/org");
-    const { listDashboardSummaries } =
-      await import("../lib/dashboards-store.js");
-    const ctx = await getOrgContext(event);
-    const rows = await listDashboardSummaries(
-      { email: ctx.email, orgId: ctx.orgId ?? null },
-      { kind: "sql", hidden: query ? "all" : "visible" },
-    );
-    const items = rows.map((dashboard) => ({
-      id: dashboard.id,
-      name: dashboard.name,
-    }));
-
-    const q = (query || "").toLowerCase().trim();
-    const filtered = q
-      ? items.filter(
-          (dashboard) =>
-            (dashboard.name || "").toLowerCase().includes(q) ||
-            dashboard.id.toLowerCase().includes(q),
-        )
-      : items;
-
-    return filtered.slice(0, 20).map((dashboard) => ({
-      id: `dashboard:${dashboard.id}`,
-      label: dashboard.name || "Untitled dashboard",
-      description: `/dashboards/${dashboard.id}`,
-      icon: "deck",
-      refType: "dashboard",
-      refId: dashboard.id,
-      refPath: `/dashboards/${dashboard.id}`,
-    }));
-  } catch (err) {
-    console.error("[analytics] Dashboard mention provider failed:", err);
-    return [];
-  }
-}
+export { searchDashboardMentions } from "../lib/composer-references.js";
 
 export default createAgentChatPlugin({
   appId: "analytics",
@@ -5437,12 +5401,14 @@ export default createAgentChatPlugin({
     await track("analytics_agent_run_outcome", properties);
   },
   prepareRequest: async ({
+    references: submittedReferences,
     ownerEmail,
     message,
     requestContext,
     contextPrefetchDeadlineAt,
     dispatchToBackground,
   }) => {
+    await validateDashboardReferences(submittedReferences);
     if (
       !ownerEmail ||
       dispatchToBackground ||
@@ -5478,7 +5444,7 @@ export default createAgentChatPlugin({
   extraContext: analyticsRequestExtraContext,
   mentionProviders: {
     dashboards: {
-      label: "Dashboards",
+      label: "composerSources.group",
       icon: "deck",
       search: searchDashboardMentions,
     },

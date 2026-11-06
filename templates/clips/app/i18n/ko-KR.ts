@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "녹화 참조…",
+    group: "녹화",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   meetingBrowserConfirmation:
     "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",

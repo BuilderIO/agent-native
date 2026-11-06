@@ -508,6 +508,7 @@ describe("agent chat thread read route", () => {
 async function mountResourceRoutes(options?: {
   appId?: string;
   actions?: AgentChatPluginOptions["actions"];
+  mentionProviders?: AgentChatPluginOptions["mentionProviders"];
   resolveOrgId?: (
     event: unknown,
   ) => string | null | undefined | Promise<string | null | undefined>;
@@ -2245,6 +2246,82 @@ describe("agent chat resource route organization scopes", () => {
     );
   });
 
+  it("isolates native reference searches and reports provider failure separately from an empty result", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const search = vi.fn(async () => [
+      {
+        id: "brief",
+        label: "Brief",
+        refType: "dashboard",
+        refId: "brief",
+        refPath: "brief",
+      },
+    ]);
+    const unrelated = vi.fn(async () => []);
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: { label: "Dashboards", search },
+        recordings: { label: "Clips", search: unrelated },
+      },
+    });
+    const request = (source: string) =>
+      fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/mentions?source=${source}&q=brief`,
+        { userEmail: "user@example.test", orgId: "org-active" },
+      );
+    const result = await request("dashboards");
+    expect(result.status).toBe(200);
+    expect(JSON.parse(await result.text()).items).toEqual([
+      expect.objectContaining({
+        source: "dashboards",
+        id: "brief",
+        refType: "dashboard",
+      }),
+    ]);
+    expect(search).toHaveBeenCalledWith("brief", expect.anything());
+    expect(unrelated).not.toHaveBeenCalled();
+    expect((await request("unknown")).status).toBe(404);
+    search.mockResolvedValueOnce([]);
+    expect(
+      JSON.parse(await (await request("dashboards")).text()).items,
+    ).toEqual([]);
+    search.mockRejectedValueOnce(new Error("provider unavailable"));
+    const failure = await request("dashboards");
+    expect(failure.status).toBe(503);
+    expect(await failure.text()).toContain("mention_source_unavailable");
+  });
+
+  it("reports a failed generic mention source in the stream instead of a clean empty result", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: {
+          label: "Dashboards",
+          search: async () => {
+            throw new Error("provider unavailable");
+          },
+        },
+      },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      "/_agent-native/agent-chat/mentions",
+      { userEmail: "user@example.test", orgId: "org-active" },
+    );
+    const records = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(records).toContainEqual({
+      error: {
+        code: "mention_source_unavailable",
+        message: "Could not load workspace references.",
+        source: "dashboards",
+      },
+    });
+  });
+
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
     expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
@@ -2348,6 +2425,8 @@ describe("agent chat resource route organization scopes", () => {
   });
 
   it("applies the app's agent-context filter to Connected Agents mentions", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    mocks.resourceListAccessible.mockResolvedValue([]);
     const h3App = await mountResourceRoutes({ appId: "dispatch" });
     mocks.discoverAgents.mockResolvedValue([
       { id: "slides", name: "Slides", url: "https://slides.example.test" },
@@ -2362,10 +2441,13 @@ describe("agent chat resource route organization scopes", () => {
         "/_agent-native/agent-chat/mentions",
         { userEmail: "user@example.test", orgId: "org-active" },
       );
-      const ids = (await response.text())
+      const frames = (await response.text())
         .trim()
         .split("\n")
-        .flatMap((line) => JSON.parse(line).items)
+        .map((line) => JSON.parse(line));
+      expect(frames.filter((frame) => frame.error)).toEqual([]);
+      const ids = frames
+        .flatMap((frame) => frame.items)
         .filter((item) => item.section === "Connected Agents")
         .map((item) => item.refId);
       expect(ids).toEqual(["slides"]);

@@ -18,6 +18,7 @@ import type {
   AgentChatContextItem,
   ComposerContextMenuItem,
 } from "../../../agentkit.js";
+import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
 import {
   AgentKitChat,
   AgentKitComposer,
@@ -25,9 +26,14 @@ import {
 } from "./components.js";
 import { createAgentKitComposerSubmission } from "./composer-submission.js";
 import { AgentKitProvider } from "./context.js";
+import { CoreFileStorageSetupContext } from "./core-file-storage.js";
 
 const capture = vi.hoisted(() => ({
   props: undefined as PromptComposerProps | undefined,
+  storageStatus: vi.fn(),
+  storage: undefined as
+    | { open: boolean; status?: string; onRetry?: () => void }
+    | undefined,
 }));
 vi.mock("../../../agentkit.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../agentkit.js")>();
@@ -40,6 +46,20 @@ vi.mock("../../../agentkit.js", async (importOriginal) => {
   };
 });
 
+vi.mock("@agent-native/core/client/uploads", () => ({
+  readFileUploadStatus: capture.storageStatus,
+}));
+vi.mock("../../chat/FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: (props: {
+    open: boolean;
+    status?: string;
+    onRetry?: () => void;
+  }) => {
+    capture.storage = props;
+    return null;
+  },
+}));
+
 let root: Root;
 let container: HTMLDivElement;
 let client: AgentKitClient;
@@ -50,6 +70,8 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   capture.props = undefined;
+  capture.storage = undefined;
+  capture.storageStatus.mockReset();
 });
 
 afterEach(async () => {
@@ -98,6 +120,231 @@ function withActiveRun(runtime: ReturnType<typeof transport>) {
 }
 
 describe("AgentKit composer context submission", () => {
+  it.each(["ready", "missing", "unavailable"] as const)(
+    "checks storage lazily and preserves the upload entry when %s",
+    async (state) => {
+      const runtime = {
+        ...transport(),
+        capabilities: { uploads: true },
+      } satisfies AgentTransport;
+      client = new AgentKitClient({ transport: runtime });
+      if (state === "unavailable")
+        capture.storageStatus.mockRejectedValue(new Error("Status denied"));
+      else
+        capture.storageStatus.mockResolvedValue({
+          configured: state === "ready",
+        });
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <CoreFileStorageSetupContext.Provider
+              value={{ scopeKey: "user-1:org-1" }}
+            >
+              <AgentKitComposer />
+            </CoreFileStorageSetupContext.Provider>
+          </AgentKitProvider>,
+        ),
+      );
+      expect(capture.storageStatus).not.toHaveBeenCalled();
+      expect(capture.props?.attachmentsEnabled).toBe(true);
+      expect(capture.props?.onAttachmentRequest).toBeTypeOf("function");
+      const input =
+        container.querySelector<HTMLInputElement>('input[type="file"]');
+      if (!input) throw new Error("Missing native file input");
+      const choose = vi
+        .spyOn(input, "click")
+        .mockImplementation(() => undefined);
+      await act(async () => capture.props?.onAttachmentRequest?.());
+      expect(capture.storageStatus).toHaveBeenCalledOnce();
+      if (state === "ready") {
+        expect(choose).toHaveBeenCalledOnce();
+        expect(capture.props?.attachmentsEnabled).toBe(true);
+        expect(capture.storage?.open).toBe(false);
+      } else {
+        expect(choose).not.toHaveBeenCalled();
+        expect(capture.storage?.open).toBe(true);
+        expect(capture.storage?.status).toBe(state);
+        if (state === "unavailable") {
+          capture.storageStatus.mockResolvedValue({ configured: true });
+          await act(async () => capture.storage?.onRetry?.());
+          expect(choose).toHaveBeenCalledOnce();
+        }
+      }
+    },
+  );
+  it.each(["missing", "unavailable"] as const)(
+    "blocks raw-file custom submissions with visible %s storage state",
+    async (state) => {
+      client = new AgentKitClient({
+        transport: { ...transport(), capabilities: { uploads: true } },
+      });
+      if (state === "missing")
+        capture.storageStatus.mockResolvedValue({ configured: false });
+      else capture.storageStatus.mockRejectedValue(new Error("Status denied"));
+      const submit = vi.fn();
+      const upload = vi.spyOn(client, "uploadFiles");
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <CoreFileStorageSetupContext.Provider
+              value={{ scopeKey: "user-1:org-1" }}
+            >
+              <AgentKitComposer onSubmit={submit} />
+            </CoreFileStorageSetupContext.Provider>
+          </AgentKitProvider>,
+        ),
+      );
+      await act(async () => {
+        await expect(
+          capture.props?.onSubmit(
+            "Preserve draft",
+            [new File(["bytes"], "note.txt")],
+            [],
+            {},
+          ),
+        ).rejects.toThrow();
+      });
+      expect(submit).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(capture.storage?.open).toBe(true);
+      expect(capture.storage?.status).toBe(state);
+    },
+  );
+  it("localizes create-upload failures while retaining the original draft and files", async () => {
+    const failure = Object.assign(new Error("upload_too_large"), {
+      code: "upload_too_large",
+      status: 413,
+    });
+    const runtime = {
+      ...transport(),
+      capabilities: { uploads: true },
+      createUpload: vi.fn().mockRejectedValue(failure),
+      completeUpload: vi.fn(),
+    } satisfies AgentTransport;
+    const upload = vi.fn();
+    client = new AgentKitClient({ transport: runtime, upload });
+    const onLocalSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ translate: (key) => `translated:${key}` }}
+        >
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer initialText="Original draft" />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    const files = [
+      new File(["Original bytes"], "note.txt", { type: "text/plain" }),
+    ];
+    await act(async () => {
+      await expect(
+        capture.props?.onSubmit("Original draft", files, [], { onLocalSubmit }),
+      ).rejects.toThrow();
+    });
+    expect(runtime.createUpload).toHaveBeenCalledOnce();
+    expect(upload).not.toHaveBeenCalled();
+    expect(runtime.startRun).not.toHaveBeenCalled();
+    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(files[0].name).toBe("note.txt");
+    expect(container.textContent).toContain(
+      "translated:agentChat.composer.fileTooLarge",
+    );
+    expect(container.textContent).not.toContain("upload_too_large");
+  });
+  it("opens one chooser for repeated requests while storage readiness is pending", async () => {
+    client = new AgentKitClient({
+      transport: { ...transport(), capabilities: { uploads: true } },
+    });
+    let resolveStatus: ((value: { configured: boolean }) => void) | undefined;
+    capture.storageStatus.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <CoreFileStorageSetupContext.Provider
+            value={{ scopeKey: "user-1:org-1" }}
+          >
+            <AgentKitComposer />
+          </CoreFileStorageSetupContext.Provider>
+        </AgentKitProvider>,
+      ),
+    );
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error("Missing native file input");
+    const choose = vi.spyOn(input, "click").mockImplementation(() => undefined);
+    await act(async () => {
+      capture.props?.onAttachmentRequest?.();
+      capture.props?.onAttachmentRequest?.();
+    });
+    expect(capture.storageStatus).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Loading",
+    );
+    await act(async () => resolveStatus?.({ configured: true }));
+    expect(choose).toHaveBeenCalledOnce();
+  });
+  it("ignores a delayed storage response after the identity scope changes", async () => {
+    client = new AgentKitClient({
+      transport: { ...transport(), capabilities: { uploads: true } },
+    });
+    let resolveStatus: ((value: { configured: boolean }) => void) | undefined;
+    capture.storageStatus.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const render = (scopeKey: string) =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <CoreFileStorageSetupContext.Provider value={{ scopeKey }}>
+            <AgentKitComposer />
+          </CoreFileStorageSetupContext.Provider>
+        </AgentKitProvider>,
+      );
+    await act(async () => render("user-1:org-1"));
+    await act(async () => capture.props?.onAttachmentRequest?.());
+    await act(async () => render("user-2:org-2"));
+    await act(async () => resolveStatus?.({ configured: false }));
+    expect(capture.storage?.open).toBe(false);
+    expect(capture.props?.attachmentsEnabled).toBe(true);
+  });
+  it("preserves supported external upload adapters without querying Core storage", async () => {
+    client = new AgentKitClient({
+      transport: { ...transport(), capabilities: { uploads: true } },
+    });
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.attachmentsEnabled).toBe(true);
+    expect(capture.props?.onAttachmentRequest).toBeUndefined();
+    expect(capture.storageStatus).not.toHaveBeenCalled();
+  });
+  it("keeps unsupported generic transports outside the Core storage setup flow", async () => {
+    client = new AgentKitClient({ transport: transport() });
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.attachmentsEnabled).toBe(false);
+    expect(capture.props?.onAttachmentRequest).toBeUndefined();
+    expect(capture.storageStatus).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["immediate", "capability"],
     ["queued", "capability"],

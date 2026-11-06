@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "रिकॉर्डिंग का संदर्भ दें…",
+    group: "रिकॉर्डिंग",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   meetingBrowserConfirmation:
     "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
