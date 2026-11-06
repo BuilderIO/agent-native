@@ -32,6 +32,7 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import type { ExportWarning } from "../shared/export-warnings.js";
 import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
 import { getExportUrl } from "./_app-url.js";
 
@@ -1798,7 +1799,7 @@ export default defineAction({
 
     const slideGradients = new Map<number, string>();
     let backgroundGradientsFlattened = 0;
-    const warnings: string[] = [];
+    const warnings: ExportWarning[] = [];
     const droppedImageSlides: number[] = [];
 
     for (const [slideIndex, slide] of slides.entries()) {
@@ -1994,10 +1995,11 @@ export default defineAction({
     }
 
     if (droppedImageSlides.length > 0) {
-      const slideNumbers = [...new Set(droppedImageSlides)].join(", ");
-      warnings.push(
-        `${droppedImageSlides.length} image(s) could not be loaded and were left out of the PowerPoint file (slides ${slideNumbers}).`,
-      );
+      warnings.push({
+        code: "images-dropped",
+        count: droppedImageSlides.length,
+        slides: [...new Set(droppedImageSlides)],
+      });
     }
     const buffer = await applyDeckIdentity(
       (await pptx.write({ outputType: "nodebuffer" })) as Buffer,

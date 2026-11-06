@@ -480,6 +480,8 @@ const messages = {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
     exportFinishedWithWarnings: "Exported with warnings",
+    imagesDropped:
+      "{{count}} image(s) could not be loaded and were left out of the PowerPoint file (slides {{slides}}).",
     pdfSidecarSkipped:
       "This PDF was exported without its editable source. Re-importing it will rebuild slides from the page content.",
     exporting: "Exporting...",

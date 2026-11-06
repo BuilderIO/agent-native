@@ -2,6 +2,10 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import {
+  type ExportWarning,
+  readExportWarningsHeader,
+} from "@shared/export-warnings";
 import { IconUpload, IconChevronDown } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -107,6 +111,7 @@ export type ExportStatus =
       description?: string;
       openUrl: string;
       openLabel?: string;
+      warnings?: string[];
     }
   | { state: "warnings"; messages: string[] }
   | { state: "error"; message: string };
@@ -167,6 +172,13 @@ export function ExportStatusDialog({
               <DialogTitle>{status.title}</DialogTitle>
               {status.description ? (
                 <DialogDescription>{status.description}</DialogDescription>
+              ) : null}
+              {status.warnings?.length ? (
+                <ul className="list-disc break-words pl-5 text-sm text-muted-foreground">
+                  {status.warnings.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
               ) : null}
             </DialogHeader>
             <DialogFooter>
@@ -534,11 +546,16 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           ".pptx",
         ),
       );
-      const encodedWarnings = res.headers.get("x-slides-export-warnings");
-      return encodedWarnings
-        ? (JSON.parse(decodeURIComponent(encodedWarnings)) as string[])
-        : [];
+      return formatExportWarnings(readExportWarningsHeader(res));
     };
+
+    const formatExportWarnings = (warnings: ExportWarning[]) =>
+      warnings.map((warning) =>
+        t("editorExport.imagesDropped", {
+          count: warning.count,
+          slides: warning.slides.join(", "),
+        }),
+      );
 
     const handleExportPptx = async () => {
       let warnings: string[] = [];
@@ -639,6 +656,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
             openLabel: t("editorExport.googleSlidesGoTo"),
+            warnings: formatExportWarnings(result.warnings ?? []),
           });
           return;
         }
@@ -649,6 +667,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           description: `${t("editorExport.googleSlidesImportHint")} ${result.reason}`,
           openUrl: GOOGLE_SLIDES_IMPORT_URL,
           openLabel: t("editorExport.googleSlidesOpenImporter"),
+          warnings: formatExportWarnings(result.warnings ?? []),
         });
       } catch (err) {
         console.error("Export failed:", err);

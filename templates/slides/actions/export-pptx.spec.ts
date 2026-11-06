@@ -134,7 +134,7 @@ describe("export-pptx action", () => {
     );
 
     expect(result.warnings).toEqual([
-      "1 image(s) could not be loaded and were left out of the PowerPoint file (slides 1).",
+      { code: "images-dropped", count: 1, slides: [1] },
     ]);
   });
 

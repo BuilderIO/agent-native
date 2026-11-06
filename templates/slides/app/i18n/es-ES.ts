@@ -495,6 +495,8 @@ const messages = {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
     exportFinishedWithWarnings: "Exportado con advertencias",
+    imagesDropped:
+      "No se pudieron cargar {{count}} imagen(es) y se omitieron del archivo de PowerPoint (diapositivas {{slides}}).",
     pdfSidecarSkipped:
       "Este PDF se exportó sin su fuente editable. Al volver a importarlo, las diapositivas se reconstruirán a partir del contenido de las páginas.",
     exporting: "Exportando...",

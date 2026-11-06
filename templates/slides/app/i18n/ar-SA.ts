@@ -474,6 +474,8 @@ const messages = {
     pptxFailed: "تعذر إنشاء ملف PPTX.",
     exportFailed: "فشل التصدير",
     exportFinishedWithWarnings: "تم التصدير مع تحذيرات",
+    imagesDropped:
+      "تعذر تحميل {{count}} صورة وتم استبعادها من ملف PowerPoint (الشرائح {{slides}}).",
     pdfSidecarSkipped:
       "تم تصدير هذا الملف بدون مصدره القابل للتحرير. ستُعاد بناء الشرائح من محتوى الصفحات عند إعادة استيراده.",
     exporting: "جارٍ التصدير...",

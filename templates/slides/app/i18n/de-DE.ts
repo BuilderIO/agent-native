@@ -494,6 +494,8 @@ const messages = {
     pptxFailed: "PPTX-Datei konnte nicht erstellt werden.",
     exportFailed: "Export fehlgeschlagen",
     exportFinishedWithWarnings: "Export mit Warnungen abgeschlossen",
+    imagesDropped:
+      "{{count}} Bild(er) konnten nicht geladen werden und fehlen in der PowerPoint-Datei (Folien {{slides}}).",
     pdfSidecarSkipped:
       "Diese PDF wurde ohne ihre bearbeitbare Quelle exportiert. Beim erneuten Import werden die Folien aus dem Seiteninhalt neu erstellt.",
     exporting: "Wird exportiert...",
