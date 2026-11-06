@@ -1508,6 +1508,11 @@ describe("patchCloudflareModuleServerOutput", () => {
       'createRequire(import.meta.url)("process")',
     ],
     [
+      "direct factory export",
+      'import {factory} from "./direct.mjs";',
+      'factory(import.meta.url)("process")',
+    ],
+    [
       "computed member",
       'import * as module from "node:module";',
       'module["createRequire"](import.meta.url)("process")',
@@ -1557,6 +1562,10 @@ describe("patchCloudflareModuleServerOutput", () => {
       );
       fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
       fs.writeFileSync(
+        path.join(dir, "direct.mjs"),
+        'import {createRequire} from "node:module"; export const factory = createRequire;',
+      );
+      fs.writeFileSync(
         path.join(dir, "multi.mjs"),
         'export * from "./other.mjs"; export * from "./relay.mjs";',
       );
@@ -1585,6 +1594,71 @@ describe("patchCloudflareModuleServerOutput", () => {
     },
   );
 
+  it.each([
+    "receiver.createRequire",
+    'receiver["createRequire"]',
+    "(receiver.createRequire)",
+  ])(
+    "preserves getter receiver and evaluation order for %s in workerd",
+    async (callee) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      const entry = path.join(dir, "worker.mjs");
+      fs.writeFileSync(
+        entry,
+        `
+        import module from "node:module";
+        let receiver = module;
+        const events = [];
+        const old = { get createRequire() {
+          events.push("getter");
+          receiver = { marker: "new" };
+          return function(arg) {
+            events.push(this === old ? "old" : "new");
+            return (name) => arg + ":" + name;
+          };
+        } };
+        receiver = old;
+        function argument() { events.push("argument"); return "base"; }
+        const value = ${callee}(argument())("process");
+        export default {fetch() { return Response.json({events, value}); }};
+      `,
+      );
+      patchCloudflareModuleServerOutput(dir);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          events: ["getter", "argument", "old"],
+          value: "base:process",
+        });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
   it("preserves a custom factory that overrides a star export in workerd", async () => {
     const requireFromWrangler = createRequire(
       createRequire(import.meta.url).resolve("wrangler/package.json"),
@@ -1604,6 +1678,14 @@ describe("patchCloudflareModuleServerOutput", () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
     fs.writeFileSync(
+      path.join(dir, "live.mjs"),
+      `
+      import {createRequire} from "node:module";
+      export let factory = createRequire;
+      export function setFactory(value) { factory = value; }
+    `,
+    );
+    fs.writeFileSync(
       path.join(dir, "relay.mjs"),
       `
       export * from "node:module";
@@ -1617,6 +1699,7 @@ describe("patchCloudflareModuleServerOutput", () => {
       `
       import {createRequire} from "./relay.mjs";
       import {createRequire as native} from "node:module";
+      import {factory as live, setFactory} from "./live.mjs";
       import process from "node:process";
       const alias = createRequire;
       let mutable = native;
@@ -1624,7 +1707,11 @@ describe("patchCloudflareModuleServerOutput", () => {
       const reassigned = mutable("base")("process");
       mutable = native;
       const restored = mutable(import.meta.url)("process") === process;
-      export default {fetch() {return Response.json({value: alias("base")("process"), reassigned, restored});}};
+      setFactory(() => (name) => "live:" + name);
+      const liveCustom = live("base")("process");
+      setFactory(native);
+      const liveRestored = live(import.meta.url)("node:process") === process;
+      export default {fetch() {return Response.json({value: alias("base")("process"), reassigned, restored, liveCustom, liveRestored});}};
     `,
     );
     patchCloudflareModuleServerOutput(dir);
@@ -1642,6 +1729,8 @@ describe("patchCloudflareModuleServerOutput", () => {
         value: "custom:process",
         reassigned: "reassigned:process",
         restored: true,
+        liveCustom: "live:process",
+        liveRestored: true,
       });
     } finally {
       await worker.dispose();

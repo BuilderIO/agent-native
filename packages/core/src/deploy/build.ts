@@ -4606,8 +4606,42 @@ function patchCloudflareProcessRequire(
     const key = `${target}\0${name}`;
     if (seen.has(key)) return undefined;
     const nextSeen = new Set(seen).add(key);
+    const declaresName = (node: unknown): boolean => {
+      if (!node || typeof node !== "object") return false;
+      if (Array.isArray(node)) return node.some(declaresName);
+      if (!("type" in node)) return false;
+      switch (node.type) {
+        case "Identifier":
+          return "name" in node && node.name === name;
+        case "ObjectPattern":
+          return "properties" in node && declaresName(node.properties);
+        case "ArrayPattern":
+          return "elements" in node && declaresName(node.elements);
+        case "ObjectProperty":
+          return "value" in node && declaresName(node.value);
+        case "AssignmentPattern":
+          return "left" in node && declaresName(node.left);
+        case "RestElement":
+          return "argument" in node && declaresName(node.argument);
+        default:
+          return false;
+      }
+    };
     for (const statement of targetAst.program.body) {
       if (statement.type !== "ExportNamedDeclaration") continue;
+      const declaration = statement.declaration;
+      if (declaration) {
+        const declared =
+          declaration.type === "VariableDeclaration"
+            ? declaration.declarations.some((item) => declaresName(item.id))
+            : "id" in declaration && declaresName(declaration.id);
+        if (declared) {
+          const binding = getModuleBinding(targetAst, name);
+          return binding
+            ? resolveBinding(binding, target, nextSeen, new Set(), use)
+            : undefined;
+        }
+      }
       for (const specifier of statement.specifiers) {
         if (specifier.type !== "ExportSpecifier") continue;
         const exported =
@@ -4637,28 +4671,6 @@ function patchCloudflareProcessRequire(
       (statement) => statement.type === "ExportAllDeclaration",
     );
     if (name === "default" || starExports.length === 0) return undefined;
-    const declaresName = (node: unknown): boolean => {
-      if (!node || typeof node !== "object") return false;
-      if (Array.isArray(node)) return node.some(declaresName);
-      if (
-        "type" in node &&
-        node.type === "Identifier" &&
-        "name" in node &&
-        node.name === name
-      )
-        return true;
-      return Object.values(node).some(declaresName);
-    };
-    for (const statement of targetAst.program.body) {
-      if (statement.type !== "ExportNamedDeclaration" || !statement.declaration)
-        continue;
-      const declaration = statement.declaration;
-      if (declaration.type === "VariableDeclaration") {
-        if (declaration.declarations.some((item) => declaresName(item.id)))
-          return undefined;
-      } else if ("id" in declaration && declaresName(declaration.id))
-        return undefined;
-    }
     for (const star of starExports) {
       const resolved = resolveImport(
         target,
@@ -4682,7 +4694,7 @@ function patchCloudflareProcessRequire(
     start: number;
     calleeEnd: number;
     hasArguments: boolean;
-    receiver: string;
+    receiver?: { start: number; end: number };
   }> = [];
   let shadowsGlobalThis = false;
   const getModuleBinding = (
@@ -4866,10 +4878,15 @@ function patchCloudflareProcessRequire(
       if (call.node.start == null || callee.end == null) {
         throw new Error("Missing factory call offsets in Cloudflare output");
       }
-      const receiver =
-        member && member.object.type === "Identifier"
-          ? member.object.name
-          : "void 0";
+      let receiver: { start: number; end: number } | undefined;
+      if (member) {
+        if (member.object.start == null || member.object.end == null) {
+          throw new Error(
+            "Missing factory receiver offsets in Cloudflare output",
+          );
+        }
+        receiver = { start: member.object.start, end: member.object.end };
+      }
       factories.push({
         start: call.node.start,
         calleeEnd: callee.end,
@@ -4894,12 +4911,10 @@ function patchCloudflareProcessRequire(
   const processName = uniqueName("__cf_process");
   const nativeFactory = uniqueName("__cf_create_require");
   const wrapFactory = uniqueName("__cf_wrap_require");
-  const rewriteCall = (
-    start: number,
-    calleeEnd: number,
-    prefix: string,
-    extra: string,
-  ) => {
+  const receiverName = uniqueName("__cf_receiver");
+  const methodName = uniqueName("__cf_method");
+  const argsName = uniqueName("__cf_args");
+  for (const { start, calleeEnd, hasArguments, receiver } of factories) {
     const opening = /^(?:\s|\)|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\(/.exec(
       code.slice(calleeEnd),
     );
@@ -4907,16 +4922,21 @@ function patchCloudflareProcessRequire(
       throw new Error(
         "Cannot locate require call parentheses in Cloudflare output",
       );
-    edited.appendLeft(start, `${prefix}(`);
-    const paren = calleeEnd + opening[0].length - 1;
-    edited.overwrite(paren, paren + 1, extra);
-  };
-  for (const { start, calleeEnd, hasArguments, receiver } of factories) {
-    rewriteCall(
+    const open = calleeEnd + opening[0].length - 1;
+    if (!receiver) {
+      edited.appendLeft(start, `${wrapFactory}(`);
+      edited.overwrite(open, open + 1, `,void 0${hasArguments ? "," : ""}`);
+      continue;
+    }
+    const callee =
+      code.slice(start, receiver.start) +
+      receiverName +
+      code.slice(receiver.end, open);
+    const object = code.slice(receiver.start, receiver.end);
+    edited.overwrite(
       start,
-      calleeEnd,
-      wrapFactory,
-      `,${receiver}${hasArguments ? "," : ""}`,
+      open + 1,
+      `((${receiverName})=>((${methodName})=>(...${argsName})=>${wrapFactory}(${methodName},${receiverName},...${argsName}))(${callee}))(${object})(`,
     );
   }
   const prefix = `${CF_PROCESS_REQUIRE_MARKER}
