@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { ActionContractError, ActionInputValidationError } from "../action.js";
 import {
   getOrCreateRequestDbPool,
   runWithRequestDbPoolScope,
@@ -201,14 +202,20 @@ describe("late outcome error reporting", () => {
         result: expect.stringContaining("Action rejected"),
       }),
     );
-    expect(capture).not.toHaveBeenCalledWith(
-      actionError,
-      expect.objectContaining({ tags: lateTags }),
-    );
+    expect(capture).not.toHaveBeenCalled();
   });
 
-  it.each(["reject", "persistence-fails"] as const)(
-    "reports only a genuine late persistence failure when the interrupted action settles: %s",
+  it.each([
+    "unexpected",
+    "unexpected-immediate",
+    "unexpected-timeout",
+    "private",
+    "aborted",
+    "validation",
+    "contract",
+    "persistence-fails",
+  ] as const)(
+    "classifies an interrupted action's late outcome: %s",
     async (outcome) => {
       const capture = vi
         .spyOn(errorCapture, "captureError")
@@ -220,14 +227,23 @@ describe("late outcome error reporting", () => {
       lateWrite.mockRejectedValueOnce(persistenceError);
       const actionStarted = Promise.withResolvers<void>();
       const actionResult = Promise.withResolvers<string>();
-      const actionError = new Error("Action rejected after interruption");
+      const actionError =
+        outcome === "validation"
+          ? new ActionInputValidationError("Invalid action parameters")
+          : outcome === "contract"
+            ? new ActionContractError("Missing destination", {
+                errorCode: "invalid_input",
+              })
+            : outcome === "aborted"
+              ? new DOMException("Action aborted", "AbortError")
+              : new Error("Action rejected after interruption");
       const controller = new AbortController();
       const pool = { end: vi.fn(async () => {}) };
       const request = runWithRequestDbPoolScope(true, undefined, async () => {
         getOrCreateRequestDbPool("late-outcome-test", () => pool);
         await withExecutionFence(fence, () =>
           runAgentLoop({
-            engine: engineFor([[toolCall()]], []),
+            engine: engineFor([[toolCall()], [text("Done")]], []),
             model: "test-model",
             systemPrompt: "system",
             tools: [],
@@ -241,6 +257,10 @@ describe("late outcome error reporting", () => {
                   parameters: { type: "object", properties: {} },
                 },
                 readOnly: false,
+                ...(outcome === "unexpected-timeout" ? { timeoutMs: 10 } : {}),
+                ...(outcome === "private"
+                  ? { persistInChatHistory: false }
+                  : {}),
                 run: () => {
                   actionStarted.resolve();
                   return actionResult.promise;
@@ -256,19 +276,16 @@ describe("late outcome error reporting", () => {
         );
       });
       await actionStarted.promise;
-      controller.abort();
+      if (outcome !== "unexpected-timeout") controller.abort();
+      if (outcome === "unexpected-immediate") actionResult.reject(actionError);
       await request;
-      expect(pool.end).not.toHaveBeenCalled();
-      if (outcome === "reject") actionResult.reject(actionError);
-      else actionResult.resolve("Deck saved");
+      if (outcome !== "unexpected-immediate") {
+        expect(pool.end).not.toHaveBeenCalled();
+        if (outcome === "persistence-fails") actionResult.resolve("Deck saved");
+        else actionResult.reject(actionError);
+      }
       await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
-      if (outcome === "reject") {
-        expect(lateWrite).not.toHaveBeenCalled();
-        expect(capture).not.toHaveBeenCalledWith(
-          actionError,
-          expect.objectContaining({ tags: lateTags }),
-        );
-      } else {
+      if (outcome === "persistence-fails") {
         expect(lateWrite).toHaveBeenCalledOnce();
         expect(lateWrite).toHaveBeenCalledWith(
           expect.objectContaining({ ...fence, toolName: "create-deck" }),
@@ -281,6 +298,27 @@ describe("late outcome error reporting", () => {
             tags: lateTags,
           }),
         );
+      } else {
+        expect(lateWrite).not.toHaveBeenCalled();
+        if (
+          outcome === "validation" ||
+          outcome === "contract" ||
+          outcome === "aborted"
+        ) {
+          expect(capture).not.toHaveBeenCalled();
+        } else {
+          expect(capture).toHaveBeenCalledOnce();
+          expect(capture).toHaveBeenCalledWith(
+            outcome === "private"
+              ? new Error("Private content omitted")
+              : actionError,
+            expect.objectContaining({
+              aiTraceId: fence.runId,
+              ...(outcome === "private" ? { errorMessagePolicy: "omit" } : {}),
+              tags: { ...lateTags, phase: "late-action-rejection" },
+            }),
+          );
+        }
       }
     },
   );

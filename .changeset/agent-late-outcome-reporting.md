@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Avoid reporting action rejections as late outcome persistence failures while preserving reports of actual persistence errors.
+Report unexpected late action failures separately from late outcome persistence errors, while avoiding false reports for expected action rejections.
