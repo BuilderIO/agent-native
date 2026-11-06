@@ -255,6 +255,9 @@ describe("DeckCard delete flow", () => {
     rerender(<DeckCard {...props} deck={{ ...viewer, visibility: "org" }} />);
     expect(screen.getByText("home.setWorkspaceDefault")).toBeTruthy();
 
+    rerender(<DeckCard {...props} deck={{ ...viewer, visibility: "public" }} />);
+    expect(screen.getByText("home.setWorkspaceDefault")).toBeTruthy();
+
     rerender(
       <DeckCard
         {...props}
