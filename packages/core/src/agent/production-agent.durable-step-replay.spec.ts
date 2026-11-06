@@ -5,6 +5,7 @@ import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
   ActionContractError,
   ActionInputValidationError,
+  AgentActionStopError,
   defineAction,
   noteExternalWrite,
 } from "../action.js";
@@ -222,6 +223,9 @@ describe("late outcome error reporting", () => {
     "unexpected-timeout",
     "private",
     "aborted",
+    "aborted-after-write",
+    "stop",
+    "stop-after-write",
     "validation",
     "contract",
     "internal-contract",
@@ -279,7 +283,9 @@ describe("late outcome error reporting", () => {
                   })
                 : outcome === "aborted"
                   ? new DOMException("Action aborted", "AbortError")
-                  : new Error("Action rejected after interruption");
+                  : outcome === "stop"
+                    ? new AgentActionStopError("Action stopped")
+                    : new Error("Action rejected after interruption");
       const nestedAction = defineAction({
         description: "Check nested input",
         schema: z.object({ required: z.number(), payload: z.string() }),
@@ -295,6 +301,12 @@ describe("late outcome error reporting", () => {
           await actionResult.promise;
           if (outcome !== "nested-validation-no-write") {
             noteExternalWrite("late-validation-test");
+          }
+          if (outcome === "aborted-after-write") {
+            throw new DOMException("Action aborted", "AbortError");
+          }
+          if (outcome === "stop-after-write") {
+            throw new AgentActionStopError("Action stopped");
           }
           if (outcome === "post-write-contract") {
             throw new ActionContractError("Sensitive saved response detail", {
@@ -354,6 +366,8 @@ describe("late outcome error reporting", () => {
                   : outcome === "nested-validation-after-write" ||
                       outcome === "nested-validation-no-write" ||
                       outcome === "setup-after-write" ||
+                      outcome === "aborted-after-write" ||
+                      outcome === "stop-after-write" ||
                       outcome === "post-write-contract" ||
                       outcome === "post-write-503"
                     ? parentAction
@@ -397,6 +411,8 @@ describe("late outcome error reporting", () => {
           outcome === "nested-validation-no-write" ||
           outcome === "nested-validation-after-write" ||
           outcome === "setup-after-write" ||
+          outcome === "aborted-after-write" ||
+          outcome === "stop-after-write" ||
           outcome === "post-write-contract" ||
           outcome === "post-write-503"
         )
@@ -461,9 +477,11 @@ describe("late outcome error reporting", () => {
           outcome === "contract" ||
           outcome === "internal-contract" ||
           outcome === "setup-required" ||
-          outcome === "setup-after-write" ||
           outcome === "nested-validation-no-write" ||
-          outcome === "aborted"
+          outcome === "aborted" ||
+          outcome === "aborted-after-write" ||
+          outcome === "stop" ||
+          outcome === "stop-after-write"
         ) {
           expect(capture).not.toHaveBeenCalled();
         } else {

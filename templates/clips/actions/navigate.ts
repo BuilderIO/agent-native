@@ -82,8 +82,6 @@ export default defineAction({
         ),
       path: z
         .string()
-        .min(1, "Path must be nonempty")
-        .refine((path) => path.trim().length > 0, "Path must be nonempty")
         .optional()
         .describe(
           "Nonempty raw URL path; required unless view is provided. Use only when a view/id combo does not express the target",
@@ -94,6 +92,7 @@ export default defineAction({
     }),
   http: false,
   run: async (args) => {
+    const path = args.path?.trim() ? args.path : undefined;
     const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
@@ -105,10 +104,10 @@ export default defineAction({
     if (args.search) nav.search = args.search;
     if (args.panel) nav.panel = args.panel;
     if (args.atMs != null) nav.atMs = args.atMs;
-    if (args.path) nav.path = args.path;
+    if (path) nav.path = path;
     await writeAppStateForCurrentTab("navigate", nav);
     const target =
-      args.path ||
+      path ||
       [
         args.view,
         args.recordingId,

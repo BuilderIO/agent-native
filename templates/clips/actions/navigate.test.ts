@@ -87,18 +87,27 @@ describe("clips navigate action", () => {
     expect(result).toBe("Navigating to recording:rec_123:debug");
   });
 
-  it.each([
-    {},
-    { recordingId: "rec_123" },
-    { path: "" },
-    { path: "   " },
-    { view: "library" as const, path: "" },
-  ])("rejects an invalid destination before writing: %j", async (args) => {
-    const failure = action.run(args);
-    await expect(failure).rejects.toBeInstanceOf(ActionInputValidationError);
-    await expect(failure).rejects.toThrow(/view|path/i);
-    expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
-  });
+  it.each([{}, { recordingId: "rec_123" }, { path: "" }, { path: "   " }])(
+    "rejects an invalid destination before writing: %j",
+    async (args) => {
+      const failure = action.run(args);
+      await expect(failure).rejects.toBeInstanceOf(ActionInputValidationError);
+      await expect(failure).rejects.toThrow(/view|path/i);
+      expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["", "   ", "\t\n"])(
+    "treats a blank path as absent when a view is provided: %j",
+    async (path) => {
+      const result = await action.run({ view: "library", path });
+
+      expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+        view: "library",
+      });
+      expect(result).toBe("Navigating to library");
+    },
+  );
 
   it("accepts a raw path and preserves other navigation parameters", async () => {
     const result = await action.run({
@@ -126,9 +135,9 @@ describe("clips navigate action", () => {
     expect(action.tool.description).toMatch(/nonempty/i);
     expect(action.tool.description).toMatch(/requir/i);
     const properties = action.tool.parameters?.properties;
-    expect(properties?.view?.description).toMatch(/path.*requir|requir.*path/i);
-    expect(properties?.view?.description).toMatch(/nonempty/i);
-    expect(properties?.path?.description).toMatch(/view.*requir|requir.*view/i);
-    expect(properties?.path?.description).toMatch(/nonempty/i);
+    expect(properties?.view.description).toMatch(/path.*requir|requir.*path/i);
+    expect(properties?.view.description).toMatch(/nonempty/i);
+    expect(properties?.path.description).toMatch(/view.*requir|requir.*view/i);
+    expect(properties?.path.description).toMatch(/nonempty/i);
   });
 });

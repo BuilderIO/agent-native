@@ -11116,10 +11116,7 @@ export async function runAgentLoop(opts: {
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
                   (isActionContractError(error) &&
                     !isActionOutputContractError(error) &&
-                    ((error.statusCode === 503 &&
-                      error.errorCode === "storage_setup_required") ||
-                      actionExecutionOutcome.evidence?.writeObserved ===
-                        false)) ||
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
                   isAgentActionStopError(error) ||
                   (signal.aborted &&
                     error instanceof Error &&
