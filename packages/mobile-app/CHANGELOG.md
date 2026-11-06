@@ -19,6 +19,18 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.203
+
+### Patch Changes
+
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+- Updated dependencies [dfb0acb]
+- Updated dependencies [d93b5ad]
+  - @agent-native/core@0.226.0
+  - @agent-native/agentkit@0.226.0
+
 ## 0.1.202
 
 ### Patch Changes
@@ -2717,12 +2729,5 @@
 - Updated dependencies [680268e]
 - Updated dependencies [680268e]
   - @agent-native/core@0.172.4
-
-## 0.1.104
-
-### Patch Changes
-
-- Updated dependencies [0fedac0]
-  - @agent-native/core@0.172.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
