@@ -1091,7 +1091,15 @@ describe("generate-design: new-file creation path", () => {
       .map((data) => JSON.parse(data) as Record<string, unknown>);
     expect(insertWrites).toContainEqual(
       expect.objectContaining({
-        screenMetadata: { [fileId]: { frameType: "hubspot-email" } },
+        screenMetadata: {
+          [fileId]: {
+            frameType: "hubspot-email",
+            width: 600,
+            breakpointWidths: [],
+            heightMode: "hug",
+            heightPinned: false,
+          },
+        },
       }),
     );
   });

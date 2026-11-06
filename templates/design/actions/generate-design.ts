@@ -95,7 +95,7 @@ import {
 import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import {
   storedScreenFrameType,
-  withStoredScreenFrameType,
+  withScreenFrameTypeLayout,
 } from "../shared/screen-frame-type.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
@@ -1089,8 +1089,9 @@ const generateDesignAction = defineAction({
             createdAt: now,
             updatedAt: now,
           });
-          // The type commits with the insert: markerless email HTML has no
-          // other record of being an email if the layout write below fails.
+          // The type and its layout commit with the insert: markerless email
+          // HTML has no other record of being an email if the placement write
+          // below fails.
           if (
             generatedFrameType(file, accessedDesignData, fileId) ===
             HUBSPOT_EMAIL_FRAME_TYPE
@@ -1100,10 +1101,11 @@ const generateDesignAction = defineAction({
               .update(schema.designs)
               .set({
                 data: JSON.stringify(
-                  withStoredScreenFrameType(
+                  withScreenFrameTypeLayout(
                     current,
                     fileId,
                     HUBSPOT_EMAIL_FRAME_TYPE,
+                    null,
                   ),
                 ),
               })

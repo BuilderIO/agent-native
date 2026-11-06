@@ -1148,7 +1148,15 @@ describe("create-file: canvas placement and landing URL", () => {
       Object.values(
         mocks.getDesignData().screenMetadata as Record<string, unknown>,
       ),
-    ).toEqual([{ frameType: "hubspot-email" }]);
+    ).toEqual([
+      {
+        frameType: "hubspot-email",
+        width: 600,
+        breakpointWidths: [],
+        heightMode: "hug",
+        heightPinned: false,
+      },
+    ]);
   });
 
   it("keeps a copy ordinary when frameType is web despite a legacy marker", async () => {
@@ -1469,7 +1477,15 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(result.renderable).toBe(false);
     expect(result.frameType).toBe("hubspot-email");
     expect(mocks.getDesignData()).toEqual({
-      screenMetadata: { [result.id]: { frameType: "hubspot-email" } },
+      screenMetadata: {
+        [result.id]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+          heightPinned: false,
+        },
+      },
     });
   });
 

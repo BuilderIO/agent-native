@@ -453,21 +453,22 @@ export default defineAction({
         if (insertedFrameType !== undefined) {
           const base =
             copiedDesignData ?? (await readDesignDataForUpdate(tx, designId));
-          // A web copy of an email source arrives with the source's email
-          // layout metadata, which the web type must not keep.
+          // The type's layout commits with it. A web copy of an email source
+          // arrives with the source's email layout metadata, which the web
+          // type must not keep.
           duplicateDesignData = JSON.stringify(
-            insertedFrameType === "web"
-              ? withScreenFrameTypeLayout(
-                  base,
-                  id,
-                  insertedFrameType,
-                  resolveScreenFrameType({
+            withScreenFrameTypeLayout(
+              base,
+              id,
+              insertedFrameType,
+              insertedFrameType === "web"
+                ? resolveScreenFrameType({
                     designData: base,
                     fileId: id,
                     content: annotatedContent,
-                  }),
-                )
-              : withStoredScreenFrameType(base, id, insertedFrameType),
+                  })
+                : null,
+            ),
           );
         }
 
