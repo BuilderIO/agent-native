@@ -324,6 +324,7 @@ export default {
   common: {
     loading: "正在加载...",
     genericError: "出了点问题",
+    linkedSourceSizeLimit: "此关联组件编辑超出了源代码大小限制。",
   },
   editPanel: {
     colorInputLabel: "颜色",
@@ -1022,6 +1023,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
     writeFailed: "无法保存该更改。",
     selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {

@@ -4,8 +4,12 @@ const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
+      orderBy: (...columns: unknown[]) => {
+        limit: (n: number) => Promise<unknown[]>;
+      };
     };
     promise.limit = vi.fn().mockResolvedValue(rows);
+    promise.orderBy = vi.fn().mockReturnValue(promise);
     return promise;
   }
 
@@ -161,6 +165,7 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
   inArray: mocks.inArray,
+  gt: vi.fn((left, right) => ({ left, right })),
   isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));

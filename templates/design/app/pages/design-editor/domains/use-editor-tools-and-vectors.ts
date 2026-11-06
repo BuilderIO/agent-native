@@ -240,6 +240,7 @@ export function useEditorToolsAndVectors({
     tweaks,
     handleTweakPromptOpenChange,
     files,
+    overviewFiles,
     codeLayerSourceForScreen,
     designDataJson,
     layoutGrids,
@@ -1426,7 +1427,7 @@ export function useEditorToolsAndVectors({
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(getOverviewScreenFileIds(files));
+      const fileIds = new Set(getOverviewScreenFileIds(overviewFiles));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (intent?.screenSelectionToggle) {
         explicitOverviewScreenSelectionRef.current =
@@ -1537,7 +1538,7 @@ export function useEditorToolsAndVectors({
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      files,
+      overviewFiles,
       handleBreakpointBarSelect,
     ],
   );

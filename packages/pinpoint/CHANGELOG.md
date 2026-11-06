@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.109
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.108
 
 ### Patch Changes
@@ -615,11 +621,5 @@
 ### Patch Changes
 
 - 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.9
-
-### Patch Changes
-
-- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

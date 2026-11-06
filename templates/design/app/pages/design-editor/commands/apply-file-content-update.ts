@@ -18,6 +18,7 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import type { FileContentSaveCompletion } from "./save-file-content";
 
@@ -99,6 +100,10 @@ export interface ApplyFileContentUpdateArgs {
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
   ) => void;
+  primeAcceptedSource: (
+    fileId: string,
+    source: { content: string; updatedAt: string },
+  ) => void;
   overviewIsSynced: boolean;
   overviewPresenceFileId: string | null;
   overviewYdoc: Y.Doc | null;
@@ -121,6 +126,7 @@ export function runApplyFileContentUpdate(
     getScreenContent,
     id,
     markPendingLocalFileContent,
+    primeAcceptedSource,
     overviewIsSynced,
     overviewPresenceFileId,
     overviewYdoc,
@@ -162,11 +168,15 @@ export function runApplyFileContentUpdate(
     return applyLocalContentUpdate(nextContent, options);
   }
   const previousFile = files.find((file) => file.id === fileId);
+  // A file in `files` has its body; dependency loading must not block edits.
+  if (!previousFile || previousFile.sourceState === "error") {
+    toast.error(t("designEditor.sourceLoadFailed"));
+    return { status: "refused" };
+  }
   const previousContent =
     options.historyBeforeContent ??
     getScreenContent(fileId) ??
-    previousFile?.content ??
-    "";
+    previousFile.content;
   let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
   try {
     prepared = prepareAcceptedSourceContent(nextContent, {
@@ -212,32 +222,38 @@ export function runApplyFileContentUpdate(
     });
   }
   if (options.updatedAt && !needsIdentityMigration) {
+    primeAcceptedSource(fileId, {
+      content: acceptedContent,
+      updatedAt: options.updatedAt,
+    });
     clearPendingLocalFileContent(fileId);
   } else {
     markPendingLocalFileContent(
       fileId,
       acceptedContent,
-      options.updatedAt ?? previousFile?.updatedAt,
+      options.updatedAt ?? previousFile.updatedAt,
       identityMigrationSourceContent,
     );
   }
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-    if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-      return old;
-    }
-    return {
-      ...old,
-      files: old.files.map((file: DesignFile) =>
-        file.id === fileId
-          ? {
-              ...file,
-              content: acceptedContent,
-              ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
-            }
-          : file,
-      ),
-    };
-  });
+  queryClient.setQueryData(
+    designMetadataQueryKey(id),
+    (old: Record<string, unknown> | undefined) => {
+      if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+        return old;
+      }
+      return {
+        ...old,
+        files: old.files.map((file: DesignFile) =>
+          file.id === fileId
+            ? {
+                ...file,
+                ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
+              }
+            : file,
+        ),
+      };
+    },
+  );
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,

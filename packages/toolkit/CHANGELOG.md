@@ -1,5 +1,23 @@
 # @agent-native/toolkit
 
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+### Patch Changes
+
+- 9108a0b: Keep a reply box expanded until a press outside it has finished, so collapsing it can't move a Resolve button or other control out from under the pointer.
+- 59b8c47: Stop the composer from re-rendering on every editor update, which could hit React's maximum update depth.
+- Release all public npm packages with a patch version bump.
+- 7557e39: The composer's @ menu lists an exact name or alias match first, so typing "@ai" picks the agent that answers to "AI". A host that passes its own mention list without the default search keeps that list's section order, even for a section named "Agents".
+- bce674a: Stop AppProviders logging React 19's "Encountered a script tag" error in dev on every private page load.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+
 ## 0.224.0
 
 ### Minor Changes
@@ -1581,16 +1599,5 @@
 ### Patch Changes
 
 - fb18771: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.0
-
-### Minor Changes
-
-- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
-
-### Patch Changes
-
-- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
-- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

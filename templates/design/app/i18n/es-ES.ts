@@ -342,6 +342,8 @@ export default {
   common: {
     loading: "Cargando...",
     genericError: "algo salió mal",
+    linkedSourceSizeLimit:
+      "Esta edición del componente vinculado supera el límite de tamaño del código fuente.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -1049,6 +1051,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "No se pudo cargar esta pantalla.",
     writeFailed: "No se pudo guardar ese cambio.",
     selectionPublishFailed:
       "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",

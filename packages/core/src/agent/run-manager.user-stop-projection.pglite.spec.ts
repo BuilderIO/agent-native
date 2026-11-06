@@ -4,6 +4,7 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import {
+  StaleExecutionFenceError,
   withExecutionFence,
   withFencedExecutionWrite,
 } from "./execution-fence.js";
@@ -52,6 +53,32 @@ function getExecutor(): DbExec {
   };
 }
 
+const batchHarness = vi.hoisted(() => ({
+  gate: null as null | {
+    runId: string;
+    entered: () => void;
+    wait: Promise<void>;
+    sizes: number[];
+  },
+}));
+vi.mock("./run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./run-store.js")>();
+  return {
+    ...actual,
+    insertRunEvents: async (
+      ...args: Parameters<typeof actual.insertRunEvents>
+    ) => {
+      const gate = batchHarness.gate;
+      if (gate?.runId === args[0]) {
+        gate.entered();
+        await gate.wait;
+        gate.sizes.push(args[1].length);
+      }
+      return actual.insertRunEvents(...args);
+    },
+  };
+});
+
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => getExecutor(),
@@ -63,14 +90,21 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: async () => true,
 }));
 
-const { abortRunAndTurnDurably, abortTurnByRefDurably, startRun } =
-  await import("./run-manager.js");
 const {
+  abortRunAndTurnDurably,
+  abortTurnByRefDurably,
+  abortRunDurably,
+  startRun,
+} = await import("./run-manager.js");
+const {
+  AgentRunEventNotPersistedError,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   ensureRunTables,
   insertRun,
+  isTurnAborted,
   markRunAborted,
+  updateRunStatusIfRunning,
 } = await import("./run-store.js");
 const { buildAssistantTurnFromRunJournal } =
   await import("./run-thread-projector.js");
@@ -624,5 +658,322 @@ describe("a stopped leased run's completion", () => {
       status: "aborted",
       thread_projection_pending: true,
     });
+  });
+});
+
+function gate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+async function events(runId: string) {
+  const result = await pglite.query(
+    "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+    [runId],
+  );
+  return result.rows.map((row) => ({
+    seq: Number(row.seq),
+    ...JSON.parse(String(row.event_data)),
+  }));
+}
+describe("durable abort with queued batch events", () => {
+  it("waits for the batch before aborting and releasing its lease", async () => {
+    const runId = "batch-abort-current";
+    const entered = gate();
+    const write = gate();
+    const exited = gate();
+    batchHarness.gate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+      sizes: [],
+    };
+    const run = startRun(
+      runId,
+      runId,
+      async (send, signal) => {
+        void send({ type: "text", text: "first" });
+        void send({ type: "text", text: "second" });
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        exited.resolve();
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    try {
+      await entered.promise;
+      const flush = vi.spyOn(run, "flushEvents");
+      const response = abortRunDurably(runId);
+      await exited.promise;
+      await vi.waitFor(() => expect(flush).toHaveBeenCalledTimes(2));
+      const before = await pglite.query(
+        "SELECT r.status, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(before.rows[0]).toMatchObject({
+        status: "running",
+        lease_is_live: true,
+      });
+      write.resolve();
+      await expect(response).resolves.toBe(true);
+      await run.finalized;
+      expect(batchHarness.gate?.sizes).toEqual([2]);
+      expect(await events(runId)).toEqual([
+        { seq: 0, type: "text", text: "first" },
+        { seq: 1, type: "text", text: "second" },
+        { seq: 2, type: "done", reason: "user" },
+      ]);
+      const after = await pglite.query(
+        "SELECT r.status, l.lease_expires_at > clock_timestamp() AS lease_is_live FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(after.rows[0]).toMatchObject({
+        status: "aborted",
+        lease_is_live: false,
+      });
+    } finally {
+      write.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await run.finalized.catch(() => {});
+      batchHarness.gate = null;
+    }
+  });
+
+  it("reports both a lost queued event and a stale abort fence", async () => {
+    const runId = "batch-terminal-loss-stale-abort";
+    const entered = gate();
+    const write = gate();
+    const driver = gate();
+    batchHarness.gate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+      sizes: [],
+    };
+    const run = startRun(
+      runId,
+      runId,
+      async (send) => {
+        void send({ type: "text", text: "lost queued text" });
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    const finalization = run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      await entered.promise;
+      expect(await updateRunStatusIfRunning(runId, "aborted")).toBe(true);
+      await vi.waitFor(() => expect(run.abort.signal.aborted).toBe(true), {
+        timeout: 6_000,
+      });
+      write.resolve();
+      const eventError = await run.flushEvents().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(eventError).toBeInstanceOf(AgentRunEventNotPersistedError);
+      expect(eventError).toMatchObject({
+        terminalRun: true,
+        message: `Run event was not persisted: ${runId} sequence 0`,
+      });
+
+      await pglite.query(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+        [runId, runId],
+      );
+      await insertRun(`${runId}-successor`, runId, runId);
+      await claimTurnExecutionLease(runId, runId, `${runId}-successor`);
+      driver.resolve();
+      const error = await finalization;
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        eventError,
+        expect.objectContaining({ code: "stale_execution_fence" }),
+      ]);
+      expect((error as AggregateError).errors[1]).toBeInstanceOf(
+        StaleExecutionFenceError,
+      );
+      expect(await events(runId)).not.toContainEqual(
+        expect.objectContaining({ type: "text", text: "lost queued text" }),
+      );
+      const state = await pglite.query(
+        "SELECT r.status, l.owner_run_id FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(state.rows[0]).toEqual({
+        status: "aborted",
+        owner_run_id: `${runId}-successor`,
+      });
+    } finally {
+      write.resolve();
+      driver.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await finalization;
+      batchHarness.gate = null;
+    }
+  });
+
+  it("reports a nonterminal event conflict and a later stale abort fence", async () => {
+    const runId = "batch-nonterminal-loss-stale-abort";
+    const entered = gate();
+    const write = gate();
+    const driver = gate();
+    batchHarness.gate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+      sizes: [],
+    };
+    const run = startRun(
+      runId,
+      runId,
+      async (send) => {
+        void send({ type: "text", text: "lost queued text" });
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    const finalization = run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      await entered.promise;
+      await pglite.query(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, 0, 0, ?)",
+        [runId, JSON.stringify({ type: "text", text: "existing event" })],
+      );
+      write.resolve();
+      const eventError = await run.flushEvents().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(eventError).toBeInstanceOf(AgentRunEventNotPersistedError);
+      expect(eventError).toMatchObject({
+        terminalRun: false,
+        message: `Run event was not persisted: ${runId} sequence 0`,
+      });
+      const before = await pglite.query(
+        "SELECT status FROM agent_runs WHERE id = ?",
+        [runId],
+      );
+      expect(before.rows[0]).toEqual({ status: "running" });
+
+      run.abort.abort("user");
+      await pglite.query(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+        [runId, runId],
+      );
+      await insertRun(`${runId}-successor`, runId, runId);
+      await claimTurnExecutionLease(runId, runId, `${runId}-successor`);
+      driver.resolve();
+      const error = await finalization;
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        eventError,
+        expect.objectContaining({ code: "stale_execution_fence" }),
+      ]);
+      expect((error as AggregateError).errors[0]).toBe(eventError);
+      expect((error as AggregateError).errors[1]).toBeInstanceOf(
+        StaleExecutionFenceError,
+      );
+      expect(await events(runId)).toEqual([
+        { seq: 0, type: "text", text: "existing event" },
+      ]);
+      expect(await isTurnAborted(runId, runId)).toBe(false);
+      const state = await pglite.query(
+        "SELECT r.status, l.owner_run_id FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(state.rows[0]).toEqual({
+        status: "running",
+        owner_run_id: `${runId}-successor`,
+      });
+    } finally {
+      write.resolve();
+      driver.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await finalization;
+      batchHarness.gate = null;
+    }
+  });
+
+  it("rejects a reclaimed worker's batch without writing events or abort intent", async () => {
+    const runId = "batch-abort-stale";
+    const entered = gate();
+    const write = gate();
+    const driver = gate();
+    batchHarness.gate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+      sizes: [],
+    };
+    const run = startRun(
+      runId,
+      runId,
+      async (send) => {
+        void send({ type: "text", text: "stale" }).catch(() => {});
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    const finalization = run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      await entered.promise;
+      await pglite.query(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+        [runId, runId],
+      );
+      await insertRun(`${runId}-successor`, runId, runId);
+      await claimTurnExecutionLease(runId, runId, `${runId}-successor`);
+      const flush = vi.spyOn(run, "flushEvents");
+      const response = abortRunDurably(runId);
+      await vi.waitFor(() => expect(flush).toHaveBeenCalled());
+      write.resolve();
+      const eventError = await response.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(eventError).toBeInstanceOf(StaleExecutionFenceError);
+      driver.resolve();
+      const error = await finalization;
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        eventError,
+        expect.objectContaining({ code: "stale_execution_fence" }),
+      ]);
+      expect((error as AggregateError).errors[0]).toBe(eventError);
+      expect((error as AggregateError).errors[1]).toBeInstanceOf(
+        StaleExecutionFenceError,
+      );
+      expect((error as AggregateError).errors[1]).not.toBe(eventError);
+      expect(await events(runId)).toEqual([]);
+      expect(await isTurnAborted(runId, runId)).toBe(false);
+      const state = await pglite.query(
+        "SELECT status FROM agent_runs WHERE id = ?",
+        [runId],
+      );
+      expect(state.rows[0]).toMatchObject({ status: "running" });
+    } finally {
+      write.resolve();
+      driver.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await finalization;
+      batchHarness.gate = null;
+    }
   });
 });

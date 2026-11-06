@@ -334,6 +334,7 @@ export default {
   common: {
     loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
+    linkedSourceSizeLimit: "يتجاوز تعديل المكوّن المرتبط حد حجم المصدر.",
   },
   editPanel: {
     colorInputLabel: "لون",
@@ -1032,6 +1033,7 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
     writeFailed: "تعذّر حفظ هذا التغيير.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
