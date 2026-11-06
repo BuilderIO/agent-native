@@ -181,10 +181,13 @@ function stripOptionalToolPlaceholders(
         continue;
       }
       // A valid `false` sets a value, and `[]` on an action that says an empty
-      // list erases nothing is padding. Elsewhere `[]` could wipe a stored
+      // list erases nothing is padding. `null` on an optional field is absent:
+      // models fill every unused field with it, so it never marks a call as
+      // clearing data. Elsewhere `[]` could wipe a stored
       // list. An empty equal to the schema's own default changes nothing.
       if (
         entry !== false &&
+        entry !== null &&
         !(
           emptyValues.listsEraseNothing &&
           Array.isArray(entry) &&
