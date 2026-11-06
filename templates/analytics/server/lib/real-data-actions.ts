@@ -1089,14 +1089,20 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
     );
     let end = i + 1;
     while (end < lines.length && !closing.test(lines[end])) end++;
-    if (end === lines.length) {
-      prose.push(...lines.slice(i));
-      break;
-    }
-    if (!/^\s*sql(?:\s.*)?$/i.test(opening[2])) {
-      prose.push(...lines.slice(i, end + 1));
+    if (/^\s*sql(?:\s.*)?$/i.test(opening[2])) {
+      const sql = lines.slice(i + 1, end).join("\n");
+      const resultLiteral =
+        /(?:\bselect\b|,)\s*[-+]?\d+(?:\.\d+)?(?=\s|,|;|$)/i;
+      if (
+        resultLiteral.test(sql) ||
+        hasUnsupportedResultClaim(sql.replace(/\bcount\s*(?=\()/gi, ""))
+      )
+        return true;
+    } else {
+      prose.push(...lines.slice(i, Math.min(end + 1, lines.length)));
     }
     prose.push("");
+    if (end === lines.length) break;
     i = end;
   }
   return hasUnsupportedResultClaim(prose.join("\n").trim());

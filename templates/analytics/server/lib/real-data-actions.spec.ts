@@ -1525,6 +1525,29 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     }
   });
 
+  it("detects claims in SQL comments and literal result projections", () => {
+    for (const draft of [
+      "```sql\nSELECT COUNT(*) FROM events; -- Signups were 42.\n```",
+      "```sql\n/* Signups were 42. */ SELECT COUNT(*) FROM events\n```",
+      "```sql\nSELECT 42 AS signups\n```",
+      "```sql\nSELECT 42 AS total\n```",
+      "```sql\nSELECT 42\n```",
+      "```sql\nSELECT 42 AS `signups`\n```",
+      "```sql\nSELECT 'Signups were 42.'\n```",
+    ])
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT COUNT(*) AS signups FROM events",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "````sql\n```\nSELECT COUNT(*) FROM events\n```\n````",
+      ),
+    ).toBe(false);
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),

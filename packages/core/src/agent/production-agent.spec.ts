@@ -22413,6 +22413,72 @@ describe("runAgentLoop", () => {
     },
   );
 
+  it.each([
+    {
+      prior: "Start ",
+      checkpoint: "Start and more ",
+      expected: "Start and more Done.",
+    },
+    { prior: "Start", checkpoint: "Start ", expected: "Start Done." },
+  ])(
+    "does not duplicate a prefix already in history when checkpointing a continuation",
+    async ({ prior, checkpoint, expected }) => {
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+        { role: "assistant", content: [{ type: "text", text: prior }] },
+      ];
+      appendContinuationCheckpoint(messages, [
+        { type: "text", text: checkpoint },
+      ]);
+      appendAgentLoopContinuation(messages, "network_interrupted");
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield { type: "text-delta", text: "Done." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) => ({
+        retryMessage: "Check.",
+        exhaustedDraftPrefix: "Unverified:",
+        maxRetries: 0,
+      }));
+      const events: AgentChatEvent[] = [];
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        finalResponseGuard: guard,
+      });
+      expect(guard).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expected }),
+      );
+      expect(events).toContainEqual({
+        type: "text",
+        text: `Unverified:\n\n${expected}`,
+      });
+    },
+  );
+
   it("retries rather than accepting an uncheckable truncated continuation draft", async () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },
@@ -22618,6 +22684,101 @@ describe("runAgentLoop", () => {
       expect.objectContaining({ type: "tool-call", id: "read-1" }),
     );
     expect(seen[2].flatMap((message) => message.content)).toContainEqual(
+      expect.objectContaining({ type: "tool-result", toolCallId: "read-1" }),
+    );
+  });
+
+  it("retains a mixed tool result and user instruction when memory keeps later messages", async () => {
+    recordEarlierCalls({});
+    const transform = vi
+      .spyOn(contextTransforms, "applyContextXrayTransformForIteration")
+      .mockImplementation(async ({ messages }) => messages);
+    const memory = vi
+      .spyOn(observationalMemory, "buildObservationalContext")
+      .mockImplementation(async ({ threadId, messages }) => ({
+        threadId,
+        reflections: [],
+        observations: [{ text: "Earlier context." }] as never,
+        recentMessages: messages.slice(-3),
+        tokens: {
+          reflections: 0,
+          observations: 1,
+          recentMessages: 1,
+          total: 2,
+        },
+      }));
+    onTestFinished(() => {
+      transform.mockRestore();
+      memory.mockRestore();
+    });
+    let seen: EngineMessage[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seen = structuredClone(opts.messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      actions: {},
+      threadId: "synthetic-thread",
+      ownerEmail: "owner@example.test",
+      send: () => {},
+      signal: new AbortController().signal,
+      messages: [
+        { role: "user", content: [{ type: "text", text: "initial request" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", id: "read-1", name: "read-data", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "read-1",
+              toolName: "read-data",
+              toolInput: "{}",
+              content: "result",
+            },
+            { type: "text", text: "Keep the critical instruction." },
+          ],
+        },
+        { role: "assistant", content: [{ type: "text", text: "Noted." }] },
+        { role: "user", content: [{ type: "text", text: "Continue." }] },
+      ],
+    });
+    const parts = seen.flatMap((message) => message.content);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Keep the critical instruction.",
+      }),
+    );
+    expect(parts).toContainEqual(
+      expect.objectContaining({ type: "tool-call", id: "read-1" }),
+    );
+    expect(parts).toContainEqual(
       expect.objectContaining({ type: "tool-result", toolCallId: "read-1" }),
     );
   });

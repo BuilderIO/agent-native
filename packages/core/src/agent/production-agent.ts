@@ -4790,8 +4790,17 @@ export function appendContinuationCheckpoint(
   messages: EngineMessage[],
   events: readonly AgentChatEvent[],
 ): void {
-  const text = interruptedRoundText(events);
+  let text = interruptedRoundText(events);
   if (!text.trim()) return;
+  const prior = clearGuardDraftFromHistory(
+    messages.map((message) => ({ ...message, content: [...message.content] })),
+    findCurrentTurnStartForContinuation(messages) + 1,
+    false,
+  );
+  if (!prior.incomplete && prior.text && text.startsWith(prior.text)) {
+    text = text.slice(prior.text.length);
+    if (!text) return;
+  }
   // Code points, not UTF-16 units, so the cut never leaves a lone surrogate.
   const boundedText =
     text.length > MAX_CONTINUATION_CHECKPOINT_CHARS
@@ -5202,10 +5211,25 @@ function findSafeWindowStart(
   messages: EngineMessage[],
   desiredStart: number,
 ): number {
-  for (let i = Math.max(0, desiredStart); i < messages.length; i++) {
-    if (!hasToolResult(messages[i])) return i;
+  let start = Math.max(0, desiredStart);
+  while (start < messages.length && hasToolResult(messages[start])) {
+    const ids = new Set(
+      messages[start].content.flatMap((part) =>
+        part.type === "tool-result" ? [part.toolCallId] : [],
+      ),
+    );
+    let earliest = start;
+    for (let i = start - 1; i >= 0 && ids.size; i--) {
+      const message = messages[i];
+      if (message.role !== "assistant") continue;
+      for (const part of message.content) {
+        if (part.type === "tool-call" && ids.delete(part.id)) earliest = i;
+      }
+    }
+    if (ids.size) return -1;
+    start = earliest;
   }
-  return -1;
+  return start < messages.length ? start : -1;
 }
 
 async function applyObservationalMemoryToContext(
