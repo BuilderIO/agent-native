@@ -109,6 +109,7 @@ const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
 );
 vi.mock("../server/lib/screen-frame-type-store.js", () => ({
   persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
+  backfillLegacyEmailFrameType: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
@@ -262,7 +263,10 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
-import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
+import {
+  backfillLegacyEmailFrameType,
+  persistScreenFrameType,
+} from "../server/lib/screen-frame-type-store.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   sourceContentHash,
@@ -1059,19 +1063,64 @@ describe("update-file: typed filename refusals", () => {
 describe("update-file: frame type", () => {
   beforeEach(() => {
     vi.mocked(persistScreenFrameType).mockClear();
+    vi.mocked(backfillLegacyEmailFrameType).mockClear();
   });
 
   it("stores an explicit frame type change without rewriting content", async () => {
     const before = designFilesStore.rows.get(FILE_ID)!.content;
     await updateFileAction.run({ id: FILE_ID, frameType: "web" } as never);
 
+    // oracle-change: legacy backfill moved to backfillLegacyEmailFrameType, so an explicit change no longer passes onlyIfAbsent.
     expect(persistScreenFrameType).toHaveBeenCalledWith({
       designId: DESIGN_ID,
       fileId: FILE_ID,
       frameType: "web",
-      onlyIfAbsent: false,
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("stores a legacy email type before an edit that removes the marker", async () => {
+    const marked = buildDoc().replace(
+      "<title>Doc</title>",
+      '<meta name="agent-native:frame-type" content="hubspot-email">\n<title>Doc</title>',
+    );
+    seedFile(marked);
+    const contentAtBackfill: string[] = [];
+    vi.mocked(backfillLegacyEmailFrameType).mockImplementationOnce(async () => {
+      contentAtBackfill.push(designFilesStore.rows.get(FILE_ID)!.content);
+    });
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" unmarked-"),
+    } as never);
+
+    expect(backfillLegacyEmailFrameType).toHaveBeenCalledTimes(1);
+    expect(backfillLegacyEmailFrameType).toHaveBeenCalledWith({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+    });
+    expect(contentAtBackfill).toEqual([marked]);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" unmarked-"),
+    );
+  });
+
+  it("rejects a frame type on an identity-only update", async () => {
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+        identityOnly: true,
+        operationSource: "tab-1",
+        operationRevision: 1,
+        frameType: "web",
+      } as never),
+    );
+
+    expect(error).toMatchObject({ paths: ["identityOnly"] });
+    expect(persistScreenFrameType).not.toHaveBeenCalled();
   });
 
   it("does not touch the frame type of an ordinary content save", async () => {
@@ -1081,6 +1130,7 @@ describe("update-file: frame type", () => {
     } as never);
 
     expect(persistScreenFrameType).not.toHaveBeenCalled();
+    expect(backfillLegacyEmailFrameType).not.toHaveBeenCalled();
   });
 
   it("rejects making a non-HTML file an email frame", async () => {

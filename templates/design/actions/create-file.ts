@@ -34,8 +34,11 @@ import {
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import {
+  frameTypeFromStored,
   resolveScreenFrameType,
+  STORED_SCREEN_FRAME_TYPES,
   storedScreenFrameType,
+  withStoredScreenFrameType,
   type ScreenFrameType,
 } from "../shared/screen-frame-type.js";
 import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
@@ -127,10 +130,10 @@ export default defineAction({
       .default("html")
       .describe("Type of file"),
     frameType: z
-      .literal(HUBSPOT_EMAIL_FRAME_TYPE)
+      .enum(STORED_SCREEN_FRAME_TYPES)
       .optional()
       .describe(
-        "Set only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. Omit for every other screen.",
+        'Set "hubspot-email" only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. "web" keeps a copied screen ordinary when its HTML still carries a legacy email marker. Omit for every other screen.',
       ),
   }),
   run: async (
@@ -176,8 +179,11 @@ export default defineAction({
     assertHubSpotEmailFileType({
       fileType,
       frameType:
-        frameType ??
-        (isHubSpotEmailHtml(content) ? HUBSPOT_EMAIL_FRAME_TYPE : null),
+        frameType === undefined
+          ? isHubSpotEmailHtml(content)
+            ? HUBSPOT_EMAIL_FRAME_TYPE
+            : null
+          : frameTypeFromStored(frameType),
     });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
     const restoredContentHashes = screenRestoreContentHashes(
@@ -487,10 +493,11 @@ export default defineAction({
       createdFile.content.trim().length > 0;
 
     let createdFrameType: ScreenFrameType | null =
-      frameType ??
-      (isHubSpotEmailHtml(createdFile.content)
-        ? HUBSPOT_EMAIL_FRAME_TYPE
-        : null);
+      frameType === undefined
+        ? isHubSpotEmailHtml(createdFile.content)
+          ? HUBSPOT_EMAIL_FRAME_TYPE
+          : null
+        : frameTypeFromStored(frameType);
     if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({
@@ -508,16 +515,22 @@ export default defineAction({
           const existingFrames = parseCanvasFrameGeometryById(
             current.canvasFrames,
           );
-          if (existingFrames[id]) return current;
           // A duplicate arrives with its source's metadata, which may already
           // say "web" for HTML that still carries the legacy email marker.
           createdFrameType =
-            frameType ??
-            resolveScreenFrameType({
-              designData: current,
-              fileId: id,
-              content: createdFile.content,
-            });
+            frameType === undefined
+              ? resolveScreenFrameType({
+                  designData: current,
+                  fileId: id,
+                  content: createdFile.content,
+                })
+              : frameTypeFromStored(frameType);
+          if (id in existingFrames) {
+            const storedType = frameType ?? createdFrameType;
+            return storedType
+              ? withStoredScreenFrameType(current, id, storedType)
+              : current;
+          }
           const emailFrame = createdFrameType === HUBSPOT_EMAIL_FRAME_TYPE;
           const currentScreenMetadata = isRecord(current.screenMetadata)
             ? current.screenMetadata
@@ -548,7 +561,7 @@ export default defineAction({
             ],
             resolveFileId: (placement) => placement.fileId,
           });
-          return {
+          const placed = {
             ...current,
             canvasFrames: merged.canvasFrames,
             ...(emailFrame
@@ -570,11 +583,16 @@ export default defineAction({
                 }
               : {}),
           };
+          return frameType === "web"
+            ? withStoredScreenFrameType(placed, id, frameType)
+            : placed;
         },
         isApplied: (current) =>
           Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]) &&
-          (createdFrameType !== HUBSPOT_EMAIL_FRAME_TYPE ||
-            storedScreenFrameType(current, id) === HUBSPOT_EMAIL_FRAME_TYPE),
+          (createdFrameType === HUBSPOT_EMAIL_FRAME_TYPE
+            ? storedScreenFrameType(current, id) === HUBSPOT_EMAIL_FRAME_TYPE
+            : frameType !== "web" ||
+              storedScreenFrameType(current, id) === "web"),
       });
 
       trackDesign(

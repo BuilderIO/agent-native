@@ -1,5 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import { resolveScreenFrameType } from "@shared/screen-frame-type";
+import { screenFrameTypeForCopy } from "@shared/screen-frame-type";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -172,7 +172,7 @@ export async function runCopySelection({
               storedContent: getScreenContent(screenId) ?? file?.content,
             });
             if (!file || typeof content !== "string") return null;
-            const frameType = resolveScreenFrameType({
+            const frameType = screenFrameTypeForCopy({
               designData,
               fileId: screenId,
               content,

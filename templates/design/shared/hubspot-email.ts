@@ -5,10 +5,10 @@ import { scanHubLInterpolations } from "./hubl-tokens.js";
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
 // Gates the full parse, so it must match every spelling parse5 decodes to the
-// marker name, including a character reference for the colon. A false
-// positive only costs a parse.
-const FRAME_TYPE_MARKER_CANDIDATE =
-  /agent-native(?::|&[#a-z0-9]+;?)frame-type/i;
+// marker name. Any meta tag holding a character reference goes to the parse,
+// since references can spell any part of the name. A false positive only
+// costs a parse.
+const FRAME_TYPE_MARKER_CANDIDATE = /agent-native:frame-type|<meta\b[^>]*&/i;
 
 export function isHubSpotEmailHtml(content: string): boolean {
   if (!FRAME_TYPE_MARKER_CANDIDATE.test(content)) return false;

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createHubSpotEmailHtml } from "./hubspot-email.js";
 import {
   resolveScreenFrameType,
+  screenFrameTypeForCopy,
   storedScreenFrameType,
   withStoredScreenFrameType,
 } from "./screen-frame-type.js";
@@ -38,6 +39,19 @@ describe("screen frame type", () => {
       resolveScreenFrameType({ designData: {}, fileId: "a", content: plain }),
     ).toBeNull();
     expect(resolveScreenFrameType({ designData: {}, fileId: "a" })).toBeNull();
+  });
+
+  it("gives a copy the stored type, including web over a legacy marker", () => {
+    const web = { screenMetadata: { a: { frameType: "web" } } };
+    expect(
+      screenFrameTypeForCopy({ designData: web, fileId: "a", content: marked }),
+    ).toBe("web");
+    expect(
+      screenFrameTypeForCopy({ designData: {}, fileId: "a", content: marked }),
+    ).toBe("hubspot-email");
+    expect(
+      screenFrameTypeForCopy({ designData: {}, fileId: "a", content: plain }),
+    ).toBeUndefined();
   });
 
   it("ignores values that are not a known frame type", () => {

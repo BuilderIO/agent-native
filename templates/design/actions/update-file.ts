@@ -15,7 +15,10 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
-import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
+import {
+  backfillLegacyEmailFrameType,
+  persistScreenFrameType,
+} from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -224,6 +227,7 @@ export default defineAction({
         if (
           value.filename !== undefined ||
           value.fileType !== undefined ||
+          value.frameType !== undefined ||
           value.syncCollab === false
         ) {
           ctx.addIssue({
@@ -337,6 +341,16 @@ export default defineAction({
               : null,
       });
     }
+    const markedBeforeWrite =
+      frameType === undefined &&
+      (requestedContent !== undefined || contentPatch !== undefined) &&
+      isHubSpotEmailHtml(file.content);
+    if (markedBeforeWrite) {
+      await backfillLegacyEmailFrameType({
+        designId: file.designId,
+        fileId: file.id,
+      });
+    }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -352,6 +366,7 @@ export default defineAction({
         !expectedVersionHash ||
         filename !== undefined ||
         fileType !== undefined ||
+        frameType !== undefined ||
         syncCollab === false ||
         !operationSource ||
         !Number.isSafeInteger(operationRevision) ||
@@ -791,12 +806,16 @@ export default defineAction({
       throw error;
     }
 
-    if (frameType !== undefined || legacyEmail.found) {
+    if (frameType !== undefined) {
       await persistScreenFrameType({
         designId: file.designId,
         fileId: id,
-        frameType: frameType ?? HUBSPOT_EMAIL_FRAME_TYPE,
-        onlyIfAbsent: frameType === undefined,
+        frameType,
+      });
+    } else if (legacyEmail.found && !markedBeforeWrite) {
+      await backfillLegacyEmailFrameType({
+        designId: file.designId,
+        fileId: id,
       });
     }
 

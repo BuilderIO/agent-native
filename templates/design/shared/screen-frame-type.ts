@@ -34,6 +34,12 @@ export function storedScreenFrameType(
     : undefined;
 }
 
+export function frameTypeFromStored(
+  stored: StoredScreenFrameType,
+): ScreenFrameType | null {
+  return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+}
+
 /**
  * A screen's frame type. Stored metadata wins; a screen with none falls back
  * to the legacy HTML meta marker when its content is at hand.
@@ -48,12 +54,27 @@ export function resolveScreenFrameType({
   content?: string | null | undefined;
 }): ScreenFrameType | null {
   const stored = storedScreenFrameType(designData, fileId);
-  if (stored !== undefined) {
-    return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
-  }
+  if (stored !== undefined) return frameTypeFromStored(stored);
   return typeof content === "string" && isHubSpotEmailHtml(content)
     ? HUBSPOT_EMAIL_FRAME_TYPE
     : null;
+}
+
+/**
+ * The frame type a copy of a screen must be created with. A stored "web" is
+ * kept: the copied HTML may still carry the legacy email marker, and the copy
+ * would read as an email without it.
+ */
+export function screenFrameTypeForCopy(args: {
+  designData: unknown;
+  fileId: string;
+  content?: string | null | undefined;
+}): StoredScreenFrameType | undefined {
+  return (
+    storedScreenFrameType(args.designData, args.fileId) ??
+    resolveScreenFrameType(args) ??
+    undefined
+  );
 }
 
 export function withStoredScreenFrameType<T extends Record<string, unknown>>(

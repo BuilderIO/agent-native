@@ -1,6 +1,7 @@
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { parseDesignDataBlob } from "../../shared/full-app.js";
+import { HUBSPOT_EMAIL_FRAME_TYPE } from "../../shared/hubspot-email.js";
 import {
   storedScreenFrameType,
   withStoredScreenFrameType,
@@ -37,5 +38,22 @@ export async function persistScreenFrameType({
         ? current
         : withStoredScreenFrameType(current, fileId, frameType),
     isApplied: settled,
+  });
+}
+
+/**
+ * Stores "hubspot-email" for a legacy marker screen that has no stored type.
+ * Source writers call it before writing when the content they loaded has the
+ * marker: an edit that removes the marker leaves nothing to recover the type
+ * from, so the type must be stored before the edit commits.
+ */
+export function backfillLegacyEmailFrameType(args: {
+  designId: string;
+  fileId: string;
+}): Promise<void> {
+  return persistScreenFrameType({
+    ...args,
+    frameType: HUBSPOT_EMAIL_FRAME_TYPE,
+    onlyIfAbsent: true,
   });
 }

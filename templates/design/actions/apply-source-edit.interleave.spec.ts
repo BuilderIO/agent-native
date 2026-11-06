@@ -279,6 +279,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("../server/lib/screen-frame-type-store.js", () => ({
   persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
+  backfillLegacyEmailFrameType: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/lib/design-versions.js", () => ({
@@ -410,7 +411,7 @@ import {
   applyText,
 } from "@agent-native/core/collab";
 
-import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
+import { backfillLegacyEmailFrameType } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -490,13 +491,17 @@ describe("HTML integrity write boundary", () => {
   // screenMetadata, so these edits now succeed. A legacy marker screen keeps
   // its email type through a one-time metadata backfill instead.
   it("removes a legacy email marker through apply-source-edit and backfills the frame type", async () => {
-    vi.mocked(persistScreenFrameType).mockClear();
+    vi.mocked(backfillLegacyEmailFrameType).mockClear();
     const before = createHubSpotEmailHtml();
     const marker =
       '<meta name="agent-native:frame-type" content="hubspot-email">';
     seedFile(before);
     await applyText(FILE_ID, before);
     const live = await readLiveSourceFile(currentFileRef());
+    const contentAtBackfill: string[] = [];
+    vi.mocked(backfillLegacyEmailFrameType).mockImplementationOnce(async () => {
+      contentAtBackfill.push(currentFileRef().content ?? "");
+    });
     await applySourceEditAction.run({
       designId: DESIGN_ID,
       fileId: FILE_ID,
@@ -504,18 +509,20 @@ describe("HTML integrity write boundary", () => {
       edit: { kind: "exact-replace", search: marker, replace: "" },
     });
     expect(currentFileRef().content).toBe(before.replace(marker, ""));
-    expect(persistScreenFrameType).toHaveBeenCalledWith({
+    // oracle-change: the legacy type is now stored before the write, so a
+    // failure after the marker-removing edit cannot lose it.
+    expect(backfillLegacyEmailFrameType).toHaveBeenCalledTimes(1);
+    expect(backfillLegacyEmailFrameType).toHaveBeenCalledWith({
       designId: DESIGN_ID,
       fileId: FILE_ID,
-      frameType: "hubspot-email",
-      onlyIfAbsent: true,
     });
+    expect(contentAtBackfill).toEqual([before]);
   });
 
   it.each(["shared source", "update-file"])(
     "%s backfills the frame type of a legacy email screen whose live copy lost the marker",
     async (writer) => {
-      vi.mocked(persistScreenFrameType).mockClear();
+      vi.mocked(backfillLegacyEmailFrameType).mockClear();
       const before = createHubSpotEmailHtml();
       seedFile(before);
       const unmarked = before.replace(
@@ -536,11 +543,11 @@ describe("HTML integrity write boundary", () => {
             content: live.content,
             expectedVersionHash: live.versionHash,
           }));
-      expect(persistScreenFrameType).toHaveBeenCalledWith({
+      // oracle-change: legacy backfill moved to backfillLegacyEmailFrameType.
+      expect(backfillLegacyEmailFrameType).toHaveBeenCalledTimes(1);
+      expect(backfillLegacyEmailFrameType).toHaveBeenCalledWith({
         designId: DESIGN_ID,
         fileId: FILE_ID,
-        frameType: "hubspot-email",
-        onlyIfAbsent: true,
       });
     },
   );

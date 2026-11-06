@@ -33,7 +33,7 @@ import {
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
 import { failOnSourceInputError } from "./lib/fail-on-source-input-error.js";
-import { persistScreenFrameType } from "./lib/screen-frame-type-store.js";
+import { backfillLegacyEmailFrameType } from "./lib/screen-frame-type-store.js";
 import "./db/index.js";
 
 export interface SourceWorkspaceFile {
@@ -532,15 +532,13 @@ export async function prepareInlineSourceEdit(args: {
 export async function writeInlineSourceFile(
   args: Parameters<typeof writeInlineSourceFileContent>[0],
 ): ReturnType<typeof writeInlineSourceFileContent> {
+  const screen = { designId: args.designId, fileId: args.file.id };
+  const markedBeforeWrite = isHubSpotEmailHtml(args.file.content ?? "");
+  if (markedBeforeWrite) await backfillLegacyEmailFrameType(screen);
   const legacyEmail = { found: false };
   const result = await writeInlineSourceFileContent(args, legacyEmail);
-  if (legacyEmail.found) {
-    await persistScreenFrameType({
-      designId: args.designId,
-      fileId: args.file.id,
-      frameType: HUBSPOT_EMAIL_FRAME_TYPE,
-      onlyIfAbsent: true,
-    });
+  if (legacyEmail.found && !markedBeforeWrite) {
+    await backfillLegacyEmailFrameType(screen);
   }
   return result;
 }
@@ -1007,6 +1005,14 @@ export async function writeInlineSourceFilesBatch(args: {
     );
   };
 
+  const markedBeforeWrite = new Set(
+    args.files.flatMap(({ file }) =>
+      isHubSpotEmailHtml(file.content ?? "") ? [file.id] : [],
+    ),
+  );
+  for (const fileId of markedBeforeWrite) {
+    await backfillLegacyEmailFrameType({ designId: args.designId, fileId });
+  }
   const legacyEmailFileIds = new Set<string>();
   const result = await withLocks(0, async () => {
     const access = await assertAccess("design", args.designId, "editor");
@@ -1271,12 +1277,8 @@ export async function writeInlineSourceFilesBatch(args: {
     };
   });
   for (const fileId of legacyEmailFileIds) {
-    await persistScreenFrameType({
-      designId: args.designId,
-      fileId,
-      frameType: HUBSPOT_EMAIL_FRAME_TYPE,
-      onlyIfAbsent: true,
-    });
+    if (markedBeforeWrite.has(fileId)) continue;
+    await backfillLegacyEmailFrameType({ designId: args.designId, fileId });
   }
   return result;
 }

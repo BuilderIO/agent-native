@@ -390,9 +390,14 @@ describe("runDuplicateScreen", () => {
     ).toBe(false);
   });
 
-  it.each(["widget", "editor"])(
-    "keeps an email screen's frame type on a %s duplicate",
-    async (surface) => {
+  it.each([
+    ["widget", "hubspot-email"],
+    ["editor", "hubspot-email"],
+    ["widget", "web"],
+    ["editor", "web"],
+  ])(
+    "keeps a stored frame type on a %s duplicate (%s)",
+    async (surface, frameType) => {
       const args = duplicateArgs({
         widgetEmbed: surface === "widget",
         designDataJsonRef: {
@@ -401,7 +406,7 @@ describe("runDuplicateScreen", () => {
               source: { x: 0, y: 0, width: 600, height: 800 },
             },
             screenMetadata: {
-              source: { width: 600, height: 800, frameType: "hubspot-email" },
+              source: { width: 600, height: 800, frameType },
             },
           },
         },
@@ -410,7 +415,7 @@ describe("runDuplicateScreen", () => {
       await runDuplicateScreen(args, "source");
 
       expect((args.createFileAsync as any).mock.calls[0]?.[0]).toMatchObject({
-        frameType: "hubspot-email",
+        frameType,
       });
     },
   );

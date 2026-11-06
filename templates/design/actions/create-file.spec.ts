@@ -1066,6 +1066,21 @@ describe("create-file: canvas placement and landing URL", () => {
     });
   });
 
+  it("keeps a copy ordinary when frameType is web despite a legacy marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "former-email.html",
+      content: createHubSpotEmailHtml({ title: "Former email" }),
+      fileType: "html",
+      frameType: "web",
+    });
+    expect(result.frameType).toBeNull();
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [result.id]: { width: 1440 } },
+      screenMetadata: { [result.id]: { frameType: "web" } },
+    });
+  });
+
   it("leaves an ordinary screen without a stored frame type", async () => {
     const result = await action.run({
       designId: "design-1",
