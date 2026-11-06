@@ -171,6 +171,7 @@ export function useDesignSourceHydration(
       (id) => loader.get(id),
       128,
       dependencyIndex,
+      { readRootsPastBudget: false },
     );
     const ids = scheduled.ids.filter((id) => !demanded.has(id));
     // A preview the budget cannot reach, or one whose dependencies it cannot,

@@ -106,6 +106,11 @@ export function scheduleSourceDependencies(
   get: (id: string) => SourceHydrationState,
   budget = 128,
   index = createSourceDependencyIndex(files),
+  {
+    // A demanded root always loads; only its dependencies wait for budget.
+    // A preview root cannot render without them, so it waits too.
+    readRootsPastBudget = true,
+  }: { readRootsPastBudget?: boolean } = {},
 ) {
   const ids = new Set<string>();
   const statusByRoot = new Map<
@@ -117,21 +122,22 @@ export function scheduleSourceDependencies(
     const graph = sourceDependencyIds(files, [root], get, index);
     const additional = graph.ids.filter((id) => !ids.has(id));
     const admitted = !graph.overflow && ids.size + additional.length <= budget;
-    // A demanded root always loads; only its dependencies wait for budget.
-    if (admitted) additional.forEach((id) => ids.add(id));
-    else ids.add(root);
-    idsByRoot.set(root, graph.ids);
     const isLoading = (id: string) => {
       const state = get(id);
       return state.status === "unloaded" || state.status === "loading";
     };
+    // A loaded root stays scheduled either way: dropping it only reads it again.
+    const readRoot = readRootsPastBudget || !isLoading(root);
+    if (admitted) additional.forEach((id) => ids.add(id));
+    else if (readRoot) ids.add(root);
+    idsByRoot.set(root, graph.ids);
     statusByRoot.set(
       root,
       graph.overflow || graph.failed
         ? "error"
         : !graph.ids.some(isLoading)
           ? "ready"
-          : admitted || isLoading(root)
+          : admitted || (readRoot && isLoading(root))
             ? "loading"
             : "deferred",
     );
