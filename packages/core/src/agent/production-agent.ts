@@ -10857,6 +10857,8 @@ export async function runAgentLoop(opts: {
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
         let toolResultLost = false;
+        let actionRaceLost = false;
+        const interruptionErrors = new WeakSet<Error>();
         // It returned an error result rather than throwing one.
         let toolReportedError = false;
         let toolErrorCode: string | undefined;
@@ -11001,7 +11003,7 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          if (opts.threadId) {
+          {
             const ledgerThreadId = opts.threadId;
             const ledgerArgumentsHash = argumentsHash;
             const ledgerToolKey = preparedToolCallKey(
@@ -11012,7 +11014,7 @@ export async function runAgentLoop(opts: {
               .then(
                 async (zombieRaw: unknown) => {
                   await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                  if (!toolResultLost) return;
+                  if (!toolResultLost || !ledgerThreadId) return;
                   // A call is recovered only when it may have written.
                   if (ranEffect({}).effect === "none") return;
                   const zombieMcp = isMcpActionResult(zombieRaw)
@@ -11097,7 +11099,31 @@ export async function runAgentLoop(opts: {
                     );
                   }
                 },
-                () => {},
+                async (error: unknown) => {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  if (
+                    !actionRaceLost ||
+                    ranEffect({ failed: { lost: true } }).effect === "none"
+                  )
+                    return;
+                  captureError(
+                    isPrivateCall()
+                      ? new Error("Private content omitted")
+                      : error,
+                    {
+                      ...(isPrivateCall()
+                        ? { errorMessagePolicy: "omit" as const }
+                        : {}),
+                      route: "/_agent-native/agent-chat",
+                      ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                      tags: {
+                        component: "agent-execution-step",
+                        phase: "late-action-rejection",
+                        tool: toolCall.name,
+                      },
+                    },
+                  );
+                },
               )
               .catch((error) => {
                 captureError(
@@ -11118,26 +11144,30 @@ export async function runAgentLoop(opts: {
                   },
                 );
               });
-            void retainRequestDbPoolScope(zombieLedgerPromise);
+            if (ledgerThreadId)
+              void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
           const raw = await Promise.race([
             actionPromise,
             new Promise<never>((_, reject) => {
-              timeoutSignal.addEventListener("abort", () =>
-                reject(new Error(timeoutMessage())),
-              );
+              timeoutSignal.addEventListener("abort", () => {
+                const error = new Error(timeoutMessage());
+                interruptionErrors.add(error);
+                reject(error);
+              });
             }),
             new Promise<never>((_, reject) => {
+              const abort = () => {
+                const error = new Error("Run aborted");
+                interruptionErrors.add(error);
+                reject(error);
+              };
               if (signal.aborted) {
-                reject(new Error("Run aborted"));
+                abort();
                 return;
               }
-              signal.addEventListener(
-                "abort",
-                () => reject(new Error("Run aborted")),
-                { once: true },
-              );
+              signal.addEventListener("abort", abort, { once: true });
             }),
           ]);
           const mcpResult = isMcpActionResult(raw) ? raw : null;
@@ -11300,6 +11330,10 @@ export async function runAgentLoop(opts: {
           }
           thrown = err;
           toolReportedError = false;
+          actionRaceLost =
+            actionInvoked &&
+            err instanceof Error &&
+            interruptionErrors.has(err);
           toolResultLost =
             (signal.aborted && actionInvoked) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));

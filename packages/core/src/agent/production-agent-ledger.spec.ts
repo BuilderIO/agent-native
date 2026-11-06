@@ -391,6 +391,262 @@ describe("tool-call result ledger", () => {
     }
   });
 
+  it.each([
+    {
+      name: "an interrupted write",
+      readOnly: false,
+      late: true,
+      private: false,
+      nested: false,
+      captured: true,
+    },
+    {
+      name: "a timed out write",
+      readOnly: false,
+      late: true,
+      private: false,
+      nested: false,
+      captured: true,
+      timeout: true,
+    },
+    {
+      name: "an ordinarily rejected write",
+      readOnly: false,
+      late: false,
+      private: false,
+      nested: false,
+      captured: false,
+    },
+    {
+      name: "an ordinary timeout-shaped rejection",
+      readOnly: false,
+      late: false,
+      private: false,
+      nested: false,
+      captured: false,
+      timeoutMessage: true,
+    },
+    {
+      name: "an interrupted write without a thread",
+      readOnly: false,
+      late: true,
+      private: false,
+      nested: false,
+      captured: true,
+      noThread: true,
+    },
+    {
+      name: "an interrupted read",
+      readOnly: true,
+      late: true,
+      private: false,
+      nested: false,
+      captured: false,
+    },
+    {
+      name: "a private interrupted write",
+      readOnly: false,
+      late: true,
+      private: true,
+      nested: false,
+      captured: true,
+    },
+    {
+      name: "a read with a later nested write",
+      readOnly: true,
+      late: true,
+      private: false,
+      nested: true,
+      captured: true,
+    },
+  ])(
+    "reports late rejection of $name only when a write may have run",
+    async (scenario) => {
+      const capture = vi
+        .spyOn(errorCapture, "captureError")
+        .mockImplementation(() => {});
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const failure = new Error(
+        scenario.timeoutMessage
+          ? "Tool call timed out after 12 seconds"
+          : "late rejection private sentinel",
+      );
+      const controller = new AbortController();
+      const save = defineAction({
+        description: "Save the draft.",
+        schema: z.object({}),
+        run: async () => "saved",
+      });
+      const run = async (
+        _args: unknown,
+        ctx?: Parameters<typeof save.run>[1],
+      ) => {
+        started.resolve();
+        await release.promise;
+        if (scenario.nested) await save.run({}, ctx);
+        throw failure;
+      };
+      const action = scenario.nested
+        ? (defineAction({
+            description: "Run an action.",
+            schema: z.object({}),
+            readOnly: true,
+            run,
+          }) as unknown as ActionEntry)
+        : {
+            ...makeWriteAction(),
+            readOnly: scenario.readOnly,
+            ...(scenario.timeout ? { timeoutMs: 30 } : {}),
+            run,
+          };
+      const events: import("./types.js").AgentChatEvent[] = [];
+
+      try {
+        const request = runAgentLoop({
+          engine: singleToolEngine("test-action"),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: { "test-action": action },
+          send: (event) => events.push(event),
+          signal: controller.signal,
+          ...(scenario.noThread ? {} : { threadId: "thread-late-rejection" }),
+          ...(scenario.private
+            ? { historyPrivacyState: { private: true, recorded: true } }
+            : {}),
+        });
+        await started.promise;
+        if (scenario.late) {
+          if (!scenario.timeout) controller.abort();
+          await request;
+        }
+        release.resolve();
+        if (!scenario.late) await request;
+        if (scenario.captured) {
+          await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce(), {
+            timeout: 10_000,
+          });
+          const [error, context] = capture.mock.calls[0]!;
+          expect(error).toEqual(
+            scenario.private ? new Error("Private content omitted") : failure,
+          );
+          expect(context).toMatchObject({
+            route: "/_agent-native/agent-chat",
+            tags: {
+              component: "agent-execution-step",
+              phase: "late-action-rejection",
+              tool: "test-action",
+            },
+            ...(scenario.private ? { errorMessagePolicy: "omit" } : {}),
+          });
+          if (scenario.private)
+            expect(JSON.stringify([error, context])).not.toContain(
+              failure.message,
+            );
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(capture).not.toHaveBeenCalled();
+        }
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "test-action",
+            isError: true,
+            ...(scenario.timeout
+              ? { result: expect.stringContaining("Tool call timed out after") }
+              : scenario.late
+                ? { result: "Interrupted before this tool returned a result." }
+                : { result: expect.stringContaining(failure.message) }),
+            ...(scenario.late && !scenario.readOnly
+              ? { outcomeUnknown: true }
+              : {}),
+          }),
+        );
+        expect(writeLedgerMock).not.toHaveBeenCalled();
+      } finally {
+        capture.mockRestore();
+      }
+    },
+  );
+
+  it("leaves the durable step unknown when an interrupted write later rejects", async () => {
+    const store =
+      await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
+    const fence = await store.claimTaskExecutionLease(
+      "thread-late-rejection-step",
+      "turn-late-rejection-step",
+      "run-late-rejection-step",
+    );
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const started = Promise.withResolvers<void>();
+    const result = Promise.withResolvers<string>();
+    const action = makeWriteAction();
+    action.run = () => {
+      started.resolve();
+      return result.promise;
+    };
+    const controller = new AbortController();
+    const events: import("./types.js").AgentChatEvent[] = [];
+    const failure = new Error("write rejected after interruption");
+
+    try {
+      const request = withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: singleToolEngine("save-data"),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "save" }] },
+          ],
+          actions: { "save-data": action },
+          send: (event) => events.push(event),
+          signal: controller.signal,
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+        }),
+      );
+      await started.promise;
+      controller.abort();
+      await request;
+      const toolStart = events.find((event) => event.type === "tool_start");
+      expect(toolStart?.executionStepId).toEqual(expect.any(String));
+      const readStep = () =>
+        getDbExec().execute({
+          sql: "SELECT status, result_json FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ? AND step_id = ?",
+          args: [fence.threadId, fence.turnId, toolStart?.executionStepId],
+        });
+      expect((await readStep()).rows).toEqual([
+        expect.objectContaining({ status: "unknown", result_json: null }),
+      ]);
+      result.reject(failure);
+      await vi.waitFor(() =>
+        expect(capture).toHaveBeenCalledWith(
+          failure,
+          expect.objectContaining({
+            tags: {
+              component: "agent-execution-step",
+              phase: "late-action-rejection",
+              tool: "save-data",
+            },
+          }),
+        ),
+      );
+      expect((await readStep()).rows).toEqual([
+        expect.objectContaining({ status: "unknown", result_json: null }),
+      ]);
+      expect(writeLedgerMock).not.toHaveBeenCalled();
+    } finally {
+      capture.mockRestore();
+      await store.releaseTurnExecutionLease(fence);
+    }
+  });
+
   it("does not write a ledger entry for resolved MCP error results", async () => {
     const action = makeWriteAction();
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue({
