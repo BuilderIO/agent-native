@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -215,6 +217,7 @@ describe("late action outcomes", () => {
   async function rejectAfterInterrupt(options: {
     error: Error;
     cancelWithError?: boolean;
+    wrapSignalReason?: boolean;
     readOnly?: boolean;
     nestedWrite?: boolean;
     write?: boolean;
@@ -256,6 +259,7 @@ describe("late action outcomes", () => {
         await gate;
         if (options.nestedWrite) await child.run({}, ctx);
         if (options.write) noteExternalWrite("test-write");
+        if (options.wrapSignalReason) options.error.cause = ctx.signal?.reason;
         throw options.error;
       },
     });
@@ -293,17 +297,42 @@ describe("late action outcomes", () => {
   }
 
   it.each([
-    { readOnly: true, noWriteError: false, cancelWithError: false },
-    { readOnly: true, noWriteError: false, cancelWithError: true },
-    { readOnly: false, noWriteError: false, cancelWithError: true },
-    { readOnly: false, noWriteError: true, cancelWithError: true },
+    {
+      readOnly: true,
+      noWriteError: false,
+      cancelWithError: false,
+      wrapSignalReason: true,
+    },
+    {
+      readOnly: true,
+      noWriteError: false,
+      cancelWithError: true,
+      wrapSignalReason: false,
+    },
+    {
+      readOnly: false,
+      noWriteError: false,
+      cancelWithError: true,
+      wrapSignalReason: false,
+    },
+    {
+      readOnly: false,
+      noWriteError: true,
+      cancelWithError: true,
+      wrapSignalReason: false,
+    },
   ])(
     "does not report a settled no-write cancellation: $readOnly / $noWriteError / $cancelWithError",
-    async ({ readOnly, noWriteError, cancelWithError }) => {
+    async ({ readOnly, noWriteError, cancelWithError, wrapSignalReason }) => {
       const error = noWriteError
         ? new NoWriteError("cancelled before saving")
         : new DOMException("cancelled", "AbortError");
-      await rejectAfterInterrupt({ error, readOnly, cancelWithError });
+      await rejectAfterInterrupt({
+        error,
+        readOnly,
+        cancelWithError,
+        wrapSignalReason,
+      });
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(captureErrorMock).not.toHaveBeenCalled();
     },
@@ -314,8 +343,61 @@ describe("late action outcomes", () => {
       error: new DOMException("cancelled", "AbortError"),
       readOnly: true,
       sameTurn: true,
+      cancelWithError: true,
     });
     expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a real signal-aware abort that wraps the run reason", async () => {
+    const controller = new AbortController();
+    let started!: () => void;
+    let finished!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const actionFinished = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const action = defineAction({
+      description: "Wait for a read.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        try {
+          started();
+          await delay(60_000, undefined, { signal: ctx.signal });
+          return "done";
+        } finally {
+          finished();
+        }
+      },
+    }) as unknown as ActionEntry;
+    const { run } = startAction({
+      action,
+      run: async () => "unused",
+      signal: controller.signal,
+      withoutThread: true,
+    });
+    await actionStarted;
+    controller.abort(new Error("run cancelled"));
+    await run;
+    await actionFinished;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an unrelated provider AbortError after the run aborts", async () => {
+    const error = new DOMException(
+      "provider aborted its own request",
+      "AbortError",
+    );
+    await rejectAfterInterrupt({ error, readOnly: true });
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        tags: expect.objectContaining({ phase: "late-action-failure" }),
+      }),
+    );
   });
 
   it.each([false, true])(

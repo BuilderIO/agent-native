@@ -11092,8 +11092,11 @@ export async function runAgentLoop(opts: {
                 const cancellation =
                   raceInterruption === "abort" &&
                   signal.aborted &&
+                  signal.reason !== undefined &&
                   (error === signal.reason ||
-                    (error instanceof Error && error.name === "AbortError"));
+                    (error instanceof Error &&
+                      error.name === "AbortError" &&
+                      error.cause === signal.reason));
                 // Retry safety permits replay; it does not prove no write occurred.
                 if (
                   cancellation &&
