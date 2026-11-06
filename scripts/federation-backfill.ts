@@ -493,6 +493,7 @@ async function runUndo(databases: Databases, args: readonly string[]) {
   // app links must stay, so a changed hub row never loses its workspaces.
   const hub = requireDb(databases, HUB_APP);
   let hubDeleted = 0;
+  let hubGone = 0;
   const keptHubIds = new Set<string>();
   for (const batch of chunk(manifest.hubCreated, HUB_BATCH)) {
     if (!hub.transaction) {
@@ -504,12 +505,25 @@ async function runUndo(databases: Databases, args: readonly string[]) {
       // between the check and the delete rolls the whole batch back.
       const outcome = await hub.transaction(async (tx) => {
         const ids = batch.map((created) => created.id);
-        // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
-        const owned = await tx.execute({
-          sql: `SELECT id FROM organizations WHERE id IN (${ids.map(() => "?").join(", ")}) AND identity_authority = ? AND identity_id = id FOR UPDATE`,
-          args: [...ids, manifest.authority],
+        // org_members has no foreign key to organizations, so block member
+        // writes until this transaction ends: nothing can be inserted between
+        // the roster check and the deletes and be left orphaned.
+        await tx.execute({
+          sql: `LOCK TABLE org_members IN SHARE ROW EXCLUSIVE MODE`,
         });
-        const ownedIds = owned.rows.map((row) => String(row.id));
+        // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
+        const present = await tx.execute({
+          sql: `SELECT id, identity_authority, identity_id FROM organizations WHERE id IN (${ids.map(() => "?").join(", ")}) FOR UPDATE`,
+          args: ids,
+        });
+        const presentIds = new Set(present.rows.map((row) => String(row.id)));
+        const ownedIds = present.rows
+          .filter(
+            (row) =>
+              String(row.identity_authority ?? "") === manifest.authority &&
+              String(row.identity_id ?? "") === String(row.id),
+          )
+          .map((row) => String(row.id));
         const rosters = new Map<
           string,
           Array<{ email: string; role: string }>
@@ -566,12 +580,20 @@ async function runUndo(databases: Databases, args: readonly string[]) {
         }
         return {
           deleted,
+          // Rows an earlier, interrupted undo already deleted are gone, not
+          // kept: their app links still have to be unlinked on the retry.
+          gone: batch.filter((created) => !presentIds.has(created.id)).length,
           kept: batch
-            .filter((created) => !deletableIds.includes(created.id))
+            .filter(
+              (created) =>
+                presentIds.has(created.id) &&
+                !deletableIds.includes(created.id),
+            )
             .map((created) => created.id),
         };
       });
       hubDeleted += outcome.deleted;
+      hubGone += outcome.gone;
       for (const id of outcome.kept) keptHubIds.add(id);
     } catch (error) {
       if (!(error instanceof RosterChangedDuringUndo)) throw error;
@@ -604,6 +626,7 @@ async function runUndo(databases: Databases, args: readonly string[]) {
       unlinked,
       appLinksKept: manifest.appLinked.length - toUnlink.length,
       hubDeleted,
+      hubAlreadyGone: hubGone,
       hubKeptBecauseChanged: keptHubIds.size,
     }),
   );
