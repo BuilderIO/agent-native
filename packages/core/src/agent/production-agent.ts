@@ -10993,13 +10993,19 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               ledgerArgumentsHash,
             );
-            const reportLateError = (error: unknown, phase: string) => {
+            const reportLateError = (
+              phase: "late-action-rejection" | "late-outcome-persistence",
+            ) => {
               captureError(
-                isPrivateCall() ? new Error("Private content omitted") : error,
+                new Error(
+                  isPrivateCall()
+                    ? "Private content omitted"
+                    : phase === "late-action-rejection"
+                      ? "Late action failed"
+                      : "Late outcome persistence failed",
+                ),
                 {
-                  ...(isPrivateCall()
-                    ? { errorMessagePolicy: "omit" as const }
-                    : {}),
+                  errorMessagePolicy: "omit",
                   route: "/_agent-native/agent-chat",
                   ...(opts.runId ? { aiTraceId: opts.runId } : {}),
                   tags: {
@@ -11098,8 +11104,8 @@ export async function runAgentLoop(opts: {
                       ledgerArgumentsHash,
                     );
                   }
-                } catch (error) {
-                  reportLateError(error, "late-outcome-persistence");
+                } catch {
+                  reportLateError("late-outcome-persistence");
                 }
               },
               async (error: unknown) => {
@@ -11111,7 +11117,11 @@ export async function runAgentLoop(opts: {
                   (error instanceof ActionInputValidationError &&
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
                   (isActionContractError(error) &&
-                    !isActionOutputContractError(error)) ||
+                    !isActionOutputContractError(error) &&
+                    ((error.statusCode === 503 &&
+                      error.errorCode === "storage_setup_required") ||
+                      actionExecutionOutcome.evidence?.writeObserved ===
+                        false)) ||
                   isAgentActionStopError(error) ||
                   (signal.aborted &&
                     error instanceof Error &&
@@ -11123,7 +11133,7 @@ export async function runAgentLoop(opts: {
                         error.message === timeoutMessage())))
                 )
                   return;
-                reportLateError(error, "late-action-rejection");
+                reportLateError("late-action-rejection");
               },
             );
             void retainRequestDbPoolScope(zombieLedgerPromise);

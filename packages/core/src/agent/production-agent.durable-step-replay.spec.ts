@@ -220,6 +220,9 @@ describe("late outcome error reporting", () => {
     "contract",
     "internal-contract",
     "setup-required",
+    "setup-after-write",
+    "post-write-contract",
+    "post-write-503",
     "nested-validation-no-write",
     "nested-validation-after-write",
     "output-contract",
@@ -259,7 +262,7 @@ describe("late outcome error reporting", () => {
                   : new Error("Action rejected after interruption");
       const nestedAction = defineAction({
         description: "Check nested input",
-        schema: z.object({ required: z.string() }),
+        schema: z.object({ required: z.number(), payload: z.string() }),
         readOnly: true,
         run: async () => "ok",
       });
@@ -270,10 +273,32 @@ describe("late outcome error reporting", () => {
         run: async () => {
           actionStarted.resolve();
           await actionResult.promise;
-          if (outcome === "nested-validation-after-write") {
-            noteExternalWrite("late-nested-validation-test");
+          if (outcome !== "nested-validation-no-write") {
+            noteExternalWrite("late-validation-test");
           }
-          return nestedAction.run({} as { required: string });
+          if (outcome === "post-write-contract") {
+            throw new ActionContractError("Sensitive saved response detail", {
+              errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+              statusCode: 500,
+              details: { saved: true, privateValue: "sensitive-test-value" },
+            });
+          }
+          if (outcome === "post-write-503") {
+            throw new ActionContractError("Sensitive upstream failure", {
+              errorCode: "upstream_response_failed",
+              statusCode: 503,
+            });
+          }
+          if (outcome === "setup-after-write") {
+            throw new ActionContractError("Storage setup required", {
+              errorCode: "storage_setup_required",
+              statusCode: 503,
+            });
+          }
+          return nestedAction.run({
+            required: "bad",
+            payload: "sensitive-test-value",
+          } as unknown as { required: number; payload: string });
         },
       });
       const outputAction = defineAction({
@@ -307,7 +332,10 @@ describe("late outcome error reporting", () => {
                 outcome === "output-contract"
                   ? outputAction
                   : outcome === "nested-validation-after-write" ||
-                      outcome === "nested-validation-no-write"
+                      outcome === "nested-validation-no-write" ||
+                      outcome === "setup-after-write" ||
+                      outcome === "post-write-contract" ||
+                      outcome === "post-write-503"
                     ? parentAction
                     : {
                         tool: {
@@ -345,7 +373,10 @@ describe("late outcome error reporting", () => {
           outcome === "persistence-fails" ||
           outcome === "output-contract" ||
           outcome === "nested-validation-no-write" ||
-          outcome === "nested-validation-after-write"
+          outcome === "nested-validation-after-write" ||
+          outcome === "setup-after-write" ||
+          outcome === "post-write-contract" ||
+          outcome === "post-write-503"
         )
           actionResult.resolve("Deck saved");
         else actionResult.reject(actionError);
@@ -358,9 +389,12 @@ describe("late outcome error reporting", () => {
           expect.stringContaining('"result":"Deck saved"'),
         );
         expect(capture).toHaveBeenCalledWith(
-          persistenceError,
+          expect.objectContaining({
+            message: "Late outcome persistence failed",
+          }),
           expect.objectContaining({
             aiTraceId: fence.runId,
+            errorMessagePolicy: "omit",
             tags: lateTags,
           }),
         );
@@ -371,6 +405,7 @@ describe("late outcome error reporting", () => {
           outcome === "contract" ||
           outcome === "internal-contract" ||
           outcome === "setup-required" ||
+          outcome === "setup-after-write" ||
           outcome === "nested-validation-no-write" ||
           outcome === "aborted"
         ) {
@@ -378,23 +413,33 @@ describe("late outcome error reporting", () => {
         } else {
           expect(capture).toHaveBeenCalledOnce();
           expect(capture).toHaveBeenCalledWith(
-            outcome === "private"
-              ? new Error("Private content omitted")
-              : outcome === "output-contract"
-                ? expect.objectContaining({
-                    name: "ActionOutputContractError",
-                    errorCode: "output_contract_violation",
-                    effect: "committed",
-                  })
-                : outcome === "nested-validation-after-write"
-                  ? expect.any(ActionInputValidationError)
-                  : actionError,
+            expect.objectContaining({
+              message:
+                outcome === "private"
+                  ? "Private content omitted"
+                  : "Late action failed",
+            }),
             expect.objectContaining({
               aiTraceId: fence.runId,
-              ...(outcome === "private" ? { errorMessagePolicy: "omit" } : {}),
+              errorMessagePolicy: "omit",
               tags: { ...lateTags, phase: "late-action-rejection" },
             }),
           );
+          const [capturedError, capturedContext] = capture.mock.calls[0] ?? [];
+          expect(capturedError).toBeInstanceOf(Error);
+          const telemetry = JSON.stringify({
+            ...(capturedError instanceof Error ? capturedError : {}),
+            message:
+              capturedError instanceof Error
+                ? capturedError.message
+                : capturedError,
+            stack:
+              capturedError instanceof Error ? capturedError.stack : undefined,
+            context: capturedContext,
+          });
+          expect(telemetry).not.toContain("sensitive-test-value");
+          expect(telemetry).not.toContain("Sensitive saved response detail");
+          expect(telemetry).not.toContain("Sensitive upstream failure");
         }
       }
     },
