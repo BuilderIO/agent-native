@@ -1,0 +1,161 @@
+name: Build the Agent-Native desktop app
+description: >-
+  Installs the workspace, then builds and packages the Agent-Native desktop
+  app for one platform. The release, the signed macOS canary and the pull
+  request build check all run it, so they build the same way; only the
+  release passes `publish: always`, and only the release and canary sign.
+  Requires actions/checkout to have already run. The calling step's env
+  supplies GH_TOKEN for publishing, APPLE_CERTIFICATE,
+  APPLE_CERTIFICATE_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
+  APPLE_TEAM_ID for signing, and any SENTRY_DESKTOP_* settings to build in.
+
+inputs:
+  platform:
+    description: "`mac`, `windows` or `linux`."
+    required: true
+  channel:
+    description: "`production` or `nightly`."
+    required: false
+    default: production
+  version:
+    description: Version to stamp into package.json. Empty keeps the checked-in version.
+    required: false
+    default: ""
+  sign:
+    description: "`true` signs and notarizes the macOS app. Only valid with `platform: mac`."
+    required: false
+    default: "false"
+  publish:
+    description: >-
+      electron-builder's --publish mode. `always` uploads to the GitHub
+      release for the version, which must already exist as a draft.
+    required: false
+    default: never
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        case "${{ inputs.platform }}" in mac|windows|linux) ;; *)
+          echo "::error::build-agent-native-desktop: platform must be mac, windows or linux (got '${{ inputs.platform }}')"; exit 1;;
+        esac
+        case "${{ inputs.channel }}" in production|nightly) ;; *)
+          echo "::error::build-agent-native-desktop: channel must be production or nightly (got '${{ inputs.channel }}')"; exit 1;;
+        esac
+        case "${{ inputs.publish }}" in never|always) ;; *)
+          echo "::error::build-agent-native-desktop: publish must be never or always (got '${{ inputs.publish }}')"; exit 1;;
+        esac
+        case "${{ inputs.sign }}" in false) ;; true)
+          if [ "${{ inputs.platform }}" != mac ]; then
+            echo "::error::build-agent-native-desktop: only the macOS build signs (got sign: true for ${{ inputs.platform }})"; exit 1
+          fi;;
+        *)
+          echo "::error::build-agent-native-desktop: sign must be true or false (got '${{ inputs.sign }}')"; exit 1;;
+        esac
+
+    - uses: ./.github/actions/setup-pnpm
+      with:
+        native-canvas-deps: "false"
+
+    - name: Configure Nightly channel
+      if: inputs.channel == 'nightly'
+      working-directory: packages/desktop-app
+      shell: bash
+      run: |
+        node <<'NODE'
+        const fs = require("node:fs");
+        const builderPath = "electron-builder.yml";
+        let builder = fs.readFileSync(builderPath, "utf8");
+        let nightlySchemeConfigured = false;
+        builder = builder.replace(
+          /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
+          (_match, prefix, _scheme, suffix) => {
+            if (nightlySchemeConfigured) return "";
+            nightlySchemeConfigured = true;
+            return `${prefix}agentnative-nightly${suffix}`;
+          },
+        );
+        builder = builder.replace(
+          /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+          "$1Agent-Native Nightly$2",
+        );
+        if (!nightlySchemeConfigured) {
+          throw new Error("Could not configure the Nightly deep-link scheme.");
+        }
+        fs.writeFileSync(builderPath, builder);
+
+        const updateConfigPath = "desktop-update-config.yml";
+        let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+        updateConfig = updateConfig.replace(
+          'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+          'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+        );
+        if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+          throw new Error("Could not configure the Nightly updater cache.");
+        }
+        fs.writeFileSync(updateConfigPath, updateConfig);
+        NODE
+
+    - name: Set version
+      if: inputs.version != ''
+      working-directory: packages/desktop-app
+      shell: bash
+      run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+
+    - name: Import signing certificate
+      if: inputs.sign == 'true'
+      shell: bash
+      run: |
+        CERTIFICATE_PATH="$RUNNER_TEMP/desktop-signing-certificate.p12"
+        KEYCHAIN_PATH="$RUNNER_TEMP/desktop-signing.keychain-db"
+        echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+        security create-keychain -p "" "$KEYCHAIN_PATH"
+        security default-keychain -s "$KEYCHAIN_PATH"
+        security unlock-keychain -p "" "$KEYCHAIN_PATH"
+        # A keychain made by the CLI re-locks after 5 idle minutes. codesign
+        # then waits forever for an unlock prompt a headless runner cannot
+        # show, so any build that spends longer than that before signing hangs.
+        security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+        security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+        rm "$CERTIFICATE_PATH"
+
+    - name: Build and package
+      working-directory: packages/desktop-app
+      shell: bash
+      env:
+        NODE_OPTIONS: --max-old-space-size=8192
+        AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ inputs.channel }}
+        EP_PRE_RELEASE: ${{ inputs.channel == 'nightly' }}
+        ELECTRON_APP_ID: ${{ inputs.channel == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
+        ELECTRON_PRODUCT_NAME: ${{ inputs.channel == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
+      run: |
+        OVERRIDES=("-c.appId=$ELECTRON_APP_ID" "-c.productName=$ELECTRON_PRODUCT_NAME")
+        case "${{ inputs.platform }}" in
+          mac)
+            pnpm build:mac-assets
+            TARGET=--mac
+            if [ "${{ inputs.sign }}" != true ]; then
+              # electron-builder.yml names the signing identity. A null one
+              # skips signing, and notarizing only ever follows signing.
+              OVERRIDES+=(-c.mac.identity=null)
+            fi
+            ;;
+          windows)
+            pnpm build:chrome-extension
+            TARGET=--win
+            ;;
+          linux)
+            pnpm build:chrome-extension
+            TARGET=--linux
+            if [ "${{ inputs.channel }}" = nightly ]; then
+              OVERRIDES+=(-c.linux.executableName=agent-native-nightly)
+            else
+              OVERRIDES+=(-c.linux.executableName=agent-native)
+            fi
+            ;;
+        esac
+        pnpm build
+        pnpm exec electron-builder "$TARGET" --config --publish "${{ inputs.publish }}" "${OVERRIDES[@]}"

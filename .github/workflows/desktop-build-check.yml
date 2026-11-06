@@ -1,0 +1,42 @@
+name: Desktop Build Check
+
+# Builds the Agent-Native desktop app the way desktop-release.yml does, through
+# the same build-agent-native-desktop action, but unsigned and without
+# publishing, so it needs no secrets.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/desktop-app/**"
+      - "packages/agent-chrome-extension/**"
+      - "scripts/build-branding-assets.mjs"
+      - ".github/actions/setup-pnpm/**"
+      - ".github/actions/build-agent-native-desktop/**"
+      - ".github/workflows/desktop-build-check.yml"
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-build-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-check:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      # Pull requests build only Linux. The macOS and Windows legs run on the
+      # daily schedule and manual dispatch, because macOS minutes bill at 10x.
+      matrix: ${{ github.event_name == 'pull_request' && fromJSON('{"include":[{"platform":"linux","os":"ubuntu-latest"}]}') || fromJSON('{"include":[{"platform":"mac","os":"macos-latest"},{"platform":"windows","os":"windows-latest"},{"platform":"linux","os":"ubuntu-latest"}]}') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/build-agent-native-desktop
+        with:
+          platform: ${{ matrix.platform }}
