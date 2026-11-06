@@ -1488,14 +1488,20 @@ export function AuthPage(props: AuthPageProps) {
 
   const startGoogle = React.useCallback(async () => {
     if (!showGoogle || googleBusy || !builderSignup) return;
-    try {
-      await prepareBuilderSignup();
-    } catch {
-      setNotice("google", { kind: "error", text: t("networkErrorDashRetry") });
-      return;
-    }
     setGoogleBusy(true);
     setNotice("google", null);
+    const redirectAfterAcceptance = async (url: string) => {
+      try {
+        await prepareBuilderSignup();
+        window.location.replace(url);
+      } catch {
+        setGoogleBusy(false);
+        setNotice("google", {
+          kind: "error",
+          text: t("networkErrorDashRetry"),
+        });
+      }
+    };
     try {
       window.sessionStorage.setItem("__an_signin", "1");
     } catch {
@@ -1511,16 +1517,12 @@ export function AuthPage(props: AuthPageProps) {
       })
     ) {
       const params = new URLSearchParams({ return: target });
-      window.location.replace(`${identityHref}?${params.toString()}`);
+      await redirectAfterAcceptance(`${identityHref}?${params.toString()}`);
       return;
     }
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
-    const flow =
-      builderSignup.status === "assigned" &&
-      builderSignup.variant === "automatic"
-        ? "redirect"
-        : resolveGoogleFlow();
+    const flow = resolveGoogleFlow();
     const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
     const oauthTarget = oauthReturnTarget(
       flow === "redirect" && !nativeDesktop
@@ -1541,7 +1543,7 @@ export function AuthPage(props: AuthPageProps) {
         return: oauthTarget,
         redirect: "1",
       });
-      window.location.replace(`${authUrl}?${params.toString()}`);
+      await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
       return;
     }
     const verifier = createVerifier();
@@ -1575,7 +1577,7 @@ export function AuthPage(props: AuthPageProps) {
             return: oauthTarget,
             redirect: "1",
           });
-          window.location.replace(`${authUrl}?${params.toString()}`);
+          await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
           return;
         }
         try {
@@ -1596,11 +1598,12 @@ export function AuthPage(props: AuthPageProps) {
           return: oauthTarget,
           redirect: "1",
         });
-        window.location.replace(`${authUrl}?${params.toString()}`);
+        await redirectAfterAcceptance(`${authUrl}?${params.toString()}`);
         return;
       }
     }
     try {
+      await prepareBuilderSignup();
       const params = new URLSearchParams({
         return: oauthTarget,
         desktop: "1",
