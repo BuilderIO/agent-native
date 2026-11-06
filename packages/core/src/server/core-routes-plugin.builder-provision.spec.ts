@@ -168,6 +168,26 @@ afterEach(() => {
 });
 
 describe("POST /builder/provision", () => {
+  it("offers existing-account sign-in when a newly provisioned credential cannot be saved", async () => {
+    mocks.writeBuilderCredentials.mockRejectedValueOnce(
+      new Error("credential store unavailable"),
+    );
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "account_exists",
+    });
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder connect failed",
+      expect.objectContaining({ reason: "credential_write_failed" }),
+      expect.anything(),
+    );
+  });
+
   it("keeps a stored connection connected when post-write audit reporting fails", async () => {
     mocks.recordAudit.mockRejectedValueOnce(new Error("audit unavailable"));
     const response = await post({

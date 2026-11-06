@@ -2613,11 +2613,22 @@ export async function activateBuilderAccount(
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
-    const written = await writeBuilderCredentials(
-      ownerEmail,
-      credentials,
-      activationOrg ?? undefined,
-    );
+    let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
+    try {
+      written = await writeBuilderCredentials(
+        ownerEmail,
+        credentials,
+        activationOrg ?? undefined,
+      );
+    } catch (error) {
+      captureError(error, { route: "builder.provision.credential-write" });
+      return fail(
+        409,
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
+        "credential_write_failed",
+        "account_exists",
+      );
+    }
     try {
       await Promise.all([
         deleteSetting("builder-disconnected").catch(
