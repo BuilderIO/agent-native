@@ -2638,6 +2638,70 @@ describe("agent harness lifecycle", () => {
     },
   );
 
+  it.each([new Error("finalization failed"), undefined])(
+    "preserves a finalization rejection before provider dispatch: %s",
+    async (rejection) => {
+      vi.useFakeTimers();
+      let releaseClaimCheck!: () => void;
+      let claimCheckStarted!: () => void;
+      const claimCheckReady = new Promise<void>((resolve) => {
+        claimCheckStarted = resolve;
+      });
+      const monitorError = new Error("database unavailable");
+      mocks.getById
+        .mockImplementationOnce(() => {
+          claimCheckStarted();
+          return new Promise<StoredAgentHarnessSession>((resolve) => {
+            releaseClaimCheck = () => resolve(stored);
+          });
+        })
+        .mockRejectedValue(monitorError);
+      const session = fakeSession();
+      register(stored, session);
+      const startRun = mocks.startRun.getMockImplementation()!;
+      let startedRun!: StartedRun;
+      mocks.startRun.mockImplementationOnce((...args) => {
+        startedRun = startRun(...args);
+        startedRun.finalized = startedRun.finalized.then(() => {
+          throw rejection;
+        });
+        return startedRun;
+      });
+
+      const followUp = sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      });
+      const outcome = followUp.then(
+        (value) => ({ fulfilled: true as const, value }),
+        (error: unknown) => ({ fulfilled: false as const, error }),
+      );
+      await claimCheckReady;
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(startedRun.abort.signal.aborted).toBe(true);
+      const reason = startedRun.abort.signal.reason;
+      expect(reason).toBeInstanceOf(AggregateError);
+      expect(reason.errors).toEqual([monitorError, monitorError, monitorError]);
+      expect(session.streamTurn).not.toHaveBeenCalled();
+      releaseClaimCheck();
+
+      const result = await outcome;
+      expect(result.fulfilled).toBe(false);
+      if (result.fulfilled) throw new Error("Expected follow-up to reject");
+      expect(result.error).toBeInstanceOf(AggregateError);
+      expect((result.error as AggregateError).errors).toEqual([
+        reason,
+        rejection,
+      ]);
+      expect(session.streamTurn).not.toHaveBeenCalled();
+      expect(mocks.failFollowUp).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "not_dispatched" }),
+      );
+      expect(session.stop).not.toHaveBeenCalled();
+    },
+  );
+
   it("finalizes its claim after a same-claim generation conflict", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);

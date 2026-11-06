@@ -1217,16 +1217,22 @@ export async function sendAgentHarnessFollowUp(input: {
                   },
                 );
                 activeRun = started;
-                void started.finalized.then(() => {
-                  if (!firstDispatchResolved) {
-                    rejectFirstDispatch(
-                      runFailure ??
-                        new Error(
-                          "The AgentHarness follow-up run ended before provider dispatch.",
-                        ),
-                    );
-                  }
-                }, rejectFirstDispatch);
+                void started.finalized.then(
+                  () => {
+                    if (!firstDispatchResolved) {
+                      rejectFirstDispatch(
+                        runFailure ??
+                          new Error(
+                            "The AgentHarness follow-up run ended before provider dispatch.",
+                          ),
+                      );
+                    }
+                  },
+                  (error) => {
+                    finalizedRejected = true;
+                    rejectFirstDispatch(error);
+                  },
+                );
                 if (followUpAbort.signal.aborted) abortActiveRun();
                 return firstDispatch;
               } catch (error) {
