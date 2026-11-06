@@ -276,6 +276,80 @@ describe("IntegrationsPage", () => {
     expect(container.textContent).toContain("Internal docs");
   });
 
+  it("opens a connected remote MCP server's detail page from its tile", async () => {
+    // Steve, 11/6: the connected "notion" tile had no way in — only a "…" menu — so a
+    // connected remote MCP server could not be viewed, edited or reconnected. A catalog
+    // integration that is connected must open the same page its catalog tile would.
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "notion-personal",
+            scope: "user",
+            name: "notion",
+            url: "https://mcp.notion.com/mcp",
+            authMode: "oauth",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 77 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isLoading: false,
+    });
+    await render();
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-connected-server-link="notion"]',
+    );
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("/integrations/notion");
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(navigate).toHaveBeenCalledWith("integrations", "notion");
+  });
+
+  it("opens a custom connected server from its tile too, under its own slug", async () => {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "custom-1",
+            scope: "user",
+            name: "Internal Docs",
+            url: "https://mcp.example.com/mcp",
+            authMode: "headers",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isLoading: false,
+    });
+    await render();
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-connected-server-link="Internal Docs"]',
+    );
+    expect(link?.getAttribute("href")).toContain("/integrations/internal-docs");
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(navigate).toHaveBeenCalledWith("integrations", "internal-docs");
+  });
+
   it("starts Connected from an empty state when nothing is connected", async () => {
     await render();
 

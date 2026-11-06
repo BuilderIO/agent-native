@@ -44,13 +44,13 @@ Calibration:
 
 ## Who states which score
 
-| Judgment            | Stated by            | Where                                                   |
-| ------------------- | -------------------- | ------------------------------------------------------- |
-| `triage`            | The master           | Each claimed report's upsert                            |
-| `join`              | The master           | The report's upsert, before `factory-branch attach`     |
-| `root-cause`, `fix` | The fix branch       | Its `CONFIDENCE` closing line, which the master records |
-| `fix`               | A babysit round      | Its `CONFIDENCE` line, which the watcher records itself |
-| `review`            | The PR review worker | Its `CONFIDENCE` line, which the master records         |
+| Judgment            | Stated by            | Where                                                     |
+| ------------------- | -------------------- | --------------------------------------------------------- |
+| `triage`            | The triage run       | Each claimed report's upsert                              |
+| `join`              | The triage run       | The report's upsert, before `factory-branch attach`       |
+| `root-cause`, `fix` | The fix branch       | Its `CONFIDENCE` closing line, which a triage run records |
+| `fix`               | A babysit round      | Its `CONFIDENCE` line, which the watcher records itself   |
+| `review`            | The PR review worker | Its own report upsert, matching its `CONFIDENCE` line     |
 
 Record scores and design questions on the report. A new score replaces only
 the same judgment's:
@@ -62,8 +62,10 @@ factory-state report upsert "<key>" --json '{"confidence":[{"judgment":"triage",
 ## Below 70
 
 The watcher flags every score under 70 on the Factory Console's Needs
-attention view ("Low confidence") and pings the oncall group once in the
-report's digest thread. What the factory does depends on the judgment:
+attention view ("Low confidence") and adds a quiet line to the report's
+digest thread. It mentions the oncall group only when the low score blocks a
+person's action: a held fix merge, or a withheld review approval. Never add a
+mention yourself. What the factory does depends on the judgment:
 
 - **`triage`, `root-cause`**: go ahead and record the score. A PR with an
   unconfirmed root cause still ships, as before.
