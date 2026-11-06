@@ -13,6 +13,7 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
+import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
@@ -617,6 +618,10 @@ export default defineAction({
         },
         context,
       );
+    } else if (createdFile.created && frameType !== undefined) {
+      // A screen with nothing to render yet gets no placement, but it keeps
+      // the type it was created as, which this response reports.
+      await persistScreenFrameType({ designId, fileId: id, frameType });
     }
 
     return {

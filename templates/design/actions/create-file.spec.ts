@@ -1404,6 +1404,27 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.track).not.toHaveBeenCalled();
   });
 
+  it("stores the requested frame type of an empty screen it does not place", async () => {
+    mocks.assertAccess.mockImplementation(async () => ({
+      role: "editor",
+      resource: { data: JSON.stringify(mocks.getDesignData()) },
+    }));
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "email.html",
+      content: "   ",
+      fileType: "html",
+      frameType: "hubspot-email",
+    });
+
+    expect(result.renderable).toBe(false);
+    expect(result.frameType).toBe("hubspot-email");
+    expect(mocks.getDesignData()).toEqual({
+      screenMetadata: { [result.id]: { frameType: "hubspot-email" } },
+    });
+  });
+
   it("does not place or focus renderable content that is empty", async () => {
     const result = await action.run({
       designId: "design-1",
