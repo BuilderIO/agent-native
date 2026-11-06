@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 const API_BASE = "https://console.neon.tech/api/v2";
 const ORG_ID = process.env.NEON_ORG_ID?.trim() ?? "";
 const API_KEY = process.env.NEON_API_KEY?.trim();
-const SLACK_WEBHOOK = process.env.SLACK_NEON_TRANSFER_WEBHOOK_URL?.trim();
+const SLACK_TOKEN = process.env.QA_SLACK_BOT_TOKEN?.trim();
+const SLACK_CHANNEL = process.env.SLACK_CHANNEL?.trim();
 const GIGABYTE = 1_000_000_000;
 const TERABYTE = 1_000_000_000_000;
 const DAILY_THRESHOLD_BYTES = 50 * GIGABYTE;
@@ -13,6 +14,7 @@ const API_MIN_INTERVAL_MS = 1_300;
 const PROJECT_PAGE_SIZE = 400;
 const PROJECT_LIST_TIMEOUT_MS = 25_000;
 const LIVE_BACKTEST_DAYS = 28;
+const SLACK_MAX_ROWS = 10;
 let lastApiRequestAt = 0;
 
 export interface TransferPoint {
@@ -464,22 +466,47 @@ async function postSlack(
   alerts: TransferAlert[],
   incompleteBaselines: string[],
 ): Promise<void> {
-  if (!SLACK_WEBHOOK)
+  if (!SLACK_TOKEN || !SLACK_CHANNEL)
     throw new Error(
-      "SLACK_NEON_TRANSFER_WEBHOOK_URL is required to post live alerts.",
+      "QA_SLACK_BOT_TOKEN and SLACK_CHANNEL are required to post live alerts.",
     );
   const warning = incompleteBaselines.length
     ? `\n\nMedian checks could not be completed for: ${incompleteBaselines.join(", ")}. Missing history was not treated as zero.`
     : "";
-  const body = `Neon public network transfer alerts\n\n${formatAlertTable(alerts)}${warning}`;
-  const response = await fetch(SLACK_WEBHOOK, {
+  const shown = [...alerts]
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, SLACK_MAX_ROWS);
+  const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;
+  const runUrl =
+    GITHUB_SERVER_URL && GITHUB_REPOSITORY && GITHUB_RUN_ID
+      ? ` Full list in the <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|workflow logs>.`
+      : "";
+  const total =
+    alerts.length > shown.length
+      ? `\n\nShowing the top ${shown.length} of ${alerts.length} flagged projects by transfer.${runUrl}`
+      : "";
+  const body = `Neon public network transfer alerts (${alerts.length} total)\n\n\`\`\`\n${formatAlertTable(shown)}\n\`\`\`${total}${warning}`;
+  const response = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: body }),
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      authorization: `Bearer ${SLACK_TOKEN}`,
+    },
+    body: JSON.stringify({
+      channel: SLACK_CHANNEL,
+      text: body,
+      unfurl_links: false,
+      unfurl_media: false,
+    }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok)
-    throw new Error(`Slack webhook returned HTTP ${response.status}.`);
+    throw new Error(`Slack chat.postMessage returned HTTP ${response.status}.`);
+  const result = (await response.json()) as { ok?: boolean; error?: string };
+  if (!result.ok)
+    throw new Error(
+      `Slack chat.postMessage failed: ${result.error ?? "no error returned"}.`,
+    );
 }
 
 async function run(): Promise<void> {
@@ -598,9 +625,9 @@ async function run(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  if (!dryRun && !SLACK_WEBHOOK) {
+  if (!dryRun && (!SLACK_TOKEN || !SLACK_CHANNEL)) {
     console.error(
-      "[neon-transfer-alert] could not run: SLACK_NEON_TRANSFER_WEBHOOK_URL is required to post live alerts.",
+      "[neon-transfer-alert] could not run: QA_SLACK_BOT_TOKEN and SLACK_CHANNEL are required to post live alerts.",
     );
     process.exitCode = 2;
     return;
