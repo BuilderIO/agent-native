@@ -403,7 +403,7 @@ export interface FontSizeDeltaResult {
 export type InlineFontSizeDeltaApplication = InlineTextStyleApplication &
   FontSizeDeltaResult;
 
-const ABSOLUTE_FONT_SIZE_UNITS: Record<string, number> = {
+const ABSOLUTE_FONT_SIZE_UNITS: Record<string, number | undefined> = {
   px: 1,
   pt: 96 / 72,
   pc: 16,
@@ -419,7 +419,11 @@ function computedFontSize(element: Element | null): number | null {
   if (value === "0") return 0;
   const match = /^(\d*\.?\d+)(px|pt|pc|in|cm|mm|q)$/.exec(value);
   if (!match) return null;
-  return Number(match[1]) * ABSOLUTE_FONT_SIZE_UNITS[match[2]];
+  const unitName = match.at(2);
+  if (unitName === undefined) return null;
+  const unit = ABSOLUTE_FONT_SIZE_UNITS[unitName];
+  if (unit === undefined) return null;
+  return Number(match[1]) * unit;
 }
 
 function nextFontSize(size: number, delta: number, bounds: FontSizeBounds) {
@@ -512,11 +516,12 @@ export function applyObjectFontSizeDelta(
   const anchorOffset = selection?.anchorOffset ?? 0;
   const focusOffset = selection?.focusOffset ?? 0;
   if (rootChanged) editable.style.fontSize = `${rootNext}px`;
-  const overrides = sizes.map((size, index) =>
-    size !== null && size !== computedFontSize(texts[index].parentElement)
+  const overrides = texts.map((text, index) => {
+    const size = sizes[index];
+    return size != null && size !== computedFontSize(text.parentElement)
       ? size
-      : null,
-  );
+      : null;
+  });
   resizeTextRuns(texts, overrides);
   if (preserve && focus && overrides.some((size) => size !== null)) {
     if (typeof selection.setBaseAndExtent === "function") {
