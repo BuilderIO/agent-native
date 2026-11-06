@@ -245,7 +245,9 @@ describe("MultiScreenCanvas live boot budget", () => {
       expect(coveredBy(screenId)).not.toBeNull();
     }
 
-    const [drawnId, drawn] = readyById.entries().next().value!;
+    const first = readyById.entries().next().value;
+    if (!first) throw new Error("No editor was booting");
+    const [drawnId, drawn] = first;
     await act(async () => drawn());
     await vi.waitFor(() => {
       expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(5);

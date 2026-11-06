@@ -26,7 +26,7 @@ function viewportAt(
   center: { x: number; y: number },
   surface = { width: 1600, height: 1000 },
 ) {
-  return getOverscannedViewportCanvasBounds(
+  const viewport = getOverscannedViewportCanvasBounds(
     surface,
     {
       x: surface.width / 2 - (center.x + SURFACE_PADDING) * zoom,
@@ -35,6 +35,8 @@ function viewportAt(
     zoom * 100,
     0,
   );
+  if (!viewport) throw new Error("Test surface has no viewport");
+  return viewport;
 }
 
 describe("source demand", () => {
@@ -96,16 +98,17 @@ describe("source demand", () => {
     const visible = frames.filter(
       (frame) =>
         frame.id !== "screen-0" &&
-        frame.geometry.x + frame.geometry.width >= viewport!.left &&
-        frame.geometry.x <= viewport!.right &&
-        frame.geometry.y + frame.geometry.height >= viewport!.top &&
-        frame.geometry.y <= viewport!.bottom,
+        frame.geometry.x + frame.geometry.width >= viewport.left &&
+        frame.geometry.x <= viewport.right &&
+        frame.geometry.y + frame.geometry.height >= viewport.top &&
+        frame.geometry.y <= viewport.bottom,
     );
     expect(visible.length).toBeGreaterThan(40);
     expect(visible.length).toBeLessThanOrEqual(SOURCE_PREVIEW_DEMAND_BUDGET);
     expect(new Set(preview)).toEqual(new Set(visible.map(({ id }) => id)));
     const distance = (id: string) => {
-      const { geometry } = frames.find((frame) => frame.id === id)!;
+      const geometry = frames.find((frame) => frame.id === id)?.geometry;
+      if (!geometry) throw new Error(`No frame ${id}`);
       return Math.hypot(
         geometry.x + geometry.width / 2 - center.x,
         geometry.y + geometry.height / 2 - center.y,

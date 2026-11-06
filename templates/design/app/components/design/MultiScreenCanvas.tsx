@@ -12342,7 +12342,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         !isPreviewParsePending(content)
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [previewParseRevision, staticPreviewContentById, undrawnEditorIds],
   );
   useEffect(() => {
