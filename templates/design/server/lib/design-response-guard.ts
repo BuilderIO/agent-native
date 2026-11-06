@@ -570,18 +570,38 @@ function normalizeRequestUrls(text: string): string {
     const punctuation = url.slice(0, end).match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
     const beforeUrl = text.slice(cursor, start);
     const target = directUrlTarget.exec(beforeUrl);
+    const verb = target && DESIGN_MUTATION_VERBS.exec(target[0]);
     const beforeVerb = target ? beforeUrl.slice(0, target.index).trimEnd() : "";
+    const clause =
+      beforeVerb.split(/[.!?;,:\n]|\b(?:and|but|then|also)\b/i).pop() ?? "";
+    const isNoun =
+      !DESIGN_REQUEST_LEAD_IN.test(beforeVerb) &&
+      clause
+        .trim()
+        .split(/\s+/)
+        .some((word) =>
+          /^(?:a|an|the|this|that|these|those|my|your|his|her|its|our|their)$/i.test(
+            word,
+          ),
+        );
     const isDirectTarget =
       target &&
-      (!beforeVerb ||
-        /[.!?,;:]$/.test(beforeVerb) ||
-        DESIGN_REQUEST_LEAD_IN.test(beforeVerb));
-    parts.push(
-      text.slice(cursor, start),
-      isDirectTarget ? "this" : " ",
-      punctuation,
-      url.slice(end),
-    );
+      verb &&
+      !isNoun &&
+      suppliesMutationVerb(beforeUrl, [
+        target.index,
+        target.index + verb[0].length,
+      ]);
+    if (target && verb && isNoun) {
+      parts.push(
+        beforeUrl.slice(0, target.index),
+        " ",
+        beforeUrl.slice(target.index + verb[0].length),
+      );
+    } else {
+      parts.push(beforeUrl);
+    }
+    parts.push(isDirectTarget ? "this" : " ", punctuation, url.slice(end));
     cursor = start + url.length;
   }
   parts.push(text.slice(cursor));
