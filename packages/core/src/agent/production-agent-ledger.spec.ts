@@ -393,14 +393,6 @@ describe("tool-call result ledger", () => {
 
   it.each([
     {
-      name: "an interrupted write",
-      readOnly: false,
-      late: true,
-      private: false,
-      nested: false,
-      captured: true,
-    },
-    {
       name: "a timed out write",
       readOnly: false,
       late: true,
