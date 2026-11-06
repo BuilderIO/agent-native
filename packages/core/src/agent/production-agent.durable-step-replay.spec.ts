@@ -219,6 +219,9 @@ describe("late outcome error reporting", () => {
     "validation",
     "contract",
     "internal-contract",
+    "setup-required",
+    "nested-validation-no-write",
+    "nested-validation-after-write",
     "output-contract",
     "persistence-fails",
   ] as const)(
@@ -246,9 +249,33 @@ describe("late outcome error reporting", () => {
                   errorCode: "internal_failure",
                   statusCode: 500,
                 })
-              : outcome === "aborted"
-                ? new DOMException("Action aborted", "AbortError")
-                : new Error("Action rejected after interruption");
+              : outcome === "setup-required"
+                ? new ActionContractError("Storage setup required", {
+                    errorCode: "storage_setup_required",
+                    statusCode: 503,
+                  })
+                : outcome === "aborted"
+                  ? new DOMException("Action aborted", "AbortError")
+                  : new Error("Action rejected after interruption");
+      const nestedAction = defineAction({
+        description: "Check nested input",
+        schema: z.object({ required: z.string() }),
+        readOnly: true,
+        run: async () => "ok",
+      });
+      const parentAction = defineAction({
+        description: "Create a deck and validate nested input",
+        schema: z.object({}),
+        readOnly: false,
+        run: async () => {
+          actionStarted.resolve();
+          await actionResult.promise;
+          if (outcome === "nested-validation-after-write") {
+            noteExternalWrite("late-nested-validation-test");
+          }
+          return nestedAction.run({} as { required: string });
+        },
+      });
       const outputAction = defineAction({
         description: "Create a deck",
         schema: z.object({}),
@@ -279,23 +306,26 @@ describe("late outcome error reporting", () => {
               "create-deck":
                 outcome === "output-contract"
                   ? outputAction
-                  : {
-                      tool: {
-                        description: "Create a deck",
-                        parameters: { type: "object", properties: {} },
+                  : outcome === "nested-validation-after-write" ||
+                      outcome === "nested-validation-no-write"
+                    ? parentAction
+                    : {
+                        tool: {
+                          description: "Create a deck",
+                          parameters: { type: "object", properties: {} },
+                        },
+                        readOnly: false,
+                        ...(outcome === "unexpected-timeout"
+                          ? { timeoutMs: 10 }
+                          : {}),
+                        ...(outcome === "private"
+                          ? { persistInChatHistory: false }
+                          : {}),
+                        run: () => {
+                          actionStarted.resolve();
+                          return actionResult.promise;
+                        },
                       },
-                      readOnly: false,
-                      ...(outcome === "unexpected-timeout"
-                        ? { timeoutMs: 10 }
-                        : {}),
-                      ...(outcome === "private"
-                        ? { persistInChatHistory: false }
-                        : {}),
-                      run: () => {
-                        actionStarted.resolve();
-                        return actionResult.promise;
-                      },
-                    },
             },
             threadId: fence.threadId,
             turnId: fence.turnId,
@@ -311,7 +341,12 @@ describe("late outcome error reporting", () => {
       await request;
       if (outcome !== "unexpected-immediate") {
         expect(pool.end).not.toHaveBeenCalled();
-        if (outcome === "persistence-fails" || outcome === "output-contract")
+        if (
+          outcome === "persistence-fails" ||
+          outcome === "output-contract" ||
+          outcome === "nested-validation-no-write" ||
+          outcome === "nested-validation-after-write"
+        )
           actionResult.resolve("Deck saved");
         else actionResult.reject(actionError);
       }
@@ -334,6 +369,9 @@ describe("late outcome error reporting", () => {
         if (
           outcome === "validation" ||
           outcome === "contract" ||
+          outcome === "internal-contract" ||
+          outcome === "setup-required" ||
+          outcome === "nested-validation-no-write" ||
           outcome === "aborted"
         ) {
           expect(capture).not.toHaveBeenCalled();
@@ -348,7 +386,9 @@ describe("late outcome error reporting", () => {
                     errorCode: "output_contract_violation",
                     effect: "committed",
                   })
-                : actionError,
+                : outcome === "nested-validation-after-write"
+                  ? expect.any(ActionInputValidationError)
+                  : actionError,
             expect.objectContaining({
               aiTraceId: fence.runId,
               ...(outcome === "private" ? { errorMessagePolicy: "omit" } : {}),

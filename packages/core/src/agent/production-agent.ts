@@ -46,6 +46,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
+  isActionOutputContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -11107,8 +11108,10 @@ export async function runAgentLoop(opts: {
                 if (
                   !actionRaceFailure ||
                   Object.is(actionRaceFailure.error, error) ||
-                  error instanceof ActionInputValidationError ||
-                  (isActionContractError(error) && error.statusCode < 500) ||
+                  (error instanceof ActionInputValidationError &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isActionContractError(error) &&
+                    !isActionOutputContractError(error)) ||
                   isAgentActionStopError(error) ||
                   (signal.aborted &&
                     error instanceof Error &&
