@@ -12,6 +12,7 @@ export type BuilderSignupAssignment =
 
 async function request(
   body?: Record<string, unknown>,
+  signal: AbortSignal = AbortSignal.timeout(8000),
 ): Promise<Record<string, unknown>> {
   const response = await fetch(
     agentNativePath("/_agent-native/auth/builder-signup-experiment"),
@@ -24,9 +25,7 @@ async function request(
           }
         : {}),
       credentials: "same-origin",
-      signal: AbortSignal.timeout(
-        body?.operation === "activate" ? 30000 : 8000,
-      ),
+      signal,
     },
   );
   if (!response.ok)
@@ -76,22 +75,28 @@ export async function activateBuilderSignupAssignment(): Promise<
   "connected" | "fallback" | "disabled"
 > {
   const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    const result = await request({ operation: "activate" });
-    if (
-      result.status === "connected" ||
-      result.status === "fallback" ||
-      result.status === "disabled"
-    )
-      return result.status;
-    if (result.status !== "pending")
-      throw new Error("Builder signup activation did not complete");
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  const signal = AbortSignal.timeout(30000);
+  try {
+    while (Date.now() < deadline) {
+      const result = await request({ operation: "activate" }, signal);
+      if (
+        result.status === "connected" ||
+        result.status === "fallback" ||
+        result.status === "disabled"
+      )
+        return result.status;
+      if (result.status !== "pending")
+        throw new Error("Builder signup activation did not complete");
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(500, Math.max(0, deadline - Date.now()))),
+      );
+    }
+    throw new Error("Builder signup activation is still pending");
+  } finally {
+    if (typeof document !== "undefined")
+      document.cookie =
+        "an_builder_signup_pending=; Path=/; Max-Age=0; SameSite=Lax";
   }
-  if (typeof document !== "undefined")
-    document.cookie =
-      "an_builder_signup_pending=; Path=/; Max-Age=0; SameSite=Lax";
-  throw new Error("Builder signup activation is still pending");
 }
 
 export function hasPendingBuilderSignupAssignment(): boolean {

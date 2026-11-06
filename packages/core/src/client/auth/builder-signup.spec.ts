@@ -132,9 +132,12 @@ describe("Builder signup client contract", () => {
   });
 
   it("does not turn transport errors or unknown outcomes into a connected state", async () => {
+    const browserDocument = { cookie: "an_builder_signup_pending=1" };
+    vi.stubGlobal("document", browserDocument);
     const fetch = vi.fn(async () => response({ status: "connected" }, 503));
     vi.stubGlobal("fetch", fetch);
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(/503/);
+    expect(browserDocument.cookie).toContain("Max-Age=0");
     expect(fetch).toHaveBeenCalledTimes(1);
     fetch.mockResolvedValueOnce(response({ status: "unknown" }));
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(
