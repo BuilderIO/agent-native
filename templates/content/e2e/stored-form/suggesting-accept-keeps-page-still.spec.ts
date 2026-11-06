@@ -95,11 +95,14 @@ async function suggestLine(page: Page, after: string, typed: string) {
 /** Watches every frame from here on: how far the page moves, and what shows. */
 function watchThePage(page: Page) {
   return page.evaluateHandle((selector) => {
+    // A missing editor reads as NaN, which fails the movement check.
     const top = () =>
-      document.querySelector(selector)?.getBoundingClientRect().top ?? 0;
+      document.querySelector(selector)?.getBoundingClientRect().top ??
+      Number.NaN;
     const start = top();
-    const seen = { moved: 0, syncingLine: false };
+    const seen = { frames: 0, moved: 0, syncingLine: false };
     const look = () => {
+      seen.frames += 1;
       seen.moved = Math.max(seen.moved, Math.abs(top() - start));
       // innerText is what's on screen. textContent also reads the page's inline
       // scripts, and a translation table there holds these words on every page.
@@ -114,8 +117,12 @@ function watchThePage(page: Page) {
 /** Accepts the one suggestion, and returns what the page did until it settled. */
 async function acceptAndWatch(page: Page, id: string, typed: string) {
   // A save back within a frame would leave no time to watch, so each one waits
-  // long enough for many frames to see the page while it saves.
+  // long enough for many frames to see the page while it saves, and the frames
+  // the watcher saw during that wait are counted.
+  const watch = await watchThePage(page);
+  const frames = () => watch.evaluate((seen) => seen.frames);
   let held = 0;
+  let framesWhileHeld = 0;
   await page.route(
     (url) =>
       url.pathname.startsWith(
@@ -123,11 +130,12 @@ async function acceptAndWatch(page: Page, id: string, typed: string) {
       ),
     async (route) => {
       held += 1;
+      const before = await frames();
       await new Promise((resolve) => setTimeout(resolve, 500));
+      framesWhileHeld += (await frames()) - before;
       await route.continue();
     },
   );
-  const watch = await watchThePage(page);
   await acceptButton(page).click();
   await expect
     .poll(async () => (await getDocument(page, id)).content, {
@@ -140,6 +148,10 @@ async function acceptAndWatch(page: Page, id: string, typed: string) {
     page.locator(`${ACTIVE_EDITOR} [data-suggestion-id]`),
   ).toHaveCount(0, { timeout: 30_000 });
   expect(held, "saves held while watching").toBeGreaterThan(0);
+  expect(
+    framesWhileHeld,
+    "frames watched while a save was held",
+  ).toBeGreaterThan(5);
   return watch.jsonValue();
 }
 
