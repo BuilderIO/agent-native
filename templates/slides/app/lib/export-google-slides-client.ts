@@ -22,13 +22,13 @@ interface GoogleSlidesExportSlide {
 }
 
 export type GoogleSlidesExportResult =
-  | { url: string; warnings?: ExportWarning[] }
+  | { url: string; warnings?: ExportWarning[] | undefined }
   /** Drive was unavailable, so the PPTX was downloaded for a manual import. */
   | {
       url: null;
       downloaded: true;
       reason: string;
-      warnings?: ExportWarning[];
+      warnings?: ExportWarning[] | undefined;
     }
   /** The export action should send the user through Google OAuth first. */
   | {
