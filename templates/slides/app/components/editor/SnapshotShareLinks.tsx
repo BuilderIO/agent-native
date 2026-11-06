@@ -34,7 +34,8 @@ export function SnapshotShareLinks({ deckId }: { deckId: string }) {
   );
 
   if (!canManage) return null;
-  if (query.isError) {
+  // A failed refetch keeps the last good list, so only show the banner without one.
+  if (query.isError && !query.data) {
     return (
       <div
         role="alert"
