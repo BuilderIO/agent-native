@@ -1,6 +1,6 @@
 import safeRegex from "safe-regex2";
 
-import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { isMissingPeer, loadOptionalPeer } from "../shared/optional-peer.js";
 
 export type WebResponseMode =
   | "auto"
@@ -65,6 +65,11 @@ export interface WebContentResult {
   agentMetadata?: unknown[];
   content?: string;
   fullContent?: string;
+  /** Format of `fullContent`: the requested `saveContentFormat` when
+   * extraction produced usable text, or `"raw"` when it failed or the
+   * extracted markdown/text was empty and `fullContent` is the original
+   * response body. Callers must not label the latter as text/markdown. */
+  fullContentFormat?: "raw" | "markdown" | "text";
   contentLength?: number;
   links?: WebContentLink[];
   matches?: WebContentMatch[];
@@ -72,9 +77,20 @@ export interface WebContentResult {
   omittedMatches?: number;
   searchSource?: WebSearchSource;
   truncated?: boolean;
+  /** `content` is the raw response body because extraction failed or produced
+   * no usable text. Truncation footers must not describe that body as
+   * extracted content. */
+  rawBodyFallback?: boolean;
   searchTruncated?: boolean;
+  /** Optional Turndown peer was missing, so markdown conversion did not run.
+   * `mode: "markdown"` is the request, not proof the body is Markdown;
+   * `fullContentFormat` / extracted text is the actual payload. Extracted
+   * searches used plain text and will not include Markdown-only tokens
+   * such as link targets. */
+  markdownUnavailable?: boolean;
 }
 
+const WEB_CONTENT_TRUNCATION_MARKER = "\n... (truncated)";
 const DEFAULT_MAX_CONTENT_CHARS = 32_000;
 const MAX_SEARCH_SOURCE_CHARS = 500_000;
 const DEFAULT_MAX_MATCHES = 50;
@@ -175,36 +191,100 @@ export async function processWebContent(
           200_000,
         );
 
-  const extracted =
+  // Skip HTML extraction entirely when responseMode is raw, search.source is
+  // explicitly "raw", and no save is needed — no point loading linkedom or
+  // readability just to search the original body.
+  const shouldExtract =
     html &&
     !emptyHtmlBody &&
-    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat)
-      ? await extractHtml(
-          options.body,
-          options.url,
-          extract,
-          mode === "markdown" ||
-            mode === "matches" ||
-            options.saveContentFormat === "markdown",
-        )
-      : null;
+    (mode !== "raw" ||
+      (hasWebContentSearch(search) && search?.source !== "raw") ||
+      options.saveContentFormat);
+  // Gate Markdown conversion on the selected corpus / response path. Explicit
+  // source:"raw" searches the original body and must not load optional Turndown.
+  // Markdown display/save, matches, and raw+extracted search still convert so
+  // those paths share one corpus (link targets included). Text-mode search
+  // uses the displayed plain-text corpus and must not convert just to match
+  // Markdown-only tokens.
+  const includeMarkdown =
+    mode === "markdown" ||
+    options.saveContentFormat === "markdown" ||
+    (mode === "matches" && search?.source !== "raw") ||
+    (mode !== "text" &&
+      hasWebContentSearch(search) &&
+      search?.source !== "raw");
+  const extracted = shouldExtract
+    ? await safeExtractHtml(options.body, options.url, extract, includeMarkdown)
+    : null;
+  const extractedMarkdown = extracted?.markdown || "";
+  const extractedPlainText = extracted?.text || "";
+  // Prefer markdown when present so extracted searches keep link targets; fall
+  // back to plain text when conversion was skipped.
+  const realExtractedText = extractedMarkdown || extractedPlainText;
+  const hasRealExtractedContent = realExtractedText.length > 0;
+  // Turndown escapes literals (snake_case → snake\_case). Unescape only for
+  // the search corpus so page-literal queries still match; display/save keep
+  // real Markdown. Text mode searches the same plain text it displays.
+  const extractedSearchCorpus =
+    mode === "text"
+      ? extractedPlainText
+      : extractedMarkdown
+        ? unescapeMarkdownLiterals(extractedMarkdown)
+        : extractedPlainText;
+  const hasExtractedSearchContent = extractedSearchCorpus.length > 0;
+  // A non-null extraction with empty markdown and text is not success: text
+  // mode would keep `""` (`??` does not fall through), and save would write
+  // an empty file while still labeling text/markdown.
+  const noUsableExtractedText = shouldExtract && !hasRealExtractedContent;
   const baseContent = contentForMode(mode, options.body, extracted);
+  // The tool schema promises that an omitted `search.source` means the
+  // extracted text. Keep that default even when responseMode "raw" displays
+  // the raw body; only fall back to raw when extraction produced no usable
+  // text.
+  const fallbackSearchSource: WebSearchSource = hasRealExtractedContent
+    ? "extracted"
+    : "raw";
+  // Base the fallback flag on the representation this mode actually displays.
+  // Text mode uses plain text only (`contentForMode`); markdown existing while
+  // text is empty still surfaces the raw body, and callers must not label
+  // that truncation as extracted content. Links/metadata keep the broader
+  // extraction-success check because they do not display that body.
+  const selectedExtractedText =
+    mode === "text" ? extractedPlainText : realExtractedText;
+  const rawBodyFallback = mode !== "raw" && !selectedExtractedText;
+  const savedExtractedText =
+    options.saveContentFormat === "text"
+      ? extractedPlainText
+      : realExtractedText;
   const fullContent = options.saveContentFormat
-    ? options.saveContentFormat === "text"
-      ? (extracted?.text ?? (extracted ? "" : options.body))
-      : extracted?.markdown ||
-        extracted?.text ||
-        (extracted ? "" : options.body)
+    ? savedExtractedText || options.body
     : undefined;
+  // Empty extracted text is the raw response body, not the requested
+  // text/markdown. Label it `raw` so the save path keeps the original
+  // content type instead of writing an empty file under a Markdown/text label.
+  // When markdown was requested but Turndown was missing (so extractedMarkdown
+  // is empty), label the plain-text fallback as "text", not "markdown".
+  const actualSavedFormat: "raw" | "markdown" | "text" | undefined =
+    options.saveContentFormat
+      ? savedExtractedText
+        ? options.saveContentFormat === "markdown" && !extractedMarkdown
+          ? "text"
+          : options.saveContentFormat
+        : "raw"
+      : undefined;
+  const fullContentFormat = actualSavedFormat;
   const result: WebContentResult = {
     mode,
     extract,
     contentType,
     ...metadataFromExtraction(extracted),
     ...(fullContent !== undefined ? { fullContent } : {}),
+    ...(fullContentFormat !== undefined ? { fullContentFormat } : {}),
     ...(mode !== "links" && mode !== "metadata"
       ? { contentLength: baseContent.length }
       : {}),
+    ...(rawBodyFallback ? { rawBodyFallback: true } : {}),
+    ...(extracted?.markdownUnavailable ? { markdownUnavailable: true } : {}),
   };
 
   if (
@@ -222,39 +302,60 @@ export async function processWebContent(
 
   if (mode === "links") {
     result.links = extracted?.links ?? [];
+    if (noUsableExtractedText) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     return result;
   }
 
   if (mode === "metadata") {
     if (options.includeLinks) result.links = extracted?.links ?? [];
+    if (noUsableExtractedText) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     return result;
   }
 
   if (mode === "matches") {
+    // Save-to-file keeps the complete fallback in `fullContent` and sets
+    // maxChars to null. Copying that unbounded body into matches `content`
+    // makes fetch return it as searchResults and mark those truncated even
+    // when the matches themselves fit.
+    if (
+      noUsableExtractedText &&
+      !options.saveContentFormat &&
+      Number.isFinite(maxChars)
+    ) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: baseContent,
+      extracted: hasExtractedSearchContent
+        ? extractedSearchCorpus
+        : baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
+      hasExtractedContent: hasExtractedSearchContent,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
     return result;
   }
 
-  const truncated = baseContent.length > maxChars;
-  result.content = truncated
-    ? `${baseContent.slice(0, maxChars)}\n... (truncated)`
-    : baseContent;
-  result.truncated = truncated;
+  const limited = limitWebContent(baseContent, maxChars);
+  result.content = limited.content;
+  result.truncated = limited.truncated;
   if (options.includeLinks) result.links = extracted?.links ?? [];
 
   if (hasWebContentSearch(search)) {
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: baseContent,
+      extracted: hasExtractedSearchContent
+        ? extractedSearchCorpus
+        : baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
+      hasExtractedContent: hasExtractedSearchContent,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -267,7 +368,19 @@ export async function processWebContent(
 }
 
 export function formatWebContentResult(result: WebContentResult): string {
-  if (result.mode === "raw") return result.content ?? "";
+  if (result.mode === "raw") {
+    const lines: string[] = [];
+    if (result.content) lines.push(result.content);
+    if (hasSearchSummary(result)) {
+      lines.push("", formatMatches(result));
+    }
+    // Raw display is the original body. Keep the missing-Turndown warning
+    // only when an extracted search ran (that search used plain text).
+    if (result.searchSource === "extracted") {
+      appendMarkdownUnavailableFooter(lines, result);
+    }
+    return lines.join("\n");
+  }
 
   const lines: string[] = [];
   if (result.title) lines.push(`# ${result.title}`, "");
@@ -280,10 +393,13 @@ export function formatWebContentResult(result: WebContentResult): string {
 
   if (result.mode === "matches") {
     lines.push(formatMatches(result));
+    if (result.content) lines.push("", result.content);
   } else if (result.mode === "links") {
     lines.push(formatLinks(result.links ?? []));
+    if (result.content) lines.push("", result.content);
   } else if (result.mode === "metadata") {
     lines.push(formatMetadata(result));
+    if (result.content) lines.push("", result.content);
   } else if (result.content) {
     lines.push(result.content);
   }
@@ -302,11 +418,56 @@ export function formatWebContentResult(result: WebContentResult): string {
       JSON.stringify(result.agentMetadata, null, 2),
     );
   }
-  if (result.matches?.length && result.mode !== "matches") {
+  if (result.mode !== "matches" && hasSearchSummary(result)) {
     lines.push("", formatMatches(result));
   }
+  appendRawTruncationFooter(lines, result);
+  appendMarkdownUnavailableFooter(lines, result);
 
   return lines.join("\n").trim();
+}
+
+function limitWebContent(
+  body: string,
+  maxChars: number,
+): { content: string; truncated: boolean } {
+  if (body.length <= maxChars) return { content: body, truncated: false };
+  return {
+    content: `${body.slice(0, maxChars)}${WEB_CONTENT_TRUNCATION_MARKER}`,
+    truncated: true,
+  };
+}
+
+function applyFallbackBody(
+  result: WebContentResult,
+  body: string,
+  maxChars: number,
+) {
+  const limited = limitWebContent(body, maxChars);
+  result.content = limited.content;
+  result.truncated = limited.truncated;
+  result.contentLength = body.length;
+  result.rawBodyFallback = true;
+}
+
+function appendMarkdownUnavailableFooter(
+  lines: string[],
+  result: WebContentResult,
+) {
+  if (!result.markdownUnavailable) return;
+  lines.push("", "Markdown conversion unavailable; showing extracted text.");
+}
+
+function appendRawTruncationFooter(lines: string[], result: WebContentResult) {
+  if (!result.rawBodyFallback || !result.truncated) return;
+  if (
+    result.content &&
+    !result.content.includes(WEB_CONTENT_TRUNCATION_MARKER)
+  ) {
+    lines.push(WEB_CONTENT_TRUNCATION_MARKER.trim());
+  }
+  if (result.contentLength === undefined) return;
+  lines.push("", `Full raw response: ${result.contentLength} characters.`);
 }
 
 function resolveMode(
@@ -335,6 +496,54 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
   );
 }
 
+function isHtmlParserRejection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  // linkedom surfaces a missing root by destructuring a null
+  // `documentElement`. Turndown collapses the same unparseable markup (e.g. a
+  // frameset served as text/html) to a null root and throws reading
+  // `firstChild`. Readability throws reading `tagName` on that clone.
+  // Match only those null-root shapes — a message that merely mentions
+  // documentElement is a different failure and must propagate.
+  const message = error.message;
+  return (
+    /of ['"]documentElement['"] as it is null/i.test(message) ||
+    /null \(reading ['"]documentElement['"]\)/i.test(message) ||
+    /null \(reading ['"]firstChild['"]\)/i.test(message) ||
+    /null \(reading ['"]tagName['"]\)/i.test(message)
+  );
+}
+
+async function safeExtractHtml(
+  body: string,
+  url: string,
+  extract: WebExtractMode,
+  includeMarkdown: boolean,
+): Promise<{
+  html: string;
+  text: string;
+  markdown: string;
+  links: WebContentLink[];
+  title?: string;
+  excerpt?: string;
+  byline?: string;
+  siteName?: string;
+  lang?: string;
+  publishedTime?: string;
+  agentMetadata?: unknown[];
+  markdownUnavailable?: boolean;
+} | null> {
+  try {
+    return await extractHtml(body, url, extract, includeMarkdown);
+  } catch (error) {
+    if (!isHtmlParserRejection(error)) throw error;
+    // If the parser rejects the body (e.g. linkedom throws because the
+    // document has no parseable documentElement), fall back to treating the
+    // HTML-labeled response as plain text so web-request surfaces the status
+    // and body instead of an internal post-processing error.
+    return null;
+  }
+}
+
 async function extractHtml(
   body: string,
   url: string,
@@ -352,6 +561,7 @@ async function extractHtml(
   lang?: string;
   publishedTime?: string;
   agentMetadata?: unknown[];
+  markdownUnavailable?: boolean;
 }> {
   const { parseHTML } = await loadOptionalPeer(
     "linkedom",
@@ -364,15 +574,54 @@ async function extractHtml(
   const agentMetadata = collectAgentMetadata(document);
   removeNonContentNodes(document);
   const pageTitle = textOrUndefined(document.title);
-  const article =
-    extract === "readability"
-      ? new (
-          await loadOptionalPeer(
-            "@mozilla/readability",
-            () => import("@mozilla/readability"),
-          )
-        ).Readability(document.cloneNode(true) as Document).parse()
-      : null;
+  let article: {
+    content?: string | null;
+    textContent?: string | null;
+    title?: string | null;
+    excerpt?: string | null;
+    byline?: string | null;
+    siteName?: string | null;
+    lang?: string | null;
+    publishedTime?: string | null;
+  } | null = null;
+  if (extract === "readability") {
+    const { Readability } = await loadOptionalPeer(
+      "@mozilla/readability",
+      () => import("@mozilla/readability"),
+    );
+    try {
+      const parsed = new Readability(
+        document.cloneNode(true) as Document,
+      ).parse();
+      article = parsed
+        ? {
+            ...(parsed.content !== undefined
+              ? { content: parsed.content }
+              : {}),
+            ...(parsed.textContent !== undefined
+              ? { textContent: parsed.textContent }
+              : {}),
+            ...(parsed.title !== undefined ? { title: parsed.title } : {}),
+            ...(parsed.excerpt !== undefined
+              ? { excerpt: parsed.excerpt }
+              : {}),
+            ...(parsed.byline !== undefined ? { byline: parsed.byline } : {}),
+            ...(parsed.siteName !== undefined
+              ? { siteName: parsed.siteName }
+              : {}),
+            ...(parsed.lang !== undefined ? { lang: parsed.lang } : {}),
+            ...(parsed.publishedTime !== undefined
+              ? { publishedTime: parsed.publishedTime }
+              : {}),
+          }
+        : null;
+    } catch (error) {
+      // Readability throws reading tagName on a frameset clone. Keep the
+      // already-parsed document instead of aborting extractHtml, which
+      // would make safeExtractHtml return null and discard text/links.
+      if (!isHtmlParserRejection(error)) throw error;
+    }
+  }
   const sourceHtml =
     extract === "none"
       ? body
@@ -388,11 +637,13 @@ async function extractHtml(
         document.body?.textContent ||
         document.documentElement.textContent ||
         "";
-  const markdown = includeMarkdown ? await htmlToMarkdown(absoluteHtml) : "";
+  const converted = includeMarkdown
+    ? await htmlToMarkdown(absoluteHtml)
+    : { markdown: "" };
   return {
     html: absoluteHtml,
     text: normalizeWhitespace(sourceText),
-    markdown,
+    markdown: converted.markdown,
     links: mergeLinks(
       alternateLinks,
       collectLinks(absoluteHtml, url, parseDocument),
@@ -404,6 +655,7 @@ async function extractHtml(
     lang: textOrUndefined(article?.lang),
     publishedTime: textOrUndefined(article?.publishedTime),
     ...(agentMetadata.length ? { agentMetadata } : {}),
+    ...(converted.unavailable ? { markdownUnavailable: true } : {}),
   };
 }
 
@@ -491,22 +743,44 @@ function htmlToPlainText(
 ): string {
   const document = parseFullDocument(html, parseDocument);
   removeNonContentNodes(document);
-  return normalizeWhitespace(document.body?.textContent ?? "");
+  const bodyText = normalizeWhitespace(document.body.textContent);
+  if (bodyText) return bodyText;
+  // Frameset pages have an empty body. Keep <noframes> so markdown/matches
+  // can share that corpus when Turndown rejects the frameset root.
+  return normalizeWhitespace(
+    [...document.querySelectorAll("noframes")]
+      .map((node) => node.textContent)
+      .join(" "),
+  );
 }
 
-async function htmlToMarkdown(html: string): Promise<string> {
-  const { default: TurndownService } = await loadOptionalPeer(
-    "turndown",
-    () => import("turndown"),
-  );
-  const turndown = new TurndownService({
-    headingStyle: "atx",
-    bulletListMarker: "-",
-    codeBlockStyle: "fenced",
-    linkStyle: "inlined",
-  });
-  turndown.remove(["script", "style", "noscript"]);
-  return normalizeMarkdown(turndown.turndown(html));
+async function htmlToMarkdown(
+  html: string,
+): Promise<{ markdown: string; unavailable?: true }> {
+  try {
+    const { default: TurndownService } = await loadOptionalPeer(
+      "turndown",
+      () => import("turndown"),
+    );
+    const turndown = new TurndownService({
+      headingStyle: "atx",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      linkStyle: "inlined",
+    });
+    turndown.remove(["script", "style", "noscript"]);
+    return { markdown: normalizeMarkdown(turndown.turndown(html)) };
+  } catch (error) {
+    if (isMissingPeer(error, "turndown")) {
+      return { markdown: "", unavailable: true };
+    }
+    if (isHtmlParserRejection(error)) {
+      // Turndown collapsed an unparseable root (e.g. frameset). extractHtml
+      // already has text/links/metadata; only markdown is dropped.
+      return { markdown: "" };
+    }
+    throw error;
+  }
 }
 
 function removeNonContentNodes(document: Document) {
@@ -602,7 +876,9 @@ function contentForMode(
   extracted: ExtractedHtml | null,
 ): string {
   if (mode === "raw") return raw;
-  if (mode === "text") return extracted?.text ?? raw;
+  // `??` would keep an empty string from a non-null extraction and surface
+  // a blank text result for markup-only pages.
+  if (mode === "text") return extracted?.text || raw;
   if (mode === "markdown" || mode === "matches") {
     return extracted?.markdown || extracted?.text || raw;
   }
@@ -631,6 +907,7 @@ function findWebContentMatches(options: {
   extracted: string;
   search: WebContentSearchOptions | null;
   fallbackSearchSource: WebSearchSource;
+  hasExtractedContent?: boolean;
 }): Pick<
   WebContentResult,
   | "matches"
@@ -640,8 +917,15 @@ function findWebContentMatches(options: {
   | "searchTruncated"
 > {
   const search = options.search ?? {};
-  const sourceMode = search.source ?? options.fallbackSearchSource;
+  // Force raw only when there is no usable extracted text. responseMode
+  // "raw" still displays the raw body, but an omitted or explicit
+  // source: "extracted" searches the extracted markdown/text when it exists.
+  const requestedSource = search.source ?? options.fallbackSearchSource;
+  let sourceMode: WebSearchSource = options.hasExtractedContent
+    ? requestedSource
+    : "raw";
   const source = sourceMode === "raw" ? options.raw : options.extracted;
+  if (source === options.raw) sourceMode = "raw";
   const searchTruncated = source.length > MAX_SEARCH_SOURCE_CHARS;
   const searchable = searchTruncated
     ? source.slice(0, MAX_SEARCH_SOURCE_CHARS)
@@ -782,6 +1066,12 @@ function makeSnippet(source: string, index: number, contextChars: number) {
   return `${prefix}${normalizeWhitespace(source.slice(start, end))}${suffix}`;
 }
 
+function unescapeMarkdownLiterals(markdown: string): string {
+  // Turndown escapes ASCII punctuation for Markdown safety. Undo those
+  // escapes so extracted searches match page-literal text (e.g. snake_case).
+  return markdown.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1");
+}
+
 function normalizeMarkdown(value: string): string {
   return value
     .replace(/\n{3,}/g, "\n\n")
@@ -798,9 +1088,20 @@ function textOrUndefined(value: string | null | undefined): string | undefined {
   return normalized || undefined;
 }
 
+function hasSearchSummary(result: WebContentResult): boolean {
+  return (
+    result.matches !== undefined ||
+    result.totalMatches !== undefined ||
+    result.searchSource !== undefined
+  );
+}
+
 function formatMatches(result: WebContentResult): string {
   const matches = result.matches ?? [];
-  const header = `Matches: ${matches.length}${result.totalMatches !== undefined ? ` shown of ${result.totalMatches}` : ""}${result.omittedMatches ? ` (${result.omittedMatches} omitted)` : ""}`;
+  const sourceLabel = result.searchSource
+    ? ` [source: ${result.searchSource}]`
+    : "";
+  const header = `Matches: ${matches.length}${result.totalMatches !== undefined ? ` shown of ${result.totalMatches}` : ""}${result.omittedMatches ? ` (${result.omittedMatches} omitted)` : ""}${sourceLabel}`;
   if (!matches.length) return header;
   return [
     header,

@@ -449,6 +449,39 @@ describe("createFetchToolEntry", () => {
     expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe("text/html");
   });
 
+  it("preserves the original application/xhtml+xml media type when a raw XHTML fallback saves", async () => {
+    // A frameset page served as application/xhtml+xml collapses Turndown's
+    // root, so extraction fails and the save falls back to the raw body. The
+    // saved file must keep the original XHTML media type instead of being
+    // relabeled text/html.
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      "<frameset cols='200,*'><frame src='/nav'><frame src='/main'></frameset></html>";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "application/xhtml+xml" },
+      }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/login",
+          extract: "none",
+          saveToFile: "scratch/login.md",
+        }),
+      ),
+    );
+
+    expect(result.savedFormat).toBe("raw");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[2]).toBe(body);
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe(
+      "application/xhtml+xml",
+    );
+  });
+
   it("includes the extracted links list when explicitly requested for a save", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -513,6 +546,40 @@ describe("createFetchToolEntry", () => {
     expect(result.savedFormat).toBe("markdown");
     expect(savedContent.length).toBeGreaterThan(200_000);
     expect(savedContent).toContain("Research evidence.");
+  });
+
+  it("keeps a raw HTML fallback in the saved file instead of save-path search results", async () => {
+    const filler = "x".repeat(50_000);
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      `<frameset cols='200,*'><frame src='/nav' name='topbar'>${filler}</frameset></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/login",
+          extract: "none",
+          search: { query: "topbar" },
+          maxChars: 4_000,
+          saveToFile: "scratch/login.md",
+        }),
+      ),
+    );
+
+    expect(result.savedFormat).toBe("raw");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[2]).toBe(body);
+    expect(result.searchResults).toContain("Matches:");
+    expect(result.searchResults).toContain("topbar");
+    expect(result.searchResults).not.toContain(filler);
+    expect(result.searchResults.length).toBeLessThan(4_000);
+    expect(result.searchResultsTruncated).toBe(false);
   });
 
   it("returns complete search matches instead of the short save preview", async () => {
