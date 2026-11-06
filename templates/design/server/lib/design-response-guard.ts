@@ -522,7 +522,22 @@ function removeDesignTestRequests(text: string): string {
 }
 
 export function looksLikeDesignMutationRequest(text: string): boolean {
-  const normalized = text.trim();
+  const directUrlTarget = new RegExp(
+    `${DESIGN_MUTATION_VERBS.source}\\s*$`,
+    "i",
+  );
+  const normalized = text
+    .replace(
+      /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>"'`]+/gi,
+      (url, offset: number) => {
+        const punctuation = url.match(/[.,!?;:)\]}]+$/)?.[0] ?? "";
+        const target = directUrlTarget.test(text.slice(0, offset))
+          ? "this"
+          : " ";
+        return `${target}${punctuation}`;
+      },
+    )
+    .trim();
   if (!normalized) return false;
   if (/^\[(?:reprompt selection|selection question)\]/i.test(normalized)) {
     return false;

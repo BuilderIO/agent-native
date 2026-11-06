@@ -447,6 +447,35 @@ describe("Design final response guard", () => {
     });
   });
 
+  it.each([
+    "Summarize this design at https://update.example.invalid/overview",
+    "Summarize this design at https://example.invalid/create/layout?mode=edit#button",
+    "https://create.example.invalid/design",
+    "Review this design at https://example.invalid/update, then suggest improvements.",
+    "Create a visual regression test for the design at https://example.invalid/edit.",
+    "Create a report for https://example.invalid/design.",
+    "Summarize this design at www.update.example.invalid/preview.",
+    "Summarize this design at ftp://update.example.invalid/preview.",
+    "Do not edit https://example.invalid/preview.",
+  ])("does not infer mutation intent from URL text: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toBeNull();
+  });
+
+  it.each([
+    "Update the layout using https://example.invalid/reference",
+    "Edit https://example.invalid/preview",
+    "Review https://example.invalid/preview, then fix the button",
+    "Review this design at https://example.invalid/reference, then update the layout",
+    "Review https://example.invalid/reference. Fix the button.",
+  ])(
+    "still requires a mutation for an affirmative request with a URL: %s",
+    (request) => {
+      expect(designFinalResponseGuard(guardContext(request))).toMatchObject({
+        expandToolSurface: true,
+      });
+    },
+  );
+
   it("retries prose-only completion for a design mutation", () => {
     const result = designFinalResponseGuard(
       guardContext("can you create another version of this"),
