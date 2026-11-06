@@ -12,6 +12,11 @@ export default defineAction({
     "Disconnect the caller's own Google Drive account from Slides by removing its stored Google Docs OAuth tokens. The caller can reconnect later. Workspace-shared Drive access is not affected: returns disconnected false when the caller has no account of their own to remove.",
   schema: z.object({}),
   outputSchema: z.object({ disconnected: z.boolean() }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async () => {
     const owner = getRequestUserEmail();
     if (!owner) {
