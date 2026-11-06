@@ -3374,7 +3374,7 @@ function AgentWorkDisclosure({
     ? failed.split("{{summary}}")
     : ["", ""];
   const fullLabel = failed ? failed.replace("{{summary}}", () => label) : label;
-  const footerHost = useAgentMessageWorkHost(running ? undefined : messageId);
+  const footerHost = useAgentMessageWorkHost(messageId);
   const summaryLabel = label ? (
     <span className="agentkit-activities-label">
       {failedBefore || failedAfter ? (
@@ -3439,7 +3439,8 @@ function AgentWorkDisclosure({
       </AgentKitDisclosureContent>
     </div>
   );
-  // Finished work joins its reply's controls under the reply.
+  // A reply's work sits on its footer line, live or finished, so the finish
+  // never moves it.
   return footerHost ? createPortal(disclosure, footerHost) : disclosure;
 }
 
@@ -4872,21 +4873,17 @@ function useAgentMessageWorkHost(
   );
 }
 
-/**
- * A callback ref that offers its element as a reply's work row host once
- * the reply stops streaming.
- */
+/** A callback ref that offers its element as a reply's work row host. */
 function useAgentMessageWorkHostRef(
   messageId: string | undefined,
-  streaming: boolean,
 ): (element: HTMLElement | null) => void {
   const hosts = useContext(AgentMessageWorkHostsContext);
   const [element, setElement] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    if (!hosts || !messageId || !element || streaming) return;
+    if (!hosts || !messageId || !element) return;
     hosts.set(messageId, element);
     return () => hosts.release(messageId, element);
-  }, [element, hosts, messageId, streaming]);
+  }, [element, hosts, messageId]);
   return setElement;
 }
 
@@ -5286,7 +5283,6 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   // A streaming reply keeps its work above it until the answer is complete.
   const workHostRef = useAgentMessageWorkHostRef(
     isAssistant ? message.id : undefined,
-    message.status === "streaming",
   );
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"positive" | "negative" | null>(
@@ -8507,6 +8503,13 @@ export function AgentKitChat({
       liveReplies.set(runId, { replyId: reply.id, start });
     }
   }
+  const lastWorkSequence = (runId: RunId) => {
+    const events = eventIndex.byRun.get(runId) ?? [];
+    return (
+      events.findLast((event) => workEventIdentity(event) !== undefined)
+        ?.sequence ?? runSegmentEnds.get(runId)?.sequence
+    );
+  };
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8651,8 +8654,9 @@ export function AgentKitChat({
     const items: ReactNode[] = [];
     const liveReply = liveReplies.get(runId);
     if (liveReply) {
-      // It settles while the reply's text is the newest output, and is live
-      // again once work starts after it.
+      // While the reply's text is the newest output the row settles at its
+      // last step, so its duration holds while the text streams. It is live
+      // again once work starts after the text.
       items.push(
         renderRunWork({
           runId,
@@ -8660,7 +8664,8 @@ export function AgentKitChat({
           afterSequence: liveReply.start?.sequence,
           throughSequence: pendingRuns.has(runId)
             ? undefined
-            : runSegmentEnds.get(runId)?.sequence,
+            : lastWorkSequence(runId),
+          messageId: liveReply.replyId,
           part: "row",
         }),
       );

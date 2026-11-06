@@ -1422,22 +1422,36 @@
     pointer-events: auto;
   }
 
-  .agentkit-message .agentkit-message-actions[data-streaming="true"],
-  .agentkit-message:hover .agentkit-message-actions[data-streaming="true"],
+  .agentkit-message
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ),
+  .agentkit-message:hover
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ),
   .agentkit-message:focus-within
-    .agentkit-message-actions[data-streaming="true"] {
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ) {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
   }
 
-  /* A footer carrying finished work always shows and takes its space; only an
-   older reply's controls wait for hover or focus. */
+  /* A footer carrying its reply's work always shows and takes its space, live
+   or finished; only an older reply's controls wait for hover or focus. */
   .agentkit-message-actions[data-role="assistant"]:has(.agentkit-activities) {
     position: static;
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+  }
+
+  .agentkit-message-actions[data-role="assistant"][data-streaming="true"]
+    .agentkit-message-toolbar {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .agentkit-message-actions[data-role="assistant"]:has(

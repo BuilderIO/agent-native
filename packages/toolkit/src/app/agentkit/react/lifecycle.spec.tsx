@@ -1094,9 +1094,10 @@ describe("AgentChat lifecycle", () => {
         ?.getAttribute("data-streaming"),
     ).toBe("true");
     expect(runWorkAfter).not.toBeNull();
+    // oracle-change: while the run is live the row settles at its last step (3s), so streaming text does not count up its duration.
     expect(
       runWorkAfter?.querySelector(".agentkit-activities-label")?.textContent,
-    ).toBe("Worked for 4s");
+    ).toBe("Worked for 3s");
     expect(runWorkAfter?.textContent).not.toContain("Thinking");
     expect(
       runWorkAfter?.querySelector("[data-agentkit-current-activity]"),

@@ -164,25 +164,48 @@ describe("Worked for row moving into the reply footer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("stays below the reply from live work to the finished footer", async () => {
+  it("keeps one place on the reply's footer line from live work to finished", async () => {
     const live = reduce(liveEvents);
     const observable = observableController(snapshotOf(live, 0));
     await render(observable.controller);
     const reply = () => container.querySelector('[data-message-id="reply"]')!;
-    // The reply's text is the newest output, so the row waits, settled.
+    const line = () => work().closest(".agentkit-message-work-host");
+    const liveLine = line();
+    // The reply's text is the newest output, so the row waits, settled at
+    // its last step.
     expect(work().dataset.running).toBeUndefined();
-    expect(work().textContent).toContain("Worked for");
-    expect(work().closest(".agentkit-message-actions")).toBeNull();
-    // oracle-change: live work now sits below the reply, so the finish no longer animates a placeholder out of the space above it.
-    expect(follows(work(), reply())).toBe(true);
+    expect(work().textContent).toContain("Worked for 2s");
+    // oracle-change: live work now sits on the reply's footer line, so the finish no longer animates a placeholder out of the space above the reply.
+    expect(liveLine).not.toBeNull();
+    expect(reply().contains(liveLine)).toBe(true);
 
+    const writing = reduce(
+      [
+        event(5, {
+          type: "message.delta",
+          messageId: "reply",
+          role: "assistant",
+          text: " the answer.",
+        }),
+      ],
+      live,
+    );
+    await act(async () => observable.update(snapshotOf(writing, 1)));
+    // Text streaming is not work, so the duration holds.
+    expect(work().textContent).toContain("Worked for 2s");
+
+    const finish = finishEvents.map((finished, index) => ({
+      ...finished,
+      id: `event-finish-${index}`,
+      sequence: 6 + index,
+    }));
     await act(async () =>
-      observable.update(snapshotOf(reduce(finishEvents, live), 1)),
+      observable.update(snapshotOf(reduce(finish, writing), 2)),
     );
     await flush();
 
     expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
-    expect(work().closest(".agentkit-message-actions")).not.toBeNull();
+    expect(line()).toBe(liveLine);
     expect(work().textContent).toContain("Worked for");
     // Nothing is left holding a place above the reply.
     expect(reply().previousElementSibling).toBeNull();
