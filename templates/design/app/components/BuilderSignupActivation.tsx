@@ -11,16 +11,18 @@ const attempts = new Map<string, Promise<unknown>>();
 
 export function BuilderSignupActivation({
   userId,
+  emailVerified,
   children,
 }: {
   userId: string;
+  emailVerified: boolean;
   children: ReactNode;
 }) {
   const [settled, setSettled] = useState(
-    () => !hasPendingBuilderSignupAssignment(),
+    () => !emailVerified || !hasPendingBuilderSignupAssignment(),
   );
   useEffect(() => {
-    if (!hasPendingBuilderSignupAssignment()) {
+    if (!emailVerified || !hasPendingBuilderSignupAssignment()) {
       setSettled(true);
       return;
     }
@@ -45,7 +47,7 @@ export function BuilderSignupActivation({
     return () => {
       disposed = true;
     };
-  }, [userId]);
+  }, [userId, emailVerified]);
   if (!settled)
     return (
       <div className="flex h-screen gap-4 p-4" aria-busy="true">
