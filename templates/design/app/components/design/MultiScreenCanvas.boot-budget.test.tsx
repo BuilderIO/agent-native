@@ -229,17 +229,27 @@ describe("MultiScreenCanvas live boot budget", () => {
       );
     });
 
+    const coveredBy = (screenId: string) =>
+      container.querySelector(
+        `[data-frame-id="${screenId}"] iframe[data-screen-static-preview]`,
+      );
     await vi.waitFor(() => {
       expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(4);
+      // Booting editors stay covered by their previews until they draw.
       expect(
         container.querySelectorAll("iframe[data-screen-iframe-id]"),
-      ).toHaveLength(LARGE_BOARD_SCREEN_COUNT - 4);
+      ).toHaveLength(LARGE_BOARD_SCREEN_COUNT);
     });
     expect(container.querySelector("[data-screen-placeholder]")).toBeNull();
+    for (const screenId of readyById.keys()) {
+      expect(coveredBy(screenId)).not.toBeNull();
+    }
 
-    await act(async () => readyById.values().next().value?.());
+    const [drawnId, drawn] = readyById.entries().next().value!;
+    await act(async () => drawn());
     await vi.waitFor(() => {
       expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(5);
+      expect(coveredBy(drawnId)).toBeNull();
     });
   });
 
@@ -679,8 +689,11 @@ describe("MultiScreenCanvas live boot budget", () => {
 
   it("mounts a zoomed-out large board's previews a few per frame without delaying the active editor", async () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    // The active editor's boot cover is not one of the progressive previews.
     const staticPreviewCount = () =>
-      container.querySelectorAll("iframe[data-screen-static-preview]").length;
+      container.querySelectorAll(
+        '[data-frame-id]:not([data-frame-id="inline-1"]) iframe[data-screen-static-preview]',
+      ).length;
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

@@ -19,13 +19,19 @@ interface SourceReadResult {
   files: Array<{ id: string; content: string; updatedAt: string }>;
 }
 
-/** Fetch only demanded file bodies; metadata alone never becomes empty source. */
+const NO_PREVIEWS: readonly string[] = [];
+
+/**
+ * Fetch only demanded file bodies; metadata alone never becomes empty source.
+ * Preview ids load after demanded ones, within the byte budget, unpinned.
+ */
 export function useDesignSourceHydration(
   designId: string | undefined,
   files: readonly (SourceHydrationFile & { filename: string })[],
   demandedIds: readonly string[],
   pinnedIds: ReadonlySet<string>,
   dirtyIds: ReadonlySet<string>,
+  previewIds: readonly string[] = NO_PREVIEWS,
 ) {
   const [revision, changed] = useReducer((value: number) => value + 1, 0);
   const [loader, setLoader] = useState<SourceHydration | null>(null);
@@ -154,29 +160,65 @@ export function useDesignSourceHydration(
           },
     [demandedIds, files, loader, revision, dependencyIndex],
   );
+  const previews = useMemo(() => {
+    const demanded = new Set(dependencies.ids);
+    const roots = previewIds.filter((id) => !demanded.has(id));
+    if (!loader)
+      return { ids: roots, statusByRoot: new Map(), idsByRoot: new Map() };
+    const scheduled = scheduleSourceDependencies(
+      files,
+      roots,
+      (id) => loader.get(id),
+      128,
+      dependencyIndex,
+    );
+    const ids = scheduled.ids.filter((id) => !demanded.has(id));
+    // A ready preview whose dependencies the budget cannot reach would
+    // otherwise report loading forever.
+    for (const [root, status] of scheduled.statusByRoot) {
+      if (status !== "loading" || loader.get(root).status !== "ready") continue;
+      const blocked = (scheduled.idsByRoot.get(root) ?? []).some(
+        (id) => loader.get(id).status === "unloaded" && !loader.canLoad(id),
+      );
+      if (blocked) scheduled.statusByRoot.set(root, "deferred");
+    }
+    return { ...scheduled, ids };
+  }, [dependencies, dependencyIndex, files, loader, previewIds, revision]);
+  const statusByRoot = useMemo(
+    () => new Map([...previews.statusByRoot, ...dependencies.statusByRoot]),
+    [dependencies, previews],
+  );
+  const idsByRoot = useMemo(
+    () => new Map([...previews.idsByRoot, ...dependencies.idsByRoot]),
+    [dependencies, previews],
+  );
   useEffect(() => {
     loader?.setPinned(new Set([...pinnedIds, ...dependencies.ids]));
   }, [dependencies, loader, pinnedIds]);
   useEffect(() => {
+    loader?.setWanted(previews.ids);
+  }, [loader, previews.ids]);
+  useEffect(() => {
     if (!loader) return;
-    for (const id of dependencies.ids) {
+    const requestable = (id: string) => {
       const state = loader.get(id);
-      if (
+      return (
         state.status !== "error" &&
         !(state.status === "ready" && state.refreshError)
-      ) {
-        void loader.request(id);
-      }
+      );
+    };
+    for (const id of dependencies.ids) {
+      if (requestable(id)) void loader.request(id);
     }
-  }, [dependencies, dirtyIds, files, loader]);
+    for (const id of previews.ids) {
+      if (requestable(id)) void loader.request(id, "low");
+    }
+  }, [dependencies, dirtyIds, files, loader, previews]);
 
   const retrySources = useCallback(
     (id: string) => {
       if (!loader) return;
-      for (const target of new Set([
-        id,
-        ...(dependencies.idsByRoot.get(id) ?? []),
-      ])) {
+      for (const target of new Set([id, ...(idsByRoot.get(id) ?? [])])) {
         const state = loader.get(target);
         if (
           target === id ||
@@ -186,7 +228,7 @@ export function useDesignSourceHydration(
           void loader.request(target);
       }
     },
-    [dependencies, loader],
+    [idsByRoot, loader],
   );
 
   const leaseHydratedSource = useCallback(
@@ -264,6 +306,6 @@ export function useDesignSourceHydration(
     awaitCommittedSources,
     loader,
     revision,
-    dependencyStatusByRoot: dependencies.statusByRoot,
+    dependencyStatusByRoot: statusByRoot,
   };
 }

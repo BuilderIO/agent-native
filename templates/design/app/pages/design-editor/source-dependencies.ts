@@ -13,7 +13,26 @@ export function createSourceDependencyIndex(
     byPath: new Map(
       files.map((file) => [file.filename.replace(/^\/+/, ""), file.id]),
     ),
+    // Every loader change rescans every scheduled root, so each version is
+    // scanned once. Keyed by version: holding the content would keep evicted
+    // sources alive past the loader's byte budget.
+    references: new Map<string, { version: string; references: string[] }>(),
   };
+}
+
+function sourceReferences(content: string): string[] {
+  const references: string[] = [];
+  const html =
+    /<(?:link|script|img|source|use)\b[^>]*?\b(?:href|src)\s*=\s*(["'])(.*?)\1/gi;
+  const imports =
+    /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*(?:url\(\s*)?)(["'])(.*?)\1/g;
+  for (const pattern of [html, imports]) {
+    for (const match of content.matchAll(pattern)) {
+      const value = match.slice(2, 3).shift();
+      if (value !== undefined) references.push(value);
+    }
+  }
+  return references;
 }
 
 /** Resolve references to existing project files without treating navigation links as dependencies. */
@@ -23,7 +42,7 @@ export function sourceDependencyIds(
   get: (id: string) => SourceHydrationState,
   index = createSourceDependencyIndex(files),
 ): { ids: string[]; overflow: boolean; failed: boolean } {
-  const { byId, byPath } = index;
+  const { byId, byPath, references: referenceCache } = index;
   const found = new Set(roots);
   let failed = false;
   const queue = [...roots];
@@ -39,17 +58,13 @@ export function sourceDependencyIds(
       failed = true;
     if (!file || state.status !== "ready") continue;
     const base = file.filename.replace(/^\/+/, "").split("/").slice(0, -1);
-    const references: string[] = [];
-    const html =
-      /<(?:link|script|img|source|use)\b[^>]*?\b(?:href|src)\s*=\s*(["'])(.*?)\1/gi;
-    const imports =
-      /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*(?:url\(\s*)?)(["'])(.*?)\1/g;
-    for (const pattern of [html, imports]) {
-      for (const match of state.content.matchAll(pattern)) {
-        const value = match.slice(2, 3).shift();
-        if (value !== undefined) references.push(value);
-      }
+    const version = `${state.updatedAt}\0${state.content.length}`;
+    let cached = referenceCache.get(id);
+    if (cached?.version !== version) {
+      cached = { version, references: sourceReferences(state.content) };
+      referenceCache.set(id, cached);
     }
+    const { references } = cached;
     for (const reference of references) {
       if (/^(?:[a-z][\w+.-]*:|\/\/|#|data:)/i.test(reference)) continue;
       const raw = reference.split(/[?#]/, 1).shift();

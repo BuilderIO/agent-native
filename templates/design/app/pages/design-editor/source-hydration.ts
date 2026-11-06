@@ -36,6 +36,12 @@ export type SourceHydrationRead = (
   id: string,
 ) => Promise<{ content: string; updatedAt: string }>;
 
+interface QueuedRead {
+  low: boolean;
+  start: () => void;
+  cancel: () => void;
+}
+
 /** Keeps unrequested, failed, and genuinely empty source distinct. */
 export class SourceHydration {
   private readonly states = new Map<string, SourceHydrationState>();
@@ -48,7 +54,9 @@ export class SourceHydration {
   private readonly primedBeforeMetadata = new Set<string>();
   private readyBytes = 0;
   private readonly pending = new Map<string, Promise<void>>();
-  private readonly queue: Array<{ start: () => void; cancel: () => void }> = [];
+  private readonly queue: QueuedRead[] = [];
+  private readonly lowQueue = new Map<string, QueuedRead>();
+  private wantedRank = new Map<string, number>();
   private active = 0;
   private disposed = false;
 
@@ -152,6 +160,41 @@ export class SourceHydration {
     return this.evict() || released;
   }
 
+  /**
+   * Sources worth loading when nothing held needs the budget, nearest first.
+   * They load after every held request and are evicted farthest first.
+   */
+  setWanted(ids: readonly string[]): void {
+    if (
+      ids.length === this.wantedRank.size &&
+      ids.every((id, index) => this.wantedRank.get(id) === index)
+    )
+      return;
+    this.wantedRank = new Map(ids.map((id, index) => [id, index]));
+    let changed = false;
+    for (const [id, entry] of this.lowQueue) {
+      if (this.wantedRank.has(id)) continue;
+      entry.cancel();
+      changed = true;
+    }
+    if (this.evict() || changed) this.changed();
+    this.pump();
+  }
+
+  /** A held source, or a wanted one the budget still reaches. */
+  canLoad(id: string): boolean {
+    if (this.isHeld(id)) return true;
+    const rank = this.wantedRank.get(id);
+    if (rank === undefined) return false;
+    let bytesAhead = 0;
+    for (const [readyId, size] of this.lru) {
+      const readyRank = this.wantedRank.get(readyId);
+      if (this.isHeld(readyId) || (readyRank !== undefined && readyRank < rank))
+        bytesAhead += size;
+    }
+    return bytesAhead < this.maxBytes;
+  }
+
   setDirty(ids: ReadonlySet<string>): void {
     const previous = this.dirty;
     this.dirty = new Set(ids);
@@ -175,23 +218,58 @@ export class SourceHydration {
     this.lru.delete(id);
   }
 
+  private drop(id: string): void {
+    this.needsRefresh.delete(id);
+    this.removeReady(id);
+    this.states.delete(id);
+  }
+
   private evict(): boolean {
     let evicted = false;
     for (const [id] of this.lru) {
       if (this.readyBytes <= this.maxBytes) break;
-      if (this.isHeld(id)) continue;
-      this.needsRefresh.delete(id);
-      this.removeReady(id);
-      this.states.delete(id);
+      if (this.isHeld(id) || this.wantedRank.has(id)) continue;
+      this.drop(id);
+      evicted = true;
+    }
+    if (this.readyBytes <= this.maxBytes) return evicted;
+    // Must agree with canLoad: a wanted source dropped here and still
+    // reachable by it would reload and be dropped again forever.
+    let kept = 0;
+    const wanted: string[] = [];
+    for (const [id, size] of this.lru) {
+      if (this.isHeld(id)) kept += size;
+      else if (this.wantedRank.has(id)) wanted.push(id);
+    }
+    wanted.sort(
+      (a, b) => (this.wantedRank.get(a) ?? 0) - (this.wantedRank.get(b) ?? 0),
+    );
+    for (const id of wanted) {
+      if (kept < this.maxBytes) {
+        kept += this.lru.get(id) ?? 0;
+        continue;
+      }
+      this.drop(id);
       evicted = true;
     }
     return evicted;
   }
 
-  request(id: string): Promise<void> {
+  /** `low` loads a wanted source after held ones, and only within the budget. */
+  request(id: string, priority: "high" | "low" = "high"): Promise<void> {
     const existing = this.pending.get(id);
-    if (existing) return existing;
+    if (existing) {
+      const queued = this.lowQueue.get(id);
+      if (queued && priority === "high") {
+        this.lowQueue.delete(id);
+        queued.low = false;
+        this.queue.push(queued);
+        this.pump();
+      }
+      return existing;
+    }
     if (!this.versions.has(id) || this.disposed) return Promise.resolve();
+    if (priority === "low" && !this.canLoad(id)) return Promise.resolve();
     const previous = this.get(id);
     if (previous.status === "ready" && !this.needsRefresh.has(id))
       return Promise.resolve();
@@ -213,15 +291,26 @@ export class SourceHydration {
           this.versions.has(id) &&
           this.versions.get(id) !== version
         ) {
-          void this.request(id).then(resolve);
+          void this.request(id, entry.low ? "low" : "high").then(resolve);
         } else {
           resolve();
         }
       };
-      this.queue.push({
+      const shed = () => {
+        if (this.states.get(id)?.status === "loading") {
+          this.states.delete(id);
+        }
+        complete();
+      };
+      const entry: QueuedRead = {
+        low: priority === "low",
         start: () => {
           if (this.versions.get(id) !== version) {
             complete();
+            return;
+          }
+          if (entry.low && !this.canLoad(id)) {
+            shed();
             return;
           }
           this.active++;
@@ -260,8 +349,14 @@ export class SourceHydration {
               complete();
             });
         },
-        cancel: complete,
-      });
+        cancel: () => {
+          this.lowQueue.delete(id);
+          if (entry.low) shed();
+          else complete();
+        },
+      };
+      if (entry.low) this.lowQueue.set(id, entry);
+      else this.queue.push(entry);
       this.pump();
     });
     this.pending.set(id, promise);
@@ -271,15 +366,30 @@ export class SourceHydration {
   dispose(): void {
     this.disposed = true;
     for (const entry of this.queue.splice(0)) entry.cancel();
+    for (const entry of [...this.lowQueue.values()]) entry.cancel();
+  }
+
+  private nextLow(): QueuedRead | undefined {
+    let nearest: string | undefined;
+    for (const id of this.lowQueue.keys()) {
+      if (
+        nearest === undefined ||
+        (this.wantedRank.get(id) ?? Infinity) <
+          (this.wantedRank.get(nearest) ?? Infinity)
+      )
+        nearest = id;
+    }
+    if (nearest === undefined) return undefined;
+    const entry = this.lowQueue.get(nearest);
+    this.lowQueue.delete(nearest);
+    return entry;
   }
 
   private pump(): void {
-    while (
-      !this.disposed &&
-      this.active < this.concurrency &&
-      this.queue.length
-    ) {
-      this.queue.shift()?.start();
+    while (!this.disposed && this.active < this.concurrency) {
+      const next = this.queue.shift() ?? this.nextLow();
+      if (!next) break;
+      next.start();
     }
   }
 }

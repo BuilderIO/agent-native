@@ -213,6 +213,120 @@ describe("SourceHydration", () => {
     expect(loader.get("b").status).toBe("unloaded");
     expect(loader.get("c").status).toBe("ready");
   });
+  it("loads wanted previews after held sources, nearest first", async () => {
+    const order: string[] = [];
+    const finishes: Array<() => void> = [];
+    const loader = new SourceHydration(
+      (id) =>
+        new Promise((resolve) => {
+          finishes.push(() => {
+            order.push(id);
+            resolve({ content: "x", updatedAt: "1" });
+          });
+        }),
+      () => {},
+      1,
+    );
+    loader.sync(["far", "near", "held"].map((id) => ({ id, updatedAt: "1" })));
+    loader.setWanted(["near", "far"]);
+    const previews = [
+      loader.request("far", "low"),
+      loader.request("near", "low"),
+    ];
+    loader.setPinned(new Set(["held"]));
+    const held = loader.request("held");
+    for (let i = 0; i < 3; i++) {
+      await vi.waitFor(() => expect(finishes).toHaveLength(i + 1));
+      finishes[i]?.();
+      await Promise.resolve();
+    }
+    await Promise.all([...previews, held]);
+    // The first preview was already reading when the held request arrived.
+    expect(order).toEqual(["far", "held", "near"]);
+  });
+
+  it("keeps wanted previews within the byte budget, nearest first, without reloading", async () => {
+    const read = vi.fn(async (id: string) => ({
+      content: "x".repeat(4),
+      updatedAt: id,
+    }));
+    const loader = new SourceHydration(read, () => {}, 4, 10);
+    const ids = ["held", "p0", "p1", "p2", "p3"];
+    loader.sync(ids.map((id) => ({ id, updatedAt: id })));
+    loader.setPinned(new Set(["held"]));
+    await loader.request("held");
+    const wanted = ["p0", "p1", "p2", "p3"];
+    loader.setWanted(wanted);
+    await Promise.all(wanted.map((id) => loader.request(id, "low")));
+    // 4 held bytes + 4 for p0 leave p1 under budget; p2 and p3 are past it.
+    expect(wanted.map((id) => loader.get(id).status)).toEqual([
+      "ready",
+      "ready",
+      "unloaded",
+      "unloaded",
+    ]);
+    expect(loader.get("held").status).toBe("ready");
+    const reads = read.mock.calls.length;
+    await Promise.all(wanted.map((id) => loader.request(id, "low")));
+    expect(read).toHaveBeenCalledTimes(reads);
+
+    // Panning re-ranks: a preview no longer wanted is evicted before any wanted one.
+    loader.setWanted(["p3", "p0"]);
+    await loader.request("p3", "low");
+    expect(loader.get("p3").status).toBe("ready");
+    expect(loader.get("p0").status).toBe("ready");
+    expect(loader.get("p1").status).toBe("unloaded");
+  });
+
+  it("cancels queued previews that stop being wanted", async () => {
+    let finish!: () => void;
+    const read = vi.fn(
+      (_id: string) =>
+        new Promise<{ content: string; updatedAt: string }>((resolve) => {
+          finish = () => resolve({ content: "x", updatedAt: "1" });
+        }),
+    );
+    const loader = new SourceHydration(read, () => {}, 1);
+    loader.sync(["a", "b"].map((id) => ({ id, updatedAt: "1" })));
+    loader.setWanted(["a", "b"]);
+    const a = loader.request("a", "low");
+    const b = loader.request("b", "low");
+    expect(loader.get("b").status).toBe("loading");
+    loader.setWanted(["a"]);
+    await b;
+    expect(loader.get("b").status).toBe("unloaded");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    finish();
+    await a;
+    expect(read.mock.calls.map(([id]) => id)).toEqual(["a"]);
+  });
+
+  it("promotes a queued preview when it is demanded", async () => {
+    const finishes = new Map<string, () => void>();
+    const read = vi.fn(
+      (id: string) =>
+        new Promise<{ content: string; updatedAt: string }>((resolve) => {
+          finishes.set(id, () => resolve({ content: id, updatedAt: "1" }));
+        }),
+    );
+    const loader = new SourceHydration(read, () => {}, 1);
+    loader.sync(["busy", "a", "b"].map((id) => ({ id, updatedAt: "1" })));
+    const busy = loader.request("busy");
+    loader.setWanted(["a", "b"]);
+    void loader.request("a", "low");
+    const b = loader.request("b", "low");
+    loader.setPinned(new Set(["b"]));
+    void loader.request("b");
+    await vi.waitFor(() => expect(finishes.has("busy")).toBe(true));
+    finishes.get("busy")?.();
+    await busy;
+    await vi.waitFor(() => expect(finishes.has("b")).toBe(true));
+    expect(finishes.has("a")).toBe(false);
+    finishes.get("b")?.();
+    await b;
+    expect(loader.get("b").status).toBe("ready");
+  });
+
   it("retains dirty source while a newer saved version is loading", async () => {
     let finish!: (value: { content: string; updatedAt: string }) => void;
     const read = vi
@@ -467,4 +581,49 @@ it("rejects a queued source lease when its editor unmounts", async () => {
   expect(callAction).toHaveBeenCalledTimes(4);
   releases.forEach((release) => release());
   await Promise.all(active);
+});
+
+it("loads preview sources without pinning them", async () => {
+  const files = ["a", "b"].map((id) => ({
+    id,
+    filename: `${id}.html`,
+    updatedAt: "1",
+  }));
+  const large = "x".repeat(9 * 1024 * 1024);
+  callAction.mockReset();
+  callAction.mockImplementation(async (_name, args) => ({
+    files: [{ id: args.fileId, content: large, updatedAt: "1" }],
+  }));
+  const empty = new Set<string>();
+  const none: string[] = [];
+  let current: ReturnType<typeof useDesignSourceHydration> | undefined;
+  function Harness({ previews }: { previews: string[] }) {
+    current = useDesignSourceHydration(
+      "design",
+      files,
+      none,
+      empty,
+      empty,
+      previews,
+    );
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Harness, { previews: ["a"] }));
+  });
+  await vi.waitFor(() =>
+    expect(current?.loader?.get("a").status).toBe("ready"),
+  );
+  expect(current?.dependencyStatusByRoot.get("a")).toBe("ready");
+  await act(async () => {
+    root.render(createElement(Harness, { previews: ["b"] }));
+  });
+  await vi.waitFor(() =>
+    expect(current?.loader?.get("b").status).toBe("ready"),
+  );
+  // Two 9 MiB sources exceed the budget; the one no longer previewed goes.
+  expect(current?.loader?.get("a").status).toBe("unloaded");
+  await act(async () => root.unmount());
 });

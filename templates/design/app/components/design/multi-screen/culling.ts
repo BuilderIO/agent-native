@@ -15,6 +15,9 @@ export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
 
 export const OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX = 240;
 
+/** Narrower than this on screen, nothing in a screen can be read or edited. */
+export const OVERVIEW_LEGIBLE_SCREEN_PX = 64;
+
 const LIVE_EDITOR_DEMOTE_RATIO = 0.75;
 
 export const OVERVIEW_STATIC_PREVIEW_BUDGET = 64;
@@ -64,7 +67,7 @@ export function resolveLiveEditorScreenIds({
       screenPx >= minScreenPx ||
       (wasLive &&
         (screenPx >= minScreenPx * LIVE_EDITOR_DEMOTE_RATIO ||
-          warmIds.has(id)));
+          (warmIds.has(id) && screenPx >= OVERVIEW_LEGIBLE_SCREEN_PX)));
     if (!largeEnough) continue;
     if (
       !geometry ||
