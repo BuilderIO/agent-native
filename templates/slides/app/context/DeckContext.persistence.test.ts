@@ -2878,6 +2878,49 @@ describe("DeckContext deck creation persistence", () => {
     });
   });
 
+  it("skips a no-op content write on a slide with reveals", async () => {
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 1,
+      elementPath: [1, 1],
+    };
+    const content = `<div class="fmd-slide"><h1>T</h1><div class="text-box"><p>A</p><p>B</p></div></div>`;
+    const initial: Deck = {
+      id: "reveal-noop-deck",
+      title: "Reveal no-op deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content,
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+
+    expect(sentPatchOperations(fetchMock)).toHaveLength(0);
+  });
+
   it("sends the reveal list with a batched save of typing and inserting a shape, so the server only checks that it resolves", async () => {
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });

@@ -1518,6 +1518,12 @@ function withRevealsFollowingContent(
   };
 }
 
+// Reveals ride along with every content edit, so they don't count as a field of
+// their own when deciding whether an op is content-only.
+function fieldNamesWithoutReveals(fields: object): string[] {
+  return Object.keys(fields).filter((key) => key !== "animations");
+}
+
 // Only the refused slide reverts. Other slides' edits in the same batch are re-queued,
 // because the server rejects the whole batch.
 async function rollBackRefusedSlide(
@@ -3494,8 +3500,8 @@ function enqueueDeckOp(
       previous?.op === "patch-slide" &&
       op.op === "patch-slide" &&
       previous.slideId === op.slideId &&
-      Object.keys(previous.fields).length === 1 &&
-      Object.keys(op.fields).length === 1 &&
+      fieldNamesWithoutReveals(previous.fields).length === 1 &&
+      fieldNamesWithoutReveals(op.fields).length === 1 &&
       "content" in previous.fields &&
       "content" in op.fields
     ) {
@@ -3586,7 +3592,7 @@ function settleQueuedContentDraft(
     const op = queue[index];
     if (op.op !== "patch-slide") return false;
     if (op.fields.content === committedContent) return true;
-    if (Object.keys(op.fields).length !== 1) return false;
+    if (fieldNamesWithoutReveals(op.fields).length !== 1) return false;
     queue.splice(index, 1);
   }
   const sent = sentSlideContent.get(deckId)?.get(slideId);
@@ -8112,7 +8118,7 @@ export function DeckProvider({
       }
       if (
         options?.preserveLocalState &&
-        Object.keys(normalizedUpdates).length === 1 &&
+        fieldNamesWithoutReveals(normalizedUpdates).length === 1 &&
         storedContent !== undefined &&
         storedContent === previousSlide?.content &&
         !hasStaleContentConflict(deckId, slideId) &&
