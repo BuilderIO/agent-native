@@ -32,7 +32,8 @@ after account creation, avoiding abandoned pre-signup records.
 Automatic attempts are reserved atomically and are not retried after an uncertain
 outcome. Only the owning request finalizes its reservation; other requests return
 pending without taking over. The client waits at most 30 seconds before allowing the
-existing connection flow, and a later successful completion still records connected.
+existing connection flow and clears the non-secret UI gate cookie so later loads do
+not wait again. A later successful completion still records connected.
 A thrown activation error records terminal fallback immediately. Post-write audit or
 telemetry failures keep the connection connected and report an explicit warning. The old connection flow
 remains available after errors and for every existing Builder account, including

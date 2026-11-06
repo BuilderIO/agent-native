@@ -114,6 +114,23 @@ describe("Builder signup client contract", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("releases the one-time UI gate after an uncertain activation without retrying provisioning", async () => {
+    vi.useFakeTimers();
+    const browserDocument = { cookie: "an_builder_signup_pending=1" };
+    vi.stubGlobal("document", browserDocument);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response({ status: "pending" })),
+    );
+    const outcome = expect(activateBuilderSignupAssignment()).rejects.toThrow(
+      /still pending/,
+    );
+    await vi.advanceTimersByTimeAsync(30000);
+    await outcome;
+    expect(browserDocument.cookie).toContain("Max-Age=0");
+    expect(hasPendingBuilderSignupAssignment()).toBe(false);
+  });
+
   it("does not turn transport errors or unknown outcomes into a connected state", async () => {
     const fetch = vi.fn(async () => response({ status: "connected" }, 503));
     vi.stubGlobal("fetch", fetch);

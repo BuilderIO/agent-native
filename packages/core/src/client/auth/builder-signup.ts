@@ -88,6 +88,9 @@ export async function activateBuilderSignupAssignment(): Promise<
       throw new Error("Builder signup activation did not complete");
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
+  if (typeof document !== "undefined")
+    document.cookie =
+      "an_builder_signup_pending=; Path=/; Max-Age=0; SameSite=Lax";
   throw new Error("Builder signup activation is still pending");
 }
 
