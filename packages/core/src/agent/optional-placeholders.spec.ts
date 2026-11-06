@@ -108,6 +108,30 @@ describe("normalizeOptionalToolPlaceholders", () => {
     });
   });
 
+  it("keeps a nested nullable null beside a padded top-level null", () => {
+    const nested: AgentNativeJsonSchema = {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        patch: {
+          type: "object",
+          properties: {
+            color: { anyOf: [{ type: "string" }, { type: "null" }] },
+          },
+        },
+      },
+      required: ["id"],
+    };
+    const result = normalizeOptionalToolPlaceholders(
+      nested,
+      { id: "a", title: null, patch: { color: null } },
+      write,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.input).toEqual({ id: "a", patch: { color: null } });
+  });
+
   it("still refuses a real placeholder value beside null", () => {
     const result = normalizeOptionalToolPlaceholders(
       schema,

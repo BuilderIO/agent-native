@@ -127,6 +127,7 @@ function stripOptionalToolPlaceholders(
     listsEraseNothing: boolean;
     stripNull?: boolean;
   },
+  depth = 0,
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -136,7 +137,7 @@ function stripOptionalToolPlaceholders(
     )?.items;
     if (!itemSchema) return { value, changed: false };
     const results = value.map((item) =>
-      stripOptionalToolPlaceholders(itemSchema, item, emptyValues),
+      stripOptionalToolPlaceholders(itemSchema, item, emptyValues, depth + 1),
     );
     return results.some((result) => result.changed)
       ? { value: results.map((result) => result.value), changed: true }
@@ -174,7 +175,13 @@ function stripOptionalToolPlaceholders(
       }
       continue;
     }
-    if (emptyValues.stripNull && entry === null && !required.has(key)) {
+    // Top-level only: a nested null may be a deliberate clear.
+    if (
+      emptyValues.stripNull &&
+      depth === 0 &&
+      entry === null &&
+      !required.has(key)
+    ) {
       placeholders.push(key);
       continue;
     }
@@ -210,6 +217,7 @@ function stripOptionalToolPlaceholders(
       propertySchema,
       entry,
       emptyValues,
+      depth + 1,
     );
     if (nested.changed) {
       normalized ??= { ...record };
