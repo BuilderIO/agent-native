@@ -41,6 +41,7 @@ import {
   nextRecentLayerModelFileIds,
   screenBodyHasElements,
 } from "../derive/layer-model-coverage";
+import { reuseUnchangedOverviewScreens } from "../derive/overview-screens";
 import { NO_SELECTORS } from "../design-editor-shared";
 import { withMeasuredGeometry } from "../editor-helpers";
 import { layerStateIdsForScreen } from "../layer-state-scope";
@@ -677,8 +678,10 @@ export function useEditorLayerModels({
       })),
     [canonicalVisualFiles, hiddenLayerIds, lockedLayerIds],
   );
-  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
-    () =>
+  const overviewLayerPanelFilesRef = useRef<LayersPanelFile[]>([]);
+  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(() => {
+    const next = reuseUnchangedOverviewScreens(
+      overviewLayerPanelFilesRef.current,
       canonicalVisualFiles.map((file) => {
         const model = codeLayerModelByFileId.get(file.id);
         return {
@@ -702,13 +705,15 @@ export function useEditorLayerModels({
           ),
         };
       }),
-    [
-      canonicalVisualFiles,
-      codeLayerModelByFileId,
-      hiddenLayerIds,
-      lockedLayerIds,
-    ],
-  );
+    );
+    overviewLayerPanelFilesRef.current = next;
+    return next;
+  }, [
+    canonicalVisualFiles,
+    codeLayerModelByFileId,
+    hiddenLayerIds,
+    lockedLayerIds,
+  ]);
 
   const boardElements = useMemo<LayersPanelNode[] | undefined>(() => {
     if (!boardFileId) return undefined;
