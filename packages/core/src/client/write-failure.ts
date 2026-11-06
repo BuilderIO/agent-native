@@ -29,19 +29,19 @@ export type WriteFailureClassification =
 
 /**
  * Decide whether a failed write earns a toast and what it should say. A 401 is
- * skipped because the session recheck already owns it; an abort is the caller
- * cancelling on purpose.
+ * a write that did not land, so it shows the permission message; the session
+ * recheck may also show sign-in. An abort is the caller cancelling on purpose.
  */
 export function classifyWriteFailure(
   error: unknown,
 ): WriteFailureClassification {
   if (isAbortError(error)) return { skip: true };
   const status = actionErrorStatus(error);
-  if (status === 401) return { skip: true };
   if (isActionCircuitOpenError(error)) return { skip: false, kind: "server" };
   if (isActionTimeout(error)) return { skip: false, kind: "timeout" };
   if (isNetworkLevelFailure(error)) return { skip: false, kind: "offline" };
-  if (status === 403) return { skip: false, kind: "forbidden" };
+  if (status === 401 || status === 403)
+    return { skip: false, kind: "forbidden" };
   if (status !== undefined && status >= 400 && status < 500) {
     const message = actionErrorMessage(error);
     return message
@@ -58,14 +58,13 @@ export function classifyWriteFailure(
 
 /**
  * The error to report for a raw `fetch` write that came back not ok. It carries
- * the status, so a 401 stays silent, a 403 says permission and a 5xx stays
- * generic.
+ * the status, so a 401 or 403 says permission and a 5xx stays generic.
  */
 export function writeFailureFromResponse(
   response: Pick<Response, "status">,
 ): Error & { status: number } {
   // A raw fetch never goes through actionFetch, which is where a 401 normally
-  // rechecks the session. The classifier skips the 401 toast on that promise.
+  // rechecks the session, so the recheck runs here.
   // Loaded on demand: use-session touches window when it loads, and this module is imported by pages that never make a raw write.
   if (response.status === 401) {
     void import("./use-session.js").then(

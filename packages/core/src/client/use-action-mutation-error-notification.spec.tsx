@@ -327,6 +327,37 @@ describe("useActionMutation errorNotification", () => {
       vi.restoreAllMocks();
     });
 
+    it("reports a superseded mutateAsync call whose per-call onError never ran", async () => {
+      let calls = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(async () => {
+          calls += 1;
+          if (calls === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return new Response(
+              JSON.stringify({ error: "Internal server error" }),
+              { status: 500, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }),
+      );
+      const view = await mount();
+      const onError = vi.fn();
+
+      await act(async () => {
+        void view.mutation().mutateAsync({ n: 1 }, { onError });
+        void view.mutation().mutateAsync({ n: 2 });
+      });
+      await settle();
+
+      expect(onError).not.toHaveBeenCalled();
+      expect(reports).toHaveLength(1);
+    });
+
     it("reports a dropped promise", async () => {
       stubFetch(true);
       const view = await mount();

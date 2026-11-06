@@ -1725,6 +1725,31 @@ function shouldReportWriteFailure(
   return mode === "shared" || !handled;
 }
 
+/**
+ * TanStack runs a per-call onError only for the latest mutate call, so a
+ * superseded call's callback never runs. Wrap it so the caller can tell whether
+ * this call's callback actually ran.
+ */
+function trackCallOnError<D, V>(
+  options: MutateOptions<D, Error, V> | undefined,
+): {
+  options: MutateOptions<D, Error, V> | undefined;
+  ranCallOnError: () => boolean;
+} {
+  let ran = false;
+  const callOnError = options?.onError;
+  const tracked: MutateOptions<D, Error, V> | undefined = callOnError
+    ? {
+        ...options,
+        onError: (...args) => {
+          ran = true;
+          return callOnError(...args);
+        },
+      }
+    : options;
+  return { options: tracked, ranCallOnError: () => ran };
+}
+
 export function useActionMutation<
   TData = undefined,
   TVariables = undefined,
@@ -1845,23 +1870,11 @@ export function useActionMutation<
 
   const mutate = useCallback<UseMutateFunction<D, Error, V>>(
     (variables, mutateOptions) => {
-      // TanStack runs a per-call onError only for the latest mutate call, so a
-      // superseded call would end silent. Record whether this call's ran.
-      let ranCallOnError = false;
-      const callOnError = mutateOptions?.onError;
-      const callOptions: MutateOptions<D, Error, V> | undefined = callOnError
-        ? {
-            ...mutateOptions,
-            onError: (...args) => {
-              ranCallOnError = true;
-              return callOnError(...args);
-            },
-          }
-        : mutateOptions;
-      attemptAsync(variables, callOptions).catch((error: unknown) => {
+      const call = trackCallOnError(mutateOptions);
+      attemptAsync(variables, call.options).catch((error: unknown) => {
         const { errorNotification, errorLabel, hookHandled } =
           reporting.current;
-        const handled = hookHandled || ranCallOnError;
+        const handled = hookHandled || call.ranCallOnError();
         if (shouldReportWriteFailure(errorNotification, handled)) {
           reportWriteFailure(error, { label: errorLabel });
         }
@@ -1872,7 +1885,8 @@ export function useActionMutation<
 
   const mutateAsync = useCallback<UseMutateAsyncFunction<D, Error, V>>(
     (variables, mutateOptions) => {
-      const attempt = attemptAsync(variables, mutateOptions);
+      const call = trackCallOnError(mutateOptions);
+      const attempt = attemptAsync(variables, call.options);
       const { errorNotification, errorLabel, hookHandled } = reporting.current;
       // Only reports; the caller still receives the rejection.
       if (errorNotification === "shared") {
@@ -1881,15 +1895,14 @@ export function useActionMutation<
         );
         return attempt;
       }
-      if (
-        errorNotification === "auto" &&
-        !hookHandled &&
-        mutateOptions?.onError === undefined
-      ) {
+      if (errorNotification === "auto" && !hookHandled) {
         return attempt.then(
           (data) => data,
           (error: unknown) => {
-            trackUnhandledMutationError(error, errorLabel);
+            // A per-call onError that ran already handled this rejection.
+            if (!call.ranCallOnError()) {
+              trackUnhandledMutationError(error, errorLabel);
+            }
             throw error;
           },
         );

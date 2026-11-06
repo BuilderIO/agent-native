@@ -33,9 +33,10 @@ function actionError(init: {
 }
 
 describe("classifyWriteFailure", () => {
-  it("skips a 401, which the session recheck owns", () => {
+  it("shows the permission message for a 401, since the write did not land", () => {
     expect(classifyWriteFailure(actionError({ status: 401 }))).toEqual({
-      skip: true,
+      skip: false,
+      kind: "forbidden",
     });
   });
 
@@ -170,7 +171,8 @@ describe("writeFailureFromResponse", () => {
     expect(
       classifyWriteFailure(writeFailureFromResponse({ status: 401 })),
     ).toEqual({
-      skip: true,
+      skip: false,
+      kind: "forbidden",
     });
     expect(
       classifyWriteFailure(writeFailureFromResponse({ status: 403 })),

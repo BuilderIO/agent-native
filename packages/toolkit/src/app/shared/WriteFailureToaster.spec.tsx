@@ -148,14 +148,20 @@ describe("WriteFailureToaster", () => {
     });
   });
 
-  it("shows nothing for a 401 or an aborted request", async () => {
+  it("shows the permission message for a 401, and nothing for an aborted request", async () => {
     await mount();
     act(() => {
       reportWriteFailure(actionError(401));
       reportWriteFailure(new DOMException("aborted", "AbortError"));
     });
 
-    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't save that change.",
+      expect.objectContaining({
+        description: "You don't have permission to do that.",
+      }),
+    );
   });
 
   it("gives a burst of the same failure the same toast id", async () => {
