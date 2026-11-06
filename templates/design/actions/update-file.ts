@@ -16,9 +16,10 @@ import {
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
 import {
-  backfillLegacyEmailFrameType,
-  persistScreenFrameType,
-} from "../server/lib/screen-frame-type-store.js";
+  LegacyEmailFrameTypeNotStoredError,
+  writeWithLegacyEmailFrameTypes,
+} from "../server/lib/legacy-email-frame-type.js";
+import { changeScreenFrameType } from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -127,7 +128,7 @@ export default defineAction({
         .enum(STORED_SCREEN_FRAME_TYPES)
         .optional()
         .describe(
-          'Set "hubspot-email" to make this HTML screen a HubSpot email frame, or "web" to make an email frame an ordinary screen again. Omit to keep the current type.',
+          'Set "hubspot-email" to make this HTML screen a HubSpot email frame, laid out 600px wide with no device variants, or "web" to make an email frame an ordinary screen with the design\'s breakpoints again. Omit to keep the current type.',
         ),
       syncCollab: z
         .boolean()
@@ -341,16 +342,6 @@ export default defineAction({
               : null,
       });
     }
-    const markedBeforeWrite =
-      frameType === undefined &&
-      (requestedContent !== undefined || contentPatch !== undefined) &&
-      isHubSpotEmailHtml(file.content);
-    if (markedBeforeWrite) {
-      await backfillLegacyEmailFrameType({
-        designId: file.designId,
-        fileId: file.id,
-      });
-    }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -431,7 +422,7 @@ export default defineAction({
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
-    const legacyEmail = { found: false };
+    let storedLegacyEmailIds: ReadonlySet<string> = new Set();
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         await lockDesignFilesTable(tx);
@@ -496,10 +487,15 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
-          legacyEmail.found =
+          if (
+            frameType === undefined &&
             writesContent &&
+            !storedLegacyEmailIds.has(id) &&
             (isHubSpotEmailHtml(liveContent) ||
-              isHubSpotEmailHtml(persistedFile.content));
+              isHubSpotEmailHtml(persistedFile.content))
+          ) {
+            throw new LegacyEmailFrameTypeNotStoredError(id);
+          }
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -788,15 +784,27 @@ export default defineAction({
       });
 
     try {
-      await (writesContent
-        ? withPreparedSourceFileMutation(
-            id,
-            syncCollab
-              ? context?.requestHeaders?.get("x-request-source") || "agent"
-              : undefined,
-            runMutation,
-          )
-        : withSourceFileWriteLock(id, runMutation));
+      await writeWithLegacyEmailFrameTypes({
+        designId: file.designId,
+        markedFileIds:
+          frameType === undefined &&
+          writesContent &&
+          isHubSpotEmailHtml(file.content)
+            ? [id]
+            : [],
+        write: (stored) => {
+          storedLegacyEmailIds = stored;
+          return writesContent
+            ? withPreparedSourceFileMutation(
+                id,
+                syncCollab
+                  ? context?.requestHeaders?.get("x-request-source") || "agent"
+                  : undefined,
+                runMutation,
+              )
+            : withSourceFileWriteLock(id, runMutation);
+        },
+      });
     } catch (error) {
       if (error instanceof CollabBaseVersionConflictError) {
         throw new SourceWorkspaceEditConflictError(
@@ -807,15 +815,11 @@ export default defineAction({
     }
 
     if (frameType !== undefined) {
-      await persistScreenFrameType({
+      await changeScreenFrameType({
         designId: file.designId,
         fileId: id,
         frameType,
-      });
-    } else if (legacyEmail.found && !markedBeforeWrite) {
-      await backfillLegacyEmailFrameType({
-        designId: file.designId,
-        fileId: id,
+        content: file.content,
       });
     }
 

@@ -91,3 +91,46 @@ export function withStoredScreenFrameType<T extends Record<string, unknown>>(
     },
   };
 }
+
+/**
+ * Stores an explicit frame type change with the layout that type implies. A
+ * screen becoming an email is 600px wide, sized to its content and has no
+ * device variants. An email switched back to web drops that empty variant list
+ * so the design's breakpoints apply again, and keeps its size. `previous` is
+ * the type before the change; a screen that keeps its type keeps its layout.
+ */
+export function withScreenFrameTypeLayout<T extends Record<string, unknown>>(
+  designData: T,
+  fileId: string,
+  frameType: StoredScreenFrameType,
+  previous: ScreenFrameType | null,
+): T {
+  const typed = withStoredScreenFrameType(designData, fileId, frameType);
+  if (frameTypeFromStored(frameType) === previous) return typed;
+  const screenMetadata = record(typed.screenMetadata) ?? {};
+  const metadata = { ...record(screenMetadata[fileId]) };
+  const canvasFrames = record(typed.canvasFrames);
+  const frame = record(canvasFrames?.[fileId]);
+  if (frameType === HUBSPOT_EMAIL_FRAME_TYPE) {
+    Object.assign(metadata, {
+      width: 600,
+      breakpointWidths: [],
+      heightMode: "hug",
+      heightPinned: false,
+    });
+  } else if (
+    Array.isArray(metadata.breakpointWidths) &&
+    metadata.breakpointWidths.length === 0
+  ) {
+    delete metadata.breakpointWidths;
+  }
+  return {
+    ...typed,
+    screenMetadata: { ...screenMetadata, [fileId]: metadata },
+    ...(frameType === HUBSPOT_EMAIL_FRAME_TYPE && canvasFrames && frame
+      ? {
+          canvasFrames: { ...canvasFrames, [fileId]: { ...frame, width: 600 } },
+        }
+      : {}),
+  };
+}

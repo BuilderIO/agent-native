@@ -279,7 +279,6 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("../server/lib/screen-frame-type-store.js", () => ({
   persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
-  backfillLegacyEmailFrameType: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/lib/design-versions.js", () => ({
@@ -411,7 +410,7 @@ import {
   applyText,
 } from "@agent-native/core/collab";
 
-import { backfillLegacyEmailFrameType } from "../server/lib/screen-frame-type-store.js";
+import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -491,7 +490,7 @@ describe("HTML integrity write boundary", () => {
   // screenMetadata, so these edits now succeed. A legacy marker screen keeps
   // its email type through a one-time metadata backfill instead.
   it("removes a legacy email marker through apply-source-edit and backfills the frame type", async () => {
-    vi.mocked(backfillLegacyEmailFrameType).mockClear();
+    vi.mocked(persistScreenFrameType).mockClear();
     const before = createHubSpotEmailHtml();
     const marker =
       '<meta name="agent-native:frame-type" content="hubspot-email">';
@@ -499,7 +498,7 @@ describe("HTML integrity write boundary", () => {
     await applyText(FILE_ID, before);
     const live = await readLiveSourceFile(currentFileRef());
     const contentAtBackfill: string[] = [];
-    vi.mocked(backfillLegacyEmailFrameType).mockImplementationOnce(async () => {
+    vi.mocked(persistScreenFrameType).mockImplementationOnce(async () => {
       contentAtBackfill.push(currentFileRef().content ?? "");
     });
     await applySourceEditAction.run({
@@ -511,10 +510,12 @@ describe("HTML integrity write boundary", () => {
     expect(currentFileRef().content).toBe(before.replace(marker, ""));
     // oracle-change: the legacy type is now stored before the write, so a
     // failure after the marker-removing edit cannot lose it.
-    expect(backfillLegacyEmailFrameType).toHaveBeenCalledTimes(1);
-    expect(backfillLegacyEmailFrameType).toHaveBeenCalledWith({
+    expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+    expect(persistScreenFrameType).toHaveBeenCalledWith({
       designId: DESIGN_ID,
       fileId: FILE_ID,
+      frameType: "hubspot-email",
+      onlyIfAbsent: true,
     });
     expect(contentAtBackfill).toEqual([before]);
   });
@@ -522,7 +523,7 @@ describe("HTML integrity write boundary", () => {
   it.each(["shared source", "update-file"])(
     "%s backfills the frame type of a legacy email screen whose live copy lost the marker",
     async (writer) => {
-      vi.mocked(backfillLegacyEmailFrameType).mockClear();
+      vi.mocked(persistScreenFrameType).mockClear();
       const before = createHubSpotEmailHtml();
       seedFile(before);
       const unmarked = before.replace(
@@ -543,12 +544,55 @@ describe("HTML integrity write boundary", () => {
             content: live.content,
             expectedVersionHash: live.versionHash,
           }));
-      // oracle-change: legacy backfill moved to backfillLegacyEmailFrameType.
-      expect(backfillLegacyEmailFrameType).toHaveBeenCalledTimes(1);
-      expect(backfillLegacyEmailFrameType).toHaveBeenCalledWith({
+      expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+      expect(persistScreenFrameType).toHaveBeenCalledWith({
         designId: DESIGN_ID,
         fileId: FILE_ID,
+        frameType: "hubspot-email",
+        onlyIfAbsent: true,
       });
+    },
+  );
+
+  it.each(["shared source", "update-file"])(
+    "%s stores the type before writing when only the live copy has the marker",
+    async (writer) => {
+      vi.mocked(persistScreenFrameType).mockClear();
+      const marked = createHubSpotEmailHtml();
+      const marker =
+        '<meta name="agent-native:frame-type" content="hubspot-email">';
+      const unmarked = marked.replace(marker, "");
+      seedFile(unmarked);
+      await applyText(FILE_ID, marked);
+      const live = await readLiveSourceFile(currentFileRef());
+      const contentAtBackfill: string[] = [];
+      vi.mocked(persistScreenFrameType).mockImplementationOnce(async () => {
+        contentAtBackfill.push(
+          (await readLiveSourceFile(currentFileRef())).content,
+        );
+      });
+      const next = marked.replace(marker, "<!-- unmarked -->");
+      await (writer === "shared source"
+        ? writeInlineSourceFile({
+            designId: DESIGN_ID,
+            file: currentFileRef(),
+            content: next,
+            expectedVersionHash: live.versionHash,
+          })
+        : updateFileAction.run({
+            id: FILE_ID,
+            content: next,
+            expectedVersionHash: live.versionHash,
+          }));
+      expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+      expect(persistScreenFrameType).toHaveBeenCalledWith({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        frameType: "hubspot-email",
+        onlyIfAbsent: true,
+      });
+      expect(contentAtBackfill).toEqual([marked]);
+      expect((await readLiveSourceFile(currentFileRef())).content).toBe(next);
     },
   );
 

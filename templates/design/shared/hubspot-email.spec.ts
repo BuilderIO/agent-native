@@ -74,6 +74,13 @@ describe("HubSpot email frame classification", () => {
       vi.mocked(parse).mockClear();
     });
 
+    it("scans many unterminated meta tags in linear time", () => {
+      const started = performance.now();
+      expect(isHubSpotEmailHtml(`${"<meta ".repeat(200_000)}&`)).toBe(false);
+      expect(performance.now() - started).toBeLessThan(500);
+      expect(parse).not.toHaveBeenCalled();
+    });
+
     it("skips the parse for a document that never names the marker", () => {
       const body = '<div data-agent-native-locked="true">Row</div>'.repeat(
         5_000,

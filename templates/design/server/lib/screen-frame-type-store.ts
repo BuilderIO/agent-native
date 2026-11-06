@@ -1,9 +1,10 @@
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { parseDesignDataBlob } from "../../shared/full-app.js";
-import { HUBSPOT_EMAIL_FRAME_TYPE } from "../../shared/hubspot-email.js";
 import {
+  resolveScreenFrameType,
   storedScreenFrameType,
+  withScreenFrameTypeLayout,
   withStoredScreenFrameType,
   type StoredScreenFrameType,
 } from "../../shared/screen-frame-type.js";
@@ -42,18 +43,36 @@ export async function persistScreenFrameType({
 }
 
 /**
- * Stores "hubspot-email" for a legacy marker screen that has no stored type.
- * Source writers call it before writing when the content they loaded has the
- * marker: an edit that removes the marker leaves nothing to recover the type
- * from, so the type must be stored before the edit commits.
+ * Applies an explicit frame type change, with the layout the new type implies.
+ * `content` is the screen's HTML before the change, which decides the previous
+ * type of a legacy screen with no stored type.
  */
-export function backfillLegacyEmailFrameType(args: {
+export async function changeScreenFrameType({
+  designId,
+  fileId,
+  frameType,
+  content,
+}: {
   designId: string;
   fileId: string;
+  frameType: StoredScreenFrameType;
+  content: string | null;
 }): Promise<void> {
-  return persistScreenFrameType({
-    ...args,
-    frameType: HUBSPOT_EMAIL_FRAME_TYPE,
-    onlyIfAbsent: true,
+  const settled = (data: unknown) =>
+    storedScreenFrameType(data, fileId) === frameType;
+  const access = await assertAccess("design", designId, "editor");
+  if (settled(parseDesignDataBlob(access.resource.data))) return;
+  await mutateDesignData({
+    designId,
+    mutate: (current) =>
+      settled(current)
+        ? current
+        : withScreenFrameTypeLayout(
+            current,
+            fileId,
+            frameType,
+            resolveScreenFrameType({ designData: current, fileId, content }),
+          ),
+    isApplied: settled,
   });
 }

@@ -33,8 +33,13 @@ import {
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
 import { failOnSourceInputError } from "./lib/fail-on-source-input-error.js";
-import { backfillLegacyEmailFrameType } from "./lib/screen-frame-type-store.js";
+import {
+  LegacyEmailFrameTypeNotStoredError,
+  writeWithLegacyEmailFrameTypes,
+} from "./lib/legacy-email-frame-type.js";
 import "./db/index.js";
+
+type LegacyEmailIds = ReadonlySet<string>;
 
 export interface SourceWorkspaceFile {
   id: string;
@@ -532,15 +537,14 @@ export async function prepareInlineSourceEdit(args: {
 export async function writeInlineSourceFile(
   args: Parameters<typeof writeInlineSourceFileContent>[0],
 ): ReturnType<typeof writeInlineSourceFileContent> {
-  const screen = { designId: args.designId, fileId: args.file.id };
-  const markedBeforeWrite = isHubSpotEmailHtml(args.file.content ?? "");
-  if (markedBeforeWrite) await backfillLegacyEmailFrameType(screen);
-  const legacyEmail = { found: false };
-  const result = await writeInlineSourceFileContent(args, legacyEmail);
-  if (legacyEmail.found && !markedBeforeWrite) {
-    await backfillLegacyEmailFrameType(screen);
-  }
-  return result;
+  return writeWithLegacyEmailFrameTypes({
+    designId: args.designId,
+    markedFileIds: isHubSpotEmailHtml(args.file.content ?? "")
+      ? [args.file.id]
+      : [],
+    write: (storedLegacyEmailIds) =>
+      writeInlineSourceFileContent(args, storedLegacyEmailIds),
+  });
 }
 
 async function writeInlineSourceFileContent(
@@ -555,7 +559,7 @@ async function writeInlineSourceFileContent(
     operationRevision?: number;
     allowUrlBackedTransition?: boolean;
   },
-  legacyEmail: { found: boolean },
+  storedLegacyEmailIds: LegacyEmailIds,
 ): Promise<{
   content: string;
   versionHash: string;
@@ -604,14 +608,17 @@ async function writeInlineSourceFileContent(
         content: liveContent,
         versionHash: sourceContentHash(liveContent),
       };
-      legacyEmail.found =
+      const legacyEmail =
         isHubSpotEmailHtml(current.content) ||
         isHubSpotEmailHtml(currentFile.content);
+      if (legacyEmail && !storedLegacyEmailIds.has(args.file.id)) {
+        throw new LegacyEmailFrameTypeNotStoredError(args.file.id);
+      }
       const assertEmailCandidate = (content: string) =>
         assertHubSpotEmailFileType({
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
           frameType:
-            legacyEmail.found || isHubSpotEmailHtml(content)
+            legacyEmail || isHubSpotEmailHtml(content)
               ? HUBSPOT_EMAIL_FRAME_TYPE
               : null,
         });
@@ -942,16 +949,31 @@ export type InlineSourceBatchCollaborationFileStatus = {
   status: "synced";
 };
 
-export async function writeInlineSourceFilesBatch(args: {
-  designId: string;
-  files: Array<{
-    file: SourceWorkspaceFile;
-    content: string;
-    expectedVersionHash: string;
-  }>;
-  expectedHtmlFileIds?: readonly string[];
-  afterFilesPersist?: (tx: DbExec, updatedAt: string) => Promise<void>;
-}): Promise<{
+export async function writeInlineSourceFilesBatch(
+  args: Parameters<typeof writeInlineSourceFilesBatchContent>[0],
+): ReturnType<typeof writeInlineSourceFilesBatchContent> {
+  return writeWithLegacyEmailFrameTypes({
+    designId: args.designId,
+    markedFileIds: args.files.flatMap(({ file }) =>
+      isHubSpotEmailHtml(file.content ?? "") ? [file.id] : [],
+    ),
+    write: (stored) => writeInlineSourceFilesBatchContent(args, stored),
+  });
+}
+
+async function writeInlineSourceFilesBatchContent(
+  args: {
+    designId: string;
+    files: Array<{
+      file: SourceWorkspaceFile;
+      content: string;
+      expectedVersionHash: string;
+    }>;
+    expectedHtmlFileIds?: readonly string[];
+    afterFilesPersist?: (tx: DbExec, updatedAt: string) => Promise<void>;
+  },
+  stored: LegacyEmailIds,
+): Promise<{
   files: Array<{
     id: string;
     versionHash: string;
@@ -1005,16 +1027,8 @@ export async function writeInlineSourceFilesBatch(args: {
     );
   };
 
-  const markedBeforeWrite = new Set(
-    args.files.flatMap(({ file }) =>
-      isHubSpotEmailHtml(file.content ?? "") ? [file.id] : [],
-    ),
-  );
-  for (const fileId of markedBeforeWrite) {
-    await backfillLegacyEmailFrameType({ designId: args.designId, fileId });
-  }
-  const legacyEmailFileIds = new Set<string>();
-  const result = await withLocks(0, async () => {
+  return withLocks(0, async () => {
+    const legacyEmailFileIds = new Set<string>();
     const access = await assertAccess("design", args.designId, "editor");
     if (
       parseDesignDataSourceType(
@@ -1077,6 +1091,9 @@ export async function writeInlineSourceFilesBatch(args: {
           isHubSpotEmailHtml(liveContent) ||
           isHubSpotEmailHtml(currentFile.content)
         ) {
+          if (!stored.has(file.id)) {
+            throw new LegacyEmailFrameTypeNotStoredError(file.id);
+          }
           legacyEmailFileIds.add(file.id);
         }
         assertHubSpotEmailFileType({
@@ -1276,9 +1293,4 @@ export async function writeInlineSourceFilesBatch(args: {
       },
     };
   });
-  for (const fileId of legacyEmailFileIds) {
-    if (markedBeforeWrite.has(fileId)) continue;
-    await backfillLegacyEmailFrameType({ designId: args.designId, fileId });
-  }
-  return result;
 }

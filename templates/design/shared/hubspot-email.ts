@@ -7,11 +7,24 @@ export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 // Gates the full parse, so it must match every spelling parse5 decodes to the
 // marker name. Any meta tag holding a character reference goes to the parse,
 // since references can spell any part of the name. A false positive only
-// costs a parse.
-const FRAME_TYPE_MARKER_CANDIDATE = /agent-native:frame-type|<meta\b[^>]*&/i;
+// costs a parse. The scan stays linear: a regex like /<meta[^>]*&/ rescans the
+// rest of the input for every unterminated <meta.
+function mayHaveFrameTypeMarker(content: string): boolean {
+  const lower = content.toLowerCase();
+  if (lower.includes("agent-native:frame-type")) return true;
+  let from = 0;
+  for (;;) {
+    const start = lower.indexOf("<meta", from);
+    if (start === -1) return false;
+    const end = lower.indexOf(">", start);
+    if (end === -1) return false;
+    if (lower.slice(start, end).includes("&")) return true;
+    from = end;
+  }
+}
 
 export function isHubSpotEmailHtml(content: string): boolean {
-  if (!FRAME_TYPE_MARKER_CANDIDATE.test(content)) return false;
+  if (!mayHaveFrameTypeMarker(content)) return false;
   // HubL string literals may contain HTML attribute delimiters or closing braces.
   const scanned = scanHubLInterpolations(content);
   if (scanned.unclosedAt !== undefined) return false;
