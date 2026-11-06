@@ -10728,18 +10728,18 @@ export default function SlideEditor({
       if (fontSizeStep !== undefined) {
         let styledRange: Range | null = null;
         const applyDelta = () => {
-          if (
-            savedRange &&
-            !savedRange.collapsed &&
-            restoreEditableTextRange(element, savedRange)
-          ) {
+          if (savedRange) {
             const applied = applyInlineFontSizeDelta(
               element,
               fontSizeStep,
               sizeBounds,
+              null,
+              savedRange,
             );
-            styledRange = applied.range ?? null;
-            return applied.changed;
+            if (applied.scope === "selection") {
+              styledRange = applied.range ?? null;
+              return applied.changed;
+            }
           }
           return applyObjectFontSizeDelta(element, fontSizeStep, sizeBounds)
             .changed;

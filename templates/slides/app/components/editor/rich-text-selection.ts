@@ -347,8 +347,8 @@ function styleSelectedText(
   editable: HTMLElement,
   selection: Selection | null,
   style: (texts: Text[]) => void,
+  range = getEditableTextRange(editable, selection),
 ): InlineTextStyleApplication {
-  const range = getEditableTextRange(editable, selection);
   if (!range) return { scope: "block" };
   const backward =
     selection?.anchorNode === range.endContainer &&
@@ -457,17 +457,23 @@ export function applyInlineFontSizeDelta(
   delta: number,
   bounds: FontSizeBounds,
   selection: Selection | null = window.getSelection(),
+  savedRange?: Range | null,
 ): InlineFontSizeDeltaApplication {
-  const range = getEditableTextRange(editable, selection);
-  if (!range) return { scope: "block", changed: false, unresolved: 0 };
+  const range = savedRange ?? getEditableTextRange(editable, selection);
+  if (!range || range.collapsed || !hasRangeInside(editable, range)) {
+    return { scope: "block", changed: false, unresolved: 0 };
+  }
   if (delta === 0)
     return { scope: "selection", range, changed: false, unresolved: 0 };
   const texts = selectedTextParts(editable, range).map((part) => part.text);
   const { sizes, changed, unresolved } = fontSizeChanges(texts, delta, bounds);
   if (!changed) return { scope: "selection", range, changed, unresolved };
-  const applied = styleSelectedText(editable, selection, (selected) => {
-    resizeTextRuns(selected, sizes);
-  });
+  const applied = styleSelectedText(
+    editable,
+    selection,
+    (selected) => resizeTextRuns(selected, sizes),
+    range,
+  );
   return { ...applied, changed, unresolved };
 }
 
