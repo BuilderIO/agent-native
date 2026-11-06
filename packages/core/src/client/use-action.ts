@@ -384,9 +384,9 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       cache: "no-store",
       signal: controller?.signal,
     }).then((res) => {
-      // The capability is the Set-Cookie header; an unread body keeps the
-      // request open and the page never reaches network idle.
-      res.body?.cancel().catch(() => {});
+      // The capability is the Set-Cookie header. Drain the small response so
+      // the request finishes normally instead of reporting a browser abort.
+      void res.text().catch(() => {});
       if (!res.ok) {
         throw new Error("Could not establish the browser UI capability.");
       }

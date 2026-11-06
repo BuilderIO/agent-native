@@ -4,3 +4,5 @@
 ---
 
 Identify hosted auth shells before app configuration loads, and record Builder signup enrollment and fallback outcomes for end-to-end experiment tracking.
+
+Drain UI capability responses without cancelling the browser request.
