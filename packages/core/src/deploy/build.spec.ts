@@ -1935,13 +1935,12 @@ describe("patchCloudflareModuleServerOutput", () => {
           }`,
         );
       }
-      fs.writeFileSync(
-        path.join(dir, "shared.mjs"),
-        `import {factory} from "./relay-0.mjs";
+      const shared = path.join(dir, "shared.mjs");
+      const sharedSource = `import {factory} from "./relay-0.mjs";
          import process from "node:process";
          export {factory};
-         export function check() { return factory(import.meta.url)("process") === process; }`,
-      );
+         export function check() { return factory(import.meta.url)("process") === process; }`;
+      fs.writeFileSync(shared, sharedSource);
       const entry = path.join(dir, `${consumerPrefix}-worker.mjs`);
       fs.writeFileSync(
         entry,
@@ -1949,11 +1948,22 @@ describe("patchCloudflareModuleServerOutput", () => {
          import process from "node:process";
          export default {fetch() {return Response.json({
            shared: check(),
-           consumer: factory(import.meta.url)("node:process") === process,
+           consumer: [${Array.from({ length: 100 }, () => 'factory(import.meta.url)("node:process") === process').join(",")}].every(Boolean),
            buffer: typeof factory(import.meta.url)("node:buffer").Buffer,
          });}};`,
       );
-      patchCloudflareModuleServerOutput(dir);
+      const reads = vi.spyOn(fs, "readFileSync");
+      let sharedReads: unknown[];
+      try {
+        patchCloudflareModuleServerOutput(dir);
+        sharedReads = reads.mock.calls.flatMap((args, index) =>
+          args[0] === shared ? [reads.mock.results[index]?.value] : [],
+        );
+      } finally {
+        reads.mockRestore();
+      }
+      expect(sharedReads.length).toBeGreaterThanOrEqual(2);
+      expect(sharedReads).toEqual(sharedReads.map(() => sharedSource));
       const worker = new Miniflare({
         modules: true,
         scriptPath: entry,

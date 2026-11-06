@@ -4648,9 +4648,14 @@ function patchCloudflareProcessRequire(
     start: number;
     calleeEnd: number;
     hasArguments: boolean;
-    receiver?: { start: number; end: number };
+    receiver: { start: number; end: number } | undefined;
   }> = [];
-  let shadowsGlobalThis = false;
+  const scopeInfo = { shadowsGlobalThis: false };
+  // Nested resolutions depend on the current cycle path; only cache root calls.
+  const callBindings = new Map<
+    Binding,
+    Map<string, CloudflareImportKind | undefined>
+  >();
   const getModuleBinding = (
     moduleAst: CloudflareModuleAst,
     name: string,
@@ -4727,7 +4732,7 @@ function patchCloudflareProcessRequire(
   ): CloudflareImportKind | undefined => {
     if (seenBindings.has(binding)) return undefined;
     const nextBindings = new Set(seenBindings).add(binding);
-    if (binding.path.parentPath?.isImportDeclaration()) {
+    if (binding.path.parentPath.isImportDeclaration()) {
       const specifier = binding.path.node;
       if (
         specifier.type !== "ImportSpecifier" &&
@@ -4806,7 +4811,7 @@ function patchCloudflareProcessRequire(
   };
   traverse(ast as unknown as Parameters<typeof traverse>[0], {
     Program(program) {
-      shadowsGlobalThis = program.scope.hasOwnBinding("globalThis");
+      scopeInfo.shadowsGlobalThis = program.scope.hasOwnBinding("globalThis");
     },
     Identifier(identifier) {
       usedNames.add(identifier.node.name);
@@ -4819,16 +4824,37 @@ function patchCloudflareProcessRequire(
           ? callee
           : undefined;
       if (callee.type !== "Identifier" && !member) return;
-      if (
-        resolveExpression(
+      const identifier = member ? member.object : callee;
+      if (identifier.type !== "Identifier") return;
+      const property = member
+        ? !member.computed && member.property.type === "Identifier"
+          ? member.property.name
+          : member.computed && member.property.type === "StringLiteral"
+            ? member.property.value
+            : undefined
+        : "";
+      const binding = call.scope.getBinding(identifier.name);
+      const key = member ? `.${property}` : "";
+      let resolutions =
+        binding && property !== undefined
+          ? callBindings.get(binding)
+          : undefined;
+      if (!resolutions && binding && property !== undefined) {
+        resolutions = new Map();
+        callBindings.set(binding, resolutions);
+      }
+      let resolved = resolutions?.get(key);
+      if (!resolutions?.has(key)) {
+        resolved = resolveExpression(
           call.get("callee") as NodePath,
           filePath,
           new Set(),
           new Set(),
           "factory",
-        ) !== "factory"
-      )
-        return;
+        );
+        resolutions?.set(key, resolved);
+      }
+      if (resolved !== "factory") return;
       if (call.node.start == null || callee.end == null) {
         throw new Error("Missing factory call offsets in Cloudflare output");
       }
@@ -4850,7 +4876,7 @@ function patchCloudflareProcessRequire(
     },
   });
   if (!factories.length) return code;
-  if (shadowsGlobalThis)
+  if (scopeInfo.shadowsGlobalThis)
     throw new Error(
       `[deploy] Cannot safely patch createRequire in ${filePath}: globalThis is shadowed`,
     );
