@@ -2,6 +2,20 @@ import { expect, it, vi } from "vitest";
 
 import { memoizeByContent } from "./memoize-by-content";
 
+it("caches false results and retries failed computations", () => {
+  const compute = vi.fn((content: string) => {
+    if (content === "unreadable") throw new Error("unreadable");
+    return false;
+  });
+  const memo = memoizeByContent(4, compute);
+  expect(memo("ordinary")).toBe(false);
+  expect(memo("ordinary")).toBe(false);
+  expect(compute).toHaveBeenCalledTimes(1);
+  expect(() => memo("unreadable")).toThrow("unreadable");
+  expect(() => memo("unreadable")).toThrow("unreadable");
+  expect(compute).toHaveBeenCalledTimes(3);
+});
+
 it("serves a primed result without computing it, and never replaces a computed one", () => {
   const compute = vi.fn((content: string) => content.length);
   const memo = memoizeByContent(4, compute);

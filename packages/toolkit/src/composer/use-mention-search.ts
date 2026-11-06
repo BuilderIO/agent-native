@@ -16,7 +16,16 @@ function parseMentionBatch(
     "message" in data.error &&
     typeof data.error.message === "string"
   )
-    return { error: new Error(data.error.message) };
+    return {
+      error: Object.assign(new Error(data.error.message), {
+        ...("code" in data.error && typeof data.error.code === "string"
+          ? { code: data.error.code }
+          : {}),
+        ...("source" in data.error && typeof data.error.source === "string"
+          ? { source: data.error.source }
+          : {}),
+      }),
+    };
   if (
     !data ||
     typeof data !== "object" ||
@@ -38,6 +47,17 @@ function parseMentionBatch(
   }
   return { items: data.items as MentionItem[] };
 }
+
+async function mentionResponseError(response: Response): Promise<Error> {
+  const fallback = new Error("Mention search unavailable");
+  const body = await response.text();
+  try {
+    const batch = parseMentionBatch(body);
+    return "error" in batch ? batch.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
 export async function loadWorkspaceMentionItems(
   query: string,
   resolvePath: (path: string) => string,
@@ -50,8 +70,8 @@ export async function loadWorkspaceMentionItems(
     ),
     { signal },
   );
-  if (!response.ok || !response.body)
-    throw new Error("Mention search unavailable");
+  if (!response.ok) throw await mentionResponseError(response);
+  if (!response.body) throw new Error("Mention search unavailable");
   const body = await response.text();
   if (signal.aborted)
     throw new DOMException("The operation was aborted.", "AbortError");
@@ -109,7 +129,8 @@ export function useMentionSearch(
           ),
           { signal: abort.signal },
         );
-        if (!res.ok || !res.body) throw new Error("Mention search unavailable");
+        if (!res.ok) throw await mentionResponseError(res);
+        if (!res.body) throw new Error("Mention search unavailable");
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();

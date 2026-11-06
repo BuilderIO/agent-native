@@ -2281,7 +2281,11 @@ describe("agent chat resource route organization scopes", () => {
     ]);
     expect(search).toHaveBeenCalledWith("brief", expect.anything());
     expect(unrelated).not.toHaveBeenCalled();
-    expect((await request("unknown")).status).toBe(404);
+    const unknown = await request("unknown");
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({
+      error: { code: "mention_source_not_found", source: "unknown" },
+    });
     search.mockResolvedValueOnce([]);
     expect(
       JSON.parse(await (await request("dashboards")).text()).items,
@@ -2289,7 +2293,35 @@ describe("agent chat resource route organization scopes", () => {
     search.mockRejectedValueOnce(new Error("provider unavailable"));
     const failure = await request("dashboards");
     expect(failure.status).toBe(503);
-    expect(await failure.text()).toContain("mention_source_unavailable");
+    expect(await failure.json()).toMatchObject({
+      error: {
+        code: "mention_source_unavailable",
+        source: "dashboards",
+        message: expect.any(String),
+      },
+    });
+  });
+
+  it("returns structured source errors for unauthenticated searches", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: { label: "Dashboards", search: async () => [] },
+      },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      "/_agent-native/agent-chat/mentions?source=dashboards",
+      {},
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "unauthorized",
+        source: "dashboards",
+        message: expect.any(String),
+      },
+    });
   });
 
   it("preserves inherited personal scope for both source-specific and streamed mention searches", async () => {
@@ -2301,7 +2333,10 @@ describe("agent chat resource route organization scopes", () => {
         dashboards: {
           label: "Dashboards",
           search: async () => {
-            scopes.push(getRequestContext()?.orgScope);
+            scopes.push({
+              orgScope: getRequestContext()?.orgScope,
+              orgId: getRequestContext()?.orgId,
+            });
             return [];
           },
         },
@@ -2316,7 +2351,10 @@ describe("agent chat resource route organization scopes", () => {
       expect(response.status).toBe(200);
       await response.text();
     }
-    expect(scopes).toEqual(["personal", "personal"]);
+    expect(scopes).toEqual([
+      { orgScope: "personal", orgId: undefined },
+      { orgScope: "personal", orgId: undefined },
+    ]);
   });
 
   it("reports a failed generic mention source in the stream instead of a clean empty result", async () => {

@@ -9,6 +9,15 @@ function documentWithHead(head: string, body = "Ordinary frame") {
 }
 
 describe("HubSpot email frame classification", () => {
+  it("reclassifies edited content and retains correct results for earlier versions", () => {
+    const ordinary = documentWithHead("");
+    const email = documentWithHead(MARKER);
+    expect(isHubSpotEmailHtml(ordinary)).toBe(false);
+    expect(isHubSpotEmailHtml(email)).toBe(true);
+    expect(isHubSpotEmailHtml(ordinary)).toBe(false);
+    expect(isHubSpotEmailHtml(email)).toBe(true);
+  });
+
   it("recognizes the authored email document", () => {
     expect(isHubSpotEmailHtml(createHubSpotEmailHtml())).toBe(true);
   });

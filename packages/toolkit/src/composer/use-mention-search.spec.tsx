@@ -48,6 +48,46 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("shared launcher mention discovery", () => {
+  it("surfaces localized structured source failures and rejects malformed HTTP errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "mention_source_unavailable",
+                message: "Impossible de charger les références.",
+                source: "dashboards",
+              },
+            }),
+            { status: 503 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response("not json", { status: 503 })),
+    );
+    await expect(
+      loadWorkspaceMentionItems(
+        "",
+        resolvePath,
+        new AbortController().signal,
+        "dashboards",
+      ),
+    ).rejects.toMatchObject({
+      message: "Impossible de charger les références.",
+      code: "mention_source_unavailable",
+      source: "dashboards",
+    });
+    await expect(
+      loadWorkspaceMentionItems(
+        "",
+        resolvePath,
+        new AbortController().signal,
+        "dashboards",
+      ),
+    ).rejects.toThrow("Mention search unavailable");
+  });
   it("rejects a failed source after earlier batches instead of returning a partial workspace result", async () => {
     vi.stubGlobal(
       "fetch",

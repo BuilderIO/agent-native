@@ -1,46 +1,50 @@
 import { parse } from "parse5";
 
 import { scanHubLInterpolations } from "./hubl-tokens.js";
+import { memoizeByContent } from "./memoize-by-content.js";
 
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
-export function isHubSpotEmailHtml(content: string): boolean {
-  // HubL string literals may contain HTML attribute delimiters or closing braces.
-  const scanned = scanHubLInterpolations(content);
-  if (scanned.unclosedAt !== undefined) return false;
-  const parts: string[] = [];
-  let cursor = 0;
-  for (const token of scanned.tokens) {
-    parts.push(content.slice(cursor, token.start), "ANHUBL");
-    cursor = token.end;
-  }
-  parts.push(content.slice(cursor));
-  const document = parse(parts.join(""));
-  const html = document.childNodes.find(
-    (node) => "tagName" in node && node.tagName === "html",
-  );
-  const head =
-    html && "childNodes" in html
-      ? html.childNodes.find(
-          (node) => "tagName" in node && node.tagName === "head",
-        )
-      : undefined;
-  return !!(
-    head &&
-    "childNodes" in head &&
-    head.childNodes.some(
-      (node) =>
-        "tagName" in node &&
-        node.tagName === "meta" &&
-        node.attrs
-          .find((attribute) => attribute.name === "name")
-          ?.value.toLowerCase() === "agent-native:frame-type" &&
-        node.attrs
-          .find((attribute) => attribute.name === "content")
-          ?.value.toLowerCase() === HUBSPOT_EMAIL_FRAME_TYPE,
-    )
-  );
-}
+export const isHubSpotEmailHtml = memoizeByContent(
+  64,
+  (content: string): boolean => {
+    // HubL string literals may contain HTML attribute delimiters or closing braces.
+    const scanned = scanHubLInterpolations(content);
+    if (scanned.unclosedAt !== undefined) return false;
+    const parts: string[] = [];
+    let cursor = 0;
+    for (const token of scanned.tokens) {
+      parts.push(content.slice(cursor, token.start), "ANHUBL");
+      cursor = token.end;
+    }
+    parts.push(content.slice(cursor));
+    const document = parse(parts.join(""));
+    const html = document.childNodes.find(
+      (node) => "tagName" in node && node.tagName === "html",
+    );
+    const head =
+      html && "childNodes" in html
+        ? html.childNodes.find(
+            (node) => "tagName" in node && node.tagName === "head",
+          )
+        : undefined;
+    return !!(
+      head &&
+      "childNodes" in head &&
+      head.childNodes.some(
+        (node) =>
+          "tagName" in node &&
+          node.tagName === "meta" &&
+          node.attrs
+            .find((attribute) => attribute.name === "name")
+            ?.value.toLowerCase() === "agent-native:frame-type" &&
+          node.attrs
+            .find((attribute) => attribute.name === "content")
+            ?.value.toLowerCase() === HUBSPOT_EMAIL_FRAME_TYPE,
+      )
+    );
+  },
+);
 
 export function createHubSpotEmailHtml({
   title = "Email",

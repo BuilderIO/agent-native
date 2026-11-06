@@ -6958,8 +6958,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             options?.resolveOrgId,
           );
           const mentionContext = {
-            userEmail: mentionsOwner,
-            orgId: mentionsOrgId ?? undefined,
+            ...(mentionsOwner ? { userEmail: mentionsOwner } : {}),
+            ...(mentionsOrgId ? { orgId: mentionsOrgId } : {}),
             ...((mentionsOrgId === null ||
               (mentionsOrgId === undefined &&
                 getRequestContext()?.orgScope === "personal")) && {
@@ -6995,6 +6995,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           if (query.source !== undefined) {
             const source = typeof query.source === "string" ? query.source : "";
+            const mentionErrorResponse = (
+              status: number,
+              code: string,
+              message: string,
+            ) =>
+              new Response(
+                JSON.stringify({ error: { code, message, source } }),
+                {
+                  status,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache",
+                  },
+                },
+              );
             const provider = Object.prototype.hasOwnProperty.call(
               mentionProviders,
               source,
@@ -7002,31 +7017,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ? mentionProviders[source]
               : undefined;
             if (!provider)
-              throw createError({
-                statusCode: 404,
-                statusMessage: referenceMessages.referenceUnknown,
-                data: { errorCode: "mention_source_not_found" },
-              });
+              return mentionErrorResponse(
+                404,
+                "mention_source_not_found",
+                referenceMessages.referenceUnknown,
+              );
             if (!mentionsOwner)
-              throw createError({
-                statusCode: 401,
-                statusMessage: referenceMessages.referenceSignIn,
-                data: { errorCode: "unauthorized" },
-              });
-            const items = await runWithRequestContext(
-              mentionContext,
-              async () => {
-                try {
-                  return await provider.search(q, event);
-                } catch {
-                  throw createError({
-                    statusCode: 503,
-                    statusMessage: referenceMessages.referenceUnavailable,
-                    data: { errorCode: "mention_source_unavailable" },
-                  });
-                }
-              },
-            );
+              return mentionErrorResponse(
+                401,
+                "unauthorized",
+                referenceMessages.referenceSignIn,
+              );
+            let items: Awaited<ReturnType<typeof provider.search>>;
+            try {
+              items = await runWithRequestContext(mentionContext, () =>
+                provider.search(q, event),
+              );
+            } catch {
+              return mentionErrorResponse(
+                503,
+                "mention_source_unavailable",
+                referenceMessages.referenceUnavailable,
+              );
+            }
             setResponseHeader(event, "Content-Type", "application/x-ndjson");
             setResponseHeader(event, "Cache-Control", "no-cache");
             return (
