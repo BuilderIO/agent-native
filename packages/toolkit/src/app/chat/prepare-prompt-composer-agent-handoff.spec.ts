@@ -1,9 +1,28 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { preparePromptComposerAgentHandoff } from "./prepare-prompt-composer-agent-handoff.js";
 
 describe("prompt composer agent handoff", () => {
+  it.each([[3 * 1024 * 1024], [2 * 1024 * 1024, 2 * 1024 * 1024]])(
+    "rejects oversized raw files before reading any",
+    async (...sizes) => {
+      const files = sizes.map((size, index) => {
+        const file = new File(["small"], `${index}.txt`);
+        Object.defineProperty(file, "size", { value: size });
+        return file;
+      });
+      const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+      try {
+        await expect(
+          preparePromptComposerAgentHandoff(files, {}, "Upload failed"),
+        ).rejects.toMatchObject({ cause: { code: "upload_too_large" } });
+        expect(read).not.toHaveBeenCalled();
+      } finally {
+        read.mockRestore();
+      }
+    },
+  );
   it("preserves raw file bytes once and durable attachment URLs", async () => {
     const file = new File(["review content"], "review.txt", {
       type: "text/plain",
@@ -76,6 +95,34 @@ describe("prompt composer agent handoff", () => {
         contentType: undefined,
       },
     ]);
+  });
+  it("preserves trusted HTTP storage references without reading the raw file", async () => {
+    const file = new File(["small"], "large.txt");
+    Object.defineProperty(file, "size", { value: 100 * 1024 * 1024 });
+    const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+    try {
+      const result = await preparePromptComposerAgentHandoff(
+        [file],
+        {
+          attachments: [
+            {
+              file,
+              name: file.name,
+              content: [
+                { type: "file", url: "http://127.0.0.1:5203/bucket/file.txt" },
+              ],
+            },
+          ],
+        },
+        "Upload failed",
+      );
+      expect(result.attachments?.[0]?.url).toBe(
+        "http://127.0.0.1:5203/bucket/file.txt",
+      );
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
   });
   it("rejects unreadable descriptors rather than submitting without selected context", async () => {
     await expect(

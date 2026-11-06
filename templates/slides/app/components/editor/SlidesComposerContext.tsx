@@ -41,7 +41,6 @@ import type { Slide } from "@/context/DeckContext";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
-  composerSourceErrorMessage,
   composerSourceKey,
   formatSlidesComposerContext,
   readSlidesComposerContext,

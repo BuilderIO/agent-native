@@ -6,7 +6,6 @@ import {
   IconLoader2,
   IconPlugConnected,
   IconSchool,
-  IconCommand,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
