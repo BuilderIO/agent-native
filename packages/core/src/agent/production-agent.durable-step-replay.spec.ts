@@ -162,7 +162,13 @@ describe("late outcome error reporting", () => {
     tool: "create-deck",
   };
 
-  afterEach(() => vi.restoreAllMocks());
+  let unregisterProvider: (() => void) | undefined;
+  afterEach(() => {
+    unregisterProvider?.();
+    unregisterProvider = undefined;
+    errorCapture.resetCaptureErrorStateForTests();
+    vi.restoreAllMocks();
+  });
 
   it("returns an on-time action rejection without reporting a late persistence failure", async () => {
     const capture = vi
@@ -227,16 +233,30 @@ describe("late outcome error reporting", () => {
     "nested-validation-after-write",
     "output-contract",
     "persistence-fails",
+    "private-persistence-fails",
   ] as const)(
     "classifies an interrupted action's late outcome: %s",
     async (outcome) => {
-      const capture = vi
-        .spyOn(errorCapture, "captureError")
-        .mockImplementation(() => {});
+      const capture = vi.spyOn(errorCapture, "captureError");
+      if (
+        outcome !== "persistence-fails" &&
+        outcome !== "private-persistence-fails"
+      ) {
+        capture.mockImplementation(() => {});
+      }
+      const provider = vi.fn();
+      unregisterProvider = errorCapture.registerErrorCaptureProvider(
+        "late-outcome-test",
+        provider,
+      );
+      errorCapture.resetCaptureErrorStateForTests();
       const runStore = await import("./run-store.js");
       const lateWrite = vi.mocked(runStore.recordLateAgentExecutionStepOutcome);
       lateWrite.mockReset();
-      const persistenceError = new Error("Late journal write failed");
+      const persistenceError = Object.assign(
+        new Error("password authentication failed for user example"),
+        { code: "28P01" },
+      );
       lateWrite.mockRejectedValueOnce(persistenceError);
       const actionStarted = Promise.withResolvers<void>();
       const actionResult = Promise.withResolvers<string>();
@@ -346,7 +366,8 @@ describe("late outcome error reporting", () => {
                         ...(outcome === "unexpected-timeout"
                           ? { timeoutMs: 10 }
                           : {}),
-                        ...(outcome === "private"
+                        ...(outcome === "private" ||
+                        outcome === "private-persistence-fails"
                           ? { persistInChatHistory: false }
                           : {}),
                         run: () => {
@@ -371,6 +392,7 @@ describe("late outcome error reporting", () => {
         expect(pool.end).not.toHaveBeenCalled();
         if (
           outcome === "persistence-fails" ||
+          outcome === "private-persistence-fails" ||
           outcome === "output-contract" ||
           outcome === "nested-validation-no-write" ||
           outcome === "nested-validation-after-write" ||
@@ -382,22 +404,56 @@ describe("late outcome error reporting", () => {
         else actionResult.reject(actionError);
       }
       await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
-      if (outcome === "persistence-fails") {
+      if (
+        outcome === "persistence-fails" ||
+        outcome === "private-persistence-fails"
+      ) {
         expect(lateWrite).toHaveBeenCalledOnce();
         expect(lateWrite).toHaveBeenCalledWith(
           expect.objectContaining({ ...fence, toolName: "create-deck" }),
-          expect.stringContaining('"result":"Deck saved"'),
+          expect.stringContaining(
+            outcome === "private-persistence-fails"
+              ? '"result":"[Private content omitted]"'
+              : '"result":"Deck saved"',
+          ),
         );
-        expect(capture).toHaveBeenCalledWith(
-          expect.objectContaining({
-            message: "Late outcome persistence failed",
-          }),
-          expect.objectContaining({
+        if (outcome === "persistence-fails") {
+          expect(capture.mock.calls[0]?.[0]).toBe(persistenceError);
+          expect(capture.mock.calls[0]?.[1]).toMatchObject({
             aiTraceId: fence.runId,
-            errorMessagePolicy: "omit",
             tags: lateTags,
-          }),
-        );
+          });
+          expect(
+            capture.mock.calls[0]?.[1]?.errorMessagePolicy,
+          ).toBeUndefined();
+          expect(provider).toHaveBeenCalledWith(
+            persistenceError,
+            expect.objectContaining({
+              tags: expect.objectContaining({
+                ...lateTags,
+                failureClass: "database-credential",
+              }),
+            }),
+          );
+        } else {
+          expect(capture).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "Private content omitted" }),
+            expect.objectContaining({
+              errorMessagePolicy: "omit",
+              tags: lateTags,
+            }),
+          );
+          expect(provider).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "Internal Server Error" }),
+            expect.objectContaining({
+              errorMessagePolicy: "omit",
+              tags: expect.objectContaining(lateTags),
+            }),
+          );
+          expect(JSON.stringify(provider.mock.calls)).not.toContain(
+            "password authentication failed",
+          );
+        }
       } else {
         expect(lateWrite).not.toHaveBeenCalled();
         if (

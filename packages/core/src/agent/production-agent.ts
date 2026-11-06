@@ -10994,18 +10994,16 @@ export async function runAgentLoop(opts: {
               ledgerArgumentsHash,
             );
             const reportLateError = (
+              error: unknown,
               phase: "late-action-rejection" | "late-outcome-persistence",
             ) => {
+              const privateCall = isPrivateCall();
               captureError(
-                new Error(
-                  isPrivateCall()
-                    ? "Private content omitted"
-                    : phase === "late-action-rejection"
-                      ? "Late action failed"
-                      : "Late outcome persistence failed",
-                ),
+                privateCall ? new Error("Private content omitted") : error,
                 {
-                  errorMessagePolicy: "omit",
+                  ...(privateCall || phase === "late-action-rejection"
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
                   route: "/_agent-native/agent-chat",
                   ...(opts.runId ? { aiTraceId: opts.runId } : {}),
                   tags: {
@@ -11104,8 +11102,8 @@ export async function runAgentLoop(opts: {
                       ledgerArgumentsHash,
                     );
                   }
-                } catch {
-                  reportLateError("late-outcome-persistence");
+                } catch (error) {
+                  reportLateError(error, "late-outcome-persistence");
                 }
               },
               async (error: unknown) => {
@@ -11133,7 +11131,10 @@ export async function runAgentLoop(opts: {
                         error.message === timeoutMessage())))
                 )
                   return;
-                reportLateError("late-action-rejection");
+                reportLateError(
+                  new Error("Late action failed"),
+                  "late-action-rejection",
+                );
               },
             );
             void retainRequestDbPoolScope(zombieLedgerPromise);
