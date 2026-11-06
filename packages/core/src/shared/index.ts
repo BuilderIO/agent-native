@@ -1,3 +1,4 @@
+export { parseAgentChatReferences } from "./agent-chat-references.js";
 export {
   agentChat,
   type AgentChatMessage,
