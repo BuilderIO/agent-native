@@ -191,6 +191,8 @@ export async function ownsLapsedTurnLease(
             AND lease_expires_at >= updated_at + INTERVAL '1 second'
           FOR UPDATE`,
     args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+    timeoutMs: LAPSED_LEASE_STATEMENT_TIMEOUT_MS,
+    maxAttempts: 1,
   });
   if (lease.rows.length !== 1) return false;
   const run = await tx.execute({
@@ -200,9 +202,15 @@ export async function ownsLapsedTurnLease(
             AND status = 'running'
             AND worker_generation = CAST(? AS BIGINT)`,
     args: [fence.runId, fence.generation],
+    timeoutMs: LAPSED_LEASE_STATEMENT_TIMEOUT_MS,
+    maxAttempts: 1,
   });
   return run.rows.length === 1;
 }
+
+// Bounded like the lease renewal that calls it, so a lapsed lease never holds
+// a pooled connection open past the next heartbeat.
+const LAPSED_LEASE_STATEMENT_TIMEOUT_MS = 4_000;
 
 export async function withFencedExecutionWrite<T>(
   write: (tx: DbExec) => Promise<T>,
