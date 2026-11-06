@@ -1,3 +1,9 @@
+## 0.4.7
+
+### Patch Changes
+
+- 687fefc: Bundle the visual recap workflow as a package asset instead of an escaped source string.
+
 ## 0.4.6
 
 ### Patch Changes
