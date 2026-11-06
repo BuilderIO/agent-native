@@ -5,8 +5,8 @@ import { reconcileIntroducedIdsInHtml } from "./code-layer";
 const NODE_ID_RE = /data-agent-native-node-id="([^"]*)"/g;
 const MARKUP_ID_RE = /\sid="([^"]*)"/g;
 
-function attributeValues(html: string, re: RegExp): string[] {
-  return Array.from(html.matchAll(re), (match) => match[1] ?? "");
+function attributeValues(html: string, re: RegExp) {
+  return Array.from(html.matchAll(re), ([, value]) => value);
 }
 
 function stripIdentityAttributes(html: string): string {
