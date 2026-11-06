@@ -2001,6 +2001,9 @@ describe("Neon foreground statement budgets", () => {
       if (sql.includes(";") && args !== undefined) {
         throw new Error("multi-command queries require the simple protocol");
       }
+      if (sql.includes("current_setting")) {
+        return { rows: [{ previous: "0" }], rowCount: 1 };
+      }
       return sql === "SELECT 1"
         ? { rows: [{ value: 1 }], rowCount: 1 }
         : { rows: [], rowCount: 0 };
@@ -2038,12 +2041,18 @@ describe("Neon foreground statement budgets", () => {
       ),
     ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
 
-    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
-      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
-      "SET LOCAL statement_timeout = 900",
-      "SELECT 1",
-      "SET LOCAL statement_timeout TO DEFAULT",
-      "COMMIT",
+    expect(query.mock.calls.map(([sql, args]) => [sql, args])).toEqual([
+      [
+        "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+        undefined,
+      ],
+      [
+        expect.stringContaining("current_setting('statement_timeout')"),
+        ["900ms"],
+      ],
+      ["SELECT 1", []],
+      ["SELECT set_config('statement_timeout', $1, true)", ["0"]],
+      ["COMMIT", []],
     ]);
     expect(client.release).toHaveBeenCalledWith(undefined);
   });
@@ -2433,9 +2442,14 @@ describe("db/client postgres-js request pool recovery", () => {
     vi.stubGlobal("__env__", {});
     const statements: string[] = [];
     const txSql = {
-      unsafe: vi.fn((query: string) => {
-        statements.push(query);
-        return Promise.resolve(Object.assign([], { count: 1 }));
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
+        return Promise.resolve(
+          Object.assign(
+            query.includes("current_setting") ? [{ previous: "2s" }] : [],
+            { count: 1 },
+          ),
+        );
       }),
     };
     const postgres = vi.fn(() =>
@@ -2465,9 +2479,11 @@ describe("db/client postgres-js request pool recovery", () => {
     );
 
     expect(statements).toEqual([
-      "SET LOCAL statement_timeout = 3750",
+      expect.stringMatching(
+        /current_setting\('statement_timeout'\)[\s\S]*set_config\('statement_timeout', \$1, true\)[\s\S]* \[3750ms\]$/,
+      ),
       "UPDATE agent_execution_leases SET updated_at = now()",
-      "SET LOCAL statement_timeout TO DEFAULT",
+      "SELECT set_config('statement_timeout', $1, true) [2s]",
       "SELECT 1",
     ]);
   });

@@ -1047,29 +1047,58 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
+// The CTE is materialized so the previous value is read before set_config
+// replaces it; inlined, both calls share one projection with no order.
+const BOUND_STATEMENT_TIMEOUT_SQL = `WITH previous AS MATERIALIZED (
+    SELECT current_setting('statement_timeout') AS value
+  )
+  SELECT value AS previous, set_config('statement_timeout', ?, true)
+  FROM previous`;
+const SET_STATEMENT_TIMEOUT_SQL =
+  "SELECT set_config('statement_timeout', ?, true)";
+
 /**
  * Runs one budgeted statement inside a transaction under a server-side
  * timeout. A client-side timeout only abandons the promise, so without it the
- * statement keeps its row locks and its connection. The setting is put back
- * once the statement succeeds, or `SET LOCAL` would cap every later statement
- * in the transaction; a statement that fails aborts the transaction, which
- * leaves nothing to put back.
+ * statement keeps its row locks and its connection. The transaction's previous
+ * setting is put back once the statement succeeds, or the cap would apply to
+ * every later statement and override a stricter one set earlier; a statement
+ * that fails aborts the transaction, which leaves nothing to put back.
  */
 async function withTransactionStatementTimeout<T>(
-  runSetting: (setting: string, timeoutMs: number) => Promise<unknown>,
+  runSetting: (
+    setting: DbExecQuery,
+    timeoutMs: number,
+  ) => Promise<readonly unknown[]>,
   timeoutMs: number,
   statement: (remainingMs: number) => Promise<T>,
 ): Promise<T> {
   const startedAt = Date.now();
   const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
-  await runSetting(
-    // raw-sql-ok: the interpolated value is a clamped integer, not input.
-    `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`,
+  const serverTimeout = () => postgresStatementTimeoutMs(remainingMs());
+  const applied = serverTimeout();
+  const bound = await runSetting(
+    { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [`${applied}ms`] },
     remainingMs(),
   );
+  const previous = (bound[0] as { previous?: unknown } | undefined)?.previous;
+  if (typeof previous !== "string") {
+    throw new Error(
+      "Could not read the transaction's statement_timeout before bounding a statement",
+    );
+  }
+  // A slow round trip above leaves less of the budget than the server was
+  // given, so the statement could outlive its caller holding its locks.
+  const tightened = serverTimeout();
+  if (applied - tightened > POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS) {
+    await runSetting(
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${tightened}ms`] },
+      remainingMs(),
+    );
+  }
   const result = await statement(remainingMs());
   await runSetting(
-    "SET LOCAL statement_timeout TO DEFAULT",
+    { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
     POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
   );
   return result;
@@ -1097,7 +1126,7 @@ function postgresJsTransactionExec(txSql: {
       const { timeoutMs } = dbExecQueryBudget(sql);
       const result = hasExplicitDbTimeout(sql)
         ? await withTransactionStatementTimeout(
-            (setting, ms) => query(setting, ms),
+            async (setting, ms) => Array.from(await query(setting, ms)),
             timeoutMs,
             (remainingMs) => query(sql, remainingMs),
           )
@@ -2185,7 +2214,8 @@ async function createDbExecInternal(
                 return queryNeonClient(client, sql);
               }
               return withTransactionStatementTimeout(
-                (setting, ms) => queryNeonClient(client, setting, ms),
+                async (setting, ms) =>
+                  (await queryNeonClient(client, setting, ms)).rows,
                 dbExecQueryBudget(sql).timeoutMs,
                 (remainingMs) => queryNeonClient(client, sql, remainingMs),
               );
