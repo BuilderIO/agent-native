@@ -8136,7 +8136,7 @@ export async function runAgentLoop(opts: {
           event.event.version === 1,
       )
       .lastIndexOf(true);
-    const batchEvent = events[batchIndex];
+    const batchEvent = batchIndex < 0 ? undefined : events.at(batchIndex);
     const batchData =
       batchEvent?.type === "rich_event" ? batchEvent.event.data : undefined;
     const batchCalls =
@@ -9357,6 +9357,7 @@ export async function runAgentLoop(opts: {
         settlementCandidate &&
         terminalStopReason === "end_turn" &&
         followUpResults.length === 0 &&
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort across awaited work.
         !signal.aborted &&
         !writeReceiptGuard(turnReceipts(), receiptGuardRetried);
       if (hasEmptyFinalResponse && !canSettleEmptyFinal) {
@@ -11613,10 +11614,12 @@ export async function runAgentLoop(opts: {
           turnHasActionWarnings = true;
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
-        const actionSettled =
+        const actionSettled = Boolean(
           !isError &&
           !toolResultLost &&
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort across awaited work.
           !signal.aborted &&
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- An action callback can request settlement.
           settlementOnReturn &&
           !requiresNextAction &&
           callEffect !== "unknown" &&
@@ -11625,7 +11628,8 @@ export async function runAgentLoop(opts: {
           !writeReceiptGuard(
             receipt ? [{ tool: toolCall.name, ...receipt }] : [],
             false,
-          );
+          ),
+        );
 
         const resolvedChatUI = actionChatUIForResult(
           toolCall.name,
