@@ -2818,11 +2818,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValueOnce(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAborted).mockResolvedValueOnce(false);
     vi.mocked(getRunStatus).mockResolvedValueOnce("completed");
 
@@ -2841,6 +2837,242 @@ describe("run manager soft timeout", () => {
       "user",
     );
     await run.finalized;
+  });
+
+  it("retains the real event queue failure through a turn abort", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-real-queue",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(terminalEventError);
+    let eventFailed!: () => void;
+    const eventFailureObserved = new Promise<void>((resolve) => {
+      eventFailed = resolve;
+    });
+    const run = startRun(
+      "run-stop-real-queue",
+      "thread-stop-real-queue",
+      async (send, signal) => {
+        try {
+          await send({ type: "text", text: "not persisted" });
+        } catch (error) {
+          expect(error).toBe(terminalEventError);
+        }
+        eventFailed();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const finalized = expect(run.finalized).rejects.toBe(terminalEventError);
+
+    try {
+      await eventFailureObserved;
+      await expect(abortRunAndTurnDurably(run.runId, "user")).rejects.toBe(
+        terminalEventError,
+      );
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed run marker as well as the terminal flush failure", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-run-marker-failure",
+      0,
+      true,
+    );
+    const markerError = new Error("run marker unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-run-marker-failure",
+      "thread-stop-run-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markRunAborted).mockRejectedValueOnce(markerError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, markerError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed turn marker even when it throws the same error as the flush", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-marker-failure",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-marker-failure",
+      "thread-stop-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(terminalEventError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, terminalEventError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports independent flush failures from other runs in the same turn", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-first",
+      0,
+      true,
+    );
+    const otherError = new AgentRunEventNotPersistedError(
+      "run-stop-second",
+      1,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-stop-first",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    const otherRun = startRun(
+      "run-stop-second",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(otherError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, otherError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports all concurrent turn flush failures without writing the marker after a retryable failure", async () => {
+    const terminalError = new AgentRunEventNotPersistedError(
+      "run-turn-terminal",
+      0,
+      true,
+    );
+    const retryableError = new Error("event store unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-turn-terminal",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    const otherRun = startRun(
+      "run-turn-retryable",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(retryableError);
+
+    try {
+      const error = await abortTurnByRefDurably(run.threadId, run.turnId).catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalError, retryableError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("does not widen a refused safe-boundary stop to a turn abort", async () => {
@@ -2904,10 +3136,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValue(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(true);
 
     try {
