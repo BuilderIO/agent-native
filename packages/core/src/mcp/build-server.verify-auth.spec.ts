@@ -125,6 +125,46 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [1_700_000_000.125, 1_700_000_000_125],
+    [1_700_000_000.1255, 1_700_000_000_125.5],
+    [1e20, null],
+  ])(
+    "preserves representable signed NumericDate iat %s",
+    async (iat, expected) => {
+      const token = await new jose.SignJWT({ sub: "a@example.com" })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt(iat)
+        .setExpirationTime("1h")
+        .sign(new TextEncoder().encode(SECRET));
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(true);
+      expect(res.callerContext?.issuedAt).toEqual(
+        expected === null ? null : { valueMs: expected, source: "jwt-iat" },
+      );
+    },
+  );
+
+  it("identifies a deployment-signed org-only caller as an organization", async () => {
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue({
+      orgId: "org_123",
+      orgDomain: null,
+    });
+    const token = await sign({ org_id: "org_123" });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.identity).toEqual({
+      userEmail: undefined,
+      identityAssurance: "organization",
+      orgId: "org_123",
+      orgDomain: undefined,
+    });
+    expect(res.callerContext).toMatchObject({
+      credentialKind: "a2a-deployment",
+      principal: { kind: "organization" },
+      orgId: "org_123",
+    });
+  });
+
   it("accepts an audience-bound ordinary A2A JWT for this MCP endpoint", async () => {
     const resourceUrl = "https://assets.example.com/_agent-native/mcp";
     const token = await sign({ sub: "a@example.com" }, SECRET, {
@@ -520,7 +560,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "connect-legacy",
-      principal: { kind: "issued-subject", email: "ci@example.com" },
+      principal: { kind: "connect-subject", email: "ci@example.com" },
       orgId: null,
       orgDomain: undefined,
       issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
@@ -813,7 +853,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "oauth",
-      principal: { kind: "issued-subject", email: "oauth@example.com" },
+      principal: { kind: "signed-subject", email: "oauth@example.com" },
       orgId: "org_123",
       orgDomain: "builder.io",
       issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },
@@ -840,15 +880,87 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.mcpCredentialIssuedAtMs).toBe(grantCreatedAtMs);
     expect(res.callerContext).toEqual({
       credentialKind: "oauth",
-      principal: { kind: "issued-subject", email: "oauth@example.com" },
+      principal: { kind: "signed-subject", email: "oauth@example.com" },
       orgId: undefined,
       orgDomain: undefined,
       issuedAt: { valueMs: signedIssuedAtMs(token), source: "jwt-iat" },
       revocationAnchor: {
         valueMs: grantCreatedAtMs,
-        source: "grant-created-at",
+        source: "signed-grant-created-at",
       },
     });
+  });
+
+  it("describes shared-key OAuth subject and grant claims without implying local issuance", async () => {
+    const resource = "https://mail.example.test/mcp";
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      credential_version: 2,
+      sub: "sibling-assertion@example.test",
+      org_id: null,
+      client_id: "sibling-client",
+      scope: "mcp:read",
+      resource,
+      grant_created_at_ms: 1_650_000_000_000,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://sibling.example.test")
+      .setAudience(resource)
+      .setIssuedAt(1_700_000_000)
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode(SECRET));
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.identity).toMatchObject({
+      userEmail: "sibling-assertion@example.test",
+      identityAssurance: "user",
+      orgId: null,
+      mcpCredentialIssuedAtMs: 1_650_000_000_000,
+    });
+    expect(res.callerContext).toEqual({
+      credentialKind: "oauth",
+      principal: {
+        kind: "signed-subject",
+        email: "sibling-assertion@example.test",
+      },
+      orgId: null,
+      orgDomain: undefined,
+      issuedAt: { valueMs: 1_700_000_000_000, source: "jwt-iat" },
+      revocationAnchor: {
+        valueMs: 1_650_000_000_000,
+        source: "signed-grant-created-at",
+      },
+    });
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("reports fractional OAuth iat without changing the legacy revocation anchor", async () => {
+    const resource = "https://mail.example.test/mcp";
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      credential_version: 2,
+      sub: "oauth@example.com",
+      org_id: null,
+      client_id: "client-123",
+      scope: "mcp:read",
+      resource,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setAudience(resource)
+      .setIssuedAt(1_700_000_000.125)
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode(SECRET));
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.identity?.mcpCredentialIssuedAtMs).toBeUndefined();
+    expect(res.callerContext?.issuedAt).toEqual({
+      valueMs: 1_700_000_000_125,
+      source: "jwt-iat",
+    });
+    expect(res.callerContext?.revocationAnchor).toBeNull();
   });
 
   it("does not invent an issue time or revocation anchor for a legacy token without iat", async () => {
@@ -871,7 +983,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.mcpCredentialIssuedAtMs).toBeUndefined();
     expect(res.callerContext).toEqual({
       credentialKind: "connect-legacy",
-      principal: { kind: "issued-subject", email: "ci@example.com" },
+      principal: { kind: "connect-subject", email: "ci@example.com" },
       orgId: null,
       orgDomain: undefined,
       issuedAt: null,
@@ -922,7 +1034,10 @@ describe("verifyAuth — connect-token revoke check", () => {
     const issuedAtMs = signedIssuedAtMs(token);
     expect(res.callerContext).toEqual({
       credentialKind: "connect-oauth",
-      principal: { kind: "issued-subject", email: "oauth-connect@example.com" },
+      principal: {
+        kind: "connect-subject",
+        email: "oauth-connect@example.com",
+      },
       orgId: null,
       orgDomain: undefined,
       issuedAt: { valueMs: issuedAtMs, source: "jwt-iat" },

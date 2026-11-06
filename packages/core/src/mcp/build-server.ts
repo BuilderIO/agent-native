@@ -291,9 +291,10 @@ export interface McpCallerContext {
     | "a2a-org-member"
     | "static"
     | "dev-open";
-  /** An issued subject is not necessarily a person; assertions and hints are not verified users. */
+  /** A signed subject is not proof of local issuance or a verified person; a connect subject also matched a local token row. */
   principal:
-    | { kind: "issued-subject"; email: string }
+    | { kind: "signed-subject"; email: string }
+    | { kind: "connect-subject"; email: string }
     | { kind: "service"; email: string }
     | { kind: "org-member"; email: string }
     | { kind: "asserted-user"; email: string }
@@ -305,17 +306,17 @@ export interface McpCallerContext {
   orgDomain: string | undefined;
   /** The verified JWT's own issue time, not the OAuth grant time. */
   issuedAt: { valueMs: number; source: "jwt-iat" } | null;
-  /** The local credential time used to anchor logout revocation for widgets. */
+  /** The signed time selected by the existing widget logout-revocation policy. */
   revocationAnchor: {
     valueMs: number;
-    source: "grant-created-at" | "jwt-iat";
+    source: "signed-grant-created-at" | "jwt-iat";
   } | null;
 }
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   identityAssurance?: "user" | "org-member" | "organization" | "service";
-  /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
+  /** Legacy widget revocation anchor from a verified MCP credential, in milliseconds. */
   mcpCredentialIssuedAtMs?: number;
   orgId?: string | null;
   orgDomain: string | undefined;
@@ -4290,8 +4291,8 @@ export type VerifyAuthResult = {
 };
 
 /**
- * A verified MCP credential this app issued: an MCP OAuth access token
- * (Connect mints these too), or a connect token in the older A2A format.
+ * A verified MCP OAuth access token, or a connect token in the older A2A
+ * format. Signature verification alone does not establish the issuing app.
  */
 type IssuedMcpCredential = {
   userEmail: string;
@@ -4304,7 +4305,7 @@ type IssuedMcpCredential = {
   oauthScopes?: string[];
   oauthClientId?: string;
   catalogScope?: "full";
-  /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
+  /** Signed OAuth grant creation-time claim, in milliseconds. */
   grantCreatedAtMs?: number;
   /** `iat`, in seconds. */
   issuedAt: number | undefined;
@@ -4313,9 +4314,8 @@ type IssuedMcpCredential = {
 /**
  * Connect tokens minted before Connect used the MCP OAuth format: an
  * A2A-shaped JWT with `scope: "mcp-connect"` and no audience, signed with this
- * deployment's A2A_SECRET. They are this app's own credentials, not cross-app
- * assertions, so organization secrets and organization-principal rules never
- * apply to them: their identity is their stored row.
+ * deployment's A2A_SECRET. Organization secrets and organization-principal
+ * rules never apply to them: admission also requires a matching stored row.
  */
 async function verifyLegacyConnectToken(
   token: string,
@@ -4352,7 +4352,7 @@ async function verifyLegacyConnectToken(
 
 /**
  * Classifies a bearer token by the credential it declares itself to be, then
- * verifies it as that. A token claiming to be one this app issued never
+ * verifies it as that. A token claiming to be an MCP credential never
  * reaches the A2A checks, even when it fails to verify: that is
  * `unverified`. Null means it makes no such claim.
  */
@@ -4401,14 +4401,16 @@ async function verifyIssuedMcpCredential(
 function signedJwtIssuedAt(
   issuedAt: number | undefined,
 ): McpCallerContext["issuedAt"] {
-  if (typeof issuedAt !== "number" || !Number.isSafeInteger(issuedAt))
-    return null;
+  if (typeof issuedAt !== "number" || !Number.isFinite(issuedAt)) return null;
   const valueMs = issuedAt * 1000;
-  return Number.isSafeInteger(valueMs) ? { valueMs, source: "jwt-iat" } : null;
+  return Number.isFinite(valueMs) &&
+    Math.abs(valueMs) <= Number.MAX_SAFE_INTEGER
+    ? { valueMs, source: "jwt-iat" }
+    : null;
 }
 
 /**
- * The one admission path for MCP credentials this app issued. A connect token
+ * The one admission path for MCP OAuth and connect credentials. A connect token
  * is admitted only while its stored row exists, is unrevoked, and names the
  * token's subject and org claim; the row also supplies the org of a token
  * without a claim and marks service identities. Every credential then passes
@@ -4492,7 +4494,12 @@ async function admitIssuedMcpCredential(
     callerContext: {
       credentialKind: credential.credentialKind,
       principal: {
-        kind: stored?.kind === "service" ? "service" : "issued-subject",
+        kind:
+          stored?.kind === "service"
+            ? "service"
+            : stored
+              ? "connect-subject"
+              : "signed-subject",
         email: credential.userEmail,
       },
       orgId,
@@ -4505,7 +4512,7 @@ async function admitIssuedMcpCredential(
               valueMs: mcpCredentialIssuedAtMs,
               source:
                 credential.grantCreatedAtMs !== undefined
-                  ? "grant-created-at"
+                  ? "signed-grant-created-at"
                   : "jwt-iat",
             },
     },
@@ -4513,8 +4520,7 @@ async function admitIssuedMcpCredential(
 }
 
 /**
- * Credentials this app issues (MCP OAuth access tokens and connect tokens)
- * carry the organization chosen when they were issued: the signed `org_id`
+ * MCP OAuth access tokens and connect tokens carry the signed `org_id`
  * claim, or the stored org of a connect token. Membership can end after
  * issuance, so that org is admitted only while the subject is still a member
  * here. The action-route bearer path reuses verifyAuth and gets the same
@@ -4609,8 +4615,8 @@ async function checkIssuedCredential(
 
 /**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified. A credential this app issued
- *     (an MCP OAuth access token or a connect token) supplies its subject and
+ *   - { authed: true, identity } when verified. An MCP OAuth or connect
+ *     credential supplies its subject and
  *     org, checked against live membership. A deployment-secret A2A JWT may
  *     supply its asserted user (`sub`), while an org-secret JWT supplies only
  *     verified organization scope. Static-token auth gets identity from
@@ -4620,7 +4626,7 @@ async function checkIssuedCredential(
  *   - { authed: false, refusal? } on rejection; `refusal` is set whenever a
  *     presented token was refused.
  *
- * Credentials this app issued are recognized and verified before any A2A
+ * MCP OAuth and connect credentials are recognized and verified before any A2A
  * rule runs, so a change to cross-app trust cannot reclassify them. Both A2A
  * paths bind `org_domain` to local organization metadata. The MCP endpoint
  * wraps tool runs in `runWithRequestContext({ userEmail, orgId })`. Without
@@ -4756,7 +4762,8 @@ export async function verifyAuth(
               : "asserted-user",
           email,
         }
-      : verifiedA2AIdentity.credentialKind === "a2a-organization"
+      : verifiedA2AIdentity.credentialKind === "a2a-organization" ||
+          typeof admitted.identity?.orgId === "string"
         ? { kind: "organization" }
         : { kind: "anonymous" };
     return {
