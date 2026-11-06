@@ -2850,7 +2850,7 @@ export function AuthPage(props: AuthPageProps) {
             </button>
           </div>
         ) : null}
-        {!googleOnly ? signupForm : legalNote}
+        {!googleOnly ? signupForm : builderLegalNote ? legalNote : null}
         <div
           id="verification-step"
           className={`form verification-step ${view === "verification" ? "active" : ""}`}

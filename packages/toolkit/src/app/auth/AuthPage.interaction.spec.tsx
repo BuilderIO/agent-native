@@ -89,13 +89,13 @@ describe("AuthPage interactions", () => {
         container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
       ).toBe(false);
       const footer = container.querySelector(".legal-note");
-      expect(footer?.textContent).toContain("By signing up, you accept our");
-      expect(
-        container
-          .querySelector("#google-btn")
-          ?.compareDocumentPosition(footer ?? container),
-      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       if (variant === "automatic") {
+        expect(footer?.textContent).toContain("By signing up, you accept our");
+        expect(
+          container
+            .querySelector("#google-btn")
+            ?.compareDocumentPosition(footer ?? container),
+        ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
         expect(footer?.querySelectorAll("a").length).toBe(4);
         expect(
           container.querySelector(
@@ -107,6 +107,8 @@ describe("AuthPage interactions", () => {
             'a[href="https://www.builder.io/legal/privacy"]',
           ),
         ).not.toBeNull();
+      } else {
+        expect(footer).toBeNull();
       }
     },
   );
