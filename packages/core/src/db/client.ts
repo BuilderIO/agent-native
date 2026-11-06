@@ -1075,16 +1075,18 @@ async function withTransactionStatementTimeout<T>(
   return result;
 }
 
-function postgresJsTransactionExec(txSql: any): DbExec {
+type PostgresJsRows = ArrayLike<unknown> & { count?: number };
+
+function postgresJsTransactionExec(txSql: {
+  unsafe(query: string, args?: unknown[]): Promise<PostgresJsRows>;
+}): DbExec {
   const query = (sql: DbExecInput, timeoutMs: number) => {
+    // raw-sql-ok: forwards a statement its caller already built and bound.
     const { rawSql, args } = sqlAndArgs(sql);
     const pgSql = postgresSqlForStatement(sql, rawSql);
-    return withDbTimeout<ArrayLike<unknown> & { count?: number }>(
+    return withDbTimeout<PostgresJsRows>(
       "query",
-      () =>
-        txSql.unsafe(pgSql, args as any[]) as Promise<
-          ArrayLike<unknown> & { count?: number }
-        >,
+      () => txSql.unsafe(pgSql, args),
       timeoutMs,
       undefined,
       { sql: rawSql },
