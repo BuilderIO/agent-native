@@ -126,8 +126,9 @@ export function scheduleSourceDependencies(
       const state = get(id);
       return state.status === "unloaded" || state.status === "loading";
     };
-    // A loaded root stays scheduled either way: dropping it only reads it again.
-    const readRoot = readRootsPastBudget || !isLoading(root);
+    // A loaded or loading root stays scheduled either way: dropping it only
+    // reads it again.
+    const readRoot = readRootsPastBudget || get(root).status !== "unloaded";
     if (admitted) additional.forEach((id) => ids.add(id));
     else if (readRoot) ids.add(root);
     idsByRoot.set(root, graph.ids);

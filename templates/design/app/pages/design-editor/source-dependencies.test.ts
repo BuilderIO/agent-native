@@ -210,6 +210,18 @@ describe("source dependencies", () => {
     expect(result.ids).toEqual(["active", "one", "two", "loaded"]);
     expect(result.statusByRoot.get("other")).toBe("deferred");
     expect(result.statusByRoot.get("loaded")).toBe("deferred");
+    states.set("other", { status: "loading" });
+    const reading = scheduleSourceDependencies(
+      files,
+      ["active", "other"],
+      (id) => states.get(id) ?? { status: "unloaded" },
+      3,
+      undefined,
+      { readRootsPastBudget: false },
+    );
+    // A read already under way keeps going and reports as such.
+    expect(reading.ids).toContain("other");
+    expect(reading.statusByRoot.get("other")).toBe("loading");
   });
   it("defers only the dependencies of a loaded root once the budget is full", () => {
     const files = [
