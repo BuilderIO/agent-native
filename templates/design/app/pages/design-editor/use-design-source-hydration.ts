@@ -173,11 +173,11 @@ export function useDesignSourceHydration(
       dependencyIndex,
     );
     const ids = scheduled.ids.filter((id) => !demanded.has(id));
-    // A ready preview whose dependencies the budget cannot reach would
-    // otherwise report loading forever.
+    // A preview the budget cannot reach, or one whose dependencies it cannot,
+    // is never read and would otherwise report loading forever.
     for (const [root, status] of scheduled.statusByRoot) {
-      if (status !== "loading" || loader.get(root).status !== "ready") continue;
-      const blocked = (scheduled.idsByRoot.get(root) ?? []).some(
+      if (status !== "loading") continue;
+      const blocked = [root, ...(scheduled.idsByRoot.get(root) ?? [])].some(
         (id) => loader.get(id).status === "unloaded" && !loader.canLoad(id),
       );
       if (blocked) scheduled.statusByRoot.set(root, "deferred");

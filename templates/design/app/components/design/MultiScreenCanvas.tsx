@@ -12427,13 +12427,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   ]);
   const sourceDemandRef = useRef<{
     pinned: readonly string[];
+    settledPinned: readonly string[];
     preview: readonly string[];
-  }>({ pinned: [], preview: [] });
+  }>({ pinned: [], settledPinned: [], preview: [] });
   const sourceDemandKey = useMemo(() => {
     // Re-ranking previews on every pan frame would re-render the editor per
-    // frame; they follow the camera once it rests. A board within the live
-    // budget has no settle tick, so it previews what is near the view in
-    // board order, which changes only as screens come and go.
+    // frame; they follow the camera once it rests. Without live-editor
+    // admission there is no settle tick, so previews keep board order, which
+    // changes only as screens come and go.
     const cameraMoving =
       needsLiveEditorAdmission &&
       (isPanning ||
@@ -12447,9 +12448,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
     );
     const demand = selectSourceDemand({
-      frames: canvasFrames.map(({ screen, geometry }) => ({
+      frames: canvasFrames.map(({ screen, geometry, metadata }) => ({
         id: screen.id,
         geometry,
+        previewable:
+          !metadata.previewUrl && !isRunningAppSourceType(metadata.source),
       })),
       liveIds: liveScreenIdsRef.current,
       protectedIds: protectedLiveScreenIds,
@@ -12480,29 +12483,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? null
         : getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
       overscannedViewport: nearby,
+      previewOrder: needsLiveEditorAdmission ? "distance" : "board",
     });
     const previous = sourceDemandRef.current;
-    // Mid-gesture the new view is unknown, so every source the last view
-    // held stays held: releasing one before the view settles drops a screen
-    // that is still on screen.
+    // Mid-gesture the new view is unknown, so every source the last settled
+    // view held stays held: releasing one before the view settles drops a
+    // screen that is still on screen.
+    const settledPinned = cameraMoving ? previous.settledPinned : demand.pinned;
     const pinned = cameraMoving
-      ? [...new Set([...demand.pinned, ...previous.pinned])]
+      ? [...new Set([...demand.pinned, ...settledPinned])]
       : demand.pinned;
     const pinnedSet = new Set(pinned);
-    const preview = (
-      !needsLiveEditorAdmission
-        ? canvasFrames
-            .filter(
-              ({ geometry }) =>
-                nearby !== null &&
-                isFrameWithinOverscannedViewport(geometry, nearby),
-            )
-            .map(({ screen }) => screen.id)
-        : cameraMoving
-          ? previous.preview
-          : demand.preview
-    ).filter((id) => !pinnedSet.has(id));
-    sourceDemandRef.current = { pinned, preview };
+    const preview = (cameraMoving ? previous.preview : demand.preview).filter(
+      (id) => !pinnedSet.has(id),
+    );
+    sourceDemandRef.current = { pinned, settledPinned, preview };
     return JSON.stringify({ pinned, preview });
   }, [
     activeId,
@@ -12530,6 +12525,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       },
     );
   }, [onSourceDemandChange, sourceDemandKey]);
+  const onSourceDemandChangeRef = useRef(onSourceDemandChange);
+  onSourceDemandChangeRef.current = onSourceDemandChange;
+  useEffect(
+    () => () =>
+      onSourceDemandChangeRef.current?.({
+        pinned: [...sourceDemandRef.current.pinned],
+        preview: [],
+      }),
+    [],
+  );
   const selectedFrameEntries = useMemo(
     () =>
       canvasFrames

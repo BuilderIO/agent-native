@@ -184,6 +184,48 @@ describe("source demand", () => {
     expect(pinned).not.toContain("screen-0");
   });
 
+  it("skips screens that paint without their source", () => {
+    const frames = board(3).map((frame) =>
+      frame.id === "screen-1" ? { ...frame, previewable: false } : frame,
+    );
+    const { preview } = selectSourceDemand({
+      frames,
+      liveIds: new Set(),
+      protectedIds: new Set(),
+      zoom: 0.1,
+      viewport: { left: 0, top: 0, right: 5000, bottom: 1000 },
+    });
+    expect(preview).toEqual(["screen-2", "screen-0"]);
+  });
+
+  it("keeps board order in each band when asked, on-screen first", () => {
+    const frames = board(4);
+    const demand = (left: number) =>
+      selectSourceDemand({
+        frames,
+        liveIds: new Set(),
+        protectedIds: new Set(),
+        zoom: 0.1,
+        viewport: { left, top: 0, right: left + 1000, bottom: 1000 },
+        overscannedViewport: {
+          left: left - 3200,
+          top: 0,
+          right: left + 4200,
+          bottom: 1000,
+        },
+        previewOrder: "board",
+      }).preview;
+    // screen-2 is on screen; screens 0, 1 and 3 are nearby.
+    expect(demand(3300)).toEqual([
+      "screen-2",
+      "screen-0",
+      "screen-1",
+      "screen-3",
+    ]);
+    // Panning within the same screen does not reorder anything.
+    expect(demand(3500)).toEqual(demand(3300));
+  });
+
   it("previews nothing without a viewport", () => {
     expect(
       selectSourceDemand({

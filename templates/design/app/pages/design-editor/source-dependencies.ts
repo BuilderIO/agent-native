@@ -15,7 +15,8 @@ export function createSourceDependencyIndex(
     ),
     // Every loader change rescans every scheduled root, so each version is
     // scanned once. Keyed by version: holding the content would keep evicted
-    // sources alive past the loader's byte budget.
+    // sources alive past the loader's byte budget. One entry per file, dropped
+    // when a scan finds its source no longer loaded.
     references: new Map<string, { version: string; references: string[] }>(),
   };
 }
@@ -56,7 +57,10 @@ export function sourceDependencyIds(
       (state.status === "ready" && state.refreshError)
     )
       failed = true;
-    if (!file || state.status !== "ready") continue;
+    if (!file || state.status !== "ready") {
+      referenceCache.delete(id);
+      continue;
+    }
     const base = file.filename.replace(/^\/+/, "").split("/").slice(0, -1);
     const version = `${state.updatedAt}\0${state.content.length}`;
     let cached = referenceCache.get(id);

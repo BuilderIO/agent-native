@@ -34,8 +34,14 @@ export function selectSourceDemand({
   viewport = null,
   overscannedViewport = viewport,
   previewBudget = SOURCE_PREVIEW_DEMAND_BUDGET,
+  previewOrder = "distance",
 }: {
-  frames: readonly { id: string; geometry: FrameGeometry }[];
+  /** `previewable: false` marks a screen that paints without its source. */
+  frames: readonly {
+    id: string;
+    geometry: FrameGeometry;
+    previewable?: boolean;
+  }[];
   liveIds: ScreenIds;
   protectedIds: ScreenIds;
   zoom: number;
@@ -47,6 +53,11 @@ export function selectSourceDemand({
   /** Screens near the viewport, previewed after every on-screen one. */
   overscannedViewport?: OverscannedViewportBounds | null;
   previewBudget?: number;
+  /**
+   * `board` keeps board order within each band, so the list changes only as
+   * screens cross the viewport, not as the camera moves.
+   */
+  previewOrder?: "distance" | "board";
 }): SourceDemand {
   const protectedCandidates = [...protectedIds]
     .filter((id) => !requiredIds.has(id))
@@ -77,7 +88,7 @@ export function selectSourceDemand({
   const onScreen: (typeof frames)[number][] = [];
   const nearby: (typeof frames)[number][] = [];
   for (const frame of frames) {
-    if (pinnedSet.has(frame.id)) continue;
+    if (pinnedSet.has(frame.id) || frame.previewable === false) continue;
     // Center distance alone ranks a tall on-screen screen behind short
     // off-screen ones, and the byte budget then sheds what is in view.
     if (isFrameWithinOverscannedViewport(frame.geometry, viewport)) {
@@ -89,9 +100,13 @@ export function selectSourceDemand({
       nearby.push(frame);
     }
   }
-  const preview = [
-    ...orderByViewportDistance(onScreen, viewport),
-    ...orderByViewportDistance(nearby, viewport),
-  ].slice(0, Math.max(0, Math.floor(previewBudget)));
+  const order = (band: typeof frames) =>
+    previewOrder === "board"
+      ? band.map(({ id }) => id)
+      : orderByViewportDistance(band, viewport);
+  const preview = [...order(onScreen), ...order(nearby)].slice(
+    0,
+    Math.max(0, Math.floor(previewBudget)),
+  );
   return { pinned, preview };
 }

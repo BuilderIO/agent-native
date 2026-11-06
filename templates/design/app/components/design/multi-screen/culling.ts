@@ -109,14 +109,16 @@ export function selectStaticPreviewScreenIds({
         isFrameWithinOverscannedViewport(geometry, visibleViewport),
       )
     : [];
+  const nearbyIds = new Set(nearby.map(({ id }) => id));
+  const onScreenIds = new Set(onScreen.map(({ id }) => id));
   const retained = candidates.filter(
-    (candidate) => retainedIds.has(candidate.id) && !nearby.includes(candidate),
+    ({ id }) => retainedIds.has(id) && !nearbyIds.has(id),
   );
   return new Set(
     [
       ...orderByViewportDistance(onScreen, viewport),
       ...orderByViewportDistance(
-        nearby.filter((candidate) => !onScreen.includes(candidate)),
+        nearby.filter(({ id }) => !onScreenIds.has(id)),
         viewport,
       ),
       ...orderByViewportDistance(retained, viewport),

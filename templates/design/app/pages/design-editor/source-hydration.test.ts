@@ -250,15 +250,15 @@ describe("SourceHydration", () => {
       content: "x".repeat(4),
       updatedAt: id,
     }));
-    const loader = new SourceHydration(read, () => {}, 4, 10);
+    const loader = new SourceHydration(read, () => {}, 4, 12);
     const ids = ["held", "p0", "p1", "p2", "p3"];
-    loader.sync(ids.map((id) => ({ id, updatedAt: id })));
+    loader.sync(ids.map((id) => ({ id, updatedAt: id, contentBytes: 4 })));
     loader.setPinned(new Set(["held"]));
     await loader.request("held");
     const wanted = ["p0", "p1", "p2", "p3"];
     loader.setWanted(wanted);
     await Promise.all(wanted.map((id) => loader.request(id, "low")));
-    // 4 held bytes + 4 for p0 leave p1 under budget; p2 and p3 are past it.
+    // 4 held bytes, p0 and p1 fill the budget; p2 and p3 are past it.
     expect(wanted.map((id) => loader.get(id).status)).toEqual([
       "ready",
       "ready",
@@ -280,11 +280,11 @@ describe("SourceHydration", () => {
 
   it("keeps a source that moves from wanted to pinned over the budget", async () => {
     const read = vi.fn(async (id: string) => ({
-      content: "x".repeat(4),
+      content: "x".repeat(id === "a" ? 2 : 4),
       updatedAt: id,
     }));
     const loader = new SourceHydration(read, () => {}, 4, 10);
-    loader.sync(["a", "b", "c"].map((id) => ({ id, updatedAt: id })));
+    loader.sync(["a", "b", "c", "d"].map((id) => ({ id, updatedAt: id })));
     loader.setDemand(new Set(["a"]), ["b", "c"]);
     await Promise.all([
       loader.request("a"),
@@ -294,13 +294,54 @@ describe("SourceHydration", () => {
     expect(loader.get("c").status).toBe("ready");
     // A preview that paints becomes pinned; for a moment it is in neither set
     // unless both change together.
-    loader.setDemand(new Set(["a", "c"]), ["b"]);
-    expect(["a", "b", "c"].map((id) => loader.get(id).status)).toEqual([
+    loader.setDemand(new Set(["a", "c", "d"]), ["b"]);
+    await loader.request("d");
+    expect(["a", "b", "c", "d"].map((id) => loader.get(id).status)).toEqual([
       "ready",
+      "unloaded",
       "ready",
       "ready",
     ]);
-    expect(read).toHaveBeenCalledTimes(3);
+    expect(read).toHaveBeenCalledTimes(4);
+  });
+
+  it("never loads a preview bigger than the budget", async () => {
+    const read = vi.fn(async (_id: string) => ({
+      content: "x".repeat(20),
+      updatedAt: "1",
+    }));
+    const loader = new SourceHydration(read, () => {}, 4, 10);
+    loader.sync([{ id: "big", updatedAt: "1", contentBytes: 20 }]);
+    loader.setWanted(["big"]);
+    expect(loader.canLoad("big")).toBe(false);
+    await loader.request("big", "low");
+    expect(loader.get("big").status).toBe("unloaded");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("counts nearer previews still reading against the budget", async () => {
+    const finishes: Array<() => void> = [];
+    const read = vi.fn(
+      (_id: string) =>
+        new Promise<{ content: string; updatedAt: string }>((resolve) => {
+          finishes.push(() =>
+            resolve({ content: "x".repeat(6), updatedAt: "1" }),
+          );
+        }),
+    );
+    const loader = new SourceHydration(read, () => {}, 4, 10);
+    loader.sync(
+      ["p0", "p1"].map((id) => ({ id, updatedAt: "1", contentBytes: 6 })),
+    );
+    loader.setWanted(["p0", "p1"]);
+    const p0 = loader.request("p0", "low");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await loader.request("p1", "low");
+    expect(loader.get("p1").status).toBe("unloaded");
+    finishes[0]?.();
+    await p0;
+    expect(loader.get("p0").status).toBe("ready");
+    expect(read.mock.calls.map(([id]) => id)).toEqual(["p0"]);
   });
 
   it("cancels queued previews that stop being wanted", async () => {
@@ -650,5 +691,40 @@ it("loads preview sources without pinning them", async () => {
   );
   // Two 9 MiB sources exceed the budget; the one no longer previewed goes.
   expect(current?.loader?.get("a").status).toBe("unloaded");
+  await act(async () => root.unmount());
+});
+
+it("reports a preview the budget cannot reach as deferred, not loading", async () => {
+  const files = [
+    {
+      id: "big",
+      filename: "big.html",
+      updatedAt: "1",
+      contentBytes: 32 * 1024 * 1024,
+    },
+  ];
+  callAction.mockReset();
+  const empty = new Set<string>();
+  const none: string[] = [];
+  const previews = ["big"];
+  let current: ReturnType<typeof useDesignSourceHydration> | undefined;
+  function Harness() {
+    current = useDesignSourceHydration(
+      "design",
+      files,
+      none,
+      empty,
+      empty,
+      previews,
+    );
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Harness));
+  });
+  expect(current?.dependencyStatusByRoot.get("big")).toBe("deferred");
+  expect(callAction).not.toHaveBeenCalled();
   await act(async () => root.unmount());
 });

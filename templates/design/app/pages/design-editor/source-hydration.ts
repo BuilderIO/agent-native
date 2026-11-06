@@ -30,6 +30,7 @@ export type SourceHydrationState =
 export interface SourceHydrationFile {
   id: string;
   updatedAt: string;
+  contentBytes?: number | null;
 }
 
 export type SourceHydrationRead = (
@@ -47,6 +48,11 @@ export class SourceHydration {
   private readonly states = new Map<string, SourceHydrationState>();
   private readonly versions = new Map<string, string>();
   private readonly lru = new Map<string, number>();
+  private readonly sizes = new Map<
+    string,
+    { version: string; bytes: number }
+  >();
+  private readonly reading = new Set<string>();
   private pinned = new Set<string>();
   private readonly leases = new Map<string, number>();
   private dirty = new Set<string>();
@@ -75,6 +81,7 @@ export class SourceHydration {
         this.primedBeforeMetadata.delete(id);
       } else if (!this.primedBeforeMetadata.has(id)) {
         this.versions.delete(id);
+        this.sizes.delete(id);
         this.removeReady(id);
         invalidated = this.states.delete(id) || invalidated;
       }
@@ -82,6 +89,16 @@ export class SourceHydration {
     for (const file of files) {
       const previous = this.versions.get(file.id);
       this.versions.set(file.id, file.updatedAt);
+      // A size measured from a read outranks metadata for that version:
+      // admission and eviction must judge a source by the same size.
+      if (
+        typeof file.contentBytes === "number" &&
+        this.sizes.get(file.id)?.version !== file.updatedAt
+      )
+        this.sizes.set(file.id, {
+          version: file.updatedAt,
+          bytes: file.contentBytes,
+        });
       if (previous !== undefined && previous !== file.updatedAt) {
         invalidated = this.invalidate(file.id) || invalidated;
       }
@@ -98,6 +115,7 @@ export class SourceHydration {
     this.removeReady(id);
     this.states.set(id, { status: "ready", ...file });
     const bytes = new TextEncoder().encode(file.content).byteLength;
+    this.sizes.set(id, { version: file.updatedAt, bytes });
     this.lru.set(id, bytes);
     this.readyBytes += bytes;
     this.evict();
@@ -190,18 +208,27 @@ export class SourceHydration {
     this.pump();
   }
 
-  /** A held source, or a wanted one the budget still reaches. */
+  private sizeOf(id: string): number {
+    return this.lru.get(id) ?? this.sizes.get(id)?.bytes ?? 0;
+  }
+
+  /**
+   * A held source, or a wanted one that fits in the budget behind every held
+   * source and nearer wanted one, loaded or still reading. A wanted source
+   * bigger than the whole budget never loads.
+   */
   canLoad(id: string): boolean {
     if (this.isHeld(id)) return true;
     const rank = this.wantedRank.get(id);
     if (rank === undefined) return false;
     let bytesAhead = 0;
-    for (const [readyId, size] of this.lru) {
-      const readyRank = this.wantedRank.get(readyId);
-      if (this.isHeld(readyId) || (readyRank !== undefined && readyRank < rank))
-        bytesAhead += size;
+    for (const aheadId of new Set([...this.lru.keys(), ...this.reading])) {
+      if (aheadId === id) continue;
+      const aheadRank = this.wantedRank.get(aheadId);
+      if (this.isHeld(aheadId) || (aheadRank !== undefined && aheadRank < rank))
+        bytesAhead += this.sizeOf(aheadId);
     }
-    return bytesAhead < this.maxBytes;
+    return bytesAhead + this.sizeOf(id) <= this.maxBytes;
   }
 
   setDirty(ids: ReadonlySet<string>): void {
@@ -254,8 +281,9 @@ export class SourceHydration {
       (a, b) => (this.wantedRank.get(a) ?? 0) - (this.wantedRank.get(b) ?? 0),
     );
     for (const id of wanted) {
-      if (kept < this.maxBytes) {
-        kept += this.lru.get(id) ?? 0;
+      const size = this.sizeOf(id);
+      if (kept + size <= this.maxBytes) {
+        kept += size;
         continue;
       }
       this.drop(id);
@@ -323,6 +351,7 @@ export class SourceHydration {
             return;
           }
           this.active++;
+          this.reading.add(id);
           void Promise.resolve()
             .then(() => this.read(id))
             .then(
@@ -337,6 +366,7 @@ export class SourceHydration {
                   const bytes = new TextEncoder().encode(
                     file.content,
                   ).byteLength;
+                  this.sizes.set(id, { version: file.updatedAt, bytes });
                   this.lru.set(id, bytes);
                   this.readyBytes += bytes;
                   this.evict();
@@ -355,6 +385,7 @@ export class SourceHydration {
             )
             .finally(() => {
               this.active--;
+              this.reading.delete(id);
               complete();
             });
         },
