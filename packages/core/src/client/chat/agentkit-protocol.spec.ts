@@ -5377,6 +5377,116 @@ describe("createAgentKitProtocolAdapter", () => {
     ).rejects.toThrow("already terminal");
   });
 
+  it.each(["cancel", "dispose", "failed cancel"] as const)(
+    "settles an approval continuation racing %s",
+    async (ending) => {
+      const continuationStarted = Promise.withResolvers<void>();
+      const continuationResult = Promise.withResolvers<AgentChatRuntimeTurn>();
+      const cancelResult = Promise.withResolvers<{ status: "cancelled" }>();
+      const closeEvents = vi.fn();
+      async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield {
+          type: "approval-request",
+          approvalId: "approval-1",
+          message: "Publish?",
+        };
+      }
+      const runtime = createRuntime(approvalEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          tools: { events: true, approvals: true },
+        },
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => ({
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: approvalEvents(),
+          cancel: () => cancelResult.promise,
+        }),
+        continueTurn: async () => {
+          continuationStarted.resolve();
+          return continuationResult.promise;
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish")],
+      });
+      await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+      if (!transport.resumeRun) throw new Error("Expected approval support");
+      const continuation = transport.resumeRun({
+        threadId: "thread-1",
+        runId,
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-1",
+            response: approvalResponse("approve"),
+          }),
+        ],
+      });
+      await continuationStarted.promise;
+      const cancellation =
+        ending === "dispose"
+          ? undefined
+          : transport.cancelRun({ threadId: "thread-1", runId });
+      if (ending === "cancel") {
+        cancelResult.resolve({ status: "cancelled" });
+        await cancellation;
+      } else if (ending === "dispose") {
+        await transport.dispose();
+      }
+      continuationResult.resolve({
+        id: "turn-2",
+        runId: "runtime-run-2",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+        closeEvents,
+      });
+      if (ending === "failed cancel") {
+        let settled = false;
+        void continuation.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(settled).toBe(false);
+        const failure = expect(cancellation).rejects.toThrow("Cancel failed");
+        cancelResult.reject(new Error("Cancel failed"));
+        await failure;
+        const resumed = await continuation;
+        const events = await drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId: resumed.runId,
+          }),
+        );
+        expect(events.at(-1)?.type).toBe("run.completed");
+        expect(closeEvents).not.toHaveBeenCalled();
+        await transport.dispose();
+        return;
+      }
+      await expect(continuation).rejects.toThrow("already terminal");
+      expect(closeEvents).toHaveBeenCalledOnce();
+      if (ending === "cancel") {
+        await expect(
+          transport.getRun?.({ threadId: "thread-1", runId }),
+        ).resolves.toMatchObject({ status: "cancelled" });
+        await transport.dispose();
+      }
+    },
+  );
+
   it("retags open tool and activity records on approval continuation", async () => {
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

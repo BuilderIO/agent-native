@@ -14,6 +14,9 @@ import {
   decideAfterStreamClosed,
   runOutcomeForCode,
   runOutcomeOfEvents,
+  transition,
+  type RunPhase,
+  type RunPhaseEvent,
   type RunAuthorityRead,
   type ServerRunState,
   type StreamClosedContext,
@@ -35,6 +38,92 @@ const read = (state: ServerRunState): RunAuthorityRead => ({
 });
 
 const DRAINED = { runId: "run-1", attempts: 1, readToEnd: true };
+
+describe("run lifecycle transitions", () => {
+  const error = { code: "stale_run", message: "interrupted" };
+  const cases: { name: string; events: RunPhaseEvent[]; expected: RunPhase }[] =
+    [
+      {
+        name: "closed stream and successor",
+        events: [
+          { type: "streamEnded" },
+          { type: "streamOpened" },
+          { type: "terminal" },
+        ],
+        expected: { type: "terminal" },
+      },
+      {
+        name: "failed stream and retry",
+        events: [{ type: "streamFailed" }, { type: "streamOpened" }],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "held interruption and successor",
+        events: [
+          { type: "interrupted", error },
+          { type: "followSuccessor" },
+          { type: "streamOpened" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "held interruption without successor",
+        events: [{ type: "interrupted", error }, { type: "terminal" }],
+        expected: { type: "terminal" },
+      },
+      {
+        name: "connection continuation",
+        events: [
+          { type: "awaitContinuation", streamClosed: true },
+          { type: "continuationResumed" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "failed cancel restores interruption",
+        events: [
+          { type: "interrupted", error },
+          { type: "cancelStarted" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "holdingInterruption", error },
+      },
+      {
+        name: "failed cancel restores pause",
+        events: [
+          { type: "awaitContinuation", streamClosed: false },
+          { type: "cancelStarted" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "awaitingContinuation", streamClosed: false },
+      },
+      {
+        name: "dispose wins over late cancellation",
+        events: [
+          { type: "cancelStarted" },
+          { type: "dispose" },
+          { type: "cancelFailed" },
+          { type: "streamOpened" },
+          { type: "terminal" },
+        ],
+        expected: { type: "disposed" },
+      },
+      {
+        name: "terminal ignores late continuation",
+        events: [
+          { type: "terminal" },
+          { type: "awaitContinuation", streamClosed: true },
+          { type: "continuationResumed" },
+        ],
+        expected: { type: "terminal" },
+      },
+    ];
+  it.each(cases)("$name", ({ events, expected }) => {
+    expect(events.reduce<RunPhase>(transition, { type: "streaming" })).toEqual(
+      expected,
+    );
+  });
+});
 
 describe("run outcome codes", () => {
   it("maps every legacy 'the agent stopped' code into the closed outcome set", () => {
