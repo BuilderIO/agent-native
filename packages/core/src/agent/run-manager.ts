@@ -2717,11 +2717,7 @@ export function startRun(
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
-            if (
-              eventPersistenceError instanceof AgentRunEventNotPersistedError &&
-              eventPersistenceError.terminalRun &&
-              eventPersistenceError !== error
-            ) {
+            if (eventPersistenceError && eventPersistenceError !== error) {
               throw new AggregateError(
                 [eventPersistenceError, error],
                 "Run event and abort status persistence both failed",

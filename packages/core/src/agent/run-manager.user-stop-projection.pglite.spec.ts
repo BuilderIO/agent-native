@@ -419,6 +419,92 @@ describe("durable abort with queued batch events", () => {
     }
   });
 
+  it("reports a nonterminal event conflict and a later stale abort fence", async () => {
+    const runId = "batch-nonterminal-loss-stale-abort";
+    const entered = gate();
+    const write = gate();
+    const driver = gate();
+    batchHarness.gate = {
+      runId,
+      entered: entered.resolve,
+      wait: write.promise,
+      sizes: [],
+    };
+    const run = startRun(
+      runId,
+      runId,
+      async (send) => {
+        void send({ type: "text", text: "lost queued text" });
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    const finalization = run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      await entered.promise;
+      await pglite.query(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, 0, 0, ?)",
+        [runId, JSON.stringify({ type: "text", text: "existing event" })],
+      );
+      write.resolve();
+      const eventError = await run.flushEvents().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(eventError).toBeInstanceOf(AgentRunEventNotPersistedError);
+      expect(eventError).toMatchObject({
+        terminalRun: false,
+        message: `Run event was not persisted: ${runId} sequence 0`,
+      });
+      const before = await pglite.query(
+        "SELECT status FROM agent_runs WHERE id = ?",
+        [runId],
+      );
+      expect(before.rows[0]).toEqual({ status: "running" });
+
+      run.abort.abort("user");
+      await pglite.query(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+        [runId, runId],
+      );
+      await insertRun(`${runId}-successor`, runId, runId);
+      await claimTurnExecutionLease(runId, runId, `${runId}-successor`);
+      driver.resolve();
+      const error = await finalization;
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        eventError,
+        expect.objectContaining({ code: "stale_execution_fence" }),
+      ]);
+      expect((error as AggregateError).errors[0]).toBe(eventError);
+      expect((error as AggregateError).errors[1]).toBeInstanceOf(
+        StaleExecutionFenceError,
+      );
+      expect(await events(runId)).toEqual([
+        { seq: 0, type: "text", text: "existing event" },
+      ]);
+      expect(await isTurnAborted(runId, runId)).toBe(false);
+      const state = await pglite.query(
+        "SELECT r.status, l.owner_run_id FROM agent_runs r JOIN agent_execution_leases l ON l.thread_id = r.thread_id AND l.turn_id = r.turn_id WHERE r.id = ?",
+        [runId],
+      );
+      expect(state.rows[0]).toEqual({
+        status: "running",
+        owner_run_id: `${runId}-successor`,
+      });
+    } finally {
+      write.resolve();
+      driver.resolve();
+      if (!run.abort.signal.aborted) run.abort.abort("test-cleanup");
+      await finalization;
+      batchHarness.gate = null;
+    }
+  });
+
   it("rejects a reclaimed worker's batch without writing events or abort intent", async () => {
     const runId = "batch-abort-stale";
     const entered = gate();
@@ -456,13 +542,23 @@ describe("durable abort with queued batch events", () => {
       const response = abortRunDurably(runId);
       await vi.waitFor(() => expect(flush).toHaveBeenCalled());
       write.resolve();
-      await expect(response).rejects.toMatchObject({
-        code: "stale_execution_fence",
-      });
+      const eventError = await response.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(eventError).toBeInstanceOf(StaleExecutionFenceError);
       driver.resolve();
-      expect(await finalization).toMatchObject({
-        code: "stale_execution_fence",
-      });
+      const error = await finalization;
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        eventError,
+        expect.objectContaining({ code: "stale_execution_fence" }),
+      ]);
+      expect((error as AggregateError).errors[0]).toBe(eventError);
+      expect((error as AggregateError).errors[1]).toBeInstanceOf(
+        StaleExecutionFenceError,
+      );
+      expect((error as AggregateError).errors[1]).not.toBe(eventError);
       expect(await events(runId)).toEqual([]);
       expect(await isTurnAborted(runId, runId)).toBe(false);
       const state = await pglite.query(
