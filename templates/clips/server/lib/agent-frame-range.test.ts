@@ -134,7 +134,7 @@ describe("recording range broker", () => {
       );
       const result = opening.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(100);
-      if (!aborted) rejectPending(new Error("test cleanup"));
+      rejectPending(new Error("test cleanup"));
       const error = await result;
       expect(aborted).toBe(true);
       expect(error).toMatchObject({ statusCode: 504 });
