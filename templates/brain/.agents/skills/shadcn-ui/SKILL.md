@@ -1,10 +1,11 @@
 ---
 name: shadcn-ui
 description: >-
-  Using the app's local UI adapter and Toolkit or shadcn primitives. Use when
-  choosing or composing standard controls, implementing dialogs, menus, or
-  forms, or changing component variants and theme tokens.
-scope: dev
+  Using the app's local UI adapter and Toolkit or shadcn primitives, plus the
+  house recipes for common blocks. Use when composing controls, building a
+  dialog, menu, popover form, sheet, settings row, empty state, list or table,
+  command palette, or toolbar, or changing variants and theme tokens.
+scope: both
 ---
 
 # shadcn/ui and Local UI Adapters
@@ -64,6 +65,35 @@ For small visual refinements, use layout classes and semantic tokens. Avoid raw
 palette overrides, arbitrary one-off values, and manual overlay `z-index` unless
 you are fixing a reproduced bug. Use `gap-*` for layout spacing and the app's
 class-merging helper when it has one.
+
+## Blocks
+
+Before building a dialog, menu, popover form, sheet, settings row, empty
+state, list or table, command palette, or toolbar, read
+`references/blocks.md` and start from its skeleton. External block catalogs
+show useful structure, but their menus have icons, their cards carry a title
+and a description, and their logout rows are red. Here these rules apply:
+
+- **Menus are text only.** No leading icons on menu, context-menu, overflow,
+  or command-palette items. Checkmarks, submenu chevrons, shortcuts, and
+  glyphs that are the content (swatches, avatars, file types) stay. The one
+  exception is the prompt composer's `+` menu, where the icons identify the
+  kind of content being added.
+- **Ellipsis (`…`, never `...`)** ends a menu label only when the row opens a
+  dialog that asks for input or a system file panel. Never on a submenu,
+  popover, panel, picker, the composer, an immediate action, or a row that
+  only opens a confirmation. Titles never end in `…`.
+- **One primary button per surface.** Cancel is `outline`. A destructive
+  confirm uses `variant="destructive"`, never hand-rolled `bg-destructive`
+  classes. Footer buttons share one size.
+- **Red only when something is destroyed.** Destructive menu items go last,
+  after a separator. A risk that destroys nothing gets an amber warning with
+  `IconAlertTriangle`.
+- **Title or description, not both,** on dialogs, sheets, cards, groups, rows,
+  and empty states. An alert dialog's description is its message, so it keeps
+  one. Titles use sentence case.
+- **Loading uses a layout-matching `Skeleton`.** `Spinner` is only for a
+  running mutation, inside its button or menu row.
 
 ## Related skill
 

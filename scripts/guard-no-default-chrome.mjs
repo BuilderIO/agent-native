@@ -16,9 +16,9 @@
  *
  * What it deliberately cannot see: whether a sentence you wrote earns its place.
  * These four detectors cover structure only. The judgment half lives in
- * `.agents/skills/frontend-design` → Default Surface Density, and pretending
- * otherwise would make a green run read as "the surface is clean" when it only
- * means "no new instance of four known shapes".
+ * `.agents/skills/frontend-design` → Keep the starting view focused, and
+ * pretending otherwise would make a green run read as "the surface is clean"
+ * when it only means "no new instance of four known shapes".
  */
 
 import { readFileSync } from "node:fs";
@@ -166,7 +166,7 @@ function main() {
     }
   }
   console.error(
-    "\nRead `.agents/skills/frontend-design` → Default Surface Density.\n" +
+    "\nRead `.agents/skills/frontend-design` → Keep the starting view focused.\n" +
       "For a deliberate exception, put the matching pragma on the line above:\n" +
       RULES.map((rule) => `  ${rule.pragma} - short reason`).join("\n") +
       "\n",

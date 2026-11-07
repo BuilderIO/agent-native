@@ -136,8 +136,8 @@ Rules here are carried by skills, not by blocking your tools. Two exceptions
 exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
-Code, and a human equally). `pnpm guards --list` prints the current set;
-`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
+Code, and humans equally). `pnpm guards --list` prints the current set;
+`no-silent-coercion`, `no-raw-colors`, `ui-blocks`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
 `no-bare-error-in-actions`, `no-unobserved-writes`, `external-result-contract`,
 `no-source-reading-tests`, `no-oracle-loosening`,

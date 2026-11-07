@@ -3698,6 +3698,52 @@ const A2A_OVERDELEGATION_REGEX_CASES = [
   ],
 ];
 
+const UI_BLOCK_NOUN = String.raw`(?:dialogs?|modals?|menus?|dropdowns?|popovers?|sheets?|toolbars?|empty states?|settings (?:rows?|pages?)|tables?|blocks?)`;
+
+const UI_PATTERN_DRIFT_RE = new RegExp(
+  [
+    String.raw`\b${UI_BLOCK_NOUN}\b[^.!?\n]{0,60}\b(?:inconsistent|(?:don'?t|doesn'?t) (?:follow|look like|match)|not (?:a )?proper|should (?:always )?be consistent)`,
+    String.raw`\b(?:inconsistent|hand[- ]?rolled)\b[^.!?\n]{0,60}\b${UI_BLOCK_NOUN}\b`,
+    String.raw`\b(?:not (?:a )?proper|(?:don'?t|doesn'?t) follow|please follow)\b[^.!?\n]{0,40}\b(?:shadcn|design[- ]system)\b`,
+    String.raw`\bicons? in (?:the |these |those )?(?:menus?|dropdowns?)\b|\bmenu (?:items?|rows?)\b[^.!?\n]{0,30}\b(?:have|has|with|show) leading icons?\b`,
+    String.raw`\b(?:only (?:use )?red for destructive|(?:is|be|constitutes?) a warning,? not (?:a )?destructive)\b`,
+    String.raw`\b(?:wrong|remove|drop)\b[^.!?\n]{0,20}\bellips[ie]s\b|\bellips[ie]s\b[^.!?\n]{0,30}\b(?:is wrong|shouldn'?t|isn'?t right)`,
+  ].join("|"),
+  "i",
+);
+
+const UI_PATTERN_DRIFT_REGEX_CASES = [
+  [
+    true,
+    "The import menu doesn't look like a proper shadcn style menu, and neither does share.",
+  ],
+  [
+    true,
+    "These dialogs are inconsistent with each other; they should always be consistent.",
+  ],
+  [true, "Please follow shadcn patterns for the badges here."],
+  [true, "Take the icons in the menus out, menus are text-only."],
+  [
+    true,
+    "We only use red for destructive actions, this one is a warning not a destructive action.",
+  ],
+  [true, "The ellipsis on that menu item is wrong, it opens a submenu."],
+  [
+    true,
+    "The two toolbars are inconsistent and don't follow the same design patterns.",
+  ],
+  [false, "Clicking the menubar icon should not launch the app."],
+  [false, "Delete the unused dialog component."],
+  [false, "Run the table migration again."],
+  [
+    false,
+    "Rules: menus are text-only (no leading icons); red only for destructive actions.",
+  ],
+  [false, "Use shadcn dialogs, never browser confirm."],
+  [false, "Truncate the thread title with an ellipsis."],
+  [false, "One searchable popover with a hand-rolled virtual list."],
+];
+
 const FEEDBACK_UNREQUESTED_SLACK_POSTS_RE =
   /(?=[^.!?\n]*\bslack\b)(?=[^.!?\n]*\b(?:messages?|posts?|repl(?:y|ies)|threads?)\b)(?=[^.!?\n]*\b(?:never asked|unrequested|unsolicited|random|didn['’]t ask)\b)[^.!?\n]+/i;
 
@@ -3769,6 +3815,11 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...A2A_OVERDELEGATION_REGEX_CASES.filter(
       ([expected, message]) => A2A_OVERDELEGATION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...UI_PATTERN_DRIFT_REGEX_CASES.filter(
+      ([expected, message]) => UI_PATTERN_DRIFT_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -4084,7 +4135,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + UI_PATTERN_DRIFT_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4502,6 +4553,14 @@ const PATTERNS = [
     fixedBy:
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
+  {
+    key: "ui-pattern-drift",
+    label:
+      "Had to correct a hand-rolled or inconsistent dialog, menu, or block",
+    fixedBy:
+      ".agents/skills/shadcn-ui references/blocks.md + guard:ui-blocks (2026-11-06; baseline 6 in the prior 2 weeks, 24 in 10)",
+    re: UI_PATTERN_DRIFT_RE,
   },
   {
     key: "promo-artwork-readability",

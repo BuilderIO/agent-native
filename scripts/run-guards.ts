@@ -80,6 +80,7 @@ const guards = [
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
+  "guard:ui-blocks",
   "guard:single-search-clear",
   "guard:single-s3-signer",
   "guard:no-boot-data-work",
