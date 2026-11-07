@@ -118,6 +118,7 @@ function setupFetch(options?: {
   hangPut?: boolean;
   deferredPut?: boolean;
   deferredPatch?: boolean;
+  deferredSecondPatch?: boolean;
   deferredKeepalivePatch?: boolean;
   serverFaithfulClientWrites?: boolean;
   failDeckList?: boolean;
@@ -150,6 +151,9 @@ function setupFetch(options?: {
     | ((status?: number, errorCode?: string) => void)
     | null = null;
   let rejectDeferredPatch: ((error: unknown) => void) | null = null;
+  let resolveSecondDeferredPatch:
+    | ((status?: number, errorCode?: string) => void)
+    | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
@@ -544,14 +548,14 @@ function setupFetch(options?: {
         );
       }
       if (
-        options?.deferredPatch &&
         accessibleDeck?.id === deckId &&
-        attempts === 1
+        ((options?.deferredPatch && attempts === 1) ||
+          (options?.deferredSecondPatch && attempts === 2))
       ) {
-        firstPatchSignal = init?.signal ?? undefined;
+        if (attempts === 1) firstPatchSignal = init?.signal ?? undefined;
         const serverAtRequest = cloneDeck(accessibleDeck);
         return new Promise<Response>((resolve, reject) => {
-          resolveDeferredPatch = (status = 200, errorCode?: string) => {
+          const settle = (status = 200, errorCode?: string) => {
             let responseStatus = status;
             let responseBody: Record<string, unknown> =
               status === 409
@@ -596,7 +600,12 @@ function setupFetch(options?: {
               }),
             );
           };
-          rejectDeferredPatch = reject;
+          if (attempts === 1) {
+            resolveDeferredPatch = settle;
+            rejectDeferredPatch = reject;
+          } else {
+            resolveSecondDeferredPatch = settle;
+          }
         });
       }
       if (
@@ -842,6 +851,8 @@ function setupFetch(options?: {
       resolveDeferredPatch?.(status, errorCode),
     rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
       rejectDeferredPatch?.(error),
+    resolveSecondDeferredPatch: (status?: number, errorCode?: string) =>
+      resolveSecondDeferredPatch?.(status, errorCode),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
@@ -1296,6 +1307,396 @@ describe("DeckContext deck creation persistence", () => {
     });
     await result.current.flushDeckSave("hidden-large-deck");
     expect(hasUnsavedDeckChanges("hidden-large-deck")).toBe(false);
+  });
+
+  async function startHiddenQueuedSave(
+    deckId: string,
+    queuedUpdate: Partial<Slide>,
+    options?: {
+      activeAlsoEditsSecondSlide?: boolean;
+      holdActiveResponse?: boolean;
+    },
+  ) {
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const fetchSetup = setupFetch({
+      deferredPatch: true,
+      deferredSecondPatch: true,
+      serverFaithfulClientWrites: true,
+    });
+    let releaseActiveResponse = () => {};
+    const respond = fetchSetup.fetchMock.getMockImplementation();
+    if (options?.holdActiveResponse && respond) {
+      const held = new Promise<void>((resolve) => {
+        releaseActiveResponse = resolve;
+      });
+      let patches = 0;
+      fetchSetup.fetchMock.mockImplementation(async (url, init) => {
+        const response = await respond(url, init);
+        const isActive =
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
+          ++patches === 1;
+        if (isActive) await held;
+        return response;
+      });
+    }
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    fetchSetup.setAccessibleDeck({
+      id: deckId,
+      title: "Hidden queued deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-2",
+          content: "<p>Second before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      if (options?.activeAlsoEditsSecondSlide) {
+        result.current.updateSlide(
+          deckId,
+          "slide-2",
+          { content: "<p>Second draft</p>" },
+          { persistence: "debounced" },
+        );
+      }
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { content: "<p>Draft</p>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(deckId, "slide-1", queuedUpdate, {
+        persistence: "debounced",
+      });
+    });
+
+    const patchCalls = () =>
+      fetchSetup.fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    delete (document as { visibilityState?: unknown }).visibilityState;
+    // The editor's beforeunload prompt keys off this while both are in flight.
+    expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+
+    const settle = async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      });
+    };
+    return {
+      ...fetchSetup,
+      result,
+      patchCalls,
+      settle,
+      releaseActiveResponse: () => releaseActiveResponse(),
+    };
+  }
+
+  const keepaliveFailureLogs = () =>
+    vi
+      .mocked(console.error)
+      .mock.calls.filter(([message]) =>
+        String(message).startsWith("Failed to keepalive save deck"),
+      );
+
+  const largeContent = `<p>${"x".repeat(100_000)}</p>`;
+
+  it("sends only the queued edits, based on the active save, when the tab hides", async () => {
+    const { patchCalls } = await startHiddenQueuedSave("hidden-queued-deck", {
+      content: largeContent,
+    });
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(actionCallBody(patchCalls()[1]?.[1]).operations).toEqual([
+      expect.objectContaining({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: largeContent },
+        baseContentHash: hashSlideContent("<p>Draft</p>"),
+      }),
+    ]);
+  });
+
+  it("applies the hidden-tab request once the active save lands first", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-a-first", {
+      content: largeContent,
+    });
+
+    resolveDeferredPatch();
+    await settle();
+    resolveSecondDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-a-first");
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(2);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasUnsavedDeckChanges("hidden-queued-a-first")).toBe(false);
+  });
+
+  it("drains the queue after the active save when the hidden-tab request lands first", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-b-first", {
+      content: largeContent,
+    });
+
+    resolveSecondDeferredPatch();
+    await settle();
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("<p>Before</p>");
+    resolveDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-b-first");
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(3);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasFailedDeckSave("hidden-queued-b-first")).toBe(false);
+    expect(hasUnsavedDeckChanges("hidden-queued-b-first")).toBe(false);
+  });
+
+  it("does not fail the flush when the hidden-tab request's stale rejection arrives after the active save", async () => {
+    const deckId = "hidden-queued-stale-after-a";
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave(deckId, { content: largeContent });
+
+    resolveDeferredPatch();
+    await settle();
+    const flushed = result.current.flushDeckSave(deckId);
+    resolveSecondDeferredPatch(409, "slide_content_stale");
+    await settle();
+    await expect(flushed).resolves.toBeUndefined();
+
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(patchCalls()).toHaveLength(3);
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("keeps queued edits that could land before the active save behind it", async () => {
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave("hidden-queued-notes", { notes: "Later" });
+
+    expect(patchCalls()).toHaveLength(1);
+    resolveDeferredPatch();
+    await settle();
+    expect(patchCalls()).toHaveLength(2);
+    resolveSecondDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave("hidden-queued-notes");
+    expect(getAccessibleDeck()?.slides[0]).toMatchObject({
+      content: "<p>Draft</p>",
+      notes: "Later",
+    });
+  });
+
+  it("confirms the active save's other slides when the hidden-tab request lands before it responds", async () => {
+    const deckId = "hidden-queued-two-slides";
+    const {
+      getAccessibleDeck,
+      getPutAttempts,
+      releaseActiveResponse,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave(
+      deckId,
+      { content: largeContent },
+      { activeAlsoEditsSecondSlide: true, holdActiveResponse: true },
+    );
+
+    resolveDeferredPatch();
+    await settle();
+    resolveSecondDeferredPatch();
+    await settle();
+    releaseActiveResponse();
+    await settle();
+    await result.current.flushDeckSave(deckId);
+
+    const slides = result.current.getDeck(deckId)?.slides ?? [];
+    act(() => {
+      result.current.setDeckSlides(deckId, slides.slice(0, 1), {
+        persistence: "immediate",
+      });
+    });
+    await settle();
+    await result.current.flushDeckSave(deckId);
+
+    expect(getPutAttempts(deckId)).toBe(1);
+    expect(getAccessibleDeck()?.slides.map((slide) => slide.content)).toEqual([
+      largeContent,
+    ]);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("retries the active save and queued edits when the active save fails during a hidden-tab request", async () => {
+    const deckId = "hidden-queued-a-fails";
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave(deckId, { content: largeContent });
+
+    resolveDeferredPatch(500);
+    await settle();
+    resolveSecondDeferredPatch();
+    await settle();
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe("<p>Before</p>");
+    expect(keepaliveFailureLogs()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    await result.current.flushDeckSave(deckId);
+
+    expect(patchCalls().length).toBeGreaterThan(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("does not resend queued edits a superseded hidden-tab request still carries", async () => {
+    const deckId = "hidden-queued-pagehide";
+    const {
+      getAccessibleDeck,
+      patchCalls,
+      resolveDeferredPatch,
+      resolveSecondDeferredPatch,
+      result,
+      settle,
+    } = await startHiddenQueuedSave(deckId, { content: largeContent });
+
+    act(() => {
+      flushPendingSaves();
+    });
+    resolveDeferredPatch();
+    await settle();
+    expect(patchCalls()).toHaveLength(2);
+
+    resolveSecondDeferredPatch();
+    await settle();
+    await result.current.flushDeckSave(deckId);
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(getAccessibleDeck()?.slides[0]?.content).toBe(largeContent);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("starts pending saves as plain requests at beforeunload without prompting", async () => {
+    window.history.pushState({}, "", "/deck/unload-pending-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "unload-pending-deck",
+      title: "Unload pending deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "unload-pending-deck",
+        "slide-1",
+        { content: largeContent },
+        { persistence: "debounced" },
+      );
+    });
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(0);
+    expect(hasUnsavedDeckChanges("unload-pending-deck")).toBe(true);
+
+    const pendingUnload = new Event("beforeunload", { cancelable: true });
+    act(() => {
+      window.dispatchEvent(pendingUnload);
+    });
+    expect(pendingUnload.defaultPrevented).toBe(false);
+    expect(patchCalls()).toHaveLength(1);
+    expect(
+      actionCallBody(patchCalls()[0]?.[1]).operations as Array<{
+        fields: { content?: string };
+      }>,
+    ).toEqual([expect.objectContaining({ fields: { content: largeContent } })]);
+    expect(hasUnsavedDeckChanges("unload-pending-deck")).toBe(true);
+
+    await result.current.flushDeckSave("unload-pending-deck");
   });
 
   it("keeps an unload flush behind the active save chain", async () => {
