@@ -606,12 +606,11 @@ export function useChatModels({
           applyFallback(true);
           finish();
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!isCurrentRefresh()) return;
-          if (!scheduleRetry(attempt)) {
-            setCatalogUnavailable(true);
-            finish();
-          }
+          console.error("[agent-chat] model catalog processing failed", error);
+          setCatalogUnavailable(true);
+          finish();
         });
     }
 

@@ -1344,6 +1344,8 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1891,6 +1893,8 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelListUnavailable = false,
+  onRetryModelList,
   open: controlledOpen,
   onChange,
   onEffortChange,
@@ -1922,6 +1926,8 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
@@ -2097,9 +2103,7 @@ function ModelSelector({
   const hasUnconfiguredVisibleModels = modelProviderGroups.some(
     (group) => !group.configured,
   );
-  const hasConfiguredProvider = providerGroups.some(
-    (group) => group.configured,
-  );
+  const hasConfiguredProvider = engines.some((group) => group.configured);
   const showBuilderAction =
     !isClaudeCodeAgent &&
     !hasConfiguredCloudProviderReady &&
@@ -2212,8 +2216,9 @@ function ModelSelector({
     friendlyModelName(model, t);
   // An empty list mid-load says nothing about connection; judging it now
   // flashes "Connect agent" at a connected user.
-  const awaitingModelList = modelListLoading && providerGroups.length === 0;
-  const noModelCatalog = !agentOnly && engines.length === 0;
+  const awaitingModelList = modelListLoading && engines.length === 0;
+  const noModelCatalog =
+    !agentOnly && providerGroups.length === 0 && !(model === "auto" && autoRow);
   const selectedModelNeedsConnection =
     !awaitingModelList &&
     (onlyConnectPathAvailable ||
@@ -2284,7 +2289,9 @@ function ModelSelector({
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
   const connectItems =
-    showProviderActions && !awaitingModelList ? (
+    showProviderActions &&
+    !awaitingModelList &&
+    !(modelListUnavailable && engines.length === 0) ? (
       <>
         {showBuilderAction && BuilderConnectPopover ? (
           <>
@@ -2561,6 +2568,16 @@ function ModelSelector({
           <div className="h-4 w-32 animate-pulse rounded bg-muted" />
           <div className="h-4 w-36 animate-pulse rounded bg-muted" />
         </div>
+      ) : null}
+      {modelListUnavailable && onRetryModelList ? (
+        <DropdownMenuItem onSelect={onRetryModelList}>
+          <span className="min-w-0 flex-1">
+            {t("agentChat.setup.modelListUnavailable", {
+              defaultValue: "Couldn't load models.",
+            })}
+          </span>
+          <span>{t("agentChat.common.retry", { defaultValue: "Retry" })}</span>
+        </DropdownMenuItem>
       ) : null}
       {connectItems}
       {hasConfiguredProvider &&
@@ -3033,6 +3050,8 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelListUnavailable,
+  onRetryModelList,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -6955,6 +6974,8 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelListUnavailable={modelListUnavailable}
+            onRetryModelList={onRetryModelList}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}

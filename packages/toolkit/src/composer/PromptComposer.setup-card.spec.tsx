@@ -188,6 +188,52 @@ describe("PromptComposer with no AI connected", () => {
     expect(onRequired).not.toHaveBeenCalledWith(true);
   });
 
+  it("offers retry when its model adapter cannot load the catalog", async () => {
+    const retry = vi.fn();
+    await act(async () => {
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            models: {
+              useChatModels: () => ({
+                selectedModel: "example-model",
+                selectedEngine: "anthropic",
+                selectedEffort: "auto",
+                availableModels: [],
+                isLoading: false,
+                catalogUnavailable: true,
+                refreshEngines: retry,
+                onModelChange: vi.fn(),
+                onEffortChange: vi.fn(),
+              }),
+            },
+          }}
+        >
+          <PromptComposer
+            autoFocus={false}
+            onSubmit={vi.fn()}
+            onConnectProvider={vi.fn()}
+            includeDefaultMentionSearch={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toContain("Add your own keys");
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the prompt open while the model list has a connected provider", async () => {
     await render({ readiness: "unknown", configured: true });
 

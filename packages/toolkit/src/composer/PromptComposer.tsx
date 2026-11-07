@@ -289,6 +289,8 @@ export interface PromptComposerProps {
   availableModels?: EngineModelGroup[];
   /** Whether the external model list is still being resolved. */
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   selectedModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
@@ -854,6 +856,8 @@ function PromptComposerInner({
   onSlashCommand,
   availableModels,
   modelListLoading,
+  modelListUnavailable,
+  onRetryModelList,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -1295,6 +1299,14 @@ function PromptComposerInner({
           agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
+          modelListUnavailable={
+            modelListUnavailable ??
+            (availableModels ? false : models.catalogUnavailable)
+          }
+          onRetryModelList={
+            onRetryModelList ??
+            (availableModels ? undefined : models.refreshEngines)
+          }
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           onAgentChange={onAgentChange}

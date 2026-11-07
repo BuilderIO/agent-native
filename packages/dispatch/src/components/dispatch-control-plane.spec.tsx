@@ -246,6 +246,10 @@ describe("DispatchControlPlane", () => {
     clientState.catalogUnavailable = true;
     await renderHome();
 
+    expect(clientState.promptComposerProps).toMatchObject({
+      modelListUnavailable: true,
+    });
+    expect(clientState.promptComposerProps.onRetryModelList).toBeUndefined();
     expect(container.textContent).toContain(
       "agentChat.setup.modelListUnavailable",
     );

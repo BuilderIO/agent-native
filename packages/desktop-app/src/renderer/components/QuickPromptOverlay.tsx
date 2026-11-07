@@ -506,6 +506,7 @@ export default function QuickPromptOverlay({
         availableAgents={availableAgents}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
+        modelListUnavailable={modelListUnavailable}
         modelSelectorOpen={modelPickerOpen}
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}

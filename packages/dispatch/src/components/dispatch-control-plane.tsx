@@ -110,6 +110,7 @@ function CommandPanel() {
             availableModels={availableModels}
             draftScope={draftScope}
             modelListLoading={modelListLoading}
+            modelListUnavailable={catalogUnavailable}
             placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
               defaultValue: "Ask Dispatch anything...",
             })}

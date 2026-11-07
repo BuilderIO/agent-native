@@ -213,6 +213,10 @@ describe("useChatModels", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="probe-catalog-unavailable"]')
+        ?.textContent,
+    ).toBe("false");
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -1241,6 +1245,54 @@ describe("useChatModels", () => {
       }
     },
   );
+
+  it("reports malformed catalog processing without treating it as a transient fetch failure", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      stubCatalog({
+        engines: [
+          {
+            name: "anthropic",
+            label: "Claude",
+            supportedModels: ["claude-sonnet-5"],
+            requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          },
+        ],
+        configuredKeys: ["ANTHROPIC_API_KEY"],
+      });
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled />);
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("anthropic:true");
+
+      actionMocks.callAction.mockResolvedValue({
+        engines: [{ name: "anthropic", label: "Claude", supportedModels: 42 }],
+      });
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("button")?.click();
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-unavailable"]')
+          ?.textContent,
+      ).toBe("true");
+      expect(
+        container.querySelector('[data-testid="probe-loading"]')?.textContent,
+      ).toBe("false");
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("anthropic:true");
+      expect(error).toHaveBeenCalledWith(
+        "[agent-chat] model catalog processing failed",
+        expect.any(Error),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
 
   it("retries model discovery after a transient readiness failure", async () => {
     vi.useFakeTimers();

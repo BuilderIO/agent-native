@@ -461,6 +461,80 @@ describe("TiptapComposer model picker", () => {
     expect(menu.textContent).toContain("Add your own keys");
   });
 
+  it("offers retry instead of connection setup when discovery is unavailable", async () => {
+    const retry = vi.fn();
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListUnavailable
+          onRetryModelList={retry}
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const menu = await openPicker();
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toMatch(/Use Builder.io|Add your own keys/);
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps previously loaded models selectable when refresh fails", async () => {
+    const retry = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={builderGroups}
+          modelListUnavailable
+          onRetryModelList={retry}
+        />,
+      ),
+    );
+    const menu = await openPicker();
+    expect(topLevelRows(menu).length).toBeGreaterThan(0);
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toContain("Add your own keys");
+  });
+
+  it("offers auto without presenting an unsupported default as ready", async () => {
+    const groups: Groups = [
+      {
+        engine: "builder",
+        label: "Builder.io",
+        models: ["auto"],
+        configured: true,
+      },
+    ];
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={groups}
+          selectedModel="unknown-model"
+          selectedEngine="builder"
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Model");
+    const menu = await openPicker();
+    expect(
+      topLevelRows(menu).map((row) =>
+        row.getAttribute("data-agent-composer-model-row"),
+      ),
+    ).toEqual(["auto"]);
+  });
+
   it("announces loading without presenting the guessed model as ready", async () => {
     act(() =>
       root.render(

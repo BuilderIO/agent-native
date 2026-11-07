@@ -6212,6 +6212,7 @@ function AgentKitComposerSurface({
           selectedEffort={props.selectedEffort}
           availableModels={props.availableModels}
           modelListLoading={props.modelListLoading}
+          modelListUnavailable={modelListUnavailable}
           onModelChange={props.onModelChange}
           onEffortChange={props.onEffortChange}
           availableAgents={props.availableAgents}
