@@ -388,6 +388,32 @@ describe("data-programs/execute", () => {
       },
     );
 
+    it("doesn't report the Run evaluator's own failure as what the program threw", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(makeProgram());
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      vi.doMock("../coding-tools/run-code.js", () => ({
+        executeSandboxCode: vi.fn().mockResolvedValue({
+          stdout: "",
+          stderr: "Run was interrupted before it completed.",
+          exitCode: 1,
+          timedOut: false,
+          bridgeToolsUsed: [],
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).not.toBe("program_error");
+    });
+
     it("surfaces timeout as a distinct error code", async () => {
       storeMocks.getDataProgram.mockResolvedValue(makeProgram());
       accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
@@ -765,51 +791,62 @@ describe("data-programs/execute", () => {
       );
     });
 
-    it("records a background executor failure as sandbox_error", async () => {
-      storeMocks.getDataProgram.mockResolvedValue(
-        makeProgram({ background: true }),
-      );
-      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
-      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
-      storeMocks.getActiveRun
-        .mockResolvedValueOnce(
-          makeRun({
-            id: "dpr_queued",
-            status: "queued",
-            executionId: "exec_failed",
-            startedAt: Date.now() - 500,
+    it.each([
+      ["the executor's own error", "", "Sandbox executor error: spawn ENOENT"],
+      [
+        "the Run evaluator's interruption",
+        "Run was interrupted before it completed.",
+        null,
+      ],
+    ])(
+      "records %s as sandbox_error with a fixed message",
+      async (_case, stderr, error) => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        storeMocks.getDataProgram.mockResolvedValue(
+          makeProgram({ background: true }),
+        );
+        accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+        storeMocks.getActiveRun
+          .mockResolvedValueOnce(
+            makeRun({
+              id: "dpr_queued",
+              status: "queued",
+              executionId: "exec_failed",
+              startedAt: Date.now() - 500,
+            }),
+          )
+          .mockResolvedValueOnce(null);
+
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          enqueueSandboxExecution: vi.fn().mockResolvedValue({
+            execution: { id: "exec_new" },
           }),
-        )
-        .mockResolvedValueOnce(null);
+          getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+            status: "failed",
+            stdout: "",
+            stderr,
+            error,
+          }),
+        }));
+        const { runDataProgram } = await loadExecute();
 
-      vi.doMock("../coding-tools/sandbox/index.js", () => ({
-        enqueueSandboxExecution: vi.fn().mockResolvedValue({
-          execution: { id: "exec_new" },
-        }),
-        getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
-          status: "failed",
-          stdout: "",
-          stderr: "",
-          error: "Sandbox executor error: spawn ENOENT",
-        }),
-      }));
-      const { runDataProgram } = await loadExecute();
+        await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
 
-      await runDataProgram({
-        programId: PROGRAM_ID,
-        ctx: { userEmail: OWNER },
-        triggeredBy: "panel_view",
-      });
-
-      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
-        "dpr_queued",
-        expect.objectContaining({
-          status: "failed",
-          errorCode: "sandbox_error",
-          errorMessage: "Sandbox executor error: spawn ENOENT",
-        }),
-      );
-    });
+        expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+          "dpr_queued",
+          expect.objectContaining({
+            status: "failed",
+            errorCode: "sandbox_error",
+            errorMessage: "Background execution failed.",
+          }),
+        );
+      },
+    );
 
     it("returns background_pending when no cache exists and nothing to serve", async () => {
       storeMocks.getDataProgram.mockResolvedValue(

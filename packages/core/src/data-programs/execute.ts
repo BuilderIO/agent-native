@@ -195,24 +195,27 @@ function truncateLogs(stdout: string, stderr: string): string {
 // guest throw reads "RUN_ERROR: <message>".
 const THROWN_ERROR_PREFIXES = ["Unhandled error:", "RUN_ERROR:"];
 
+// Node's own report of an error the program's code raised before the wrapper
+// could catch it, such as "SyntaxError: missing ) after argument list" or
+// "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'x'".
+const UNCAUGHT_ERROR_LINE = /^[A-Za-z]*Error(?: \[[A-Z_]+\])?:/;
+
 /**
  * What a program that threw said, read from its stderr. Without a known
- * prefix, the last line that isn't a stack frame or Node's version footer is
- * the error.
+ * prefix, the last line shaped like a JavaScript error is the error. Anything
+ * else, such as the Run evaluator's "Run was interrupted before it completed.",
+ * is the sandbox failing rather than the program, so it reads as nothing.
  */
 function thrownProgramMessage(stderr: string): string | undefined {
   let last: string | undefined;
   for (const line of stderr.split("\n")) {
     const text = line.trim();
-    if (!text || text.startsWith("at ") || /^Node\.js v\d/.test(text)) {
-      continue;
-    }
     for (const prefix of THROWN_ERROR_PREFIXES) {
       if (text.startsWith(prefix)) {
         return text.slice(prefix.length).trim() || text;
       }
     }
-    last = text;
+    if (UNCAUGHT_ERROR_LINE.test(text)) last = text;
   }
   return last;
 }
@@ -726,14 +729,22 @@ async function finalizeBackgroundRun(
   }
 
   // A set `error` means the executor itself failed; otherwise the program
-  // threw, and its message is the one to show.
+  // threw, and its message is the one to show. The executor's own message can
+  // carry server detail, so it goes to the server log and the run keeps a
+  // fixed one.
   const thrown = execution.error
     ? undefined
     : thrownProgramMessage(execution.stderr);
+  if (execution.error) {
+    console.error(
+      `[data-programs] background run ${runId} failed in the executor:`,
+      execution.error,
+    );
+  }
   await updateDataProgramRun(runId, {
     status: "failed",
     errorCode: thrown ? "program_error" : "sandbox_error",
-    errorMessage: execution.error ?? thrown ?? "Background execution failed.",
+    errorMessage: thrown ?? "Background execution failed.",
     logsTail: truncateLogs(execution.stdout, execution.stderr),
     finishedAt,
   });

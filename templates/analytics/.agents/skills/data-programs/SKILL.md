@@ -145,7 +145,7 @@ serves fresh data faster.
 | `emit_shape_invalid`   | `emit()` args weren't `(array-of-plain-objects, optional-schema-array)` | Fix the shape; check for a stray second `emit()` call          |
 | `result_too_large`     | A single row (or the whole result) exceeds the byte cap                 | Trim large string fields before emitting                       |
 | `program_error`        | The script threw; the message is the thrown error's, and panels show it | Read the thrown message; guard optional provider fields        |
-| `sandbox_error`        | The sandbox itself failed; panels show a fixed message                  | Read the run's message with `get-data-program`, then retry     |
+| `sandbox_error`        | The sandbox itself failed, not the script; panels show a fixed message  | Retry; a repeat failure is a platform problem, not the script  |
 | `run_code_unavailable` | The run-code module isn't available in this build                       | Not something a program author can fix                         |
 | `background_pending`   | Background program has no result yet                                    | Wait and retry, or check `lastGoodRun` if present              |
 

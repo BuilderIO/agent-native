@@ -396,7 +396,7 @@ async function runProgramPanel(
   }
 
   // A sandbox_error message can carry server detail, so the panel gets a
-  // fixed one; the run keeps the real message for get-data-program.
+  // fixed one. A program_error message is what the program's own code threw.
   const friendlyMessages: Partial<Record<string, string>> = {
     access_denied: "You don't have access to this data program",
     archived: "This data program was archived",
