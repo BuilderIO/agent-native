@@ -1776,55 +1776,19 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
-          BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
-          BETA_CHAT_DATABASE_URL_SECRET: ${{ secrets.BETA_DATABASE_URL_CHAT }}
+          BETA_DATABASE_URL_SECRET: ${{ secrets[format('BETA_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
           BUILD_CONTEXT: production
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
+          NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.site_id }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
-          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
-          pnpm install --frozen-lockfile
-
-          migration_database_url="$(
-            netlify api getSiteDatabase \
-              --data "{\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
-              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts ||
-              true
-          )"
-          if [[ -z "$migration_database_url" ]]; then
-            migration_database_url="$(
-              netlify api getEnvVars \
-                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_MIGRATION_SITE_ID\"}" |
-                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
-            )"
-          fi
-          if [[ "$SOURCE_TEMPLATE" == "chat" ]]; then
-            : "${BETA_CHAT_DATABASE_URL_SECRET:?BETA_DATABASE_URL_CHAT is required for the separate beta Chat database}"
-            BETA_DATABASE_URL_SECRET="$BETA_CHAT_DATABASE_URL_SECRET"
-          fi
-          migration_database_url="${BETA_DATABASE_URL_SECRET:-$migration_database_url}"
-          if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
-            migration_database_url="$BETA_DATABASE_URL_SECRET"
-          fi
-          if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
-            if [[ "${{ inputs.smoke }}" != "true" ]]; then
-              echo "::error::A strict post-publish smoke check is required when no beta migration URL is exportable for $SOURCE_TEMPLATE."
-              exit 1
-            fi
-            case "$SOURCE_TEMPLATE" in
-              @agent-native/docs)
-                echo "No application database migration is required for the docs beta site."
-                exit 0
-                ;;
-            esac
-            # Fail closed: a publish that skips its migration serves new code
-            # against an old schema. Supply NETLIFY_PREVIEW_DATABASE_URL_<APP>
-            # or a production-context DATABASE_URL on the beta site.
-            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE; refusing to publish without migrating its schema."
+          : "${BETA_DATABASE_URL_SECRET:?BETA_DATABASE_URL_<APP> is required for this beta site}"
+          if [[ "$BETA_DATABASE_URL_SECRET" != postgres://* && "$BETA_DATABASE_URL_SECRET" != postgresql://* ]]; then
+            echo "::error::No beta PostgreSQL migration URL was configured for $SOURCE_TEMPLATE."
             exit 1
           fi
+          pnpm install --frozen-lockfile
+          migration_database_url="$BETA_DATABASE_URL_SECRET"
           export CONTEXT=production
           export DATABASE_URL="$migration_database_url"
 

@@ -678,4 +678,4 @@ only in code.
 
 <!-- END GENERATED: declared-app-config -->
 
-`BETA_DATABASE_URL_CHAT` is the GitHub Actions credential mirror for the separate beta Chat database; production Chat and PR previews use `NETLIFY_PREVIEW_DATABASE_URL_CHAT`.
+`BETA_DATABASE_URL_<APP>` is the required GitHub Actions credential mirror for each beta site, including `BETA_DATABASE_URL_CHAT` and `BETA_DATABASE_URL_CRM`. Beta migrations never fall back to production or PR-preview mirrors. `NETLIFY_PREVIEW_DATABASE_URL_<APP>` remains the production database mirror used by PR previews.
