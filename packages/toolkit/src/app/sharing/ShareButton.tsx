@@ -2116,11 +2116,10 @@ export function ShareGeneralAccessRow({
             disabled={controller.visibilityTransition.submitting}
             plain
             roleCopy={roleCopy}
-            allowedRoles={(allowedRoles ?? BASIC_SHARING_ROLES).filter(
-              (role) =>
-                controller.visibility === "public"
-                  ? LINK_ROLES.includes(role)
-                  : role !== "admin",
+            allowedRoles={(allowedRoles ?? BASIC_SHARING_ROLES).filter((role) =>
+              controller.visibility === "public"
+                ? LINK_ROLES.includes(role)
+                : role !== "admin",
             )}
           />
         </div>
