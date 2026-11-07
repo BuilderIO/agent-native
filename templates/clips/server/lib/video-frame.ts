@@ -266,14 +266,20 @@ async function withFrameExtractionSlot<T>(
           );
         }, waitMs);
     });
+  } else {
+    activeFrameExtractions += 1;
   }
-  remote?.remainingMs();
-  activeFrameExtractions += 1;
   try {
+    remote?.remainingMs();
     return await fn();
   } finally {
-    activeFrameExtractions = Math.max(0, activeFrameExtractions - 1);
-    frameExtractionWaiters.shift()?.();
+    const waiter = frameExtractionWaiters.shift();
+    if (waiter) {
+      // Keep the slot counted while transferring its ownership to the waiter.
+      waiter();
+    } else {
+      activeFrameExtractions -= 1;
+    }
   }
 }
 

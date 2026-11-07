@@ -223,6 +223,124 @@ describe("probeMediaDurationMs", () => {
   );
 });
 
+describe("frame extraction capacity", () => {
+  async function withControlledFfmpeg(
+    run: (gate: {
+      start: (name: string) => Promise<void>;
+      release: (name: string) => Promise<void>;
+      didStart: (name: string) => boolean;
+    }) => Promise<void>,
+  ) {
+    const root = await mkdtemp(join(tmpdir(), "clips-frame-slots-"));
+    const previous = process.env.FFMPEG_PATH;
+    const command = join(root, "ffmpeg");
+    const path = (kind: string, name: string) => join(root, `${kind}-${name}`);
+    try {
+      await writeFile(
+        command,
+        `#!/usr/bin/env node\nconst fs=require('node:fs');\nconst p=require('node:path');\nconst a=process.argv.slice(2);\nconst name=a[a.indexOf('-i')+1];\nconst dir=${JSON.stringify(root)};\nfs.writeFileSync(p.join(dir,'start-'+name),'');\nconst t=setInterval(()=>{if(fs.existsSync(p.join(dir,'release-'+name))){clearInterval(t);process.exit(0);}},10);\n`,
+      );
+      await chmod(command, 0o755);
+      process.env.FFMPEG_PATH = command;
+      await run({
+        start: async (name) => {
+          const deadline = Date.now() + 3_000;
+          while (!existsSync(path("start", name))) {
+            if (Date.now() >= deadline)
+              throw new Error(`${name} did not start`);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        },
+        release: async (name) => {
+          await writeFile(path("release", name), "");
+        },
+        didStart: (name) => existsSync(path("start", name)),
+      });
+    } finally {
+      if (previous === undefined) delete process.env.FFMPEG_PATH;
+      else process.env.FFMPEG_PATH = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it("hands an expired resumed waiter's capacity to the next queued operation", async () => {
+    await withControlledFfmpeg(async (gate) => {
+      const operations: Promise<unknown>[] = [];
+      let checks = 0;
+      const remote = {
+        format: "mov" as const,
+        assertHealthy: async () => {},
+        remainingMs: () => {
+          if (++checks > 1) throw new Error("remote deadline expired");
+          return 10_000;
+        },
+      };
+      try {
+        operations.push(
+          probeFrameSheetFpsFromFile("a"),
+          probeFrameSheetFpsFromFile("b"),
+        );
+        await Promise.all([gate.start("a"), gate.start("b")]);
+        const expired = probeFrameSheetFpsFromFile("expired", remote);
+        operations.push(expired.catch(() => undefined));
+        const following = probeFrameSheetFpsFromFile("following");
+        operations.push(following);
+        expect(checks).toBe(1);
+        await gate.release("a");
+        await expect(expired).rejects.toThrow("remote deadline expired");
+        await gate.start("following");
+        expect(gate.didStart("expired")).toBe(false);
+        await gate.release("following");
+        await gate.release("b");
+        await Promise.all(operations);
+      } finally {
+        await Promise.all(["a", "b", "expired", "following"].map(gate.release));
+        await Promise.allSettled(operations);
+      }
+    });
+  });
+
+  it("reserves a handed-off slot against a fresh concurrent caller", async () => {
+    await withControlledFfmpeg(async (gate) => {
+      const operations: Promise<unknown>[] = [];
+      let checks = 0;
+      let fresh: Promise<number> | undefined;
+      const remote = {
+        format: "mov" as const,
+        assertHealthy: async () => {},
+        remainingMs: () => {
+          if (++checks === 2) {
+            fresh = probeFrameSheetFpsFromFile("fresh");
+            operations.push(fresh);
+          }
+          return 10_000;
+        },
+      };
+      try {
+        operations.push(
+          probeFrameSheetFpsFromFile("a"),
+          probeFrameSheetFpsFromFile("b"),
+        );
+        await Promise.all([gate.start("a"), gate.start("b")]);
+        operations.push(probeFrameSheetFpsFromFile("queued", remote));
+        expect(checks).toBe(1);
+        await gate.release("a");
+        await gate.start("queued");
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(gate.didStart("fresh")).toBe(false);
+        await gate.release("b");
+        await gate.start("fresh");
+        await gate.release("queued");
+        await gate.release("fresh");
+        await Promise.all(operations);
+      } finally {
+        await Promise.all(["a", "b", "queued", "fresh"].map(gate.release));
+        await Promise.allSettled(operations);
+      }
+    });
+  });
+});
+
 describe("extractJpegFrameFromFile", () => {
   it("classifies empty media separately from a missing timestamp frame", async () => {
     const root = await mkdtemp(join(tmpdir(), "clips-empty-frame-test-"));
