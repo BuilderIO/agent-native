@@ -348,6 +348,55 @@ describe("createReplayNodeLabels", () => {
     expect(labels.describe(100)).toBe('button "Send"');
   });
 
+  it("reads text inside an iframe's document", () => {
+    const labels = labelsFor(element(2, "iframe"));
+    labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        adds: [
+          {
+            parentId: 2,
+            node: {
+              type: 0,
+              id: 3,
+              childNodes: [
+                element(4, "html", {}, [
+                  element(5, "button", {}, [text(6, "Send")]),
+                ]),
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(labels.describe(5)).toBe('button "Send"');
+  });
+
+  it("names nothing under an ancestor the replay never showed", () => {
+    const labels = labelsFor(element(2, "div"));
+    labels.observe({
+      type: 3,
+      timestamp: 2,
+      data: {
+        source: 0,
+        adds: [
+          { parentId: 90, node: element(3, "div") },
+          { parentId: 3, node: element(4, "button", {}, [text(5, "Draft")]) },
+          {
+            parentId: 3,
+            node: element(6, "button", { "aria-label": "A private name" }),
+          },
+        ],
+      },
+    });
+
+    expect(labels.describe(4)).toBeNull();
+    expect(labels.describe(6)).toBeNull();
+  });
+
   it("never reports what was typed as an agent error's message", () => {
     const labels = labelsFor(
       element(2, "div", {}, [
@@ -430,6 +479,21 @@ describe("createReplayNodeLabels", () => {
           detail: "Upload failed — File storage is not configured.",
         },
       ]);
+    });
+
+    it("keeps text under an ancestor the replay never showed out of a toast", () => {
+      const labels = labelsFor(element(2, "ol"));
+
+      expect(
+        labels.observe(
+          mutation({
+            adds: [
+              add(90, toast(3, "error")),
+              add(3, text(4, "What someone was typing")),
+            ],
+          }),
+        ),
+      ).toEqual([{ kind: "error-toast", label: "Error toast", detail: null }]);
     });
 
     it("ignores other toasts until one turns into an error", () => {

@@ -3,6 +3,7 @@ import { SESSION_REPLAY_MASK_ATTRIBUTE } from "@agent-native/core/client/session
 const RRWEB_FULL_SNAPSHOT = 2;
 const RRWEB_INCREMENTAL_SNAPSHOT = 3;
 const SOURCE_MUTATION = 0;
+const NODE_DOCUMENT = 0;
 const NODE_ELEMENT = 2;
 const NODE_TEXT = 3;
 
@@ -158,31 +159,36 @@ export function createReplayNodeLabels() {
     return null;
   }
 
-  /** Whether text under this parent is the page's, not something being typed. */
+  /**
+   * Whether text under this parent is the page's, not something being typed.
+   * Only a chain that reaches the top counts: an ancestor the replay never
+   * showed could be an editor.
+   */
   function holdsReadableText(parentId: unknown): boolean {
     let cursor = typeof parentId === "number" ? nodes.get(parentId) : undefined;
     if (!cursor || UNREADABLE_TEXT_TAGS.has(cursor.tag)) return false;
     for (let depth = 0; depth < MAX_EDITOR_ANCESTORS_CHECKED; depth += 1) {
       if (cursor.editable) return false;
-      cursor =
-        cursor.parentId === null ? undefined : nodes.get(cursor.parentId);
-      if (!cursor) return true;
+      if (cursor.parentId === null) return true;
+      cursor = nodes.get(cursor.parentId);
+      if (!cursor) return false;
     }
     return false;
   }
 
   /**
    * rrweb masks text under the marker but records its attributes as they are,
-   * so a name read from one is private too. Past the depth limit, it counts as
-   * masked.
+   * so a name read from one is private too. Past the depth limit, or past an
+   * ancestor the replay never showed, it counts as masked.
    */
   function isMasked(id: number): boolean {
     let cursor = nodes.get(id);
+    if (!cursor) return false;
     for (let depth = 0; depth < MAX_EDITOR_ANCESTORS_CHECKED; depth += 1) {
-      if (!cursor) return false;
       if (cursor.masked) return true;
-      cursor =
-        cursor.parentId === null ? undefined : nodes.get(cursor.parentId);
+      if (cursor.parentId === null) return false;
+      cursor = nodes.get(cursor.parentId);
+      if (!cursor) return true;
     }
     return true;
   }
@@ -242,7 +248,12 @@ export function createReplayNodeLabels() {
         }
         continue;
       }
-      if (serialized.type === NODE_ELEMENT) {
+      // A document is kept so an ancestor walk can tell the top of the page,
+      // an iframe's included, from an ancestor the replay never showed.
+      if (
+        serialized.type === NODE_ELEMENT ||
+        serialized.type === NODE_DOCUMENT
+      ) {
         nodes.set(id, elementNode(serialized, parentId));
       }
       if (!Array.isArray(serialized.childNodes)) continue;

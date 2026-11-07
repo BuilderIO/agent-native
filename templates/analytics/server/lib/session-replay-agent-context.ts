@@ -986,15 +986,26 @@ function replayBuild(recording: SessionRecordingSummary): {
 } {
   const reported = recording.metadata.commit_sha;
   const latest = recording.metadata.commit_sha_latest;
+  const latestCommit =
+    typeof latest === "string" && COMMIT_SHA.test(latest)
+      ? latest.toLowerCase()
+      : null;
   if (typeof reported === "string" && COMMIT_SHA.test(reported)) {
-    if (typeof latest === "string" && COMMIT_SHA.test(latest)) {
+    if (latestCommit) {
       return {
         commit: reported.toLowerCase(),
-        latestCommit: latest.toLowerCase(),
+        latestCommit,
         note: "This recording spans a deploy: it started on commit and a reload moved it to latestCommit. It does not say which one a given moment ran on.",
       };
     }
     return { commit: reported.toLowerCase() };
+  }
+  if (latestCommit) {
+    return {
+      commit: null,
+      latestCommit,
+      note: "This recording started on a build that reported no commit, and a reload moved it to latestCommit. It does not say which one a given moment ran on.",
+    };
   }
   return {
     commit: null,

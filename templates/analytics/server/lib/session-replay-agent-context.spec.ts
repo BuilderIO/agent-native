@@ -788,6 +788,17 @@ describe("session replay key moments", () => {
     expect(build.latestCommit).toBe(later);
     expect(build.note).toContain("spans a deploy");
   });
+
+  it("names a later commit without guessing an unknown start", async () => {
+    const later = "b".repeat(40);
+    serve([], {}, { metadata: { commit_sha_latest: later } });
+
+    const { build } = await readContext();
+
+    expect(build.commit).toBeNull();
+    expect(build.latestCommit).toBe(later);
+    expect(build.note).toContain("reported no commit");
+  });
 });
 
 describe("session replay agent context links", () => {

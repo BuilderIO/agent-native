@@ -3945,12 +3945,62 @@ describe("replay viewport", () => {
       commit_sha_latest: started,
     });
 
-    expect(mergeReplayMetadata({}, { commit_sha: started })).toEqual({
-      commit_sha: started,
-    });
+    expect(
+      mergeReplayMetadata({}, { commit_sha: started }, null, {
+        first: true,
+        newest: true,
+      }),
+    ).toEqual({ commit_sha: started });
     expect(
       mergeReplayMetadata({ commit_sha: started }, { pageCount: 2 }),
     ).toEqual({ commit_sha: started, pageCount: 2 });
+  });
+
+  it("keeps the latest commit when an older upload arrives late", () => {
+    const started = "a".repeat(40);
+    const deployed = "b".repeat(40);
+    const spanned = { commit_sha: started, commit_sha_latest: deployed };
+
+    expect(
+      mergeReplayMetadata(spanned, { commit_sha: started }, null, {
+        first: false,
+        newest: false,
+      }),
+    ).toEqual(spanned);
+    expect(
+      mergeReplayMetadata(
+        { commit_sha: started },
+        { commit_sha: deployed },
+        null,
+        {
+          first: false,
+          newest: false,
+        },
+      ),
+    ).toEqual({ commit_sha: started });
+  });
+
+  it("leaves the starting commit unknown when the first upload had none", () => {
+    const deployed = "b".repeat(40);
+    const first = mergeReplayMetadata({}, { sdk: "x" }, null, {
+      first: true,
+      newest: true,
+    });
+
+    expect(
+      mergeReplayMetadata(first, { commit_sha: deployed }, null, {
+        first: false,
+        newest: true,
+      }),
+    ).toEqual({ sdk: "x", commit_sha_latest: deployed });
+    expect(
+      mergeReplayMetadata(
+        {},
+        { commit_sha: deployed, commit_sha_latest: "c".repeat(40) },
+        null,
+        { first: true, newest: true },
+      ),
+    ).toEqual({ commit_sha: deployed });
   });
 
   it("keeps the stored first size across uploads and takes the newest last size", () => {

@@ -1507,41 +1507,63 @@ function isVisibleSessionRecording(row: any): boolean {
   );
 }
 
+/** Where an upload's chunks fall among the ones its recording already has. */
+export interface ReplayUploadOrder {
+  /** The recording had no chunks before this upload. */
+  first: boolean;
+  /** This upload holds a chunk later than every one stored before it. */
+  newest: boolean;
+}
+
 /**
  * A recording carries on across a reload, so it can span a deploy. It stays
- * named for the commit it started on, with the newest one kept beside it.
+ * named for the commit its first upload reported, with the newest one kept
+ * beside it. Uploads can arrive late, so only a newer one moves the latest,
+ * and a start the first upload didn't report stays unknown.
  */
 function mergedReplayCommits(
   existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
+  incoming: unknown,
+  upload: ReplayUploadOrder,
 ): Record<string, unknown> {
-  const started = existing.commit_sha;
-  const latest = incoming.commit_sha;
-  if (typeof started !== "string" || typeof latest !== "string") return {};
-  if (started === latest && existing.commit_sha_latest === undefined) return {};
-  return { commit_sha: started, commit_sha_latest: latest };
+  const started = upload.first ? incoming : existing.commit_sha;
+  const stored = existing.commit_sha_latest ?? existing.commit_sha;
+  const latest =
+    upload.newest && typeof incoming === "string" ? incoming : stored;
+  return {
+    ...(typeof started === "string" ? { commit_sha: started } : {}),
+    ...(typeof latest === "string" &&
+    (latest !== started || existing.commit_sha_latest !== undefined)
+      ? { commit_sha_latest: latest }
+      : {}),
+  };
 }
 
 export function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
   viewport: RecordedReplayViewport | null = null,
+  upload: ReplayUploadOrder = { first: false, newest: true },
 ): Record<string, unknown> {
   const {
     viewport: stored,
     capture_context: _existingCaptureContext,
     pre_auth_base_path: _existingPreAuthBasePath,
+    commit_sha: _existingCommit,
+    commit_sha_latest: _existingLatestCommit,
     ...existingMetadata
   } = existing;
   const {
     capture_context: _incomingCaptureContext,
     pre_auth_base_path: _incomingPreAuthBasePath,
+    commit_sha: incomingCommit,
+    commit_sha_latest: _incomingLatestCommit,
     ...incomingMetadata
   } = incoming;
   const merged = {
     ...existingMetadata,
     ...incomingMetadata,
-    ...mergedReplayCommits(existingMetadata, incomingMetadata),
+    ...mergedReplayCommits(existing, incomingCommit, upload),
   };
   assertReplayMetadataCap(merged);
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
@@ -1765,7 +1787,15 @@ export async function recordSessionReplayChunks(
         template: clampedInput.template,
         status: clampedInput.status,
         metadata: JSON.stringify(
-          mergeReplayMetadata({}, clampedInput.metadata, clampedInput.viewport),
+          mergeReplayMetadata(
+            {},
+            clampedInput.metadata,
+            clampedInput.viewport,
+            {
+              first: true,
+              newest: true,
+            },
+          ),
         ),
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
@@ -1964,10 +1994,18 @@ export async function recordSessionReplayChunks(
     (endedAt
       ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
       : (recording.durationMs ?? null));
+  const latestStoredSeq = Math.max(
+    -1,
+    ...existingChunks.map((chunk) => Number(chunk.seq)),
+  );
   const metadata = mergeReplayMetadata(
     parseRecordingMetadata(recording),
     clampedInput.metadata,
     clampedInput.viewport,
+    {
+      first: wasEmptyRecording,
+      newest: rowsToInsert.some((row) => row.seq > latestStoredSeq),
+    },
   );
   const signalOverrides = clampedInput.signalOverrides ?? {};
   let errorCount =
