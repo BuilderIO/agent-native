@@ -267,7 +267,7 @@ describe("Comments on a Collection table cell", () => {
     await settle();
     expect(openComments).toHaveBeenCalledWith(
       expect.objectContaining({ id: "item-1" }),
-      "posted",
+      { threadId: "posted" },
     );
     expect(card()).toBeNull();
     expect(focusedWhenOpened).toBe(start);
@@ -457,8 +457,7 @@ describe("Comments on a Collection table cell", () => {
     await settle();
     expect(openComments).toHaveBeenCalledWith(
       expect.objectContaining({ id: "item-1" }),
-      null,
-      "status",
+      { propertyId: "status" },
     );
     expect(card()).toBeNull();
   });

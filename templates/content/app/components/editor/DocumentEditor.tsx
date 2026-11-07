@@ -537,14 +537,16 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, a new comment on the Property `propertyId` names, otherwise the list.
- * A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, a new comment on the
+ * whole Page when `pageComment` is set, otherwise the list. A new `key` asks
+ * again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
   propertyId?: string;
+  pageComment?: true;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -8439,6 +8441,7 @@ function PageEditorSessionBody({
   const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
     null,
   );
+  const [focusPageComposer, setFocusPageComposer] = useState(false);
   const appliedSuggestionLinkRef = useRef<string | null>(null);
   const {
     data: threads,
@@ -9125,6 +9128,7 @@ function PageEditorSessionBody({
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
   const handledPropertyCommentLinkRef = useRef<string | null>(null);
+  const handledPageCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -9197,6 +9201,18 @@ function PageEditorSessionBody({
     clearCommentFocus();
     setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
+
+  // A comment on the whole Page is written in Discussion's own composer.
+  const startPageComment = useCallback(() => {
+    handleUtilityPanelChange("comments");
+    if (canComment) setFocusPageComposer(true);
+  }, [canComment, handleUtilityPanelChange]);
+
+  // A request the composer never took lapses when Discussion closes, so it
+  // can't take focus the next time Discussion opens.
+  useEffect(() => {
+    if (utilityPanel !== "comments") setFocusPageComposer(false);
+  }, [utilityPanel]);
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
@@ -9297,6 +9313,19 @@ function PageEditorSessionBody({
     startPropertyComment,
   ]);
 
+  // ...and on the whole Page, as a row's Comment command does. The address is
+  // the routed Page's, so a row previewed beside it leaves it alone.
+  useEffect(() => {
+    if (host === "preview") return;
+    if (!new URLSearchParams(location.search).has("commentPage")) {
+      handledPageCommentLinkRef.current = null;
+      return;
+    }
+    if (handledPageCommentLinkRef.current === documentId) return;
+    handledPageCommentLinkRef.current = documentId;
+    startPageComment();
+  }, [documentId, host, location.search, startPageComment]);
+
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -9304,7 +9333,12 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const { threadId, propertyId } = commentIntent;
+    const { threadId, propertyId, pageComment } = commentIntent;
+    if (pageComment) {
+      handledCommentIntentRef.current = commentIntent.key;
+      startPageComment();
+      return;
+    }
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -9336,6 +9370,7 @@ function PageEditorSessionBody({
     handleUtilityPanelChange,
     pageProperties,
     pagePropertiesFailed,
+    startPageComment,
     startPropertyComment,
     threads,
   ]);
@@ -10108,6 +10143,8 @@ function PageEditorSessionBody({
       unplaceableSuggestionRevisions={unplaceableSuggestionRevisions}
       focusSuggestionId={focusSuggestionId}
       onSuggestionFocused={() => setFocusSuggestionId(null)}
+      focusPageComposer={presentation === "history" && focusPageComposer}
+      onPageComposerFocused={() => setFocusPageComposer(false)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
       anchoredSuggestionIds={anchoredSuggestionIds}
       onActivateSuggestion={activateSuggestionOrThread}

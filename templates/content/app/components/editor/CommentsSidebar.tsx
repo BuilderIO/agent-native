@@ -888,7 +888,9 @@ export function useCommentReplyDrafts(
     [documentId, accountKey],
   );
   const [openReplies, setOpenReplies] = useState<
-    Record<string, { threadId: string | null; suggestionId: string | null }>
+    Partial<
+      Record<string, { threadId: string | null; suggestionId: string | null }>
+    >
   >({});
   const focus = useRef<{
     documentId: string;
@@ -905,10 +907,18 @@ export function useCommentReplyDrafts(
     ) => {
       focus.current =
         threadId && focusComposer ? { documentId, threadId } : null;
-      setOpenReplies((current) => ({
-        ...current,
-        [documentId]: { threadId, suggestionId },
-      }));
+      // Every click on a page closes its reply, so an unchanged one must keep
+      // this state as it is: a new object re-renders the whole page each click.
+      setOpenReplies((current) => {
+        const open = current[documentId];
+        if (
+          (open?.threadId ?? null) === threadId &&
+          (open?.suggestionId ?? null) === suggestionId
+        ) {
+          return current;
+        }
+        return { ...current, [documentId]: { threadId, suggestionId } };
+      });
     },
     [documentId],
   );
@@ -1131,6 +1141,9 @@ interface CommentsSidebarOptions {
   unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
+  /** Puts the caret in Discussion's composer, for a comment on the whole Page. */
+  focusPageComposer?: boolean;
+  onPageComposerFocused?: () => void;
   hoveredSuggestionId?: string | null;
   anchoredSuggestionIds?: string[] | null;
   onActivateSuggestion?: (id: string) => void;
@@ -1234,6 +1247,8 @@ export function CommentsSidebar({
   unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
+  focusPageComposer = false,
+  onPageComposerFocused,
   hoveredSuggestionId,
   anchoredSuggestionIds,
   onActivateSuggestion,
@@ -1289,6 +1304,7 @@ export function CommentsSidebar({
   const pendingDraft = useCommentDraft("pending");
   const pageDraft = useCommentDraft("page");
   const pageComposerRef = useRef<TiptapComposerHandle>(null);
+  const pageComposerBoxRef = useRef<HTMLDivElement>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
     id: symbol;
@@ -2115,6 +2131,29 @@ export function CommentsSidebar({
       document.removeEventListener("focusin", relinquish);
     };
   }, [pendingFocus, presentation]);
+
+  const onPageComposerFocusedRef = useRef(onPageComposerFocused);
+  onPageComposerFocusedRef.current = onPageComposerFocused;
+  useEffect(() => {
+    if (!focusPageComposer || presentation !== "history") return;
+    let attempts = 0;
+    let frame = 0;
+    const focusComposer = () => {
+      const box = pageComposerBoxRef.current;
+      if (!box?.contains(document.activeElement))
+        pageComposerRef.current?.focus();
+      // The panel may still be opening, so the composer may not be on screen
+      // yet. A request that never lands is dropped rather than left to take
+      // focus the next time Discussion opens.
+      if (box?.contains(document.activeElement) || ++attempts >= 60) {
+        onPageComposerFocusedRef.current?.();
+        return;
+      }
+      frame = requestAnimationFrame(focusComposer);
+    };
+    frame = requestAnimationFrame(focusComposer);
+    return () => cancelAnimationFrame(frame);
+  }, [focusPageComposer, presentation]);
 
   // A Clip's thread is saved in Clips; the margin knows it by an id that
   // also names the Clip.
@@ -3890,7 +3929,10 @@ export function CommentsSidebar({
       />
     );
     const composer = canComment ? (
-      <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background">
+      <div
+        ref={pageComposerBoxRef}
+        className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background"
+      >
         <DiscussionComposer
           ref={pageComposerRef}
           currentUserEmail={currentUserEmail}
