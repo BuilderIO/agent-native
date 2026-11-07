@@ -38,7 +38,7 @@ it("mocks a dependency imported by an installed Core module", async () => {
       await symlink(
         await realpath(packageDir),
         path.join(modules, name),
-        "dir",
+        process.platform === "win32" ? "junction" : "dir",
       );
     }
     expect((await lstat(installedCore)).isSymbolicLink()).toBe(false);
@@ -81,8 +81,19 @@ it("uses the mocked migration guide in the real error", () => {
 `,
     );
 
+    const inheritedEnv = new Set([
+      "PATH",
+      "HOME",
+      "SYSTEMROOT",
+      "TEMP",
+      "TMP",
+      "TMPDIR",
+      "CI",
+    ]);
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith("VITEST")),
+      Object.entries(process.env).filter(([key]) =>
+        inheritedEnv.has(key.toUpperCase()),
+      ),
     );
     const child = spawnSync(
       process.execPath,
@@ -101,12 +112,19 @@ it("uses the mocked migration guide in the real error", () => {
     );
     const output = `${child.stdout ?? ""}\n${child.stderr ?? ""}`;
     expect(child.error, output).toBeUndefined();
+    expect(child.status, output).toBe(0);
     const message = await readFile(
       path.join(root, "observed-message.txt"),
       "utf8",
-    );
+    ).catch((error: unknown) => {
+      throw new Error(
+        `Child did not produce the observed message.\n${output}`,
+        {
+          cause: error,
+        },
+      );
+    });
     expect(message, output).toContain("mocked-migration-guide");
-    expect(child.status, output).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
