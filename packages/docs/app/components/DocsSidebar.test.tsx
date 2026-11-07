@@ -280,19 +280,17 @@ describe("DocsSidebar", () => {
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
-  it("marks the current page's group and section triggers on desktop", () => {
+  it("marks the active section and group even while their content is collapsed", () => {
     const html = renderSidebar("/docs/docker/");
     const buttonForLabel = (label: string) => {
-      const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\
-});
-");
-      const match = html.match(
-        new RegExp(
-          `<button\\b([^>]*?)>(?:(?!<\\/button>)[\\s\\S])*?<span>${escapedLabel}<\\/span>`,
-        ),
-      );
-      if (!match) throw new Error(`Missing sidebar toggle: ${label}`);
-      return match[1];
+      const labelPosition = html.indexOf(`<span>${label}</span>`);
+      if (labelPosition < 0) throw new Error(`Missing sidebar label: ${label}`);
+      const buttonPosition = html.lastIndexOf("<button", labelPosition);
+      const buttonEnd = html.indexOf(">", buttonPosition);
+      if (buttonPosition < 0 || buttonEnd > labelPosition) {
+        throw new Error(`Missing sidebar toggle: ${label}`);
+      }
+      return html.slice(buttonPosition, buttonEnd + 1);
     };
 
     expect(buttonForLabel("Deployment")).toContain('data-active-descendant="true"');
