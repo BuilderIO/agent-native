@@ -2,6 +2,7 @@ import { ActionContractError } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   COLUMN_RULE_FROZEN,
   freezeRuleKeys,
@@ -59,20 +60,22 @@ export async function assertBlocksFieldNotFrozen(
   const rule = field ? freezeRuleOf(field) : null;
   if (!field || !rule) return;
   // guard:allow-unscoped — callers have checked access to the page; this reads the rule's one value.
-  const [stored] = await db
-    .select({ valueJson: schema.documentPropertyValues.valueJson })
-    .from(schema.documentPropertyValues)
-    .where(
-      and(
-        eq(schema.documentPropertyValues.documentId, target.documentId),
-        eq(schema.documentPropertyValues.propertyId, rule.propertyId),
+  const stored = firstRow(
+    await db
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, target.documentId),
+          eq(schema.documentPropertyValues.propertyId, rule.propertyId),
+        ),
       ),
-    );
-  const [frozen] = frozenBlocksFields(definitions, (propertyId) =>
+  );
+  const frozen = frozenBlocksFields(definitions, (propertyId) =>
     propertyId === rule.propertyId && stored
       ? parsePropertyValue(stored.valueJson)
       : null,
-  ).filter((candidate) => candidate.propertyId === field.id);
+  ).find((candidate) => candidate.propertyId === field.id);
   if (!frozen) return;
   throw new ActionContractError(frozenBlocksFieldMessage(frozen), {
     errorCode: COLUMN_RULE_FROZEN,
@@ -130,7 +133,7 @@ export function assertNoColumnRuleOn(
       { propertyId },
     );
   }
-  const [frozenTab] = tabsFrozenBy(definitions, propertyId);
+  const frozenTab = firstRow(tabsFrozenBy(definitions, propertyId));
   if (field && frozenTab) {
     throw ruleInUseError(
       `A rule freezes the ${frozenTab.name} tab while ${field.name} has certain values, so ${field.name} ${action}. Someone with full access to the collection can remove the rule from that tab's menu first.`,
@@ -154,7 +157,7 @@ export function assertKeepsRuledOptions(
     const name =
       field?.options.options?.find((option) => option.id === optionId)?.name ??
       optionId;
-    const [frozenTab] = tabsFrozenBy(definitions, propertyId);
+    const frozenTab = firstRow(tabsFrozenBy(definitions, propertyId));
     throw ruleInUseError(
       `A rule freezes the ${frozenTab?.name ?? "a"} tab while ${field?.name ?? "this column"} is ${name}, so ${name} can't be removed. Someone with full access to the collection can change the rule from that tab's menu first.`,
       { propertyId, optionId, ruledPropertyId: frozenTab?.id ?? null },

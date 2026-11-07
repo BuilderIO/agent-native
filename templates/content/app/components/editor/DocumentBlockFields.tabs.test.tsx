@@ -1541,10 +1541,14 @@ describe("DocumentBlockFields tabs", () => {
       await click(trigger);
     }
 
+    function menuItem(selector: string) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`No menu item ${selector}`);
+      return element;
+    }
+
     function option(id: string) {
-      return document.querySelector<HTMLElement>(
-        `[data-block-field-freeze-option="${id}"]`,
-      );
+      return menuItem(`[data-block-field-freeze-option="${id}"]`);
     }
 
     it("shows a frozen tab's lock and why, and keeps its text read-only", async () => {
@@ -1591,9 +1595,9 @@ describe("DocumentBlockFields tabs", () => {
       expect(
         document.querySelector("[data-block-field-freeze]")?.textContent,
       ).toBe("editor.freezeBlockField");
-      expect(option("approved")?.getAttribute("aria-checked")).toBe("false");
+      expect(option("approved").getAttribute("aria-checked")).toBe("false");
 
-      await click(option("approved")!);
+      await click(option("approved"));
       expect(mocks.freeze).toHaveBeenCalledWith({
         databaseId: "db-1",
         propertyId: "notes",
@@ -1605,18 +1609,16 @@ describe("DocumentBlockFields tabs", () => {
       setFields([content(), frozenNotes(), status("draft")]);
       await render();
       await openFreezeMenu();
-      expect(option("approved")?.getAttribute("aria-checked")).toBe("true");
+      expect(option("approved").getAttribute("aria-checked")).toBe("true");
 
-      await click(option("draft")!);
+      await click(option("draft"));
       expect(mocks.freeze).toHaveBeenLastCalledWith({
         databaseId: "db-1",
         propertyId: "notes",
         rule: { propertyId: "status", optionIds: ["approved", "draft"] },
       });
 
-      await click(
-        document.querySelector<HTMLElement>("[data-block-field-unfreeze]")!,
-      );
+      await click(menuItem("[data-block-field-unfreeze]"));
       expect(mocks.freeze).toHaveBeenLastCalledWith({
         databaseId: "db-1",
         propertyId: "notes",

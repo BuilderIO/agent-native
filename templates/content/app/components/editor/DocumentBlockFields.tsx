@@ -490,7 +490,7 @@ export function DocumentBlockFields({
     [loadedProperties],
   );
   const canManageColumnRules =
-    canManageFields && propertiesData?.canManageColumnRules === true;
+    canManageFields && propertiesData.canManageColumnRules === true;
 
   const loaded = isLoadedForDocument(documentId, databaseId, propertiesData);
   const state = blockFieldsRenderState({ loaded, blockFields });

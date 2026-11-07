@@ -325,11 +325,11 @@ export default defineAction({
           database.id,
         );
         if (lockedDefinition.type !== type) {
-          assertNoColumnRuleOn(ruleDefinitions, args.id!, "type");
+          assertNoColumnRuleOn(ruleDefinitions, propertyId, "type");
         } else {
           assertKeepsRuledOptions(
             ruleDefinitions,
-            args.id!,
+            propertyId,
             parsePropertyOptions(optionsJson).options,
           );
         }

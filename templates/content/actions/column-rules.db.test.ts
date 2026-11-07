@@ -6,6 +6,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { firstRow } from "../server/lib/first-row.js";
 import { COLUMN_RULE_FROZEN } from "../shared/column-rules.js";
 import { parsePropertyOptions } from "../shared/properties.js";
 
@@ -201,24 +202,28 @@ function setStatus(row: SpecRow, value: string | null, ctx = person) {
 }
 
 async function fieldText(row: SpecRow, propertyId: string) {
-  const [stored] = await getDb()
-    .select({ content: schema.documentBlockFieldContents.content })
-    .from(schema.documentBlockFieldContents)
-    .where(
-      and(
-        eq(schema.documentBlockFieldContents.documentId, row.documentId),
-        eq(schema.documentBlockFieldContents.propertyId, propertyId),
+  const stored = firstRow(
+    await getDb()
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(schema.documentBlockFieldContents.documentId, row.documentId),
+          eq(schema.documentBlockFieldContents.propertyId, propertyId),
+        ),
       ),
-    );
-  const [identity] = await getDb()
-    .select({ revision: schema.documentBlockFields.revision })
-    .from(schema.documentBlockFields)
-    .where(
-      and(
-        eq(schema.documentBlockFields.documentId, row.documentId),
-        eq(schema.documentBlockFields.propertyId, propertyId),
+  );
+  const identity = firstRow(
+    await getDb()
+      .select({ revision: schema.documentBlockFields.revision })
+      .from(schema.documentBlockFields)
+      .where(
+        and(
+          eq(schema.documentBlockFields.documentId, row.documentId),
+          eq(schema.documentBlockFields.propertyId, propertyId),
+        ),
       ),
-    );
+  );
   return { text: stored?.content ?? "", revision: identity?.revision ?? 0 };
 }
 
@@ -266,13 +271,15 @@ async function insertBlock(row: SpecRow, idempotencyKey: string, nfm: string) {
 }
 
 async function definitionOptions(propertyId: string) {
-  const [definition] = await getDb()
-    .select({
-      name: schema.documentPropertyDefinitions.name,
-      optionsJson: schema.documentPropertyDefinitions.optionsJson,
-    })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+  const definition = firstRow(
+    await getDb()
+      .select({
+        name: schema.documentPropertyDefinitions.name,
+        optionsJson: schema.documentPropertyDefinitions.optionsJson,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyId)),
+  );
   return {
     name: definition?.name,
     options: parsePropertyOptions(definition?.optionsJson),

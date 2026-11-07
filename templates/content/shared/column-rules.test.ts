@@ -145,7 +145,7 @@ describe("which tabs are frozen", () => {
 
   it("tells whoever was refused what reopens the tab", () => {
     const [field] = frozenBlocksFields(definitions, () => "approved");
-    expect(frozenBlocksFieldMessage(field!)).toBe(
+    expect(frozenBlocksFieldMessage(field)).toBe(
       "The Spec tab can't change while Status is Approved: a rule on this collection freezes it. Move Status off Approved to edit it, or comment on the page instead.",
     );
   });
