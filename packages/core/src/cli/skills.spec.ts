@@ -137,6 +137,7 @@ describe("copy scaffold guidance skills", () => {
     );
   });
 
+  // oracle-change: a new test, skipped on Windows, where making a relative link needs extra rights.
   it.skipIf(process.platform === "win32")(
     "keeps a relative link to the source skill",
     () => {

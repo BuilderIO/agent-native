@@ -21,11 +21,9 @@ export function copySkillFiles(
     filter(source) {
       if (skip(path.basename(source))) return false;
       if (!fs.lstatSync(source).isSymbolicLink()) return true;
-      try {
-        return isInside(root, fs.realpathSync(source));
-      } catch {
-        return false;
-      }
+      // `existsSync` follows the link, so it is false for one that no longer
+      // resolves.
+      return fs.existsSync(source) && isInside(root, fs.realpathSync(source));
     },
   });
 }

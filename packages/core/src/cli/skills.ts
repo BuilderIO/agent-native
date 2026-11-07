@@ -2252,15 +2252,12 @@ function copyScaffoldGuidanceSkills(
 // Before 0.221, refreshing a copied skill could write an absolute link to its
 // source instead of a copy (#8231). That link only resolves on the machine
 // that wrote it, so it is copied again; links that point anywhere else stay.
+// The caller has already checked that the link resolves.
 function isMachineOnlyLinkTo(linkPath: string, sourceDir: string): boolean {
-  try {
-    return (
-      path.isAbsolute(fs.readlinkSync(linkPath)) &&
-      fs.realpathSync(linkPath) === fs.realpathSync(sourceDir)
-    );
-  } catch {
-    return false;
-  }
+  return (
+    path.isAbsolute(fs.readlinkSync(linkPath)) &&
+    fs.realpathSync(linkPath) === fs.realpathSync(sourceDir)
+  );
 }
 
 export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };

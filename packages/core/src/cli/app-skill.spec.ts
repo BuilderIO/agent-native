@@ -562,7 +562,7 @@ describe("app skill packaging", () => {
     expect(fs.existsSync(path.join(outDir, "app", "cert.pem"))).toBe(false);
   });
 
-  // Windows needs extra rights to make a file link.
+  // oracle-change: a new test, skipped on Windows, where making a file link needs extra rights.
   it.skipIf(process.platform === "win32")(
     "keeps links in packed app source as links instead of following them",
     () => {
