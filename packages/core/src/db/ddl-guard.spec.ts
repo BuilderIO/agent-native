@@ -528,6 +528,12 @@ describe("ddl-guard", () => {
             new Error("Store bootstrap failed", { cause: error }),
             { code, name: "ErrorEvent", stack: "onSocketClose" },
           );
+          const nested = Object.assign(
+            new Error("outer connection error", {
+              cause: new Error("store bootstrap failed", { cause: error }),
+            }),
+            { code: "ECONNRESET" },
+          );
           expect(wrapped.message).toContain(code);
           expect(wrapped.message).not.toContain(secret);
           expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
@@ -540,12 +546,18 @@ describe("ddl-guard", () => {
             ),
           ).toBe(true);
           expect(isConnectionError(new Error(code))).toBe(true);
+          const cyclicError = Object.assign(new Error("connection failed"), {
+            code,
+          });
+          Object.assign(cyclicError, { cause: cyclicError });
+          expect(isConnectionError(cyclicError)).toBe(true);
           expect(
             isConnectionError(new Error(`could not probe service: ${code}`)),
           ).toBe(true);
           expect(isConnectionError(error)).toBe(false);
           expect(isConnectionError(wrapped)).toBe(false);
           expect(isConnectionError(causeOnly)).toBe(false);
+          expect(isConnectionError(nested)).toBe(false);
         } finally {
           warn.mockRestore();
         }
