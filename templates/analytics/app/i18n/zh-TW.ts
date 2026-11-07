@@ -1412,6 +1412,7 @@ export default {
     drilldownOverByteCap:
       "這些記錄將讀取超過 {{gib}} GiB 的資料，因此未載入。請縮小儀表板的篩選條件或日期範圍後再試一次。",
     filterSeries: "篩選",
+    noXValue: "無值",
     chartTimeRangeOverride: "覆寫此圖表的時間範圍",
     chartTimeRangeInherit: "儀表板範圍",
     hide: "Hide",
