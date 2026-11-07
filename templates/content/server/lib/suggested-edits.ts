@@ -9,7 +9,7 @@ import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import type {
   ResourceSuggestion,
   SuggestionAdapter,
@@ -44,6 +44,7 @@ import {
 } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
+import { PRIVATE_MEDIA_PATH_PREFIX } from "../../shared/private-media.js";
 import {
   applyMarkdownSuggestionOperation,
   applyMarkdownSuggestionWithSiblings,
@@ -68,7 +69,7 @@ import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
-import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
   acceptOnLiveCopy,
@@ -843,22 +844,29 @@ async function commitAcceptedContent(input: {
       return updated.rowsAffected === 1;
     },
     afterWrite: async () => {
+      // Callouts can carry private icons, and the body private images; both
+      // need their references on this page.
       if (
         currentContent.includes("<callout") ||
-        nextContent.includes("<callout")
+        nextContent.includes("<callout") ||
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {
           throw new Error("Authentication is required to accept a suggestion");
         }
-        await syncPrivateCalloutReferences(identityTx, {
-          documentId,
-          before: currentContent,
-          after: nextContent,
-          userEmail: actorEmail,
-          ownerEmail: String(current.owner_email),
-          orgId: current.org_id === null ? null : String(current.org_id),
-        });
+        // Core opens this transaction without `withDbExec`, which the access
+        // checks need to stay on it.
+        await withDbExec(tx, () =>
+          syncPrivateBodyReferences(identityTx, {
+            documentId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: actorEmail,
+            ownerEmail: String(current.owner_email),
+            orgId: current.org_id === null ? null : String(current.org_id),
+          }),
+        );
       }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({

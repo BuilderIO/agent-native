@@ -56,7 +56,7 @@ import {
   liveBodyWriterPageColumns,
 } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -1715,7 +1715,7 @@ const updateDocumentAction = defineAction({
             );
           }
           if (lockedContentChanged && content !== undefined) {
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,

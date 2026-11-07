@@ -28,6 +28,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -639,6 +640,10 @@ export default defineAction({
             { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
+        await syncPrivateMediaReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId: id, after: content, userEmail: actor },
+        );
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,
