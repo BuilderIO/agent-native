@@ -59,7 +59,7 @@ import {
 } from "./_deck-write.js";
 import { assertNoRenderArtifacts } from "./_render-artifacts.js";
 import {
-  getCurrentRequestBrowserTabId,
+  getCurrentRequestStateTabId,
   readAppStateForCurrentTab,
 } from "./_tab-state.js";
 import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
@@ -337,8 +337,8 @@ export default defineAction({
     }
     await assertAccess("deck", deckId, "editor");
 
-    const browserTabId = getCurrentRequestBrowserTabId();
-    if (browserTabId) {
+    // An MCP call checks against the selection in the tab used last.
+    if (await getCurrentRequestStateTabId()) {
       const currentSelection = await readAppStateForCurrentTab(
         "slides-selection",
         { fallbackToGlobal: false },

@@ -19,25 +19,23 @@ let lastRecordedAt = 0;
 let leftSinceRecorded = true;
 
 function hasFocus(): boolean {
-  try {
-    return typeof document !== "undefined" && document.hasFocus();
-  } catch {
-    return false;
-  }
+  return (
+    typeof document !== "undefined" &&
+    typeof document.hasFocus === "function" &&
+    document.hasFocus()
+  );
 }
 
+// A record that fails to save leaves the tab unfindable, and the MCP call
+// then says no tab was used, so a failed write needs no handling here.
 function record(): void {
   lastRecordedAt = Date.now();
   leftSinceRecorded = false;
-  try {
-    void setClientAppState(
-      BROWSER_TAB_USED_APP_STATE_KEY,
-      { usedAt: lastRecordedAt },
-      { requestSource: getBrowserTabId() },
-    ).catch(() => {});
-  } catch {
-    // Apps without the agent-native API have nothing to record.
-  }
+  void setClientAppState(
+    BROWSER_TAB_USED_APP_STATE_KEY,
+    { usedAt: lastRecordedAt },
+    { requestSource: getBrowserTabId() },
+  ).catch(() => {});
 }
 
 function recordIfReturned(): void {
@@ -49,16 +47,14 @@ function recordIfReturned(): void {
   }
 }
 
+// A lost delete leaves the record to expire after
+// LAST_USED_BROWSER_TAB_MAX_AGE_MS.
 function forget(): void {
   leftSinceRecorded = true;
-  try {
-    void deleteClientAppState(BROWSER_TAB_USED_APP_STATE_KEY, {
-      keepalive: true,
-      requestSource: getBrowserTabId(),
-    }).catch(() => {});
-  } catch {
-    // Nothing was recorded.
-  }
+  void deleteClientAppState(BROWSER_TAB_USED_APP_STATE_KEY, {
+    keepalive: true,
+    requestSource: getBrowserTabId(),
+  }).catch(() => {});
 }
 
 function listen(): () => void {

@@ -11,11 +11,12 @@ const SAFE_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 // Several apps can share one database (Design and Slides do), so each app
 // keeps its tabs' records under its own name. The browser's write and the
 // MCP lookup both run in this app's server, so they name it the same way.
+// Encoding keeps distinct names distinct and keeps ":" out of the name.
 function appScope(): string {
   const app = getAppConfig().app;
   const name =
     app.workspaceId ?? app.id ?? app.slug ?? app.packageName ?? app.name;
-  return name?.replace(/[^A-Za-z0-9_-]/g, "-") || "app";
+  return name ? encodeURIComponent(name) : "app";
 }
 
 function browserTabUsedKeyPrefix(): string {
@@ -41,6 +42,7 @@ export async function findLastUsedBrowserTab(
   for (const { key, updatedAt } of await appStateListUpdatedAt(
     sessionId,
     prefix,
+    now - LAST_USED_BROWSER_TAB_MAX_AGE_MS,
   )) {
     const tabId = key.slice(prefix.length);
     if (!SAFE_TAB_ID_RE.test(tabId)) continue;

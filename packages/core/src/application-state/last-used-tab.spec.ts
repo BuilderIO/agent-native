@@ -83,6 +83,10 @@ describe("the last-used browser tab", () => {
     expect(browserTabUsedKey("tab-a")).toBe("browser-tab-used:design:tab-a");
     useApp("slides");
     expect(browserTabUsedKey("tab-a")).toBe("browser-tab-used:slides:tab-a");
+    useApp("acme:design");
+    expect(browserTabUsedKey("tab-a")).toBe(
+      "browser-tab-used:acme%3Adesign:tab-a",
+    );
   });
 
   it("picks the tab the server recorded a use for most recently", async () => {
@@ -108,6 +112,32 @@ describe("the last-used browser tab", () => {
     useApp("design");
 
     await expect(findLastUsedBrowserTab(SESSION, NOW)).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  it("keeps apps apart whose names differ only in punctuation", async () => {
+    useApp("acme-design");
+    await used(browserTabUsedKey("tab-a"), NOW - 1_000);
+    useApp("acme.design");
+    await expect(findLastUsedBrowserTab(SESSION, NOW)).resolves.toEqual({
+      kind: "unavailable",
+    });
+    useApp("acme_design");
+    await expect(findLastUsedBrowserTab(SESSION, NOW)).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  it("counts a tab used exactly at the cutoff, and not a moment before", async () => {
+    await used(
+      browserTabUsedKey("tab-a"),
+      NOW - LAST_USED_BROWSER_TAB_MAX_AGE_MS,
+    );
+    await expect(findLastUsedBrowserTab(SESSION, NOW)).resolves.toMatchObject({
+      tabId: "tab-a",
+    });
+    await expect(findLastUsedBrowserTab(SESSION, NOW + 1)).resolves.toEqual({
       kind: "unavailable",
     });
   });

@@ -375,16 +375,20 @@ export async function appStateList(
   }));
 }
 
-/** Lists the keys under `keyPrefix` with when the server last wrote each. */
+/**
+ * Lists the keys under `keyPrefix` with when the server last wrote each,
+ * leaving out any written before `writtenSince`.
+ */
 export async function appStateListUpdatedAt(
   sessionId: string,
   keyPrefix: string,
+  writtenSince = 0,
 ): Promise<Array<{ key: string; updatedAt: number }>> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT key, updated_at FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [sessionId, escapeLike(keyPrefix) + "%"],
+    sql: `SELECT key, updated_at FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!' AND updated_at >= ?`,
+    args: [sessionId, escapeLike(keyPrefix) + "%", writtenSince],
   });
   return rows.map((row) => ({
     key: row.key as string,
