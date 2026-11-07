@@ -83,14 +83,13 @@ const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
 const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 
 // Imports that make a module of a file of any type: one with a query, such as
-// `?raw`, `?url` or `?worker`, and `import.meta.glob` patterns. Each template's
+// `?raw`, `?url` or `?worker`, and `import.meta.glob` calls. Each template's
 // settings page imports its CHANGELOG.md this way. Only relative paths are
 // followed, as no such import in the repo uses an alias.
 const QUERY_IMPORT =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"'?]+)\?[^"']*["']/g;
-const GLOB_IMPORT =
-  /import\.meta\.glob\s*(?:<[^>]*>)?\(\s*(\[[^\]]*\]|["'][^"']+["'])/g;
-const STRING = /["']([^"']+)["']/g;
+// The start of an `import.meta.glob` call, with or without type arguments.
+const GLOB_CALL = /\bimport\.meta\.glob\s*(?=[<(])/g;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
 // Package sources reach apps as their published `dist/*.js` files. `public/`
@@ -221,6 +220,65 @@ function globPattern(glob: string): RegExp {
 }
 
 /**
+ * The patterns passed to the `import.meta.glob` call whose arguments start at
+ * `start` in `source`, or null when they aren't string literals.
+ */
+function globCallPatterns(source: string, start: number): string[] | null {
+  let at = start;
+  const skipSpace = () => {
+    while (/\s/.test(source[at] ?? "")) at++;
+  };
+  const readString = (): string | null => {
+    const quote = source[at];
+    if (quote !== '"' && quote !== "'" && quote !== "`") return null;
+    const end = source.indexOf(quote, at + 1);
+    if (end === -1) return null;
+    const text = source.slice(at + 1, end);
+    // Escapes, line breaks and `${…}` make a pattern this can't read.
+    if (/[\\\n]|\$\{/.test(text)) return null;
+    at = end + 1;
+    return text;
+  };
+  if (source[at] === "<") {
+    // Type arguments can nest, as in `<Record<string, string>>`.
+    let depth = 0;
+    do {
+      if (source[at] === "<") depth++;
+      else if (source[at] === ">" && source[at - 1] !== "=") depth--;
+      at++;
+    } while (depth > 0 && at < source.length);
+    skipSpace();
+  }
+  if (source[at] !== "(") return null;
+  at++;
+  skipSpace();
+  const patterns: string[] = [];
+  if (source[at] === "[") {
+    at++;
+    for (skipSpace(); source[at] !== "]"; skipSpace()) {
+      const pattern = readString();
+      if (pattern === null) return null;
+      patterns.push(pattern);
+      skipSpace();
+      if (source[at] === ",") at++;
+      else if (source[at] !== "]") return null;
+    }
+    at++;
+  } else {
+    const pattern = readString();
+    if (pattern === null) return null;
+    patterns.push(pattern);
+  }
+  skipSpace();
+  return source[at] === "," || source[at] === ")" ? patterns : null;
+}
+
+interface GlobCall {
+  include: RegExp[];
+  exclude: RegExp[];
+}
+
+/**
  * The files among `files` that browsers can load as modules: code under a
  * browser root, and files of any type that this code imports as modules.
  * `read` returns a file's source. Throws on an `import.meta.glob` pattern it
@@ -232,7 +290,7 @@ export function browserModules(
 ): string[] {
   const modules = new Set<string>();
   const imported = new Set<string>();
-  const globs: RegExp[] = [];
+  const globs: GlobCall[] = [];
   for (const file of files) {
     const served = servingRoot(file);
     if (!served || !isCode(file, served.root)) continue;
@@ -243,24 +301,38 @@ export function browserModules(
     for (const [, spec] of source.matchAll(QUERY_IMPORT)) {
       imported.add(path.posix.join(dir, spec));
     }
-    for (const [, specs] of source.matchAll(GLOB_IMPORT)) {
-      for (const [, glob] of specs.matchAll(STRING)) {
-        for (const pattern of expandBraces(glob)) {
-          // Exclusions only narrow what the other patterns match.
-          if (pattern.startsWith("!")) continue;
-          // Rather than skip the files, stop at syntax this can't follow,
-          // such as `[ab]`, `{1..3}` or a path from the project root.
-          if (!pattern.startsWith(".") || /[[\](){}]/.test(pattern)) {
-            throw new Error(`${file} imports a glob it can't follow: ${glob}`);
-          }
-          globs.push(globPattern(path.posix.join(dir, pattern)));
-        }
+    for (const call of source.matchAll(GLOB_CALL)) {
+      const patterns = globCallPatterns(source, call.index + call[0].length);
+      // Rather than skip the files, stop at what this can't follow: patterns
+      // that aren't string literals, syntax such as `[ab]` or `{1..3}`, and
+      // paths from the project root.
+      if (patterns === null) {
+        const text = source.slice(call.index).split("\n", 1)[0];
+        throw new Error(`${file} imports a glob it can't follow: ${text}`);
       }
+      const glob: GlobCall = { include: [], exclude: [] };
+      for (const pattern of patterns.flatMap(expandBraces)) {
+        const excluded = pattern.startsWith("!");
+        const relative = excluded ? pattern.slice(1) : pattern;
+        if (!relative.startsWith(".") || /[[\](){}]/.test(relative)) {
+          throw new Error(`${file} imports a glob it can't follow: ${pattern}`);
+        }
+        const regex = globPattern(path.posix.join(dir, relative));
+        (excluded ? glob.exclude : glob.include).push(regex);
+      }
+      globs.push(glob);
     }
   }
   for (const file of files) {
     if (SKIPPED.test(file)) continue;
-    if (imported.has(file) || globs.some((glob) => glob.test(file))) {
+    if (
+      imported.has(file) ||
+      globs.some(
+        ({ include, exclude }) =>
+          include.some((regex) => regex.test(file)) &&
+          !exclude.some((regex) => regex.test(file)),
+      )
+    ) {
       modules.add(file);
     }
   }
@@ -386,7 +458,7 @@ function main(): void {
       `guard-blocker-safe-module-names: could not run: ${error instanceof Error ? error.message : String(error)}`,
     );
     console.error(
-      "\nUse `*`, `**`, `?` and `{a,b}` in relative glob patterns, or teach this guard the new syntax.",
+      "\nPass import.meta.glob relative string patterns using `*`, `**`, `?`, `{a,b}` and `!`, or teach this guard the new syntax.",
     );
     process.exit(2);
   }

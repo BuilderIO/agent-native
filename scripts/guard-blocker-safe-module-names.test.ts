@@ -183,7 +183,7 @@ test("checks the files code imports as modules, whatever their type", () => {
   );
 });
 
-test("expands brace alternatives in glob patterns", () => {
+test("reads glob calls with type arguments, braces and exclusions", () => {
   const loader = "templates/chat/app/content.ts";
   const matched = [
     "templates/chat/app/content/intro.md",
@@ -191,33 +191,43 @@ test("expands brace alternatives in glob patterns", () => {
     "templates/chat/app/notes/2026/plan.md",
     "templates/chat/app/notes/2027/plan.md",
   ];
+  const source = [
+    "import.meta.glob<Record<string, () => Promise<string>>>(",
+    '  ["./content/*.{md,mdx}", "./notes/{2026,2027}/*.md", "!./content/draft-*.md",],',
+    '  { query: "?raw" },',
+    ");",
+  ].join("\n");
   assert.deepEqual(
     browserModules(
       [
         loader,
         ...matched,
+        "templates/chat/app/content/draft-intro.md",
         "templates/chat/app/content/intro.txt",
         "templates/chat/app/notes/2028/plan.md",
       ],
-      (file) =>
-        file === loader
-          ? 'import.meta.glob(["./content/*.{md,mdx}", "./notes/{2026,2027}/*.md", "!./content/draft-*.md"]);'
-          : "",
+      (file) => (file === loader ? source : ""),
     ).sort(),
     [loader, ...matched].sort(),
   );
 });
 
-test("stops at glob syntax it can't follow, instead of skipping files", () => {
-  for (const glob of ["./content/[ab].md", "./notes/{1..3}.md", "/src/*.md"]) {
+test("stops at a glob it can't follow, instead of skipping files", () => {
+  for (const call of [
+    'import.meta.glob("./content/[ab].md")',
+    'import.meta.glob(["./notes/[x].md"])',
+    'import.meta.glob("./notes/{1..3}.md")',
+    'import.meta.glob("/src/*.md")',
+    'import.meta.glob("!/src/*.md")',
+    "import.meta.glob(patterns)",
+    'import.meta.glob("./content/" + name)',
+    "import.meta.glob(`./${dir}/*.md`)",
+    "import.meta.glob<Record<string, string>>(patterns)",
+  ]) {
     assert.throws(
-      () =>
-        browserModules(
-          ["templates/chat/app/content.ts"],
-          () => `import.meta.glob("${glob}");`,
-        ),
+      () => browserModules(["templates/chat/app/content.ts"], () => `${call};`),
       /can't follow/,
-      glob,
+      call,
     );
   }
 });
