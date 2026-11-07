@@ -579,13 +579,13 @@ export default defineEventHandler(async (event: H3Event) => {
       // Without an upload provider the file sits in the owner's application
       // state, which a download link (no session) has to read as the owner.
       const readBlob = () =>
-        // coercion-ok: no stored blob means the file is at videoUrl, fetched below
+        // coercion-ok: unchanged playback fallback; an unreadable blob is treated like a missing one and served from videoUrl below
         readAppState(`recording-blob-${recordingId}`).catch(() => null);
       const blob = download
         ? await runWithRequestContext<Awaited<ReturnType<typeof readBlob>>>(
             {
-              userEmail: rec.ownerEmail ?? undefined,
-              orgId: rec.organizationId ?? undefined,
+              userEmail: download.recording.ownerEmail,
+              orgId: download.recording.organizationId,
             },
             readBlob,
           )
