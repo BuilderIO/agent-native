@@ -100,7 +100,7 @@ function renderProperties(
     rowViewPending?: boolean;
     canEdit?: boolean;
     schemaRowsExpected?: boolean;
-    readFailureShownBelow?: boolean;
+    leaveReadFailureToPage?: boolean;
     comments?: Partial<PropertyCommentsValue>;
   } = {},
 ) {
@@ -113,7 +113,7 @@ function renderProperties(
       rowViewPending={options.rowViewPending ?? false}
       canEdit={options.canEdit ?? true}
       schemaRowsExpected={options.schemaRowsExpected}
-      readFailureShownBelow={options.readFailureShownBelow}
+      leaveReadFailureToPage={options.leaveReadFailureToPage}
     />
   );
   return renderUi(
@@ -153,7 +153,7 @@ beforeEach(() => {
 });
 
 describe("a row's failed Properties read", () => {
-  const shows = (text: string) => document.body.textContent?.includes(text);
+  const shows = (text: string) => document.body.textContent.includes(text);
 
   function failRead(response?: DocumentPropertiesResponse) {
     mocks.response = response as DocumentPropertiesResponse;
@@ -193,7 +193,7 @@ describe("a row's failed Properties read", () => {
 
   it("keeps a row's early copy and stays quiet when the body reports it", () => {
     failRead(mocks.response);
-    renderProperties(null, { readFailureShownBelow: true });
+    renderProperties(null, { leaveReadFailureToPage: true });
 
     expect(rowIds()).toEqual(["a", "b", "c"]);
     expect(shows("empty.genericError")).toBe(false);
@@ -201,7 +201,7 @@ describe("a row's failed Properties read", () => {
 
   it("shows nothing at all above a body that reports it", () => {
     failRead();
-    renderProperties(null, { readFailureShownBelow: true });
+    renderProperties(null, { leaveReadFailureToPage: true });
 
     expect(shows("empty.genericError")).toBe(false);
     expect(shows("editor.properties.loadingProperties")).toBe(false);

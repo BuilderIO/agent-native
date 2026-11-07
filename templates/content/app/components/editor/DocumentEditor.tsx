@@ -10906,7 +10906,12 @@ function PageEditorSessionBody({
                           !isGitHubSourceDocument &&
                           !collabInitializationFailed
                         }
-                        readFailureShownBelow={!mcpDirectoryWidgetReadOnly}
+                        // A syncing body has no fields on screen to report it.
+                        leaveReadFailureToPage={
+                          !mcpDirectoryWidgetReadOnly &&
+                          !bodyHydrationPending &&
+                          !bodyHydrationError
+                        }
                         popoversPortalled={false}
                       />
                     </PropertyCommentsContext.Provider>

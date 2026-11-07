@@ -628,11 +628,12 @@ export function useSetDocumentProperty(
       // here run in order and nothing is shown ahead of them, so a superseded
       // one still counts: the write after it can fail. One Property doesn't
       // confirm the rest of a row's early copy, so its timestamp stays.
-      if (savedProperty) {
-        const propertiesKey = documentPropertiesQueryKey(
-          variables.documentId,
-          databaseId,
-        );
+      const propertiesKey = documentPropertiesQueryKey(
+        variables.documentId,
+        databaseId,
+      );
+      const propertiesState = queryClient.getQueryState(propertiesKey);
+      if (savedProperty && propertiesState) {
         queryClient.setQueryData<DocumentPropertiesResponse>(
           propertiesKey,
           (current) =>
@@ -644,9 +645,7 @@ export function useSetDocumentProperty(
                   : property,
               ),
             },
-          {
-            updatedAt: queryClient.getQueryState(propertiesKey)?.dataUpdatedAt,
-          },
+          { updatedAt: propertiesState.dataUpdatedAt },
         );
       }
       if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {

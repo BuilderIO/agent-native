@@ -197,7 +197,7 @@ describe("useDocumentProperties", () => {
   it("keeps a row's first real read out of a batch, even behind its early copy", () => {
     useDocumentProperties("doc-1", "database-1");
 
-    expect(useActionQuery.mock.calls[0][2]).toMatchObject({
+    expect(useActionQuery.mock.calls[0]?.[2]).toMatchObject({
       batchRefetches: false,
     });
   });
@@ -1067,7 +1067,7 @@ describe("useSetDocumentProperty", () => {
     useActionMutation.mockImplementation((_name, options) => options);
 
     useSetDocumentProperty("row-1", "database-1", "database-page");
-    const options = useActionMutation.mock.calls[0][1];
+    const options = useActionMutation.mock.calls[0]?.[1];
     const variables = {
       documentId: "row-1",
       databaseId: "database-1",
@@ -1106,7 +1106,7 @@ describe("useSetDocumentProperty", () => {
     useActionMutation.mockImplementation((_name, options) => options);
 
     useSetDocumentProperty("row-1", "database-1", "database-page");
-    const options = useActionMutation.mock.calls[0][1];
+    const options = useActionMutation.mock.calls[0]?.[1];
     const variables = {
       documentId: "row-1",
       databaseId: "database-1",
@@ -1141,7 +1141,7 @@ describe("useSetDocumentProperty", () => {
     useActionMutation.mockImplementation((_name, options) => options);
 
     useSetDocumentProperty("row-1", "database-1", "database-page");
-    const options = useActionMutation.mock.calls[0][1];
+    const options = useActionMutation.mock.calls[0]?.[1];
     const edit = (value: string) => ({
       documentId: "row-1",
       databaseId: "database-1",

@@ -214,8 +214,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
-  /** The body below reports a failed read, so saying so here would repeat it. */
-  readFailureShownBelow?: boolean;
+  /** The page reports a failed read itself, so saying so here would repeat it. */
+  leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1011,7 +1011,7 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
-  readFailureShownBelow = false,
+  leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
@@ -1069,7 +1069,7 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {readFailed && !readFailureShownBelow ? (
+      {readFailed && !leaveReadFailureToPage ? (
         <QueryErrorState
           compact
           onRetry={() => void propertiesQuery.refetch()}
@@ -1087,7 +1087,7 @@ export function DocumentProperties({
 
       {loaded &&
       !rowViewPending &&
-      (!readFailed || readFailureShownBelow) &&
+      (!readFailed || leaveReadFailureToPage) &&
       hiddenInViewProperties.length > 0 ? (
         <HiddenInViewProperties
           properties={hiddenInViewProperties}
