@@ -17,6 +17,7 @@ import {
   getReviewThreadRoot,
   insertReviewReply,
   insertReviewReplyIdempotently,
+  ReviewCommentDeletedError,
   ReviewThreadNotFoundError,
   ReviewThreadNotOpenError,
   reviewCommentIdForClientOperation,
@@ -172,6 +173,13 @@ export default defineAction({
       }
       if (error instanceof ReviewThreadNotFoundError) {
         fail("This thread was deleted or resolved. Refresh to see it.", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
+      // A retry of a reply that saved and was then deleted.
+      if (error instanceof ReviewCommentDeletedError) {
+        fail("This reply was deleted.", {
           statusCode: 404,
           errorCode: "not_found",
         });

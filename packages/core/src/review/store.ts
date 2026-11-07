@@ -512,6 +512,14 @@ export class ReviewThreadNotOpenError extends Error {
   }
 }
 
+/** A retried submission's comment saved, then was deleted. */
+export class ReviewCommentDeletedError extends Error {
+  constructor() {
+    super("Review comment was deleted");
+    this.name = "ReviewCommentDeletedError";
+  }
+}
+
 /**
  * A reply needs a live, open root. A root's thread isn't always its own id (a
  * suggestion's correction comment opens one of its own), so the roots are found
@@ -906,6 +914,8 @@ function assertMatchingReviewCommentReceipt(
   existing: ReviewComment,
   submitted: ReviewComment,
 ) {
+  // Deleting a comment clears fields compared below, so a retry can't match.
+  if (existing.status === "deleted") throw new ReviewCommentDeletedError();
   const immutableFields: (keyof ReviewComment)[] = [
     "id",
     "resourceType",

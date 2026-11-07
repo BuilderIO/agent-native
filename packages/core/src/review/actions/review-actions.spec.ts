@@ -1248,6 +1248,33 @@ describe("review actions", () => {
     });
   });
 
+  it("answers a 404 when a saved reply is deleted before its retry", async () => {
+    const ctx = { userEmail: EDITOR_EMAIL, caller: "frontend" } as const;
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Open thread",
+      ownerEmail: OWNER_EMAIL,
+    });
+    const reply = {
+      resourceType: "doc",
+      resourceId: "private",
+      commentId: root.id,
+      body: "Reply deleted before its retry",
+      clientOperationId: "00000000-0000-4000-8000-000000000024",
+    };
+    const saved = await replyReviewCommentAction.run(reply, ctx);
+    await deleteReviewComment(saved.id, EDITOR_EMAIL);
+
+    await expect(
+      replyReviewCommentAction.run(reply, ctx),
+    ).rejects.toMatchObject({
+      message: "This reply was deleted.",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
+  });
+
   it("answers a 404 when the thread goes before the reply saves", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
