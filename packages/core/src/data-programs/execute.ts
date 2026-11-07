@@ -597,23 +597,38 @@ async function runBackgroundProgram(
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
-    try {
-      const execution = await getSandboxExecutionForOwner(
-        active.executionId,
-        args.ctx.userEmail,
-      );
-      if (
-        execution &&
-        execution.status !== "queued" &&
-        execution.status !== "running"
-      ) {
-        await finalizeBackgroundRun(active.id, execution);
-      }
-    } catch (err) {
+    const execution = await getSandboxExecutionForOwner(
+      active.executionId,
+      args.ctx.userEmail,
+    ).catch((err: unknown) => {
       console.error(
         `[data-programs] couldn't check background run ${active.id}:`,
         err,
       );
+      return null;
+    });
+    if (
+      execution &&
+      execution.status !== "queued" &&
+      execution.status !== "running"
+    ) {
+      try {
+        await finalizeBackgroundRun(active.id, execution);
+      } catch (err) {
+        // The run stays queued for the next read to save. Until then the
+        // caller gets the failure and the last good rows, not older rows
+        // passed off as the newest.
+        console.error(
+          `[data-programs] couldn't save background run ${active.id}:`,
+          err,
+        );
+        return failureWithLastGood(
+          program.id,
+          paramsHash,
+          "sandbox_error",
+          "This data program's finished background run couldn't be saved. The next read tries again.",
+        );
+      }
     }
   }
 

@@ -744,6 +744,74 @@ describe("data-programs/execute", () => {
       );
     });
 
+    it.each([false, true])(
+      "reports a finished run it couldn't save with the last good rows, then saves it on the next read (forceRefresh %s)",
+      async (forceRefresh) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        storeMocks.getDataProgram.mockResolvedValue(
+          makeProgram({ background: true }),
+        );
+        accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+          makeRun({ finishedAt: Date.now() - 60_000 }),
+        );
+        const queuedRun = makeRun({
+          id: "dpr_refresh",
+          status: "queued",
+          executionId: "exec_refresh",
+          startedAt: Date.now() - 5_000,
+        });
+        storeMocks.getActiveRun.mockResolvedValue(queuedRun);
+        storeMocks.updateDataProgramRun.mockRejectedValueOnce(
+          new Error("connection reset"),
+        );
+
+        const enqueueSandboxExecution = vi.fn();
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          enqueueSandboxExecution,
+          getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+            status: "succeeded",
+            stdout:
+              DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: [{ a: 2 }] }),
+            stderr: "",
+          }),
+        }));
+        const { runDataProgram } = await loadExecute();
+        const read = () =>
+          runDataProgram({
+            programId: PROGRAM_ID,
+            ctx: { userEmail: OWNER },
+            triggeredBy: "panel_view",
+            ...(forceRefresh ? { forceRefresh: true } : {}),
+          });
+
+        const result = await read();
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.code).toBe("sandbox_error");
+        expect(result.lastGoodRun?.rows).toEqual([{ a: 1 }]);
+        expect(enqueueSandboxExecution).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalledWith(
+          "[data-programs] couldn't save background run dpr_refresh:",
+          expect.any(Error),
+        );
+
+        await read();
+
+        expect(storeMocks.updateDataProgramRun).toHaveBeenCalledTimes(2);
+        expect(storeMocks.updateDataProgramRun).toHaveBeenLastCalledWith(
+          "dpr_refresh",
+          expect.objectContaining({
+            status: "succeeded",
+            rowsJson: JSON.stringify([{ a: 2 }]),
+          }),
+        );
+      },
+    );
+
     it("still queues a new background run on forceRefresh after finalizing one", async () => {
       storeMocks.getDataProgram.mockResolvedValue(
         makeProgram({ background: true }),
