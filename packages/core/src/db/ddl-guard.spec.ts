@@ -575,6 +575,88 @@ describe("ddl-guard", () => {
       }
     });
 
+    it("reports the cooldown without inferring the preceding connection failure", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const secret = "PRIVATE_COOLDOWN_SENTINEL";
+      const calls: string[] = [];
+      const client = {
+        execute: async (statement: string | { sql: string }) => {
+          calls.push(typeof statement === "string" ? statement : statement.sql);
+          if (typeof statement === "string") {
+            throw Object.assign(new Error(secret), { code: "28P01" });
+          }
+          throw Object.assign(
+            new Error(secret, {
+              cause: Object.assign(new Error(secret), { code: "ECONNRESET" }),
+            }),
+            { code: "DB_CONNECT_COOLDOWN" },
+          );
+        },
+      } as unknown as DbExec;
+      try {
+        const error = await ensureTableExists(
+          "observational_memory",
+          "CREATE TABLE observational_memory (id TEXT)",
+          { injectedClient: client },
+        ).catch((err: unknown) => err);
+        expect(error).toMatchObject({ errorCode: "DB_CONNECT_COOLDOWN" });
+        expect((error as Error).message).toContain("DB_CONNECT_COOLDOWN");
+        expect((error as Error).message).not.toContain("28P01");
+        expect((error as Error).message).not.toContain("ECONNRESET");
+        expect(
+          JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        ).not.toContain(secret);
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+        expect(
+          calls.some((sql) => /CREATE TABLE|^BEGIN|^SET /i.test(sql)),
+        ).toBe(false);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("leaves aggregate member codes unknown instead of selecting one", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const secret = "PRIVATE_AGGREGATE_SENTINEL";
+      const calls: string[] = [];
+      const failures = [
+        Object.assign(new Error(secret), { code: "28P01" }),
+        Object.assign(new Error(secret), { code: "ECONNRESET" }),
+      ];
+      let members = failures;
+      const client = {
+        execute: async (statement: string | { sql: string }) => {
+          calls.push(typeof statement === "string" ? statement : statement.sql);
+          throw new AggregateError(members, secret);
+        },
+      } as unknown as DbExec;
+      try {
+        for (const input of [failures, failures.slice(0, 1)]) {
+          members = input;
+          const error = await ensureTableExists(
+            "observational_memory",
+            "CREATE TABLE observational_memory (id TEXT)",
+            { injectedClient: client },
+          ).catch((err: unknown) => err);
+          expect((error as { errorCode?: string }).errorCode).toBeUndefined();
+          expect((error as Error).message).not.toMatch(/28P01|ECONNRESET/);
+          expect(
+            JSON.stringify(error, Object.getOwnPropertyNames(error)),
+          ).not.toContain(secret);
+        }
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+        expect(
+          calls.some((sql) => /CREATE TABLE|^BEGIN|^SET /i.test(sql)),
+        ).toBe(false);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it("finds Neon source errors despite cycles and throwing accessors", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
