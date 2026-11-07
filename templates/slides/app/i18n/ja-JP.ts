@@ -528,6 +528,7 @@ const messages = {
   share: {
     createFailed: "共有リンクを作成できませんでした",
     snapshotLinks: "スナップショットのリンク",
+    snapshotLinksLoadFailed: "スナップショットのリンクを読み込めませんでした",
     revokeLink: "取り消す",
     revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",

@@ -512,6 +512,7 @@ const messages = {
   share: {
     createFailed: "साझा लिंक नहीं बन सका",
     snapshotLinks: "स्नैपशॉट लिंक",
+    snapshotLinksLoadFailed: "स्नैपशॉट लिंक लोड नहीं हो सके",
     revokeLink: "रद्द करें",
     revokeFailed: "साझा लिंक रद्द नहीं किया जा सका",
     title: "प्रस्तुति साझा करें",

@@ -521,6 +521,7 @@ const messages = {
   share: {
     createFailed: "공유 링크를 만들 수 없습니다",
     snapshotLinks: "스냅샷 링크",
+    snapshotLinksLoadFailed: "스냅샷 링크를 불러올 수 없습니다",
     revokeLink: "취소",
     revokeFailed: "공유 링크를 취소할 수 없습니다",
     title: "프레젠테이션 공유",

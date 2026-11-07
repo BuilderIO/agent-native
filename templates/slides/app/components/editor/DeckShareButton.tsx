@@ -5,6 +5,7 @@ import {
   type ShareButtonProps,
   type ShareSendTo,
 } from "@agent-native/toolkit/app/sharing";
+import type { ReactNode } from "react";
 
 import type { Deck } from "@/context/DeckContext";
 import { useDeckVisibility } from "@/hooks/use-deck-visibility";
@@ -13,6 +14,7 @@ import {
   type DeckShareLinkKind,
 } from "@/lib/deck-share-links";
 
+import { SnapshotShareLinks } from "./SnapshotShareLinks";
 import { useDeckShareSendTo } from "./use-deck-share-send-to";
 
 interface DeckShareLink {
@@ -67,13 +69,20 @@ export function useDeckShareLinks(
 /**
  * The deck's share panel links: Copy link copies the primary link, and the
  * other one is a Send to item. The editor link stands in for a presentation
- * link the deck cannot open yet, so Copy link always has a link.
+ * link the deck cannot open yet, so Copy link always has a link. Older
+ * snapshot links stay live until they expire, so the footer lists them for
+ * revocation.
  */
 export function useDeckShareProps(
   deckId: string,
   visibility: Deck["visibility"],
   hasSlides: boolean,
-): { shareUrl?: string; shareUrlLabel?: string; sendTo: ShareSendTo } {
+): {
+  shareUrl?: string;
+  shareUrlLabel?: string;
+  sendTo: ShareSendTo;
+  shareFooterContent: ReactNode;
+} {
   const { primary, secondary } = useDeckShareLinks(
     deckId,
     visibility,
@@ -84,6 +93,7 @@ export function useDeckShareProps(
   return {
     ...(copied ? { shareUrl: copied.url, shareUrlLabel: copied.label } : {}),
     sendTo,
+    shareFooterContent: <SnapshotShareLinks deckId={deckId} />,
   };
 }
 
