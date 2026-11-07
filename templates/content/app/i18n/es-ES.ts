@@ -1334,7 +1334,8 @@ const rawLiterals = {
     previewDraftUseSaved: "Usar la versión guardada",
     previewDraftSaveSeparately: "Guardar la mía como página aparte",
     previewDraftSavedToHistory: "Tus cambios se guardaron en el historial",
-    previewDraftSavedSeparately: "Tus cambios se guardaron como página aparte",
+    previewDraftSavedSeparately:
+      "Tus cambios se guardaron como página privada en tu espacio",
     previewDraftOpenSavedPage: "Abrir página",
     previewDraftMoreOptions: "Más opciones",
     previewDraftViewFullVersions: "Ver versiones completas",

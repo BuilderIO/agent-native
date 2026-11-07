@@ -31,6 +31,7 @@ import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import {
   parseSearchQuery,
+  type ParsedSearchQuery,
   type SearchQueryTerm,
 } from "../shared/search-query.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
@@ -42,6 +43,13 @@ import {
 } from "./_document-discovery-query.js";
 import { loadDocumentSearchPreviews } from "./_document-search-preview.js";
 import { documentSearchRanking } from "./_document-search-ranking.js";
+import {
+  correctSearchQueryTypos,
+  hasCorrectableWord,
+  searchVocabulary,
+  type SpellingCorrection,
+  TYPO_VOCABULARY_LIMIT,
+} from "./_document-search-typo.js";
 import { loadPageSubtree, searchSubtreeDocumentIds } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
@@ -50,7 +58,7 @@ function escapeLike(s: string): string {
 
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -138,8 +146,6 @@ export default defineAction({
         ...(!userEmail && activeOrgId ? [activeOrgId] : []),
       ]),
     ];
-    let bodyNeedles: string[] = [];
-    let parsedQuery: ReturnType<typeof parseSearchQuery> | null = null;
     const queryTermPredicate = (term: SearchQueryTerm): SQL => {
       const pattern = `%${escapeLike(term.text)}%`;
       const columns =
@@ -154,32 +160,6 @@ export default defineAction({
         ...columns.map((column) => sql`${column} ILIKE ${pattern} ESCAPE '\\'`),
       )!;
     };
-    const matchPredicates: SQL[] = [];
-    if (args.query) {
-      const parsed = parseSearchQuery(args.query);
-      parsedQuery = parsed;
-      if (parsed.empty) {
-        matchPredicates.push(sql`false`);
-      } else {
-        for (const group of parsed.groups) {
-          matchPredicates.push(or(...group.terms.map(queryTermPredicate))!);
-        }
-        for (const negative of parsed.negatives) {
-          matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
-        }
-      }
-      if (!args.exactTitle && args.searchFields !== "title") {
-        bodyNeedles = [
-          ...new Set(
-            parsed.groups.flatMap((group) =>
-              group.terms
-                .filter((term) => !term.titleOnly)
-                .map((term) => term.text),
-            ),
-          ),
-        ].slice(0, 256);
-      }
-    }
     let excludedIds: string[] = [];
     if (args.excludeSubtreeOf) {
       const [excludedRoot] = await db
@@ -203,27 +183,7 @@ export default defineAction({
       withinIds = subtree.ids;
       withinSubtreeTruncated = subtree.truncated;
     }
-    // The core index answers when it is complete and current and the query
-    // fits it; otherwise this request scans documents directly, as search
-    // did before the index.
-    let indexedSearch: IndexedSearchSql | null = null;
-    if (parsedQuery && !parsedQuery.empty) {
-      try {
-        indexedSearch = indexedSearchSql({
-          registration: documentSearchIndex,
-          query: parsedQuery,
-          fields: args.searchFields === "title" ? "title" : "all",
-        });
-      } catch (error) {
-        if (!(error instanceof SearchTermTooLongError)) throw error;
-      }
-      if (
-        indexedSearch &&
-        !(await prepareSearchIndex(documentSearchIndex)).ready
-      ) {
-        indexedSearch = null;
-      }
-    }
+    const parsedQuery = args.query ? parseSearchQuery(args.query) : null;
     const baseWhere = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -256,97 +216,201 @@ export default defineAction({
           : undefined,
       ),
     });
-    const where = indexedSearch
-      ? and(baseWhere, indexedSearch.match)
-      : and(baseWhere, ...matchPredicates);
-    const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
-    const ranking =
-      !indexedSearch && parsedQuery?.groups.length
-        ? documentSearchRanking(
-            parsedQuery,
-            {
-              title: schema.documents.title,
-              description: schema.documents.description,
-              content: normalizedContent,
-            },
-            {
-              includeNonTitleFields: args.searchFields !== "title",
-            },
-          )
-        : null;
-    let docsQuery = db
-      .select({
-        id: schema.documents.id,
-        parentId: schema.documents.parentId,
-        title: schema.documents.title,
-        description: schema.documents.description,
-        icon: schema.documents.icon,
-        hideFromSearch: schema.documents.hideFromSearch,
-        updatedAt: schema.documents.updatedAt,
-        sourceKind: schema.documents.sourceKind,
-        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
-        documentType: sql<"page" | "database">`case when ${exists(
-          db
-            .select({ id: schema.contentDatabases.id })
-            .from(schema.contentDatabases)
-            .where(
-              and(
-                eq(schema.contentDatabases.documentId, schema.documents.id),
-                isNull(schema.contentDatabases.deletedAt),
+    // Read once per request, so the typo pass sees the same readiness.
+    let indexReady: Promise<boolean> | undefined;
+    const indexIsReady = () =>
+      (indexReady ??= prepareSearchIndex(documentSearchIndex).then(
+        (state) => state.ready,
+      ));
+    const searchPage = async (query: ParsedSearchQuery | null) => {
+      const matchPredicates: SQL[] = [];
+      let bodyNeedles: string[] = [];
+      if (query) {
+        if (query.empty) {
+          matchPredicates.push(sql`false`);
+        } else {
+          for (const group of query.groups) {
+            // A group with no terms would match nothing.
+            matchPredicates.push(
+              or(...group.terms.map(queryTermPredicate)) ?? sql`false`,
+            );
+          }
+          for (const negative of query.negatives) {
+            matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
+          }
+        }
+        if (!args.exactTitle && args.searchFields !== "title") {
+          bodyNeedles = [
+            ...new Set(
+              query.groups.flatMap((group) =>
+                group.terms
+                  .filter((term) => !term.titleOnly)
+                  .map((term) => term.text),
               ),
             ),
-        )} then 'database' else 'page' end`,
-        totalItems: sql<number>`count(*) over()`,
-      })
-      .from(schema.documents)
-      .where(where)
-      .$dynamic();
-    // Reassigned because a new process's database handle replays a query from
-    // its chained steps, so a join added on the side is lost.
-    if (indexedSearch) {
-      docsQuery = docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
-    }
-    const docs = await docsQuery
-      .orderBy(
-        ...(indexedSearch
-          ? indexedSearch.orderBy
-          : ranking
-            ? [
-                desc(ranking.matchTier),
-                desc(ranking.titleCoverage),
-                desc(ranking.descriptionCoverage),
-                desc(
-                  sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+          ].slice(0, 256);
+        }
+      }
+      // The core index answers when it is complete and current and the query
+      // fits it; otherwise this request scans documents directly, as search
+      // did before the index.
+      let indexedSearch: IndexedSearchSql | null = null;
+      if (query && !query.empty) {
+        try {
+          indexedSearch = indexedSearchSql({
+            registration: documentSearchIndex,
+            query,
+            fields: args.searchFields === "title" ? "title" : "all",
+          });
+        } catch (error) {
+          if (!(error instanceof SearchTermTooLongError)) throw error;
+        }
+        if (indexedSearch && !(await indexIsReady())) {
+          indexedSearch = null;
+        }
+      }
+      const where = indexedSearch
+        ? and(baseWhere, indexedSearch.match)
+        : and(baseWhere, ...matchPredicates);
+      const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
+      const ranking =
+        !indexedSearch && query?.groups.length
+          ? documentSearchRanking(
+              query,
+              {
+                title: schema.documents.title,
+                description: schema.documents.description,
+                content: normalizedContent,
+              },
+              {
+                includeNonTitleFields: args.searchFields !== "title",
+              },
+            )
+          : null;
+      let docsQuery = db
+        .select({
+          id: schema.documents.id,
+          parentId: schema.documents.parentId,
+          title: schema.documents.title,
+          description: schema.documents.description,
+          icon: schema.documents.icon,
+          hideFromSearch: schema.documents.hideFromSearch,
+          updatedAt: schema.documents.updatedAt,
+          sourceKind: schema.documents.sourceKind,
+          sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+          documentType: sql<"page" | "database">`case when ${exists(
+            db
+              .select({ id: schema.contentDatabases.id })
+              .from(schema.contentDatabases)
+              .where(
+                and(
+                  eq(schema.contentDatabases.documentId, schema.documents.id),
+                  isNull(schema.contentDatabases.deletedAt),
                 ),
-              ]
-            : []),
-        desc(schema.documents.updatedAt),
-        asc(schema.documents.id),
-      )
-      .limit(args.limit)
-      .offset(args.offset);
-    const previewById = await loadDocumentSearchPreviews({
-      db,
-      where: baseWhere,
-      ids: docs.map((doc) => doc.id),
-      needles: bodyNeedles,
-    });
-    let countQuery = db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.documents)
-      .where(where)
-      .$dynamic();
-    if (indexedSearch) {
-      countQuery = countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
-    }
-    let totalItems: number;
-    if (docs.length) {
-      totalItems = Number(docs[0]!.totalItems);
-    } else {
-      const [counted] = await countQuery;
-      // guard:allow-bare-error — invariant: count(*) without GROUP BY always returns one row.
-      if (!counted) throw new Error("Counting search results returned no row.");
-      totalItems = Number(counted.count);
+              ),
+          )} then 'database' else 'page' end`,
+          totalItems: sql<number>`count(*) over()`,
+        })
+        .from(schema.documents)
+        .where(where)
+        .$dynamic();
+      // Reassigned because a new process's database handle replays a query
+      // from its chained steps, so a join added on the side is lost.
+      if (indexedSearch) {
+        docsQuery = docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      }
+      const docs = await docsQuery
+        .orderBy(
+          ...(indexedSearch
+            ? indexedSearch.orderBy
+            : ranking
+              ? [
+                  desc(ranking.matchTier),
+                  desc(ranking.titleCoverage),
+                  desc(ranking.descriptionCoverage),
+                  desc(
+                    sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+                  ),
+                ]
+              : []),
+          desc(schema.documents.updatedAt),
+          asc(schema.documents.id),
+        )
+        .limit(args.limit)
+        .offset(args.offset);
+      const previewById = await loadDocumentSearchPreviews({
+        db,
+        where: baseWhere,
+        ids: docs.map((doc) => doc.id),
+        needles: bodyNeedles,
+      });
+      let countQuery = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.documents)
+        .where(where)
+        .$dynamic();
+      if (indexedSearch) {
+        countQuery = countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      }
+      let totalItems: number;
+      if (docs.length) {
+        totalItems = Number(docs[0].totalItems);
+      } else {
+        // count(*) without GROUP BY always returns one row.
+        const counted: ({ count: number } | undefined)[] = await countQuery;
+        totalItems = Number(counted[0]?.count ?? 0);
+      }
+      return { docs, previewById, totalItems };
+    };
+    // Words the caller's own search can return, so a correction never
+    // reveals a word from a document they can't open.
+    const visibleVocabulary = async () => {
+      const text =
+        args.searchFields === "title"
+          ? sql`coalesce(${schema.documents.title}, '')`
+          : sql`coalesce(${schema.documents.title}, '') || ' ' || coalesce(${schema.documents.description}, '')`;
+      // Split on whitespace and ASCII punctuation here, so "roadmap," and
+      // "roadmap" count as one word; searchVocabulary splits the rest.
+      // `[:punct:]` would also split at combining accents in UTF-8 locales.
+      const words = db
+        .select({
+          word: sql<string>`regexp_split_to_table(lower(${text}), ${"[\\s\\x21-\\x2f\\x3a-\\x40\\x5b-\\x60\\x7b-\\x7e]+"})`.as(
+            "word",
+          ),
+        })
+        .from(schema.documents)
+        .where(baseWhere)
+        .as("visible_words");
+      const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(sql`${words.word} <> ''`)
+        .groupBy(words.word)
+        .orderBy(desc(sql`count(*)`), asc(words.word))
+        .limit(TYPO_VOCABULARY_LIMIT);
+      return searchVocabulary(rows.map((row) => row.word));
+    };
+
+    let { docs, previewById, totalItems } = await searchPage(parsedQuery);
+    let spellingCorrections: SpellingCorrection[] | undefined;
+    if (
+      totalItems === 0 &&
+      parsedQuery &&
+      !parsedQuery.empty &&
+      !args.exactTitle &&
+      hasCorrectableWord(parsedQuery)
+    ) {
+      const corrected = correctSearchQueryTypos(
+        parsedQuery,
+        await visibleVocabulary(),
+      );
+      if (corrected) {
+        const correctedPage = await searchPage(corrected.query);
+        if (correctedPage.totalItems > 0) {
+          ({ docs, previewById, totalItems } = correctedPage);
+          spellingCorrections = corrected.corrections;
+        }
+      }
     }
 
     const parentIds = [
@@ -395,6 +459,7 @@ export default defineAction({
         totalItems,
         returnedItems: docs.length,
       }),
+      ...(spellingCorrections ? { spellingCorrections } : {}),
       ...(args.withinSubtreeOf ? { withinSubtreeTruncated } : {}),
     };
   },

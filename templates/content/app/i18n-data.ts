@@ -1597,7 +1597,8 @@ const enUS = {
     previewDraftUseSaved: "Use saved version",
     previewDraftSaveSeparately: "Save mine as a separate page",
     previewDraftSavedToHistory: "Your edits were saved to Version History",
-    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftSavedSeparately:
+      "Your edits were saved as a private page in your space",
     previewDraftOpenSavedPage: "Open page",
     previewDraftMoreOptions: "More options",
     previewDraftViewFullVersions: "View full versions",

@@ -1337,8 +1337,8 @@ export async function runDbHealthProbe(
       identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
-  // Measured on the connection `SELECT 1` just warmed, so the number reflects
-  // the database's own load rather than a serverless cold start.
+  // Reuse the liveness timing, which can include connection acquisition and
+  // network latency as well as database execution.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
