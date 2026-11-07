@@ -249,6 +249,47 @@ describe("classifyAgentEvent", () => {
       reduceAgentEvent(started, event(5, { type: "run.completed" })),
     ).toThrow(/must be contiguous; expected 2 after 1, received 5/u);
   });
+
+  describe("a run settled before its stream finished", () => {
+    const settledLocally = () => {
+      const running = [
+        event(1, { type: "run.started" }),
+        event(2, { type: "run.status", status: "running" }),
+      ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+      return {
+        ...running,
+        runs: {
+          "run-1": {
+            id: "run-1",
+            status: "cancelled" as const,
+            lastSequence: 2,
+          },
+        },
+        activeRunIds: [],
+      };
+    };
+
+    it("accepts the stream's terminal tail in order", () => {
+      const thread = [
+        event(3, { type: "run.status", status: "cancelled" }),
+        event(4, { type: "run.cancelled" }),
+      ].reduce(reduceAgentEvent, settledLocally());
+
+      expect(thread.runs["run-1"]).toMatchObject({
+        status: "cancelled",
+        lastSequence: 4,
+      });
+      expect(thread.events.map(({ sequence }) => sequence)).toEqual([
+        1, 2, 3, 4,
+      ]);
+    });
+
+    it("still rejects a terminal follow-up after a missing event", () => {
+      expect(() =>
+        reduceAgentEvent(settledLocally(), event(4, { type: "run.cancelled" })),
+      ).toThrow(/must be contiguous; expected 3 after 2, received 4/u);
+    });
+  });
 });
 
 describe("AgentKit lifecycle projections", () => {
