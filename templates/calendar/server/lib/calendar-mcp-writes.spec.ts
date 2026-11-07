@@ -11,7 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const requireCore = createRequire(
-  new URL("../../../../packages/core/package.json", import.meta.url),
+  createRequire(import.meta.url).resolve("@agent-native/core/mcp"),
 );
 const { Client } = requireCore("@modelcontextprotocol/client");
 const { InMemoryTransport } = requireCore("@modelcontextprotocol/server");
@@ -39,6 +39,20 @@ const mocks = vi.hoisted(() => ({
   racingDrafts: new Map<string, unknown>(),
 }));
 
+const coreModules = await vi.hoisted(async () => {
+  const { createRequire } = await import("node:module");
+  const { dirname, resolve } = await import("node:path");
+  const coreMcp = createRequire(import.meta.url).resolve(
+    "@agent-native/core/mcp",
+  );
+  const coreDist = resolve(dirname(coreMcp), "..");
+  return {
+    auth: resolve(coreDist, "server/better-auth-instance.js"),
+    approval: resolve(coreDist, "mcp/approval-store.js"),
+    settings: resolve(coreDist, "settings/user-settings.js"),
+  };
+});
+
 const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
   approvalAuth: () => ({
     getAuthSecret: () => "fake-test-only-mcp-approval-secret",
@@ -60,24 +74,9 @@ const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
     getUserSetting: async () => null,
   }),
 }));
-vi.mock(
-  "../../../../packages/core/dist/server/better-auth-instance.js",
-  approvalAuth,
-);
-vi.mock(
-  "../../../../packages/core/src/server/better-auth-instance.js",
-  approvalAuth,
-);
-vi.mock("../../../../packages/core/dist/mcp/approval-store.js", approvalStore);
-vi.mock("../../../../packages/core/src/mcp/approval-store.js", approvalStore);
-vi.mock(
-  "../../../../packages/core/dist/settings/user-settings.js",
-  userSettings,
-);
-vi.mock(
-  "../../../../packages/core/src/settings/user-settings.js",
-  userSettings,
-);
+vi.mock(coreModules.auth, approvalAuth);
+vi.mock(coreModules.approval, approvalStore);
+vi.mock(coreModules.settings, userSettings);
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
