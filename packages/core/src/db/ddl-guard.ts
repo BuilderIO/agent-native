@@ -45,6 +45,7 @@ const PROBE_DIAGNOSTIC_CODES = new Set([
   "57P03",
   "ECONNREFUSED",
   "ECONNRESET",
+  "CONNECT_TIMEOUT",
   "ETIMEDOUT",
   "EHOSTUNREACH",
   "ENETUNREACH",
@@ -53,18 +54,25 @@ const PROBE_DIAGNOSTIC_CODES = new Set([
 ]);
 
 function probeDiagnosticCode(error: unknown): string | undefined {
-  let current = error;
-  for (let depth = 0; depth < 8; depth++) {
-    if (typeof current !== "object" || current === null) return undefined;
+  const pending: unknown[] = [error];
+  const seen = new Set<object>();
+  const property = (value: object, key: "code" | "cause" | "sourceError") => {
     try {
-      const { code, cause } = current as { code?: unknown; cause?: unknown };
-      if (typeof code === "string" && PROBE_DIAGNOSTIC_CODES.has(code))
-        return code;
-      current = cause;
+      return (value as Record<string, unknown>)[key];
       // coercion-ok: unreadable error properties mean an unknown diagnostic, not a successful probe.
     } catch {
       return undefined;
     }
+  };
+  while (pending.length > 0 && seen.size < 8) {
+    const current = pending.shift();
+    if (typeof current !== "object" || current === null || seen.has(current))
+      continue;
+    seen.add(current);
+    const code = property(current, "code");
+    if (typeof code === "string" && PROBE_DIAGNOSTIC_CODES.has(code))
+      return code;
+    pending.push(property(current, "cause"), property(current, "sourceError"));
   }
   return undefined;
 }
@@ -384,6 +392,7 @@ export async function ensureTableExists(
     });
   } catch (err) {
     if (probeErrorCode && err instanceof Error) {
+      err.message += ` (database probe code: ${probeErrorCode})`;
       Object.assign(err, { errorCode: probeErrorCode });
     }
     throw err;

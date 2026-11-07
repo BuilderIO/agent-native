@@ -549,6 +549,16 @@ describe("ddl-guard", () => {
         expect(captured.mock.calls[0][1].extra.failureContext.errorCode).toBe(
           "28P01",
         );
+        const wrapped = new Error(
+          `Store "memory" migration "bootstrap" failed: ${(error as Error).message}`,
+          { cause: error },
+        );
+        captureError(wrapped, { route: "/ddl-wrapped" });
+        expect(captured).toHaveBeenCalledTimes(2);
+        expect(captured.mock.calls[1][0].message).toContain("28P01");
+        expect(
+          JSON.stringify(wrapped, Object.getOwnPropertyNames(wrapped)),
+        ).not.toContain(secret);
         expect(warn).toHaveBeenCalledOnce();
         expect(
           JSON.stringify(error, Object.getOwnPropertyNames(error)),
@@ -563,6 +573,100 @@ describe("ddl-guard", () => {
         resetCaptureErrorStateForTests();
         warn.mockRestore();
       }
+    });
+
+    it("finds Neon source errors despite cycles and throwing accessors", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const secret = "PRIVATE_NEON_SENTINEL";
+      const source = {
+        get cause(): never {
+          throw new Error(secret);
+        },
+        sourceError: Object.assign(new Error(secret), {
+          code: "CONNECT_TIMEOUT",
+        }),
+      };
+      const wrapped: { cause?: unknown; sourceError: unknown } = {
+        sourceError: source,
+      };
+      wrapped.cause = wrapped;
+      const calls: string[] = [];
+      const client = {
+        execute: async (statement: string | { sql: string }) => {
+          calls.push(typeof statement === "string" ? statement : statement.sql);
+          if (typeof statement === "string") throw new Error(secret);
+          throw wrapped;
+        },
+      } as unknown as DbExec;
+      try {
+        const error = await ensureTableExists(
+          "observational_memory",
+          "CREATE TABLE observational_memory (id TEXT)",
+          { injectedClient: client },
+        ).catch((err: unknown) => err);
+        expect(error).toMatchObject({ errorCode: "CONNECT_TIMEOUT" });
+        expect((error as Error).message).toContain("CONNECT_TIMEOUT");
+        expect(
+          JSON.stringify(error, Object.getOwnPropertyNames(error)),
+        ).not.toContain(secret);
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+        expect(
+          calls.some((sql) => /CREATE TABLE|^BEGIN|^SET /i.test(sql)),
+        ).toBe(false);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("leaves diagnostics beyond the traversal limit unknown", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      let nested: unknown = { code: "CONNECT_TIMEOUT" };
+      for (let i = 0; i < 9; i++) nested = { sourceError: nested };
+      const client = {
+        execute: async () => {
+          throw nested;
+        },
+      } as unknown as DbExec;
+      try {
+        const error = await ensureTableExists(
+          "observational_memory",
+          "CREATE TABLE observational_memory (id TEXT)",
+          { injectedClient: client },
+        ).catch((err: unknown) => err);
+        expect((error as { errorCode?: string }).errorCode).toBeUndefined();
+        expect((error as Error).message).not.toContain("CONNECT_TIMEOUT");
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(
+          "CONNECT_TIMEOUT",
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("does not add a probe diagnostic to an unrelated DDL error", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const ddlError = Object.assign(new Error("DDL failed"), {
+        code: "28P01",
+      });
+      const client = {
+        execute: async () => ({ rows: [], rowsAffected: 0 }),
+        transaction: async () => {
+          throw ddlError;
+        },
+      } as unknown as DbExec;
+      const error = await ensureTableExists(
+        "observational_memory",
+        "CREATE TABLE observational_memory (id TEXT)",
+        { injectedClient: client },
+      ).catch((err: unknown) => err);
+      expect(error).toBe(ddlError);
+      expect((error as { errorCode?: string }).errorCode).toBeUndefined();
+      expect((error as Error).message).toBe("DDL failed");
     });
 
     it("preserves the diagnostic when a post-timeout re-probe is unreadable", async () => {
@@ -703,6 +807,7 @@ describe("ddl-guard", () => {
           ).catch((err: unknown) => err);
           expect(error).toBeInstanceOf(Error);
           expect((error as { errorCode?: string }).errorCode).toBeUndefined();
+          expect((error as Error).message).not.toContain(unknownCode);
           captureError(error, {
             route: `/ddl-unknown-${unknownCode === secret ? "unsafe" : "sqlstate"}`,
           });
@@ -715,6 +820,7 @@ describe("ddl-guard", () => {
           captured.mock.calls.map((call) => call[1].tags?.errorCode),
         ).toEqual([undefined, undefined]);
         expect(JSON.stringify(captured.mock.calls)).not.toContain(secret);
+        expect(JSON.stringify(captured.mock.calls)).not.toContain("ZZ999");
         expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
         expect(
           calls.some((sql) => /CREATE TABLE|^BEGIN|^SET /i.test(sql)),
