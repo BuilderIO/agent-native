@@ -1,8 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
+import {
+  ActionContractError,
+  ActionInputValidationError,
+  AgentActionStopError,
+  defineAction,
+  noteExternalWrite,
+} from "../action.js";
+import {
+  getOrCreateRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import * as errorCapture from "../server/capture-error.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -52,6 +64,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
     markAgentExecutionStepDispatched: vi.fn(async () => {}),
     resetAgentExecutionStepBeforeInvocation: vi.fn(async () => {}),
     markAgentExecutionStepUnknown: vi.fn(async () => {}),
+    recordLateAgentExecutionStepOutcome: vi.fn(async () => {}),
     completeAgentExecutionStep: vi.fn(
       async (intent: AgentExecutionStepIntent, resultJson: string) => {
         durableStep.resultJson = resultJson;
@@ -141,6 +154,373 @@ beforeEach(() => {
   durableStep.resultJson = undefined;
   durableStep.priorEvents = [];
   durableStep.completedSteps = [];
+});
+
+describe("late outcome error reporting", () => {
+  const lateTags = {
+    component: "agent-execution-step",
+    phase: "late-outcome-persistence",
+    tool: "create-deck",
+  };
+
+  let unregisterProvider: (() => void) | undefined;
+  afterEach(() => {
+    unregisterProvider?.();
+    unregisterProvider = undefined;
+    errorCapture.resetCaptureErrorStateForTests();
+    vi.restoreAllMocks();
+  });
+
+  it("returns an on-time action rejection without reporting a late persistence failure", async () => {
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    const actionError = new Error("Action rejected");
+    const pool = { end: vi.fn(async () => {}) };
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("late-outcome-test", () => pool);
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[toolCall()], [text("Done")]], []),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "Go" }] }],
+          actions: {
+            "create-deck": {
+              tool: {
+                description: "Read a deck",
+                parameters: { type: "object", properties: {} },
+              },
+              readOnly: true,
+              run: async () => {
+                throw actionError;
+              },
+            },
+          },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        isError: true,
+        result: expect.stringContaining("Action rejected"),
+      }),
+    );
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "unexpected",
+    "unexpected-immediate",
+    "unexpected-timeout",
+    "private",
+    "aborted",
+    "aborted-after-write",
+    "stop",
+    "stop-after-write",
+    "validation",
+    "contract",
+    "internal-contract",
+    "upstream-contract",
+    "setup-required",
+    "setup-after-write",
+    "post-write-contract",
+    "post-write-503",
+    "nested-validation-no-write",
+    "nested-validation-after-write",
+    "output-contract",
+    "persistence-fails",
+    "private-persistence-fails",
+  ] as const)(
+    "classifies an interrupted action's late outcome: %s",
+    async (outcome) => {
+      const capture = vi.spyOn(errorCapture, "captureError");
+      if (
+        outcome !== "persistence-fails" &&
+        outcome !== "private-persistence-fails"
+      ) {
+        capture.mockImplementation(() => {});
+      }
+      const provider = vi.fn();
+      unregisterProvider = errorCapture.registerErrorCaptureProvider(
+        "late-outcome-test",
+        provider,
+      );
+      errorCapture.resetCaptureErrorStateForTests();
+      const runStore = await import("./run-store.js");
+      const lateWrite = vi.mocked(runStore.recordLateAgentExecutionStepOutcome);
+      lateWrite.mockReset();
+      const persistenceError = Object.assign(
+        new Error("password authentication failed for user example"),
+        { code: "28P01" },
+      );
+      lateWrite.mockRejectedValueOnce(persistenceError);
+      const actionStarted = Promise.withResolvers<void>();
+      const actionResult = Promise.withResolvers<string>();
+      const actionError =
+        outcome === "validation"
+          ? new ActionInputValidationError("Invalid action parameters")
+          : outcome === "contract"
+            ? new ActionContractError("Missing destination", {
+                errorCode: "invalid_input",
+              })
+            : outcome === "internal-contract"
+              ? new ActionContractError("Internal action failure", {
+                  errorCode: "internal_failure",
+                  statusCode: 500,
+                })
+              : outcome === "upstream-contract"
+                ? new ActionContractError("Upstream unavailable", {
+                    errorCode: "upstream_failure",
+                    statusCode: 503,
+                  })
+                : outcome === "setup-required"
+                  ? new ActionContractError("Storage setup required", {
+                      errorCode: "storage_setup_required",
+                      statusCode: 503,
+                    })
+                  : outcome === "aborted"
+                    ? new DOMException("Action aborted", "AbortError")
+                    : outcome === "stop"
+                      ? new AgentActionStopError("Action stopped")
+                      : new Error("Action rejected after interruption");
+      const nestedAction = defineAction({
+        description: "Check nested input",
+        schema: z.object({ required: z.number(), payload: z.string() }),
+        readOnly: true,
+        run: async () => "ok",
+      });
+      const parentAction = defineAction({
+        description: "Create a deck and validate nested input",
+        schema: z.object({}),
+        readOnly: false,
+        run: async () => {
+          actionStarted.resolve();
+          await actionResult.promise;
+          if (outcome !== "nested-validation-no-write") {
+            noteExternalWrite("late-validation-test");
+          }
+          if (outcome === "aborted-after-write") {
+            throw new DOMException("Action aborted", "AbortError");
+          }
+          if (outcome === "stop-after-write") {
+            throw new AgentActionStopError("Action stopped");
+          }
+          if (outcome === "post-write-contract") {
+            throw new ActionContractError("Sensitive saved response detail", {
+              errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+              statusCode: 500,
+              details: { saved: true, privateValue: "sensitive-test-value" },
+            });
+          }
+          if (outcome === "post-write-503") {
+            throw new ActionContractError("Sensitive upstream failure", {
+              errorCode: "upstream_response_failed",
+              statusCode: 503,
+            });
+          }
+          if (outcome === "setup-after-write") {
+            throw new ActionContractError("Storage setup required", {
+              errorCode: "storage_setup_required",
+              statusCode: 503,
+            });
+          }
+          return nestedAction.run({
+            required: "bad",
+            payload: "sensitive-test-value",
+          } as unknown as { required: number; payload: string });
+        },
+      });
+      const outputAction = defineAction({
+        description: "Create a deck",
+        schema: z.object({}),
+        outputSchema: z.object({ ok: z.boolean().refine((ok) => ok) }),
+        outputErrorStrategy: "strict",
+        readOnly: false,
+        run: async () => {
+          actionStarted.resolve();
+          await actionResult.promise;
+          noteExternalWrite("late-output-contract-test");
+          return { ok: false };
+        },
+      });
+      const controller = new AbortController();
+      const pool = { end: vi.fn(async () => {}) };
+      const request = runWithRequestDbPoolScope(true, undefined, async () => {
+        getOrCreateRequestDbPool("late-outcome-test", () => pool);
+        await withExecutionFence(fence, () =>
+          runAgentLoop({
+            engine: engineFor([[toolCall()], [text("Done")]], []),
+            model: "test-model",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "Go" }] },
+            ],
+            actions: {
+              "create-deck":
+                outcome === "output-contract"
+                  ? outputAction
+                  : outcome === "nested-validation-after-write" ||
+                      outcome === "nested-validation-no-write" ||
+                      outcome === "setup-after-write" ||
+                      outcome === "aborted-after-write" ||
+                      outcome === "stop-after-write" ||
+                      outcome === "post-write-contract" ||
+                      outcome === "post-write-503"
+                    ? parentAction
+                    : {
+                        tool: {
+                          description: "Create a deck",
+                          parameters: { type: "object", properties: {} },
+                        },
+                        readOnly: false,
+                        ...(outcome === "unexpected-timeout"
+                          ? { timeoutMs: 10 }
+                          : {}),
+                        ...(outcome === "private" ||
+                        outcome === "private-persistence-fails"
+                          ? { persistInChatHistory: false }
+                          : {}),
+                        run: () => {
+                          actionStarted.resolve();
+                          return actionResult.promise;
+                        },
+                      },
+            },
+            threadId: fence.threadId,
+            turnId: fence.turnId,
+            runId: fence.runId,
+            send: () => {},
+            signal: controller.signal,
+          }),
+        );
+      });
+      await actionStarted.promise;
+      if (outcome !== "unexpected-timeout") controller.abort();
+      if (outcome === "unexpected-immediate") actionResult.reject(actionError);
+      await request;
+      if (outcome !== "unexpected-immediate") {
+        expect(pool.end).not.toHaveBeenCalled();
+        if (
+          outcome === "persistence-fails" ||
+          outcome === "private-persistence-fails" ||
+          outcome === "output-contract" ||
+          outcome === "nested-validation-no-write" ||
+          outcome === "nested-validation-after-write" ||
+          outcome === "setup-after-write" ||
+          outcome === "aborted-after-write" ||
+          outcome === "stop-after-write" ||
+          outcome === "post-write-contract" ||
+          outcome === "post-write-503"
+        )
+          actionResult.resolve("Deck saved");
+        else actionResult.reject(actionError);
+      }
+      await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
+      if (
+        outcome === "persistence-fails" ||
+        outcome === "private-persistence-fails"
+      ) {
+        expect(lateWrite).toHaveBeenCalledOnce();
+        expect(lateWrite).toHaveBeenCalledWith(
+          expect.objectContaining({ ...fence, toolName: "create-deck" }),
+          expect.stringContaining(
+            outcome === "private-persistence-fails"
+              ? '"result":"[Private content omitted]"'
+              : '"result":"Deck saved"',
+          ),
+        );
+        if (outcome === "persistence-fails") {
+          expect(capture.mock.calls[0]?.[0]).toBe(persistenceError);
+          expect(capture.mock.calls[0]?.[1]).toMatchObject({
+            aiTraceId: fence.runId,
+            tags: lateTags,
+          });
+          expect(
+            capture.mock.calls[0]?.[1]?.errorMessagePolicy,
+          ).toBeUndefined();
+          expect(provider).toHaveBeenCalledWith(
+            persistenceError,
+            expect.objectContaining({
+              tags: expect.objectContaining({
+                ...lateTags,
+                failureClass: "database-credential",
+              }),
+            }),
+          );
+        } else {
+          expect(capture).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "Private content omitted" }),
+            expect.objectContaining({
+              errorMessagePolicy: "omit",
+              tags: lateTags,
+            }),
+          );
+          expect(provider).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "Internal Server Error" }),
+            expect.objectContaining({
+              errorMessagePolicy: "omit",
+              tags: expect.objectContaining(lateTags),
+            }),
+          );
+          expect(JSON.stringify(provider.mock.calls)).not.toContain(
+            "password authentication failed",
+          );
+        }
+      } else {
+        expect(lateWrite).not.toHaveBeenCalled();
+        if (
+          outcome === "validation" ||
+          outcome === "contract" ||
+          outcome === "setup-required" ||
+          outcome === "nested-validation-no-write" ||
+          outcome === "aborted" ||
+          outcome === "stop"
+        ) {
+          expect(capture).not.toHaveBeenCalled();
+        } else {
+          expect(capture).toHaveBeenCalledOnce();
+          expect(capture).toHaveBeenCalledWith(
+            expect.objectContaining({
+              message:
+                outcome === "private"
+                  ? "Private content omitted"
+                  : "Late action failed",
+            }),
+            expect.objectContaining({
+              aiTraceId: fence.runId,
+              errorMessagePolicy: "omit",
+              tags: { ...lateTags, phase: "late-action-rejection" },
+            }),
+          );
+          const [capturedError, capturedContext] = capture.mock.calls[0] ?? [];
+          expect(capturedError).toBeInstanceOf(Error);
+          const telemetry = JSON.stringify({
+            ...(capturedError instanceof Error ? capturedError : {}),
+            message:
+              capturedError instanceof Error
+                ? capturedError.message
+                : capturedError,
+            stack:
+              capturedError instanceof Error ? capturedError.stack : undefined,
+            context: capturedContext,
+          });
+          expect(telemetry).not.toContain("sensitive-test-value");
+          expect(telemetry).not.toContain("Sensitive saved response detail");
+          expect(telemetry).not.toContain("Sensitive upstream failure");
+        }
+      }
+    },
+  );
 });
 
 describe("durable execution step replay", () => {
