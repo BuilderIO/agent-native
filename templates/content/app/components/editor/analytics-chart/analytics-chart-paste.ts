@@ -263,7 +263,7 @@ export const AnalyticsChartPaste = Extension.create<AnalyticsChartPasteOptions>(
               ) {
                 return false;
               }
-              const text = event.clipboardData?.getData("text/plain")?.trim();
+              const text = event.clipboardData?.getData("text/plain").trim();
               if (!text) return false;
               const request = analyticsPanelLinkFromPaste(
                 text,

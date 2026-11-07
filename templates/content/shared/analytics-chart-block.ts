@@ -175,18 +175,19 @@ export function describeAnalyticsChart(data: AnalyticsChartData): string {
   if (data.panel.type === "table") {
     return `${what}${filters}. ${data.rows.length} rows of ${data.columns.join(", ")}.`;
   }
-  const first = data.rows[0]?.[0];
-  const last = data.rows[data.rows.length - 1];
+  const { rows } = data;
+  const first = rows.length > 0 ? rows[0] : null;
+  const last = rows.length > 0 ? rows[rows.length - 1] : null;
   const range =
-    first !== undefined && last?.[0] !== undefined
-      ? ` ${data.rows.length} points from ${String(first)} to ${String(last[0])}.`
+    first && last && first.length > 0 && last.length > 0
+      ? ` ${rows.length} points from ${String(first[0])} to ${String(last[0])}.`
       : "";
   const latest = last
     ? data.columns
         .slice(1)
         .map((column, index) => {
-          const value = last[index + 1];
-          return value === null || value === undefined
+          const value = index + 1 < last.length ? last[index + 1] : null;
+          return value === null
             ? null
             : `${column} ${typeof value === "number" ? value.toLocaleString("en-US") : String(value)}`;
         })

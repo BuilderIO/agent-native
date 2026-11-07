@@ -43,11 +43,13 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   useEffect(() => {
     const node = ref.current;
     if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const next = Math.round(entry?.contentRect.width ?? 0);
-      // Redraw on real resizes only, not subpixel jitter.
-      if (next > 0)
-        setWidth((last) => (Math.abs(last - next) > 8 ? next : last));
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const next = Math.round(entry.contentRect.width);
+        // Redraw on real resizes only, not subpixel jitter.
+        if (next > 0)
+          setWidth((last) => (Math.abs(last - next) > 8 ? next : last));
+      }
     });
     observer.observe(node);
     return () => observer.disconnect();
@@ -228,7 +230,9 @@ function usePanelChanged(
       refetchOnWindowFocus: false,
     },
   );
-  const [entry] = query.data?.dashboards ?? [];
+  const entry = query.data?.dashboards.find(
+    (candidate) => candidate.dashboardId === data.dashboard.id,
+  );
   if (!entry || !("status" in entry)) return false;
   const panel = entry.status.panels.find(
     (candidate) => candidate.id === data.panel.id,

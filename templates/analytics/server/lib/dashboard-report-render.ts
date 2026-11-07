@@ -1485,8 +1485,8 @@ function captureCell(value: unknown): AnalyticsCaptureCell {
   if (typeof value === "bigint") return value.toString();
   if (value instanceof Date) return value.toISOString();
   // Functions and symbols stringify to undefined.
-  const json: string | undefined = JSON.stringify(value);
-  return (json ?? "").slice(0, CAPTURE_CELL_CHARS);
+  const json: unknown = JSON.stringify(value);
+  return typeof json === "string" ? json.slice(0, CAPTURE_CELL_CHARS) : null;
 }
 
 function roundToTenth(value: number): number {

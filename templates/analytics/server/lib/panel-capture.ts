@@ -147,10 +147,10 @@ function unprefixedFilters(
  */
 function filterSummary(
   config: Record<string, unknown>,
-  filters: Record<string, string>,
+  filters: Readonly<Partial<Record<string, string>>>,
 ): string | undefined {
   const defined = Array.isArray(config.filters)
-    ? (config.filters as DashboardFilter[])
+    ? (config.filters as ReadonlyArray<DashboardFilter | null>)
     : [];
   const parts: string[] = [];
   for (const filter of defined) {

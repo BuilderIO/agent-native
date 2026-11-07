@@ -38,7 +38,7 @@ export function analyticsChartSvg(
       percentOfFirst: numberOrNull(row[2]) ?? 0,
       dropOffPercent: numberOrNull(row[3]),
     }));
-    const [series] = data.series ?? [];
+    const series = data.series?.length ? data.series[0] : undefined;
     return renderFunnelChartSvg({
       rows,
       width,

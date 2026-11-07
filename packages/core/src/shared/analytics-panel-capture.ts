@@ -235,9 +235,10 @@ export function parseAnalyticsPanelLink(
   if (!trusted) return null;
   const match = /(?:^|\/)dashboards\/([^/]+)\/?$/.exec(url.pathname);
   if (!match) return null;
+  const [, rawDashboardId = ""] = match;
   let dashboardId: string;
   try {
-    dashboardId = decodeURIComponent(match[1] ?? "");
+    dashboardId = decodeURIComponent(rawDashboardId);
     // coercion-ok: a malformed escape isn't a panel link, and null is this parser's "not a panel link"
   } catch {
     return null;
