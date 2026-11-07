@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { REPORT_EXPECTED_FAILURE_TAG } from "../shared/error-noise.js";
 import { captureException } from "../tracking/error-capture.js";
 import {
@@ -13,6 +14,7 @@ import {
   registerErrorCaptureProvider,
   resetCaptureErrorStateForTests,
 } from "./capture-error.js";
+import { CredentialStoreUnavailableError } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 
 describe("server captureError", () => {
@@ -532,12 +534,100 @@ describe("captureError flood control", () => {
     );
   });
 
+  it("emits wrapped non-database credential store failures separately", () => {
+    const route = "/connections";
+    const decryption = new CredentialStoreUnavailableError(
+      new AppSecretDecryptionError(),
+    );
+    const generic = new CredentialStoreUnavailableError(
+      new Error("unexpected failure"),
+    );
+
+    for (const error of [decryption, generic, decryption, generic]) {
+      expect(captureError(error, { route })).toBe("evt");
+    }
+
+    expect(provider).toHaveBeenCalledTimes(4);
+    expect(provider.mock.calls.map(([error]) => error)).toEqual([
+      decryption,
+      generic,
+      decryption,
+      generic,
+    ]);
+    for (const [, context] of provider.mock.calls) {
+      expect(context.tags?.failureClass).not.toBe("database-credential");
+      expect(context.extra.failureContext.failureClass).not.toBe(
+        "database-credential",
+      );
+    }
+    expect(getCaptureErrorStats().floodSuppressed).toBe(0);
+  });
+
+  it.each([
+    [
+      "code",
+      Object.assign(new Error("authentication rejected"), { code: "28P01" }),
+    ],
+    ["message", new Error("password authentication failed for user")],
+    ["missing role message", new Error('role "app" does not exist')],
+  ])("classifies wrapped database authentication by %s", (_evidence, cause) => {
+    const wrapped = new CredentialStoreUnavailableError(cause);
+    captureError(wrapped, { route: "/connections" });
+    captureError(wrapped, { route: "/connections" });
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider.mock.calls[0][1].tags.failureClass).toBe(
+      "database-credential",
+    );
+    expect(getCaptureErrorStats().floodSuppressed).toBe(1);
+  });
+
+  it("classifies wrapped transient database failures", () => {
+    const wrapped = new CredentialStoreUnavailableError(
+      Object.assign(new Error("connection unavailable"), { code: "08006" }),
+    );
+    captureError(wrapped, { route: "/connections" });
+    captureError(wrapped, { route: "/connections" });
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider.mock.calls[0][1].tags.failureClass).toBe(
+      "transient-database",
+    );
+    expect(getCaptureErrorStats().floodSuppressed).toBe(1);
+  });
+
+  it("aggregates double-wrapped transient database failures", () => {
+    const databaseError = Object.assign(new Error("connection unavailable"), {
+      code: "08006",
+    });
+    const wrapped = new CredentialStoreUnavailableError(
+      new Error("database request failed", { cause: databaseError }),
+    );
+    const route = "/connections";
+
+    for (let i = 0; i < 3; i += 1) captureError(wrapped, { route });
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider.mock.calls[0][1]).toMatchObject({
+      tags: { failureClass: "transient-database" },
+      extra: { failureContext: { failureClass: "transient-database" } },
+    });
+    expect(getCaptureErrorStats().floodSuppressed).toBe(2);
+
+    vi.advanceTimersByTime(60_000);
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider.mock.calls[1][1]).toMatchObject({
+      tags: { failureClass: "transient-database", aggregated: "true" },
+      extra: { suppressedCount: 2, aggregationWindowMs: 60_000 },
+    });
+  });
+
   it("leaves the caller's own handled flag alone", () => {
     captureError(new Error("boom"), { handled: false });
     expect(provider.mock.calls[0][1]).toMatchObject({ handled: false });
   });
 
-  it("classifies ddl-guard probe failures and an unavailable credential store", () => {
+  it("classifies ddl-guard probe failures but not an unidentified unavailable credential store", () => {
     captureError(
       new Error(
         'ensureSchemaObject: could not probe required schema "table application_state"; refusing to issue DDL',
@@ -555,9 +645,11 @@ describe("captureError flood control", () => {
       { route: "/x" },
     );
     expect(provider).toHaveBeenCalledTimes(2);
-    expect(
-      provider.mock.calls.map((call) => call[1].tags.failureClass),
-    ).toEqual(["database-credential", "database-credential"]);
+    expect(provider.mock.calls[0][1].tags.failureClass).toBe(
+      "database-credential",
+    );
+    expect(provider.mock.calls[1][1].tags?.failureClass).toBeUndefined();
+    expect(getCaptureErrorStats().floodSuppressed).toBe(1);
   });
 
   it("latches a permanent configuration error for an hour", () => {
