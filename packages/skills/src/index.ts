@@ -736,8 +736,6 @@ export async function installSkills(
           const destination = path.join(root, skill.name);
           written.push(destination);
           if (!options.dryRun) {
-            fs.rmSync(destination, { recursive: true, force: true });
-            fs.mkdirSync(path.dirname(destination), { recursive: true });
             copySkillFiles(skill.dir, destination, source.root);
           }
         }

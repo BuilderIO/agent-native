@@ -763,21 +763,31 @@ function skillLinkRoots(manifestDir: string): string[] {
 // A skill folder can be a link into the workspace (an app's
 // `.agents/skills/<name>` usually is), and it is exported as the files it
 // points at. Wherever a link sits on the way, the folder it reaches has to be
-// inside one of `roots`.
+// inside one of `roots`, and not under a name a pack leaves out.
 function resolveSkillSourceOnDisk(
   roots: string[],
   source: string,
   field: string,
 ): string {
   const target = fs.realpathSync(source);
-  for (const root of roots) {
-    const relative = path.relative(fs.realpathSync(root), target);
-    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
-      return target;
+  for (const root of roots.map((folder) => fs.realpathSync(folder))) {
+    if (!isInsideFolder(root, target)) continue;
+    if (path.relative(root, target).split(path.sep).some(isLeftOutOfPack)) {
+      throw new Error(`${field} is in a folder a pack leaves out: ${target}`);
     }
+    return target;
   }
   throw new Error(
     `${field} links outside the app and its workspace: ${target}`,
+  );
+}
+
+function isInsideFolder(folder: string, target: string): boolean {
+  const relative = path.relative(folder, target);
+  return (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
   );
 }
 
@@ -803,7 +813,15 @@ function isLeftOutOfPack(name: string): boolean {
   );
 }
 
-function copyDirFiltered(source: string, dest: string): void {
+// A pack goes to other machines, so its links stay exactly as written.
+// `launch` builds a working app on this machine instead, so there a relative
+// link that leads out of the app is pointed at its target by full path; as
+// written, it would point at nothing from the new folder.
+function copyDirFiltered(
+  source: string,
+  dest: string,
+  options: { pinLinksOutOfApp?: boolean } = {},
+): void {
   const sourceRoot = path.resolve(source);
   const destRoot = path.resolve(dest);
   const relativeDest = path.relative(sourceRoot, destRoot);
@@ -813,6 +831,7 @@ function copyDirFiltered(source: string, dest: string): void {
     !path.isAbsolute(relativeDest)
       ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
       : destRoot;
+  const pinned: { link: string; target: string }[] = [];
   // Links stay links, with their targets as written: following them would
   // carry files the filter below leaves out, such as a link to `.env`.
   fs.cpSync(source, dest, {
@@ -826,9 +845,25 @@ function copyDirFiltered(source: string, dest: string): void {
       ) {
         return false;
       }
-      return !isLeftOutOfPack(path.basename(src));
+      if (isLeftOutOfPack(path.basename(src))) return false;
+      if (options.pinLinksOutOfApp && fs.lstatSync(src).isSymbolicLink()) {
+        const written = fs.readlinkSync(src);
+        const target = path.resolve(path.dirname(resolved), written);
+        if (!path.isAbsolute(written) && !isInsideFolder(sourceRoot, target)) {
+          pinned.push({
+            link: path.join(destRoot, path.relative(sourceRoot, resolved)),
+            target,
+          });
+          return false;
+        }
+      }
+      return true;
     },
   });
+  for (const { link, target } of pinned) {
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(target, link);
+  }
 }
 
 function copySkill(
@@ -1611,7 +1646,7 @@ export async function launchAppSkill(
       );
     }
     fs.mkdirSync(path.dirname(plan.appDir), { recursive: true });
-    copyDirFiltered(plan.sourceDir, plan.appDir);
+    copyDirFiltered(plan.sourceDir, plan.appDir, { pinLinksOutOfApp: true });
     log(`Materialized ${loaded.manifest.displayName} at ${plan.appDir}`);
   } else {
     log(`Using existing local app at ${plan.appDir}`);

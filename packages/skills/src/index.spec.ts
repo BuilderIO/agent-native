@@ -278,6 +278,37 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  it("refuses a skill folder linked outside the source", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const outside = tmpDir();
+    writeSkill(outside, "quick-recap");
+    fs.symlinkSync(
+      path.join(outside, "skills", "quick-recap"),
+      path.join(repo, "skills"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(installed, { recursive: true });
+    fs.writeFileSync(path.join(installed, "SKILL.md"), "Earlier install\n");
+
+    await expect(
+      installSkills({
+        source: repo,
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/links outside its source/);
+
+    expect(fs.readFileSync(path.join(installed, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
+  });
+
   it("leaves out .git and node_modules, and links into them", async () => {
     const repo = tmpDir();
     const project = tmpDir();

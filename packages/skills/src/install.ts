@@ -649,8 +649,6 @@ function copySkillDir(
   dryRun: boolean,
 ): void {
   if (dryRun) return;
-  fs.rmSync(to, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(to), { recursive: true });
   copySkillFiles(from, to, linkRoot);
 }
 

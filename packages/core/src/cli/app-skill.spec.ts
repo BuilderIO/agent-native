@@ -8,6 +8,7 @@ import {
   buildAppSkillPack,
   ensureAppSkill,
   exportedSkills,
+  launchAppSkill,
   loadAppSkillManifest,
   normalizeAppSkillManifest,
   parseAppSkillArgs,
@@ -700,9 +701,89 @@ describe("app skill packaging", () => {
       buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
     ).toThrow(/links outside the app and its workspace/);
   });
+
+  it("refuses a skill folder linked into a folder a pack leaves out", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const privateSkill = path.join(root, "private", "asset-generation");
+    fs.mkdirSync(path.dirname(privateSkill), { recursive: true });
+    fs.renameSync(skillLink, privateSkill);
+    fs.symlinkSync(
+      privateSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/in a folder a pack leaves out/);
+  });
+
+  it("exports a skill folder linked into a folder named with two leading dots", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const sharedSkill = path.join(root, "..shared", "asset-generation");
+    fs.mkdirSync(path.dirname(sharedSkill), { recursive: true });
+    fs.renameSync(skillLink, sharedSkill);
+    fs.symlinkSync(
+      sharedSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+  });
 });
 
 describe("app skill launch and ensure", () => {
+  // oracle-change: a new test, skipped on Windows, where making a file link needs extra rights.
+  it.skipIf(process.platform === "win32")(
+    "points a launched app's links out of the app at their targets",
+    async () => {
+      const workspace = tmpDir();
+      const root = path.join(workspace, "app");
+      fs.mkdirSync(root);
+      const manifestFile = writeFixture(root);
+      const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+      manifest.local.commands = {};
+      fs.writeFileSync(manifestFile, JSON.stringify(manifest), "utf-8");
+      fs.writeFileSync(path.join(workspace, "shared.md"), "Shared\n");
+      fs.writeFileSync(path.join(root, "notes.md"), "Notes\n");
+      fs.symlinkSync(
+        path.join("..", "shared.md"),
+        path.join(root, "shared.md"),
+      );
+      fs.symlinkSync("notes.md", path.join(root, "notes-link.md"));
+
+      const into = path.join(tmpDir(), "editable");
+      await launchAppSkill(loadAppSkillManifest(manifestFile), {
+        mode: "local",
+        into,
+        noRegister: true,
+        skipInstall: true,
+        log: () => {},
+      });
+
+      expect(fs.readlinkSync(path.join(into, "shared.md"))).toBe(
+        path.join(workspace, "shared.md"),
+      );
+      expect(fs.readFileSync(path.join(into, "shared.md"), "utf-8")).toBe(
+        "Shared\n",
+      );
+      expect(fs.readlinkSync(path.join(into, "notes-link.md"))).toBe(
+        "notes.md",
+      );
+    },
+  );
+
   it("resolves hosted and local launcher plans", () => {
     const root = tmpDir();
     const loaded = loadAppSkillManifest(writeFixture(root));
