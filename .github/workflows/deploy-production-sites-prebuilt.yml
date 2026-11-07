@@ -1,4 +1,4 @@
-name: Prepare encryption rotation production artifacts
+name: Stage encryption readers on production sites
 on: workflow_dispatch
 permissions:
   contents: read
@@ -18,9 +18,9 @@ jobs:
       caller: manual
       source_ref: 32037392301280b203e61f692c690fba1328c4ea
       build_context: production
-      deploy: false
-      deploy_mode: draft
-      smoke: false
+      deploy: true
+      deploy_mode: production
+      smoke: true
       migration_only: false
       artifact_upload: true
       artifact_name: incident-encryption-prod-${{ matrix.site }}-${{ github.run_id }}
