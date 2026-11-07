@@ -258,7 +258,8 @@ export function describeFrameFailure(error: unknown, status: number) {
 
   if (
     error instanceof RecordingMediaFetchError &&
-    error.message === "Recording range budget exceeded."
+    (error.message === "Recording range budget exceeded." ||
+      error.message === "Recording range request budget exceeded.")
   ) {
     return {
       failureKind: "processing",

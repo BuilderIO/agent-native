@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
 import { describe, expect, it } from "vitest";
 
+import { RecordingMediaFetchError } from "./recording-media-fetch-error.js";
 import { clampFrameSheetRange, planFrameSheet } from "./video-frame-sheet.js";
 import {
   extractJpegFrameFromFile,
@@ -217,6 +218,89 @@ describe("probeMediaDurationMs", () => {
         } else {
           process.env.FFMPEG_PATH = previousFfmpegPath;
         }
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("frame extraction timeout", () => {
+  it.each([false, true])(
+    "settles promptly with inherited stderr and remote failure=%s",
+    async (remoteFailed) => {
+      const root = await mkdtemp(join(tmpdir(), "clips-frame-timeout-"));
+      const command = join(root, "ffmpeg");
+      const childPidPath = join(root, "child.pid");
+      const previous = process.env.FFMPEG_PATH;
+      let operation: Promise<number> | undefined;
+      let childPid: number | undefined;
+      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+      let healthChecks = 0;
+      const remoteError = new RecordingMediaFetchError(
+        "Recording range budget exceeded.",
+        413,
+      );
+      try {
+        await writeFile(
+          command,
+          `#!/bin/sh\nsleep 30 &\nprintf '%s\\n' "$!" > ${JSON.stringify(childPidPath)}\nwait\n`,
+        );
+        await chmod(command, 0o755);
+        process.env.FFMPEG_PATH = command;
+        operation = probeFrameSheetFpsFromFile("unused", {
+          format: "mov",
+          remainingMs: () => 1_000,
+          assertHealthy: async () => {
+            healthChecks++;
+            if (remoteFailed) throw remoteError;
+          },
+        });
+        const result = operation.then(
+          () => "resolved",
+          (error: unknown) => error,
+        );
+        const startedDeadline = Date.now() + 3_000;
+        while (!existsSync(childPidPath)) {
+          if (Date.now() >= startedDeadline)
+            throw new Error("child did not start");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        childPid = Number(await readFile(childPidPath, "utf8"));
+        const bounded = new Promise<never>((_, reject) => {
+          deadlineTimer = setTimeout(
+            () => reject(new Error("extraction hung")),
+            3_000,
+          );
+        });
+        const error = await Promise.race([result, bounded]);
+        if (remoteFailed) {
+          expect(error).toBe(remoteError);
+        } else {
+          expect(error).toMatchObject({
+            code: "EXTRACTION_FAILED",
+            message: expect.stringContaining("ffmpeg timed out"),
+          });
+        }
+        expect(healthChecks).toBe(1);
+      } finally {
+        clearTimeout(deadlineTimer);
+        if (childPid !== undefined) {
+          try {
+            process.kill(childPid, "SIGKILL");
+          } catch (error) {
+            if (
+              !(
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "ESRCH"
+              )
+            )
+              throw error;
+          }
+        }
+        await operation?.catch(() => {});
+        if (previous === undefined) delete process.env.FFMPEG_PATH;
+        else process.env.FFMPEG_PATH = previous;
         await rm(root, { recursive: true, force: true });
       }
     },

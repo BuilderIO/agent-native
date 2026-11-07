@@ -869,19 +869,21 @@ describe("loadRecordingMediaBytes", () => {
   );
 
   it("suggests smaller requests when the range-read budget is exceeded", () => {
-    const error = new RecordingMediaFetchError(
+    for (const message of [
       "Recording range budget exceeded.",
-      413,
-    );
-    expect(
-      describeFrameFailure(error, frameFailureStatus(error)),
-    ).toMatchObject({
-      failureKind: "processing",
-      nextStep: expect.stringContaining("shorter frame-sheet range"),
-    });
-    expect(describeFrameFailure(error, 413).nextStep).toContain(
-      "individual frames",
-    );
+      "Recording range request budget exceeded.",
+    ]) {
+      const error = new RecordingMediaFetchError(message, 413);
+      expect(
+        describeFrameFailure(error, frameFailureStatus(error)),
+      ).toMatchObject({
+        failureKind: "processing",
+        nextStep: expect.stringContaining("shorter frame-sheet range"),
+      });
+      expect(describeFrameFailure(error, 413).nextStep).toContain(
+        "individual frames",
+      );
+    }
     expect(
       describeFrameFailure(new RecordingMediaFetchError("too large", 413), 413)
         .nextStep,

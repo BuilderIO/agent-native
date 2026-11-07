@@ -129,25 +129,23 @@ async function runFfmpeg(
         stdio: ["ignore", "ignore", "pipe"],
       });
       let stderr = "";
-      let timedOut = false;
+      const collectStderr = (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+      };
       const timeout = setTimeout(() => {
-        timedOut = true;
         child.kill("SIGKILL");
+        child.stderr.removeListener("data", collectStderr);
+        child.stderr.destroy();
+        reject(new FfmpegRunError("ffmpeg timed out", stderr));
       }, allowedMs);
 
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
-      });
+      child.stderr.on("data", collectStderr);
       child.on("error", (err) => {
         clearTimeout(timeout);
         reject(new FfmpegRunError(err.message, stderr));
       });
       child.on("close", (code) => {
         clearTimeout(timeout);
-        if (timedOut) {
-          reject(new FfmpegRunError("ffmpeg timed out", stderr));
-          return;
-        }
         if (code === 0) {
           resolve(stderr);
           return;
