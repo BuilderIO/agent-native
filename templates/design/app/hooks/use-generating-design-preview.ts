@@ -104,15 +104,20 @@ export function previewFrameSize(
   ) {
     return { width, height };
   }
-  const devices = readJsonPath(input.value, ["devices"]);
+  const rawDevices = readJsonPath(input.value, ["devices"]);
+  const devices = Array.isArray(rawDevices)
+    ? rawDevices.filter(isGenerationViewport)
+    : [];
   const primaryViewport = readJsonPath(input.value, ["primaryViewport"]);
-  const resolvedDevices = Array.isArray(devices)
-    ? devices.filter(isGenerationViewport)
-    : devicesForPrimaryViewport(
-        isGenerationViewport(primaryViewport)
-          ? primaryViewport
-          : DEFAULT_GENERATION_VIEWPORT,
-      );
+  // Like the action, an empty device list means the same as leaving it out.
+  const resolvedDevices =
+    devices.length > 0
+      ? devices
+      : devicesForPrimaryViewport(
+          isGenerationViewport(primaryViewport)
+            ? primaryViewport
+            : DEFAULT_GENERATION_VIEWPORT,
+        );
   return GENERATION_VIEWPORT_SIZES[widestGenerationDevice(resolvedDevices)];
 }
 

@@ -27,6 +27,16 @@ describe("previewFrameSize", () => {
     ).toEqual({ width: 390, height: 844 });
   });
 
+  it("reads an empty device list as left out", () => {
+    expect(
+      size({
+        prompt: "A checkout flow",
+        primaryViewport: "mobile",
+        devices: [],
+      }),
+    ).toEqual({ width: 390, height: 844 });
+  });
+
   it("uses the widest requested device", () => {
     expect(
       size({ prompt: "A dashboard", devices: ["mobile", "tablet"] }),
