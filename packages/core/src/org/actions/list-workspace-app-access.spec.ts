@@ -83,7 +83,7 @@ async function listApps(appsJson?: string) {
 describe("list-workspace-app-access", () => {
   it("hides retired apps without deleting rows", async () => {
     const result = await listApps(
-      JSON.stringify([{ id: "programs", path: "/programs" }]),
+      JSON.stringify([{ id: " programs ", path: "/programs" }]),
     );
     expect(result.apps).toEqual([
       {
