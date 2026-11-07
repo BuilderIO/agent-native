@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
@@ -16,6 +16,7 @@ import {
   getReviewCommentById,
   insertReviewReply,
   insertReviewReplyIdempotently,
+  ReviewThreadNotFoundError,
   reviewCommentIdForClientOperation,
 } from "../store.js";
 import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
@@ -79,10 +80,22 @@ export default defineAction({
       parent.resourceType !== args.resourceType ||
       parent.resourceId !== args.resourceId
     ) {
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
+    }
+    if (parent.status === "deleted") {
+      fail("This thread was deleted.", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     }
     if (parent.status !== "open" && !existingReply) {
-      throw new Error("Review thread is not open");
+      fail("This thread is resolved. Reopen it to reply.", {
+        statusCode: 409,
+        errorCode: "thread_not_open",
+      });
     }
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
@@ -114,19 +127,31 @@ export default defineAction({
       resourceType: args.resourceType,
       resourceId: args.resourceId,
     };
-    const result = args.clientOperationId
-      ? await insertReviewReplyIdempotently(
-          {
-            ...input,
-            id: clientOperationCommentId!,
-          },
-          routeTarget,
-          resource,
-        )
-      : {
-          comment: await insertReviewReply(input, routeTarget, resource),
-          replayed: false,
-        };
+    const result = await (
+      args.clientOperationId
+        ? insertReviewReplyIdempotently(
+            {
+              ...input,
+              id: clientOperationCommentId!,
+            },
+            routeTarget,
+            resource,
+          )
+        : insertReviewReply(input, routeTarget, resource).then((comment) => ({
+            comment,
+            replayed: false,
+          }))
+    ).catch((error: unknown) => {
+      // The thread went between reading the parent and saving the reply, as a
+      // delete or resolve in another tab does.
+      if (error instanceof ReviewThreadNotFoundError) {
+        fail("This thread was deleted or resolved. Refresh to see it.", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
+      throw error;
+    });
 
     return {
       ...result.comment,

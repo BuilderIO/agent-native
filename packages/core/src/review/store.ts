@@ -496,8 +496,19 @@ export async function releaseReviewNotificationDelivery(
   });
 }
 
+/** A reply's thread has no live first comment on the resource. */
+export class ReviewThreadNotFoundError extends Error {
+  constructor() {
+    super("Open review thread not found");
+    this.name = "ReviewThreadNotFoundError";
+  }
+}
+
 /**
- * A reply needs a live root. The root row is held `FOR SHARE`, which inside a
+ * A reply needs a live root. A root's thread isn't always its own id (a
+ * suggestion's correction comment opens one of its own), so the roots are found
+ * by thread, as a thread delete finds them. They're held `FOR SHARE` in id
+ * order, the order the delete takes them `FOR UPDATE`, which inside a
  * transaction makes a concurrent thread delete wait for the reply and then see
  * it, or makes the reply see the delete and refuse. Outside one the lock lasts
  * only as long as the read.
@@ -510,12 +521,13 @@ async function assertLiveReviewRoot(
   // raw-sql-ok: the statement is constant text; the ids are bound.
   const { rows } = await client.execute({
     sql: `SELECT id FROM agent_review_comments
-           WHERE id = ? AND resource_type = ? AND resource_id = ?
+           WHERE thread_id = ? AND resource_type = ? AND resource_id = ?
              AND parent_comment_id IS NULL AND deleted_at IS NULL
+           ORDER BY id
            FOR SHARE`,
     args: [threadId, resource.resourceType, resource.resourceId],
   });
-  if (rows.length === 0) throw new Error("Open review thread not found");
+  if (rows.length === 0) throw new ReviewThreadNotFoundError();
 }
 
 /**
@@ -566,7 +578,7 @@ export async function insertReviewReply(
         resource,
       );
       if (routedCount < 1) {
-        throw new Error("Open review thread not found");
+        throw new ReviewThreadNotFoundError();
       }
     }
     return insertReviewCommentWithClient(input, tx);
@@ -584,7 +596,7 @@ export async function insertReviewReply(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return reply;
   } catch (error) {
     await client.execute({
@@ -627,7 +639,7 @@ export async function insertReviewReplyIdempotently(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return result;
   };
   if (client.transaction) return client.transaction(insertAndRoute);
@@ -649,7 +661,7 @@ export async function insertReviewReplyIdempotently(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return result;
   } catch (error) {
     await client.execute({

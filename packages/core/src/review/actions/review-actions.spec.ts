@@ -1067,6 +1067,153 @@ describe("review actions", () => {
     expect(comments.map((comment) => comment.id)).toEqual([root.id]);
   });
 
+  it("replies on a suggestion's thread, whose first comment has an id of its own", async () => {
+    // A suggestion opens its thread with a correction comment, as
+    // suggest-document-edit does over MCP.
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      threadId: "suggestion-thread-1",
+      targetId: "suggestion-1",
+      kind: "correction",
+      body: "Say any clip works",
+      createdBy: "agent",
+      resolutionTarget: "human",
+      ownerEmail: OWNER_EMAIL,
+    });
+    expect(root.id).not.toBe(root.threadId);
+
+    const reply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: root.id,
+        body: "This paragraph needs a rewrite",
+        clientOperationId: "00000000-0000-4000-8000-000000000010",
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    const routedReply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: root.id,
+        body: "Try it as one sentence",
+        resolutionTarget: "agent",
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    expect(reply).toMatchObject({
+      threadId: "suggestion-thread-1",
+      parentCommentId: root.id,
+      replayed: false,
+    });
+    expect(routedReply).toMatchObject({
+      threadId: "suggestion-thread-1",
+      parentCommentId: root.id,
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([
+      root.id,
+      reply.id,
+      routedReply.id,
+    ]);
+    expect(comments[0]).toMatchObject({ resolutionTarget: "agent" });
+  });
+
+  it("refuses a reply to a resolved or deleted thread with a message, not a 500", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      threadId: "suggestion-thread-2",
+      kind: "correction",
+      body: "Resolved suggestion",
+      ownerEmail: OWNER_EMAIL,
+    });
+    const reply = {
+      resourceType: "doc",
+      resourceId: "private",
+      commentId: root.id,
+      body: "Too late",
+    };
+    const ctx = { userEmail: EDITOR_EMAIL, caller: "frontend" } as const;
+
+    await resolveReviewThread(root.threadId, OWNER_EMAIL, {
+      resourceType: "doc",
+      resourceId: "private",
+    });
+    await expect(
+      replyReviewCommentAction.run(reply, ctx),
+    ).rejects.toMatchObject({
+      message: "This thread is resolved. Reopen it to reply.",
+      statusCode: 409,
+      errorCode: "thread_not_open",
+    });
+
+    await resolveReviewThread(
+      root.threadId,
+      OWNER_EMAIL,
+      { resourceType: "doc", resourceId: "private" },
+      undefined,
+      "open",
+    );
+    await deleteReviewComment(root.id, OWNER_EMAIL);
+    await expect(
+      replyReviewCommentAction.run(reply, ctx),
+    ).rejects.toMatchObject({
+      message: "This thread was deleted.",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+      includeDeleted: true,
+      includeResolved: true,
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([root.id]);
+  });
+
+  it("answers a 404 when the thread goes before the reply saves", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      threadId: "suggestion-thread-3",
+      kind: "correction",
+      body: "Suggestion deleted mid-reply",
+      ownerEmail: OWNER_EMAIL,
+    });
+    // The comment still reads as open, but the thread has no live first
+    // comment, as when a delete lands between reading it and saving.
+    await pglite.query(
+      "UPDATE agent_review_comments SET deleted_at = $1 WHERE id = $2",
+      [new Date().toISOString(), root.id],
+    );
+
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: root.id,
+          body: "Too late",
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toMatchObject({
+      message: "This thread was deleted or resolved. Refresh to see it.",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
+  });
+
   it("filters the distinct root queue before limit and returns oldest first", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T00:00:00.000Z"));
