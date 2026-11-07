@@ -17,6 +17,7 @@ import {
   insertReviewReply,
   insertReviewReplyIdempotently,
   ReviewThreadNotFoundError,
+  ReviewThreadNotOpenError,
   reviewCommentIdForClientOperation,
 } from "../store.js";
 import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
@@ -142,8 +143,14 @@ export default defineAction({
             replayed: false,
           }))
     ).catch((error: unknown) => {
-      // The thread went between reading the parent and saving the reply, as a
-      // delete or resolve in another tab does.
+      // The thread changed between reading the parent and saving the reply, as
+      // a delete or resolve in another tab does.
+      if (error instanceof ReviewThreadNotOpenError) {
+        fail("This thread is resolved. Reopen it to reply.", {
+          statusCode: 409,
+          errorCode: "thread_not_open",
+        });
+      }
       if (error instanceof ReviewThreadNotFoundError) {
         fail("This thread was deleted or resolved. Refresh to see it.", {
           statusCode: 404,

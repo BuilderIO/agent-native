@@ -998,7 +998,7 @@ describe("review actions", () => {
     expect(comments).toEqual([]);
   });
 
-  it("removes a reply when non-transactional routing fails on a thread that exists", async () => {
+  it("leaves no reply behind when a routed reply finds its thread resolved", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
       resourceId: "private",
@@ -1023,7 +1023,7 @@ describe("review actions", () => {
         "human",
         { resourceType: "doc", resourceId: "private" },
       ),
-    ).rejects.toThrow("Open review thread not found");
+    ).rejects.toThrow("Review thread is not open");
 
     const comments = await queryReviewComments({
       resourceType: "doc",
@@ -1212,6 +1212,65 @@ describe("review actions", () => {
       statusCode: 404,
       errorCode: "not_found",
     });
+  });
+
+  it("refuses a reply when the thread is resolved before the reply saves", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      threadId: "suggestion-thread-4",
+      kind: "correction",
+      body: "Suggestion resolved mid-reply",
+      ownerEmail: OWNER_EMAIL,
+    });
+    const earlierReply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Earlier reply",
+      ownerEmail: OWNER_EMAIL,
+    });
+    // The reply being answered still reads as open, but the thread's first
+    // comment is resolved, as when a resolve lands between reading it and
+    // saving.
+    await pglite.query(
+      "UPDATE agent_review_comments SET status = 'resolved' WHERE id = $1",
+      [root.id],
+    );
+
+    for (const clientOperationId of [
+      undefined,
+      "00000000-0000-4000-8000-000000000011",
+    ]) {
+      await expect(
+        replyReviewCommentAction.run(
+          {
+            resourceType: "doc",
+            resourceId: "private",
+            commentId: earlierReply.id,
+            body: "Too late",
+            clientOperationId,
+          },
+          { userEmail: EDITOR_EMAIL, caller: "frontend" },
+        ),
+      ).rejects.toMatchObject({
+        message: "This thread is resolved. Reopen it to reply.",
+        statusCode: 409,
+        errorCode: "thread_not_open",
+      });
+    }
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+      includeResolved: true,
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([
+      root.id,
+      earlierReply.id,
+    ]);
   });
 
   it("filters the distinct root queue before limit and returns oldest first", async () => {
