@@ -7076,6 +7076,11 @@ fn region_source_rect(
 #[cfg(target_os = "macos")]
 const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
+// Finalize time grows with segment length and load; a segment saved without
+// its moov is dropped, so keep waiting rather than lose the media.
+#[cfg(target_os = "macos")]
+const SCK_FINALIZE_SLOW_GRACE: Duration = Duration::from_secs(110);
+
 #[cfg(target_os = "macos")]
 const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -7355,12 +7360,25 @@ pub(crate) fn stop_native_recording(
             let mut waited_for_finalize = false;
             let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
-                let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
+                let finalize_started = Instant::now();
+                let mut outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
                 if outcome.is_none() {
                     eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
-                        SCK_FINALIZE_TIMEOUT.as_secs()
+                        "[clips-tray] SCRecordingOutput finalize is slow (>{}s); waiting up to {}s more",
+                        SCK_FINALIZE_TIMEOUT.as_secs(),
+                        SCK_FINALIZE_SLOW_GRACE.as_secs()
                     );
+                    outcome = finish.wait(SCK_FINALIZE_SLOW_GRACE);
+                    match &outcome {
+                        Some(_) => eprintln!(
+                            "[clips-tray] SCRecordingOutput finalize completed after {}ms",
+                            finalize_started.elapsed().as_millis()
+                        ),
+                        None => eprintln!(
+                            "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is — if its moov is missing this segment is dropped and that part of the clip is lost",
+                            (SCK_FINALIZE_TIMEOUT + SCK_FINALIZE_SLOW_GRACE).as_secs()
+                        ),
+                    }
                 }
                 outcome
             } else {
@@ -7377,7 +7395,7 @@ pub(crate) fn stop_native_recording(
             if waited_for_finalize && finalize_outcome.is_none() {
                 eprintln!(
                     "[clips-tray] SCK finalize timed out after {}s — moov atom may be missing",
-                    SCK_FINALIZE_TIMEOUT.as_secs()
+                    (SCK_FINALIZE_TIMEOUT + SCK_FINALIZE_SLOW_GRACE).as_secs()
                 );
             }
 
