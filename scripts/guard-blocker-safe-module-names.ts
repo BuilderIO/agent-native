@@ -35,6 +35,8 @@ interface BrowserRoot {
   pathspec: string | string[];
   pattern: RegExp;
   url: (match: RegExpExecArray) => string;
+  // The file types it serves as modules, when not MODULE.
+  modules?: RegExp;
   // Static files, which can't stand in for an app's own modules.
   assets?: true;
 }
@@ -101,6 +103,14 @@ const BROWSER_ROOTS: BrowserRoot[] = [
     pattern: /^packages\/(shared-app-config)\/([^/]+\.ts)$/,
     url: packageDistUrl,
   },
+  // The docs site imports core's docs as raw Markdown modules, from outside
+  // its own root.
+  {
+    pathspec: "packages/core/docs/content/**",
+    pattern: /^packages\/core\/docs\/content\/(.+)$/,
+    url: ([, rel]) => `/@fs/packages/core/docs/content/${rel}?raw`,
+    modules: /\.mdx?$/,
+  },
   {
     pathspec: ["templates/*/public/**", "community-templates/*/public/**"],
     pattern: /^(?:community-)?templates\/[^/]+\/public\/(.+)$/,
@@ -146,10 +156,10 @@ const NO_BROWSER_MODULES = new Set([
 function servingRoot(
   file: string,
 ): { root: BrowserRoot; match: RegExpExecArray } | null {
-  if (!MODULE.test(file) || SKIPPED.test(file)) return null;
+  if (SKIPPED.test(file)) return null;
   for (const root of BROWSER_ROOTS) {
     const match = root.pattern.exec(file);
-    if (match) return { root, match };
+    if (match && (root.modules ?? MODULE).test(file)) return { root, match };
   }
   return null;
 }

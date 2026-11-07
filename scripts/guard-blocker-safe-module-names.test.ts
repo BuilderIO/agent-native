@@ -22,6 +22,14 @@ test("maps every browser root to the URL it is served at", () => {
       "packages/shared-app-config/templates.ts",
       "/@fs/node_modules/@agent-native/shared-app-config/dist/templates.js",
     ],
+    [
+      "packages/core/docs/content/getting-started.md",
+      "/@fs/packages/core/docs/content/getting-started.md?raw",
+    ],
+    [
+      "packages/core/docs/content/locales/ja-JP/actions.mdx",
+      "/@fs/packages/core/docs/content/locales/ja-JP/actions.mdx?raw",
+    ],
     ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
     ["templates/chat/app/locales/en-US.json", "/app/locales/en-US.json"],
     ["templates/mail/shared/types.ts", "/shared/types.ts"],
@@ -57,17 +65,20 @@ test("ignores tests, type declarations and files outside the browser", () => {
     "templates/chat/CHANGELOG.md",
     "packages/mobile-app/app/consent-banner-screen.tsx",
     "packages/core/README.md",
+    "packages/core/docs/content/assets/diagram.png",
+    "templates/chat/AGENTS.md",
   ]) {
     assert.equal(devModuleUrl(file), null, file);
   }
 });
 
 test("reports every browser root that has no modules to check", () => {
-  assert.equal(emptyBrowserRoots([]).length, 7);
+  assert.equal(emptyBrowserRoots([]).length, 8);
   assert.deepEqual(
     emptyBrowserRoots([
       "packages/core/src/index.ts",
       "packages/shared-app-config/index.ts",
+      "packages/core/docs/content/actions.md",
       "templates/chat/app/root.tsx",
       "packages/docs/README.md",
       "templates/clips/public/sw.js",
@@ -78,6 +89,7 @@ test("reports every browser root that has no modules to check", () => {
     emptyBrowserRoots([
       "packages/core/src/index.ts",
       "packages/shared-app-config/index.ts",
+      "packages/core/docs/content/actions.md",
       "community-templates/account-expert/public/sw.js",
       "community-templates/account-expert/shared/types.ts",
       "packages/docs/public/search.js",
@@ -93,6 +105,7 @@ test("doesn't count public files as the rest of an app", () => {
     emptyBrowserRoots([
       "packages/core/src/index.ts",
       "packages/shared-app-config/index.ts",
+      "packages/core/docs/content/actions.md",
       "templates/clips/public/sw.js",
       "packages/docs/public/search.js",
       "packages/frame/client/main.ts",
@@ -170,6 +183,7 @@ test("matches rules in any letter case, in every browser root", () => {
     "templates/mail/app/styles/site-cookie-banner.css",
     "packages/docs/public/click-tracking.js",
     "packages/toolkit/src/app/analytics-events-client.ts",
+    "packages/core/docs/content/Cookie-Consent.mdx",
   ];
   assert.deepEqual(
     findBlockedModuleNames(files).map(({ words }) => words),
@@ -179,6 +193,7 @@ test("matches rules in any letter case, in every browser root", () => {
       "cookie-banner",
       "click-tracking",
       "analytics-events-",
+      "cookie-consent",
     ],
   );
 });
