@@ -75,6 +75,10 @@ import type {
 import { toast } from "sonner";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
+import {
+  agentLinkExpiresAt,
+  isAgentLinkExpiring,
+} from "./agent-link-expiry.js";
 import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareButtonProps {
@@ -914,15 +918,8 @@ type AgentLinkState =
   | { status: "ready"; url: string; expiresAt: number | null }
   | { status: "error" };
 
-// Re-mint a little before expiry so a copied link still opens for the agent.
-const AGENT_LINK_EXPIRY_MARGIN_MS = 60_000;
-
 function isAgentLinkStale(state: AgentLinkState): boolean {
-  return (
-    state.status === "ready" &&
-    state.expiresAt !== null &&
-    state.expiresAt - AGENT_LINK_EXPIRY_MARGIN_MS <= Date.now()
-  );
+  return state.status === "ready" && isAgentLinkExpiring(state.expiresAt);
 }
 
 /**
@@ -956,15 +953,12 @@ function ShareSendToMenu({
       { resourceType, resourceId },
       {
         onSuccess: (result) => {
-          const expiresAt = result.expiresAt
-            ? Date.parse(result.expiresAt)
-            : Number.NaN;
           setAgentLink(
             result.contextUrl
               ? {
                   status: "ready",
                   url: result.contextUrl,
-                  expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+                  expiresAt: agentLinkExpiresAt(result.expiresAt),
                 }
               : { status: "error" },
           );
