@@ -117,16 +117,24 @@ describe("MobileDocsNav", () => {
     ).toBe("true");
   });
   it("keeps the active parent indicators after opening another group", () => {
-    const deployment = getDocsNavSections("en-US").find((section) => section.id === "deployment");
-    const hosting = deployment?.items.find((item) => item.id === "deployment-providers");
-    const databases = deployment?.items.find((item) => item.id === "database-providers");
+    const deployment = getDocsNavSections("en-US").find(
+      (section) => section.id === "deployment",
+    );
+    const hosting = deployment?.items.find(
+      (item) => item.id === "deployment-providers",
+    );
+    const databases = deployment?.items.find(
+      (item) => item.id === "database-providers",
+    );
     if (!deployment || !hosting || !databases) {
       throw new Error("Expected deployment navigation groups");
     }
 
     renderMobileNav("/docs/docker/");
     openNav();
-    const sectionButton = screen.getByRole("button", { name: deployment.title });
+    const sectionButton = screen.getByRole("button", {
+      name: deployment.title,
+    });
     const hostingButton = screen.getByRole("button", { name: hosting.label });
     const otherButton = screen.getByRole("button", { name: databases.label });
 

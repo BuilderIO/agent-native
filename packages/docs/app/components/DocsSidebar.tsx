@@ -18,7 +18,10 @@ export default function DocsSidebar() {
   const { locale } = useLocale();
   const t = useT();
   const navSections = useMemo(() => getDocsNavSections(locale, t), [locale, t]);
-  const activeSectionId = getActiveDocsNavSectionId(navSections, location.pathname);
+  const activeSectionId = getActiveDocsNavSectionId(
+    navSections,
+    location.pathname,
+  );
   const activeGroupId = getActiveDocsNavGroupId(navSections, location.pathname);
   const navRef = useRef<HTMLElement>(null);
   const [openSectionId, setOpenSectionId] = useState<string | null>(() =>

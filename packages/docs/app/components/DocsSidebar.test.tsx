@@ -293,8 +293,14 @@ describe("DocsSidebar", () => {
       return html.slice(buttonPosition, buttonEnd + 1);
     };
 
-    expect(buttonForLabel("Deployment")).toContain('data-active-descendant="true"');
-    expect(buttonForLabel("Hosting Providers")).toContain('data-active-descendant="true"');
-    expect(buttonForLabel("Database Providers")).not.toContain("data-active-descendant");
+    expect(buttonForLabel("Deployment")).toContain(
+      'data-active-descendant="true"',
+    );
+    expect(buttonForLabel("Hosting Providers")).toContain(
+      'data-active-descendant="true"',
+    );
+    expect(buttonForLabel("Database Providers")).not.toContain(
+      "data-active-descendant",
+    );
   });
 });
