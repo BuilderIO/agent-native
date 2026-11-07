@@ -88,6 +88,7 @@ describe("MCP parity baseline guard in a repository", () => {
     const outcome = runParityGapGuard(root);
     assert.equal(outcome.code, 1);
     assert.match(outcome.message, /`mcpTool: true`/);
+    assert.match(outcome.message, /`mcpTool: "search"`/);
     assert.match(outcome.message, /`mcpTool: false`/);
     assert.match(outcome.message, /mail\/snooze/);
   });

@@ -58,7 +58,8 @@ describe("MCP parity with each app's own agent", () => {
     expect(
       missing,
       "The app's own agent can call these actions, but outside agents connected over MCP cannot, and nothing says why. " +
-        "Decide each one on its action: `mcpTool: true` serves it to outside agents (add a test that calls it over MCP), " +
+        "Decide each one on its action: `mcpTool: true` serves it to outside agents in their tool list, " +
+        '`mcpTool: "search"` serves it unlisted, found through tool-search and run through call-tool (add a test that calls a served action over MCP), ' +
         "and `mcpTool: false` keeps it in-app, with a comment on that line saying why (it needs the open screen or the in-app chat, " +
         "it changes credentials or settings, it is maintenance tooling). " +
         `Do not add them to ${BASELINE_PATH}: that baseline may only shrink (guard:no-new-mcp-parity-gaps rejects added ids).`,

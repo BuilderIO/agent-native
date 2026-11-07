@@ -118,7 +118,7 @@ for interrupted-run recovery.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
-An action the app's agent can call that the app's MCP catalog doesn't already serve needs a decision, or outside agents can reach it only through `ask_app`: `mcpTool: true` serves it to them (add a test that calls it over MCP), and `mcpTool: false` keeps it in-app, with a comment on that line saying why.
+An action the app's agent can call that the app's MCP catalog doesn't already serve needs a decision, or outside agents can reach it only through `ask_app`: `mcpTool: true` serves it to them in their tool list, `mcpTool: "search"` serves it without listing it (`tool-search` finds it and `call-tool` runs it, which keeps a long catalog short), and `mcpTool: false` keeps it in-app, with a comment on that line saying why. Add a test that calls a served action over MCP.
 
 Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 

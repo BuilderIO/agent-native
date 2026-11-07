@@ -62,6 +62,7 @@ import {
   resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type ActionMcpTool,
   type PreparedActionCall,
   type ActionCaller,
   type ActionRunContext,
@@ -1364,7 +1365,7 @@ export interface ActionEntry {
   maxBodyBytes?: number;
   uiOnly?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   /** True when this entry's raw tool schema was authored by an external MCP
    *  server (imported via the MCP client), not a local action. Distinct
    *  from `mcpTool`, which controls whether a *local* action is exposed to

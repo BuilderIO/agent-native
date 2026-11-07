@@ -1781,3 +1781,239 @@ describe("external-agent exposure — endsTurn without mcpTool", () => {
     expect(names).toContain("ask-question");
   });
 });
+
+describe('served but unlisted tools — mcpTool: "search"', () => {
+  beforeEach(() => {
+    process.env.A2A_SECRET = A2A_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+    vi.clearAllMocks();
+  });
+
+  const archivePlan = vi.fn(async (args: { id?: string }) => ({
+    archived: args.id,
+  }));
+  const actions: Record<string, unknown> = {
+    "create-plan": fullActions["create-plan"],
+    "get-plan": fullActions["get-plan"],
+    "tool-search": {
+      tool: {
+        description: "Discover callable tools",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            names: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+      readOnly: true,
+      run: async () => ({ results: [] }),
+    },
+    "archive-plan": {
+      tool: {
+        description: "Archive a plan",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      mcpTool: "search",
+      run: archivePlan,
+    },
+    "plan-history": {
+      tool: { description: "Read a plan's history" },
+      readOnly: true,
+      mcpTool: "search",
+      run: async () => ({ entries: ["created"] }),
+    },
+    "draft-plan": {
+      tool: { description: "Draft a plan" },
+      run: async () => ({ ok: true }),
+    },
+    "plan-settings": {
+      tool: { description: "Change plan settings" },
+      mcpTool: false,
+      run: async () => ({ ok: true }),
+    },
+  };
+  const searchConfig = {
+    name: "Plan",
+    appId: "plan",
+    description: "Plan agent",
+    actions,
+    productionActions: actions,
+    connectorCatalog: ["create-plan", "get-plan"],
+  };
+
+  async function send(
+    method: string,
+    params: Record<string, unknown>,
+    mcpConfig: Record<string, unknown> = searchConfig,
+  ) {
+    const token = await signA2AToken("alice@example.com");
+    return call(
+      { jsonrpc: "2.0", id: 90, method, params },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+    );
+  }
+  const callTool = (args: unknown, mcpConfig?: Record<string, unknown>) =>
+    send("tools/call", { name: "call-tool", arguments: args }, mcpConfig);
+
+  it("leaves them out of tools/list, which gets call-tool instead", async () => {
+    const listed = await send("tools/list", {});
+    const names: string[] = listed.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["create-plan", "get-plan", "tool-search"]),
+    );
+    expect(names).toContain("call-tool");
+    for (const name of [
+      "archive-plan",
+      "plan-history",
+      "draft-plan",
+      "plan-settings",
+    ]) {
+      expect(names).not.toContain(name);
+    }
+    const listing = listed.result.tools.find(
+      (t: any) => t.name === "call-tool",
+    );
+    expect(listing.inputSchema.required).toEqual(["name"]);
+    // archive-plan writes, so the hints may not promise a read.
+    expect(listing.annotations.readOnlyHint).toBe(false);
+  });
+
+  it("finds them through tool-search, each marked to run with call-tool", async () => {
+    const out = await send("tools/call", {
+      name: "tool-search",
+      arguments: { names: ["plan-history", "get-plan", "draft-plan"] },
+    });
+    expect(out.result.isError).toBeFalsy();
+    const { results } = JSON.parse(out.result.content[0].text);
+    const byName = new Map<string, any>(
+      results.map((result: any) => [result.name, result]),
+    );
+    expect(byName.get("plan-history")?.callWith).toBe("call-tool");
+    expect(byName.get("get-plan")).toBeDefined();
+    expect(byName.get("get-plan")?.callWith).toBeUndefined();
+    expect(byName.has("draft-plan")).toBe(false);
+  });
+
+  it("runs one through call-tool, and by name for a client that can", async () => {
+    const viaCallTool = await callTool({
+      name: "archive-plan",
+      arguments: { id: "plan-7" },
+    });
+    expect(viaCallTool.result.isError).toBeFalsy();
+    expect(JSON.stringify(viaCallTool.result.content)).toContain("plan-7");
+
+    const direct = await send("tools/call", {
+      name: "archive-plan",
+      arguments: { id: "plan-8" },
+    });
+    expect(direct.result.isError).toBeFalsy();
+    expect(archivePlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs nothing else through call-tool", async () => {
+    for (const [args, message] of [
+      [{ name: "get-plan", arguments: { id: "plan-1" } }, "isn't one"],
+      [{ name: "draft-plan" }, "isn't one"],
+      [{ name: "plan-settings" }, "isn't one"],
+      [{ name: "call-tool" }, "isn't one"],
+      [{}, "exact name"],
+      [{ name: "archive-plan", arguments: "plan-7" }, "as an object"],
+    ] as const) {
+      const out = await callTool(args);
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toContain(message);
+    }
+    const undecided = await send("tools/call", {
+      name: "draft-plan",
+      arguments: {},
+    });
+    expect(undecided.result.isError).toBe(true);
+    expect(archivePlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps a denied action out of call-tool and tool-search", async () => {
+    const denyConfig = {
+      ...searchConfig,
+      externalAgents: { denyActions: ["archive-plan"] },
+    };
+    const out = await callTool(
+      { name: "archive-plan", arguments: { id: "plan-7" } },
+      denyConfig,
+    );
+    expect(out.result.isError).toBe(true);
+    const found = await send(
+      "tools/call",
+      { name: "tool-search", arguments: { names: ["archive-plan"] } },
+      denyConfig,
+    );
+    expect(JSON.parse(found.result.content[0].text).results).toEqual([]);
+    expect(archivePlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps unlisted writes out when writes go through ask_app", async () => {
+    const askAppConfig = {
+      ...searchConfig,
+      externalAgents: { writes: "ask_app_only" },
+    };
+    const write = await callTool(
+      { name: "archive-plan", arguments: { id: "plan-7" } },
+      askAppConfig,
+    );
+    expect(write.result.isError).toBe(true);
+    const read = await callTool({ name: "plan-history" }, askAppConfig);
+    expect(read.result.isError).toBeFalsy();
+    const listed = await send("tools/list", {}, askAppConfig);
+    const listing = listed.result.tools.find(
+      (t: any) => t.name === "call-tool",
+    );
+    expect(listing.annotations.readOnlyHint).toBe(true);
+    expect(archivePlan).not.toHaveBeenCalled();
+  });
+
+  it("lists them on the full catalog, which has no call-tool", async () => {
+    process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+    const listed = await send("tools/list", {});
+    const names: string[] = listed.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["archive-plan", "plan-history"]),
+    );
+    expect(names).not.toContain("call-tool");
+    const out = await callTool({ name: "plan-history" });
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content[0].text).toContain("Unknown tool");
+  });
+
+  it("has no call-tool when nothing is unlisted", async () => {
+    const plainActions = {
+      ...actions,
+      "archive-plan": { ...(actions["archive-plan"] as object), mcpTool: true },
+      "plan-history": { ...(actions["plan-history"] as object), mcpTool: true },
+    };
+    const plainConfig = {
+      ...searchConfig,
+      actions: plainActions,
+      productionActions: plainActions,
+    };
+    const listed = await send("tools/list", {}, plainConfig);
+    const names: string[] = listed.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["archive-plan", "plan-history"]),
+    );
+    expect(names).not.toContain("call-tool");
+    const out = await callTool({ name: "plan-history" }, plainConfig);
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content[0].text).toContain("Unknown tool");
+  });
+});

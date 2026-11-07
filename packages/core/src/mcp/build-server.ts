@@ -22,7 +22,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import type { ActionRunContext } from "../action.js";
+import type { ActionMcpToolAnnotations, ActionRunContext } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
@@ -472,8 +472,21 @@ function withoutToolSearch(
   );
 }
 
+/**
+ * Runs a served tool that `tools/list` leaves out (`mcpTool: "search"`), for
+ * the many clients that can call only the tools they were listed. It is
+ * listed only when the request has such a tool, and runs nothing else.
+ */
+const CALL_TOOL_NAME = "call-tool";
+
+/**
+ * Tool search on the compact and connector tiers finds what the request
+ * serves: its listed tools and the unlisted ones `call-tool` runs. Each
+ * unlisted match says to call it with `call-tool`.
+ */
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
+  unlisted: Record<string, ActionEntry>,
   advertisable: (
     actions: Record<string, ActionEntry>,
   ) => Record<string, ActionEntry>,
@@ -487,15 +500,101 @@ function scopeToolSearchToAdvertised(
       run: async (args: Record<string, unknown>, context) => {
         const { searchToolRegistryForRequest } =
           await import("../agent/tool-search.js");
-        return searchToolRegistryForRequest(
-          advertisable(advertised),
+        const found = await searchToolRegistryForRequest(
+          advertisable({ ...advertised, ...unlisted }),
           args ?? {},
           {},
           context,
         );
+        return {
+          ...found,
+          results: found.results.map((result) =>
+            Object.hasOwn(unlisted, result.name)
+              ? { ...result, callWith: CALL_TOOL_NAME }
+              : result,
+          ),
+        };
       },
     },
   };
+}
+
+/** The hints `tools/list` gives an action outside the directory catalog. */
+function actionToolAnnotations(entry: ActionEntry): ActionMcpToolAnnotations {
+  return (
+    entry.mcpAnnotations ??
+    entry.mcpAnnotationDefaults ?? {
+      readOnlyHint: isMcpReadOnlyTool(entry),
+      destructiveHint:
+        entry.publicAgent?.isConsequential === true ||
+        entry.needsApproval !== undefined,
+      openWorldHint: false,
+    }
+  );
+}
+
+/** `call-tool` as `tools/list` shows it; its hints cover every tool it runs. */
+function callToolListing(unlisted: Record<string, ActionEntry>): Tool {
+  const hints = Object.values(unlisted).map(actionToolAnnotations);
+  return {
+    name: CALL_TOOL_NAME,
+    description:
+      "Run a tool this app serves that isn't in your tool list. tool-search finds them and marks each with callWith: call-tool. Pass the tool's exact name and its arguments: the call gets the same checks and approvals as calling the tool directly, and returns the tool's result.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "The tool's exact name, as tool-search returned it.",
+        },
+        arguments: {
+          type: "object",
+          description:
+            "The tool's arguments, matching the parameters tool-search returned for it.",
+          additionalProperties: true,
+        },
+      },
+      required: ["name"],
+    },
+    annotations: {
+      title: agentNativeToolTitle(CALL_TOOL_NAME),
+      readOnlyHint: hints.every((hint) => hint.readOnlyHint),
+      destructiveHint: hints.some((hint) => hint.destructiveHint),
+      openWorldHint: hints.some((hint) => hint.openWorldHint),
+    },
+  };
+}
+
+/** The tool a `call-tool` call names and its arguments, or why it can't run. */
+function callToolTarget(
+  args: unknown,
+  unlisted: Record<string, ActionEntry>,
+):
+  | { name: string; args: Record<string, unknown> }
+  | { errorType: string; error: string } {
+  const input = metadataObject(args);
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) {
+    return {
+      errorType: "invalid_arguments",
+      error: "call-tool needs the tool's exact name in `name`.",
+    };
+  }
+  if (!Object.hasOwn(unlisted, name)) {
+    return {
+      errorType: "unknown_tool",
+      error: `call-tool runs only the tools tool-search marks with callWith: call-tool, and ${name} isn't one. Call a tool in your list directly, or search for the right name.`,
+    };
+  }
+  const target = input.arguments ?? {};
+  if (typeof target !== "object" || target === null || Array.isArray(target)) {
+    return {
+      errorType: "invalid_arguments",
+      error:
+        "call-tool needs the tool's arguments as an object in `arguments`.",
+    };
+  }
+  return { name, args: target as Record<string, unknown> };
 }
 
 // The operator's `denyActions` veto lives here with the action's own opt-out,
@@ -3072,8 +3171,26 @@ export async function createMCPServerForRequest(
             }),
           )
         : advertisedActionsBeforeConnector;
+  // `mcpTool: "search"` serves an action without listing it, on the tiers that
+  // have tool search; it outranks a connector name or an automatic read that
+  // would list it. The full and app catalogs list it, and the directory
+  // catalog keeps its own closed list.
+  const unlistedActions = flatCatalog
+    ? {}
+    : Object.fromEntries(
+        Object.entries(visibleActions).filter(
+          ([, entry]) =>
+            entry.mcpTool === "search" &&
+            (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
+        ),
+      );
   const advertisedActions = scopeToolSearchToAdvertised(
-    advertisedActionsBeforeToolSearchScope,
+    Object.fromEntries(
+      Object.entries(advertisedActionsBeforeToolSearchScope).filter(
+        ([name]) => !Object.hasOwn(unlistedActions, name),
+      ),
+    ),
+    unlistedActions,
     advertisable,
   );
   if (fullCatalogRequested) {
@@ -3466,16 +3583,9 @@ export async function createMCPServerForRequest(
             const title = agentNativeToolTitle(name, entry.tool.title);
             const annotations: Record<string, unknown> = {
               title,
-              ...(entry.mcpAnnotations ??
-                (directoryCatalog
-                  ? undefined
-                  : (entry.mcpAnnotationDefaults ?? {
-                      readOnlyHint: isMcpReadOnlyTool(entry),
-                      destructiveHint:
-                        entry.publicAgent?.isConsequential === true ||
-                        entry.needsApproval !== undefined,
-                      openWorldHint: false,
-                    }))),
+              ...(directoryCatalog
+                ? entry.mcpAnnotations
+                : actionToolAnnotations(entry)),
             };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];
@@ -3512,6 +3622,19 @@ export async function createMCPServerForRequest(
         );
         if (index >= 0) tools.splice(index, 1);
         tools.push(widgetSessionTool);
+      }
+
+      const runnableUnlisted = Object.fromEntries(
+        Object.entries(unlistedActions).filter(
+          ([name]) =>
+            isActionGranted(allowedActions, name) && isAdvertisable(name),
+        ),
+      );
+      if (
+        Object.keys(runnableUnlisted).length > 0 &&
+        !Object.hasOwn(actions, CALL_TOOL_NAME)
+      ) {
+        tools.push(callToolListing(runnableUnlisted));
       }
 
       if (
@@ -3570,6 +3693,7 @@ export async function createMCPServerForRequest(
     config,
     actions,
     advertisedActions,
+    unlistedActions,
     isAdvertisable,
     visibleActions,
     fullCatalogRequested,
@@ -3604,8 +3728,10 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
+      // The tool that ran: for a `call-tool` call, the one it named.
+      let calledName = request.params?.name;
       const result = await withToolCallContext(async () => {
-        const { name, arguments: args } = request.params;
+        let { name, arguments: args } = request.params;
 
         if (deniedToolNames.has(name)) {
           failure = {
@@ -3616,6 +3742,29 @@ export async function createMCPServerForRequest(
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
           };
+        }
+
+        // From here on the call is to the unlisted tool `call-tool` names, so
+        // it passes the same grant, scope and approval checks as a direct call.
+        // The unlisted set already leaves out denied actions.
+        if (
+          name === CALL_TOOL_NAME &&
+          !Object.hasOwn(actions, CALL_TOOL_NAME) &&
+          Object.keys(unlistedActions).length > 0
+        ) {
+          const target = callToolTarget(args, unlistedActions);
+          if ("error" in target) {
+            failure = {
+              errorType: target.errorType,
+              errorMessage: target.error,
+            };
+            return {
+              content: [{ type: "text", text: target.error }],
+              isError: true,
+            };
+          }
+          ({ name, args } = target);
+          calledName = name;
         }
 
         try {
@@ -3743,7 +3892,7 @@ export async function createMCPServerForRequest(
         });
       }, mcpRequestId);
 
-      const toolName = request.params?.name;
+      const toolName = calledName;
       const calledEntry = actions[toolName];
       trackMcpToolCall(analyticsContext(request, ctx), {
         toolName,
