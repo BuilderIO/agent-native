@@ -1234,7 +1234,14 @@ export async function ingestAnalyticsExceptionEvents(
   for (const item of events) {
     try {
       const raw = extractExceptionInput(item.properties);
-      if (isBenignBrowserAbortException(raw)) {
+      const surface = noiseSurfaceOf(item.properties);
+      const markedLateExecutionFailure =
+        surface === "server" &&
+        raw.tags.reportExpected === "true" &&
+        raw.tags.component === "agent-execution-step" &&
+        (raw.tags.phase === "late-action-failure" ||
+          raw.tags.phase === "late-outcome-persistence");
+      if (!markedLateExecutionFailure && isBenignBrowserAbortException(raw)) {
         suppressed += 1;
         ingestStats.suppressed["benign-abort"] =
           (ingestStats.suppressed["benign-abort"] ?? 0) + 1;
@@ -1243,7 +1250,7 @@ export async function ingestAnalyticsExceptionEvents(
       // Defense in depth: senders filter too, but a stale browser bundle in
       // someone's tab keeps sending the noise this rule set already drops.
       const verdict = classifyErrorNoise({
-        surface: noiseSurfaceOf(item.properties),
+        surface,
         type: raw.type,
         value: raw.message,
         stack: raw.rawStack ?? undefined,

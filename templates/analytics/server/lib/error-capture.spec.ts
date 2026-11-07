@@ -4,6 +4,11 @@ const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+import {
+  captureException,
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1891,6 +1896,82 @@ describe("error ingest flood control", () => {
     ]);
     expect(result.ingested).toBe(1);
     expect(await issues()).toHaveLength(1);
+  });
+
+  it("persists a late server AbortError while still suppressing browser aborts", async () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "late-abort-ingest-test", track });
+    try {
+      captureException(
+        new DOMException("The user aborted a request.", "AbortError"),
+        {
+          tags: {
+            component: "agent-execution-step",
+            phase: "late-action-failure",
+            reportExpected: "true",
+          },
+        },
+      );
+      expect(track).toHaveBeenCalledOnce();
+      const call = track.mock.calls[0];
+      if (!call) throw new Error("Expected a captured exception");
+      const payload = call[0];
+      expect(payload.name).toBe("$exception");
+      expect(payload.properties).toMatchObject({
+        runtime: "node",
+        source: "server",
+        exceptionType: "AbortError",
+        exceptionTags: { phase: "late-action-failure", reportExpected: "true" },
+      });
+      const server = {
+        properties: payload.properties,
+        derived: derivedFor({ url: null }),
+      };
+      const browser = {
+        properties: {
+          ...payload.properties,
+          runtime: undefined,
+          source: undefined,
+          exceptionMessage: "The user aborted a request.",
+        },
+        derived: derivedFor(),
+      };
+      const latePersistence = {
+        ...server,
+        properties: {
+          ...payload.properties,
+          exceptionTags: {
+            component: "agent-execution-step",
+            phase: "late-outcome-persistence",
+            reportExpected: "true",
+          },
+        },
+      };
+      const unmarkedServer = {
+        ...server,
+        properties: { ...payload.properties, exceptionTags: {} },
+      };
+      const unrelatedServer = {
+        ...server,
+        properties: {
+          ...payload.properties,
+          exceptionTags: { component: "other", reportExpected: "true" },
+        },
+      };
+      const result = await ingestAnalyticsExceptionEvents(SCOPE, [
+        server,
+        latePersistence,
+        browser,
+        unmarkedServer,
+        unrelatedServer,
+      ]);
+      expect(result).toEqual({ ingested: 2, suppressed: 3, failed: 0 });
+      expect(await issues()).toHaveLength(1);
+      expect(await events()).toHaveLength(2);
+      expect(getErrorIngestStats().suppressed).toEqual({ "benign-abort": 3 });
+    } finally {
+      unregisterTrackingProvider("late-abort-ingest-test");
+    }
   });
 
   it("ingests an access-control failure only when the sender marked it as a real failure", async () => {
