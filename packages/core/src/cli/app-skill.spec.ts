@@ -753,7 +753,9 @@ describe("app skill launch and ensure", () => {
       fs.mkdirSync(root);
       const manifestFile = writeFixture(root);
       const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
-      manifest.local.commands = {};
+      // A missing dev command falls back to `pnpm dev`, so give one that
+      // exits at once.
+      manifest.local.commands = { dev: "pnpm --version" };
       fs.writeFileSync(manifestFile, JSON.stringify(manifest), "utf-8");
       fs.writeFileSync(path.join(workspace, "shared.md"), "Shared\n");
       fs.writeFileSync(path.join(root, "notes.md"), "Notes\n");
