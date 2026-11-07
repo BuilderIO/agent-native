@@ -176,6 +176,19 @@ describe("a row's Properties in its view", () => {
 
   it.each([
     { schemaRowsExpected: true, dataUpdatedAt: 0, drawn: true, usable: false },
+    {
+      schemaRowsExpected: true,
+      dataUpdatedAt: 0,
+      noAnswer: true,
+      drawn: true,
+      usable: false,
+    },
+    {
+      schemaRowsExpected: false,
+      dataUpdatedAt: 0,
+      noAnswer: true,
+      drawn: false,
+    },
     { schemaRowsExpected: true, dataUpdatedAt: 1, drawn: false },
     { schemaRowsExpected: false, dataUpdatedAt: 0, drawn: false },
     { schemaRowsExpected: true, dataUpdatedAt: 0, isError: true, drawn: false },
@@ -209,10 +222,13 @@ describe("a row's Properties in its view", () => {
       isError = false,
       canManageSchema = false,
       canEdit = true,
+      noAnswer = false,
       drawn,
       usable,
     }) => {
-      mocks.response = { ...mocks.response, canManageSchema };
+      mocks.response = noAnswer
+        ? (undefined as unknown as DocumentPropertiesResponse)
+        : { ...mocks.response, canManageSchema };
       mocks.dataUpdatedAt = dataUpdatedAt;
       mocks.isError = isError;
       renderProperties(null, { schemaRowsExpected, canEdit });

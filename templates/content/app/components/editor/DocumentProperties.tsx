@@ -1078,9 +1078,10 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && showSchemaRows && databaseId ? (
-        // Rows drawn on expectation hold their place, and can't be used until
-        // this viewer's rights are confirmed.
+      {showSchemaRows && databaseId ? (
+        // Rows drawn on expectation hold their place, even before any
+        // Property answer, and can't be used until this viewer's rights are
+        // confirmed.
         <div className="contents" inert={!canManageSchema || undefined}>
           {hiddenProperties.length > 0 ? (
             <HiddenPropertiesMenu
