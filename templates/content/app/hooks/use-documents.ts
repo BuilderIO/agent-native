@@ -1320,7 +1320,7 @@ export function useResolvePreviewDocumentDraft() {
       urlPath?: string;
     },
     {
-      choice: "keep_mine" | "use_saved" | "save_separately";
+      choice: "keep_mine" | "use_saved" | "save_separately" | "automatic";
       documentId: string;
       expectedDraftVersion: number;
       expectedDraftTitle: string;
