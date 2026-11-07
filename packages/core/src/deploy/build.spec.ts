@@ -6562,7 +6562,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst vendored = { entry: readsAVariable, size: 1 };\nconst unbalanced = { entry: "x" ];\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -6625,7 +6625,7 @@ describe("runNitroBuildPipeline", () => {
               fs.mkdirSync(serverDir, { recursive: true });
               fs.writeFileSync(
                 path.join(serverDir, "main.mjs"),
-                "export {};\n",
+                "const vendored = { entry: readsAVariable };\nexport {};\n",
               );
             },
           },
@@ -6635,7 +6635,7 @@ describe("runNitroBuildPipeline", () => {
           cwd,
         }),
       ).rejects.toThrow(
-        "React Router server manifest not found in Nitro output",
+        /React Router server manifest not found in Nitro output[\s\S]*readsAVariable is not defined/,
       );
     } finally {
       if (previous === undefined)

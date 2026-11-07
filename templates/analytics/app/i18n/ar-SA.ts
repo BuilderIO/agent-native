@@ -1383,6 +1383,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "حفظ كعرض",
+    unknownTraffic: "غير معروف {{count}}",
+    unknownTrafficUnavailable: "عدد غير المعروف غير متاح",
+    unknownTrafficTip:
+      "أحداث آخر {{days}} يوم بلا مضيف وبلا بيئة معروفة. تُحتسب ضمن الإنتاج.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
