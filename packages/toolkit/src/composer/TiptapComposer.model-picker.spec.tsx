@@ -433,6 +433,96 @@ describe("TiptapComposer model picker", () => {
     expect(card?.querySelector('[role="meter"]')).toBeNull();
   });
 
+  it("does not claim an empty settled catalog is disconnected or validate its default", async () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListLoading={false}
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          selectedEffort="high"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Model");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Connect agent");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Opus");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Effort");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const menu = await openPicker();
+    expect(topLevelRows(menu)).toEqual([]);
+    expect(menu.textContent).toContain("Add your own keys");
+  });
+
+  it("announces loading without presenting the guessed model as ready", async () => {
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListLoading
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          selectedEffort="high"
+          onConnectProvider={vi.fn()}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.getAttribute("aria-label")).toBe("Loading models");
+    expect(trigger.textContent).not.toContain("Connect agent");
+    const menu = await openPicker();
+    expect(
+      menu.querySelector('[role="status"]')?.getAttribute("aria-busy"),
+    ).toBe("true");
+  });
+
+  it("keeps a configured agent visible and selectable with an empty catalog", async () => {
+    const onAgentChange = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          availableAgents={[
+            { id: "default", label: "Default" },
+            { id: "codex", label: "Codex", configured: true },
+          ]}
+          selectedAgent="codex"
+          onAgentChange={onAgentChange}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Codex");
+    expect(trigger.getAttribute("aria-label")).toContain("Agent: Codex");
+    await openPicker();
+    await act(async () =>
+      document
+        .querySelector<HTMLElement>(
+          '[data-agent-composer-model-section="agent"]',
+        )!
+        .click(),
+    );
+    const panel = document.querySelector<HTMLElement>(
+      '[data-agent-composer-model-panel="agent"]',
+    )!;
+    const defaultAgent = Array.from(
+      panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent === "Default")!;
+    await act(async () => defaultAgent.click());
+    expect(onAgentChange).toHaveBeenCalledWith("default");
+  });
+
   it("shows the connect choices and no model list with nothing connected", async () => {
     act(() =>
       root.render(

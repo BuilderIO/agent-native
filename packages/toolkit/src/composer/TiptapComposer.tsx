@@ -1709,7 +1709,11 @@ export function shouldShowOnlyConnectPath(
   showBuilderCta: boolean,
   groups: ReadonlyArray<{ configured: boolean }>,
 ): boolean {
-  return showBuilderCta && groups.every((group) => !group.configured);
+  return (
+    showBuilderCta &&
+    groups.length > 0 &&
+    groups.every((group) => !group.configured)
+  );
 }
 
 /**
@@ -2209,6 +2213,7 @@ function ModelSelector({
   // An empty list mid-load says nothing about connection; judging it now
   // flashes "Connect agent" at a connected user.
   const awaitingModelList = modelListLoading && providerGroups.length === 0;
+  const noModelCatalog = !agentOnly && engines.length === 0;
   const selectedModelNeedsConnection =
     !awaitingModelList &&
     (onlyConnectPathAvailable ||
@@ -2216,7 +2221,7 @@ function ModelSelector({
         selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
-  // an empty list is a catalog that failed to load, not proof of anything.
+  // an empty list is not proof of anything.
   const connectionRequired =
     onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
   useEffect(() => {
@@ -2228,13 +2233,19 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+  const selectedModelButtonLabel = noModelCatalog
+    ? awaitingModelList
+      ? t("agentChat.composer.loadingModels", {
+          defaultValue: "Loading models",
+        })
+      : t("agentChat.composer.model", { defaultValue: "Model" })
+    : selectedModelNeedsConnection
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : model === "auto" && autoRow
+        ? autoRow.label
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2778,6 +2789,7 @@ function ModelSelector({
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !noModelCatalog &&
     !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
@@ -2803,11 +2815,15 @@ function ModelSelector({
                   })}: ${selectedModelButtonLabel}`,
                   agent: selectedAgentLabel,
                 })
-              : `${t("agentChat.composer.model", {
-                  defaultValue: "Model",
-                })}: ${selectedModelButtonLabel}`
+              : noModelCatalog
+                ? selectedModelButtonLabel
+                : `${t("agentChat.composer.model", {
+                    defaultValue: "Model",
+                  })}: ${selectedModelButtonLabel}`
           }${
-            effortOptions.length > 0 && !selectedModelNeedsConnection
+            effortOptions.length > 0 &&
+            !selectedModelNeedsConnection &&
+            !noModelCatalog
               ? `. ${t("agentChat.composer.effort", {
                   defaultValue: "Effort",
                 })}: ${effortValueLabel}`
