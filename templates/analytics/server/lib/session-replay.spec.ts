@@ -120,6 +120,7 @@ function createReplayDbMock(
   const deletes: Array<{ table: unknown; where: unknown }> = [];
   const updates: Array<{ table: unknown; values: unknown }> = [];
   const selectedTables: unknown[] = [];
+  const writeOrder: string[] = [];
   // The row lock and the stored sequence range re-read what the test already
   // served, so they take nothing from the queue.
   const served = new Map<unknown, unknown[]>();
@@ -148,7 +149,10 @@ function createReplayDbMock(
             return rows;
           };
           return {
-            for: vi.fn(async () => served.get(table) ?? []),
+            for: vi.fn(async (strength: string) => {
+              writeOrder.push(`lock ${strength}`);
+              return served.get(table) ?? [];
+            }),
             limit: vi.fn(async () => take()),
             orderBy: vi.fn(async () => take()),
             then: (
@@ -162,6 +166,9 @@ function createReplayDbMock(
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((values: unknown) => {
         inserts.push({ table, values });
+        if (table === schema.sessionRecordingSessionAssociations) {
+          writeOrder.push("insert association");
+        }
         return {
           onConflictDoNothing: vi.fn(async () => {
             if (
@@ -195,7 +202,7 @@ function createReplayDbMock(
       }
     }),
   };
-  return { db, inserts, deletes, updates, selectedTables };
+  return { db, inserts, deletes, updates, selectedTables, writeOrder };
 }
 
 function createSessionReplayListDbMock(rows: unknown[]) {
@@ -3184,7 +3191,7 @@ describe("session replay ingest parsing", () => {
       visibility: "private",
       status: "active",
     };
-    const { db } = createReplayDbMock(
+    const { db, writeOrder } = createReplayDbMock(
       [
         ...replayIngestKeyDbResults(null).slice(0, 3),
         [recording],
@@ -3221,6 +3228,9 @@ describe("session replay ingest parsing", () => {
       commit_sha: started,
       commit_sha_latest: deployed,
     });
+    // Locked before the association's foreign key share-locks the row, and no
+    // harder than the update, so two uploads queue rather than deadlock.
+    expect(writeOrder).toEqual(["lock no key update", "insert association"]);
   });
 
   it("does not promote an existing identified recording from an auth-page marker", async () => {

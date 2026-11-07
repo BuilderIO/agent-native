@@ -2056,6 +2056,20 @@ export async function recordSessionReplayChunks(
   };
   try {
     await db.transaction(async (tx: any) => {
+      // Uploads from a reload overlap, and the order they commit in is not the
+      // order they were recorded in. Under the row lock, the stored chunks
+      // place this upload by sequence. A session association share-locks the
+      // recording through its foreign key, so the lock comes first and is no
+      // stronger than the update needs: FOR UPDATE taken after that insert
+      // deadlocks two uploads against each other's share locks.
+      const [locked] = await tx
+        .select({ metadata: schema.sessionRecordings.metadata })
+        .from(schema.sessionRecordings)
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .for("no key update");
+      if (!locked) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
       if (rowsToInsert.length) {
         await tx.insert(schema.sessionReplayChunks).values(rowsToInsert);
       }
@@ -2090,17 +2104,6 @@ export async function recordSessionReplayChunks(
             })),
           )
           .onConflictDoNothing();
-      }
-      // Uploads from a reload overlap, and the order they commit in is not the
-      // order they were recorded in. Under the row lock, the stored chunks
-      // place this upload by sequence.
-      const [locked] = await tx
-        .select({ metadata: schema.sessionRecordings.metadata })
-        .from(schema.sessionRecordings)
-        .where(eq(schema.sessionRecordings.id, recording.id))
-        .for("update");
-      if (!locked) {
-        throw new Error("Replay recording disappeared during ingest");
       }
       const [stored] = rowsToInsert.length
         ? await tx
