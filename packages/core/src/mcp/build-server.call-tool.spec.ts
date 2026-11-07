@@ -17,6 +17,16 @@ vi.mock("../audit/record.js", () => ({
   recordActionAudit: vi.fn(async () => {}),
 }));
 
+// A service principal grant, or null for a caller without one.
+let grant: string[] | null = null;
+
+vi.mock("../org/service-principal-guard.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../org/service-principal-guard.js")
+  >()),
+  assertServicePrincipalMayRun: vi.fn(async () => ({ allowedActions: grant })),
+}));
+
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/better-auth-instance.js")
@@ -137,7 +147,28 @@ async function viaCallTool(client: Client, args: Record<string, unknown>) {
 
 beforeEach(() => {
   runs.length = 0;
+  grant = null;
 });
+
+async function searched(client: Client, names: string[]) {
+  const out = (await client.callTool({
+    name: "tool-search",
+    arguments: { names },
+  })) as any;
+  expect(out.isError).toBeFalsy();
+  return new Map<string, any>(
+    JSON.parse(textOf(out)).results.map((result: any) => [result.name, result]),
+  );
+}
+
+function withOwnCallTool(): MCPConfig {
+  const own = action("call-tool", { mcpTool: true });
+  return config({
+    actions: { ...actions(), "call-tool": own },
+    productionActions: { ...actions(), "call-tool": own },
+    connectorCatalog: ["get-plan", "call-tool"],
+  });
+}
 
 describe('tools/list with mcpTool: "search" actions', () => {
   it("lists call-tool in place of the unlisted tools", async () => {
@@ -192,20 +223,16 @@ describe('tools/list with mcpTool: "search" actions', () => {
     });
   });
 
-  it("keeps an app's own call-tool action", async () => {
-    const own = action("call-tool", { mcpTool: true });
-    const tools = await listed(
-      await clientFor(
-        config({
-          actions: { ...actions(), "call-tool": own },
-          productionActions: { ...actions(), "call-tool": own },
-          connectorCatalog: ["get-plan", "call-tool"],
-        }),
-      ),
-    );
+  it("keeps an app's own call-tool action and lists the tools it would hide", async () => {
+    const tools = await listed(await clientFor(withOwnCallTool()));
     expect(tools.get("call-tool")?.description).toContain(
       "call-tool description",
     );
+    for (const name of ["archive-plan", "purge-plan", "plan-history"]) {
+      expect(tools.has(name)).toBe(true);
+    }
+    expect(tools.has("plan-settings")).toBe(false);
+    expect(tools.has("draft-plan")).toBe(false);
   });
 
   it("lists no call-tool when nothing is unlisted", async () => {
@@ -296,20 +323,40 @@ describe("tool hints outside the directory catalog", () => {
 
 describe("tool-search with unlisted tools", () => {
   it("finds them and marks each to run with call-tool", async () => {
-    const client = await clientFor();
-    const out = (await client.callTool({
-      name: "tool-search",
-      arguments: { names: ["plan-history", "get-plan", "draft-plan"] },
-    })) as any;
-    expect(out.isError).toBeFalsy();
-    const { results } = JSON.parse(textOf(out));
-    const byName = new Map<string, any>(
-      results.map((result: any) => [result.name, result]),
-    );
+    const byName = await searched(await clientFor(), [
+      "plan-history",
+      "get-plan",
+      "draft-plan",
+    ]);
     expect(byName.get("plan-history")?.callWith).toBe("call-tool");
     expect(byName.get("get-plan")).toBeDefined();
     expect(byName.get("get-plan")?.callWith).toBeUndefined();
     expect(byName.has("draft-plan")).toBe(false);
+  });
+
+  it("finds only the tools a service principal's grant allows", async () => {
+    grant = ["tool-search", "call-tool", "get-plan", "plan-history"];
+    const client = await clientFor(
+      config({ connectorCatalog: ["get-plan", "draft-plan"] }),
+    );
+    const byName = await searched(client, [
+      "get-plan",
+      "draft-plan",
+      "plan-history",
+      "archive-plan",
+    ]);
+    expect([...byName.keys()].sort()).toEqual(["get-plan", "plan-history"]);
+    expect(byName.get("plan-history")?.callWith).toBe("call-tool");
+  });
+
+  it("marks nothing for call-tool when the app has its own", async () => {
+    const byName = await searched(await clientFor(withOwnCallTool()), [
+      "plan-history",
+      "archive-plan",
+    ]);
+    expect(byName.get("plan-history")).toBeDefined();
+    expect(byName.get("plan-history")?.callWith).toBeUndefined();
+    expect(byName.get("archive-plan")?.callWith).toBeUndefined();
   });
 });
 
@@ -362,14 +409,7 @@ describe("tools/call through call-tool", () => {
   });
 
   it("calls an app's own call-tool action instead", async () => {
-    const own = action("call-tool", { mcpTool: true });
-    const client = await clientFor(
-      config({
-        actions: { ...actions(), "call-tool": own },
-        productionActions: { ...actions(), "call-tool": own },
-        connectorCatalog: ["get-plan", "call-tool"],
-      }),
-    );
+    const client = await clientFor(withOwnCallTool());
     const out = await viaCallTool(client, { name: "archive-plan" });
     expect(out.isError).toBeFalsy();
     expect(runs.map((run) => run.name)).toEqual(["call-tool"]);

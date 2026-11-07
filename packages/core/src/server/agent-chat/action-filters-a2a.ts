@@ -125,7 +125,7 @@ export function filterDirectA2AActions(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
       const selected =
-        entry.mcpTool === true ||
+        isMcpToolServed(entry.mcpTool) ||
         catalog.has(name) ||
         (autoReads &&
           isAuthenticatedReadAction(entry) &&

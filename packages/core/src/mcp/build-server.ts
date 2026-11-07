@@ -481,15 +481,15 @@ const CALL_TOOL_NAME = "call-tool";
 
 /**
  * Tool search on the compact and connector tiers finds what the request
- * serves: its listed tools and the unlisted ones `call-tool` runs. Each
- * unlisted match says to call it with `call-tool`.
+ * serves and may call: its listed tools and the unlisted ones `call-tool`
+ * runs. Each unlisted match says to call it with `call-tool`.
  */
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
-  advertisable: (
+  callable: (
     actions: Record<string, ActionEntry>,
-  ) => Record<string, ActionEntry>,
+  ) => Promise<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -501,7 +501,7 @@ function scopeToolSearchToAdvertised(
         const { searchToolRegistryForRequest } =
           await import("../agent/tool-search.js");
         const found = await searchToolRegistryForRequest(
-          advertisable({ ...advertised, ...unlisted }),
+          await callable({ ...advertised, ...unlisted }),
           args ?? {},
           {},
           context,
@@ -3175,7 +3175,7 @@ export async function createMCPServerForRequest(
   // have tool search; it outranks a connector name or an automatic read that
   // would list it. The full and app catalogs list it, and the directory
   // catalog keeps its own closed list.
-  const unlistedActions = flatCatalog
+  const searchServedActions = flatCatalog
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
@@ -3184,14 +3184,31 @@ export async function createMCPServerForRequest(
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
+  // An app with its own `call-tool` action leaves no name for the tool that
+  // runs unlisted ones, so it lists them instead.
+  const ownsCallTool = Object.hasOwn(actions, CALL_TOOL_NAME);
+  const unlistedActions = ownsCallTool ? {} : searchServedActions;
   const advertisedActions = scopeToolSearchToAdvertised(
-    Object.fromEntries(
-      Object.entries(advertisedActionsBeforeToolSearchScope).filter(
-        ([name]) => !Object.hasOwn(unlistedActions, name),
-      ),
-    ),
+    ownsCallTool
+      ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
+      : Object.fromEntries(
+          Object.entries(advertisedActionsBeforeToolSearchScope).filter(
+            ([name]) => !Object.hasOwn(unlistedActions, name),
+          ),
+        ),
     unlistedActions,
-    advertisable,
+    // The grant is read at search time, as `tools/list` reads it, so a
+    // service principal finds only the tools it may call.
+    async (searched) => {
+      const { allowedActions } = await resolveServiceGrant();
+      return advertisable(
+        Object.fromEntries(
+          Object.entries(searched).filter(([name]) =>
+            isActionGranted(allowedActions, name),
+          ),
+        ),
+      );
+    },
   );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
@@ -3630,10 +3647,7 @@ export async function createMCPServerForRequest(
             isActionGranted(allowedActions, name) && isAdvertisable(name),
         ),
       );
-      if (
-        Object.keys(runnableUnlisted).length > 0 &&
-        !Object.hasOwn(actions, CALL_TOOL_NAME)
-      ) {
+      if (Object.keys(runnableUnlisted).length > 0) {
         tools.push(callToolListing(runnableUnlisted));
       }
 
@@ -3746,10 +3760,10 @@ export async function createMCPServerForRequest(
 
         // From here on the call is to the unlisted tool `call-tool` names, so
         // it passes the same grant, scope and approval checks as a direct call.
-        // The unlisted set already leaves out denied actions.
+        // The unlisted set already leaves out denied actions, and is empty
+        // when the app has its own `call-tool`.
         if (
           name === CALL_TOOL_NAME &&
-          !Object.hasOwn(actions, CALL_TOOL_NAME) &&
           Object.keys(unlistedActions).length > 0
         ) {
           const target = callToolTarget(args, unlistedActions);
