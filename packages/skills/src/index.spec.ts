@@ -278,6 +278,38 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  it("leaves out .git and node_modules, and links into them", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const skill = path.join(repo, "skills", "quick-recap");
+    writeSkill(repo, "quick-recap");
+    const gitDir = path.join(repo, ".git", "objects");
+    const packageDocs = path.join(repo, "node_modules", "pkg", "docs");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.mkdirSync(packageDocs, { recursive: true });
+    fs.writeFileSync(path.join(packageDocs, "readme.md"), "Docs\n");
+    fs.mkdirSync(path.join(skill, "node_modules", "pkg"), { recursive: true });
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    fs.symlinkSync(gitDir, path.join(skill, "objects"), linkType);
+    fs.symlinkSync(packageDocs, path.join(skill, "docs"), linkType);
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "node_modules"))).toBe(false);
+    expect(fs.existsSync(path.join(installed, "objects"))).toBe(false);
+    expect(fs.existsSync(path.join(installed, "docs"))).toBe(false);
+  });
+
   it("leaves out a link back to a folder the copy is inside", async () => {
     const repo = tmpDir();
     const project = tmpDir();

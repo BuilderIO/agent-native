@@ -651,12 +651,7 @@ function copySkillDir(
   if (dryRun) return;
   fs.rmSync(to, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(to), { recursive: true });
-  copySkillFiles(
-    from,
-    to,
-    linkRoot,
-    (name) => name === ".git" || name === "node_modules",
-  );
+  copySkillFiles(from, to, linkRoot);
 }
 
 function instructionFilePath(
