@@ -7,6 +7,7 @@ import {
   SqlQueryRefusalError,
   supportsSqlQueryCacheBypass,
   type SqlQueryExecutionMetadata,
+  type BigQueryUsageAccounting,
 } from "@shared/sql-query-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
@@ -193,6 +194,7 @@ function logSqlQueryTiming(timing: {
 }
 
 function responseMetadata(data: DashboardPanelQueryResponse): {
+  usageAccounting?: BigQueryUsageAccounting;
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
@@ -200,6 +202,8 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
+  if (data.usageAccounting !== undefined)
+    metadata.usageAccounting = data.usageAccounting;
   if (typeof data.cached === "boolean") metadata.cached = data.cached;
   if (typeof data.providerCacheHit === "boolean") {
     metadata.providerCacheHit = data.providerCacheHit;
