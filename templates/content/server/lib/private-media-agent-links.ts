@@ -6,8 +6,9 @@ import {
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
+import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
 import {
   privateMediaIdsInContent,
   privateMediaPath,
@@ -26,9 +27,14 @@ export const PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS = 60 * 60;
 /** Bounds the tokens one read can mint, however many images a page links. */
 const MAX_AGENT_LINKS = 200;
 
-/** Callers that read a page without Content's sign-in cookie. */
+/**
+ * Callers that read a page without Content's sign-in cookie. MCP widgets run
+ * in the host's frame and fetch without credentials.
+ */
 const AGENT_CALLERS = new Set<ActionRunContext["caller"]>([
   "mcp",
+  "mcp-widget",
+  "mcp-widget-write",
   "a2a",
   "tool",
   "cli",
@@ -52,7 +58,8 @@ export function readsWithoutSessionCookie(
  * Expiring links to the private images a page shows, for a reader that
  * can't send Content's sign-in cookie, such as an agent over MCP. The caller
  * must already have checked that the reader can read `documentId`. Only
- * images bound to that page get a link: those are the ones the reader could
+ * images bound to that page get a link, and only while the page is live (not
+ * in Trash or in a deleted collection): those are the ones the reader could
  * open in the browser.
  */
 export async function privateMediaAgentLinks(input: {
@@ -68,10 +75,16 @@ export async function privateMediaAgentLinks(input: {
   const rows = await getDb()
     .select({ mediaId: schema.privateMediaReferences.mediaId })
     .from(schema.privateMediaReferences)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.privateMediaReferences.documentId),
+    )
     .where(
       and(
         eq(schema.privateMediaReferences.documentId, input.documentId),
         inArray(schema.privateMediaReferences.mediaId, ids),
+        isNull(schema.documents.trashedAt),
+        ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
       ),
     );
   const bound = new Set(rows.map((row) => row.mediaId));

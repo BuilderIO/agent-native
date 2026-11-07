@@ -447,7 +447,7 @@ describe("private media references", () => {
     await share(page);
     // The owner can't see the other uploader's image, so it stays unbound.
     await save(page, content);
-    const read = (caller: "mcp" | "frontend") =>
+    const read = (caller: "mcp" | "mcp-widget" | "frontend") =>
       runWithRequestContext(
         { userEmail: SHARED, requestOrigin: "https://content.test" },
         () => getDocumentAction.run({ id: page }, { caller }),
@@ -468,6 +468,8 @@ describe("private media references", () => {
       Date.parse(agent.privateMediaLinks?.expiresAt ?? "") - Date.now();
     expect(expiresIn).toBeGreaterThan(59 * 60_000);
     expect(expiresIn).toBeLessThanOrEqual(60 * 60_000);
+    // MCP widgets fetch without credentials too; the editor uses its cookie.
+    expect((await read("mcp-widget")).privateMediaLinks?.links).toHaveLength(1);
     expect((await read("frontend")).privateMediaLinks).toBeUndefined();
 
     const token =
@@ -521,5 +523,29 @@ describe("private media references", () => {
     const imageToken =
       new URL(link?.url ?? "").searchParams.get("agent_access") ?? "";
     expect((await get(`${id}?agent_access=${imageToken}`)).status).toBe(200);
+
+    // Once the collection holding the page is deleted, the browser route
+    // refuses the image, so a share-link read gets no new link to it.
+    const databaseId = `private-media-db-${++count}`;
+    await db.insert(schema.contentDatabases).values({
+      id: databaseId,
+      ownerEmail: OWNER,
+      documentId: await document(),
+      deletedAt: new Date().toISOString(),
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `private-media-item-${++count}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: page,
+    });
+    const deleted = await readMedia(
+      `http://content.test/context?id=${page}&agent_access=${token}`,
+    );
+    expect(deleted.status).toBe(200);
+    expect(
+      ((await deleted.json()) as { privateMediaLinks?: unknown })
+        .privateMediaLinks,
+    ).toBeUndefined();
   });
 });
