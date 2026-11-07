@@ -709,6 +709,39 @@ describe("runScript package actions", () => {
     });
   }, 40_000);
 
+  it.each([
+    { personal: false, orgId: "org_from_env_file" },
+    { personal: true, orgId: null },
+  ])(
+    "keeps a personal caller out of an org from .env (personal=%j)",
+    ({ personal, orgId }) => {
+      // The agent's shell clears AGENT_ORG_ID for a personal request, but the
+      // runner loads `.env`, which can set it again.
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "AGENT_ORG_ID=org_from_env_file\n",
+      );
+      const env = { ...process.env, AGENT_USER_EMAIL: "owner@example.test" };
+      delete env.AGENT_ORG_ID;
+      delete env.AGENT_ORG_SCOPE;
+      if (personal) env.AGENT_ORG_SCOPE = "personal";
+
+      const result = spawnSync(
+        tsxCommand,
+        [...tsxLeadingArgs, "actions/run.ts", "package-context"],
+        { cwd: tmpDir, encoding: "utf8", env, timeout: spawnTimeoutMs },
+      );
+
+      expect(result.status).toBe(0);
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "package-context.json"), "utf8"),
+        ),
+      ).toMatchObject({ userEmail: "owner@example.test", orgId });
+    },
+    40_000,
+  );
+
   it("registers action authorization before dispatching a CLI action", () => {
     fs.writeFileSync(
       path.join(tmpDir, "actions", "guarded-action.ts"),

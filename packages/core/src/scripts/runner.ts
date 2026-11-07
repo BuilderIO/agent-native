@@ -29,6 +29,7 @@ import {
 import { notifyActionChange } from "../server/action-change.js";
 import {
   DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ORG_SCOPE_HEADER,
   DEV_ACTION_ROUTE,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
@@ -45,7 +46,11 @@ import {
 } from "../server/request-context.js";
 import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
-import { resolveDevUserEmail } from "./dev-session.js";
+import {
+  devOrgChoiceFromEnv,
+  resolveDevOrgScope,
+  resolveDevUserEmail,
+} from "./dev-session.js";
 import { loadEnv } from "./utils.js";
 
 loadEnv();
@@ -289,11 +294,19 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
-  const orgId = process.env.AGENT_ORG_ID || undefined;
+  const orgScope = await resolveDevOrgScope(userEmail, devOrgChoiceFromEnv());
 
-  return runWithRequestContext({ userEmail, orgId }, () =>
-    dispatchAction(actionName, args, options),
+  return runWithRequestContext(
+    { ...(userEmail ? { userEmail } : {}), ...orgScope },
+    () => dispatchAction(actionName, args, options),
   );
+}
+
+/** Tells the dev server this call acts in no org, so it looks none up. */
+function devOrgScopeHeader(): Record<string, string> {
+  return devOrgChoiceFromEnv().personal
+    ? { [DEV_ACTION_ORG_SCOPE_HEADER]: "personal" }
+    : {};
 }
 
 export async function tryForwardToDevServer(
@@ -340,6 +353,7 @@ export async function tryForwardToDevServer(
         ...(process.env.AGENT_ORG_ID
           ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
           : {}),
+        ...devOrgScopeHeader(),
       },
       body: JSON.stringify({
         name: actionName,
@@ -378,6 +392,7 @@ export async function tryForwardToDevServer(
             ...(process.env.AGENT_ORG_ID
               ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
               : {}),
+            ...devOrgScopeHeader(),
           },
           body: JSON.stringify({
             name: actionName,
