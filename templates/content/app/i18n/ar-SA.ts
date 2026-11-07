@@ -1783,6 +1783,25 @@ const overrides = {
     discardEditDescription: "سيبقى تعليقك كما كان.",
     discard: "تجاهل",
     keepEditing: "متابعة التحرير",
+    deleteComment: "حذف التعليق",
+    deleteThread: "حذف السلسلة",
+    deleteCommentQuestion: "حذف التعليق؟",
+    deleteCommentDescription: "سيُحذف لدى الجميع، ولا يمكن التراجع عن ذلك.",
+    deleteThreadQuestion: "حذف السلسلة؟",
+    deleteThreadDescription:
+      "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك.",
+    deleteThreadAiChangeDescription:
+      "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك. يبقى تغيير الذكاء الاصطناعي في الصفحة، لكن لن تتمكن من التراجع عنه من السلسلة.",
+    delete: "حذف",
+    deleting: "جارٍ الحذف…",
+    deleteRefusedReplied: "ردّ شخص آخر، لذا لا يمكن حذف هذا الموضوع إلا لمحرر.",
+    deleteRefusedNotion: "هذا التعليق متزامن مع Notion. احذفه في Notion.",
+    deleteRefusedAiWorking:
+      "الذكاء الاصطناعي يعمل على هذا الموضوع. أوقفه قبل حذف الموضوع.",
+    deleteRefusedAiSuggestion:
+      "اقتراح الذكاء الاصطناعي في هذا الموضوع بانتظار المراجعة. اقبله أو ارفضه قبل حذف الموضوع.",
+    deleteRefusedBusy:
+      "يجري تغيير هذا الموضوع الآن. حاول حذفه مرة أخرى بعد قليل.",
     submit: "تعليق",
     askAi: "اسأل الذكاء الاصطناعي",
     aiBadge: "الذكاء الاصطناعي",

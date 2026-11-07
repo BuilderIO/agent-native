@@ -43,6 +43,7 @@ describe("pnpmCommand", () => {
       pnpmCommand(
         ["--filter", "@agent-native/core", "exec", "vitest", "**/*.spec.ts"],
         "win32",
+        {},
       ),
       {
         command:
@@ -55,14 +56,14 @@ describe("pnpmCommand", () => {
 
   it("keeps a path's trailing backslash from escaping its closing quote", () => {
     assert.equal(
-      pnpmCommand(["--dir", "C:\\repo\\templates\\"], "win32").command,
+      pnpmCommand(["--dir", "C:\\repo\\templates\\"], "win32", {}).command,
       '"pnpm" "--dir" "C:\\repo\\templates\\\\"',
     );
   });
 
   it("refuses arguments cmd.exe would change", () => {
     for (const arg of ['say "hi"', "%PATH%", "two\nlines"]) {
-      assert.throws(() => pnpmCommand(["exec", arg], "win32"), /cmd\.exe/);
+      assert.throws(() => pnpmCommand(["exec", arg], "win32", {}), /cmd\.exe/);
     }
     assert.deepEqual(pnpmCommand(["exec", "%PATH%"], "darwin").args, [
       "exec",
@@ -73,9 +74,54 @@ describe("pnpmCommand", () => {
   it("refuses a command line longer than cmd.exe reads", () => {
     const files = Array.from({ length: 600 }, (_, i) => `src/file-${i}.ts`);
     assert.throws(
-      () => pnpmCommand(["exec", "oxlint", ...files], "win32"),
+      () => pnpmCommand(["exec", "oxlint", ...files], "win32", {}),
       new RegExp(String(WINDOWS_COMMAND_LINE_LIMIT)),
     );
+  });
+
+  it("starts the pnpm that started this script on Windows, with no shell", () => {
+    const cjs =
+      "C:\\Users\\runner\\setup-pnpm\\node_modules\\pnpm\\bin\\pnpm.cjs";
+    assert.deepEqual(
+      pnpmCommand(["--filter", "@agent-native/core", "run", "build"], "win32", {
+        npm_execpath: cjs,
+      }),
+      {
+        command: process.execPath,
+        args: [cjs, "--filter", "@agent-native/core", "run", "build"],
+        shell: false,
+      },
+    );
+
+    const exe = "C:\\Users\\dev\\AppData\\Local\\pnpm\\PNPM.EXE";
+    assert.deepEqual(
+      pnpmCommand(["run", "build"], "win32", { npm_execpath: exe }),
+      { command: exe, args: ["run", "build"], shell: false },
+    );
+  });
+
+  it("passes arguments cmd.exe would change when no shell is involved", () => {
+    const env = { npm_execpath: "D:\\pnpm\\bin\\pnpm.cjs" };
+    for (const arg of ['say "hi"', "%PATH%", "two\nlines"]) {
+      assert.equal(pnpmCommand(["exec", arg], "win32", env).args.at(-1), arg);
+    }
+  });
+
+  it("goes through cmd.exe when npm_execpath is not pnpm's own entry", () => {
+    for (const npm_execpath of [
+      "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+      "C:\\Users\\dev\\AppData\\Roaming\\npm\\pnpm.cmd",
+      "C:\\Users\\dev\\.yarn\\releases\\yarn-4.5.0.cjs",
+    ]) {
+      assert.deepEqual(
+        pnpmCommand(["run", "build"], "win32", { npm_execpath }),
+        {
+          command: '"pnpm" "run" "build"',
+          args: [],
+          shell: true,
+        },
+      );
+    }
   });
 
   it("starts the real pnpm on this machine", () => {

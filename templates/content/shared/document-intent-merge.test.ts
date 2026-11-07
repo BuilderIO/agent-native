@@ -673,6 +673,30 @@ describe("document body intent merge", () => {
     ).toEqual({ status: "preservation-required", reason: "structure" });
   });
 
+  it("keeps a blank-line body that already holds the editor's save", () => {
+    // An accepted suggestion rewrote the agent's page on the server while the
+    // editor saved the same accepted text in its one-block-per-line form.
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo. accepted\nCharlie. accepted",
+        currentContent: "Alpha.\n\nBravo. accepted\n\nCharlie. accepted",
+        currentRevision: 3,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [],
+      }),
+    ).toEqual({
+      status: "resolved",
+      content: "Alpha.\n\nBravo. accepted\n\nCharlie. accepted",
+      changedBlockIndexes: [],
+      displaced: false,
+    });
+  });
+
   it("compares a held body against the blank-line body an agent stored", () => {
     expect(
       bodyHoldsChanges(

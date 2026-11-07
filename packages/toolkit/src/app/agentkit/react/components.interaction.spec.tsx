@@ -1203,6 +1203,118 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("drops a refused Continue once a newer run carries the thread", async () => {
+    let releaseNewerRun!: () => void;
+    const newerRunHeld = new Promise<void>((resolve) => {
+      releaseNewerRun = resolve;
+    });
+    let started = 0;
+    const transport: AgentTransport = {
+      async startRun() {
+        started += 1;
+        return { runId: started === 1 ? "run-crashed" : "run-newer" };
+      },
+      async *subscribeToRun(input) {
+        const base = {
+          threadId: "thread-continue-superseded",
+          runId: input.runId,
+          occurredAt: `2026-10-05T00:00:0${started}.000Z`,
+        };
+        yield {
+          ...base,
+          id: `${input.runId}-1`,
+          sequence: 1,
+          type: "run.started",
+        };
+        if (input.runId === "run-newer") {
+          await newerRunHeld;
+          return;
+        }
+        yield {
+          ...base,
+          id: `${input.runId}-2`,
+          sequence: 2,
+          type: "run.failed",
+          error: {
+            code: "stale_run",
+            message: "The agent stopped before it could finish.",
+            retryable: true,
+          },
+        };
+      },
+      async continueRun() {
+        throw new Error("Run already in progress for this thread");
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const first = await client.sendMessage({
+      threadId: "thread-continue-superseded",
+      text: "Remove the CDN links",
+    });
+    await first.completed.catch(() => undefined);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const refused = () =>
+      container.textContent?.includes("can't be continued") ?? false;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-continue-superseded"
+          >
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        [
+          ...container.querySelectorAll<HTMLButtonElement>(
+            ".agentkit-run-failure button",
+          ),
+        ]
+          .find((button) => button.textContent === "Continue")
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(refused()).toBe(true);
+
+      await act(async () => {
+        await client.sendMessage({
+          threadId: "thread-continue-superseded",
+          text: "Keep going",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(
+        client.getThread("thread-continue-superseded").activeRunIds,
+      ).toEqual(["run-newer"]);
+      expect(refused()).toBe(false);
+    } finally {
+      releaseNewerRun();
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("renders the default plus control and routes chat-wide file drops to the composer", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },

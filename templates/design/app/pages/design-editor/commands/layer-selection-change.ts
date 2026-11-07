@@ -31,7 +31,7 @@ export interface LayerSelectionChangeArgs {
     nextContent: string,
     options?: { recordHistory?: boolean },
   ) => ApplyFileContentUpdateResult;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeId: ReadonlyMap<
     string,

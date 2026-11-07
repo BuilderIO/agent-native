@@ -22,6 +22,7 @@ import {
   desc,
   eq,
   inArray,
+  ilike,
   isNotNull,
   isNull,
   or,
@@ -52,6 +53,7 @@ import {
   parseDashboardCertification,
   type DashboardCertification,
 } from "./dashboard-certification.js";
+import { listLegacyDashboardSummaries } from "./legacy-dashboard-summaries.js";
 
 export type DashboardKind = "explorer" | "sql";
 export type AccessRole = "owner" | ShareRole;
@@ -1104,6 +1106,7 @@ export async function listDashboardSummaries(
     includeCatalogMetadata?: boolean;
     legacyScan?: "best-effort" | "strict";
     limit?: number;
+    search?: string;
   },
   dbOverride?: any,
 ): Promise<DashboardSummaryRecord[]> {
@@ -1134,6 +1137,15 @@ export async function listDashboardSummaries(
   if (hidden === "visible") conditions.push(isNull(schema.dashboards.hiddenAt));
   else if (hidden === "hidden")
     conditions.push(isNotNull(schema.dashboards.hiddenAt));
+  if (filter?.search?.trim()) {
+    const pattern = `%${filter.search.trim().replace(/[%_\\]/g, "\\$&")}%`;
+    conditions.push(
+      or(
+        ilike(schema.dashboards.title, pattern),
+        ilike(schema.dashboards.id, pattern),
+      ),
+    );
+  }
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
   const parentId = sql<
     string | null
@@ -1205,6 +1217,28 @@ export async function listDashboardSummaries(
 
   if (summaryLimit !== undefined && out.length >= summaryLimit) return out;
   if (archived === "archived" || hidden === "hidden") return out;
+  if (summaryLimit !== undefined) {
+    const legacy = await listLegacyDashboardSummaries(ctx, {
+      limit: summaryLimit - out.length,
+      ...(filter?.search !== undefined ? { search: filter.search } : {}),
+      ...(filter?.kind !== undefined ? { kind: filter.kind } : {}),
+    });
+    return out.concat(
+      legacy.map((row) => ({
+        ...row,
+        ownerEmail: ctx.email,
+        visibility: row.orgId ? ("org" as const) : ("private" as const),
+        configName: null,
+        catalogTemplateId: null,
+        demoId: null,
+        parentId: null,
+        folderId: null,
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      })),
+    );
+  }
   try {
     const all = await getScopedLegacySettings(
       ctx,

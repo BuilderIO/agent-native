@@ -824,6 +824,7 @@ export async function listCalendarEvents(
 }
 
 export default defineAction({
+  searchHints: ["meetings", "agenda", "schedule", "what is on my calendar"],
   description:
     "List calendar events from Google Calendar, subscribed ICS feeds, and local bookings for a date range. Defaults to today's local calendar day when no range is provided.",
   schema: z.object({
