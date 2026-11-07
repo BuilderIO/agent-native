@@ -37,9 +37,21 @@ describe("personal source fork lifecycle", () => {
       path.join(source, "pnpm-lock.yaml"),
       "lockfileVersion: 9\n",
     );
+    await fs.mkdir(path.join(source, "packages", "used"), { recursive: true });
+    await fs.mkdir(path.join(source, "packages", "unrelated"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(source, "packages/used/package.json"),
+      '{"name":"used"}',
+    );
+    await fs.writeFile(
+      path.join(source, "packages/unrelated/package.json"),
+      '{"name":"unrelated"}',
+    );
     await fs.writeFile(
       path.join(source, "templates/example/package.json"),
-      '{"name":"example"}',
+      '{"name":"example","dependencies":{"used":"workspace:*"}}',
     );
     await fs.writeFile(
       path.join(source, "templates/example/view.txt"),
@@ -57,6 +69,12 @@ describe("personal source fork lifecycle", () => {
     const options = { root: path.join(root, "profile"), source, baseSha, pnpm };
     const manager = new ClientForks(options);
     const state = await manager.prepare("example", null);
+    await expect(
+      fs.access(path.join(state.sourcePath, "packages/used/package.json")),
+    ).resolves.toBeUndefined();
+    await expect(
+      fs.access(path.join(state.sourcePath, "packages/unrelated/package.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     await git(["config", "user.name", "Test User"], state.sourcePath);
     await git(
       ["config", "user.email", "user@example.invalid"],
