@@ -7,6 +7,7 @@ import { mintFigmaReference } from "../server/lib/figma-reference-attachment.js"
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 import {
   figmaReferenceFrameSchema,
+  figmaReferenceSizeProblem,
   type FigmaReferenceFrame,
 } from "../shared/figma-reference.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
@@ -44,14 +45,23 @@ export default defineAction({
     const stage = async (
       frames: FigmaReferenceFrame[],
       unresolvedImages: number,
-    ) => ({
-      frames,
-      unresolvedImages,
-      ref: await mintFigmaReference(
-        { frames, frameCount: frames.length, unresolvedImages },
-        ownerEmail,
-      ),
-    });
+    ) => {
+      const sizeProblem = figmaReferenceSizeProblem({ frames });
+      if (sizeProblem) {
+        fail(sizeProblem, {
+          errorCode: "figma_reference_too_large",
+          statusCode: 413,
+        });
+      }
+      return {
+        frames,
+        unresolvedImages,
+        ref: await mintFigmaReference(
+          { frames, frameCount: frames.length, unresolvedImages },
+          ownerEmail,
+        ),
+      };
+    };
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
       fail("The clipboard's Figma file key could not be parsed.", {

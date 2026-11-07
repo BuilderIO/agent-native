@@ -8,10 +8,7 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
-import {
-  FIGMA_REFERENCE_GENERATION_DIRECTIVE,
-  isFigmaReferenceKey,
-} from "@/lib/figma-attachment";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -232,9 +229,7 @@ export function runResumePendingGeneration({
       fileContext,
       "",
       ...generationDirectives,
-      ...(pending.contextItems?.some((item) => isFigmaReferenceKey(item.key))
-        ? [FIGMA_REFERENCE_GENERATION_DIRECTIVE]
-        : []),
+      ...figmaReferenceDirectives(pending.contextItems),
     ].join("\n");
 
     clearGenerationCompleteTimer();

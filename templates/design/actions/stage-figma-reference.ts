@@ -6,13 +6,15 @@ import { z } from "zod";
 
 import { mintFigmaReference } from "../server/lib/figma-reference-attachment.js";
 import {
-  MAX_FIGMA_REFERENCE_FRAMES,
+  MAX_FIGMA_REFERENCE_TOTAL_HTML_CHARS,
   figmaReferencePayloadSchema,
+  figmaReferenceSizeProblem,
 } from "../shared/figma-reference.js";
 
 // Hosted functions reject request bodies over about 6 MB.
 const MAX_COMPRESSED_CHARS = 5_500_000;
-const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+// The frames' HTML plus room for JSON quoting and frame metadata.
+const MAX_DECOMPRESSED_BYTES = MAX_FIGMA_REFERENCE_TOTAL_HTML_CHARS * 2;
 const UNREADABLE =
   "The attached Figma frames could not be read. Attach the file again.";
 
@@ -53,15 +55,12 @@ export default defineAction({
         },
       });
     }
-    if (
-      isRecord(raw) &&
-      Array.isArray(raw.frames) &&
-      raw.frames.length > MAX_FIGMA_REFERENCE_FRAMES
-    ) {
-      fail(
-        `This Figma file has ${raw.frames.length} frames, more than the ${MAX_FIGMA_REFERENCE_FRAMES} one attachment holds. Copy the frames you need in Figma and paste them into the prompt instead.`,
-        { errorCode: "figma_reference_too_large", statusCode: 413 },
-      );
+    const sizeProblem = figmaReferenceSizeProblem(raw);
+    if (sizeProblem) {
+      fail(sizeProblem, {
+        errorCode: "figma_reference_too_large",
+        statusCode: 413,
+      });
     }
     const payload = figmaReferencePayloadSchema.safeParse(raw);
     if (!payload.success) {
@@ -73,7 +72,3 @@ export default defineAction({
     return { ref: await mintFigmaReference(payload.data, ownerEmail) };
   },
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}

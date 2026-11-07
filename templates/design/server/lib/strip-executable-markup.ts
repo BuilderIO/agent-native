@@ -21,6 +21,16 @@ const URL_ATTRIBUTES = new Set([
   "xlink:href",
 ]);
 const EXECUTABLE_SCHEME = /^(?:javascript|vbscript):/i;
+// SVG animation sets another attribute after parsing, so it can turn a safe
+// link into a `javascript:` one the static checks never saw.
+const ANIMATION_ELEMENTS = new Set([
+  "animate",
+  "animatecolor",
+  "animatemotion",
+  "animatetransform",
+  "set",
+]);
+const ANIMATION_VALUE_ATTRIBUTES = new Set(["by", "from", "to", "values"]);
 
 type Range = { start: number; end: number; replacement: string };
 type Location = { startOffset: number; endOffset: number };
@@ -31,6 +41,33 @@ type ParsedNode = {
   content?: { childNodes?: ParsedNode[] };
   sourceCodeLocation?: Location & { attrs?: Record<string, Location> };
 };
+
+function hasExecutableScheme(value: string): boolean {
+  return EXECUTABLE_SCHEME.test(
+    decodeHTML(value).replace(/[\u0000-\u0020]+/g, ""),
+  );
+}
+
+/** An animation that targets a link or handler, or animates to a script URL. */
+function isExecutableAnimation(
+  attrs: ReadonlyArray<{ name: string; value: string }>,
+): boolean {
+  return attrs.some(({ name, value }) => {
+    const attribute = name.toLowerCase();
+    if (attribute === "attributename") {
+      const target = value.trim().toLowerCase();
+      return (
+        URL_ATTRIBUTES.has(target) ||
+        target.startsWith("on") ||
+        target === "style"
+      );
+    }
+    return (
+      ANIMATION_VALUE_ATTRIBUTES.has(attribute) &&
+      value.split(";").some(hasExecutableScheme)
+    );
+  });
+}
 
 function isExecutableAttribute(name: string, value: string): boolean {
   if (name.startsWith("on") || name === "srcdoc") return true;
@@ -54,7 +91,13 @@ export function stripExecutableMarkup(html: string): string {
   const ranges: Range[] = [];
   const visit = (node: ParsedNode) => {
     const location = node.sourceCodeLocation;
-    if (node.nodeName && EXECUTABLE_ELEMENTS.has(node.nodeName)) {
+    const nodeName = node.nodeName?.toLowerCase();
+    if (
+      nodeName &&
+      (EXECUTABLE_ELEMENTS.has(nodeName) ||
+        (ANIMATION_ELEMENTS.has(nodeName) &&
+          isExecutableAnimation(node.attrs ?? [])))
+    ) {
       if (!location) {
         throw new Error("Could not locate an executable element to remove.");
       }

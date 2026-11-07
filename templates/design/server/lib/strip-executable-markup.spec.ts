@@ -13,11 +13,25 @@ describe("stripExecutableMarkup", () => {
     ["srcdoc", '<div srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></div>'],
     ["a script element", "<main><script/x>alert(1)</script></main>"],
     ["an iframe", '<iframe src="https://example.com"></iframe>'],
+    [
+      "an animation that rewrites a link",
+      '<svg><a href="#"><set attributeName="href" to="javascript:alert(1)"/><text>x</text></a></svg>',
+    ],
+    [
+      "an animation to an encoded script URL",
+      '<svg><a href="#"><animate attributeName="xlink:href" values="#;jav&#x61;script:alert(1)"/></a></svg>',
+    ],
   ])("removes %s", (_, html) => {
     const result = stripExecutableMarkup(html);
     expect(result).not.toMatch(
-      /onload|onerror|javascript|java&#9;|expression\(|srcdoc|<script|<iframe/i,
+      /onload|onerror|javascript|jav&#x61;|java&#9;|expression\(|srcdoc|<script|<iframe|<set|<animate/i,
     );
+  });
+
+  it("keeps a harmless animation", () => {
+    const html =
+      '<svg><rect><animate attributeName="opacity" values="0;1" dur="1s"/></rect></svg>';
+    expect(stripExecutableMarkup(html)).toBe(html);
   });
 
   it("keeps an svg open when its handler sat right after a slash", () => {

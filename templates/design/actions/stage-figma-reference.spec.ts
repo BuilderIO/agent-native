@@ -51,6 +51,13 @@ describe("stage-figma-reference", () => {
     expect(mocks.mint).not.toHaveBeenCalled();
   });
 
+  it("names a frame too large for one screen", async () => {
+    const huge = payload(1);
+    huge.frames[0] = { name: "Huge", html: "x".repeat(2 * 1024 * 1024 + 1) };
+    await expect(run(gzip(huge))).rejects.toThrow(/larger than the 2 MB/);
+    expect(mocks.mint).not.toHaveBeenCalled();
+  });
+
   it("refuses a body that is not gzipped frames", async () => {
     await expect(run("bm90IGd6aXA=")).rejects.toThrow(/could not be read/);
     await expect(run(gzip({ frames: [] }))).rejects.toThrow(

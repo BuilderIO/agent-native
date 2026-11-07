@@ -50,6 +50,15 @@ export function isFigmaReferenceKey(key: string): boolean {
 export const FIGMA_REFERENCE_GENERATION_DIRECTIVE =
   "A Figma design is attached as reference. If the request is to make, recreate, or import that design, call `place-figma-frames` with the attachment's ref and this design id instead of `generate-design`; that call is this run's generation step, and you must not retype the frames' HTML. If the request builds something new from it, generate as usual and copy its SVG markup for logos, icons, and other vectors verbatim; never redraw a vector with CSS shapes or new paths.";
 
+/** The directive every generation prompt carrying a Figma attachment needs. */
+export function figmaReferenceDirectives(
+  contextItems: ReadonlyArray<{ key: string }> | undefined,
+): string[] {
+  return contextItems?.some((item) => isFigmaReferenceKey(item.key))
+    ? [FIGMA_REFERENCE_GENERATION_DIRECTIVE]
+    : [];
+}
+
 /**
  * Figma puts the copied scene on the HTML clipboard: a figmeta marker plus the
  * encoded document. Plain text or a bare link carries no scene.

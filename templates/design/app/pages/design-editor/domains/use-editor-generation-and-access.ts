@@ -371,8 +371,11 @@ export function useEditorGenerationAndAccess({
       }
       void readGenerationOutput(id, settledPending).then((outputState) => {
         const latest = readPendingGeneration(id, { allowUntimestamped: true });
-        // A newer generation started while this check ran; leave it alone.
-        if (latest && latest.startedAt !== settledPending?.startedAt) return;
+        // The run was stopped, settled, or replaced while this check ran:
+        // its record is gone or belongs to a newer run, so leave it alone.
+        if (settledPending && latest?.startedAt !== settledPending.startedAt)
+          return;
+        if (!settledPending && latest) return;
         if (outputState !== "has_output") {
           otherwise(outputState === "no_output");
           return;

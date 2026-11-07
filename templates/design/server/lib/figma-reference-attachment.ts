@@ -18,8 +18,10 @@ export async function mintFigmaReference(
   payload: FigmaReferencePayload,
   ownerEmail: string,
 ): Promise<string> {
+  // Every minting path (clipboard and .fig) is held to the same bounds.
+  const bounded = figmaReferencePayloadSchema.parse(payload);
   const minted = await mintAttachmentRef({
-    data: Buffer.from(JSON.stringify(payload), "utf8"),
+    data: Buffer.from(JSON.stringify(bounded), "utf8"),
     filename: "figma-reference.json",
     mimeType: "application/json",
     ownerEmail,
