@@ -26,7 +26,10 @@ import {
   AgentChatAiSetupRequiredError,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
-import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
+import {
+  createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation,
+  withQueuedMessageHistory,
+} from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
@@ -11202,5 +11205,143 @@ describe("createAgentNativeAgentKitTransport", () => {
       threadHistory: true,
       uploads: true,
     });
+  });
+});
+
+describe("withQueuedMessageHistory inline attachments", () => {
+  const inline = (name: string) => ({
+    type: "image" as const,
+    name,
+    contentType: "image/jpeg",
+    data: "AAAA",
+  });
+  const omitted = (name: string) => ({
+    type: "file",
+    name,
+    mediaType: "image/jpeg",
+    omitted: "inline-bytes",
+  });
+
+  it("keeps every same-named URL-less inline image", () => {
+    const [message] = withQueuedMessageHistory([], {
+      id: "q1",
+      text: "look",
+      requestAttachments: [
+        inline("image.jpg"),
+        inline("image.jpg"),
+        inline("other.jpg"),
+      ],
+    } as never);
+    expect(message.parts.filter((part) => part.type === "file")).toEqual([
+      omitted("image.jpg"),
+      omitted("image.jpg"),
+      omitted("other.jpg"),
+    ]);
+  });
+
+  it("does not duplicate an inline image already stored on the message", () => {
+    const [message] = withQueuedMessageHistory([], {
+      id: "q2",
+      text: "look",
+      attachments: [omitted("image.jpg")],
+      requestAttachments: [inline("image.jpg"), inline("image.jpg")],
+    } as never);
+    expect(message.parts.filter((part) => part.type === "file")).toHaveLength(
+      2,
+    );
+  });
+
+  it("matches inline images on both name and media type", () => {
+    const stored = [omitted("a.jpg")];
+    const run = (name: string, contentType: string) =>
+      withQueuedMessageHistory([], {
+        id: "q",
+        text: "t",
+        attachments: stored,
+        requestAttachments: [{ ...inline(name), contentType }],
+      } as never)[0].parts.filter((part) => part.type === "file").length;
+    expect(run("a.jpg", "image/jpeg")).toBe(1);
+    expect(run("b.jpg", "image/jpeg")).toBe(2);
+    expect(run("a.jpg", "image/png")).toBe(2);
+  });
+
+  it("does not let a URL-backed match absorb a distinct inline image", () => {
+    const url = "https://storage.example.test/image.jpg";
+    const [message] = withQueuedMessageHistory([], {
+      id: "q",
+      text: "t",
+      attachments: [
+        { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+      ],
+      requestAttachments: [
+        { ...inline("image.jpg"), url },
+        inline("image.jpg"),
+      ],
+    } as never);
+    expect(message.parts.filter((part) => part.type === "file")).toEqual([
+      { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+      omitted("image.jpg"),
+    ]);
+  });
+
+  it.each([false, true])(
+    "keeps a distinct inline image when its same-named URL-backed image is %s in the request",
+    (includeUrlInRequest) => {
+      const url = "https://storage.example.test/image.jpg";
+      const [message] = withQueuedMessageHistory([], {
+        id: "q",
+        text: "t",
+        attachments: [
+          { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+        ],
+        requestAttachments: [
+          inline("image.jpg"),
+          ...(includeUrlInRequest ? [{ ...inline("image.jpg"), url }] : []),
+        ],
+      } as never);
+      expect(message.parts.filter((part) => part.type === "file")).toEqual([
+        { type: "file", name: "image.jpg", mediaType: "image/jpeg", url },
+        omitted("image.jpg"),
+      ]);
+    },
+  );
+
+  it("merges into an existing message by URL, or by name when URL-less", () => {
+    const url = "https://storage.example.test/one.jpg";
+    const existing = {
+      id: "q",
+      role: "user",
+      parts: [
+        { type: "text", text: "t" },
+        omitted("inline.jpg"),
+        { type: "file", name: "one.jpg", mediaType: "image/jpeg", url },
+      ],
+    };
+    const [message] = withQueuedMessageHistory([existing as never], {
+      id: "q",
+      text: "t",
+      attachments: [
+        { type: "file", name: "one.jpg", mediaType: "image/jpeg", url },
+        {
+          type: "file",
+          name: "two.jpg",
+          mediaType: "image/jpeg",
+          url: "https://storage.example.test/two.jpg",
+        },
+      ],
+      requestAttachments: [inline("inline.jpg"), inline("inline.jpg")],
+    } as never);
+    expect(
+      message.parts.map((part) => (part as { name?: string }).name),
+    ).toEqual([undefined, "inline.jpg", "one.jpg", "two.jpg", "inline.jpg"]);
+  });
+
+  it("ignores request attachments without inline data or a URL", () => {
+    const [message] = withQueuedMessageHistory([], {
+      id: "q3",
+      text: "look",
+      requestAttachments: [{ type: "image", name: "x.jpg" }],
+    } as never);
+    expect(message.parts.filter((part) => part.type === "file")).toEqual([]);
   });
 });
