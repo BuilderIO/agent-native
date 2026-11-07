@@ -9,6 +9,9 @@ const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
 const CAPTURE_VIDEO_BPP: f64 = 0.15;
+// At Retina size the bpp budget alone asks for ~35 Mbps, more than most
+// uplinks, so live upload falls minutes behind the recording.
+const CAPTURE_VIDEO_MAX_BITRATE: i64 = 4_500_000;
 
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
@@ -3133,8 +3136,9 @@ unsafe fn av_video_output_settings(
     av_dict_set(&compression, AVVideoAllowFrameReorderingKey, &no_reordering);
 
     let average_bit_rate =
-        (CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(NATIVE_CAPTURE_FPS))
-            as i64;
+        ((CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(NATIVE_CAPTURE_FPS))
+            as i64)
+            .min(CAPTURE_VIDEO_MAX_BITRATE);
     let bit_rate =
         av_number_i64(average_bit_rate).ok_or_else(|| "NSNumber bit rate failed".to_string())?;
     av_dict_set(&compression, AVVideoAverageBitRateKey, &bit_rate);
