@@ -14,7 +14,7 @@ import {
   resolveAccess,
   type AccessContext,
 } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 
 import { ANALYTICS_SESSION_REPORT_AGENT_RESOURCE_KIND } from "../../shared/resource-agent-access.js";
 import {
@@ -30,7 +30,11 @@ import {
   createSessionReplayAgentGrant,
   replayBuild,
 } from "./session-replay-agent-context.js";
-import { getSessionReplaySummary, type ReplayScope } from "./session-replay.js";
+import {
+  getSessionReplaySummary,
+  openableSessionRecordingIds,
+  type ReplayScope,
+} from "./session-replay.js";
 import { assertSessionsTriageLabEnabled } from "./sessions-triage-lab.js";
 
 const RESOURCE_TYPE = "session-report";
@@ -143,6 +147,25 @@ function recordReportChange(
   });
 }
 
+/**
+ * A report quotes its recording, so anyone but its writer reads it only while
+ * they can open that recording. Sharing the report, or the recording turning
+ * private later, must not widen who sees what the session showed.
+ */
+async function canOpenReportRecording(
+  report: Pick<SessionReport, "ownerEmail" | "recordingId">,
+  scope: ReplayScope,
+): Promise<boolean> {
+  if (report.ownerEmail === scope.userEmail) return true;
+  try {
+    await getSessionReplaySummary(report.recordingId, scope);
+    return true;
+  } catch (error) {
+    if ((error as { statusCode?: number }).statusCode === 404) return false;
+    throw error;
+  }
+}
+
 async function assertErrorIssueReadable(
   scope: ReplayScope,
   errorIssueId: string,
@@ -201,7 +224,11 @@ export async function getSessionReport(
     accessContext(scope),
   );
   if (!access) throw reportError("Session report not found", 404);
-  return { ...rowToReport(access.resource), role: access.role };
+  const report = rowToReport(access.resource);
+  if (!(await canOpenReportRecording(report, scope))) {
+    throw reportError("Session report not found", 404);
+  }
+  return { ...report, role: access.role };
 }
 
 export async function updateSessionReport(
@@ -209,7 +236,15 @@ export async function updateSessionReport(
   patch: SessionReportPatch,
   scope: ReplayScope,
 ): Promise<SessionReport> {
-  await assertAccess(RESOURCE_TYPE, reportId, "editor", accessContext(scope));
+  const access = await assertAccess(
+    RESOURCE_TYPE,
+    reportId,
+    "editor",
+    accessContext(scope),
+  );
+  if (!(await canOpenReportRecording(rowToReport(access.resource), scope))) {
+    throw reportError("Session report not found", 404);
+  }
   if (patch.errorIssueId) {
     await assertErrorIssueReadable(scope, patch.errorIssueId);
   }
@@ -266,10 +301,19 @@ export async function listSessionReports(
   options: { recordingId?: string | undefined; limit: number },
   scope: ReplayScope,
 ): Promise<SessionReport[]> {
-  const access = accessFilter(
-    schema.sessionReports,
-    schema.sessionReportShares,
-    accessContext(scope),
+  const access = and(
+    accessFilter(
+      schema.sessionReports,
+      schema.sessionReportShares,
+      accessContext(scope),
+    ),
+    or(
+      eq(schema.sessionReports.ownerEmail, scope.userEmail),
+      inArray(
+        schema.sessionReports.recordingId,
+        openableSessionRecordingIds(scope),
+      ),
+    ),
   );
   const rows = await getDb()
     .select()
@@ -324,7 +368,9 @@ async function resolveReportForAgentLink(
     accessContext(makerScope),
   );
   if (!access) return null;
-  return { report: rowToReport(access.resource), makerScope };
+  const report = rowToReport(access.resource);
+  if (!(await canOpenReportRecording(report, makerScope))) return null;
+  return { report, makerScope };
 }
 
 export async function buildSessionReportAgentContext({

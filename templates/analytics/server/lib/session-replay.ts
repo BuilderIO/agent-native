@@ -2914,6 +2914,26 @@ export async function listSessionRecordingsPage(
   };
 }
 
+/** Ids of the recordings `getSessionReplaySummary` would open, as a subquery. */
+export function openableSessionRecordingIds(scope: SessionReplayScope) {
+  return getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        accessFilter(
+          schema.sessionRecordings,
+          schema.sessionRecordingShares,
+          scope.orgId
+            ? { userEmail: scope.userEmail, orgId: scope.orgId }
+            : { userEmail: scope.userEmail },
+        ),
+        or(replayVisibleIdentityCondition(), replayAnonymousCondition()),
+        replayPlayableEventsCondition(),
+      ),
+    );
+}
+
 export async function getSessionReplaySummary(
   recordingId: string,
   scope: SessionReplayScope,

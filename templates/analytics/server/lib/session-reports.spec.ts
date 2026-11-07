@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   verifyToken: vi.fn(),
   getSummary: vi.fn(),
+  openableIds: vi.fn(),
   getErrorIssue: vi.fn(),
   createGrant: vi.fn(),
   buildSessionContext: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("./session-replay.js", () => ({
   getSessionReplaySummary: mocks.getSummary,
+  openableSessionRecordingIds: mocks.openableIds,
 }));
 vi.mock("./error-capture.js", () => ({ getErrorIssue: mocks.getErrorIssue }));
 vi.mock("./session-replay-agent-context.js", async () => ({
@@ -57,10 +60,13 @@ import {
   createSessionReport,
   deleteSessionReport,
   getSessionReport,
+  listSessionReports,
+  updateSessionReport,
 } from "./session-reports";
 
 const COMMIT = "a".repeat(40);
 const maker = { userEmail: "maker@example.test", orgId: "org-1" };
+const peer = { userEmail: "peer@example.test", orgId: "org-1" };
 const input = {
   recordingId: "rec-1",
   title: "Deck stayed empty after the upload failed",
@@ -95,6 +101,7 @@ describe("session reports", () => {
         created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
         notified_at TEXT
       );
+      CREATE TABLE openable_recordings (id TEXT PRIMARY KEY);
     `);
     mocks.getDb.mockReturnValue(drizzle(client));
     mocks.getSummary.mockResolvedValue({
@@ -103,6 +110,9 @@ describe("session reports", () => {
       visibility: "org",
       metadata: { commit_sha: COMMIT },
     });
+    mocks.openableIds.mockReturnValue(
+      sql`(SELECT id FROM openable_recordings)`,
+    );
     mocks.isOrgMember.mockResolvedValue(true);
     mocks.resolveAccess.mockImplementation(async (_type, id) => {
       const { rows } = await client.query(
@@ -210,6 +220,46 @@ describe("session reports", () => {
     );
   });
 
+  it("hides a report from someone who can't open its recording, but not from its writer", async () => {
+    const report = await createSessionReport(input, maker);
+    mocks.getSummary.mockRejectedValue(notFound());
+
+    await expect(getSessionReport(report.id, peer)).rejects.toMatchObject({
+      message: "Session report not found",
+      statusCode: 404,
+    });
+    await expect(
+      updateSessionReport(report.id, { title: "Changed" }, peer),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(getSessionReport(report.id, maker)).resolves.toMatchObject({
+      title: input.title,
+    });
+  });
+
+  it("lists someone else's report only while its recording opens for the reader", async () => {
+    const opens = await createSessionReport(input, maker);
+    mocks.getSummary.mockResolvedValue({
+      id: "rec-2",
+      orgId: "org-1",
+      visibility: "org",
+      metadata: {},
+    });
+    const closed = await createSessionReport(
+      { ...input, recordingId: "rec-2" },
+      maker,
+    );
+    await client.query("INSERT INTO openable_recordings (id) VALUES ('rec-1')");
+
+    const peerList = await listSessionReports({ limit: 10 }, peer);
+    const makerList = await listSessionReports({ limit: 10 }, maker);
+
+    expect(peerList.map((report) => report.id)).toEqual([opens.id]);
+    expect(makerList.map((report) => report.id).sort()).toEqual(
+      [opens.id, closed.id].sort(),
+    );
+    expect(mocks.openableIds).toHaveBeenCalledWith(peer);
+  });
+
   it("deletes a report and its shares together", async () => {
     const report = await createSessionReport(input, maker);
     await client.query(
@@ -278,6 +328,21 @@ describe("session reports", () => {
       ).rejects.toMatchObject({ statusCode: 401 });
       expect(mocks.isOrgMember).toHaveBeenCalledWith("org-1", maker.userEmail);
       expect(mocks.resolveAccess).not.toHaveBeenCalled();
+      expect(mocks.createGrant).not.toHaveBeenCalled();
+    });
+
+    it("ends a link whose maker can't open the report's recording", async () => {
+      const report = await createSessionReport(input, maker);
+      mocks.verifyToken.mockReturnValue({
+        ok: true,
+        viewerEmail: peer.userEmail,
+      });
+      mocks.getSummary.mockRejectedValue(notFound());
+
+      await expect(
+        buildSessionReportAgentContext({ reportId: report.id, token: "t" }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(mocks.getSummary).toHaveBeenLastCalledWith("rec-1", peer);
       expect(mocks.createGrant).not.toHaveBeenCalled();
     });
 

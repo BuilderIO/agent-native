@@ -441,9 +441,14 @@ with `create-session-report`. `get-session-report`, `list-session-reports`
   recording doesn't. Sharing is the framework `sharing` system
   (`session-report` type), limited like the recording itself: no public
   links, and people only within the organization.
+- Anyone but a report's writer reads it only while they can open its
+  recording: get, list, update, and agent links check it on every read, so
+  sharing the report or the recording turning private later never shows the
+  report to someone the recording doesn't. Past retention, only the writer
+  still sees it.
 - Share > Send to > Copy agent link makes a report's agent link (`create-agent-resource-link`).
   It lasts a year, and every read checks that its maker is still in the
-  report's organization and can still open the report, so deleting the
+  report's organization and can still read the report, so deleting the
   report, leaving the organization, or losing access ends it.
   `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
   returns the report and, under `session`, the replay's full agent context
@@ -454,7 +459,7 @@ with `create-session-report`. `get-session-report`, `list-session-reports`
 - The report page's server-rendered HTML advertises that endpoint the same
   way to every visitor, without the token, so a CDN-cached page still works:
   the agent adds `agent_access` from the link it was given.
-- A report has no foreign key to its recording, so it outlives replay
+- A report has no foreign key to its recording, so its row outlives replay
   retention.
 
 ## Dev Tools Panel
