@@ -75,6 +75,10 @@
     {
       "name": "agent-harness-sessions-run-policy",
       "checksum": "005df5375106ffa4"
+    },
+    {
+      "name": "agent-harness-sessions-approval-and-expiry-columns",
+      "checksum": null
     }
   ],
   "agent_runs": [
