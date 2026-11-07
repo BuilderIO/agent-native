@@ -802,6 +802,55 @@ describe("comment review interactions", () => {
     },
   );
 
+  it("names the MCP client that posted a comment on its Agent pill", () => {
+    const attributed = thread("one");
+    attributed.comments[0].submission_source = "mcp";
+    attributed.comments[0].author_client = "claude-code";
+    render(null, [attributed], "inline");
+    expect(
+      container.querySelector('[data-comment-ai-client="claude-code"]')
+        ?.textContent,
+    ).toContain("Claude Code");
+    attributed.comments[0].author_client = null;
+    render(null, [attributed], "inline");
+    expect(container.querySelector("[data-comment-ai-client]")).toBeNull();
+    expect(
+      container.querySelector('[data-comment-ai-attribution="mcp"]')
+        ?.textContent,
+    ).toContain("comments.agentBadge");
+  });
+
+  it("tells an MCP agent's suggestion from the app agent's, by client", () => {
+    const agent = (
+      id: string,
+      author: Pick<ResourceSuggestion, "authorSource" | "authorClient">,
+    ): ResourceSuggestion => ({
+      ...proposalSuggestion(id),
+      proposalId: id,
+      actorKind: "agent",
+      ...author,
+    });
+    render(null, [], "inline", {
+      suggestions: [
+        agent("one", { authorSource: "mcp", authorClient: "codex" }),
+        agent("two", { authorSource: "agent", authorClient: null }),
+      ],
+    });
+    const badge = (id: string) =>
+      container.querySelector(
+        `[data-suggestion-id='${id}'] [data-comment-ai-attribution]`,
+      );
+    expect(badge("one")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "mcp",
+    );
+    expect(badge("one")?.getAttribute("data-comment-ai-client")).toBe("codex");
+    expect(badge("one")?.textContent).toContain("Codex");
+    expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "agent",
+    );
+    expect(badge("two")?.textContent).toContain("comments.agentBadge");
+  });
+
   it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
     const applied: CommentAiRequest = {
       operationId: "request-one",

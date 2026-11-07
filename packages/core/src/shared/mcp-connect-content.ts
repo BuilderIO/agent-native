@@ -270,13 +270,16 @@ function queryMatchesHostAlias(query: string, alias: string): boolean {
   );
 }
 
-function matchingMcpConnectHosts(query: string): McpConnectHost[] {
+function matchingMcpConnectHosts(
+  query: string,
+  matches: (query: string, alias: string) => boolean = queryMatchesHostAlias,
+): McpConnectHost[] {
   return MCP_CONNECT_HOSTS.map((host) => ({
     host,
     specificity: Math.max(
       0,
       ...host.aliases
-        .filter((alias) => queryMatchesHostAlias(query, alias))
+        .filter((alias) => matches(query, alias))
         .map((alias) => normalizeMcpConnectQuery(alias).length),
     ),
   }))
@@ -295,6 +298,34 @@ export function resolveMcpConnectGuideId(
 
 export function resolveMcpConnectHostId(query: string): string | undefined {
   return matchingMcpConnectHosts(normalizeMcpConnectQuery(query))[0]?.id;
+}
+
+/**
+ * The host an MCP client says it is: from the name it reported in
+ * `clientInfo`, or else its User-Agent, which clients that send `clientInfo`
+ * only when they connect (Codex) still send on every call. Both are the
+ * client's own claim, so use the result to label its work, never to grant
+ * anything. Only whole words count: a typed search may match "cur" to
+ * Cursor, a reported name may not.
+ */
+export function resolveMcpClientHostId(
+  client: { name?: string; userAgent?: string } | undefined,
+): string | undefined {
+  for (const reported of [client?.name, client?.userAgent]) {
+    const query = normalizeMcpConnectQuery(reported ?? "");
+    const host = query
+      ? matchingMcpConnectHosts(query, queryContainsTerm)[0]
+      : undefined;
+    if (host) return host.id;
+  }
+  return undefined;
+}
+
+/** A host's display name, such as "Claude Code", for a host id. */
+export function mcpConnectHostLabel(
+  id: string | null | undefined,
+): string | undefined {
+  return MCP_CONNECT_HOSTS.find((host) => host.id === id)?.label;
 }
 
 export function matchesMcpConnectHost(query: string): boolean {

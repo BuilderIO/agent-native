@@ -100,6 +100,7 @@ export default defineAction({
           : "human"),
       author_model: row.authorModel,
       author_effort: row.authorEffort,
+      author_client: row.authorClient,
       author_name: resolveUserProfileName(
         row.authorEmail,
         row.authorName,

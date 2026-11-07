@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { mcpConnectHostLabel } from "@agent-native/core/shared/mcp-connect-content";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
@@ -81,41 +82,66 @@ export function getAiCommentSource(
 }
 
 /**
- * "Agent" pill for comments posted through MCP or the in-app agent. The
- * comment's author is still the accountable person; the tooltip says so.
+ * The pill on a comment or suggested edit an agent wrote, through MCP or the
+ * in-app agent. It names the outside agent, such as Claude Code, when its MCP
+ * client said which it was, and reads "Agent" otherwise. The author is still
+ * the accountable person; the tooltip says so.
  */
-export function CommentAttributionBadge({ comment }: { comment: Comment }) {
+export function AgentAttributionBadge({
+  source,
+  authorName,
+  client,
+  model,
+}: {
+  source: "mcp" | "agent";
+  authorName: string;
+  /** The MCP host id the agent's client reported, such as `claude-code`. */
+  client?: string | null;
+  model?: string | null;
+}) {
   const t = useT();
-  const source = getAiCommentSource(comment.submission_source);
-  if (!source) return null;
-
-  const authorName =
-    comment.author_name ??
-    comment.author_email.split("@")[0] ??
-    comment.author_email;
   const attribution = t("comments.aiAttribution", { name: authorName });
   const sourceLabel = t(
     source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
   );
-  const modelLabel = comment.author_model
-    ? modelDisplayName(comment.author_model)
-    : null;
+  const clientLabel =
+    source === "mcp" ? (mcpConnectHostLabel(client) ?? null) : null;
+  const modelLabel = model ? modelDisplayName(model) : null;
+  const title = modelLabel ?? clientLabel;
 
   return (
-    <span data-comment-ai-attribution={source} className="contents">
+    <span
+      data-comment-ai-attribution={source}
+      data-comment-ai-client={clientLabel ? client : undefined}
+      className="contents"
+    >
       <CommentAgentBadge
-        ariaLabel={`${attribution}. ${sourceLabel}${modelLabel ? `. ${modelLabel}` : ""}`}
+        label={clientLabel ?? undefined}
+        ariaLabel={[clientLabel, attribution, sourceLabel, modelLabel]
+          .filter(Boolean)
+          .join(". ")}
         details={
           <span className="grid gap-0.5">
-            {modelLabel ? (
-              <span className="font-medium">{modelLabel}</span>
-            ) : null}
+            {title ? <span className="font-medium">{title}</span> : null}
             <span>{attribution}</span>
             <span className="text-muted-foreground">{sourceLabel}</span>
           </span>
         }
       />
     </span>
+  );
+}
+
+export function CommentAttributionBadge({ comment }: { comment: Comment }) {
+  const source = getAiCommentSource(comment.submission_source);
+  if (!source) return null;
+  return (
+    <AgentAttributionBadge
+      source={source}
+      authorName={comment.author_name ?? comment.author_email.split("@")[0]}
+      client={comment.author_client}
+      model={comment.author_model}
+    />
   );
 }
 

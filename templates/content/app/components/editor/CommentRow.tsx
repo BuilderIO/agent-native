@@ -147,16 +147,20 @@ export function useCommentTimestamp() {
 }
 
 /**
- * The outlined "Agent" pill beside an author name. Its tooltip carries the
- * accountable person and the submission channel, because an agent comment is
- * posted on someone's behalf rather than by an independent account.
+ * The outlined "Agent" pill beside an author name, or the agent's name when
+ * it is known. Its tooltip carries the accountable person and the submission
+ * channel, because an agent comment is posted on someone's behalf rather
+ * than by an independent account.
  */
 export function CommentAgentBadge({
   details,
   ariaLabel,
+  label,
 }: {
   details: ReactNode;
   ariaLabel: string;
+  /** The agent's name, such as "Claude Code", in place of "Agent". */
+  label?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -174,7 +178,7 @@ export function CommentAgentBadge({
           className="pointer-events-auto inline-flex h-5 shrink-0 items-center rounded-md border border-border bg-background px-1.5 text-xs font-medium leading-none text-foreground/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-comment-agent-badge
         >
-          {t("comments.agentBadge")}
+          {label ?? t("comments.agentBadge")}
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" sideOffset={6}>

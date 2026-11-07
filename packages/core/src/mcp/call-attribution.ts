@@ -7,12 +7,15 @@ export interface McpCallAttributionInput {
   /** `ctx.mcpReq.envelope`: the reserved `_meta` keys the SDK lifted out. */
   envelope: unknown;
   oauthClientId: string | undefined;
+  /** The request's User-Agent header. */
+  userAgent?: string;
 }
 
 /**
  * The client facts the audit trail records for one MCP `tools/call`. Only
  * `oauthClientId` comes from a credential this server issued. The name and
- * version are whatever the client sent as `clientInfo`.
+ * version are whatever the client sent as `clientInfo`, and the User-Agent
+ * whatever it sent as that header.
  */
 export function mcpCallAttribution(
   input: McpCallAttributionInput,
@@ -34,6 +37,7 @@ export function mcpCallAttribution(
   const mcpClient = {
     ...(info.clientName ? { name: info.clientName } : {}),
     ...(info.clientVersion ? { version: info.clientVersion } : {}),
+    ...(input.userAgent ? { userAgent: input.userAgent } : {}),
     ...(input.oauthClientId ? { oauthClientId: input.oauthClientId } : {}),
   };
   return Object.keys(mcpClient).length > 0 ? { mcpClient } : {};
