@@ -443,6 +443,28 @@ describe("app skill packaging", () => {
     expect(first).not.toBe(second);
   });
 
+  it("tells binary files that read as the same text apart in the plugin version", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const asset = path.join(
+      root,
+      ".agents",
+      "skills",
+      "asset-generation",
+      "icon.bin",
+    );
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    // Neither byte is valid UTF-8, so both read as the same replacement text.
+    fs.writeFileSync(asset, Buffer.from([0xff]));
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    fs.writeFileSync(asset, Buffer.from([0xfe]));
+    const second = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
+  });
+
   it("pack still includes alias names in the output .mcp.json for backward compat", async () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
@@ -581,6 +603,52 @@ describe("app skill packaging", () => {
     expect(fs.readFileSync(path.join(outDir, "kept.txt"), "utf-8")).toBe(
       "kept",
     );
+  });
+
+  it("packs the app a linked local source path leads to", ({ skip }) => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    fs.mkdirSync(path.join(root, "web"));
+    fs.writeFileSync(path.join(root, "web", "package.json"), "{}\n", "utf-8");
+    try {
+      fs.symlinkSync("web", path.join(root, "linked-web"), "dir");
+    } catch (error) {
+      // Windows only lets developer mode or an admin make symlinks.
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return skip();
+      throw error;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.local.sourcePath = "linked-web";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.lstatSync(path.join(outDir, "app")).isSymbolicLink()).toBe(false);
+    expect(
+      fs.readFileSync(path.join(outDir, "app", "package.json"), "utf-8"),
+    ).toBe("{}\n");
+  });
+
+  it("refuses a local source path linked outside the app and its workspace", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const outside = tmpDir();
+    fs.writeFileSync(path.join(outside, "package.json"), "{}\n", "utf-8");
+    fs.symlinkSync(
+      outside,
+      path.join(root, "linked-web"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.local.sourcePath = "linked-web";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/local\.sourcePath links outside the app and its workspace/);
+    expect(fs.existsSync(outDir)).toBe(false);
   });
 
   it("rejects a configured local source path that is missing", () => {

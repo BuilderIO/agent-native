@@ -838,8 +838,14 @@ function copyDirFiltered(
   dest: string,
   options: { pinLinksOutOfApp?: boolean } = {},
 ): void {
-  const sourceRoot = path.resolve(source);
-  const destRoot = path.resolve(dest);
+  // The folder on disk, so a linked source is copied as the app it leads to
+  // rather than as a link, and a link on the way to either can't hide that
+  // the output sits inside the source.
+  const sourceRoot = fs.realpathSync(source);
+  const destRoot = path.join(
+    fs.realpathSync(path.dirname(path.resolve(dest))),
+    path.basename(dest),
+  );
   const relativeDest = path.relative(sourceRoot, destRoot);
   const outputRootInsideSource =
     relativeDest &&
@@ -850,7 +856,7 @@ function copyDirFiltered(
   const pinned: { link: string; target: string; type: "file" | "dir" }[] = [];
   // Links stay links, with their targets as written: following them would
   // carry files the filter below leaves out, such as a link to `.env`.
-  fs.cpSync(source, dest, {
+  fs.cpSync(sourceRoot, dest, {
     recursive: true,
     verbatimSymlinks: true,
     filter: (src) => {
@@ -1030,23 +1036,30 @@ export function exportedSkillContentHash(
   skills: AppSkillManifestSkill[],
   manifest: AppSkillManifest,
 ): string {
+  // Files are hashed as bytes, so binary files that read as the same text
+  // still hash apart. They're laid out as when they were read as text, so a
+  // skill of text files keeps its version.
   const parts = skills
     .map((skill) => {
       const skillDir = path.join(manifestDir, skill.path);
-      const body = collectSkillFiles(manifestDir, skillDir)
-        .map(
-          (rel) =>
-            `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
-        )
-        .join("\n \n");
-      return `${skillExportName(skill)}\n${body}`;
+      const chunks = [Buffer.from(`${skillExportName(skill)}\n`)];
+      collectSkillFiles(manifestDir, skillDir).forEach((rel, index) => {
+        if (index > 0) chunks.push(Buffer.from("\n \n"));
+        chunks.push(
+          Buffer.from(`${rel}\n`),
+          fs.readFileSync(path.join(skillDir, rel)),
+        );
+      });
+      const bytes = Buffer.concat(chunks);
+      return { order: bytes.toString("utf-8"), bytes };
     })
-    .sort();
-  parts.push(
-    `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
-  );
-  return createHash("sha256")
-    .update(parts.join("\n\u0000\n"))
+    .sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0));
+  const hash = createHash("sha256");
+  for (const { bytes } of parts) hash.update(bytes).update("\n\u0000\n");
+  return hash
+    .update(
+      `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
+    )
     .digest("hex")
     .slice(0, 12);
 }
@@ -1428,7 +1441,15 @@ function resolveLocalSourceDir(
       path.resolve(loaded.dir, local.sourcePath),
       "local.sourcePath",
     );
-    if (fs.existsSync(source)) return source;
+    // Held to the same folders as a skill's, as the app is copied from
+    // wherever a linked source path leads.
+    if (fs.existsSync(source)) {
+      return resolveSkillSourceOnDisk(
+        skillLinkRoots(loaded.dir),
+        source,
+        "local.sourcePath",
+      );
+    }
     throw new Error(
       `local.sourcePath "${local.sourcePath}" does not exist. ` +
         "Run pack from the directory containing the app source.",
