@@ -388,8 +388,12 @@ export async function ensureTableExists(
       },
       ddl: createSql,
       label: `table ${table}`,
-      lockTimeout: options.lockTimeout,
-      injectedClient: options.injectedClient,
+      ...(options.lockTimeout !== undefined && {
+        lockTimeout: options.lockTimeout,
+      }),
+      ...(options.injectedClient !== undefined && {
+        injectedClient: options.injectedClient,
+      }),
     });
   } catch (err) {
     if (probeErrorCode && err instanceof Error) {

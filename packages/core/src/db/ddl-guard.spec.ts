@@ -494,6 +494,64 @@ describe("ddl-guard", () => {
   });
 
   describe("table probe diagnostics", () => {
+    it.each(["ECONNRESET", "ETIMEDOUT"])(
+      "keeps %s probe failures distinct from connection errors through store wrapping",
+      async (code) => {
+        vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { ensureTableExists } = await import("./ddl-guard.js");
+        const { isConnectionError } = await import("./client.js");
+        const secret = "PRIVATE_PROBE_SENTINEL";
+        const calls: string[] = [];
+        const client = {
+          execute: async (statement: string | { sql: string }) => {
+            calls.push(
+              typeof statement === "string" ? statement : statement.sql,
+            );
+            throw Object.assign(new Error(secret), { code });
+          },
+        } as unknown as DbExec;
+        try {
+          const error = await ensureTableExists(
+            "observational_memory",
+            "CREATE TABLE observational_memory (id TEXT)",
+            { injectedClient: client },
+          ).catch((err: unknown) => err);
+          expect(error).toBeInstanceOf(Error);
+          expect(error).toMatchObject({ errorCode: code });
+          expect((error as Error).message).toContain(code);
+          const wrapped = new Error(
+            `Store "memory" migration "bootstrap" failed: ${(error as Error).message}`,
+            { cause: error },
+          );
+          const causeOnly = Object.assign(
+            new Error("Store bootstrap failed", { cause: error }),
+            { code, name: "ErrorEvent", stack: "onSocketClose" },
+          );
+          expect(wrapped.message).toContain(code);
+          expect(wrapped.message).not.toContain(secret);
+          expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+          expect(
+            calls.some((sql) => /CREATE TABLE|^BEGIN|^SET /i.test(sql)),
+          ).toBe(false);
+          expect(
+            isConnectionError(
+              Object.assign(new Error("connection failed"), { code }),
+            ),
+          ).toBe(true);
+          expect(isConnectionError(new Error(code))).toBe(true);
+          expect(
+            isConnectionError(new Error(`could not probe service: ${code}`)),
+          ).toBe(true);
+          expect(isConnectionError(error)).toBe(false);
+          expect(isConnectionError(wrapped)).toBe(false);
+          expect(isConnectionError(causeOnly)).toBe(false);
+        } finally {
+          warn.mockRestore();
+        }
+      },
+    );
+
     it("reports an allowlisted nested code without leaking probe or snapshot errors", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -755,6 +813,7 @@ describe("ddl-guard", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { ensureTableExists } = await import("./ddl-guard.js");
+      const { isConnectionError } = await import("./client.js");
       let probes = 0;
       const client = {
         execute: async (statement: string | { sql: string }) => {
@@ -771,16 +830,28 @@ describe("ddl-guard", () => {
         },
       } as unknown as DbExec;
       try {
-        await expect(
-          ensureTableExists(
-            "observational_memory",
-            "CREATE TABLE observational_memory (id TEXT)",
-            { injectedClient: client },
-          ),
-        ).rejects.toMatchObject({
-          message: expect.stringMatching(/could not re-probe/),
+        const error = await ensureTableExists(
+          "observational_memory",
+          "CREATE TABLE observational_memory (id TEXT)",
+          { injectedClient: client },
+        ).catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          message: expect.stringMatching(/could not re-probe.*ETIMEDOUT/),
           errorCode: "ETIMEDOUT",
         });
+        const wrapped = new Error(
+          `Store bootstrap failed: ${(error as Error).message}`,
+          {
+            cause: error,
+          },
+        );
+        expect(isConnectionError(error)).toBe(false);
+        expect(isConnectionError(wrapped)).toBe(false);
+        expect(
+          isConnectionError(
+            new Error("Store bootstrap failed", { cause: error }),
+          ),
+        ).toBe(false);
         expect(probes).toBe(2);
       } finally {
         warn.mockRestore();

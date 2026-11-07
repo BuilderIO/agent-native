@@ -1225,6 +1225,14 @@ const CONNECTION_ERROR_CODES = new Set([
 
 export function isConnectionError(err: any): boolean {
   if (!err) return false;
+  const schemaProbeFailure =
+    /ensureSchemaObject: could not (?:re-)?probe required schema/;
+  if (
+    schemaProbeFailure.test(String(err.message ?? "")) ||
+    schemaProbeFailure.test(String(err.cause?.message ?? ""))
+  ) {
+    return false;
+  }
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;
   const name = err.name || err.cause?.name || "";
