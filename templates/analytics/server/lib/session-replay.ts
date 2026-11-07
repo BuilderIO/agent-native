@@ -1994,19 +1994,6 @@ export async function recordSessionReplayChunks(
     (endedAt
       ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
       : (recording.durationMs ?? null));
-  const latestStoredSeq = Math.max(
-    -1,
-    ...existingChunks.map((chunk: { seq: unknown }) => Number(chunk.seq)),
-  );
-  const metadata = mergeReplayMetadata(
-    parseRecordingMetadata(recording),
-    clampedInput.metadata,
-    clampedInput.viewport,
-    {
-      first: wasEmptyRecording,
-      newest: rowsToInsert.some((row) => row.seq > latestStoredSeq),
-    },
-  );
   const signalOverrides = clampedInput.signalOverrides ?? {};
   let errorCount =
     signalOverrides.errorCount === undefined
@@ -2064,7 +2051,6 @@ export async function recordSessionReplayChunks(
     app: clampedInput.app ?? recording.app ?? null,
     template: clampedInput.template ?? recording.template ?? null,
     status: recordingEnded ? "completed" : "active",
-    metadata: JSON.stringify(metadata),
     updatedAt: ingestedAt,
     lastIngestedAt: ingestedAt,
   };
@@ -2105,9 +2091,49 @@ export async function recordSessionReplayChunks(
           )
           .onConflictDoNothing();
       }
+      // Uploads from a reload overlap, and the order they commit in is not the
+      // order they were recorded in. Under the row lock, the stored chunks
+      // place this upload by sequence.
+      const [locked] = await tx
+        .select({ metadata: schema.sessionRecordings.metadata })
+        .from(schema.sessionRecordings)
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .for("update");
+      if (!locked) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
+      const [stored] = rowsToInsert.length
+        ? await tx
+            .select({
+              earliest: sql<unknown>`min(${schema.sessionReplayChunks.seq})`,
+              latest: sql<unknown>`max(${schema.sessionReplayChunks.seq})`,
+            })
+            .from(schema.sessionReplayChunks)
+            .where(
+              and(
+                eq(schema.sessionReplayChunks.recordingId, recording.id),
+                not(inArray(schema.sessionReplayChunks.seq, [...insertedSeqs])),
+              ),
+            )
+        : [null];
+      const metadata = mergeReplayMetadata(
+        parseRecordingMetadata(locked),
+        clampedInput.metadata,
+        clampedInput.viewport,
+        {
+          first:
+            stored !== null &&
+            (stored.earliest === null ||
+              rowsToInsert.some((row) => row.seq < Number(stored.earliest))),
+          newest:
+            stored !== null &&
+            (stored.latest === null ||
+              rowsToInsert.some((row) => row.seq > Number(stored.latest))),
+        },
+      );
       const [updatedRecording] = await tx
         .update(schema.sessionRecordings)
-        .set(recordingUpdate)
+        .set({ ...recordingUpdate, metadata: JSON.stringify(metadata) })
         .where(eq(schema.sessionRecordings.id, recording.id))
         .returning({
           errorCount: schema.sessionRecordings.errorCount,

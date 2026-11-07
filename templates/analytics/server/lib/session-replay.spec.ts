@@ -120,22 +120,41 @@ function createReplayDbMock(
   const deletes: Array<{ table: unknown; where: unknown }> = [];
   const updates: Array<{ table: unknown; values: unknown }> = [];
   const selectedTables: unknown[] = [];
+  // The row lock and the stored sequence range re-read what the test already
+  // served, so they take nothing from the queue.
+  const served = new Map<unknown, unknown[]>();
   const db = {
-    select: vi.fn(() => ({
+    select: vi.fn((fields?: Record<string, unknown>) => ({
       from: vi.fn((table: unknown) => ({
         where: vi.fn(() => {
-          selectedTables.push(table);
-          const rows =
-            table === schema.sessionRecordingSessionAssociations
-              ? (associationResults.shift() ?? [])
-              : (results.shift() ?? []);
+          if (fields && "earliest" in fields) {
+            const seqs = (served.get(table) ?? []).map((row) =>
+              Number((row as { seq: unknown }).seq),
+            );
+            const range = seqs.length
+              ? { earliest: Math.min(...seqs), latest: Math.max(...seqs) }
+              : { earliest: null, latest: null };
+            return Promise.resolve([range]);
+          }
+          let rows: unknown[] | undefined;
+          const take = () => {
+            if (rows) return rows;
+            selectedTables.push(table);
+            rows =
+              table === schema.sessionRecordingSessionAssociations
+                ? (associationResults.shift() ?? [])
+                : (results.shift() ?? []);
+            served.set(table, rows);
+            return rows;
+          };
           return {
-            limit: vi.fn(async () => rows),
-            orderBy: vi.fn(async () => rows),
+            for: vi.fn(async () => served.get(table) ?? []),
+            limit: vi.fn(async () => take()),
+            orderBy: vi.fn(async () => take()),
             then: (
               resolve: (value: unknown[]) => void,
               reject?: (reason: unknown) => void,
-            ) => Promise.resolve(rows).then(resolve, reject),
+            ) => Promise.resolve().then(take).then(resolve, reject),
           };
         }),
       })),
@@ -3122,6 +3141,85 @@ describe("session replay ingest parsing", () => {
     expect(JSON.parse(String(updateValues[0]?.metadata ?? "{}"))).toEqual({
       route: "/signup",
       retained: true,
+    });
+  });
+
+  it("names a late upload's commits by its sequence, not its arrival", async () => {
+    const started = "a".repeat(40);
+    const deployed = "b".repeat(40);
+    const upload = (sequence: number, commit: string) =>
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        anonymousId: "anon_1",
+        sequence,
+        metadata: { commit_sha: commit },
+        events: [{ type: 4, timestamp: sequence + 1 }],
+      });
+    // The reloaded page's chunk 3 arrived first; the old page's chunk 2 lands after it.
+    const [reloadedChunk] = upload(3, deployed).chunks;
+    const recording = {
+      id: "sr_existing",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: null,
+      anonymousId: "anon_1",
+      userKey: "anon_1",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 1,
+      eventCount: 1,
+      totalBytes: 100,
+      pageCount: 1,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: JSON.stringify({ commit_sha: deployed }),
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const { db } = createReplayDbMock(
+      [
+        ...replayIngestKeyDbResults(null).slice(0, 3),
+        [recording],
+        [
+          {
+            ...reloadedChunk,
+            id: "src_3",
+            recordingId: recording.id,
+            storageKind: "inline",
+            storageRef: null,
+            ownerEmail: recording.ownerEmail,
+            orgId: recording.orgId,
+          },
+        ],
+      ],
+      [[]],
+    );
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(() => replaySignalCountQuery()) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    await recordSessionReplayChunks(upload(2, started), {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
+
+    expect(JSON.parse(String(updateValues[0]?.metadata))).toEqual({
+      commit_sha: started,
+      commit_sha_latest: deployed,
     });
   });
 
