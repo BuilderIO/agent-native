@@ -540,6 +540,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
   "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
+  "composer.uploadBuilderReconnect":
+    "您的 Builder.io 連線需要重新建立。請在設定中重新連接 Builder，然後再試一次。",
   "composer.uploadUnavailable": "目前無法上傳檔案。請稍後再試。",
   "composer.uploadOffline": "上傳無法連線至伺服器。請檢查網路連線後再試一次。",
   "composer.submissionNotReady": "聊天尚未準備好傳送。請稍候片刻再傳送。",

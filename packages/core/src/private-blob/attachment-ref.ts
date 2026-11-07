@@ -93,12 +93,17 @@ export interface AttachmentFile {
 }
 
 /** Who can make a `storageUnavailable` outcome go away. */
-export type StorageFixer = "workspace_admin" | "operator" | "self_resolving";
+export type StorageFixer =
+  | "workspace_admin"
+  | "operator"
+  | "self_resolving"
+  | "user";
 
 export type StorageUnavailableReason =
   | "not_configured"
   | "misconfigured"
   | "encryption_key_unavailable"
+  | "builder_reconnect_required"
   | "provider_unavailable";
 
 export type AttachmentFailure =
@@ -176,13 +181,35 @@ function storageUnavailable(
       ? "workspace_admin"
       : reason === "provider_unavailable"
         ? "self_resolving"
-        : "operator";
+        : reason === "builder_reconnect_required"
+          ? "user"
+          : "operator";
   return {
     status: "storageUnavailable",
     reason,
     whoCanFix,
     ...(filename ? { filename } : {}),
   };
+}
+
+/**
+ * The Builder connection behind storage is dead (revoked or expired grant,
+ * rejected key). Retrying cannot help; only the user
+ * reconnecting Builder can.
+ */
+export function isBuilderReconnectRequiredError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const code = (current as { errorCode?: unknown }).errorCode;
+    if (
+      code === "builder_oauth_reauthorization_required" ||
+      code === "builder_credentials_rejected"
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 function classifyStorageError(
@@ -202,6 +229,9 @@ function classifyStorageError(
       case "unavailable":
         return storageUnavailable("provider_unavailable", filename);
     }
+  }
+  if (isBuilderReconnectRequiredError(error)) {
+    return storageUnavailable("builder_reconnect_required", filename);
   }
   // An error nobody typed says nothing about the file; do not call it gone.
   return storageUnavailable("provider_unavailable", filename);

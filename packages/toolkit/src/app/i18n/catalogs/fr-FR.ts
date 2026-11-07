@@ -1285,6 +1285,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Votre session a expiré. Reconnectez-vous, puis renvoyez votre message.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
+  "composer.uploadBuilderReconnect":
+    "Votre connexion à Builder.io doit être rétablie. Reconnectez Builder dans les paramètres, puis réessayez.",
   "composer.uploadUnavailable":
     "L’envoi de fichiers est indisponible pour le moment. Réessayez dans un instant.",
   "composer.uploadOffline":

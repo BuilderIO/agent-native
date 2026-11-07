@@ -5406,6 +5406,113 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("shows the localized Builder reconnect error for a queued upload", async () => {
+    const serverMessage = "Untrusted storage provider details";
+    const originalFetch = globalThis.fetch;
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input, init) =>
+        String(input).startsWith("data:")
+          ? originalFetch(input, init)
+          : Promise.resolve(
+              Response.json(
+                {
+                  errorCode: "builder_oauth_reauthorization_required",
+                  error: serverMessage,
+                },
+                { status: 503 },
+              ),
+            ),
+      );
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const chat = ref.current;
+    if (!chat) throw new Error("Chat did not mount");
+    chatMocks.control.uploadFiles.mockImplementationOnce(async (files) => {
+      await chatMocks.rootProps.clientOptions.upload(
+        await chatMocks.transportOptions.operations.createUpload({
+          threadId: "test-thread",
+          descriptor: {
+            name: files[0].name,
+            mediaType: files[0].mediaType,
+            size: files[0].size,
+            purpose: "message",
+          },
+        }),
+        files[0],
+      );
+      return [];
+    });
+
+    try {
+      await act(async () => {
+        await expect(
+          chat.queueMessage("Describe this later", [
+            "data:image/png;base64,SGVsbG8=",
+          ]),
+        ).rejects.toMatchObject({
+          message: "agentChat.composer.uploadBuilderReconnect",
+          code: "upload_builder_oauth_reauthorization_required",
+          status: 503,
+          retryable: false,
+        });
+      });
+      expect(container.textContent).toContain(
+        "agentChat.composer.uploadBuilderReconnect",
+      );
+      expect(container.textContent).not.toContain(serverMessage);
+      expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it.each([
+    [503, '{"errorCode":"unknown","error":"untrusted"}', true],
+    [503, '{"errorCode":', true],
+    [503, "untrusted non-JSON response", true],
+    [400, '{"errorCode":"builder_oauth_reauthorization_required"}', false],
+  ])(
+    "preserves upload fallback for HTTP %s with body %s",
+    async (status, body, retryable) => {
+      const fetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(body, { status }));
+      await mount(baseProps());
+      try {
+        await expect(
+          chatMocks.rootProps.clientOptions.upload(
+            await chatMocks.transportOptions.operations.createUpload({
+              threadId: "test-thread",
+              descriptor: {
+                name: "reference.png",
+                mediaType: "image/png",
+                size: 4,
+                purpose: "message",
+              },
+            }),
+            {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              body: new Blob(["data"], { type: "image/png" }),
+            },
+          ),
+        ).rejects.toMatchObject({
+          message:
+            status === 503
+              ? "agentChat.composer.uploadUnavailable"
+              : "agentChat.composer.uploadFailed",
+          code: status === 503 ? "upload_unavailable" : "upload_http_400",
+          status,
+          retryable,
+        });
+      } finally {
+        fetch.mockRestore();
+      }
+    },
+  );
+
   it("localizes an upload that never reached the server", async () => {
     const fetch = vi
       .spyOn(globalThis, "fetch")
