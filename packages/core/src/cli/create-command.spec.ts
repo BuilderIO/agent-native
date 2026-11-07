@@ -140,3 +140,65 @@ describe("create command wizard routing", () => {
     expect(runCreateWizard).not.toHaveBeenCalled();
   });
 });
+
+describe("create command activation report", () => {
+  // The report is one record per process, so each test gets its own.
+  async function freshRun() {
+    vi.resetModules();
+    const { runCreateCommand: run } = await import("./create.js");
+    const activation = await import("./activation-telemetry.js");
+    return { run, activation };
+  }
+
+  it("reports a closed wizard as cancelled", async () => {
+    const { run, activation } = await freshRun();
+    runCreateWizard.mockResolvedValueOnce(null);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await run();
+    activation.noteCreateReturned();
+
+    expect(activation.createFinishedProperties(0).outcome).toBe("cancelled");
+  });
+
+  it("reports an app added to a workspace as completed", async () => {
+    const { run, activation } = await freshRun();
+
+    await run();
+    activation.noteCreateReturned();
+
+    expect(activation.createFinishedProperties(0)).toEqual({
+      outcome: "completed",
+      templates: "forms",
+      projectKind: "workspace-add",
+    });
+  });
+
+  it("never reports a community template's address", async () => {
+    const { run, activation } = await freshRun();
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    fs.mkdirSync(path.join(workspaceRoot, "apps", "sample-app"));
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      run("sample-app", { template: "community:acme/portal" }),
+    ).rejects.toThrow("process.exit(1)");
+
+    const properties = activation.createFinishedProperties(1);
+    expect(properties).toMatchObject({
+      outcome: "failed",
+      templates: "community",
+    });
+    expect(JSON.stringify(properties)).not.toContain("acme");
+  });
+});

@@ -51,6 +51,7 @@ export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
   attachments?: AgentChatAttachment[];
+  references?: AgentChatMessage["references"];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
   /** Drop a queued submit instead of handing it to chat after this time. */

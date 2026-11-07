@@ -24,6 +24,7 @@ import { analyticsAskThreadPath, isAnalyticsAskPath } from "@shared/ask-route";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { AnalyticsComposerContextProvider } from "@/components/AnalyticsComposerContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
@@ -304,6 +305,7 @@ function InteractiveLayout({ children }: LayoutProps) {
             </div>
           ) : (
             <AgentSidebar
+              composerContextProvider={AnalyticsComposerContextProvider}
               position="right"
               defaultOpen={false}
               chatViewTransition

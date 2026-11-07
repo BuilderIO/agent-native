@@ -1,5 +1,29 @@
 # @agent-native/pinpoint
 
+## 0.1.111
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.110
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.109
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.108
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.107
 
 ### Patch Changes
@@ -597,29 +621,5 @@
 ### Patch Changes
 
 - f43d34c: Stage atomic writes inside the data directory so saves work when /tmp is a different filesystem.
-
-## 0.1.11
-
-### Patch Changes
-
-- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
-
-## 0.1.10
-
-### Patch Changes
-
-- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.9
-
-### Patch Changes
-
-- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
-
-## 0.1.8
-
-### Patch Changes
-
-- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

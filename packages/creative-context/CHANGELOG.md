@@ -1,5 +1,29 @@
 # @agent-native/creative-context
 
+## 0.8.68
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.66
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.64
 
 ### Patch Changes
@@ -619,30 +643,5 @@
 ### Patch Changes
 
 - e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
-
-## 0.6.1
-
-### Patch Changes
-
-- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
-- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
-
-## 0.6.0
-
-### Minor Changes
-
-- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
-
-## 0.5.12
-
-### Patch Changes
-
-- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
-
-## 0.5.11
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

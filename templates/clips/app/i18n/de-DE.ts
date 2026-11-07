@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Aufnahme referenzieren…",
+    group: "Aufnahmen",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   meetingBrowserConfirmation:
     "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
@@ -666,6 +674,15 @@ const messages = {
     desktopHint:
       "Um Notizen zu starten, öffnen Sie Clips Desktop über die Menüleiste und wählen Sie Start Meeting Notes, oder klicken Sie auf Start notes, wenn die Erinnerung erscheint. Clips erfasst Mikrofon und Systemaudio und schreibt das Transkript hier.",
     getDesktopApp: "Holen Sie sich die Desktop-App",
+    earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
+    earlierAudioAdded_other:
+      "{{count}} Minuten von vor deinem Start hinzugefügt",
+    earlierAudioUnreadable:
+      "Dieses Transkript konnte nicht auf früheren Ton geprüft werden",
+    removeEarlierAudioTitle: "Früheren Ton entfernen?",
+    removeEarlierAudioDescription:
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung, Aufgaben und Clip-Beschreibung werden neu erstellt, auch wenn Sie die Beschreibung selbst geschrieben haben. Ein generierter Titel wird ebenfalls neu erstellt, ein von Ihnen gewählter bleibt erhalten. Vorhandene Kapitel werden ebenfalls gelöscht.",
+    couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",
     attendee_one: "{{count}}-Teilnehmer",
@@ -717,6 +734,8 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    partialTranscript:
+      "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:
       "Es wurde keine Rede lokal erfasst und die Sicherungstranskription wurde nicht abgeschlossen. Versuchen Sie es noch einmal oder überprüfen Sie die Mikrofon- und Sprachberechtigungen.",
     backupNotSetup:
@@ -824,7 +843,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden. Wenn dein Tool keine Bilder zurückgeben oder diese Links nicht öffnen kann, sage, dass dein Tool diese Einschränkung hat; das ist kein Clips-Fehler.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden. Wenn du die Frame-URLs nicht als Bilder öffnen kannst, rufe das Clips-Tool get-recording-frames mit der Aufnahme-ID aus dieser Kontext-URL auf, falls es verfügbar ist. Falls nicht, sage dem Nutzer, dass er mit der Verbindung von Clips unter {{connectUrl}} dir ermöglicht, Frames zu sehen.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
@@ -1563,6 +1582,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Hört zu…",
     noTranscript: "Noch kein Transkript.",
+    unreadable: "Dieses Transkript konnte nicht gelesen werden.",
     liveTranscriptDescription:
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",

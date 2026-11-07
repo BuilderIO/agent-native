@@ -15,6 +15,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { getAppConfig } from "../app-config/index.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import type { AgentNativeWorkspaceRootPage } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -266,6 +267,8 @@ export interface WorkspaceDeployOptions {
   preset?: WorkspaceDeployPreset;
   /** @internal Override process execution in tests. */
   execFile?: typeof execFileSync;
+  /** @internal How far the deploy has got, for the CLI's finished event. */
+  onProgress?: (progress: { step: string; preset?: string }) => void;
 }
 
 export async function runWorkspaceDeploy(
@@ -356,6 +359,7 @@ export async function runWorkspaceDeploy(
     `[workspace-deploy] Building ${apps.length} app(s) for preset=${preset}`,
   );
 
+  opts.onProgress?.({ step: "build", preset });
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
   await runWithConcurrency(apps, concurrency, (app) =>
@@ -370,6 +374,7 @@ export async function runWorkspaceDeploy(
       concurrency > 1 ? "pipe" : "inherit",
     ),
   );
+  opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
   const sweepCrons: Array<{ path: string; schedule: string }> = [];
   for (const app of apps) {
@@ -465,6 +470,7 @@ async function buildOneApp(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
+    [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: workspaceAuthMode,
     AGENT_NATIVE_WORKSPACE_APP_ID: app,
