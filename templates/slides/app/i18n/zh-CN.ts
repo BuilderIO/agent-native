@@ -417,6 +417,7 @@ const messages = {
     deckTitle: "演示文稿标题",
     presentPresenterViewDescription: "演示时查看演讲者备注",
     presenterViewBlocked: "请允许弹出窗口以打开演讲者视图。",
+    presenterViewUnsupported: "此浏览器不支持演讲者视图。",
     export: "导出",
     privacyPrivate: "私密",
     privacyOrg: "已与组织共享",

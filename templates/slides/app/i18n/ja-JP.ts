@@ -436,6 +436,8 @@ const messages = {
     presentPresenterViewDescription: "発表中にスピーカーノートを表示",
     presenterViewBlocked:
       "発表者ビューを開くには、ポップアップを許可してください。",
+    presenterViewUnsupported:
+      "このブラウザーでは発表者ビューを利用できません。",
     export: "エクスポート",
     privacyPrivate: "非公開",
     privacyOrg: "組織と共有",

@@ -442,6 +442,8 @@ const messages = {
       "Ver las notas del presentador mientras presentas",
     presenterViewBlocked:
       "Permite las ventanas emergentes para abrir la vista del presentador.",
+    presenterViewUnsupported:
+      "La vista del presentador no es compatible con este navegador.",
     export: "Exportar",
     privacyPrivate: "Privado",
     privacyOrg: "Compartido con la organización",

@@ -424,6 +424,7 @@ const messages = {
     deckTitle: "डेक का शीर्षक",
     presentPresenterViewDescription: "प्रस्तुति के दौरान स्पीकर नोट्स देखें",
     presenterViewBlocked: "प्रस्तुतकर्ता दृश्य खोलने के लिए पॉप-अप की अनुमति दें।",
+    presenterViewUnsupported: "इस ब्राउज़र में प्रस्तुतकर्ता दृश्य समर्थित नहीं है।",
     export: "निर्यात",
     privacyPrivate: "निजी",
     privacyOrg: "संगठन के साथ साझा किया गया",
