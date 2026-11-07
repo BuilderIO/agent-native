@@ -248,6 +248,21 @@ export function normalizeReviewAnchor(
   };
 }
 
+/**
+ * Refuses a person's comment write that names one of the kit's own anchor
+ * kinds, or moves an anchor that keeps one. Only the kit writes those, so a
+ * resource's own parser reads every anchor a person sends.
+ */
+export function assertPersonReviewAnchorKind(
+  anchorKind: string | null | undefined,
+): void {
+  if (anchorKind != null && ownAnchorKind(KIT_ANCHOR_KINDS, anchorKind)) {
+    throw new ReviewAnchorError(
+      `Only the review kit writes "${anchorKind}" anchors.`,
+    );
+  }
+}
+
 /** Whether a resource type has a hook that comment writes must run. */
 export function hasReviewCommentWriteHook(resourceType: string): boolean {
   return Boolean(getReviewableResource(resourceType)?.onCommentWrite);

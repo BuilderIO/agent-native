@@ -5,6 +5,7 @@ import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
+  assertPersonReviewAnchorKind,
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
 } from "../registry.js";
@@ -83,6 +84,16 @@ export default defineAction({
         : !isAuthor && !roleSatisfies(access.role, "editor"))
     ) {
       throw new ForbiddenError("Not allowed to update this review comment");
+    }
+    if (args.anchor !== undefined) {
+      // The kind the moved anchor ends up with, worked out as the store does.
+      assertPersonReviewAnchorKind(
+        args.anchorKind !== undefined
+          ? args.anchorKind
+          : args.anchor === null
+            ? null
+            : comment.anchorKind,
+      );
     }
     const mentions =
       args.body === undefined

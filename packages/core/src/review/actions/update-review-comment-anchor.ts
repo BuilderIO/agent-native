@@ -4,6 +4,7 @@ import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
+  assertPersonReviewAnchorKind,
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
 } from "../registry.js";
@@ -80,6 +81,14 @@ export default defineAction({
     if (!isAuthor && !roleSatisfies(access.role, "editor")) {
       throw new ForbiddenError("Not allowed to move this review comment");
     }
+    // The kind the moved anchor ends up with, worked out as the store does.
+    assertPersonReviewAnchorKind(
+      args.anchorKind !== undefined
+        ? args.anchorKind
+        : args.anchor === null
+          ? null
+          : comment.anchorKind,
+    );
     const moved = await updateReviewComment(
       comment.id,
       {

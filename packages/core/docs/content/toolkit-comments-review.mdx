@@ -101,7 +101,8 @@ registerReviewableResource({
   returns what's stored, so an older version can be read forward. A comment is
   written at the kind's current `version` unless it gives an older one. A
   suggestion's thread uses the kit's own `review-suggestion` kind, which
-  every resource accepts.
+  every resource accepts and only the kit writes: the comment actions refuse
+  it.
 - `onCommentWrite` runs inside the comment's own database transaction for
   `created`, `edited`, `anchor-moved`, `resolved`, `reopened` and `deleted`.
   Resolving a thread that is already resolved, or reopening an open one,

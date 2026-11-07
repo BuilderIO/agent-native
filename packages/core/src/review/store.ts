@@ -8,6 +8,7 @@ import { sql, type SqlFragment } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import {
+  ReviewAnchorError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,
@@ -813,7 +814,6 @@ function normalizeReviewCommentInput(
   };
 }
 
-/** Writes an already normalized comment, then runs the resource's hook. */
 let lastReviewCommentWrittenAt = 0;
 
 /**
@@ -832,6 +832,7 @@ function reviewCommentWriteTime(): string {
   return new Date(lastReviewCommentWrittenAt).toISOString();
 }
 
+/** Writes an already normalized comment, then runs the resource's hook. */
 async function writeReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
@@ -991,7 +992,9 @@ async function insertReviewCommentIdempotentlyWithClient(
 /**
  * A retried submission normalized as its stored comment was: untyped if it
  * was stored untyped, and otherwise at its stored anchor version unless the
- * retry names one.
+ * retry names one. A stored kind the resource no longer reads leaves the
+ * retry as sent, so a retry of what was stored still finds it and any other
+ * still conflicts.
  */
 function replayedReviewCommentInput(
   input: InsertReviewCommentInput,
@@ -1005,14 +1008,26 @@ function replayedReviewCommentInput(
   ) {
     return { ...input, anchorKind: null, anchorVersion: null };
   }
-  return normalizeReviewCommentInput({
+  const replayed = {
     ...input,
     anchorVersion:
       input.anchorVersion ??
       ((input.anchorKind ?? null) === (stored.anchorKind ?? null)
         ? (stored.anchorVersion ?? null)
         : null),
-  });
+  };
+  try {
+    return normalizeReviewCommentInput(replayed);
+  } catch (error) {
+    if (
+      !(error instanceof ReviewAnchorError) ||
+      stored.anchorKind == null ||
+      input.anchorKind !== stored.anchorKind
+    ) {
+      throw error;
+    }
+    return replayed;
+  }
 }
 
 function reviewCommentFromInput(

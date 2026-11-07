@@ -34,6 +34,9 @@ const listReviewComments = (await import("./actions/list-review-comments.js"))
 const updateReviewCommentAnchorAction = (
   await import("./actions/update-review-comment-anchor.js")
 ).default;
+const updateReviewCommentAction = (
+  await import("./actions/update-review-comment.js")
+).default;
 type ReviewCommentWriteEvent = import("./types.js").ReviewCommentWriteEvent;
 type ReviewResourceRole = import("./types.js").ReviewResourceRole;
 
@@ -240,6 +243,22 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(
       insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
     ).rejects.toThrow("conflicts with another submission");
+
+    // Once the resource drops the kind, the retry is compared as sent.
+    registerReviewableResource({
+      type: STAMPED,
+      resolveAccess,
+      anchorKinds: { seal: { version: 1, parse: (anchor) => anchor } },
+    });
+    await expect(insertReviewCommentIdempotently(typed)).resolves.toMatchObject(
+      { replayed: true, comment: { anchorKind: "stamp", anchorVersion: 1 } },
+    );
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, anchor: { at: 3 } }),
+    ).rejects.toThrow("conflicts with another submission");
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, id: "replay-new" }),
+    ).rejects.toBeInstanceOf(ReviewAnchorError);
   });
 
   it("lets a reply carry an anchor written before its resource had kinds", async () => {
@@ -681,6 +700,50 @@ describe("suggestion threads", () => {
       anchorKind: "review-suggestion",
       anchorVersion: 1,
     });
+  });
+
+  it("can't be written or kept through a person's comment actions", async () => {
+    const at = { resourceType: PINNED, resourceId: "doc-kit-kind" };
+    const refused = 'Only the review kit writes "review-suggestion" anchors.';
+    await expect(
+      createReviewComment.run(
+        {
+          ...at,
+          body: "Hello",
+          anchor: { anything: true },
+          anchorKind: "review-suggestion",
+        },
+        { userEmail: OWNER },
+      ),
+    ).rejects.toThrow(refused);
+
+    const suggested = await insertReviewComment({
+      ...comment(PINNED, "doc-kit-kind", {
+        anchor: [null],
+        anchorKind: "review-suggestion",
+      }),
+      kind: "correction",
+    });
+    const move = { ...at, commentId: suggested.id };
+    await expect(
+      updateReviewCommentAnchorAction.run(
+        { ...move, anchor: { anything: true } },
+        { userEmail: OWNER },
+      ),
+    ).rejects.toThrow(refused);
+    await expect(
+      updateReviewCommentAction.run(
+        { ...move, anchor: { anything: true } },
+        { userEmail: OWNER },
+      ),
+    ).rejects.toThrow(refused);
+    // Moved onto one of the resource's own kinds, it's read by that kind.
+    await expect(
+      updateReviewCommentAnchorAction.run(
+        { ...move, anchor: { x: 1, y: 2 }, anchorKind: "pin" },
+        { userEmail: OWNER },
+      ),
+    ).resolves.toMatchObject({ anchorKind: "pin", revision: 2 });
   });
 });
 

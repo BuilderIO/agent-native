@@ -19,6 +19,7 @@ const { getShareableResource } = await import("../sharing/registry.js");
 const { ReviewAnchorError } = await import("./errors.js");
 const {
   __resetReviewableResourcesForTests,
+  assertPersonReviewAnchorKind,
   assertReviewCommentAccess,
   assertReviewableResourceAccess,
   canCommentOnReviewableResource,
@@ -329,5 +330,14 @@ describe("the kit's suggestion anchor kind", () => {
         },
       }),
     ).toThrow('Anchor kind "review-suggestion" belongs to the review kit');
+  });
+
+  it("is refused from a person's write", () => {
+    expect(() =>
+      assertPersonReviewAnchorKind(REVIEW_SUGGESTION_ANCHOR_KIND),
+    ).toThrow('Only the review kit writes "review-suggestion" anchors.');
+    for (const kind of ["pin", null, undefined]) {
+      expect(() => assertPersonReviewAnchorKind(kind)).not.toThrow();
+    }
   });
 });

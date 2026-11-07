@@ -9,6 +9,7 @@ import {
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
+  assertPersonReviewAnchorKind,
   assertReviewCommentAccess,
   normalizeReviewVisibility,
   reviewCommentPolicy,
@@ -102,6 +103,7 @@ export default defineAction({
         ? "human"
         : reviewCommentPolicy(args.resourceType).unmentionedRoute);
 
+    assertPersonReviewAnchorKind(args.anchorKind);
     const input = {
       resourceType: args.resourceType,
       resourceId: args.resourceId,
