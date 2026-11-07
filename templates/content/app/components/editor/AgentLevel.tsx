@@ -41,6 +41,8 @@ export function useAgentLevel(documentId: string, locked: boolean) {
                 : "editor.toolbar.agentLevelEditConfirm",
             ),
             {
+              // The phone sheet turns off clicks outside it; Undo has to work there.
+              className: "pointer-events-auto",
               action: {
                 label: t("editor.toolbar.undo"),
                 onClick: () =>

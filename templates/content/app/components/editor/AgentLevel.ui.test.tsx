@@ -88,10 +88,12 @@ describe("what agents can do on a page", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
     const [message, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
       string,
-      { action: { label: string; onClick: () => void } },
+      { action: { label: string; onClick: () => void }; className: string },
     ];
     expect(message).toBe("editor.toolbar.agentLevelCommentConfirm");
     expect(options.action.label).toBe("editor.toolbar.undo");
+    // The phone sheet turns off clicks outside it, so the toast opts back in.
+    expect(options.className).toContain("pointer-events-auto");
 
     await act(async () => options.action.onClick());
 
