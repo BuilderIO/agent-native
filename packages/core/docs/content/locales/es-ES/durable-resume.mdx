@@ -79,7 +79,7 @@ Cuando se reanuda una ejecución (tiempo de espera temporal, tiempo de espera de
 - qué herramienta llama **ya completado** (con resultados breves) para que los reutilice y **no** los vuelva a ejecutar, y
 - qué llamadas a herramientas fueron **interrumpidas con resultado desconocido** para verificar el estado antes de asumir el éxito o el fracaso.
 
-Cuando el diario está vacío (un turno sin actividad de herramienta o una continuación limpia), no se agrega nada adicional y el comportamiento del currículum es byte por byte igual que antes. La nota es de mejor esfuerzo: una lectura fallida del libro mayor nunca bloquea una recuperación que de otro modo sería exitosa.
+Cuando el diario está vacío (un turno sin actividad de herramienta o una continuación limpia), no se agrega nada adicional y el comportamiento del currículum es byte por byte igual que antes. Sin embargo, el diario en sí es imprescindible: si el libro mayor no se puede leer, ni siquiera tras un reintento, la ejecución reanudada se detiene antes de que se ejecute el modelo, con `tool_call_journal_unreadable`, y te pide que envíes la solicitud de nuevo. Sin el libro mayor no puede saber qué pasos ya terminaron.
 
 ## Capa 2: bloque duro de capa de herramienta {#hard-block}
 
@@ -99,12 +99,21 @@ Propiedades clave:
 El bloque duro solo detiene una **repetición exacta**: la misma herramienta de escritura con la misma entrada, después de que un intento anterior en el mismo turno terminara y registrara su resultado. No descarta que se dupliquen correos electrónicos, cargos o tickets:
 
 - **Un reintento reformulado no coincide.** Si el modelo cambia cualquier argumento, como el cuerpo del correo electrónico, la llamada deja de coincidir con una llamada completada, así que el bloque duro no la detiene.
-- **Un fallo a mitad del envío puede provocar una repetición.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo cubre las llamadas completadas. Otra protección rechaza un reintento idéntico de una escritura interrumpida, pero solo cuando el historial de la ejecución reanudada muestra la interrupción.
+- **Tras un fallo a mitad del envío, la repetición solo se retiene durante el resto del turno.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo cubre las llamadas completadas. En su lugar, la ejecución reanudada retiene esa herramienta de escritura, como se describe en [Escrituras con resultado desconocido](#unknown-outcome). Un mensaje nuevo inicia un turno nuevo, donde nada la retiene.
 - **Tras un fallo, una ejecución puede reanudarse en el mismo turno por dos vías distintas.** Una es una [ejecución duradera en segundo plano](/docs/durable-background-runs). La otra es un fragmento posterior de un turno normal en primer plano que usa el [autoencadenamiento en primer plano](/docs/durable-background-runs#foreground-self-chain). Cualquier otra ejecución que falle termina con un error. Elegir **Continuar** en ella reanuda el mismo turno, así que se aplican las dos capas.
 
 Una acción cuyo efecto secundario nunca deba repetirse necesita su propia comprobación de idempotencia. El bloque duro nunca se aplica a las acciones de solo lectura.
 
 </Callout>
+
+## Escrituras con resultado desconocido {#unknown-outcome}
+
+El resultado de una escritura es desconocido cuando empezó pero no se registró ningún resultado, cuando agotó su tiempo de espera o cuando falló después de empezar a escribir sin indicar si se guardó algo. Volver a ejecutarla podría aplicar el cambio dos veces, así que durante el resto del turno el bucle retiene esa herramienta:
+
+- **La misma llamada otra vez.** Si el modelo repite la llamada con los mismos argumentos, el bucle comprueba primero si el resultado propio de esa llamada llegó a registrarse y, en ese caso, lo devuelve. Si no, la llamada no se ejecuta: la ejecución se detiene con `write_tool_outcome_unknown` y te pide que compruebes qué se guardó y luego respondas «continuar».
+- **Cualquier otra llamada a esa herramienta.** Una llamada con argumentos distintos, como un correo reformulado, tampoco se ejecuta. Se le indica al modelo que la llamada anterior puede haberse aplicado ya, y que compruebe el estado actual con una lectura y te cuente lo que encontró. El turno continúa.
+
+Una acción marcada con `retrySafe` queda exenta, porque volver a ejecutarla no puede duplicar ni corromper datos: valida antes de escribir o establece un estado final, como reemplazar un registro por su ID. El modelo puede corregir sus argumentos y volver a intentarlo. Las acciones de solo lectura no se retienen, salvo que dentro de una se haya ejecutado una escritura.
 
 ## Continuación automática tras un límite de tiempo {#auto-continue}
 
