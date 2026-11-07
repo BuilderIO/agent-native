@@ -57,6 +57,19 @@ function toggle(
   };
 }
 
+/** A Toggle saved before titles were page text: its title is `summary`. */
+function oldToggle(
+  title: string,
+  open: boolean,
+  body: Record<string, unknown>[],
+): Record<string, unknown> {
+  return {
+    type: "notionToggle",
+    attrs: { summary: title, color: null, headingLevel: null, open, indent: 0 },
+    content: body,
+  };
+}
+
 /** Puts the caret at the start or end of the first line with this text. */
 function caretIn(editor: Editor, text: string, where: "start" | "end" = "end") {
   const lines: { text: string; at: number }[] = [];
@@ -174,6 +187,75 @@ describe("the caret and a closed Toggle", () => {
     expect(caret(editor)).toEqual({ line: "Title", offset: 5 });
   });
 
+  it("moves the caret below an old Toggle that closes around it", () => {
+    const editor = createEditor([
+      oldToggle("Old", true, [paragraph("Body")]),
+      paragraph("Below"),
+    ]);
+    caretIn(editor, "Body");
+
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(0, undefined, {
+        ...editor.state.doc.child(0).attrs,
+        open: false,
+      }),
+    );
+
+    expect(caret(editor)).toEqual({ line: "Below", offset: 0 });
+  });
+
+  it.each([
+    { from: "Above", where: "end", lands: { line: "Below", offset: 0 } },
+    { from: "Below", where: "start", lands: { line: "Above", offset: 5 } },
+  ] as const)(
+    "carries the caret on past a closed old Toggle from $from",
+    ({ from, where, lands }) => {
+      const editor = createEditor([
+        paragraph("Above"),
+        oldToggle("Old", false, [paragraph("Hidden")]),
+        paragraph("Below"),
+      ]);
+      caretIn(editor, from, where);
+      const hidden = 1 + "Above".length + 1 + 2;
+
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, hidden),
+        ),
+      );
+
+      expect(caret(editor)).toEqual(lands);
+    },
+  );
+
+  it("moves the caret above a closed old Toggle that ends the page", () => {
+    const editor = createEditor([
+      paragraph("Above"),
+      oldToggle("Old", true, [paragraph("Body")]),
+    ]);
+    caretIn(editor, "Body");
+
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(7, undefined, {
+        ...editor.state.doc.child(1).attrs,
+        open: false,
+      }),
+    );
+
+    expect(caret(editor)).toEqual({ line: "Above", offset: 5 });
+  });
+
+  it("leaves the caret alone when closed old Toggles hide every line", () => {
+    const editor = createEditor([
+      oldToggle("One", false, [paragraph("First")]),
+      oldToggle("Two", false, [paragraph("Second")]),
+    ]);
+
+    caretIn(editor, "Second");
+
+    expect(caret(editor)).toEqual({ line: "Second", offset: 6 });
+  });
+
   it("leaves the caret in a closed title", () => {
     const editor = createEditor([toggle("Title", false, [paragraph("Body")])]);
     caretIn(editor, "Title", "start");
@@ -256,6 +338,37 @@ describe("Backspace at the start of the block below a Toggle", () => {
     expect(editor.getJSON().content).toEqual([
       toggle("Title", true, [list("ItemAfter")]),
     ]);
+  });
+});
+
+describe("Backspace below a closed old Toggle", () => {
+  it("joins the line to the Toggle's title, which becomes page text", () => {
+    const body = [paragraph("Hidden")];
+    const editor = createEditor([
+      oldToggle("Old", false, body),
+      paragraph(" and new"),
+    ]);
+    caretIn(editor, " and new", "start");
+
+    press(editor, { key: "Backspace" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("Old and new", false, body),
+    ]);
+    expect(caret(editor)).toEqual({ line: "Old and new", offset: 3 });
+  });
+
+  it("leaves an open old Toggle to the editor's own join", () => {
+    const editor = createEditor([
+      oldToggle("Old", true, [paragraph("Body")]),
+      paragraph("Below"),
+    ]);
+    caretIn(editor, "Below", "start");
+
+    press(editor, { key: "Backspace" });
+
+    expect(editor.state.doc.child(0).attrs.summary).toBe("Old");
+    expect(editor.state.doc.child(0).firstChild?.type.name).toBe("paragraph");
   });
 });
 

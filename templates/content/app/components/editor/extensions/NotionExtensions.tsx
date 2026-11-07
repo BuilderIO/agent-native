@@ -367,6 +367,57 @@ function titleHidingPosition($pos: ResolvedPos): number | null {
   return null;
 }
 
+/** The depth of the outermost closed Toggle here that has no title line. */
+function closedOldToggleDepth($pos: ResolvedPos): number | null {
+  for (let depth = 1; depth <= $pos.depth; depth += 1) {
+    const node = $pos.node(depth);
+    if (
+      node.type.name === "notionToggle" &&
+      !node.attrs.open &&
+      !toggleTitleNode(node)
+    ) {
+      return depth;
+    }
+  }
+  return null;
+}
+
+/** The nearest text that way that no closed old Toggle hides. */
+function visibleTextPast(
+  $pos: ResolvedPos,
+  depth: number,
+  direction: 1 | -1,
+): number | null {
+  const { doc } = $pos;
+  const edge = (at: ResolvedPos, atDepth: number) =>
+    doc.resolve(direction > 0 ? at.after(atDepth) : at.before(atDepth));
+  let found = Selection.findFrom(edge($pos, depth), direction, true);
+  while (found) {
+    const hiding = closedOldToggleDepth(found.$from);
+    if (hiding === null) return found.from;
+    found = Selection.findFrom(edge(found.$from, hiding), direction, true);
+  }
+  return null;
+}
+
+/**
+ * Where a caret goes from a closed old Toggle's body. Its title isn't page
+ * text, so there's no line of its own to go to: the caret carries on past the
+ * Toggle the way it was going, or the other way at the end of the page.
+ */
+function pastClosedOldToggle(
+  $pos: ResolvedPos,
+  cameFrom: number,
+): number | null {
+  const depth = closedOldToggleDepth($pos);
+  if (depth === null) return null;
+  const direction = cameFrom >= $pos.after(depth) ? -1 : 1;
+  return (
+    visibleTextPast($pos, depth, direction) ??
+    visibleTextPast($pos, depth, direction > 0 ? -1 : 1)
+  );
+}
+
 /**
  * Where the last line a reader can see in a block ends: the end of an open
  * Toggle's body, or the title of a closed one. Null when the block ends in
@@ -393,7 +444,8 @@ function endOfVisibleText(doc: ProseMirrorNode, pos: number): number | null {
 /**
  * Backspace at the start of the block below a Toggle joins it to the last line
  * a reader can see above it, as in Notion. ProseMirror's own join would move
- * it into the body, which a closed Toggle hides.
+ * it into the body, which a closed Toggle hides, so a closed old Toggle takes
+ * its title as page text first.
  */
 export function joinBlockToToggleAbove(editor: Editor): boolean {
   const { doc, selection } = editor.state;
@@ -407,12 +459,21 @@ export function joinBlockToToggleAbove(editor: Editor): boolean {
   }
   const blockPos = $from.before();
   const above = doc.resolve(blockPos).nodeBefore;
-  if (above?.type.name !== "notionToggle" || !toggleTitleNode(above)) {
-    return false;
+  if (above?.type.name !== "notionToggle") return false;
+  const abovePos = blockPos - above.nodeSize;
+  const tr = editor.state.tr;
+  if (!toggleTitleNode(above)) {
+    const titleType = editor.schema.nodes[TOGGLE_TITLE_NODE] as
+      | NodeType
+      | undefined;
+    if (above.attrs.open || !titleType || isSuggestingEdits(editor.state)) {
+      return false;
+    }
+    addToggleTitle(tr, abovePos, above, titleType);
   }
-  const end = endOfVisibleText(doc, blockPos - above.nodeSize);
+  const end = endOfVisibleText(tr.doc, abovePos);
   if (end === null) return false;
-  const tr = editor.state.tr.delete(blockPos, $from.after());
+  tr.delete(tr.mapping.map(blockPos), tr.mapping.map($from.after()));
   tr.insert(end, $from.parent.content);
   tr.setSelection(TextSelection.create(tr.doc, end));
   dispatchToggleKeyTransaction(editor, tr);
@@ -881,6 +942,21 @@ export function normalizeIndentAttr(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 8) : 0;
 }
 
+/** Turns an old Toggle's `summary` into its title line. */
+function addToggleTitle(
+  tr: Transaction,
+  pos: number,
+  toggle: ProseMirrorNode,
+  titleType: NodeType,
+) {
+  const text = String(toggle.attrs.summary ?? "");
+  tr.setNodeMarkup(pos, undefined, { ...toggle.attrs, summary: "" });
+  tr.insert(
+    pos + 1,
+    titleType.create(null, text ? titleType.schema.text(text) : null),
+  );
+}
+
 /**
  * Moves an old Toggle's title from its `summary` into the page's text, caret
  * at the end, once someone who can edit clicks or tabs into it, so it can be
@@ -902,16 +978,10 @@ export function moveToggleSummaryToTitle(editor: Editor, pos: number): boolean {
   ) {
     return false;
   }
-  const text = String(toggle.attrs.summary ?? "");
-  const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
-    ...toggle.attrs,
-    summary: "",
-  });
-  tr.insert(
-    pos + 1,
-    titleType.create(null, text ? editor.schema.text(text) : null),
-  );
-  tr.setSelection(TextSelection.create(tr.doc, pos + 2 + text.length));
+  const tr = editor.state.tr;
+  addToggleTitle(tr, pos, toggle, titleType);
+  const titleEnd = pos + 2 + String(toggle.attrs.summary ?? "").length;
+  tr.setSelection(TextSelection.create(tr.doc, titleEnd));
   tr.setMeta("addToHistory", false);
   tr.setMeta("preventClearDocument", true);
   tr.setMeta("uiEvent", "pointer");
@@ -1959,15 +2029,24 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
     return [
       // A closed Toggle hides its body, so the caret can't stay in there: the
       // next keys would edit text no one can see. However the Toggle closed,
-      // the caret moves to its title.
+      // the caret moves to its title. While suggesting, a Toggle opens only in
+      // this view, so a body the page calls closed may be on screen.
       new Plugin({
         key: new PluginKey("notionToggleHiddenCaret"),
-        appendTransaction(transactions, _oldState, newState) {
-          if (!transactions.some((tr) => tr.docChanged || tr.selectionSet)) {
+        appendTransaction(transactions, oldState, newState) {
+          if (
+            !transactions.some((tr) => tr.docChanged || tr.selectionSet) ||
+            isSuggestingEdits(newState)
+          ) {
             return null;
           }
-          const { $from, $to } = newState.selection;
-          const end = titleHidingPosition($from) ?? titleHidingPosition($to);
+          const { $from, $to, empty } = newState.selection;
+          const end =
+            titleHidingPosition($from) ??
+            titleHidingPosition($to) ??
+            (empty
+              ? pastClosedOldToggle($from, oldState.selection.from)
+              : null);
           if (end === null) return null;
           return newState.tr.setSelection(
             TextSelection.create(newState.doc, end),

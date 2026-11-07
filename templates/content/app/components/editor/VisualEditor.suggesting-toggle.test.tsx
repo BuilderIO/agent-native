@@ -204,6 +204,37 @@ describe("Toggles while suggesting", () => {
     expect(toggle?.hasAttribute("draggable")).toBe(false);
   });
 
+  it("keeps the caret in a body opened only in this view", async () => {
+    const editor = await mount(
+      true,
+      true,
+      [
+        '<details markdown="1">',
+        "<summary>Toggle title</summary>",
+        "\tHidden text",
+        "</details>",
+      ].join("\n"),
+    );
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>(".content-toggle__chevron")
+        ?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(storedOpen(editor)).toBe(false);
+
+    const body = editor.state.doc.firstChild?.lastChild;
+    let bodyStart = 0;
+    editor.state.doc.descendants((node, pos) => {
+      if (node === body) bodyStart = pos + 1;
+    });
+    await act(async () => {
+      editor.commands.setTextSelection(bodyStart);
+    });
+
+    expect(editor.state.selection.$from.parent.textContent).toBe("Hidden text");
+  });
+
   it("stores the open state outside suggesting", async () => {
     const editor = await mount(false);
     expect(container.querySelector("input.content-toggle__summary")).not.toBe(

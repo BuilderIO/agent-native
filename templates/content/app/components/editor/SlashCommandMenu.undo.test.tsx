@@ -266,6 +266,23 @@ describe("/toggle on a line with text", () => {
   });
 });
 
+describe("/toggle on an empty line", () => {
+  it("leaves the caret in the new Toggle's title", async () => {
+    const { editor, unmount } = await mountSlashMenu();
+    try {
+      typeAt(editor, editor.state.doc.content.size - 1, "/toggle");
+      await act(async () => Promise.resolve());
+      await pressEnter();
+
+      const { $from } = editor.state.selection;
+      expect($from.parent.type.name).toBe("notionToggleSummary");
+      expect($from.node(-1).attrs.open).toBe(false);
+    } finally {
+      await unmount();
+    }
+  });
+});
+
 describe("slash menu in a Toggle's title", () => {
   it("makes the command's block below the Toggle and leaves the title", async () => {
     const { container, editor, unmount } = await mountSlashMenu(
