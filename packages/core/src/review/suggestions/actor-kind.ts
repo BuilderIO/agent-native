@@ -25,8 +25,8 @@ export function suggestionAuthorSource(
 /** The MCP host an MCP call's client said it was, such as `claude-code`. */
 export function suggestionAuthorClient(ctx: unknown): string | null {
   if (suggestionAuthorSource(ctx) !== "mcp") return null;
-  const client = (ctx as Pick<ActionRunContext, "mcpClient"> | undefined)
-    ?.mcpClient;
+  // An MCP caller means ctx is a context object.
+  const client = (ctx as Pick<ActionRunContext, "mcpClient">).mcpClient;
   return resolveMcpClientHostId(client) ?? null;
 }
 

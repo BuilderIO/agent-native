@@ -19,6 +19,11 @@ describe("suggestion authors", () => {
     expect(suggestionAuthorSource({ caller })).toBe(source);
   });
 
+  it("files a call with no context under no source", () => {
+    expect(suggestionAuthorSource(undefined)).toBeNull();
+    expect(suggestionAuthorClient(undefined)).toBeNull();
+  });
+
   it("names the MCP host from the client's handshake name or User-Agent", () => {
     expect(
       suggestionAuthorClient({

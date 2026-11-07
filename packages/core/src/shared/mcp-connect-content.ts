@@ -312,10 +312,10 @@ export function resolveMcpClientHostId(
   client: { name?: string; userAgent?: string } | undefined,
 ): string | undefined {
   for (const reported of [client?.name, client?.userAgent]) {
-    const query = normalizeMcpConnectQuery(reported ?? "");
-    const host = query
-      ? matchingMcpConnectHosts(query, queryContainsTerm)[0]
-      : undefined;
+    const host = matchingMcpConnectHosts(
+      normalizeMcpConnectQuery(reported ?? ""),
+      queryContainsTerm,
+    )[0];
     if (host) return host.id;
   }
   return undefined;
