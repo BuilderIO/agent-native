@@ -617,6 +617,51 @@ describe("document body intent merge", () => {
     ).toEqual({ status: "preservation-required", reason: "structure" });
   });
 
+  it("merges two writers' edits across every block of a page over 500,000 characters", () => {
+    const blocks = Array.from(
+      { length: 11_000 },
+      (_, index) => `Paragraph ${index} ${"x".repeat(50)}`,
+    );
+    const edited = (parity: number | null, mark: string) =>
+      blocks
+        .map((block, index) =>
+          parity !== null && index % 2 === parity ? `${mark} ${block}` : block,
+        )
+        .join("\n");
+    const expected = blocks
+      .map((block, index) =>
+        index % 2 === 0 ? `Browser ${block}` : `Agent ${block}`,
+      )
+      .join("\n");
+    expect(edited(null, "").length).toBeGreaterThan(500_000);
+
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: edited(null, ""),
+        authoredCandidateContent: edited(0, "Browser"),
+        currentContent: edited(1, "Agent"),
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "mcp:z",
+            operationId: "z:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: blocks.flatMap((_, index) =>
+              index % 2 === 1 ? [index] : [],
+            ),
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({ status: "resolved", content: expected });
+  }, 30_000);
+
   it("merges a save authored on the blank-line body an agent stored", () => {
     expect(
       mergeDocumentBodyIntents({

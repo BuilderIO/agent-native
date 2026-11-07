@@ -68,23 +68,28 @@ function parsedForm(content: string): string | null {
   }
 }
 
+function blockCounts(blocks: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const block of blocks) {
+    counts.set(block, (counts.get(block) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function hasAmbiguousIdentity(
   base: readonly string[],
   candidate: readonly string[],
   current: readonly string[],
   changed: readonly number[],
 ): boolean {
-  for (const index of changed) {
-    const block = base[index];
-    if (
-      base.indexOf(block) !== base.lastIndexOf(block) ||
-      candidate.indexOf(block) !== candidate.lastIndexOf(block) ||
-      current.indexOf(block) !== current.lastIndexOf(block)
-    ) {
-      return true;
-    }
-  }
-  return false;
+  // Counted once: a long page can have tens of thousands of changed blocks.
+  const counts = [base, candidate, current].map(blockCounts);
+  const changedIndexes = new Set(changed);
+  return base.some(
+    (block, index) =>
+      changedIndexes.has(index) &&
+      counts.some((count) => (count.get(block) ?? 0) > 1),
+  );
 }
 
 type TextHunk = { from: number; to: number; insert: string };
