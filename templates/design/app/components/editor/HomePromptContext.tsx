@@ -5,10 +5,8 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
-  composerSourceListSchema,
   composerSourceReferenceSchema,
   type ComposerSourceRequest,
 } from "@agent-native/core/shared";

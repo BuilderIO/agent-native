@@ -29,6 +29,7 @@ import {
   InvalidDesignDataError,
   mutateDesignData,
 } from "./design-data-mutation.js";
+import { stripExecutableMarkup } from "./strip-executable-markup.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
@@ -335,6 +336,10 @@ function positiveDimension(value: unknown, fallback: number): number {
 }
 
 function sanitizeImportedHtml(content: string): string {
+  return stripExecutableMarkup(sanitizeImportedHtmlPatterns(content));
+}
+
+function sanitizeImportedHtmlPatterns(content: string): string {
   return content
     .replace(/<\s*script\b[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
     .replace(/<\s*script\b[^>]*\/?\s*>/gi, "")

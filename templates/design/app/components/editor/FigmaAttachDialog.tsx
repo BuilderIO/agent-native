@@ -621,6 +621,8 @@ function FigmaPageRow({
         <Checkbox
           id={pageId}
           checked={state}
+          // The loaded frames take over this page's selection when they land.
+          disabled={loadingFrames}
           onCheckedChange={(checked) => onPageChange(checked === true)}
         />
         <Label

@@ -110,7 +110,7 @@ describe("place-figma-frames", () => {
       frames: [
         {
           name: "Pasted",
-          html: '<main onclick="steal()"><script>steal()</script><a href="javascript:steal()">x</a></main>',
+          html: '<main onclick="steal()"><script>steal()</script><a href="javascript:steal()">x</a><svg/onload=steal()></svg><a href="jav&#x61;script:steal()">y</a></main>',
         },
       ],
     });
@@ -120,7 +120,9 @@ describe("place-figma-frames", () => {
     };
     const content = saved.files[0]?.content ?? "";
     expect(content).toContain("<main>");
-    expect(content).not.toMatch(/onclick|<script|javascript:/i);
+    expect(content).not.toMatch(
+      /onclick|onload|<script|javascript:|jav&#x61;/i,
+    );
   });
 
   it("refuses a frame number the attachment lacks, and a signed-out caller", async () => {
