@@ -118,6 +118,7 @@ test("reports a package or template whose modules moved out of every root", () =
   assert.deepEqual(
     uncheckedUnits([
       "packages/core/lib/index.ts",
+      "packages/core/docs/content/actions.md",
       "packages/toolkit/src/index.ts",
       "packages/core-corpus/README.md",
       "packages/mobile-app/app/index.tsx",

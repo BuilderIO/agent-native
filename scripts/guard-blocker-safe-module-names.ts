@@ -37,7 +37,8 @@ interface BrowserRoot {
   url: (match: RegExpExecArray) => string;
   // The file types it serves as modules, when not MODULE.
   modules?: RegExp;
-  // Static files, which can't stand in for an app's own modules.
+  // Static files or docs, which can't stand in for a package's or app's own
+  // code.
   assets?: true;
 }
 
@@ -110,6 +111,7 @@ const BROWSER_ROOTS: BrowserRoot[] = [
     pattern: /^packages\/core\/docs\/content\/(.+)$/,
     url: ([, rel]) => `/@fs/packages/core/docs/content/${rel}?raw`,
     modules: /\.mdx?$/,
+    assets: true,
   },
   {
     pathspec: ["templates/*/public/**", "community-templates/*/public/**"],
@@ -187,8 +189,8 @@ export function emptyBrowserRoots(files: string[]): string[] {
 }
 
 /**
- * Packages and templates with no modules among `files` outside `public/`,
- * other than those in NO_BROWSER_MODULES.
+ * Packages and templates with no modules among `files` other than static
+ * files and docs, leaving out those in NO_BROWSER_MODULES.
  */
 export function uncheckedUnits(files: string[]): string[] {
   const checked = new Map<string, boolean>();
