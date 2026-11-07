@@ -280,4 +280,23 @@ describe("DocsSidebar", () => {
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
+  it("marks the current page's group and section triggers on desktop", () => {
+    const html = renderSidebar("/docs/docker/");
+    const buttonForLabel = (label: string) => {
+      const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\
+});
+");
+      const match = html.match(
+        new RegExp(
+          `<button\\b([^>]*?)>(?:(?!<\\/button>)[\\s\\S])*?<span>${escapedLabel}<\\/span>`,
+        ),
+      );
+      if (!match) throw new Error(`Missing sidebar toggle: ${label}`);
+      return match[1];
+    };
+
+    expect(buttonForLabel("Deployment")).toContain('data-active-descendant="true"');
+    expect(buttonForLabel("Hosting Providers")).toContain('data-active-descendant="true"');
+    expect(buttonForLabel("Database Providers")).not.toContain("data-active-descendant");
+  });
 });
