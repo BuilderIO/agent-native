@@ -2,10 +2,14 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
 import type { SuggestionOperation } from "@agent-native/core/review";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
@@ -261,6 +265,7 @@ async function accept(
   baseRevision = "rev-1",
   acceptedOperation: SuggestionOperation = operation,
   prepared = coordination(),
+  ctx: Record<string, unknown> = {},
 ) {
   const result = await runWithRequestContext({ userEmail: ownerEmail }, () =>
     adapter.apply({
@@ -289,7 +294,7 @@ async function accept(
       },
       operations: [acceptedOperation],
       access: { role: "editor" },
-      ctx: {},
+      ctx,
       transaction: tx,
       coordination: prepared,
     }),
@@ -915,6 +920,57 @@ describe("Content suggested edits Blocks transaction", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     expect(document?.content).toBe("After");
+  });
+
+  it("binds a private image that an accepted suggestion adds", async () => {
+    await privateMediaStore.ready();
+    sequence += 1;
+    const documentId = `suggestion-private-image-page-${sequence}`;
+    const mediaId = "3c9a1f5e-8b2d-4e7a-9f61-0d4c2b7e5a18";
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Page with an image",
+      content: "Before",
+      ownerEmail,
+      createdAt: new Date().toISOString(),
+      updatedAt: "rev-1",
+    });
+    await getDb().insert(privateMedia).values({
+      id: mediaId,
+      ownerEmail,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
+
+    await getDbExec().transaction?.(async (tx) => {
+      await accept(
+        documentId,
+        tx,
+        "rev-1",
+        {
+          ...operation,
+          after: {
+            markdown: `See the [photo](/api/private-media/${mediaId}).`,
+          },
+        },
+        coordination(),
+        { userEmail: ownerEmail },
+      );
+    });
+
+    const bound = await getDb()
+      .select()
+      .from(schema.privateMediaReferences)
+      .where(
+        and(
+          eq(schema.privateMediaReferences.documentId, documentId),
+          eq(schema.privateMediaReferences.mediaId, mediaId),
+        ),
+      );
+    expect(bound).toHaveLength(1);
   });
 
   it("honors collection access through a non-active organization", async () => {

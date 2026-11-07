@@ -22,6 +22,8 @@ export default createToolkitAuthPlugin({
     DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     // Binary image reads authorize each live document reference in the route.
     "/api/private-icons/",
+    // Private images authorize each read against the pages that carry them.
+    "/api/private-media/",
     // Sessionless self-dispatch; this exact worker owns scoped-token auth.
     // Never expose the `_agent-native-background` namespace.
     "/api/_agent-native-background/content-trash-purge-worker",
