@@ -22,6 +22,7 @@ vi.mock("sonner", () => ({
 
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -29,6 +30,7 @@ import {
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
+import { documentPropertiesQueryKey } from "./use-documents";
 
 describe("documentPropertiesResponseMatchesScope", () => {
   it("rejects placeholder data from another database for the same row", () => {
@@ -49,6 +51,65 @@ describe("documentPropertiesResponseMatchesScope", () => {
         properties: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("documentPropertiesReadFailed", () => {
+  const answer = {
+    documentId: "row-1",
+    databaseId: "database-1",
+    canEditValues: true,
+    canManageSchema: true,
+    properties: [],
+  };
+  const stopped = {
+    data: undefined,
+    dataUpdatedAt: 0,
+    fetchStatus: "idle",
+    isError: true,
+    isPlaceholderData: false,
+  };
+
+  it.each([
+    { state: "no answer at all", query: stopped, failed: true },
+    {
+      state: "only the row's early copy",
+      query: { ...stopped, data: answer },
+      failed: true,
+    },
+    {
+      state: "another row's answer",
+      query: {
+        ...stopped,
+        data: { ...answer, documentId: "row-2" },
+        dataUpdatedAt: 1,
+      },
+      failed: true,
+    },
+    {
+      state: "a confirmed answer whose refresh failed",
+      query: { ...stopped, data: answer, dataUpdatedAt: 1 },
+      failed: false,
+    },
+    {
+      state: "a retry still running",
+      query: { ...stopped, data: answer, fetchStatus: "fetching" },
+      failed: false,
+    },
+    {
+      state: "a retry paused offline",
+      query: { ...stopped, data: answer, fetchStatus: "paused" },
+      failed: false,
+    },
+    {
+      state: "a read with no error",
+      query: { ...stopped, isError: false },
+      failed: false,
+    },
+  ])("reads $state as failed: $failed", ({ query, failed }) => {
+    expect(
+      documentPropertiesReadFailed("row-1", "database-1", query as never),
+    ).toBe(failed);
   });
 });
 
@@ -131,6 +192,14 @@ describe("useDocumentProperties", () => {
     expect(args).toEqual({ documentId: "doc-1", databaseId: "database-1" });
     expect(options.enabled).toBe(false);
     expect(options.placeholderData({ documentId: "stale" })).toBe(placeholder);
+  });
+
+  it("keeps a row's first real read out of a batch, even behind its early copy", () => {
+    useDocumentProperties("doc-1", "database-1");
+
+    expect(useActionQuery.mock.calls[0][2]).toMatchObject({
+      batchRefetches: false,
+    });
   });
 });
 
@@ -979,6 +1048,42 @@ describe("useSetDocumentProperty", () => {
     );
 
     expect(queryClient.getQueryState(pageKey)?.isInvalidated).toBe(true);
+  });
+
+  it("shows a saved value without waiting on the refresh after it", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "before" };
+    const other = { definition: { id: "other" }, value: "kept" };
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      canEditValues: true,
+      canManageSchema: true,
+      properties: [saved, other],
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0][1];
+    const variables = {
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value: "after",
+    };
+    const context = await options.onMutate(variables);
+    options.onSuccess(
+      { properties: [{ ...saved, value: "after" }] },
+      variables,
+      context,
+    );
+
+    expect(queryClient.getQueryData(key)).toMatchObject({
+      canEditValues: true,
+      properties: [{ value: "after" }, { value: "kept" }],
+    });
   });
 
   it("does not let an older property response overwrite a newer edit", async () => {

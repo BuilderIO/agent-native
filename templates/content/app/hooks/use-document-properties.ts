@@ -29,6 +29,7 @@ import {
   useInfiniteQuery,
   useQueryClient,
   type UseMutationResult,
+  type UseQueryResult,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -288,6 +289,29 @@ export function documentPropertiesResponseMatchesScope(
   return data?.documentId === documentId && data.databaseId === databaseId;
 }
 
+// True once a read has stopped without an answer anyone can stand on. A row's
+// early copy from its collection carries no timestamp, so it doesn't count as
+// one. A failed refresh of a confirmed answer changes nothing on screen, and a
+// retry still running or paused offline hasn't failed yet.
+export function documentPropertiesReadFailed(
+  documentId: string,
+  databaseId: string | null,
+  query: Pick<
+    UseQueryResult<DocumentPropertiesResponse>,
+    "data" | "dataUpdatedAt" | "fetchStatus" | "isError" | "isPlaceholderData"
+  >,
+): boolean {
+  const confirmed =
+    documentPropertiesResponseMatchesScope(
+      documentId,
+      databaseId,
+      query.data,
+    ) &&
+    !query.isPlaceholderData &&
+    query.dataUpdatedAt > 0;
+  return query.isError && query.fetchStatus === "idle" && !confirmed;
+}
+
 function withDatabaseScope<
   TData,
   TVariables extends DatabaseScopedRequest,
@@ -376,6 +400,9 @@ export function useDocumentProperties(
     {
       enabled: options.enabled !== false && !!documentId,
       placeholderData: (prev) => options.placeholder ?? prev,
+      // A row's early copy counts as data, but its first real read is still
+      // what edit rights wait on, so it doesn't queue behind a batch.
+      batchRefetches: false,
     },
   );
 }
@@ -602,6 +629,21 @@ export function useSetDocumentProperty(
       );
       const savedValue = savedProperty?.value ?? variables.value;
       const savedRelationTargets = savedProperty?.relationTargets;
+      // The refresh below can fail, and the save has already answered.
+      if (savedProperty) {
+        queryClient.setQueryData<DocumentPropertiesResponse>(
+          documentPropertiesQueryKey(variables.documentId, databaseId),
+          (current) =>
+            current && {
+              ...current,
+              properties: current.properties.map((property) =>
+                property.definition.id === variables.propertyId
+                  ? { ...property, ...savedProperty }
+                  : property,
+              ),
+            },
+        );
+      }
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) =>

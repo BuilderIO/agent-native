@@ -22,6 +22,14 @@ vi.mock("@/hooks/use-document-properties", () => ({
     databaseId: string | null,
     data: { documentId?: string; databaseId?: string | null } | undefined,
   ) => data?.documentId === documentId && data?.databaseId === databaseId,
+  documentPropertiesReadFailed: (
+    _documentId: string,
+    _databaseId: string | null,
+    query: { isError?: boolean; fetchStatus?: string; dataUpdatedAt?: number },
+  ) =>
+    query.isError === true &&
+    query.fetchStatus === "idle" &&
+    !query.dataUpdatedAt,
   useDocumentProperties: (
     _documentId: string,
     _databaseId: string,
@@ -34,7 +42,8 @@ vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => ({ mutateAsync: mocks.save }),
 }));
 vi.mock("@/components/QueryErrorState", () => ({
-  QueryErrorState: () => createElement("div", { "data-query-error": "" }),
+  QueryErrorState: ({ onRetry }: { onRetry: () => void }) =>
+    createElement("button", { "data-query-error": "", onClick: onRetry }),
 }));
 vi.mock("./VisualEditor", async () => {
   const React = await import("react");
@@ -159,7 +168,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
     expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
     expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", true);
 
-    mocks.query = { ...mocks.query, isError: true };
+    mocks.query = { ...mocks.query, isError: true, fetchStatus: "idle" };
     await render(true);
     expect(container.querySelector("[data-query-error]")).not.toBeNull();
     expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", false);
@@ -210,6 +219,40 @@ describe("DocumentBlockFields suggestion boundary", () => {
     expect(
       container.querySelector('[data-block-fields-state="solo"]'),
     ).not.toBeNull();
+  });
+
+  it("keeps the editor when a refresh of a confirmed answer fails", async () => {
+    mocks.query = {
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        properties: [field("content", true)],
+      },
+      dataUpdatedAt: 1,
+      isError: true,
+      fetchStatus: "idle",
+    };
+    await render();
+
+    expect(container.querySelector("[data-query-error]")).toBeNull();
+    expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
+    expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", true);
+  });
+
+  it("retries a failed read in place, so the row stays open", async () => {
+    const refetch = vi.fn();
+    mocks.query = {
+      data: undefined,
+      isError: true,
+      fetchStatus: "idle",
+      refetch,
+    };
+    await render();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-query-error]")?.click();
+    });
+    expect(refetch).toHaveBeenCalledOnce();
   });
 
   it("makes a secondary editor read-only during suggesting and restores editing afterward", async () => {

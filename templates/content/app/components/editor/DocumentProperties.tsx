@@ -98,6 +98,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -147,6 +148,7 @@ import {
   useContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
@@ -1011,10 +1013,8 @@ export function DocumentProperties({
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
-    documentId,
-    databaseId,
-  );
+  const propertiesQuery = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = propertiesQuery;
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
@@ -1061,7 +1061,13 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded || rowViewPending ? (
+      {!loaded &&
+      documentPropertiesReadFailed(documentId, databaseId, propertiesQuery) ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void propertiesQuery.refetch()}
+        />
+      ) : isLoading || !loaded || rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
