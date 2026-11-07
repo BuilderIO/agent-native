@@ -2314,7 +2314,11 @@ function ensureWorkspaceRootSkillsLink(
     // update tries again.
     try {
       replaceFollowingLinks(sharedSkillsDir, linkPath);
-    } catch {}
+    } catch (error) {
+      console.warn(
+        `[skills] Couldn't link or copy the shared skills to ${linkPath}: ${(error as Error).message}`,
+      );
+    }
   }
 }
 
@@ -2332,7 +2336,13 @@ function refreshCopiedClaudeSkills(projectRoot: string): void {
       listImmediateSkillDirs(agentsSkillsDir),
       false,
     );
-  } catch {}
+  } catch (error) {
+    // The update goes on without this refresh, but says so: what was there
+    // stays, which may be a link that only works on the machine that made it.
+    console.warn(
+      `[skills] Couldn't refresh the copied skills in ${claudeSkillsDir}: ${(error as Error).message}`,
+    );
+  }
 }
 
 function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {

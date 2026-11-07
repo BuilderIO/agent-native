@@ -3757,49 +3757,7 @@ describe("agent-native skills", () => {
   });
 
   it("turns Claude skill links left by older upgrades back into copies", async () => {
-    const root = tmpDir();
-    const shared = path.join(root, "packages", "shared");
-    const app = path.join(root, "apps", "mail");
-    const sharedActions = path.join(shared, ".agents", "skills", "actions");
-    fs.mkdirSync(app, { recursive: true });
-    fs.cpSync(
-      path.join(
-        workspaceRoot(),
-        "packages",
-        "core",
-        "src",
-        "templates",
-        "workspace-core",
-        ".agents",
-        "skills",
-      ),
-      path.join(shared, ".agents", "skills"),
-      { recursive: true },
-    );
-    fs.writeFileSync(
-      path.join(root, "package.json"),
-      JSON.stringify(
-        {
-          name: "my-workspace",
-          "agent-native": { workspaceCore: "@my/shared" },
-        },
-        null,
-        2,
-      ),
-    );
-    fs.writeFileSync(
-      path.join(shared, "package.json"),
-      JSON.stringify({ name: "@my/shared" }, null, 2),
-    );
-    fs.writeFileSync(
-      path.join(app, "package.json"),
-      JSON.stringify({ name: "mail" }, null, 2),
-    );
-    fs.cpSync(sharedActions, path.join(app, ".agents", "skills", "actions"), {
-      recursive: true,
-    });
-    fs.mkdirSync(path.join(app, ".claude", "skills"), { recursive: true });
-    linkDir(sharedActions, path.join(app, ".claude", "skills", "actions"));
+    const { root, app, sharedActions } = workspaceWithOldClaudeLink();
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
@@ -3811,6 +3769,36 @@ describe("agent-native skills", () => {
     expect(fs.lstatSync(claudeActions).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(path.join(claudeActions, "SKILL.md"), "utf8")).toBe(
       fs.readFileSync(path.join(sharedActions, "SKILL.md"), "utf8"),
+    );
+  });
+
+  it("says so when it can't turn an old Claude skill link into a copy", async () => {
+    const { root, app } = workspaceWithOldClaudeLink();
+    const claudeActions = path.join(app, ".claude", "skills", "actions");
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const rename = fs.renameSync;
+    // As on Windows while another program has a file in the skill open.
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (
+        path.resolve(String(to)) === claudeActions &&
+        path.basename(String(from)) === "copy"
+      ) {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, to);
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(fs.lstatSync(claudeActions).isSymbolicLink()).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/Couldn't refresh the copied skills in .*EBUSY/),
     );
   });
 
@@ -4596,3 +4584,56 @@ describe("agent-native skills", () => {
     }
   });
 });
+
+// A workspace whose app's `.claude/skills/actions` is an absolute link to the
+// shared skill, as `skills update` wrote it before 0.221.
+function workspaceWithOldClaudeLink(): {
+  root: string;
+  app: string;
+  sharedActions: string;
+} {
+  const root = tmpDir();
+  const shared = path.join(root, "packages", "shared");
+  const app = path.join(root, "apps", "mail");
+  const sharedActions = path.join(shared, ".agents", "skills", "actions");
+  fs.mkdirSync(app, { recursive: true });
+  fs.cpSync(
+    path.join(
+      workspaceRoot(),
+      "packages",
+      "core",
+      "src",
+      "templates",
+      "workspace-core",
+      ".agents",
+      "skills",
+    ),
+    path.join(shared, ".agents", "skills"),
+    { recursive: true },
+  );
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "my-workspace",
+        "agent-native": { workspaceCore: "@my/shared" },
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(shared, "package.json"),
+    JSON.stringify({ name: "@my/shared" }, null, 2),
+  );
+  fs.writeFileSync(
+    path.join(app, "package.json"),
+    JSON.stringify({ name: "mail" }, null, 2),
+  );
+  fs.cpSync(sharedActions, path.join(app, ".agents", "skills", "actions"), {
+    recursive: true,
+  });
+  fs.mkdirSync(path.join(app, ".claude", "skills"), { recursive: true });
+  linkDir(sharedActions, path.join(app, ".claude", "skills", "actions"));
+  return { root, app, sharedActions };
+}
