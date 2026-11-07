@@ -140,6 +140,7 @@ import {
   designPromptReferenceTypes,
   trackDesignPromptSubmitted,
 } from "@/lib/design-funnel-tracking";
+import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -382,9 +383,15 @@ export default function Index() {
     "create-design-from-template",
   );
   const createFusionAppMutation = useActionMutation("create-builder-app");
-  const deleteMutation = useActionMutation("delete-design");
-  const duplicateMutation = useActionMutation("duplicate-design");
-  const updateMutation = useActionMutation("update-design");
+  const deleteMutation = useActionMutation("delete-design", {
+    meta: SURFACE_MUTATION_ERROR,
+  });
+  const duplicateMutation = useActionMutation("duplicate-design", {
+    meta: SURFACE_MUTATION_ERROR,
+  });
+  const updateMutation = useActionMutation("update-design", {
+    meta: SURFACE_MUTATION_ERROR,
+  });
   const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
@@ -397,7 +404,10 @@ export default function Index() {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {

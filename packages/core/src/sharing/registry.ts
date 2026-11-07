@@ -42,6 +42,9 @@ export interface ShareableResourceRegistration {
    * when changing visibility must share a transaction with another invariant,
    * such as reserving a human-readable name before the row becomes visible.
    * The generic action falls back to a direct update when this is omitted.
+   * It must write all of its change or none of it: when a later resource in
+   * a batch fails, the action undoes earlier ones by calling it again with
+   * their previous visibility, unless another change has replaced its own.
    */
   persistVisibilityChange?: (args: {
     resource: any;
@@ -67,6 +70,13 @@ export interface ShareableResourceRegistration {
       | { kind: "grant" };
   }) => void | Promise<void>;
   allowPublic?: boolean;
+  /**
+   * Ask before a private resource opens to the whole organization. For types
+   * whose content is easy to overlook, such as a chat's messages and files;
+   * everywhere else the panel saves the change at once, and it can be undone
+   * the same way.
+   */
+  confirmOrgVisibility?: boolean;
   publicAccessRole?:
     | "viewer"
     | "commenter"
@@ -99,6 +109,18 @@ export interface ShareableResourceRegistration {
       orgId?: string;
     },
   ) => boolean | Promise<boolean>;
+  /**
+   * Resources that return the same key get the same `canManageAccess` answer
+   * for the same viewer, so `resolveAccessMany` asks once per key. Return
+   * `undefined` for a resource whose answer depends on more than the key.
+   */
+  canManageAccessKey?: (
+    resource: { orgId?: string | null },
+    ctx: {
+      userEmail?: string;
+      orgId?: string;
+    },
+  ) => string | undefined;
   resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;

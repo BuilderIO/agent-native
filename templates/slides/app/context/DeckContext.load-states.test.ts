@@ -218,6 +218,21 @@ describe("deck list loading states", () => {
     );
   });
 
+  it("surfaces an error when the open deck's read fails even though the list loads", async () => {
+    window.history.pushState({}, "", "/deck/deck-a");
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.failDeckReads();
+
+    const { result } = renderDeckListStates();
+    await waitFor(() => expect(result.current.loading).toBe(false), {
+      timeout: 30_000,
+    });
+
+    expect(result.current.getDeck("deck-a")).toBeUndefined();
+    expect(result.current.loadError).toBe(true);
+  }, 35_000);
+
   it("keeps the initial load pending when a cold first read recovers on retry", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a"), deck("deck-b")]);

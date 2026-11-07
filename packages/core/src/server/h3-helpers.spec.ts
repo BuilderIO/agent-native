@@ -29,6 +29,13 @@ describe("isAllowedUploadMimeType", () => {
     expect(isAllowedUploadMimeType("application/gzip")).toBe(true);
   });
 
+  it("allows WOFF2 fonts without accepting other font types", () => {
+    expect(isAllowedUploadMimeType("font/woff2")).toBe(true);
+    expect(isAllowedUploadMimeType("FONT/WOFF2; charset=binary")).toBe(true);
+    expect(isAllowedUploadMimeType("font/woff2-extra")).toBe(false);
+    expect(isAllowedUploadMimeType("font/woff")).toBe(false);
+  });
+
   it("rejects executable types", () => {
     expect(isAllowedUploadMimeType("application/x-msdownload")).toBe(false);
     expect(isAllowedUploadMimeType("application/x-executable")).toBe(false);

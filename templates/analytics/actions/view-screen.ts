@@ -57,6 +57,7 @@ import {
   readRoutePerformanceRange,
   routePerformanceRangeBounds,
 } from "../shared/session-performance";
+import { readTrafficEnvironment } from "../shared/traffic-environment";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -75,6 +76,7 @@ const SESSION_FILTER_KEYS = new Set([
   "hideInternal",
   "visitorType",
   "emailDomain",
+  "environment",
   "hasErrors",
   "hasNetworkErrors",
   "hasRageClicks",
@@ -137,8 +139,11 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const navigation = await readAppStateForCurrentTab("navigation");
-    const url = (await readAppStateForCurrentTab("__url__")) as {
+    const [navigation, urlState] = await Promise.all([
+      readAppStateForCurrentTab("navigation"),
+      readAppStateForCurrentTab("__url__"),
+    ]);
+    const url = urlState as {
       pathname?: string;
       search?: string;
       searchParams?: Record<string, string>;
@@ -350,6 +355,7 @@ export default defineAction({
               hasNetworkErrors: params.hasNetworkErrors === "true",
               hasRageClicks: params.hasRageClicks === "true",
               emailDomain: params.emailDomain || undefined,
+              environment: readTrafficEnvironment(params.environment),
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||

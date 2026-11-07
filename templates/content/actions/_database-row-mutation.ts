@@ -27,6 +27,7 @@ import type {
 import {
   isBlocksPropertyType,
   isComputedPropertyType,
+  isUrlPropertyValue,
   parsePropertyOptions,
   parsePropertyValue,
   serializePropertyValue,
@@ -674,13 +675,11 @@ async function strictValue(
     case "url": {
       if (typeof value !== "string" || value !== value.trim())
         invalidProperty(definition, "expected a URL");
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error();
-      } catch {
-        invalidProperty(definition, "expected an http or https URL");
-      }
+      if (!isUrlPropertyValue(value))
+        invalidProperty(
+          definition,
+          "expected an http or https URL, or a t3-thread link",
+        );
       return value;
     }
     case "email":
@@ -846,22 +845,42 @@ export async function rowSnapshots(
 ): Promise<Map<string, RowSnapshot>> {
   if (rows.length === 0) return new Map();
   const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
-  const found = (
+  const items = (
     await db
-      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .select()
       .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-      )
       .where(
         and(
           inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
           eq(schema.contentDatabaseItems.databaseId, databaseId),
-          isNull(schema.documents.trashedAt),
         ),
       )
-  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
+  ).filter((item) => requested.get(item.id) === item.documentId);
+  // DbExec returns objects; a join of both complete rows has duplicate column
+  // names, which cannot be mapped back to Drizzle's positional result.
+  // guard:allow-unscoped — exact memberships of an access-checked collection; mutation callers also resolve row access.
+  const documents =
+    items.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(
+                schema.documents.id,
+                items.map((item) => item.documentId),
+              ),
+              isNull(schema.documents.trashedAt),
+            ),
+          );
+  const documentsById = new Map(
+    documents.map((document) => [document.id, document]),
+  );
+  const found = items.flatMap((item) => {
+    const document = documentsById.get(item.documentId);
+    return document ? [{ item, document }] : [];
+  });
   // Before the values: see readPropertyTombstones.
   const tombstones =
     revisionPropertyIds.size === 0 || found.length === 0

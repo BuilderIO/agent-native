@@ -32,6 +32,7 @@ import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   isRecordingExpiredForViewer,
+  isRecordingPasswordProtectedForViewer,
   isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
 import {
@@ -43,6 +44,7 @@ import {
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
@@ -84,6 +86,7 @@ function mapRecording(r: any) {
     hasAudio: Boolean(r.hasAudio),
     hasCamera: Boolean(r.hasCamera),
     defaultSpeed: r.defaultSpeed,
+    hasPassword: Boolean(r.password),
     enableComments: Boolean(r.enableComments),
     enableReactions: Boolean(r.enableReactions),
     enableDownloads: Boolean(r.enableDownloads),
@@ -461,6 +464,9 @@ async function fetchMeetingDetail(meetingId: string) {
     })),
     recording,
     transcriptSnippet,
+    earlierAudioMinutes: storedEarlierAudioMinutes(
+      linked.transcript?.segmentsJson,
+    ),
   };
 }
 
@@ -514,9 +520,13 @@ async function addRecordingContext(
   const recording = await fetchRecording(recordingId);
   if (!recording) return;
 
+  const transcriptProtected = isRecordingPasswordProtectedForViewer({
+    hasPassword: recording.hasPassword,
+    viewerIsOwner: sameOwnerEmail(recording.ownerEmail, getRequestUserEmail()),
+  });
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
-      fetchTranscript(recordingId),
+      transcriptProtected ? null : fetchTranscript(recordingId),
       recording.enableComments ||
       sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
         ? fetchComments(recordingId)
@@ -525,6 +535,8 @@ async function addRecordingContext(
       fetchBugReportSummary(recordingId),
     ]);
   screen.recording = recording;
+  if (transcriptProtected)
+    screen.transcriptUnavailableReason = "password_required";
   if (transcript) {
     screen.transcript = buildTranscriptPreview({
       recordingId: transcript.recordingId,
