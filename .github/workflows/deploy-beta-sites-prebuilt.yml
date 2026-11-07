@@ -236,7 +236,7 @@ jobs:
           if [ -n "$BASES_FILE" ]; then
             args+=(--site-bases "$BASES_FILE" --source "$SOURCE_SHA")
           fi
-          echo 'matrix={"site":["analytics","brain","calendar","dispatch","factory","mail","slides","chat"]}' >> "$GITHUB_OUTPUT"
+          echo 'matrix={"site":["assets","brain","design","clips","crm","chat","slides","mail","forms","plan","dispatch","content","calendar","analytics","factory"]}' >> "$GITHUB_OUTPUT"
           echo 'has_sites=true' >> "$GITHUB_OUTPUT"
 
   build:
