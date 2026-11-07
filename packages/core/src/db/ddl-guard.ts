@@ -347,8 +347,11 @@ export async function ensureSchemaObject(options: {
   const initiallyExists = await probe();
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
-    throw new Error(
-      `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
+    throw Object.assign(
+      new Error(
+        `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
+      ),
+      { schemaProbeFailure: true },
     );
   }
   const ran = await withLegacyServerlessSchemaDdl(() =>
@@ -359,8 +362,11 @@ export async function ensureSchemaObject(options: {
   const existsAfterTimeout = await probe();
   if (existsAfterTimeout === true) return true;
   if (existsAfterTimeout === undefined) {
-    throw new Error(
-      `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
+    throw Object.assign(
+      new Error(
+        `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
+      ),
+      { schemaProbeFailure: true },
     );
   }
   throw new Error(

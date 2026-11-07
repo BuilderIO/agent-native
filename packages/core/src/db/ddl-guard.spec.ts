@@ -534,6 +534,24 @@ describe("ddl-guard", () => {
             }),
             { code: "ECONNRESET" },
           );
+          const unreadableMessage = Object.assign(
+            new Error("outer connection error", { cause: error }),
+            { code: "ECONNRESET" },
+          );
+          Object.defineProperty(unreadableMessage, "message", {
+            get() {
+              throw new Error("unreadable message");
+            },
+          });
+          const unreadableMarker = Object.assign(
+            new Error("outer connection error", { cause: error }),
+            { code: "ECONNRESET" },
+          );
+          Object.defineProperty(unreadableMarker, "schemaProbeFailure", {
+            get() {
+              throw new Error("unreadable marker");
+            },
+          });
           expect(wrapped.message).toContain(code);
           expect(wrapped.message).not.toContain(secret);
           expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
@@ -558,6 +576,9 @@ describe("ddl-guard", () => {
           expect(isConnectionError(wrapped)).toBe(false);
           expect(isConnectionError(causeOnly)).toBe(false);
           expect(isConnectionError(nested)).toBe(false);
+          expect(isConnectionError(unreadableMessage)).toBe(false);
+          expect(isConnectionError(unreadableMarker)).toBe(false);
+          expect(error).toMatchObject({ schemaProbeFailure: true });
         } finally {
           warn.mockRestore();
         }
@@ -850,6 +871,7 @@ describe("ddl-guard", () => {
         expect(error).toMatchObject({
           message: expect.stringMatching(/could not re-probe.*ETIMEDOUT/),
           errorCode: "ETIMEDOUT",
+          schemaProbeFailure: true,
         });
         const wrapped = new Error(
           `Store bootstrap failed: ${(error as Error).message}`,

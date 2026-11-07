@@ -2266,6 +2266,18 @@ describe("isTransientDatabaseError", () => {
     },
   );
 
+  it("classifies connection errors whose messages contain schema probe text", async () => {
+    const { isConnectionError } = await import("./client.js");
+    const error = Object.assign(
+      new Error(
+        'query failed: ensureSchemaObject: could not probe required schema "table example"',
+      ),
+      { code: "ECONNRESET" },
+    );
+
+    expect(isConnectionError(error)).toBe(true);
+  });
+
   it("classifies Neon connection exhaustion as retryable", async () => {
     const { isConnectionError, isTransientDatabaseError } =
       await import("./client.js");

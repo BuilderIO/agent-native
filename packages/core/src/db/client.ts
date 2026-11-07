@@ -1225,13 +1225,14 @@ const CONNECTION_ERROR_CODES = new Set([
 
 export function isConnectionError(err: any): boolean {
   if (!err) return false;
-  const schemaProbeFailure =
-    /ensureSchemaObject: could not (?:re-)?probe required schema/;
   let current: unknown = err;
   for (let depth = 0; depth < 4 && current; depth++) {
-    const link = current as { message?: unknown; cause?: unknown };
+    const link = current as { schemaProbeFailure?: unknown; cause?: unknown };
     try {
-      if (schemaProbeFailure.test(String(link.message ?? ""))) return false;
+      if (link.schemaProbeFailure === true) return false;
+      // coercion-ok: an unreadable marker must not hide a readable cause.
+    } catch {}
+    try {
       current = link.cause;
     } catch {
       break;
