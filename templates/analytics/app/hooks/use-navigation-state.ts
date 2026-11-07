@@ -11,6 +11,7 @@ interface NavigationState {
   analysisId?: string;
   extensionId?: string;
   recordingId?: string;
+  reportId?: string;
   agentsView?: string;
   dbAdminConnectionId?: string;
   monitoringView?: string;
@@ -73,6 +74,10 @@ export function useNavigationState() {
       } else if (pathname === "/sessions/performance") {
         state.view = "performance";
         state.filters = sessionFilters(searchParams);
+      } else if (pathname.startsWith("/sessions/reports/")) {
+        state.view = "session-report";
+        const match = pathname.match(/^\/sessions\/reports\/([^/]+)/);
+        if (match) state.reportId = decodeURIComponent(match[1]);
       } else if (pathname.startsWith("/sessions/")) {
         state.view = "sessions";
         const match = pathname.match(/\/sessions\/([^/]+)/);
@@ -138,6 +143,8 @@ function commandPathForNavigation(cmd: NavigationState): string {
   if (cmd.view === "sessions" && cmd.recordingId)
     return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
   if (cmd.view === "sessions") return "/sessions";
+  if (cmd.view === "session-report" && cmd.reportId)
+    return `/sessions/reports/${encodeURIComponent(cmd.reportId)}`;
   if (cmd.view === "event-catalog") return "/sessions/events";
   if (cmd.view === "performance") return "/sessions/performance";
   if (

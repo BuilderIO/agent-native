@@ -420,6 +420,38 @@ agent answers about browser recordings in the Analytics template.
   remain. Route validation rejects negative/non-numeric `offset`/`fromMs`/
   `toMs` and `fromMs > toMs` with 400.
 
+## Reports
+
+A report saves what someone found in one session (Sessions triage Lab). The
+session page's Create report asks the agent to write it; the agent saves it
+with `create-session-report`.
+
+- Write it from the session's evidence only: read
+  `get-session-replay-summary` and `get-session-replay-timeline` first. The
+  title names what went wrong in one line; the summary says what happened and
+  why, citing the moments that show it. Key moments use `atMs`, ms after the
+  recording started. Pass `errorIssueId` when the session hit a Monitoring
+  issue. Never pass a commit: the report records the one the session reported.
+- `fromMs` is the moment the person asked from, when the session page was
+  opened at one (`?atMs=`). Start the report there.
+- A new report opens to the maker's organization (private without one).
+  Sharing is the framework `sharing` system (`session-report` type), limited
+  like the recording itself: no public links, and people only within the
+  organization, because a report's agent context carries its replay.
+- Share > Agents makes a report's agent link (`create-agent-resource-link`).
+  It lasts a year, and every read checks that its maker can still open the
+  report, so deleting the report or removing the maker's access ends it.
+  `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
+  returns the report and, under `session`, the replay's full agent context
+  through a fresh two-hour session link. A recording past retention or one the
+  maker lost gives `session: null` with `sessionUnavailable`, never an empty
+  session.
+- The report page's server-rendered HTML advertises that endpoint the same
+  way to every visitor, without the token, so a CDN-cached page still works:
+  the agent adds `agent_access` from the link it was given.
+- A report has no foreign key to its recording, so it outlives replay
+  retention.
+
 ## Dev Tools Panel
 
 - The `/sessions/:recordingId` replay player has a Dev Tools toggle that opens

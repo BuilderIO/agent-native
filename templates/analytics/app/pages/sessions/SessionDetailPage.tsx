@@ -142,6 +142,7 @@ import {
 } from "./SessionDevToolsPanel";
 import { SessionFrictionPanel } from "./SessionFriction";
 import { SessionOutputsButton } from "./SessionOutputs";
+import { SessionReportsButton } from "./SessionReports";
 import { SessionStartTime } from "./SessionStartTime";
 
 export {
@@ -359,6 +360,10 @@ export default function SessionDetailPage() {
           <TooltipProvider>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               <SessionOutputsButton recordingId={recording.id} />
+              <SessionReportsButton
+                recordingId={recording.id}
+                fromMs={initialRecordingOffsetMs}
+              />
               <CopySessionForAgentButton recordingId={recording.id} />
               <AskSessionPopover recording={recording} />
               <AgentToggleButton />

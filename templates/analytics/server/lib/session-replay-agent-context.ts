@@ -979,7 +979,7 @@ function buildReplayKeyMoments(
   };
 }
 
-function replayBuild(recording: SessionRecordingSummary): {
+export function replayBuild(recording: SessionRecordingSummary): {
   commit: string | null;
   latestCommit?: string;
   note?: string;
@@ -1076,14 +1076,16 @@ export function resolveSessionReplayAgentAccess(
   };
 }
 
-export async function createSessionReplayAgentLink({
+/**
+ * A two-hour agent grant for one recording, for someone who can open it now.
+ * Throws a 404 when they can't.
+ */
+export async function createSessionReplayAgentGrant({
   recordingId,
   scope,
-  origin,
 }: {
   recordingId: string;
   scope: ReplayScope;
-  origin?: string;
 }) {
   const recording = await getSessionReplaySummary(recordingId, scope);
   let labEnabled = false;
@@ -1103,6 +1105,20 @@ export async function createSessionReplayAgentLink({
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     ...(labEnabled ? { agentLabel: SESSIONS_TRIAGE_LINK_LABEL } : {}),
   });
+  return { recording, grant, labStateError };
+}
+
+export async function createSessionReplayAgentLink({
+  recordingId,
+  scope,
+  origin,
+}: {
+  recordingId: string;
+  scope: ReplayScope;
+  origin?: string;
+}) {
+  const { recording, grant, labStateError } =
+    await createSessionReplayAgentGrant({ recordingId, scope });
   const resolvedOrigin = appOrigin(origin);
   const basePath = appBasePath();
 

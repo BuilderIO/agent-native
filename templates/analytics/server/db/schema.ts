@@ -1070,6 +1070,31 @@ export const sessionRecordingSessionAssociations = table(
   }),
 );
 
+// recording_id has no foreign key: a report keeps its saved text after
+// replay retention deletes the recording it cites.
+export const sessionReports = table(
+  "session_reports",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    keyMoments: text("key_moments").notNull().default("[]"),
+    reproSteps: text("repro_steps").notNull().default("[]"),
+    errorIssueId: text("error_issue_id"),
+    build: text("build"),
+    fromMs: integer("from_ms"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ...ownableColumns(),
+  },
+  (report) => ({
+    recordingIdx: index("session_reports_recording_idx").on(report.recordingId),
+  }),
+);
+
+export const sessionReportShares = createSharesTable("session_report_shares");
+
 export const sessionReplayChunks = table(
   "session_replay_chunks",
   {
