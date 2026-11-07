@@ -38,36 +38,72 @@ function copyLeavingOut(
   options: CopyFollowingLinksOptions,
   destinations: string[],
 ): void {
-  const top = path.resolve(from);
-  const within = options.within?.map((root) => fs.realpathSync(root));
+  const keep = keepFilter(from, options, destinations);
   fs.cpSync(from, to, {
     recursive: true,
     dereference: true,
-    filter(source) {
-      // The top is copied as given, and an error about it is the caller's.
-      if (path.resolve(source) === top) return true;
-      if (options.skip?.(path.basename(source))) return false;
-      if (!fs.lstatSync(source).isSymbolicLink()) return true;
-      const target = resolveLink(source);
-      if (
-        target === undefined ||
-        destinations.some(
-          (folder) => isInside(folder, target) || isInside(target, folder),
-        )
-      ) {
+    filter: (source) => keep(source),
+  });
+}
+
+/**
+ * The files `copyFollowingLinks` would copy from the folder `from`, as paths
+ * relative to it with `/` between folders, sorted. Reading them through these
+ * paths reads what the copy would hold, so a hash of them changes when a
+ * linked file does.
+ */
+export function listFollowingLinks(
+  from: string,
+  options: CopyFollowingLinksOptions = {},
+): string[] {
+  const keep = keepFilter(from, options, []);
+  const files: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    for (const name of fs.readdirSync(dir)) {
+      const source = path.join(dir, name);
+      if (!keep(source)) continue;
+      const relative = prefix ? `${prefix}/${name}` : name;
+      const stat = fs.statSync(source);
+      if (stat.isDirectory()) walk(source, relative);
+      else if (stat.isFile()) files.push(relative);
+    }
+  };
+  walk(path.resolve(from), "");
+  return files.sort();
+}
+
+// Whether the copy keeps an entry it reaches inside `from`.
+function keepFilter(
+  from: string,
+  options: CopyFollowingLinksOptions,
+  destinations: string[],
+): (source: string) => boolean {
+  const top = path.resolve(from);
+  const within = options.within?.map((root) => fs.realpathSync(root));
+  return (source) => {
+    // The top is copied as given, and an error about it is the caller's.
+    if (path.resolve(source) === top) return true;
+    if (options.skip?.(path.basename(source))) return false;
+    if (!fs.lstatSync(source).isSymbolicLink()) return true;
+    const target = resolveLink(source);
+    if (
+      target === undefined ||
+      destinations.some(
+        (folder) => isInside(folder, target) || isInside(target, folder),
+      )
+    ) {
+      return false;
+    }
+    if (within) {
+      const root = within.find((folder) => isInside(folder, target));
+      if (root === undefined) return false;
+      const skip = options.skip;
+      if (skip && path.relative(root, target).split(path.sep).some(skip)) {
         return false;
       }
-      if (within) {
-        const root = within.find((folder) => isInside(folder, target));
-        if (root === undefined) return false;
-        const skip = options.skip;
-        if (skip && path.relative(root, target).split(path.sep).some(skip)) {
-          return false;
-        }
-      }
-      return !leadsBackIntoCopy(top, source, target);
-    },
-  });
+    }
+    return !leadsBackIntoCopy(top, source, target);
+  };
 }
 
 /**

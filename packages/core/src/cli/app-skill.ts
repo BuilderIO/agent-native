@@ -16,6 +16,7 @@ import {
 } from "./connect.js";
 import {
   linkKind,
+  listFollowingLinks,
   replaceFolder,
   replaceFollowingLinks,
 } from "./copy-following-links.js";
@@ -1022,7 +1023,7 @@ export function exportedSkillContentHash(
   const parts = skills
     .map((skill) => {
       const skillDir = path.join(manifestDir, skill.path);
-      const body = collectSkillFiles(skillDir)
+      const body = collectSkillFiles(manifestDir, skillDir)
         .map(
           (rel) =>
             `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
@@ -1040,21 +1041,17 @@ export function exportedSkillContentHash(
     .slice(0, 12);
 }
 
-function collectSkillFiles(skillDir: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string, prefix: string): void => {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
-      else if (entry.isFile()) out.push(rel);
-    }
-  };
-  walk(skillDir, "");
-  if (out.length === 0) {
+// The files a skill's export holds, with links followed under the rules
+// `copySkill` copies them by, so the version changes when a linked file does.
+function collectSkillFiles(manifestDir: string, skillDir: string): string[] {
+  if (!fs.existsSync(skillDir) || !fs.statSync(skillDir).isDirectory()) {
     return ["SKILL.md"];
   }
-  return out.sort();
+  const files = listFollowingLinks(skillDir, {
+    within: skillLinkRoots(manifestDir),
+    skip: isLeftOutOfPack,
+  });
+  return files.length === 0 ? ["SKILL.md"] : files;
 }
 
 export function resolvePluginVersion(

@@ -17,7 +17,7 @@
  * link choice counts only when it is written as `true`. A copier is found by
  * name, including `fs["cpSync"]` and a name the file gives it by import,
  * destructuring or assignment, as in `import { cpSync as copyTree } from
- * "node:fs"`.
+ * "node:fs"`, and also when it's called through `.call` or `.apply`.
  *
  * `dereference` also needs a `filter`. Without one, Node 24's `cpSync` takes
  * a native shortcut that follows only a link at the top of the copy and copies
@@ -87,11 +87,45 @@ function memberName(node: ts.Expression): string | undefined {
   return undefined;
 }
 
-function isCopier(call: ts.CallExpression, names: Set<string>): boolean {
-  const callee = unwrap(call.expression);
-  if (ts.isIdentifier(callee)) return names.has(callee.text);
-  const member = memberName(callee);
+function isCopier(callee: ts.Expression, names: Set<string>): boolean {
+  const inner = unwrap(callee);
+  if (ts.isIdentifier(inner)) return names.has(inner.text);
+  const member = memberName(inner);
   return member !== undefined && COPIERS.has(member);
+}
+
+// Whether a call is a copy that leaves links to Node's default, also when
+// it's made through `.call` or `.apply`.
+function copyLeavesLinksToDefault(
+  call: ts.CallExpression,
+  names: Set<string>,
+): boolean {
+  const callee = unwrap(call.expression);
+  if (isCopier(callee, names)) {
+    return callLeavesLinksToDefault(call.arguments);
+  }
+  if (
+    !(
+      ts.isPropertyAccessExpression(callee) ||
+      ts.isElementAccessExpression(callee)
+    ) ||
+    !isCopier(callee.expression, names)
+  ) {
+    return false;
+  }
+  const via = memberName(callee);
+  if (via !== "call" && via !== "apply") return false;
+  const [self, ...rest] = call.arguments;
+  // A spread in place of `this` could hold the copy's arguments too.
+  if (self !== undefined && ts.isSpreadElement(self)) return true;
+  if (via === "call") return callLeavesLinksToDefault(rest);
+  if (rest.length === 0) return false;
+  const list = unwrap(rest[0]);
+  // A list the guard can't read could hold any options.
+  return (
+    !ts.isArrayLiteralExpression(list) ||
+    callLeavesLinksToDefault(list.elements)
+  );
 }
 
 // `cp` and `cpSync`, plus any other name this file gives them, as in
@@ -166,7 +200,7 @@ function propertyName(name: ts.PropertyName): string | undefined {
 
 // Arguments spread into the call before the options could hold them, so
 // they count as options the guard can't read.
-function callLeavesLinksToDefault(args: ts.NodeArray<ts.Expression>): boolean {
+function callLeavesLinksToDefault(args: readonly ts.Expression[]): boolean {
   const spread = args.findIndex((arg) => ts.isSpreadElement(arg));
   if (spread !== -1 && spread <= 2) return true;
   return args.length >= 2 && leavesLinksToDefault(args[2]);
@@ -257,11 +291,7 @@ export function findRecursiveCopies(
   const names = copierNames(sourceFile);
 
   const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      isCopier(node, names) &&
-      callLeavesLinksToDefault(node.arguments)
-    ) {
+    if (ts.isCallExpression(node) && copyLeavesLinksToDefault(node, names)) {
       const start =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
           .line + 1;

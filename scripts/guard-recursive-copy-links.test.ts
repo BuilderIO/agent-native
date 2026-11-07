@@ -69,6 +69,22 @@ describe("recursive copy links guard", () => {
     assert.deepEqual(flagged(source), [1, 3, 4, 5]);
   });
 
+  it("flags a copy made through call or apply", () => {
+    const source = [
+      "fs.cpSync.call(fs, src, dest, { recursive: true });",
+      "fs.cpSync.apply(fs, [src, dest, { recursive: true }]);",
+      "fs.cpSync.apply(fs, copyArgs);",
+      "fs.cpSync.call(...callArgs);",
+      "const copyTree = fs.cpSync;",
+      'copyTree["call"](fs, src, dest, { recursive: true });',
+      "fs.cpSync.call(fs, src, dest, { recursive: true, verbatimSymlinks: true });",
+      "fs.cpSync.apply(fs, [src, dest]);",
+      "fs.readFileSync.call(fs, src, { recursive: true });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [1, 2, 3, 4, 6]);
+  });
+
   it("accepts a copy that chooses dereference or verbatimSymlinks", () => {
     const source = [
       "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: () => true });",

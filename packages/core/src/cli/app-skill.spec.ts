@@ -422,6 +422,27 @@ describe("app skill packaging", () => {
     expect(first).not.toBe(second);
   });
 
+  it("changes the plugin version when a file linked into a skill changes", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const shared = path.join(root, "shared");
+    fs.mkdirSync(shared);
+    fs.writeFileSync(path.join(shared, "notes.md"), "first\n", "utf-8");
+    fs.symlinkSync(
+      shared,
+      path.join(root, ".agents", "skills", "asset-generation", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    fs.writeFileSync(path.join(shared, "notes.md"), "second\n", "utf-8");
+    const second = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
+  });
+
   it("pack still includes alias names in the output .mcp.json for backward compat", async () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
