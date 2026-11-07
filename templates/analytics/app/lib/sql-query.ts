@@ -12,8 +12,9 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
+import type { TrafficEnvironment } from "@shared/traffic-environment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -44,6 +45,14 @@ export interface SqlQueryResult extends Omit<
   /** Bytes this request scanned, present only when both cache layers missed. */
   bytesRead?: number;
 }
+
+/**
+ * The traffic a dashboard is showing. Its charts, drilldowns and row breakdowns
+ * all read it here, so none of them can show a number from different traffic.
+ */
+export const TrafficEnvironmentContext = createContext<
+  TrafficEnvironment | undefined
+>(undefined);
 
 /** Why a query runs; the server applies the matching billed-byte cap. */
 export type SqlQueryPurpose = "row-breakdown" | "panel-drilldown";
@@ -233,6 +242,7 @@ export async function executeSqlQuery(
     reportScreenshot?: boolean;
     forceRefresh?: boolean;
     purpose?: SqlQueryPurpose;
+    environment?: TrafficEnvironment;
   },
 ): Promise<SqlQueryResult> {
   const startedAt = performance.now();
@@ -261,6 +271,7 @@ export async function executeSqlQuery(
         source,
         ...(forceRefresh ? { forceRefresh: true } : {}),
         ...(options?.purpose ? { purpose: options.purpose } : {}),
+        ...(options?.environment ? { environment: options.environment } : {}),
       },
       {
         signal: deadline.signal,
@@ -420,7 +431,10 @@ export function useSqlQuery(
   const accountScope = sessionReady
     ? dashboardCacheScope(session)
     : DASHBOARD_SESSION_LOADING_SCOPE;
-  const scopedQueryKey = [...queryKey, accountScope];
+  const dashboardTraffic = useContext(TrafficEnvironmentContext);
+  const environment = source === "first-party" ? dashboardTraffic : undefined;
+  const trafficKey = environment ? [environment] : [];
+  const scopedQueryKey = [...queryKey, ...trafficKey, accountScope];
   const retainScope = options?.retainPreviousScope;
   const queryKeyHash = JSON.stringify(scopedQueryKey);
   const lastShown = useRef<{
@@ -472,7 +486,7 @@ export function useSqlQuery(
   }
   const previousRefreshToken = useRef(refreshToken);
   const previousEnabled = useRef(enabled);
-  const snapshotKey = JSON.stringify([queryKey, sql, source]);
+  const snapshotKey = JSON.stringify([queryKey, sql, source, ...trafficKey]);
   const restoredCopy = useRef<{
     id: string;
     result: SqlQueryResult | null;
@@ -493,6 +507,7 @@ export function useSqlQuery(
           reportScreenshot: options?.reportScreenshot,
           forceRefresh,
           ...(options?.purpose ? { purpose: options.purpose } : {}),
+          ...(environment ? { environment } : {}),
         });
       } catch (error) {
         if (isSqlQueryAccessDenied(error)) {

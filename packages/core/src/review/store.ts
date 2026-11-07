@@ -601,26 +601,67 @@ export async function releaseReviewNotificationDelivery(
   });
 }
 
+/** A reply's thread has no live first comment on the resource. */
+export class ReviewThreadNotFoundError extends Error {
+  constructor() {
+    super("Open review thread not found");
+    this.name = "ReviewThreadNotFoundError";
+  }
+}
+
+/** A reply's thread is there but resolved. */
+export class ReviewThreadNotOpenError extends Error {
+  constructor() {
+    super("Review thread is not open");
+    this.name = "ReviewThreadNotOpenError";
+  }
+}
+
+/** A retried submission's comment saved, then was deleted. */
+export class ReviewCommentDeletedError extends Error {
+  constructor() {
+    super("Review comment was deleted");
+    this.name = "ReviewCommentDeletedError";
+  }
+}
+
 /**
- * A reply needs a live root. The root row is held `FOR SHARE`, which inside a
- * transaction makes a concurrent thread delete wait for the reply and then see
- * it, or makes the reply see the delete and refuse. Outside one the lock lasts
- * only as long as the read.
+ * A reply needs a live, open root. A root's thread isn't always its own id (a
+ * suggestion's correction comment opens one of its own), so the roots are found
+ * by thread, as a thread delete finds them. They're held `FOR SHARE` in id
+ * order, the order a delete or a resolve takes them `FOR UPDATE`, which inside
+ * a transaction makes a concurrent delete or resolve wait for the reply and
+ * then see it, or makes the reply see the change and refuse. Outside one the
+ * lock lasts only as long as the read. A retry of a reply that already saved,
+ * named by `replyId`, still goes through in a thread resolved since, so it can
+ * replay.
  */
 async function assertLiveReviewRoot(
   client: DbExec,
   threadId: string,
   resource: { resourceType: string; resourceId: string },
+  replyId?: string,
 ): Promise<void> {
   // raw-sql-ok: the statement is constant text; the ids are bound.
   const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_review_comments
-           WHERE id = ? AND resource_type = ? AND resource_id = ?
+    sql: `SELECT id, status FROM agent_review_comments
+           WHERE thread_id = ? AND resource_type = ? AND resource_id = ?
              AND parent_comment_id IS NULL AND deleted_at IS NULL
+           ORDER BY id
            FOR SHARE`,
     args: [threadId, resource.resourceType, resource.resourceId],
   });
-  if (rows.length === 0) throw new Error("Open review thread not found");
+  if (rows.length === 0) throw new ReviewThreadNotFoundError();
+  if (rows.some((row) => row.status === "open")) return;
+  if (replyId) {
+    // raw-sql-ok: the statement is constant text; the id is bound.
+    const saved = await client.execute({
+      sql: `SELECT id FROM agent_review_comments WHERE id = ?`,
+      args: [replyId],
+    });
+    if (saved.rows.length > 0) return;
+  }
+  throw new ReviewThreadNotOpenError();
 }
 
 /**
@@ -671,7 +712,7 @@ export async function insertReviewReply(
         resource,
       );
       if (routedCount < 1) {
-        throw new Error("Open review thread not found");
+        throw new ReviewThreadNotFoundError();
       }
     }
     return insertReviewCommentWithClient(input, tx);
@@ -690,7 +731,7 @@ export async function insertReviewReply(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return reply;
   } catch (error) {
     await client.execute({
@@ -718,7 +759,7 @@ export async function insertReviewReplyIdempotently(
     // comments in a thread delete's order before it changes them.
     if (routeTarget) await lockReviewThreadRoots(tx, input.threadId, resource);
     // raw-sql-ok: the helper's statement is constant text; the ids are bound.
-    await assertLiveReviewRoot(tx, input.threadId, resource);
+    await assertLiveReviewRoot(tx, input.threadId, resource, input.id);
     const result = await insertReviewCommentIdempotentlyWithClient(
       { ...input, replyRouteTarget: routeTarget },
       tx,
@@ -733,14 +774,14 @@ export async function insertReviewReplyIdempotently(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return result;
   };
   if (client.transaction) return client.transaction(insertAndRoute);
   assertReviewWriteCanRollBack(resource.resourceType);
 
   // raw-sql-ok: the helper's statement is constant text; the ids are bound.
-  await assertLiveReviewRoot(client, input.threadId, resource);
+  await assertLiveReviewRoot(client, input.threadId, resource, input.id);
   const result = await insertReviewCommentIdempotentlyWithClient(
     { ...input, replyRouteTarget: routeTarget },
     client,
@@ -756,7 +797,7 @@ export async function insertReviewReplyIdempotently(
       routeTarget,
       resource,
     );
-    if (routedCount < 1) throw new Error("Open review thread not found");
+    if (routedCount < 1) throw new ReviewThreadNotFoundError();
     return result;
   } catch (error) {
     await client.execute({
@@ -1091,6 +1132,8 @@ function assertMatchingReviewCommentReceipt(
   existing: ReviewComment,
   submitted: ReviewComment,
 ) {
+  // Deleting a comment clears fields compared below, so a retry can't match.
+  if (existing.status === "deleted") throw new ReviewCommentDeletedError();
   const immutableFields: (keyof ReviewComment)[] = [
     "id",
     "resourceType",

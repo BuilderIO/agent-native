@@ -138,6 +138,56 @@ describe("fetchReportPanelData", () => {
     expect(data.get("empty")).toEqual({ status: "rows", rows: [], schema: [] });
   });
 
+  it("reads only the traffic the report saved, never the dashboard's default", async () => {
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "production" },
+      },
+    });
+    expect(mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0]).toMatchObject({
+      trafficEnvironment: "production",
+    });
+
+    await fetchReportPanelData({ ...owner, snapshot: snapshotOf(panels) });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "all" },
+      },
+    });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+  });
+
+  it("fails a report saved with a traffic value the filter doesn't offer", async () => {
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    const data = await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "staging" },
+      },
+    });
+
+    expect(data.get("signups")).toMatchObject({ status: "query-failed" });
+    expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
+  });
+
   it("maps a missing-credential response to its own status", async () => {
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({
       error: "missing_api_key",
