@@ -1532,6 +1532,36 @@ describe("review writes on a client without transactions", () => {
     ).toBe("open");
   });
 
+  it("checks a write that names no resource against its own", async () => {
+    const hooked = await insertReviewComment({
+      resourceType: "hooked-doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    const plain = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite: vi.fn() });
+
+    await expect(resolveReviewThread(hooked.threadId, null)).rejects.toThrow(
+      "no transactions",
+    );
+    await expect(
+      updateReviewComment(hooked.id, { body: "Edited" }),
+    ).rejects.toThrow("no transactions");
+    expect(
+      await getReviewCommentById(hooked.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "open", body: "Review" });
+
+    // Another resource's hook doesn't stop this one's writes.
+    await expect(resolveReviewThread(plain.threadId, null)).resolves.toBe(1);
+    await expect(
+      updateReviewComment(plain.id, { body: "Edited" }),
+    ).resolves.toMatchObject({ body: "Edited", status: "resolved" });
+  });
+
   it("refuses an edit whose revision changed after it was read", async () => {
     const comment = await insertReviewComment({
       resourceType: "doc",

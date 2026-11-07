@@ -15,7 +15,6 @@ import {
 } from "./errors.js";
 import {
   hasReviewCommentWriteHook,
-  listReviewableResources,
   normalizeReviewAnchor,
   runReviewCommentWriteHook,
 } from "./registry.js";
@@ -483,7 +482,7 @@ export async function filterUnmutedReviewThreadRecipients(
  * commits or rolls back with it. Pass the resource type when it's known.
  */
 function inReviewWrite<T>(
-  resourceType: string | undefined,
+  resourceType: string,
   write: (tx: DbExec) => Promise<T>,
 ): Promise<T> {
   const client = getDbExec();
@@ -495,16 +494,12 @@ function inReviewWrite<T>(
 /**
  * A write hook refuses a write by throwing, which only a transaction can
  * undo. Every client core ships has transactions; one without them, such as a
- * test double, is refused a hooked write before anything changes. With no
- * resource type to check, any registered hook counts.
+ * test double, is refused a write to a hooked resource before anything
+ * changes. A write that names no resource is checked against the resources
+ * it would touch, read first, so another resource's hook doesn't refuse it.
  */
-function assertReviewWriteCanRollBack(resourceType: string | undefined): void {
-  const hooked = resourceType
-    ? hasReviewCommentWriteHook(resourceType)
-    : listReviewableResources().some((resource) =>
-        Boolean(resource.onCommentWrite),
-      );
-  if (hooked) {
+function assertReviewWriteCanRollBack(...resourceTypes: string[]): void {
+  if (resourceTypes.some((type) => hasReviewCommentWriteHook(type))) {
     throw new Error(
       "This database client has no transactions, so it can't run a comment write that has a write hook.",
     );
@@ -1683,8 +1678,27 @@ export async function resolveReviewThread(
       status,
     );
   if (client.transaction) return client.transaction(resolve);
-  assertReviewWriteCanRollBack(resource?.resourceType);
+  assertReviewWriteCanRollBack(
+    ...(resource
+      ? [resource.resourceType]
+      : await getReviewThreadResourceTypes(client, threadId)),
+  );
   return resolve(client);
+}
+
+/** The resources a thread's live comments sit on; a thread ID can repeat. */
+async function getReviewThreadResourceTypes(
+  client: DbExec,
+  threadId: string,
+): Promise<string[]> {
+  const { rows } = await client.execute(
+    sql`SELECT DISTINCT resource_type
+       FROM agent_review_comments
+      WHERE thread_id = ${sql.value(threadId)} AND deleted_at IS NULL`,
+  );
+  return rows.map((row) =>
+    String((row as { resource_type: unknown }).resource_type),
+  );
 }
 
 export async function resolveReviewThreadWithClient(
@@ -2264,9 +2278,15 @@ export async function updateReviewComment(
   options: ReviewCommentWriteOptions = {},
 ): Promise<ReviewComment | null> {
   await ensureReviewTables();
-  return inReviewWrite(resource?.resourceType, (tx) =>
-    writeReviewCommentChange(tx, id, input, resource, options),
-  );
+  const client = getDbExec();
+  const write = (tx: DbExec) =>
+    writeReviewCommentChange(tx, id, input, resource, options);
+  if (client.transaction) return client.transaction(write);
+  // A comment's resource never changes, so it can be read ahead of the edit.
+  const resourceType =
+    resource?.resourceType ?? (await getReviewCommentResourceType(client, id));
+  if (resourceType !== null) assertReviewWriteCanRollBack(resourceType);
+  return write(client);
 }
 
 export async function consumeReviewFeedback(
