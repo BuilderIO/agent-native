@@ -37,6 +37,8 @@ export interface SkillChoicesState {
   isError: boolean;
   /** For admins: how many people chose each way. Null until it loads. */
   counts: SkillChoiceCounts | null;
+  /** For admins: fetch the counts again, as before asking about Required. */
+  refreshCounts: () => void;
   /** Rejects when the server refused; the switch goes back. */
   setSwitch: (source: SkillSource, path: string, on: boolean) => Promise<void>;
   /** Rejects when the server refused; the mark goes back. */
@@ -141,6 +143,10 @@ export function useSkillChoices(
     [saveMarkAsync, settle],
   );
 
+  const refreshCounts = useCallback(() => {
+    if (canMark) void refetchCounts();
+  }, [canMark, refetchCounts]);
+
   const data = query.data;
   const choices = useMemo<SkillChoices>(() => {
     if (!data) return NO_SKILL_CHOICES;
@@ -158,6 +164,7 @@ export function useSkillChoices(
     isLoaded: data !== undefined,
     isError: query.isError,
     counts: countsQuery.data ?? null,
+    refreshCounts,
     setSwitch,
     setMark,
   };

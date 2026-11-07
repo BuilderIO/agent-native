@@ -29,6 +29,7 @@ vi.mock(
       isLoaded: true,
       isError: false,
       counts: null,
+      refreshCounts: () => {},
       setSwitch: skillChoices.setSwitch,
       setMark: skillChoices.setMark,
       ...skillChoices.value,
@@ -524,6 +525,7 @@ describe("Skills page", () => {
           },
         },
       },
+      refreshCounts: () => {},
       setSwitch: skillChoices.setSwitch,
       setMark: skillChoices.setMark,
     };

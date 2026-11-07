@@ -244,7 +244,11 @@ export function ResourceSettingsGroups({
       orgName,
       dispatchNames,
       requiredPaths,
-      onRequire: setRequiring,
+      // The dialog says whom Required changes, so it asks for fresh counts.
+      onRequire: (skill) => {
+        skillChoices.refreshCounts();
+        setRequiring(skill);
+      },
     }),
     [dispatchNames, orgName, requiredPaths, skillChoices],
   );

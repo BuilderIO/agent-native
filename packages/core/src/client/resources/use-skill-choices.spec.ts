@@ -121,6 +121,20 @@ describe("useSkillChoices", () => {
     expect(state.counts).toEqual({ members: 3, counts: {} });
   });
 
+  it("fetches the counts again on request, for an admin only", async () => {
+    await render();
+    act(() => state.refreshCounts());
+    expect(mocks.refetchCounts).not.toHaveBeenCalled();
+
+    act(() => root?.unmount());
+    container?.remove();
+    mocks.answer = { switches: {}, marks: {}, canMark: true };
+    await render();
+    act(() => state.refreshCounts());
+    expect(mocks.refetchCounts).toHaveBeenCalledTimes(1);
+    expect(mocks.refetch).not.toHaveBeenCalled();
+  });
+
   it("loads nothing until someone is signed in, or when turned off", async () => {
     mocks.session = "loading";
     mocks.answer = undefined;
