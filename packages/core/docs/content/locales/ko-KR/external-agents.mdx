@@ -137,7 +137,7 @@ Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok, 기타용 호스트�
 
 커넥터를 다시 설치하거나 공개 공유 링크를 변경해도 확인된 연결 계정의 권한 거부는 해결되지 않습니다.
 
-비공개 문서에 업로드한 이미지는 본문에 `/api/private-media/<id>` 링크로 저장되며, Content에 로그인한 경우에만 불러올 수 있습니다. 에이전트가 MCP로 문서를 읽으면 `get-document`와 `pull-document`가 `privateMediaLinks`도 반환합니다. 저장된 각 링크와, 해당 이미지 한 장을 로그인 없이 1시간 동안 열 수 있는 URL의 쌍입니다. 새 링크가 필요하면 문서를 다시 읽으세요. 본문을 편집할 때는 저장된 링크를 그대로 유지하세요.
+비공개 문서에 업로드한 이미지는 본문에 `/api/private-media/<id>` 링크로 저장되며, Content에 로그인한 경우에만 불러올 수 있습니다. 에이전트가 MCP로 문서를 읽으면 `get-document`와 Markdown 형식의 `pull-document`가 `privateMediaLinks`도 반환합니다. 저장된 각 링크와, 해당 이미지 한 장을 로그인 없이 1시간 동안 열 수 있는 URL의 쌍입니다. 한 번 읽을 때 링크는 최대 200개 이미지까지 제공되며, 나머지 수는 `omitted`에 담깁니다. 새 링크가 필요하면 문서를 다시 읽으세요. 본문을 편집할 때는 저장된 링크를 그대로 유지하세요.
 
 <a id="access-tab"></a>
 

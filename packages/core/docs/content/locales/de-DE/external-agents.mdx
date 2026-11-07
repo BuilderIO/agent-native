@@ -138,7 +138,7 @@ Die Authentifizierung identifiziert das verbundene Konto und erweitert dessen Do
 
 Eine Neuinstallation der Verbindung oder eine Änderung des öffentlichen Freigabelinks behebt keine bestätigte Berechtigungsverweigerung für das verbundene Konto.
 
-In ein privates Dokument hochgeladene Bilder stehen im Text als `/api/private-media/<id>`-Links, die nur mit einer Content-Anmeldung laden. Liest ein Agent das Dokument über MCP, geben `get-document` und `pull-document` zusätzlich `privateMediaLinks` zurück: jeden gespeicherten Link zusammen mit einer URL, die genau dieses Bild eine Stunde lang ohne Anmeldung öffnet. Für neue Links das Dokument erneut lesen. Beim Bearbeiten des Textes die gespeicherten Links beibehalten.
+In ein privates Dokument hochgeladene Bilder stehen im Text als `/api/private-media/<id>`-Links, die nur mit einer Content-Anmeldung laden. Liest ein Agent das Dokument über MCP, geben `get-document` und, im Markdown-Format, `pull-document` zusätzlich `privateMediaLinks` zurück: jeden gespeicherten Link zusammen mit einer URL, die genau dieses Bild eine Stunde lang ohne Anmeldung öffnet. Ein Lesevorgang verlinkt höchstens 200 Bilder; `omitted` zählt die übrigen. Für neue Links das Dokument erneut lesen. Beim Bearbeiten des Textes die gespeicherten Links beibehalten.
 
 <a id="access-tab"></a>
 

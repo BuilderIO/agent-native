@@ -137,7 +137,7 @@ https://<your-app>.agent-native.com/mcp
 
 重新安裝連接器或變更公開分享連結，無法解決已確認的已連線帳戶權限遭拒問題。
 
-上傳到非公開文件的圖片會以 `/api/private-media/<id>` 連結的形式儲存在內文中，只有登入 Content 後才能載入。代理程式透過 MCP 讀取文件時，`get-document` 和 `pull-document` 也會回傳 `privateMediaLinks`：每個已儲存的連結，以及一個不需登入即可在一小時內開啟該圖片的 URL。需要新連結時請重新讀取文件。編輯內文時請保留已儲存的連結。
+上傳到非公開文件的圖片會以 `/api/private-media/<id>` 連結的形式儲存在內文中，只有登入 Content 後才能載入。代理程式透過 MCP 讀取文件時，`get-document` 和 Markdown 格式的 `pull-document` 也會回傳 `privateMediaLinks`：每個已儲存的連結，以及一個不需登入即可在一小時內開啟該圖片的 URL。一次讀取最多為 200 張圖片提供連結，其餘數量記在 `omitted` 中。需要新連結時請重新讀取文件。編輯內文時請保留已儲存的連結。
 
 <a id="access-tab"></a>
 

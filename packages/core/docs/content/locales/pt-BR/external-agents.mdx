@@ -137,7 +137,7 @@ A autenticação identifica a conta conectada e não amplia suas permissões. Um
 
 Reinstalar o conector ou alterar o link de compartilhamento público não resolve uma negação de permissão confirmada da conta conectada.
 
-Imagens enviadas para um documento privado ficam no corpo como links `/api/private-media/<id>`, que só carregam com uma sessão do Content. Quando um agente lê o documento por MCP, `get-document` e `pull-document` também retornam `privateMediaLinks`: cada link salvo junto com uma URL que abre essa imagem sem login por uma hora. Leia o documento de novo para obter links novos. Mantenha os links salvos ao editar o corpo.
+Imagens enviadas para um documento privado ficam no corpo como links `/api/private-media/<id>`, que só carregam com uma sessão do Content. Quando um agente lê o documento por MCP, `get-document`, e `pull-document` em Markdown, também retornam `privateMediaLinks`: cada link salvo junto com uma URL que abre essa imagem sem login por uma hora. Uma leitura gera links para no máximo 200 imagens; `omitted` conta as demais. Leia o documento de novo para obter links novos. Mantenha os links salvos ao editar o corpo.
 
 <a id="access-tab"></a>
 

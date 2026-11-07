@@ -494,6 +494,22 @@ describe("private media references", () => {
     }
   });
 
+  it("says how many images got no link when a page has more than 200", async () => {
+    const ids = Array.from({ length: 201 }, () => mediaId());
+    const page = await document({ content: body(...ids) });
+    await db
+      .insert(schema.privateMediaReferences)
+      .values(ids.map((id) => ({ documentId: page, mediaId: id })));
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: page }, { caller: "mcp" }),
+    );
+    expect(result.privateMediaLinks?.links).toHaveLength(200);
+    expect(result.privateMediaLinks?.links[199]?.src).toBe(
+      `/api/private-media/${ids[199]}`,
+    );
+    expect(result.privateMediaLinks?.omitted).toBe(1);
+  });
+
   it("gives image links to an agent reading a private page by its share link", async () => {
     const id = mediaId();
     await uploaded(id, OWNER);

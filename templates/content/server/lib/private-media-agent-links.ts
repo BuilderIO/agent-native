@@ -46,6 +46,8 @@ export interface PrivateMediaAgentLinks {
   expiresAt: string;
   /** Each private image the page shows, by the link its body stores. */
   links: Array<{ src: string; url: string }>;
+  /** How many more of its images got no link: one read links at most 200. */
+  omitted?: number;
 }
 
 export function readsWithoutSessionCookie(
@@ -67,10 +69,7 @@ export async function privateMediaAgentLinks(input: {
   content: string | null | undefined;
   origin?: string;
 }): Promise<PrivateMediaAgentLinks | undefined> {
-  const ids = [...privateMediaIdsInContent(input.content ?? "")].slice(
-    0,
-    MAX_AGENT_LINKS,
-  );
+  const ids = [...privateMediaIdsInContent(input.content ?? "")];
   if (ids.length === 0) return undefined;
   const rows = await getDb()
     .select({ mediaId: schema.privateMediaReferences.mediaId })
@@ -88,31 +87,32 @@ export async function privateMediaAgentLinks(input: {
       ),
     );
   const bound = new Set(rows.map((row) => row.mediaId));
-  if (bound.size === 0) return undefined;
+  const shown = ids.filter((id) => bound.has(id));
+  if (shown.length === 0) return undefined;
+  const linked = shown.slice(0, MAX_AGENT_LINKS);
   const origin = input.origin ?? getRequestContext()?.requestOrigin;
   const basePath = getConfiguredAppBasePath();
   const expiresAt = new Date(
     Date.now() + PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS * 1000,
   ).toISOString();
-  const links = ids
-    .filter((id) => bound.has(id))
-    .map((id) => {
-      const { token } = createScopedAgentAccessGrant({
-        resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
-        resourceId: id,
-        ttlSeconds: PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS,
-      });
-      return {
-        src: privateMediaPath(id),
-        url: buildAgentAccessUrl({
-          path: privateMediaPath(id),
-          token,
-          origin,
-          basePath,
-        }),
-      };
+  const links = linked.map((id) => {
+    const { token } = createScopedAgentAccessGrant({
+      resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
+      resourceId: id,
+      ttlSeconds: PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS,
     });
-  return { expiresAt, links };
+    return {
+      src: privateMediaPath(id),
+      url: buildAgentAccessUrl({
+        path: privateMediaPath(id),
+        token,
+        origin,
+        basePath,
+      }),
+    };
+  });
+  const omitted = shown.length - linked.length;
+  return { expiresAt, links, ...(omitted > 0 ? { omitted } : {}) };
 }
 
 /** True when `token` is an unexpired agent link to this image. */
