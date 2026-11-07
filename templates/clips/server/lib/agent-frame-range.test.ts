@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -106,6 +107,25 @@ describe("recording range broker", () => {
     expect(canceled).toBe(true);
   });
 
+  it("drains a pending upstream rejection after broker cleanup starts without poisoning health", async () => {
+    let rejectRange: ((error: Error) => void) | undefined;
+    let count = 0;
+    const media = await openAgentFrameRange(async () => {
+      if (++count === 1) return response(Buffer.from("a"), "bytes 0-0/4");
+      return await new Promise<Response>((_resolve, reject) => {
+        rejectRange = reject;
+      });
+    }, "mov");
+    const request = fetch(media.path).catch(() => null);
+    while (!rejectRange) await new Promise((resolve) => setImmediate(resolve));
+    const cleanup = media.cleanup();
+    rejectRange(new Error("late upstream failure"));
+    await cleanup;
+    await request;
+    await expect(media.remote.assertHealthy()).resolves.toBeUndefined();
+    await expect(fetch(media.path)).rejects.toThrow();
+  });
+
   it("cancels an active upstream body on unexpected client disconnect and closes the broker", async () => {
     let count = 0;
     let started!: () => void;
@@ -196,6 +216,60 @@ describe("recording range broker", () => {
     } finally {
       await first.cleanup();
       await second.cleanup();
+    }
+  });
+
+  it("keeps a completed frame when a pending range rejects after FFmpeg disconnects", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-range-disconnect-"));
+    const previous = process.env.FFMPEG_PATH;
+    let rejectRange: ((error: Error) => void) | undefined;
+    try {
+      const command = join(dir, "ffmpeg");
+      const marker = join(dir, "disconnected");
+      await writeFile(
+        command,
+        `#!/usr/bin/env node\nconst http = require('node:http');\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst input = args[args.indexOf('-i') + 1];\nhttp.get(input, res => { let n = 0; res.on('data', chunk => { n += chunk.length; if (n >= 1048576) { res.destroy(); fs.writeFileSync(args[args.length - 1], Buffer.from([255,216,255,217])); fs.writeFileSync(${JSON.stringify(marker)}, 'done'); process.exit(0); } }); });\n`,
+      );
+      await chmod(command, 0o755);
+      process.env.FFMPEG_PATH = command;
+      let count = 0;
+      const total = 2 * 1024 * 1024;
+      const media = await openAgentFrameRange(async () => {
+        count++;
+        if (count === 1)
+          return response(Buffer.from("a"), `bytes 0-0/${total}`);
+        if (count === 2)
+          return response(
+            Buffer.alloc(1024 * 1024),
+            `bytes 0-1048575/${total}`,
+          );
+        return await new Promise<Response>((_resolve, reject) => {
+          rejectRange = reject;
+        });
+      }, "mov");
+      try {
+        const result = extractJpegFrameFromFile({
+          mediaPath: media.path,
+          atMs: 0,
+          remote: media.remote,
+        });
+        while (!rejectRange || !existsSync(marker))
+          await new Promise((resolve) => setImmediate(resolve));
+        expect((await fetch(`${media.path}-wrong`)).status).toBe(404);
+        await new Promise((resolve) => setImmediate(resolve));
+        rejectRange(new Error("late upstream failure"));
+        expect(Buffer.from(await result)).toEqual(
+          Buffer.from([255, 216, 255, 217]),
+        );
+        await expect(media.remote.assertHealthy()).resolves.toBeUndefined();
+      } finally {
+        rejectRange?.(new Error("test cleanup"));
+        await media.cleanup();
+      }
+    } finally {
+      if (previous === undefined) delete process.env.FFMPEG_PATH;
+      else process.env.FFMPEG_PATH = previous;
+      await rm(dir, { recursive: true, force: true });
     }
   });
 

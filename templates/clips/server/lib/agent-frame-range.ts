@@ -76,6 +76,7 @@ export async function openAgentFrameRange(
   };
   const timer = setTimeout(
     () => {
+      if (closed) return;
       fail("Recording range deadline exceeded.", 504);
       cancelReaders();
       for (const socket of sockets) socket.destroy();
@@ -83,7 +84,14 @@ export async function openAgentFrameRange(
     Math.max(0, deadline - Date.now()),
   );
 
+  function assertActive(signal: AbortSignal): void {
+    if (closed || signal.aborted) {
+      throw new Error("Recording range client disconnected.");
+    }
+  }
+
   async function read(start: number, end: number, signal: AbortSignal) {
+    assertActive(signal);
     const length = end - start + 1;
     if (++rangeCount > MAX_RANGES || totalBytes + length > MAX_TOTAL_BYTES) {
       throw fail("Recording range budget exceeded.", 413);
@@ -96,6 +104,7 @@ export async function openAgentFrameRange(
         Math.min(remaining(), MAX_HEADER_WAIT_MS),
       );
     } catch (error) {
+      assertActive(signal);
       const safe = sanitizeRecordingMediaError(error);
       failure ??= safe;
       throw safe;
@@ -121,14 +130,15 @@ export async function openAgentFrameRange(
       (identity && (identity.etag !== etag || identity.size !== size)) ||
       !response.body
     ) {
+      const status = [401, 403, 404, 410, 413, 504].includes(response.status)
+        ? response.status
+        : 502;
+      const error =
+        response.status !== 206
+          ? fail("Recording storage returned an invalid range.", status)
+          : fail("Recording storage returned an inconsistent range.");
       await response.body?.cancel().catch(() => {});
-      if (response.status !== 206) {
-        const status = [401, 403, 404, 410, 413, 504].includes(response.status)
-          ? response.status
-          : 502;
-        throw fail("Recording storage returned an invalid range.", status);
-      }
-      throw fail("Recording storage returned an inconsistent range.");
+      throw error;
     }
     identity ??= { etag, size };
     const reader = response.body.getReader();
@@ -142,15 +152,18 @@ export async function openAgentFrameRange(
     let received = 0;
     try {
       while (true) {
+        assertActive(signal);
         remaining();
         let result: ReadableStreamReadResult<Uint8Array>;
         try {
           result = await reader.read();
         } catch (error) {
+          assertActive(signal);
           const safe = sanitizeRecordingMediaError(error);
           failure ??= safe;
           throw safe;
         }
+        assertActive(signal);
         const { done, value } = result;
         if (done) break;
         received += value.byteLength;
@@ -158,8 +171,7 @@ export async function openAgentFrameRange(
           throw fail("Recording storage returned an oversized range.");
         chunks.push(Buffer.from(value));
       }
-      if (closed || signal.aborted)
-        throw new Error("Recording range client disconnected.");
+      assertActive(signal);
       remaining();
       if (received !== length)
         throw fail("Recording storage returned a truncated range.");
@@ -178,6 +190,10 @@ export async function openAgentFrameRange(
     const size = identity.size;
     const path = `/${randomBytes(32).toString("hex")}`;
     const server = createServer((request, response) => {
+      if (closed || request.socket.destroyed || response.destroyed) {
+        response.destroy();
+        return;
+      }
       if (request.url !== path || request.method !== "GET") {
         response.writeHead(404).end();
         return;
