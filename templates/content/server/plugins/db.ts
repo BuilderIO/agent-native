@@ -1658,6 +1658,19 @@ export const runContentMigrations = runMigrations(
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
+    {
+      version: 135,
+      name: "content-private-media-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_media_references (
+        media_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_media_reference_unique
+        ON content_private_media_references (document_id, media_id);
+      CREATE INDEX IF NOT EXISTS content_private_media_reference_media_idx
+        ON content_private_media_references (media_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

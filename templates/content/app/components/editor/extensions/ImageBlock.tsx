@@ -56,6 +56,7 @@ import {
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId } from "../image-upload";
+import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import { useEditorEditable } from "../useEditorEditable";
 import type { ContentImageOptions } from "./ImageNode";
@@ -309,7 +310,7 @@ async function copyImage(
     ]);
     toast.success(copy.copied);
   } catch {
-    if (await writeClipboardText(src)) {
+    if (await writeClipboardText(new URL(src, window.location.href).href)) {
       toast.info(copy.urlCopied);
     } else {
       toast.error(copy.failed);
@@ -532,6 +533,7 @@ export function ImageBlock({
   const editorEditable = useEditorEditable(editor);
   const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
+  const displaySrc = imageDisplaySrc(src);
   const alt = (node.attrs.alt as string) || "";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
     "image-upload-",
@@ -557,12 +559,12 @@ export function ImageBlock({
     const probe = new Image();
     probe.onload = () => setFailure(null);
     probe.onerror = () => setFailure({ src, ownLoad: true });
-    probe.src = src;
+    probe.src = displaySrc;
     return () => {
       probe.onload = null;
       probe.onerror = null;
     };
-  }, [awaitingOwnLoad, src]);
+  }, [awaitingOwnLoad, displaySrc, src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -683,7 +685,7 @@ export function ImageBlock({
     setIsGeneratingAlt(true);
 
     try {
-      const imageDataUrl = await imageDataUrlForAgent(src);
+      const imageDataUrl = await imageDataUrlForAgent(displaySrc);
       if (editor.isDestroyed || !canMutateMediaNow()) {
         toast.error(t("empty.genericError"), { id: toastId });
         return;
@@ -814,7 +816,8 @@ export function ImageBlock({
   function handleImageFileSelectionStart() {
     if (!canMutateMediaNow()) return;
     if (isUploading) return;
-    if (!fileStorageConfigured) {
+    // Private uploads report missing private storage from their own route.
+    if (!fileStorageConfigured && !options.usesPrivateImageUploads?.()) {
       setStorageSetupOpen(true);
       return;
     }
@@ -1100,7 +1103,7 @@ export function ImageBlock({
           </div>
         ) : (
           <img
-            src={src}
+            src={displaySrc}
             alt={alt || ""}
             className="media-block__content"
             draggable={false}
@@ -1258,7 +1261,7 @@ export function ImageBlock({
                   <button
                     type="button"
                     onClick={() =>
-                      void downloadImage(src, alt, {
+                      void downloadImage(displaySrc, alt, {
                         started: t("editor.media.imageDownloadStarted"),
                         opened: t("editor.media.openedImageInNewTab"),
                       })
@@ -1342,7 +1345,7 @@ export function ImageBlock({
                       role="menuitem"
                       onClick={() => {
                         setMoreMenuOpen(false);
-                        void copyImage(src, {
+                        void copyImage(displaySrc, {
                           copied: t("editor.media.imageCopied"),
                           urlCopied: t("editor.media.copiedImageUrl"),
                           failed: t("editor.media.couldNotCopyImage"),
@@ -1425,7 +1428,7 @@ export function ImageBlock({
                 <button
                   type="button"
                   onClick={() =>
-                    void downloadImage(src, alt, {
+                    void downloadImage(displaySrc, alt, {
                       started: t("editor.media.imageDownloadStarted"),
                       opened: t("editor.media.openedImageInNewTab"),
                     })
@@ -1473,7 +1476,7 @@ export function ImageBlock({
                 >
                   <img
                     ref={lightboxImageRef}
-                    src={src}
+                    src={displaySrc}
                     alt={alt || ""}
                     className="media-lightbox__image"
                     draggable={false}
@@ -1512,7 +1515,7 @@ export function ImageBlock({
                   className="media-lightbox__toolbar-btn"
                   aria-label={t("editor.media.downloadImage")}
                   onClick={() =>
-                    void downloadImage(src, alt, {
+                    void downloadImage(displaySrc, alt, {
                       started: t("editor.media.imageDownloadStarted"),
                       opened: t("editor.media.openedImageInNewTab"),
                     })

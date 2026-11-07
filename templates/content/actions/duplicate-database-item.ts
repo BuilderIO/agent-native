@@ -10,7 +10,7 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
@@ -256,7 +256,7 @@ export default defineAction({
           orgId: lockedRow.document.orgId,
         },
       );
-      await syncPrivateCalloutReferences(
+      await syncPrivateBodyReferences(
         tx as unknown as ReturnType<typeof getDb>,
         {
           documentId: nextDocumentId,
