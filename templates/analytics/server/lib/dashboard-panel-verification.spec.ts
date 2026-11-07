@@ -234,16 +234,18 @@ describe("verifyDashboardPanels", () => {
 
   it("refuses a panel the dashboard's traffic default can't load, without running it", async () => {
     mocks.resolve.mockResolvedValue(rows([{ n: 1 }]));
-    const rollup = (where: string) =>
-      panel({
-        source: "first-party",
-        chartType: "metric",
-        sql: `SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups${where}`,
-      });
+    const rollup = { source: "first-party", chartType: "metric" };
     const config = dashboard(
       [
-        rollup(""),
-        { ...rollup(" WHERE event_date >= '2026-01-01'"), id: "p2" },
+        panel({
+          ...rollup,
+          sql: "SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups",
+        }),
+        panel({
+          ...rollup,
+          id: "p2",
+          sql: "SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups WHERE event_date >= '2026-01-01'",
+        }),
       ],
       { filters: [newDashboardTrafficFilter()] },
     );
