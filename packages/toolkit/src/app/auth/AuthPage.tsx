@@ -304,6 +304,7 @@ function trackAuth(
     );
     const legacyProperties = {
       app,
+      hostname: window.location.hostname,
       ...(app === "design" ? builderSignupTelemetry : {}),
       ...properties,
     };
@@ -2432,9 +2433,10 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   ) : null;
   const builderLegalNote =
+    view !== "login" &&
     builderSignup?.status === "assigned" &&
     builderSignup.variant === "automatic" ? (
-      <p className="legal-note">
+      <span>
         {t("builderSignupDisclosure")}{" "}
         <a
           href="https://www.builder.io/legal/terms"
@@ -2452,7 +2454,7 @@ export function AuthPage(props: AuthPageProps) {
           {t("legalPrivacy")}
         </a>
         {t("legalSuffix")}
-      </p>
+      </span>
     ) : null;
   const legalNote = signupLegalNotice ? (
     <p className="legal-note">
@@ -2481,7 +2483,10 @@ export function AuthPage(props: AuthPageProps) {
       <span data-i18n="legalSuffix">
         {signupLegalNotice.suffix ?? t("legalSuffix")}
       </span>
+      {builderLegalNote && <> {builderLegalNote}</>}
     </p>
+  ) : builderLegalNote ? (
+    <p className="legal-note">{builderLegalNote}</p>
   ) : null;
   const signupForm = (
     <AuthForm
@@ -2684,7 +2689,6 @@ export function AuthPage(props: AuthPageProps) {
             {t("googleNotConfigured")}
           </p>
         ) : null}
-        {view !== "login" && builderLegalNote}
         {showGoogle ? (
           <div className="google-signin" id="google-signin">
             <button
@@ -2847,7 +2851,11 @@ export function AuthPage(props: AuthPageProps) {
             </button>
           </div>
         ) : null}
-        {!googleOnly ? signupForm : null}
+        {!googleOnly ? (
+          signupForm
+        ) : builderLegalNote ? (
+          <p className="legal-note">{builderLegalNote}</p>
+        ) : null}
         <div
           id="verification-step"
           className={`form verification-step ${view === "verification" ? "active" : ""}`}

@@ -1223,9 +1223,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
-    getAppConfig().app.slug ??
-    getAppConfig().app.template ??
-    getAppConfig().app.id ??
+    getAppConfig().app.slug?.trim() ||
+    getAppConfig().app.template?.trim() ||
+    getAppConfig().app.id?.trim() ||
+    resolveBuiltInAuthMarketingSlug({
+      ...(opts.requestHost ? { requestHost: opts.requestHost } : {}),
+      ...(opts.requestPath ? { requestPath: opts.requestPath } : {}),
+    }) ||
     "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();

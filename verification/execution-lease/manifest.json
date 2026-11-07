@@ -88,7 +88,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "renewExecutionLease",
-        "sha256": "eeec8f605d5459db907b0015b793876e1be225cca731d32cd490f9d88bf03044"
+        "sha256": "94da594096af6c1277c8cca9cfd30aae72126b79c00152950518e0ab36da787a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -208,7 +208,7 @@
       {
         "file": "packages/core/src/agent/execution-fence.ts",
         "name": "lockAndAssertCurrentExecutionFences",
-        "sha256": "14275075908e01dd143ff3054343b5fc7dec85001f5d2c78ba4852b14a6c1d8a"
+        "sha256": "48157f56f861fc57d57bdccbdb4083263270916502ad635694387eda7c66861b"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",

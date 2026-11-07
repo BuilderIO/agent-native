@@ -175,6 +175,10 @@ async function flushRunEventsBeforeAbort(
 
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
+const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
+
+const MAX_PENDING_HEARTBEATS = 2;
+
 export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
@@ -1808,9 +1812,19 @@ export function startRun(
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
   let livenessResolved = false;
+  let heartbeatAttempt = 0;
+  let pendingHeartbeats = 0;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
-    if (!heartbeatInFlight) {
+    if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
       heartbeatInFlight = true;
+      pendingHeartbeats += 1;
+      const attempt = ++heartbeatAttempt;
+      // One renewal stuck acquiring a connection must not hold the slot until
+      // the lease lapses, so a later tick retries while it settles. Only one
+      // retry may overlap it, or a stalled pool would fill with renewals.
+      const releaseStuckHeartbeat = setTimeout(() => {
+        if (heartbeatAttempt === attempt) heartbeatInFlight = false;
+      }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
         ? executionFencePromise.then(async (fence) => {
             if (!fence) return false;
@@ -1848,7 +1862,9 @@ export function startRun(
           }
         })
         .finally(() => {
-          heartbeatInFlight = false;
+          clearTimeout(releaseStuckHeartbeat);
+          pendingHeartbeats -= 1;
+          if (heartbeatAttempt === attempt) heartbeatInFlight = false;
         });
     }
     void checkSqlAbort();

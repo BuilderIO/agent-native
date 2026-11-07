@@ -120,6 +120,7 @@ function BuilderConnectProbeContent({
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
       </output>
+      <output data-testid="auth-error" data-message={flow.authError?.message} />
       <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
       <output data-testid="status-unavailable">
         {flow.statusUnavailable ? "unavailable" : "available"}
@@ -2497,6 +2498,11 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("connection");
     expect(container.textContent).toContain(staleConnectionError);
+    expect(
+      container
+        .querySelector('[data-testid="auth-error"]')
+        ?.getAttribute("data-message"),
+    ).toBe(staleConnectionError);
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));

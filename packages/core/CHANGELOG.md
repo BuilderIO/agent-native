@@ -51,6 +51,23 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.226.0
+
+### Minor Changes
+
+- d93b5ad: Add user-scoped experience profile actions that select presets over existing deviation flags and enforce private reference access on the server.
+
+### Patch Changes
+
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- dfb0acb: The `resources` tool `read` action now accepts `offset` and `length` and pages resources larger than 40,000 characters, with a header showing whether the read is partial and the next offset.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+  - @agent-native/recap-cli@0.5.99
+
 ## 0.225.1
 
 ### Patch Changes
@@ -4539,28 +4556,5 @@
   the dependency verbatim — its trailing `module.exports` lines threw in the
   browser. It now has a default `optimizeDeps.include` entry like the other CJS
   dependencies core reaches from client code.
-
-## 0.172.2
-
-### Patch Changes
-
-- f208c0e: Stop later tool calls in the same assistant message from running while an action
-  waits for human approval.
-
-  The approval gate told the model "the turn is paused" and set
-  `requestedActionStop`, but that flag is only read after the tool loop finishes.
-  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
-  which the approval path never set — so on `[write(needs approval),
-delete(no approval)]` in one message, the human saw an approval card for the
-  first while the second had already executed. The approval branch now yields the
-  turn like any other action that hands control to the user, and the message shown
-  for a suppressed call names the approval case as well as the ends-turn case.
-
-  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
-  dispatches a batch through `Promise.all`, so a gated call and its siblings all
-  start before the gate is reached and the suppression lands too late to stop a
-  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
-  now serialized, which is what makes the suppression meaningful for the calls
-  after it.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

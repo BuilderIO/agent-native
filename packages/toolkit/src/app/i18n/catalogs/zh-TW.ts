@@ -1254,6 +1254,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免費額度），或加入您自己的供應商金鑰。",
+  "setup.reconnectBuilder": "重新連線 Builder.io",
   "setup.connectAi": "連線 AI",
   "setup.connectBuilder": "使用 Builder.io",
   "setup.connectionsDescription":
