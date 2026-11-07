@@ -103,10 +103,10 @@ import {
 } from "@/components/ui/tooltip";
 import {
   contentNavigationBranchFilter,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
-import { SEARCH_QUERY_KEYS } from "@/hooks/use-documents";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {

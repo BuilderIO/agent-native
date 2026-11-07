@@ -104,6 +104,7 @@ import {
   contentSpaceFilesDatabaseId,
   documentScopedQueryFilter,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
@@ -847,16 +848,6 @@ export function useDocuments(options?: { enabled?: boolean }) {
 }
 
 const DOCUMENT_TITLES_ACTION = "list-document-titles";
-
-/**
- * What search reads: its results and the titles it ranks at once. A write that
- * changes a page's title or place makes both stale. Same-tab writes don't sync,
- * so the write names them; the titles then reload when the menu next opens.
- */
-export const SEARCH_QUERY_KEYS = [
-  ["action", "search-documents"],
-  ["action", DOCUMENT_TITLES_ACTION],
-] as const;
 
 /**
  * The titles search ranks in the browser. One read fills it, however large the

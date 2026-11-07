@@ -22,6 +22,7 @@ import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   useDuplicateDatabaseItem,
   useRemoveDatabaseItems,
+  useUpdateDatabaseItem,
 } from "./use-content-database";
 import { useRestoreTrashItem } from "./use-content-trash";
 import {
@@ -517,6 +518,51 @@ describe("collection row writes", () => {
     await act(() => duplicate.current.mutateAsync({ itemId: "item-page" }));
 
     expect(await refetched()).toEqual(["documents", "tracker", "trackerTable"]);
+  });
+
+  it("a row's title edit refreshes search, and its other cells leave search alone", async () => {
+    await mountReads();
+    actionResponses["update-database-item"] = {
+      receipt: { target: { databaseId: "tracker-db" } },
+    };
+    const updateRow = await renderHook(() =>
+      useUpdateDatabaseItem("tracker-page"),
+    );
+    const edit = {
+      target: {
+        authorityScope: { kind: "personal" as const, id: "owner" },
+        spaceId: "space",
+        databaseId: "tracker-db",
+        databaseDocumentId: "tracker-page",
+      },
+      expectedSchemaRevision: "schema-1",
+      itemId: "item-page",
+      documentId: "page",
+      expectedRowRevision: "row-1",
+    };
+
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "status-edit",
+        propertyValues: { status: "Done" },
+      }),
+    );
+    const afterCellEdit = await refetched();
+    expect(afterCellEdit).not.toContain("search");
+    expect(afterCellEdit).not.toContain("titles");
+
+    reads.forEach((queryFn) => queryFn.mockClear());
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "title-edit",
+        title: "Renamed",
+      }),
+    );
+    expect(await refetched()).toEqual(
+      expect.arrayContaining(["search", "titles"]),
+    );
   });
 
   it("bulk removal by item id refreshes the removed pages named in the response", async () => {
