@@ -1,4 +1,4 @@
-name: Stage independent beta CRM database rotation
+name: Stage beta CRM encryption readers
 on: workflow_dispatch
 permissions:
   contents: read
@@ -9,24 +9,22 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NEW_DATABASE_URL: ${{ secrets.BETA_DATABASE_URL_CRM }}
+          PREVIOUS_KEYS: ${{ secrets.INCIDENT_CRM_BETA_PREVIOUS_KEYS }}
         with:
           script: |
-            const id='bef68db5-5bbc-41c6-b3d8-edeb7b871b5e';
+            const sid='bef68db5-5bbc-41c6-b3d8-edeb7b871b5e';
+            const key='SECRETS_ENCRYPTION_KEYS_PREVIOUS';
             const headers={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN,'Content-Type':'application/json'};
-            async function req(path,options={}){const r=await fetch('https://api.netlify.com/api/v1/'+path,{headers,...options});if(!r.ok)throw new Error('Netlify request failed: '+r.status);return r.status===204?null:await r.json()}
-            const site=await req('sites/'+id);if(site.id!==id||site.account_slug!=='steve8708')throw new Error('Unexpected site ownership');
-            const replacement=new URL(process.env.NEW_DATABASE_URL);
-            const normalized=u=>u.hostname.replace('-pooler.','.');
-            if(normalized(replacement)!=='ep-rough-boat-au3q2472.c-10.us-east-1.aws.neon.tech'||replacement.pathname!=='/main'||replacement.username!=='main_owner')throw new Error('Unexpected target database');
-            const endpoint='accounts/'+site.account_slug+'/env';
-            const entries=await req(endpoint+'?site_id='+id);let updated=0;
-            for(const entry of entries.filter(e=>/DATABASE_URL/.test(e.key))){
-              if(entry.is_secret)throw new Error('Opaque database value requires separate handling');
-              const values=entry.values.map(v=>{const u=new URL(v.value);if(normalized(u)!==normalized(replacement)||u.username!==replacement.username||u.pathname!==replacement.pathname)throw new Error('Different credential scope');u.password=replacement.password;return {...v,value:u.toString()}});
-              await req(endpoint+'/'+encodeURIComponent(entry.key)+'?site_id='+id,{method:'PUT',body:JSON.stringify({key:entry.key,scopes:entry.scopes,values})});updated++;
-            }
-            if(!updated)throw new Error('No database configuration updated');
-            const verify=await req(endpoint+'?site_id='+id);
-            for(const e of verify.filter(e=>/DATABASE_URL/.test(e.key)))for(const v of e.values)if(new URL(v.value).password!==replacement.password)throw new Error('Credential readback failed');
-            core.info('Staged and verified '+updated+' beta CRM database variables. Password reset and deploy remain.');
+            async function req(path,options={}){const r=await fetch('https://api.netlify.com/api/v1/'+path,{headers,...options});if(!r.ok)throw new Error('Netlify reader staging HTTP '+r.status);return r.status===204?null:await r.json()}
+            const site=await req('sites/'+sid);
+            if(site.id!==sid||site.account_slug!=='steve8708'||site.custom_domain!=='beta.crm.agent-native.com')throw new Error('Beta CRM ownership changed');
+            const endpoint='accounts/'+site.account_slug+'/env?site_id='+sid;
+            const entries=await req(endpoint);
+            if(entries.some(e=>e.key===key))throw new Error('Reader variable already exists; inspect before retrying');
+            const value=process.env.PREVIOUS_KEYS;
+            if(!value||value.length<64)throw new Error('Prepared reader material is missing');
+            const contexts=['production','branch-deploy','deploy-preview'];
+            await req(endpoint,{method:'POST',body:JSON.stringify([{key,is_secret:true,scopes:['builds','functions'],values:contexts.map(context=>({context,value}))}])});
+            const entry=(await req(endpoint)).find(e=>e.key===key);
+            if(!entry||!entry.is_secret||!entry.scopes.includes('functions')||!contexts.every(context=>entry.values.some(v=>v.context===context)))throw new Error('Reader staging metadata readback failed');
+            core.info('Created and verified beta CRM previous-key reader configuration; current writer and authentication keys unchanged.');
