@@ -356,17 +356,12 @@ export function useEditorGenerationAndAccess({
    * what it saved and finish quietly when it did.
    */
   const settleIfOutputSaved = useCallback(
-    /**
-     * `otherwise` learns whether the run is confirmed to have saved nothing;
-     * an output check that could not be read allows only a manual retry, so
-     * an automatic one never duplicates screens it failed to see.
-     */
-    (otherwise: (confirmedNoOutput: boolean) => void) => {
+    (otherwise: () => void) => {
       const settledPending = readPendingGeneration(id, {
         allowUntimestamped: true,
       });
       if (!id) {
-        otherwise(false);
+        otherwise();
         return;
       }
       void readGenerationOutput(id, settledPending).then((outputState) => {
@@ -376,8 +371,10 @@ export function useEditorGenerationAndAccess({
         if (settledPending && latest?.startedAt !== settledPending.startedAt)
           return;
         if (!settledPending && latest) return;
+        // Only output the run is confirmed to have saved stops a retry; a
+        // check that could not be read keeps the usual retry path.
         if (outputState !== "has_output") {
-          otherwise(outputState === "no_output");
+          otherwise();
           return;
         }
         clearPendingGeneration(id);
@@ -393,8 +390,8 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    settleIfOutputSaved((confirmedNoOutput) => {
-      rememberPendingGenerationForRetry(confirmedNoOutput);
+    settleIfOutputSaved(() => {
+      rememberPendingGenerationForRetry();
       clearPendingGeneration(id);
       setHasPendingGeneration(false);
       setGenerationIssue(t("designEditor.generationMayHaveStopped"));
@@ -517,10 +514,10 @@ export function useEditorGenerationAndAccess({
       if (generationOutputReadyRef.current === null) return;
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
-      const reportFailure = (confirmedNoOutput: boolean) => {
+      const reportFailure = () => {
         // A rejected request fails the same way on resend; keep only the manual retry.
         const preservedForRetry = rememberPendingGenerationForRetry(
-          failure?.retryable !== false && confirmedNoOutput,
+          failure?.retryable !== false,
         );
         clearPendingGeneration(id);
         setHasPendingGeneration(false);
