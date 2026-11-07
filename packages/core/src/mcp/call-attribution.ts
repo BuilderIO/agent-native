@@ -8,7 +8,7 @@ export interface McpCallAttributionInput {
   envelope: unknown;
   oauthClientId: string | undefined;
   /** The request's User-Agent header. */
-  userAgent?: string;
+  userAgent?: string | undefined;
 }
 
 /**
