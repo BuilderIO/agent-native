@@ -96,6 +96,10 @@ vi.mock("./share-password.js", () => ({
 }));
 
 import {
+  describeFrameFailure,
+  frameFailureStatus,
+} from "./agent-frame-request.js";
+import {
   buildPublicAgentContext,
   canReadAppActivityEvents,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
@@ -770,6 +774,86 @@ describe("loadRecordingMediaBytes", () => {
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
+    },
+  );
+
+  it.each([401, 403, 404, 410])(
+    "reports storage HTTP %s safely at the initial and later ranges",
+    async (status) => {
+      const sensitive = "https://storage.example.test/private/clip.mp4";
+      for (const later of [false, true]) {
+        let calls = 0;
+        let canceled = false;
+        mockOpenS3Recording.mockResolvedValue(async () => {
+          calls++;
+          if (later && calls === 1)
+            return new Response("a", {
+              status: 206,
+              headers: { etag: '"stable"', "content-range": "bytes 0-0/4" },
+            });
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(sensitive));
+              },
+              cancel() {
+                canceled = true;
+              },
+            }),
+            { status, statusText: sensitive },
+          );
+        });
+        const recording = makeRecording({
+          videoSizeBytes: 100,
+          storageMode: "hosted",
+        }) as any;
+        let error: unknown;
+        if (later) {
+          const media = await loadRecordingMediaFile(recording);
+          try {
+            error = await extractJpegFrameFromFile({
+              mediaPath: media.path,
+              atMs: 0,
+              remote: media.remote,
+            }).catch((err: unknown) => err);
+          } finally {
+            await media.cleanup();
+          }
+        } else {
+          error = await loadRecordingMediaFile(recording).catch(
+            (err: unknown) => err,
+          );
+        }
+        expect(canceled).toBe(true);
+        expect(error).toBeInstanceOf(RecordingMediaFetchError);
+        expect(frameFailureStatus(error)).toBe(status);
+        const failure = describeFrameFailure(error, status);
+        expect(failure.failureKind).toBe("media");
+        expect(failure.nextStep).toContain(
+          status === 401 || status === 403
+            ? "denied access"
+            : "could not be retrieved",
+        );
+        expect(JSON.stringify(failure)).not.toContain(sensitive);
+      }
+    },
+  );
+
+  it.each([302, 416, 500])(
+    "rejects unexpected storage HTTP %s as a sanitized gateway failure",
+    async (status) => {
+      const sensitive = "https://storage.example.test/private/clip.mp4";
+      mockOpenS3Recording.mockResolvedValue(
+        async () => new Response(sensitive, { status, statusText: sensitive }),
+      );
+      const error = await loadRecordingMediaFile(
+        makeRecording({ videoSizeBytes: 100, storageMode: "hosted" }) as any,
+      ).catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(RecordingMediaFetchError);
+      expect(frameFailureStatus(error)).toBe(502);
+      expect(JSON.stringify(describeFrameFailure(error, 502))).not.toContain(
+        sensitive,
+      );
     },
   );
 

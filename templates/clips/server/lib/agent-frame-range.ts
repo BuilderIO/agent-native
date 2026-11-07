@@ -123,8 +123,9 @@ export async function openAgentFrameRange(
     ) {
       await response.body?.cancel().catch(() => {});
       if (response.status !== 206) {
-        const status =
-          response.status === 413 ? 413 : response.status === 504 ? 504 : 502;
+        const status = [401, 403, 404, 410, 413, 504].includes(response.status)
+          ? response.status
+          : 502;
         throw fail("Recording storage returned an invalid range.", status);
       }
       throw fail("Recording storage returned an inconsistent range.");
