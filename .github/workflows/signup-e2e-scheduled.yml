@@ -321,7 +321,7 @@ jobs:
         id: report-artifact
         if: ${{ always() && steps.report.outcome == 'success' }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signup-e2e-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -507,7 +507,7 @@ jobs:
 
       - name: Persist Signup E2E continuity state
         if: ${{ always() && github.event_name == 'schedule' && steps.finalize-state.outcome == 'success' && (steps.previous-state.outputs.continuity_unknown != 'true' || steps.slack.outputs.ok == 'true') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signup-e2e-continuity-${{ github.run_id }}-${{ github.run_attempt }}
           path: .tmp/signup-e2e-continuity/state.json
