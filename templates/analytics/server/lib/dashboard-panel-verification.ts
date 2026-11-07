@@ -700,7 +700,8 @@ async function verifyOne(
   // dashboard's default would call a panel broken on a database with no
   // production traffic, such as a local one.
   const trafficEnvironment = readTrafficEnvironment(
-    opts.filters?.[TRAFFIC_FILTER_ID],
+    opts.filters?.[TRAFFIC_FILTER_ID] ??
+      opts.filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
   );
   const data = await runResolvedPanel({
     source: source as DashboardPanelSource,

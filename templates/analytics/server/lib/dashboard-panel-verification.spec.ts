@@ -219,6 +219,19 @@ describe("verifyDashboardPanels", () => {
     expect(context).toEqual({ userEmail: "alice@example.com", orgId: null });
   });
 
+  it.each([
+    ["its id", { traffic_environment: "beta" }],
+    ["its URL name", { f_traffic_environment: "beta" }],
+  ])("reads the traffic a caller names by %s", async (_form, filters) => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+
+    await verifyDashboardPanels(dashboard([panel()]), ["p1"], { filters });
+
+    expect(mocks.resolve.mock.calls[0]?.[0]).toMatchObject({
+      trafficEnvironment: "beta",
+    });
+  });
+
   it("reports ok with columns, counts, bounded sample rows and resolved filters", async () => {
     const many = Array.from({ length: 40 }, (_, i) => ({
       week: `w${i}`,

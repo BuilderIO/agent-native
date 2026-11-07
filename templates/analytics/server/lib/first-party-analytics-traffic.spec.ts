@@ -194,16 +194,37 @@ describe("first-party reads filtered by traffic", () => {
     );
   });
 
-  it("refuses a filtered rollup read with no dates, rather than reading every event", () => {
-    const allTime =
-      "SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups";
+  it.each([
+    ["no dates", ""],
+    ["only an end date", " WHERE event_date <= '2026-11-01'"],
+    ["only an event name", " WHERE event_name = 'page_view'"],
+  ])(
+    "refuses a filtered rollup read with %s, rather than reading every event",
+    (_case, where) => {
+      const unbounded = `SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups${where}`;
 
+      expect(() =>
+        scopedAnalyticsSql(unbounded, scope, today, {
+          trafficEnvironment: "production",
+        }),
+      ).toThrow(/needs a start date on analytics_event_daily_rollups/);
+      expect(() => scopedAnalyticsSql(unbounded, scope, today)).not.toThrow();
+    },
+  );
+
+  it.each([
+    ["a start date", "event_date > '2026-01-01'"],
+    ["one day", "event_date = '2026-11-04'"],
+    ["a range", "event_date BETWEEN '2026-01-01' AND '2026-11-04'"],
+  ])("rebuilds a filtered rollup bounded by %s", (_case, predicate) => {
     expect(() =>
-      scopedAnalyticsSql(allTime, scope, today, {
-        trafficEnvironment: "production",
-      }),
-    ).toThrow(/needs an event_date range on analytics_event_daily_rollups/);
-    expect(() => scopedAnalyticsSql(allTime, scope, today)).not.toThrow();
+      scopedAnalyticsSql(
+        `SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups WHERE event_name = 'page_view' AND ${predicate}`,
+        scope,
+        today,
+        { trafficEnvironment: "production" },
+      ),
+    ).not.toThrow();
   });
 
   it("filters recordings by host and leaves content tables alone", () => {

@@ -1219,6 +1219,12 @@ const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
 const SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX =
   "agent_native_scoped_analytics_event_source_";
 
+const EVENT_DATE_START = /^event_date\s+(?:=|>=?|between)\s/i;
+
+function startsEventDates(predicate: string): boolean {
+  return EVENT_DATE_START.test(predicate);
+}
+
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
@@ -1264,12 +1270,13 @@ function scopedTableSource(
   }
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
     if (trafficEnvironment) {
-      // Rebuilt from raw events, a rollup with no date range would read every
-      // event the tenant ever sent on each uncached refresh.
-      if (eventPushdownPredicates.length === 0) {
+      // Rebuilt from raw events, a rollup with no start date would read every
+      // event the tenant ever sent on each uncached refresh. An end date or an
+      // event_name filter alone still reaches back to the first event.
+      if (!eventPushdownPredicates.some(startsEventDates)) {
         throw new FirstPartyAnalyticsValidationError(
           "invalid_shape",
-          `Reading ${trafficEnvironment} traffic from ${tableName} rebuilds it from raw events, so the query needs an event_date range on ${tableName} in the same query level. Add one, or read all traffic.`,
+          `Reading ${trafficEnvironment} traffic from ${tableName} rebuilds it from raw events, so the query needs a start date on ${tableName} (event_date >=, = or BETWEEN) in the same query level. Add one, or read all traffic.`,
         );
       }
       const events = scopedTableSource(
@@ -1278,7 +1285,11 @@ function scopedTableSource(
         today,
         parameterOffset,
         includeTestIdentities,
-        eventPushdownPredicates,
+        [
+          eventPushdownPredicates
+            .map((predicate) => `(${predicate})`)
+            .join(" AND "),
+        ],
         false,
         undefined,
         trafficEnvironment,
@@ -1614,9 +1625,7 @@ export function scopedAnalyticsSql(
       today,
       args.length,
       includeTestIdentities,
-      rollupPredicates.length > 0
-        ? [rollupPredicates.map((predicate) => `(${predicate})`).join(" AND ")]
-        : [],
+      rollupPredicates,
       false,
       undefined,
       trafficEnvironment,
