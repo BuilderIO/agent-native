@@ -1302,6 +1302,7 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'chat'
         env:
+          MIGRATION_DATABASE_URL_SECRET: ${{ secrets.NETLIFY_PREVIEW_DATABASE_URL_CHAT }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1327,7 +1328,7 @@ jobs:
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
           fi
-          export DATABASE_URL="$migration_database_url"
+          export DATABASE_URL="${MIGRATION_DATABASE_URL_SECRET:-$migration_database_url}"
 
           for attempt in 1 2 3; do
             if pnpm --filter chat migrate:production; then
