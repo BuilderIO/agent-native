@@ -1135,7 +1135,7 @@ describe("runSaveFileContent source version", () => {
     },
   );
 
-  it("patches get-design directly with the saved content", async () => {
+  it("keeps source bodies out of the metadata cache after saving", async () => {
     const designId = "design-42";
     const pending: FileContentSaveRequest = {
       id: "screen-a",
@@ -1169,6 +1169,7 @@ describe("runSaveFileContent source version", () => {
         mutateAsync: vi.fn(async () => ({
           updated: true,
           versionHash: sourceContentHash(pending.content),
+          updatedAt: "saved-version",
         })),
       } as unknown as SaveFileContentArgs["updateFileMutation"],
       warnChangesWillRetry: vi.fn(),
@@ -1178,13 +1179,21 @@ describe("runSaveFileContent source version", () => {
     await fileSaveChainsRef.current[pending.id];
 
     expect(setQueryData).toHaveBeenCalledWith(
-      ["action", "get-design", { id: designId }],
+      ["action", "get-design", { id: designId, includeFileContent: false }],
       expect.any(Function),
     );
     const updater = setQueryData.mock.calls[0]![1] as (old: unknown) => unknown;
     expect(
-      updater({ files: [{ id: pending.id, content: "<main>stale</main>" }] }),
-    ).toEqual({ files: [{ id: pending.id, content: pending.content }] });
+      updater({ files: [{ id: pending.id, updatedAt: "old-version" }] }),
+    ).toEqual({
+      files: [
+        {
+          id: pending.id,
+          updatedAt: "saved-version",
+          contentBytes: new TextEncoder().encode(pending.content).byteLength,
+        },
+      ],
+    });
   });
 
   it("shows exactly one version-history-unavailable toast per design across repeated skipped-checkpoint saves", async () => {

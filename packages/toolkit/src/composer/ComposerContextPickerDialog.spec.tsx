@@ -140,7 +140,6 @@ async function open() {
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
     ),
   );
-  await act(async () => row("Add context").click());
   await act(async () => row("Design").click());
   expect(row("Attach source").hasAttribute("aria-haspopup")).toBe(false);
   await act(async () => row("Attach source").click());
@@ -184,6 +183,46 @@ function deferred<T>() {
 }
 
 describe("shared context URL dialog", () => {
+  it("keeps an opened loading source in its dialog when the URL form becomes available", async () => {
+    await render({
+      presentation: { type: "dialog", mode: "single" },
+      scopeKey: "account-a",
+      searchPlaceholder: "Search frames",
+      items: [],
+      loading: true,
+      onSelect: vi.fn(),
+    });
+    await open();
+    expect(dialog()).not.toBeNull();
+    const connected = multiple();
+    await render(connected);
+    await tick();
+    const input =
+      dialog()?.querySelector<HTMLInputElement>('input[type="url"]');
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+    expect(connected.load).not.toHaveBeenCalled();
+    await render({
+      presentation: { type: "dialog", mode: "single" },
+      scopeKey: "account-a",
+      searchPlaceholder: "Search frames",
+      items: [],
+      emptyMessage: "Connect this source",
+      footerAction: {
+        label: "Connect source",
+        renderLink: (children) => (
+          <a href="/settings/integrations">{children}</a>
+        ),
+      },
+      onSelect: vi.fn(),
+    });
+    await tick();
+    expect(dialog()).not.toBeNull();
+    expect(
+      dialog()?.querySelector('a[href="/settings/integrations"]')?.textContent,
+    ).toBe("Connect source");
+  });
+
   it("supports gallery previews with immediate single selection", async () => {
     const onSelect = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
@@ -455,8 +494,6 @@ describe("shared context URL dialog", () => {
       ),
     );
     expect(document.querySelector('[role="searchbox"]')).toBeNull();
-    expect(row("Add context")).toBeDefined();
-    await act(async () => row("Add context").click());
     expect(row("Design")).toBeDefined();
     await act(async () => row("Design").click());
     expect(row("Attach source").querySelector("svg")).toBeNull();

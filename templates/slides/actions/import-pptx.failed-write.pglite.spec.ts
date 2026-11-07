@@ -199,6 +199,7 @@ describe("import-pptx", () => {
     const { error, effect, outcome } = await runCall({
       filePath: "deck.pptx",
       deckId: "deck-rejected",
+      replaceExisting: true,
     });
 
     expect(error).toMatchObject({
@@ -237,6 +238,7 @@ describe("import-pptx", () => {
     const { error, effect } = await runCall({
       filePath: "deck.pptx",
       deckId: "deck-saved",
+      replaceExisting: true,
     });
 
     expect((error as Error).message).toContain("The change feed is down.");

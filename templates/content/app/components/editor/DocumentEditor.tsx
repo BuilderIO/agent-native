@@ -245,6 +245,7 @@ import {
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 import { ContentImportDialog } from "./ContentImportDialog";
+import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
@@ -7851,8 +7852,11 @@ function PageEditorSessionBody({
       return;
     }
     if (
-      live === lastSavedContentRef.current.content ||
-      live === convergedSaveAttemptRef.current
+      !convergedContentNeedsSave({
+        live,
+        saved: lastSavedContentRef.current.content,
+        attempted: convergedSaveAttemptRef.current,
+      })
     ) {
       return;
     }
@@ -10804,29 +10808,6 @@ function PageEditorSessionBody({
                                   });
                                 }}
                               />
-                            </div>
-                          ) : null}
-                          {visualSuggestions.some(
-                            (suggestion) =>
-                              suggestion.presentation === "canonical" &&
-                              ((pendingSuggestionDecision?.decision ===
-                                "accepted" &&
-                                pendingSuggestionDecision.optimistic &&
-                                suggestion.id ===
-                                  pendingSuggestionDecision.suggestion.id) ||
-                                queuedDecisions.some(
-                                  (entry) =>
-                                    entry.decision === "accepted" &&
-                                    entry.members.some(
-                                      (member) => member.id === suggestion.id,
-                                    ),
-                                )),
-                          ) ? (
-                            <div
-                              role="status"
-                              className="mb-3 text-sm text-muted-foreground"
-                            >
-                              {t("editor.pageBodySyncing")}
                             </div>
                           ) : null}
                           {suggestionDraftPreview.status ===

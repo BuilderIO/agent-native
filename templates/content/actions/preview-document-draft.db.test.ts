@@ -3389,6 +3389,45 @@ describe("private preview document drafts", () => {
     expect(deleted).toEqual({ status: "deleted", draft: null });
   });
 
+  it("keeps, resolves and clears the draft of a page over 500,000 characters", async () => {
+    const documentId = await createDocument();
+    const content = "A long working note.\n\n".repeat(30_000);
+    const upsert = {
+      operation: "upsert" as const,
+      documentId,
+      expectedVersion: null,
+      draft: payload(content),
+    };
+    const remove = {
+      operation: "delete" as const,
+      documentId,
+      expectedVersion: 1,
+      expectedTitle: "Builder row",
+      expectedContent: content,
+    };
+    const resolve = {
+      choice: "use_saved" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: content,
+      expectedDocumentUpdatedAt: "server-v1",
+    };
+
+    for (const args of [upsert, remove])
+      expect(
+        (await updateDraft.schema["~standard"].validate(args)).issues,
+      ).toBeUndefined();
+    expect(
+      (await resolveDraft.schema["~standard"].validate(resolve)).issues,
+    ).toBeUndefined();
+    await asUser(OWNER, () => updateDraft.run(upsert));
+    expect(await asUser(OWNER, () => updateDraft.run(remove))).toEqual({
+      status: "deleted",
+      draft: null,
+    });
+  });
+
   it("keeps C2 recoverable when older C1 persistence finishes after the C2 draft", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "रिकॉर्डिंग का संदर्भ दें…",
+    group: "रिकॉर्डिंग",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   meetingBrowserConfirmation:
     "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
@@ -681,6 +688,8 @@ const messages = {
     noMatches: "कोई मेल नहीं।",
     noTranscript: "अभी तक कोई प्रतिलेख नहीं.",
     noTranscriptCaptured: "कोई प्रतिलेख कैप्चर नहीं किया गया.",
+    partialTranscript:
+      "आंशिक प्रतिलेख: रिकॉर्डिंग कट गई थी, इसलिए कुछ हिस्सा गायब हो सकता है।",
     backupFailed:
       "कोई भी भाषण स्थानीय रूप से कैप्चर नहीं किया गया, और बैकअप ट्रांसक्रिप्शन समाप्त नहीं हुआ। पुनः प्रयास करें या माइक्रोफ़ोन और वाक् अनुमतियाँ जाँचें।",
     backupNotSetup:
@@ -785,7 +794,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आपका टूल इमेज नहीं लौटा सकता या इन लिंक को नहीं खोल सकता, तो बताएं कि यह आपके टूल की सीमा है; यह Clips की त्रुटि नहीं है।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आप फ़्रेम URL को इमेज के रूप में नहीं खोल सकते, तो उपलब्ध होने पर इसी संदर्भ URL की रिकॉर्डिंग ID के साथ Clips का get-recording-frames टूल कॉल करें। यदि उपलब्ध नहीं है, तो उपयोगकर्ता को बताएं कि {{connectUrl}} पर Clips को कनेक्ट करने से आप फ़्रेम देख सकेंगे।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
