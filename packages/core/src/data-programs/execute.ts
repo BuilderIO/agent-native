@@ -39,6 +39,11 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
 
+/**
+ * `program_error` is an error the program's own code threw, and its message is
+ * that error's. `sandbox_error` is the sandbox or its executor failing, and its
+ * message can carry server detail.
+ */
 export type DataProgramErrorCode =
   | "program_not_found"
   | "access_denied"
@@ -46,6 +51,7 @@ export type DataProgramErrorCode =
   | "timeout"
   | "emit_missing"
   | "emit_shape_invalid"
+  | "program_error"
   | "sandbox_error"
   | "run_code_unavailable"
   | "background_pending"
@@ -338,7 +344,7 @@ async function executeProgramCode(
           : undefined;
       return {
         ok: false,
-        code: thrown ? "sandbox_error" : parsed.error.code,
+        code: thrown ? "program_error" : parsed.error.code,
         message: thrown ?? parsed.error.message,
         logsTail,
       };
@@ -446,13 +452,15 @@ export async function runDataProgram(
     );
   }
 
+  // A background program checks its queued run before its cache, so a run a
+  // Refresh queued shows once it finishes rather than once the cache expires.
+  if (program.background) {
+    return runBackgroundProgram(program, args, paramsHash, timeoutMs);
+  }
+
   if (!args.forceRefresh) {
     const cached = await resolveCacheHit(program, paramsHash);
     if (cached) return cached;
-  }
-
-  if (program.background) {
-    return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
 
   return runForegroundProgram(program, args, paramsHash, timeoutMs);
@@ -594,13 +602,14 @@ async function runBackgroundProgram(
       execution.status !== "running"
     ) {
       await finalizeBackgroundRun(active.id, execution);
-      // The run that just finished is usually the fresh result this read is
-      // for. Serve it rather than queue another run behind it.
-      if (!args.forceRefresh) {
-        const finished = await resolveCacheHit(program, paramsHash);
-        if (finished) return finished;
-      }
     }
+  }
+
+  // Includes a run finalized just above, which serves as a fresh hit rather
+  // than queueing another run behind it.
+  if (!args.forceRefresh) {
+    const cached = await resolveCacheHit(program, paramsHash);
+    if (cached) return cached;
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
@@ -670,9 +679,12 @@ async function finalizeBackgroundRun(
     stdout: string;
     stderr: string;
     error?: string | null;
+    finishedAt?: number | null;
   },
 ): Promise<void> {
-  const finishedAt = Date.now();
+  // When the program finished, not when a read noticed, so a panel's clock
+  // doesn't make the rows look newer than they are.
+  const finishedAt = execution.finishedAt ?? Date.now();
   if (execution.status === "succeeded") {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
@@ -715,13 +727,13 @@ async function finalizeBackgroundRun(
 
   // A set `error` means the executor itself failed; otherwise the program
   // threw, and its message is the one to show.
+  const thrown = execution.error
+    ? undefined
+    : thrownProgramMessage(execution.stderr);
   await updateDataProgramRun(runId, {
     status: "failed",
-    errorCode: "sandbox_error",
-    errorMessage:
-      execution.error ??
-      thrownProgramMessage(execution.stderr) ??
-      "Background execution failed.",
+    errorCode: thrown ? "program_error" : "sandbox_error",
+    errorMessage: execution.error ?? thrown ?? "Background execution failed.",
     logsTail: truncateLogs(execution.stdout, execution.stderr),
     finishedAt,
   });

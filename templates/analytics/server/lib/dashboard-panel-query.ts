@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { resolveCredential } from "@agent-native/core/credentials";
 import {
@@ -394,17 +395,22 @@ async function runProgramPanel(
     };
   }
 
+  // A sandbox_error message can carry server detail, so the panel gets a
+  // fixed one; the run keeps the real message for get-data-program.
   const friendlyMessages: Partial<Record<string, string>> = {
     access_denied: "You don't have access to this data program",
     archived: "This data program was archived",
     background_pending:
       "This data program is still computing — check back shortly",
+    sandbox_error: "This data program couldn't run. Try again.",
   };
   const friendly = friendlyMessages[result.error.code];
-  throw new Error(
+  // Typed, so the panel shows the message instead of a bare server error.
+  fail(
     friendly
       ? `${result.error.code}: ${friendly}`
       : `${result.error.code}: ${result.error.message}`,
+    { errorCode: `data_program_${result.error.code}`, statusCode: 422 },
   );
 }
 

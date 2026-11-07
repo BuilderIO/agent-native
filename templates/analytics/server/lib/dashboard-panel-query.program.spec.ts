@@ -254,11 +254,11 @@ describe("dashboard-panel-query: program source", () => {
       expect(result).toMatchObject({ rows: [{ n: 2 }], cached: false });
     });
 
-    it("throws a structured error with code prefix when there is no lastGoodRun", async () => {
+    it("throws what the program threw as a typed error the panel can show", async () => {
       mocks.runDataProgram.mockResolvedValue({
         ok: false,
         error: {
-          code: "sandbox_error",
+          code: "program_error",
           message: "ReferenceError: foo is not defined",
         },
       });
@@ -269,7 +269,31 @@ describe("dashboard-panel-query: program source", () => {
 
       await expect(
         runDashboardPanelQuery({ source: "program", query, ctx }),
-      ).rejects.toThrow(/sandbox_error: ReferenceError: foo is not defined/);
+      ).rejects.toMatchObject({
+        message: "program_error: ReferenceError: foo is not defined",
+        errorCode: "data_program_program_error",
+        statusCode: 422,
+      });
+    });
+
+    it("keeps a sandbox failure's own message off the panel", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: false,
+        error: {
+          code: "sandbox_error",
+          message: "Sandbox executor error: spawn ENOENT C:\\internal\\path",
+        },
+      });
+
+      const query = normalizeDashboardPanelQuery("program", {
+        programId: "dp_broken",
+      });
+
+      await expect(
+        runDashboardPanelQuery({ source: "program", query, ctx }),
+      ).rejects.toThrow(
+        /^sandbox_error: This data program couldn't run\. Try again\.$/,
+      );
     });
 
     it("surfaces a friendly message for access_denied", async () => {
