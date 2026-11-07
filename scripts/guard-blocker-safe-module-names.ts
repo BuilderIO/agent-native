@@ -70,8 +70,10 @@ const BLOCKED_WORDS: BlockedWords[] = [
     pattern: /(?:event|click|pixel)[-_]?tracking|tracking[-_]?pixel/,
     list: "tracker lists",
   },
-  // `analytics-events.js` passes every list, so this pair keeps the exact
-  // forms the lists block.
+  // EasyPrivacy blocks `/analytics-events-`, `/analytics-event.js` and
+  // `/analytics_events.js`, but `analytics-events.js` (core's
+  // `shared/analytics-events.ts`) passes every list, so this pair keeps the
+  // exact forms the lists block.
   {
     pattern:
       /analytics-events?-|analytics-event\.js|analytics_events?\.js|analyticsevents?\.js|tracking-analytics-events|loganalyticsevent/,
@@ -218,10 +220,14 @@ function expandBraces(glob: string): string[] {
     .flatMap((alternative) => expandBraces(before + alternative + after));
 }
 
-/** A regex for the repo paths a Vite glob pattern matches. */
+/**
+ * A regex for the repo paths a Vite glob pattern matches. The pattern holds no
+ * brackets, parentheses or braces, so any there come from the importer's
+ * folder, such as a `(auth)` route group, and match as themselves.
+ */
 function globPattern(glob: string): RegExp {
   const source = glob
-    .replace(/[.+^$|\\]/g, "\\$&")
+    .replace(/[.+^$|\\()[\]{}]/g, "\\$&")
     .replace(/\*\*\/|\*\*|\*|\?/g, (wild) => GLOB_WILDCARDS[wild] ?? wild);
   return new RegExp(`^${source}$`);
 }

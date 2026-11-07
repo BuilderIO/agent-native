@@ -221,6 +221,18 @@ test("reads glob calls with type arguments, comments, braces and exclusions", ()
   );
 });
 
+test("follows globs from folders with brackets or parentheses in their names", () => {
+  const loader = "templates/chat/app/routes/(auth)/[team]/pages.ts";
+  const pages = "templates/chat/app/routes/(auth)/[team]/content/intro.md";
+  assert.deepEqual(
+    browserModules(
+      [loader, pages, "templates/chat/app/routes/auth/t/content/intro.md"],
+      (file) => (file === loader ? 'import.meta.glob("./content/*.md");' : ""),
+    ).sort(),
+    [loader, pages].sort(),
+  );
+});
+
 test("stops at a glob it can't follow, instead of skipping files", () => {
   for (const call of [
     'import.meta.glob("./content/[ab].md")',
