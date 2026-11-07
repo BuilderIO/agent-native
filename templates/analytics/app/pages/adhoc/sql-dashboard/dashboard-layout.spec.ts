@@ -43,8 +43,74 @@ describe("dashboard layout rows", () => {
     expect(next.map((item) => [item.id, item.width])).toEqual([
       ["a", 2],
       ["c", 1],
-      ["d", 2],
+      ["d", 1],
       ["e", 1],
+    ]);
+  });
+
+  it("leaves other sections' widths alone when a panel joins a row", () => {
+    const panels: SqlPanel[] = [
+      panel("a"),
+      panel("b"),
+      { ...panel("section"), chartType: "section", columns: 3 },
+      panel("c", 2),
+      panel("d", 1),
+      panel("e", 1),
+      panel("f", 2),
+    ];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 3);
+
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 1],
+      ["new", 1],
+      ["b", 1],
+      ["section", 1],
+      ["c", 2],
+      ["d", 1],
+      ["e", 1],
+      ["f", 2],
+    ]);
+  });
+
+  it("rebalances an untouched row that would otherwise pull up the next one", () => {
+    const panels = [panel("a"), panel("b"), panel("c", 3), panel("d")];
+
+    const next = removePanelFromLayout(panels, "c", 3);
+    const [group] = buildDashboardPanelGroups(next, 3);
+
+    expect(ids(group.rows)).toEqual([["a", "b"], ["d"]]);
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 2],
+      ["b", 1],
+      ["d", 1],
+    ]);
+  });
+
+  it("lays every row out again when a dropped panel widens its group", () => {
+    const panels = [panel("a"), panel("b"), panel("c", 2)];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 2);
+    const [group] = buildDashboardPanelGroups(next, 3);
+
+    expect(ids(group.rows)).toEqual([["a", "new", "b"], ["c"]]);
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 1],
+      ["new", 1],
+      ["b", 1],
+      ["c", 3],
     ]);
   });
 

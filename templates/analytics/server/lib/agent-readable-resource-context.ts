@@ -139,7 +139,8 @@ export interface DashboardAgentContextOptions {
   /** The agent's projection: no owner, org, or audit fields, an
    *  `includeConfig` result over the size cap becomes summaries plus
    *  `truncated: true`, and key dates and data notes are held to that cap.
-   *  The UI reads the same action and gets everything. */
+   *  The UI reads the same action and gets the whole config, but no key
+   *  dates or data notes: it lists those itself. */
   forAgent?: boolean;
   /** The key-date sets and data notes the dashboard's charts draw, in the
    *  caller's scope, or why they could not be read. */

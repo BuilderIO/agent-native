@@ -27,7 +27,7 @@ import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
   description:
-    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries (chart type, `bindings` naming the result columns each chart is bound to, SQL size and hash), layout/order fields, certification, and a `revision`, without SQL strings. Pass `panelIds` to get the full SQL and config of just those panels in `panelDetails`. Use includeConfig=true only to review the whole dashboard; past ~12k characters it returns summaries with `truncated: true` and `omittedPanelIds`.",
+    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries (chart type, `bindings` naming the result columns each chart is bound to, SQL size and hash), layout/order fields, certification, and a `revision`, without SQL strings. Pass `panelIds` to get the full SQL and config of just those panels in `panelDetails`. Use includeConfig=true only to review the whole dashboard; past ~12k characters it returns summaries with `truncated: true` and `omittedPanelIds`. Agent reads also get `keyDateSets` and `dataNotes`, the organization's key dates and data notes these charts draw; they are not part of the saved config, so a config write neither needs nor changes them (use save-key-date or save-data-note).",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
     includeConfig: z

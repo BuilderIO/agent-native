@@ -728,7 +728,12 @@ function insertPanel(
   const placeholderId = `__agent_native_insert_${id}`;
   if (isVisualPlacementTarget(target)) {
     const slot = resolveVisualDropSlot(config, target);
-    config.panels = [...panels, { ...panel, id: placeholderId }];
+    // Full width, so the placeholder gets a row of its own and leaving it
+    // resizes no panel; the placement rebalances its width anyway.
+    config.panels = [
+      ...panels,
+      { ...panel, id: placeholderId, width: MAX_DASHBOARD_COLUMNS },
+    ];
     const expansion = ensureVisualDropSlotCapacity(config, placeholderId, slot);
     const currentPanels = panelsForLayout(config);
     const nextPanels = movePanelToDropSlot(
@@ -754,6 +759,58 @@ function insertPanel(
   const inserted = requirePanel(nextPanels, placeholderId);
   inserted.id = id;
   return result.insertIndex;
+}
+
+type PanelLayout = { width: unknown; columns: unknown };
+
+type LayoutSnapshot = {
+  columns: unknown;
+  panels: Map<string, PanelLayout>;
+};
+
+function layoutSnapshot(config: Record<string, unknown>): LayoutSnapshot {
+  return {
+    columns: config.columns,
+    panels: new Map(
+      panelsFromConfig(config).map((panel): [string, PanelLayout] => [
+        panelId(panel),
+        { width: panel.width, columns: panel.columns },
+      ]),
+    ),
+  };
+}
+
+/**
+ * A row-aware placement rebalances the row the panel joins or leaves, and a
+ * group it widens; the command log names those resizes so the caller sees
+ * every panel the op changed, not just the one it placed.
+ */
+function reflowNote(
+  before: LayoutSnapshot,
+  config: Record<string, unknown>,
+  placedPanelId: string,
+): string {
+  const describe = (value: unknown) =>
+    value === undefined ? "unset" : JSON.stringify(value);
+  const changes: string[] = [];
+  if (!sameJsonValue(before.columns, config.columns)) {
+    changes.push(
+      `dashboard columns ${describe(before.columns)} to ${describe(config.columns)}`,
+    );
+  }
+  for (const panel of panelsFromConfig(config)) {
+    const id = panelId(panel);
+    const previous = before.panels.get(id);
+    if (id === placedPanelId || !previous) continue;
+    for (const key of ["columns", "width"] as const) {
+      if (!sameJsonValue(previous[key], panel[key])) {
+        changes.push(
+          `${id} ${key} ${describe(previous[key])} to ${describe(panel[key])}`,
+        );
+      }
+    }
+  }
+  return changes.length > 0 ? `; also changed ${changes.join(", ")}` : "";
 }
 
 export function sameJsonValue(left: unknown, right: unknown): boolean {
@@ -974,6 +1031,7 @@ export function applyDashboardMutationOperations(
                 "row-aware visual placement supports one moving panel at a time",
               );
             }
+            const before = layoutSnapshot(config);
             const index = moveSinglePanelToVisualTarget(
               config,
               op.panelIds[0],
@@ -981,7 +1039,9 @@ export function applyDashboardMutationOperations(
             );
             changedPanelIds.add(op.panelIds[0]);
             movedPanelIds.add(op.panelIds[0]);
-            commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
+            commandLog.push(
+              `movePanels(${op.panelIds[0]}) -> index ${index}${reflowNote(before, config, op.panelIds[0])}`,
+            );
             break;
           }
           const panelOrderBefore = panelsFromConfig(config).map(panelId);
@@ -1069,14 +1129,18 @@ export function applyDashboardMutationOperations(
           break;
         }
         case "insertPanel": {
+          const before = layoutSnapshot(config);
           const index = insertPanel(config, op.panel, targetFromOperation(op));
           const id = assertString(op.panel.id, "panel.id");
           changedPanelIds.add(id);
           insertedPanelIds.add(id);
-          commandLog.push(`insertPanel(${id}) -> index ${index}`);
+          commandLog.push(
+            `insertPanel(${id}) -> index ${index}${reflowNote(before, config, id)}`,
+          );
           break;
         }
         case "duplicatePanel": {
+          const before = layoutSnapshot(config);
           const index = duplicatePanel(
             config,
             op.panelId,
@@ -1087,7 +1151,7 @@ export function applyDashboardMutationOperations(
           changedPanelIds.add(op.newPanelId);
           insertedPanelIds.add(op.newPanelId);
           commandLog.push(
-            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
+            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}${reflowNote(before, config, op.newPanelId)}`,
           );
           break;
         }

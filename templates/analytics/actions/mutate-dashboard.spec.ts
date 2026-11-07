@@ -777,13 +777,50 @@ describe("mutate-dashboard", () => {
     });
     mocks.dryRunQuery.mockResolvedValue("bad column");
 
+    const run = mutateDashboard.run({
+      dashboardId: "traffic",
+      code: 'dashboard.panel("a").setSql("SELECT bad_column FROM `project.dataset.table`");',
+    });
+    await expect(run).rejects.toThrow(/SQL is invalid: bad column/);
+    // A caller error, so the route echoes the message instead of a bare 500.
+    await expect(run).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 400,
+    });
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid SQL on a dry run as a caller error", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [panel("a", "bigquery")],
+      },
+    });
+    mocks.dryRunQuery.mockResolvedValue(
+      "Syntax error: concatenated string literals must be separated by whitespace or comments",
+    );
+
     await expect(
       mutateDashboard.run({
         dashboardId: "traffic",
-        code: 'dashboard.panel("a").setSql("SELECT bad_column FROM `project.dataset.table`");',
+        dryRun: true,
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: {
+              sql: "SELECT 'Alice''s' AS value FROM `project.dataset.table`",
+            },
+          },
+        ],
       }),
-    ).rejects.toThrow(/SQL is invalid: bad column/);
-
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/SQL is invalid: Syntax error/),
+      statusCode: 400,
+    });
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 

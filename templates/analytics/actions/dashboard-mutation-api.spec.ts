@@ -426,7 +426,7 @@ describe("dashboard mutation api", () => {
     expect(root.columns).toBe(3);
     expect(renderedRows(root)).toEqual([["a", "b", "b-bar"], ["c"], ["d"]]);
     expect(result.commandLog).toEqual([
-      "duplicatePanel(b -> b-bar) -> index 2",
+      "duplicatePanel(b -> b-bar) -> index 2; also changed dashboard columns 2 to 3, c width 1 to 3",
     ]);
   });
 
@@ -472,7 +472,66 @@ describe("dashboard mutation api", () => {
     ]);
     expect(root.columns).toBe(3);
     expect(renderedRows(root)).toEqual([["a", "b", "new"], ["c"], ["d"]]);
-    expect(result.commandLog).toEqual(["insertPanel(new) -> index 2"]);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 2; also changed dashboard columns 2 to 3, c width 1 to 3",
+    ]);
+    expect(root.panels.find((p) => p.id === "d")?.width).toBe(1);
+  });
+
+  it("resizes only the row a nextTo insert joins and names that resize", () => {
+    const root = {
+      name: "Nurture",
+      columns: 2,
+      panels: [
+        panel("a"),
+        panel("b"),
+        panel("c"),
+        {
+          id: "nurture",
+          title: "Nurture",
+          chartType: "section",
+          width: 1,
+          columns: 3,
+        },
+        { ...panel("p"), width: 2 },
+        panel("q"),
+        panel("r"),
+        {
+          id: "later",
+          title: "Later",
+          chartType: "section",
+          width: 1,
+          columns: 2,
+        },
+        panel("x"),
+        panel("y"),
+      ],
+    };
+    const widths = () => root.panels.map((p) => [p.id, p.width]);
+    const before = widths();
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("r");',
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(renderedRows(root)).toEqual([
+      ["a", "b"],
+      ["c"],
+      ["p", "q"],
+      ["r", "new"],
+      ["x", "y"],
+    ]);
+    expect(widths()).toEqual(
+      [...before.slice(0, 7), ["new", 1], ...before.slice(7)].map(
+        ([id, width]) => [id, id === "r" ? 2 : width],
+      ),
+    );
+    expect(root.columns).toBe(2);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 7; also changed r width 1 to 2",
+    ]);
   });
 
   it("places inserted panels by 1-based visible row number", () => {
