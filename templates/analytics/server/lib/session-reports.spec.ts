@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getErrorIssue: vi.fn(),
   createGrant: vi.fn(),
   buildSessionContext: vi.fn(),
+  isOrgMember: vi.fn(),
 }));
 
 vi.mock("../db/index.js", async () => ({
@@ -27,6 +28,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
   resolveAccess: mocks.resolveAccess,
 }));
+vi.mock("@agent-native/core/org", () => ({ isOrgMember: mocks.isOrgMember }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -53,6 +55,7 @@ vi.mock("./sessions-triage-lab.js", () => ({
 import {
   buildSessionReportAgentContext,
   createSessionReport,
+  deleteSessionReport,
   getSessionReport,
 } from "./session-reports";
 
@@ -86,12 +89,21 @@ describe("session reports", () => {
         from_ms INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
       );
+      CREATE TABLE session_report_shares (
+        id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer',
+        created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
+        notified_at TEXT
+      );
     `);
     mocks.getDb.mockReturnValue(drizzle(client));
     mocks.getSummary.mockResolvedValue({
       id: "rec-1",
+      orgId: "org-1",
+      visibility: "org",
       metadata: { commit_sha: COMMIT },
     });
+    mocks.isOrgMember.mockResolvedValue(true);
     mocks.resolveAccess.mockImplementation(async (_type, id) => {
       const { rows } = await client.query(
         "SELECT * FROM session_reports WHERE id = $1",
@@ -119,6 +131,11 @@ describe("session reports", () => {
         },
       };
     });
+    mocks.assertAccess.mockImplementation(async (type, id) => {
+      const access = await mocks.resolveAccess(type, id);
+      if (!access) throw new Error("Not found");
+      return access;
+    });
   });
 
   afterEach(async () => {
@@ -144,6 +161,19 @@ describe("session reports", () => {
       userEmail: "solo@example.test",
       orgId: null,
     });
+
+    expect(report.visibility).toBe("private");
+  });
+
+  it("keeps a report private when its recording is private", async () => {
+    mocks.getSummary.mockResolvedValue({
+      id: "rec-1",
+      orgId: "org-1",
+      visibility: "private",
+      metadata: {},
+    });
+
+    const report = await createSessionReport(input, maker);
 
     expect(report.visibility).toBe("private");
   });
@@ -180,6 +210,33 @@ describe("session reports", () => {
     );
   });
 
+  it("deletes a report and its shares together", async () => {
+    const report = await createSessionReport(input, maker);
+    await client.query(
+      "INSERT INTO session_report_shares (id, resource_id, principal_type, principal_id) VALUES ('s1', $1, 'user', 'peer@example.test')",
+      [report.id],
+    );
+    await client.exec(`
+      CREATE FUNCTION refuse_delete() RETURNS trigger LANGUAGE plpgsql
+        AS $$ BEGIN RAISE EXCEPTION 'delete refused'; END $$;
+      CREATE TRIGGER refuse_report_delete BEFORE DELETE ON session_reports
+        FOR EACH ROW EXECUTE FUNCTION refuse_delete();
+    `);
+
+    await expect(deleteSessionReport(report.id, maker)).rejects.toThrow();
+    const kept = await client.query("SELECT id FROM session_report_shares");
+    expect(kept.rows).toHaveLength(1);
+
+    await client.exec("DROP TRIGGER refuse_report_delete ON session_reports");
+    await expect(deleteSessionReport(report.id, maker)).resolves.toEqual({
+      id: report.id,
+      deleted: true,
+    });
+    const shares = await client.query("SELECT id FROM session_report_shares");
+    const reports = await client.query("SELECT id FROM session_reports");
+    expect([shares.rows, reports.rows]).toEqual([[], []]);
+  });
+
   describe("agent context", () => {
     it("refuses a link that doesn't verify", async () => {
       const report = await createSessionReport(input, maker);
@@ -208,6 +265,22 @@ describe("session reports", () => {
       );
     });
 
+    it("ends a link once its maker leaves the report's organization", async () => {
+      const report = await createSessionReport(input, maker);
+      mocks.verifyToken.mockReturnValue({
+        ok: true,
+        viewerEmail: maker.userEmail,
+      });
+      mocks.isOrgMember.mockResolvedValue(false);
+
+      await expect(
+        buildSessionReportAgentContext({ reportId: report.id, token: "t" }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(mocks.isOrgMember).toHaveBeenCalledWith("org-1", maker.userEmail);
+      expect(mocks.resolveAccess).not.toHaveBeenCalled();
+      expect(mocks.createGrant).not.toHaveBeenCalled();
+    });
+
     it("gives the session's context through a fresh session link", async () => {
       const report = await createSessionReport(input, maker);
       mocks.verifyToken.mockReturnValue({
@@ -231,6 +304,30 @@ describe("session reports", () => {
       );
       expect(context.report.title).toBe(input.title);
       expect(context.session).toEqual({ keyMoments: {} });
+      expect(context).not.toHaveProperty("labStateError");
+    });
+
+    it("says when the maker's Lab state couldn't be read", async () => {
+      const report = await createSessionReport(input, maker);
+      mocks.verifyToken.mockReturnValue({
+        ok: true,
+        viewerEmail: maker.userEmail,
+      });
+      mocks.createGrant.mockResolvedValue({
+        grant: { token: "fresh" },
+        labStateError: "Couldn't read the Sessions triage Lab state",
+      });
+      mocks.buildSessionContext.mockResolvedValue({ recording: {} });
+
+      const context = await buildSessionReportAgentContext({
+        reportId: report.id,
+        token: "t",
+      });
+
+      expect(context).toMatchObject({
+        session: { recording: {} },
+        labStateError: "Couldn't read the Sessions triage Lab state",
+      });
     });
 
     it("says the session is gone rather than handing back an empty one", async () => {

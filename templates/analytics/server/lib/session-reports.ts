@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
+import { isOrgMember } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -175,9 +176,14 @@ export async function createSessionReport(
     updatedAt: now,
     ownerEmail: scope.userEmail,
     orgId: scope.orgId,
-    // Org by default, like Clips' bug reports: the people who can see the
-    // session can see what was found in it.
-    visibility: scope.orgId ? ("org" as const) : ("private" as const),
+    // A report quotes its recording, so it starts open to the organization
+    // only when the whole organization can already open the recording.
+    visibility:
+      scope.orgId &&
+      recording.orgId === scope.orgId &&
+      recording.visibility !== "private"
+        ? ("org" as const)
+        : ("private" as const),
   };
   await getDb().insert(schema.sessionReports).values(row);
   const report = rowToReport(row);
@@ -244,13 +250,14 @@ export async function deleteSessionReport(
     accessContext(scope),
   );
   const report = rowToReport(access.resource);
-  const db = getDb();
-  await db
-    .delete(schema.sessionReportShares)
-    .where(eq(schema.sessionReportShares.resourceId, reportId));
-  await db
-    .delete(schema.sessionReports)
-    .where(eq(schema.sessionReports.id, reportId));
+  await getDb().transaction(async (tx) => {
+    await tx
+      .delete(schema.sessionReportShares)
+      .where(eq(schema.sessionReportShares.resourceId, reportId));
+    await tx
+      .delete(schema.sessionReports)
+      .where(eq(schema.sessionReports.id, reportId));
+  });
   recordReportChange("delete", report);
   return { id: reportId, deleted: true };
 }
@@ -302,6 +309,11 @@ async function resolveReportForAgentLink(
     .limit(1);
   const row = rows[0] as (typeof rows)[number] | undefined;
   if (!row) return null;
+  // The report's org stands in for the maker's active org below, and an owner
+  // keeps their own resources after leaving an org, so check membership here.
+  if (row.orgId && !(await isOrgMember(row.orgId, verified.viewerEmail))) {
+    return null;
+  }
   const makerScope = {
     userEmail: verified.viewerEmail,
     orgId: row.orgId ?? null,
@@ -331,16 +343,18 @@ export async function buildSessionReportAgentContext({
   const { report, makerScope } = resolved;
   let session: unknown;
   let sessionUnavailable: string | undefined;
+  let labStateError: string | undefined;
   try {
     // A fresh two-hour session link on every read, so the session's own
     // links in this context work for as long as the report link does.
-    const { grant } = await createSessionReplayAgentGrant({
+    const fresh = await createSessionReplayAgentGrant({
       recordingId: report.recordingId,
       scope: makerScope,
     });
+    labStateError = fresh.labStateError;
     session = await buildSessionReplayAgentContext({
       recordingId: report.recordingId,
-      token: grant.token,
+      token: fresh.grant.token,
       ...(origin ? { origin } : {}),
     });
   } catch (error) {
@@ -372,5 +386,6 @@ export async function buildSessionReportAgentContext({
     ...(sessionUnavailable
       ? { session: null, sessionUnavailable }
       : { session }),
+    ...(labStateError ? { labStateError } : {}),
   };
 }

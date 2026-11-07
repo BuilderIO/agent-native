@@ -434,18 +434,21 @@ with `create-session-report`.
   issue. Never pass a commit: the report records the one the session reported.
 - `fromMs` is the moment the person asked from, when the session page was
   opened at one (`?atMs=`). Start the report there.
-- A new report opens to the maker's organization (private without one).
-  Sharing is the framework `sharing` system (`session-report` type), limited
-  like the recording itself: no public links, and people only within the
-  organization, because a report's agent context carries its replay.
+- A new report opens to the maker's organization when the recording is
+  org-visible there, and is private otherwise, so it reaches no one the
+  recording doesn't. Sharing is the framework `sharing` system
+  (`session-report` type), limited like the recording itself: no public
+  links, and people only within the organization.
 - Share > Send to > Copy agent link makes a report's agent link (`create-agent-resource-link`).
-  It lasts a year, and every read checks that its maker can still open the
-  report, so deleting the report or removing the maker's access ends it.
+  It lasts a year, and every read checks that its maker is still in the
+  report's organization and can still open the report, so deleting the
+  report, leaving the organization, or losing access ends it.
   `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
   returns the report and, under `session`, the replay's full agent context
   through a fresh two-hour session link. A recording past retention or one the
   maker lost gives `session: null` with `sessionUnavailable`, never an empty
-  session.
+  session. `labStateError` means the maker's Lab state couldn't be read, so
+  `session` has no `keyMoments` or `build`.
 - The report page's server-rendered HTML advertises that endpoint the same
   way to every visitor, without the token, so a CDN-cached page still works:
   the agent adds `agent_access` from the link it was given.
