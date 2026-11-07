@@ -1,6 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-import { getSecretEncryptionKey } from "../secrets/crypto.js";
+import {
+  decryptWithSecretKeys,
+  getSecretEncryptionKey,
+} from "../secrets/crypto.js";
 import { PrivateBlobError } from "./errors.js";
 
 export interface BlobEncryptionParams {
@@ -31,20 +34,21 @@ export function decryptBlobBytes(
   params: BlobEncryptionParams,
   ciphertext: Uint8Array,
 ): Uint8Array {
-  const key = getSecretEncryptionKey();
   try {
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      key,
-      Buffer.from(params.iv, "base64url"),
-    );
-    decipher.setAuthTag(Buffer.from(params.tag, "base64url"));
-    return new Uint8Array(
-      Buffer.concat([
-        decipher.update(Buffer.from(ciphertext)),
-        decipher.final(),
-      ]),
-    );
+    return decryptWithSecretKeys((key) => {
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        key,
+        Buffer.from(params.iv, "base64url"),
+      );
+      decipher.setAuthTag(Buffer.from(params.tag, "base64url"));
+      return new Uint8Array(
+        Buffer.concat([
+          decipher.update(Buffer.from(ciphertext)),
+          decipher.final(),
+        ]),
+      );
+    });
   } catch (error) {
     throw new PrivateBlobError(
       "Private blob bytes could not be decrypted",

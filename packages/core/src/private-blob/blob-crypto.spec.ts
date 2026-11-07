@@ -88,4 +88,20 @@ describe("blob encryption", () => {
         .kind,
     ).toBe("corrupt");
   });
+
+  it("reads existing bytes with a previous key while new blobs require the current key", () => {
+    const encrypted = encryptBlobBytes(plain);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "blob-rotation-current");
+    vi.stubEnv(
+      "SECRETS_ENCRYPTION_KEYS_PREVIOUS",
+      "wrong-key,blob-crypto-test-key",
+    );
+    expect(decryptBlobBytes(encrypted, encrypted.ciphertext)).toEqual(plain);
+    const fresh = encryptBlobBytes(plain);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEYS_PREVIOUS", undefined);
+    expect(decryptBlobBytes(fresh, fresh.ciphertext)).toEqual(plain);
+    expect(() => decryptBlobBytes(encrypted, encrypted.ciphertext)).toThrow(
+      PrivateBlobError,
+    );
+  });
 });

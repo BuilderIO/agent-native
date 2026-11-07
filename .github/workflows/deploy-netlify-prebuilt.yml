@@ -1800,7 +1800,8 @@ jobs:
                 BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
             )"
           fi
-          if [[ "$SOURCE_TEMPLATE" == "chat" && -n "${BETA_CHAT_DATABASE_URL_SECRET:-}" ]]; then
+          if [[ "$SOURCE_TEMPLATE" == "chat" ]]; then
+            : "${BETA_CHAT_DATABASE_URL_SECRET:?BETA_DATABASE_URL_CHAT is required for the separate beta Chat database}"
             BETA_DATABASE_URL_SECRET="$BETA_CHAT_DATABASE_URL_SECRET"
           fi
           migration_database_url="${BETA_DATABASE_URL_SECRET:-$migration_database_url}"

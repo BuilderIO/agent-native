@@ -255,12 +255,17 @@ export function encryptSecretValue(plaintext: string): string {
 }
 
 export function decryptSecretValue(encrypted: string): string {
+  return decryptWithSecretKeys((key) => decryptWithKey(encrypted, key));
+}
+
+export function decryptWithSecretKeys<T>(decrypt: (key: Buffer) => T): T {
+  const currentKey = getSecretEncryptionKey();
   try {
-    return decryptWithKey(encrypted, getSecretEncryptionKey());
+    return decrypt(currentKey);
   } catch (primaryError) {
     for (const material of getAppConfig().auth.previousSecretEncryptionKeys) {
       try {
-        return decryptWithKey(encrypted, hashSecretEncryptionKey(material));
+        return decrypt(hashSecretEncryptionKey(material));
       } catch {
         // A previous key may belong to another writer sharing this database.
       }
