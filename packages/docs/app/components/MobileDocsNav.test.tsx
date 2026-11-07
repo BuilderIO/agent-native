@@ -150,6 +150,38 @@ describe("MobileDocsNav", () => {
     expect(sectionButton.getAttribute("data-active-descendant")).toBe("true");
   });
 
+  it("marks both sections for a page listed twice", () => {
+    const sections = getDocsNavSections("en-US");
+    const integrations = sections.find((section) => section.id === "integrations");
+    const toolkit = sections.find((section) => section.id === "toolkits");
+    const toolkitGroup = toolkit?.items.find((item) =>
+      item.children?.some((child) => child.to === "/docs/notifications/"),
+    );
+    if (!integrations || !toolkit || !toolkitGroup) {
+      throw new Error("Expected two navigation placements for Notifications");
+    }
+
+    renderMobileNav("/docs/notifications/");
+    openNav();
+    expect(
+      screen.getByRole("button", { name: integrations.title }).getAttribute(
+        "data-active-descendant",
+      ),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: toolkit.title }).getAttribute(
+        "data-active-descendant",
+      ),
+    ).toBe("true");
+    // The Toolkit section starts collapsed; open it to inspect its group.
+    fireEvent.click(screen.getByRole("button", { name: toolkit.title }));
+    expect(
+      screen.getByRole("button", { name: toolkitGroup.label }).getAttribute(
+        "data-active-descendant",
+      ),
+    ).toBe("true");
+  });
+
   it("closes the docs dropdown when the viewport switches to desktop", () => {
     let handleChange: ((event: MediaQueryListEvent) => void) | undefined;
     const query = {

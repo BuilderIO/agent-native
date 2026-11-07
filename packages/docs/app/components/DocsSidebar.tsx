@@ -9,8 +9,10 @@ import {
   docsNavGroupClipId,
   getActiveDocsNavGroupId,
   getActiveDocsNavSectionId,
+  groupContainsActive,
   isDocsNavGroupItem,
   isDocsNavItemActive,
+  sectionContainsActive,
 } from "./docsNavState";
 
 export default function DocsSidebar() {
@@ -18,11 +20,6 @@ export default function DocsSidebar() {
   const { locale } = useLocale();
   const t = useT();
   const navSections = useMemo(() => getDocsNavSections(locale, t), [locale, t]);
-  const activeSectionId = getActiveDocsNavSectionId(
-    navSections,
-    location.pathname,
-  );
-  const activeGroupId = getActiveDocsNavGroupId(navSections, location.pathname);
   const navRef = useRef<HTMLElement>(null);
   const [openSectionId, setOpenSectionId] = useState<string | null>(() =>
     getActiveDocsNavSectionId(navSections, location.pathname),
@@ -91,7 +88,7 @@ export default function DocsSidebar() {
                   type="button"
                   className="docs-sidebar-section-trigger"
                   data-active-descendant={
-                    activeSectionId === section.id ? "true" : undefined
+                    sectionContainsActive(section, location.pathname) ? "true" : undefined
                   }
                   aria-expanded={isOpen}
                   aria-controls={sectionId}
@@ -136,7 +133,7 @@ export default function DocsSidebar() {
                             type="button"
                             className="sidebar-link sidebar-group-trigger"
                             data-active-descendant={
-                              activeGroupId === item.id ? "true" : undefined
+                              groupContainsActive(item, location.pathname) ? "true" : undefined
                             }
                             aria-expanded={groupOpen}
                             aria-controls={clipId}

@@ -302,5 +302,19 @@ describe("DocsSidebar", () => {
     expect(buttonForLabel("Database providers")).not.toContain(
       "data-active-descendant",
     );
+  });  it("marks every section and group containing a shared page", () => {
+    const html = renderSidebar("/docs/notifications/");
+    const sections = ["Integrations", "Agent Native Toolkit"];
+    for (const title of sections) {
+      const label = `<span>${title}</span>`;
+      const start = html.indexOf(label);
+      expect(start).toBeGreaterThan(-1);
+      const buttonStart = html.lastIndexOf("<button", start);
+      const buttonEnd = html.indexOf(">", buttonStart);
+      expect(html.slice(buttonStart, buttonEnd + 1)).toContain(
+        'data-active-descendant="true"',
+      );
+    }
+    expect(html).toContain('href="/docs/notifications/"');
   });
 });
